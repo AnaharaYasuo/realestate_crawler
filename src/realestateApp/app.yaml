@@ -1,0 +1,23 @@
+# Notice: This template has only been tested 
+# under Python27 + GAE standard environment
+version: 1
+#runtime: python27
+runtime: python37
+# threadsafe is required but can be either true or 
+# false. For some package, it should be true e.g. Flask
+threadsafe: true
+api_version: 1
+
+handlers:
+- url: /api/scraper/.*
+  script: main.app
+
+libraries:
+- name: lxml
+  version: 3.7.3
+- name: django
+  version: 1.11
+- name: ssl
+  version: 2.7.11
+  
+  
