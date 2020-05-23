@@ -27,8 +27,8 @@ if not settings.configured:
                 }
             }
             , INSTALLED_APPS=[
-                # 'package.apps.SumifuappConfig'
-                'main.SumifuappConfig'
+                 'package.apps.SumifuappConfig'
+                # 'main.SumifuappConfig'
             ]
         )
     else:
@@ -48,7 +48,7 @@ if not settings.configured:
                 # 'main.SumifuappConfig'
             ]
         )
-django.setup()
+    django.setup()
 from package.getsumifu import GetSumifu
 from flask import jsonify
 
@@ -84,7 +84,6 @@ def parseStartAsync(request):
     , "https://www.stepon.co.jp/mansion/tohoku/"
     , "https://www.stepon.co.jp/mansion/chugoku/"
     , "https://www.stepon.co.jp/mansion/kyushu/"]
-    urlList = ["https://www.stepon.co.jp/mansion/shutoken/"]
 
     def _getApiKey():
         key = API_KEY_REGION
@@ -239,9 +238,9 @@ def parseDetailFuncAsync(request):
                 item.inputDateTime = currentTime
                 item.inputDate = currentDay
     
-                # item.save(False, False, None, None)
-                print(item.propertyName)
-                print(item.pageUrl)
+                item.save(False, False, None, None)
+                # print(item.propertyName)
+                # print(item.pageUrl)
     return jsonify({'message': url}), 200;
 
 
@@ -360,9 +359,10 @@ async def _bound_fetch(semaphore, session, apiUrl, detailUrl):
 
 # #getsumifu.py
 # -*- coding: utf-8 -*-
-import sys
-import importlib
-importlib.reload(sys)
+# import sys
+# import importlib
+# importlib.reload(sys)
+
 # #SumifuappConfig.py
 # from django.apps import AppConfig
 # class SumifuappConfig(AppConfig):
@@ -416,4 +416,5 @@ if __name__ == "__main__":
         print("end propertyListDetail")
         return result
 
-    app.run('127.0.0.1', 8000, debug=True)
+    if not os.getenv('IS_CLOUD', ''):
+        app.run('127.0.0.1', 8000, debug=True)
