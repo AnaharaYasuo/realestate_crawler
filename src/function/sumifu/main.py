@@ -321,7 +321,7 @@ def parseListDetailFuncAsync(request):
             if item is not None:
                 item.inputDateTime = currentTime
                 item.inputDate = currentDay
-                # item.save(False, False, None, None)
+                item.save(False, False, None, None)
                 print(item.propertyName)
                 print(item.pageUrl)
 
