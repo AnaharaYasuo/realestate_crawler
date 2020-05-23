@@ -7,11 +7,17 @@ from django.conf import settings
 import traceback
 
 API_KEY_START = '/api/sumifu/mansion/start'
-API_KEY_REGION = '/api/sumifu/mansion/region'
+API_KEY_START_GCP = '/sumifu_mansion_start'
+API_KEY_REGION = '/api/sumifu_mansion/region'
+API_KEY_REGION_GCP = '/sumifu_mansion_region'
 API_KEY_AREA = '/api/sumifu/mansion/area'
+API_KEY_AREA_GCP = '/sumifu_mansion_area'
 API_KEY_LIST = '/api/sumifu/mansion/list'
+API_KEY_LIST_GCP = '/sumifu_mansion_list'
 API_KEY_DETAIL = '/api/sumifu/mansion/detail'
+API_KEY_DETAIL_GCP = '/sumifu_mansion_detail'
 API_KEY_LIST_DETAIL = '/api/sumifu/mansion/listdetail'
+API_KEY_LIST_DETAIL_GCP = '/sumifu_mansion_listdetail'
 
 if not settings.configured:
     if os.getenv('IS_CLOUD', ''):
@@ -70,6 +76,10 @@ def _getListApiKey():
     key = API_KEY_LIST_DETAIL  # listとdetailを同じ関数内で処理で行う
     return key
 
+def _getListApiKeyGCP():
+    # key = API_KEY_LIST_GCP#listとdetailを別の関数内で処理で行う
+    key = API_KEY_LIST_DETAIL_GCP  # listとdetailを同じ関数内で処理で行う
+    return key
 
 def parseStartAsyncPubSub(event, context):
     parseStartAsync("")
@@ -86,10 +96,9 @@ def parseStartAsync(request):
     , "https://www.stepon.co.jp/mansion/kyushu/"]
 
     def _getApiKey():
-        key = API_KEY_REGION
         if os.getenv('IS_CLOUD', ''):
-            key = key.replace('/api', '')
-        return key
+            return API_KEY_REGION_GCP
+        return API_KEY_REGION
 
     async def _run(limit=1):
         tasks = []
@@ -116,10 +125,9 @@ def parseStartAsync(request):
 def parseRegionFuncAsync(request):
 
     def _getApiKey():
-        key = API_KEY_AREA
         if os.getenv('IS_CLOUD', ''):
-            key = key.replace('/api', '')
-        return key
+            return API_KEY_AREA_GCP
+        return API_KEY_AREA
 
     async def _run(url, limit=1):
         tasks = []
@@ -149,10 +157,9 @@ def parseRegionFuncAsync(request):
 def parseAreaFuncAsync(request):
 
     def _getApiKey():
-        key = _getListApiKey()
         if os.getenv('IS_CLOUD', ''):
-            key = key.replace('/api', '')
-        return key
+            return _getListApiKeyGCP()
+        return _getListApiKey()
 
     async def _run(url, limit=1):
         tasks = []
@@ -182,10 +189,9 @@ def parseAreaFuncAsync(request):
 def parseListFuncAsync(request):
 
     def _getApiKey():
-        key = API_KEY_DETAIL
         if os.getenv('IS_CLOUD', ''):
-            key = key.replace('/api', '')
-        return key
+            return API_KEY_DETAIL_GCP
+        return API_KEY_DETAIL
 
     async def _run(url, limit=1):
         tasks = []
@@ -261,10 +267,9 @@ def parseListDetailFuncAsync(request):
         return nextPageUrlList
 
     def _getNextApiKey():
-        key = _getListApiKey()        
         if os.getenv('IS_CLOUD', ''):
-            key = key.replace('/api', '')
-        return key
+            return _getListApiKeyGCP()
+        return _getListApiKey()
     
     async def _callNextPageProc(url, limit=1):
         semaphore = asyncio.Semaphore(limit)
