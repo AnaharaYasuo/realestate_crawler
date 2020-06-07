@@ -6,6 +6,12 @@ import django
 from django.conf import settings
 import traceback
 
+#cloud functionsとComputeEngineはサーバーレスVPCで接続している
+
+#デバッグ方法
+#PythonRunよりデバッグを開始するとflaskが起動。
+#そのうえで、http://127.0.0.1:8000/api/sumifu/mansion/startにアクセス
+
 API_KEY_START = '/api/sumifu/mansion/start'
 API_KEY_START_GCP = '/sumifu_mansion_start'
 API_KEY_REGION = '/api/sumifu_mansion/region'
