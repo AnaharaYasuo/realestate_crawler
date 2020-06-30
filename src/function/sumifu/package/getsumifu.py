@@ -52,7 +52,7 @@ class GetSumifu(object):
             return u'//a[contains(@href,"/mansion/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
 
         def getDestUrl(linkUrl):
-            return 'https://www.stepon.co.jp' + linkUrl + "?limit=50&mode=2"
+            return 'https://www.stepon.co.jp' + linkUrl + "?limit=200&mode=2"
             # return 'https://www.stepon.co.jp' + linkUrl + "?limit=10000&mode=2"
         
         async for url in self.__parsePage(session, url, getXpath, getDestUrl):
@@ -103,15 +103,20 @@ class GetSumifu(object):
     def __parsePropertyDetailPage(self, item, response):
         try:
             item.propertyName = response.find_all("div", id="bukkenNameBlockIcon")[0].find_all("h2")[0].find_all("span")[1].contents[0]
+        except Exception as e:
+            print('Can not read property name')
+            raise e
+        try:
             item.priceStr = response.find_all("dl", id="s_summaryPrice")[0].find_all("dd")[0].find_all("p")[0].find_all("em")[0].contents[0]
+            priceUnit = response.find_all("dl", id="s_summaryPrice")[0].find_all("dd")[0].find_all("p")[0].contents[1]
 
             priceWork = item.priceStr.replace(',', '')
             oku = 0
             man = 0
-            if u"億" in item.priceStr:
+            if (u"億" in item.priceStr) or (u"億" in priceUnit):
                 priceArr = priceWork.split("億")
                 oku = int(priceArr[0]) * 10000
-                if len(priceArr[1]) != 0:
+                if len(priceArr) > 1 and len(priceArr[1]) != 0:
                     man = int(priceArr[1])
             else:
                 man = int(priceWork)

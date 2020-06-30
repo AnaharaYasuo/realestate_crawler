@@ -6,11 +6,11 @@ import django
 from django.conf import settings
 import traceback
 
-#cloud functionsとComputeEngineはサーバーレスVPCで接続している
+# cloud functionsとComputeEngineはサーバーレスVPCで接続している
 
-#デバッグ方法
-#PythonRunよりデバッグを開始するとflaskが起動。
-#そのうえで、http://127.0.0.1:8000/api/sumifu/mansion/startにアクセス
+# デバッグ方法
+# PythonRunよりデバッグを開始するとflaskが起動。
+# そのうえで、http://127.0.0.1:8000/api/sumifu/mansion/startにアクセス
 
 API_KEY_START = '/api/sumifu/mansion/start'
 API_KEY_START_GCP = '/sumifu_mansion_start'
@@ -68,9 +68,12 @@ from flask import jsonify
 # import requests
 import json
 
+USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
 headersJson = {
     'Content-Type': 'application/json',
+    'User-Agent': USER_AGENT,
 }
+
 # loop = asyncio.get_event_loop()
 
 currentTime = datetime.datetime.now()
@@ -82,10 +85,20 @@ def _getListApiKey():
     key = API_KEY_LIST_DETAIL  # listとdetailを同じ関数内で処理で行う
     return key
 
+
 def _getListApiKeyGCP():
     # key = API_KEY_LIST_GCP#listとdetailを別の関数内で処理で行う
     key = API_KEY_LIST_DETAIL_GCP  # listとdetailを同じ関数内で処理で行う
     return key
+
+
+def _getConnector(_loop):
+    return aiohttp.TCPConnector(loop=_loop, limit=40, ssl=False)
+
+
+def _getTimeout(_total):
+    return aiohttp.ClientTimeout(total=_total)
+
 
 def parseStartAsyncPubSub(event, context):
     parseStartAsync("")
@@ -106,25 +119,33 @@ def parseStartAsync(request):
             return API_KEY_REGION_GCP
         return API_KEY_REGION
 
-    async def _run(limit=1):
+    async def _run(loop, limit=1):
         tasks = []
         semaphore = asyncio.Semaphore(limit)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            for detailUrl in urlList:
-                task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, apiUrl=apiUrl, detailUrl=detailUrl))
-                tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _total = 3600
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                for detailUrl in urlList:
+                    task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, timeout=_timeout, apiUrl=apiUrl, detailUrl=detailUrl))
+                    tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
 
     apiUrl = getUrl() + _getApiKey()
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    pararellLimit = 2
-    if os.getenv('IS_CLOUD', ''):
-        pararellLimit = 10
-    futures = asyncio.gather(*[_run(pararellLimit)])
-    loop.run_until_complete(futures)
-    loop.close()
+    try:
+        asyncio.set_event_loop(loop)
+        pararellLimit = 7
+        if os.getenv('IS_CLOUD', ''):
+            pararellLimit = 10
+        futures = asyncio.gather(*[_run(loop, pararellLimit)])
+        loop.run_until_complete(futures)
+    finally:
+        loop.close()
     return "no respons in parseRegionStart", 200;
 
 
@@ -135,28 +156,36 @@ def parseRegionFuncAsync(request):
             return API_KEY_AREA_GCP
         return API_KEY_AREA
 
-    async def _run(url, limit=1):
+    async def _run(loop, url, limit=1):
         tasks = []
+        _total = 3600
         semaphore = asyncio.Semaphore(limit)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            async for detailUrl in sumifu.parseRegionPage(session, url):
-                task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, apiUrl=apiUrl, detailUrl=detailUrl))
-                tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                async for detailUrl in sumifu.parseRegionPage(session, url):
+                    task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, timeout=_timeout, apiUrl=apiUrl, detailUrl=detailUrl))
+                    tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
 
     request_json = json.loads(request.get_json())
     url = request_json['url']
     sumifu = GetSumifu("params")
     apiUrl = getUrl() + _getApiKey()
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    pararellLimit = 2
-    if os.getenv('IS_CLOUD', ''):
-        pararellLimit = 10
-    futures = asyncio.gather(*[_run(url, pararellLimit)])
-    loop.run_until_complete(futures)
-    loop.close()
+    try:
+        asyncio.set_event_loop(loop)
+        pararellLimit = 2
+        if os.getenv('IS_CLOUD', ''):
+            pararellLimit = 10
+        futures = asyncio.gather(*[_run(loop, url, pararellLimit)])
+        loop.run_until_complete(futures)
+    finally:
+        loop.close()
     return "no respons in parseRegionFunc", 200;
 
 
@@ -167,28 +196,36 @@ def parseAreaFuncAsync(request):
             return _getListApiKeyGCP()
         return _getListApiKey()
 
-    async def _run(url, limit=1):
+    async def _run(loop, url, limit=1):
         tasks = []
+        _total = 600
         semaphore = asyncio.Semaphore(limit)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            async for detailUrl in sumifu.parseAreaPage(session, url):
-                task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, apiUrl=apiUrl, detailUrl=detailUrl))
-                tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                async for detailUrl in sumifu.parseAreaPage(session, url):
+                    task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, timeout=_timeout, apiUrl=apiUrl, detailUrl=detailUrl))
+                    tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
 
     request_json = json.loads(request.get_json())
     url = request_json['url']
     sumifu = GetSumifu("params")
     apiUrl = getUrl() + _getApiKey()
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    pararellLimit = 2
-    if os.getenv('IS_CLOUD', ''):
-        pararellLimit = 50
-    futures = asyncio.gather(*[_run(url, pararellLimit)])
-    loop.run_until_complete(futures)
-    loop.close()
+    try:
+        asyncio.set_event_loop(loop)
+        pararellLimit = 2
+        if os.getenv('IS_CLOUD', ''):
+            pararellLimit = 50
+        futures = asyncio.gather(*[_run(loop, url, pararellLimit)])
+        loop.run_until_complete(futures)
+    finally:
+        loop.close()
     return "no respons in parseAreaFuncAsync", 200;
 
 
@@ -199,15 +236,21 @@ def parseListFuncAsync(request):
             return API_KEY_DETAIL_GCP
         return API_KEY_DETAIL
 
-    async def _run(url, limit=1):
+    async def _run(loop, url, limit=1):
         tasks = []
+        _total = 60
         semaphore = asyncio.Semaphore(limit)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            async for detailUrl in sumifu.parsePropertyListPage(session, url):
-                task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, apiUrl=apiUrl, detailUrl=detailUrl))
-                tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                async for detailUrl in sumifu.parsePropertyListPage(session, url):
+                    task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, timeout=_timeout, apiUrl=apiUrl, detailUrl=detailUrl))
+                    tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
 
     # url = "https://www.stepon.co.jp/mansion/area_23/list_23_101/100_1/"
     request_json = json.loads(request.get_json())
@@ -215,61 +258,94 @@ def parseListFuncAsync(request):
     sumifu = GetSumifu("params")
     apiUrl = getUrl() + _getApiKey()
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    pararellLimit = 2
-    if os.getenv('IS_CLOUD', ''):
-        pararellLimit = 10
-    futures = asyncio.gather(*[_run(url, pararellLimit)])
-    loop.run_until_complete(futures)
-    loop.close()
+    try:
+        asyncio.set_event_loop(loop)
+        pararellLimit = 2
+        if os.getenv('IS_CLOUD', ''):
+            pararellLimit = 10
+        futures = asyncio.gather(*[_run(loop, url, pararellLimit)])
+        loop.run_until_complete(futures)
+    finally:
+        loop.close()
     return "no respons in parseListFuncAsync", 200;
 
 
 def parseDetailFuncAsync(request):
+    currentTime = datetime.datetime.now()
 
-    async def _run(url):
+    async def _run(loop, url):
         tasks = []
+        _total = 60
         # semaphore = asyncio.Semaphore(limit)
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            task = asyncio.ensure_future(sumifu.parsePropertyDetailPage(session=session, url=url))
-            tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                task = asyncio.ensure_future(sumifu.parsePropertyDetailPage(session=session, url=url))
+                tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
 
     request_json = json.loads(request.get_json())
     url = request_json['url']
     sumifu = GetSumifu("params")
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    futures = asyncio.gather(*[_run(url)])
-    itemLists = loop.run_until_complete(futures)
-    loop.close()
+    try:
+        asyncio.set_event_loop(loop)
+        futures = asyncio.gather(*[_run(loop, url)])
+        itemLists = loop.run_until_complete(futures)
+    finally:
+        loop.close()
+        
     for itemList in itemLists:
-        for item in itemList:
+        while len(itemList) > 0:
+            item = itemList.pop()  # memory release
             if item is not None:
                 item.inputDateTime = currentTime
                 item.inputDate = currentDay
-    
-                item.save(False, False, None, None)
-                # print(item.propertyName)
-                # print(item.pageUrl)
+                print(item.propertyName)
+                print(item.pageUrl)
+                try:
+                    item.save(False, False, None, None)
+                except Exception as e:
+                    print("save error")
+                    raise e
     return jsonify({'message': url}), 200;
 
 
 def parseListDetailFuncAsync(request):
+    currentTime = datetime.datetime.now()
 
-    async def _run(url, limit=1):
+    async def _run(loop, url, limit=1):
+        semaphore = asyncio.Semaphore(limit)
         tasks = []
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            async for detailUrl in sumifu.parsePropertyListPage(session, url):
-                task = asyncio.ensure_future(sumifu.parsePropertyDetailPage(session=session, url=detailUrl))
-                tasks.append(task)
-            responses = await asyncio.gather(*tasks)
+        _total = 60
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                async for detailUrl in sumifu.parsePropertyListPage(session, url):
+                    task = asyncio.ensure_future(sumifu.parsePropertyDetailPage(session=session, url=detailUrl))
+                    tasks.append(task)
+                async with semaphore:
+                    responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
         return responses
             
-    async def _getNextPageUrl(url, limit=1):
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            nextPageUrlList = await sumifu.getPropertyListNextPageUrl(session, url)
+    async def _getNextPageUrl(loop, url, limit=1):
+        semaphore = asyncio.Semaphore(limit)
+        _total = 60
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                async with semaphore:
+                    nextPageUrlList = await sumifu.getPropertyListNextPageUrl(session, url)
+            finally:
+                if session is not None:
+                    await session.close()
         return nextPageUrlList
 
     def _getNextApiKey():
@@ -277,14 +353,20 @@ def parseListDetailFuncAsync(request):
             return _getListApiKeyGCP()
         return _getListApiKey()
     
-    async def _callNextPageProc(url, limit=1):
+    async def _callNextPageProc(loop, url, limit=1):
         semaphore = asyncio.Semaphore(limit)
         tasks = []
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, apiUrl=nextApiUrl, detailUrl=url))
-            tasks.append(task)
-            responses = await asyncio.gather(*tasks)
-            return responses
+        _total = 60
+        _timeout = _getTimeout(_total)
+        async with aiohttp.ClientSession(loop=loop, connector=_getConnector(loop), timeout=_timeout) as session:
+            try:
+                task = asyncio.ensure_future(_bound_fetch(semaphore=semaphore, session=session, timeout=_timeout, apiUrl=nextApiUrl, detailUrl=url))
+                tasks.append(task)
+                responses = await asyncio.gather(*tasks)
+            finally:
+                if session is not None:
+                    await session.close()
+        return responses
         
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -298,7 +380,7 @@ def parseListDetailFuncAsync(request):
     try:
         loopGetUrl = asyncio.new_event_loop()
         asyncio.set_event_loop(loopGetUrl)
-        futuresGetUrl = asyncio.gather(*[_getNextPageUrl(url, pararellLimit)])
+        futuresGetUrl = asyncio.gather(*[_getNextPageUrl(loopGetUrl, url, pararellLimit)])
         nextPageUrlList = loopGetUrl.run_until_complete(futuresGetUrl)
     finally:
         loopGetUrl.close()
@@ -309,7 +391,7 @@ def parseListDetailFuncAsync(request):
         try:
             loopCallNextPage = asyncio.new_event_loop()
             asyncio.set_event_loop(loopCallNextPage)
-            futuresCall = asyncio.gather(*[_callNextPageProc(nextPageUrl, pararellLimit)])
+            futuresCall = asyncio.gather(*[_callNextPageProc(loopCallNextPage, nextPageUrl, pararellLimit)])
             nextPageUrlList = loopCallNextPage.run_until_complete(futuresCall)
         finally:
             loopCallNextPage.close()
@@ -318,18 +400,23 @@ def parseListDetailFuncAsync(request):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        futures = asyncio.gather(*[_run(url, pararellLimit)])
+        futures = asyncio.gather(*[_run(loop, url, pararellLimit)])
         itemLists = loop.run_until_complete(futures)
     finally:
         loop.close()
     for itemList in itemLists:
-        for item in itemList:
+        while len(itemList) > 0:
+            item = itemList.pop()  # memory release
             if item is not None:
                 item.inputDateTime = currentTime
                 item.inputDate = currentDay
-                item.save(False, False, None, None)
                 print(item.propertyName)
                 print(item.pageUrl)
+                try:
+                    item.save(False, False, None, None)
+                except Exception as e:
+                    print("save error")
+                    raise e
 
     return jsonify({'message': url}), 200;
 
@@ -344,15 +431,10 @@ def getUrl():
     return "http://localhost:8000"
 
 
-async def _fetch(session, apiUrl, detailUrl):
+async def _fetch(session, timeout, apiUrl, detailUrl):
     json_data = json.dumps('{"url":"' + detailUrl + '"}').encode("utf-8")
     try:
-        try:
-            response = await session.post(apiUrl, headers=headersJson, data=json_data)
-        except asyncio.TimeoutError as e:
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as reSession:
-                response = await reSession.post(apiUrl, headers=headersJson, data=json_data)            
-
+        response = await session.post(apiUrl, headers=headersJson, data=json_data, timeout=timeout)
         return await _proc_response(detailUrl, response)
     except Exception as e:
         print(e)
@@ -360,13 +442,12 @@ async def _fetch(session, apiUrl, detailUrl):
         raise e
 
 
-async def _bound_fetch(semaphore, session, apiUrl, detailUrl):
+async def _bound_fetch(semaphore, session, timeout, apiUrl, detailUrl):
     # async with
     # __aenter__がasync with ブロックを呼んだ直後に呼ばれる
     # __aexit__がasync with ブロックを抜けた直後に呼ばれる
     async with semaphore:
-        return await _fetch(session, apiUrl, detailUrl)
-
+        return await _fetch(session, timeout, apiUrl, detailUrl)
 
 # #getsumifu.py
 # -*- coding: utf-8 -*-
@@ -378,6 +459,7 @@ async def _bound_fetch(semaphore, session, apiUrl, detailUrl):
 # from django.apps import AppConfig
 # class SumifuappConfig(AppConfig):
 #    name = '__main__'
+
 
 if __name__ == "__main__":
 
