@@ -12,6 +12,8 @@ import lxml.html
 import aiohttp
 import traceback
 import re
+import random
+import time
 
 
 class GetSumifu(object):
@@ -90,7 +92,9 @@ class GetSumifu(object):
             item = self.__parsePropertyDetailPage(item, response)
         except Exception as e:
             try:
-                # ページ読み込みが正常にできていない可能性があるので、一度だけリトライする
+                # ページ読み込みが正常にできていない可能性があるので、10-20秒待機してもう一度だけリトライする
+                waitTime = random.uniform(10, 20)
+                time.sleep(waitTime)
                 response = await self.getResponseBs(session, url)
                 item = self.__parsePropertyDetailPage(item, response)
             except Exception as e:
