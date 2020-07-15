@@ -1,53 +1,25 @@
 # -*- coding: utf-8 -*-
 import sys
-from .models import SumifuMansion
+from package.model.sumifu import SumifuMansion
 import importlib
-import chardet
 importlib.reload(sys)
-from bs4 import BeautifulSoup
-import logging
 from decimal import Decimal
 import datetime
-import lxml.html
-import aiohttp
 import traceback
 import re
 from builtins import IndexError
 from concurrent.futures._base import TimeoutError
+from package.parser.base import ParserBase, LoadPropertyPageException,\
+    ReadPropertyNameException
 
 
-class ReadPropertyNameException(Exception):
-
-    def __init__(self, e):
-        print('Can not read property name')
-
-
-class LoadPropertyPageException(Exception):
-
-    def __init__(self, e):
-        print('Can not load property page')
-
-
-class GetSumifu(object):
+class SumifuMansionParser(ParserBase):
 
     def __init__(self, params):
         ""
-
-    async def __parsePage(self, session, url, getXpath , getDestUrl):
-        response = await self.getResponse(session, url)
-        linklist = response.xpath(getXpath())
-        for linkUrl in linklist:
-            destUrl = getDestUrl(linkUrl)
-            logging.info(destUrl)
-            yield destUrl        
-
-    async def __parsePageBs(self, session, url, getXpath , getDestUrl):
-        response = await self.getResponseBs(session, url)
-        linklist = response.xpath(getXpath())
-        for linkUrl in linklist:
-            destUrl = getDestUrl(linkUrl)
-            logging.info(destUrl)
-            yield destUrl
+        
+    def getCharset(self):
+        return "CP932"
 
     async def parseRegionPage(self, session, url):
 
@@ -57,7 +29,7 @@ class GetSumifu(object):
         def getDestUrl(linkUrl):
             return 'https://www.stepon.co.jp' + linkUrl
         
-        async for url in self.__parsePage(session, url, getXpath, getDestUrl):
+        async for url in self.parsePage(session, url, getXpath, getDestUrl):
             yield url
 
     async def parseAreaPage(self, session, url):
@@ -69,7 +41,7 @@ class GetSumifu(object):
             return 'https://www.stepon.co.jp' + linkUrl + "?limit=1000&mode=2"
             # return 'https://www.stepon.co.jp' + linkUrl + "?limit=10000&mode=2"
         
-        async for url in self.__parsePage(session, url, getXpath, getDestUrl):
+        async for url in self.parsePage(session, url, getXpath, getDestUrl):
             yield url
 
     async def parsePropertyListPage(self, session, url):
@@ -80,7 +52,7 @@ class GetSumifu(object):
         def getDestUrl(linkUrl):
             return linkUrl
         
-        async for url in self.__parsePage(session, url, getXpath, getDestUrl):
+        async for url in self.parsePage(session, url, getXpath, getDestUrl):
             yield url
 
     async def getPropertyListNextPageUrl(self, session, url):
@@ -117,8 +89,8 @@ class GetSumifu(object):
     def __parsePropertyDetailPage(self, item, response):
         try:
             item.propertyName = response.find_all("div", id="bukkenNameBlockIcon")[0].find_all("h2")[0].find_all("span")[1].contents[0]
-        except Exception as e:
-            raise ReadPropertyNameException(e)
+        except Exception:
+            raise ReadPropertyNameException()
         item.priceStr = response.find_all("dl", id="s_summaryPrice")[0].find_all("dd")[0].find_all("p")[0].find_all("em")[0].contents[0]
         priceUnit = response.find_all("dl", id="s_summaryPrice")[0].find_all("dd")[0].find_all("p")[0].contents[1]
 
@@ -142,9 +114,9 @@ class GetSumifu(object):
         try:
             item.floorType = response.find_all("dl", id="s_summaryFloor")[0].find_all("dd")[0].contents[0]
             if(item.floorType.count(u'部分') > 1):
-                raise LoadPropertyPageException(e)
-        except IndexError as e:
-            raise LoadPropertyPageException(e)
+                raise LoadPropertyPageException()
+        except IndexError:
+            raise LoadPropertyPageException()
         item.chikunengetsuStr = response.find_all("dl", id="s_summaryChikunengetsu")[0].find_all("dd")[0].contents[0]
         if (item.chikunengetsuStr == u"築年月不詳"):
             nen = 1900
@@ -230,9 +202,9 @@ class GetSumifu(object):
                     item.transfer4, item.railway4, item.station4, item.railwayWalkMinute4Str, item.railwayWalkMinute4, item.busStation4, item.busWalkMinute4Str, item.busWalkMinute4 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
                 elif i == 1:
                     item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
-            except IndexError as e:
+            except IndexError:
                 print("transfer:" + transfer)
-                raise LoadPropertyPageException(e)
+                raise LoadPropertyPageException()
 
         for i, tr in enumerate(response.find_all("div", id="detailBlock")[0].find_all("tr")):
             for j, th in enumerate(tr.find_all("th")):
@@ -327,7 +299,7 @@ class GetSumifu(object):
             _busWalkMinute = int(_busWalkMinuteStr)
             return _transfer, _railway, _station, _railwayWalkMinuteStr, _railwayWalkMinute, _busStation, _busWalkMinuteStr, _busWalkMinute
         except ValueError as e:
-            raise LoadPropertyPageException(e)
+            raise LoadPropertyPageException()
         except Exception as e:
             print("error __getRailWayPropertyValues:" + _walkStr)
             print("error __getRailWayPropertyValues:" + _railwayWalkMinuteStr)
@@ -347,29 +319,3 @@ class GetSumifu(object):
             _busWalkMinute1 = int(_busWalkMinute1Str)
 
         return _transfer1, _railway1, _station1, _railwayWalkMinute1Str, _railwayWalkMinute1, _busStation1, _busWalkMinute1Str, _busWalkMinute1
-
-    async def _getContent(self, session, url):
-        try:
-            r = await session.get(url)
-            content = await r.content.read()
-            return  content
-        except aiohttp.ClientError as e:
-            print(traceback.format_exc())
-            print(e)
-            return  None
-            
-    async def getResponse(self, session, url, charset="CP932"):
-        content = await self._getContent(session, url)
-        if (charset is None):
-            encoding = chardet.detect(content)["encoding"]
-        else:
-            encoding = charset
-        return  lxml.html.fromstring(html=content, parser=lxml.html.HTMLParser(encoding=encoding))
-
-    async def getResponseBs(self, session, url, charset="CP932"):
-        content = await self._getContent(session, url)
-        if (charset is None):
-            encoding = chardet.detect(content)["encoding"]
-        else:
-            encoding = charset
-        return  BeautifulSoup(content, "html.parser", from_encoding=encoding)
