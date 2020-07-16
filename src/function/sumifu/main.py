@@ -41,7 +41,11 @@ def mitsuiStart():
 
 
 @app.route(API_KEY_MITSUI_AREA, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiArea():
+def mitsuiAreaLocal():
+    mitsuiArea(request)
+
+
+def mitsuiArea(request):
     print("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -52,7 +56,11 @@ def mitsuiArea():
 
 
 @app.route(API_KEY_MITSUI_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiPropertyList():
+def mitsuiPropertyListLocal():
+    mitsuiPropertyList(request)
+
+
+def mitsuiPropertyList(request):
     print("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -63,7 +71,11 @@ def mitsuiPropertyList():
 
 
 @app.route(API_KEY_MITSUI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiPropertyDetail():
+def mitsuiPropertyDetailLocal():
+    mitsuiPropertyDetail(request)
+
+
+def mitsuiPropertyDetail(request):
     print("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -105,7 +117,11 @@ def sumifuStart():
 
 
 @app.route(API_KEY_SUMIFU_REGION, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuRegion():
+def sumifuRegionLocal():
+    sumifuRegion(request)
+
+
+def sumifuRegion(request):
     print("start region")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -116,7 +132,11 @@ def sumifuRegion():
 
 
 @app.route(API_KEY_SUMIFU_AREA, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuArea():
+def sumifuAreaLocal():
+    sumifuArea(request)
+
+
+def sumifuArea(request):
     print("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -127,7 +147,11 @@ def sumifuArea():
 
 
 @app.route(API_KEY_SUMIFU_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuPropertyList():
+def sumifuPropertyListLocal():
+    sumifuPropertyList(request)
+
+
+def sumifuPropertyList(request):
     print("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
@@ -138,7 +162,11 @@ def sumifuPropertyList():
 
 
 @app.route(API_KEY_SUMIFU_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuPropertyDetail():
+def sumifuPropertyDetailLocal():
+    sumifuPropertyDetail(request)
+
+    
+def sumifuPropertyDetail(request):
     print("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
