@@ -35,7 +35,7 @@ class ParseMitsuiListFuncAsync(ParseMiddlePageAsyncBase):
         return 2
 
     def _getCloudPararellLimit(self):
-        return 10
+        return 2
 
     def _getTimeOutSecond(self):
         return 60
@@ -55,10 +55,10 @@ class ParseMitsuiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 3
 
     def _getCloudPararellLimit(self):
-        return 10
+        return 3
 
     def _getTimeOutSecond(self):
         return 600

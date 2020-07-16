@@ -39,7 +39,7 @@ class ParseSumifuListFuncAsync(ParseMiddlePageAsyncBase):
         return 2
 
     def _getCloudPararellLimit(self):
-        return 10
+        return 2
 
     def _getTimeOutSecond(self):
         return 60
@@ -62,7 +62,7 @@ class ParseSumifuAreaFuncAsync(ParseMiddlePageAsyncBase):
         return 2
 
     def _getCloudPararellLimit(self):
-        return 10
+        return 2
 
     def _getTimeOutSecond(self):
         return 600
@@ -85,7 +85,7 @@ class ParseSumifuRegionFuncAsync(ParseMiddlePageAsyncBase):
         return 3
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 3
 
     def _getTimeOutSecond(self):
         return 3600
