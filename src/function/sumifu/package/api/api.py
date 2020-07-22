@@ -76,7 +76,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getUrl(self):
         if os.getenv('IS_CLOUD', ''):
             return "https://us-central1-sumifu.cloudfunctions.net"
-        return "http://localhost:8000"
+        return "http://127.0.0.1:8000"
 
     def _getApiUrl(self):
         apiUrl = self._getUrl() + self._getApiKey()
