@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
-from package.model.mitsui import MitsuiMansion
+from package.model.tokyu import TokyuMansion
 import importlib
 importlib.reload(sys)
 from decimal import Decimal
@@ -12,7 +12,7 @@ from package.parser.baseParser import LoadPropertyPageException, \
 from bs4.element import NavigableString, Tag
         
 
-class MitsuiMansionParser(ParserBase):
+class TokyuMansionParser(ParserBase):
 
     def __init__(self, params):
         ""
@@ -24,10 +24,10 @@ class MitsuiMansionParser(ParserBase):
 
         def getXpath():
             # "https://www.rehouse.co.jp/sitemap/buy/syutoken/tokyo-mansion/"
-            return u'//a[contains(@href,"/sitemap/buy/") and contains(@href, "-mansion/")]/@href'
+            return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/select-area/")]/@href'
 
         def getDestUrl(linkUrl):
-            return 'https://www.rehouse.co.jp' + linkUrl
+            return 'https://www.livable.co.jp' + linkUrl
 
         async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
             yield destUrl
@@ -36,10 +36,10 @@ class MitsuiMansionParser(ParserBase):
 
         def getXpath():
             # "https://www.rehouse.co.jp/list/area/mansion/syutoken/tokyo/13-101/"
-            return u'//a[contains(@href,"https://www.rehouse.co.jp/list/area/mansion/")]/@href'
+            return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
 
         def getDestUrl(linkUrl):
-            return linkUrl + "?limit=1000"
+            return 'https://www.livable.co.jp' + linkUrl
             # "https://www.rehouse.co.jp/list/area/mansion/syutoken/tokyo/13-101/?limit=100"
         
         async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
@@ -48,33 +48,38 @@ class MitsuiMansionParser(ParserBase):
     async def parsePropertyListPage(self, response):
 
         def getXpath():
-            # "https://www.rehouse.co.jp/mansion/bkdetail/FWRX7A04/"
-            return u'//a[contains(@href,"https://www.rehouse.co.jp/mansion/bkdetail/")]/@href'
+            return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/mansion/")]/@href'
 
         def getDestUrl(linkUrl):
-            return linkUrl
-        
+            return 'https://www.livable.co.jp' + linkUrl
+
         async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
+
+        def getNextPageXpath():
+            return u'(//div[@class="m-page-navigation__inner"])[1]/a[@class="m-page-navigation__next iconfont-livable-arrow_right"]/@href'
+
+        def getDestUrl(linkUrl):
+            return 'https://www.livable.co.jp' + linkUrl
+
+        def _parsePageCore(self, response, getXpath , getDestUrl):
+            destUrl = response.xpath(getXpath())
+            return destUrl
+
         print("getPropertyListNextPageUrl")
-        # 次のページをひらくURLを取得数
-        nextPageXpath = '//*[@id="searchCondition"]/div/div[2]/div[2]/div[1]/ul/li[last()]/a'
-        nextPageTag = response.xpath(nextPageXpath)
-        if(len(nextPageTag) == 0):  # 複数のページが存在しない場合
-            return None
-        elif(nextPageTag[0].text != "次へ"):  # 最後が"次へ"ではない場合(すでに最終ページを開いている場合)
-            return None
-        nextPageUrl = 'https://www.stepon.co.jp' + nextPageTag[0].get("href")
-        print("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
-        return nextPageUrl
+        linkUrlList = response.xpath(getNextPageXpath())
+        if (len(linkUrlList) > 0):
+            linkUrl = linkUrlList[0]
+            return getDestUrl(linkUrl)
+        return ""
 
     async def parsePropertyDetailPage(self, session, url):
-        item = MitsuiMansion()
+        item = TokyuMansion()
         # url="https://www.stepon.co.jp/mansion/detail_10393001/" #for test
         try:
-            item.pageUrl = url
+            item.pageUrl = url.replace("?from=property_list", "")
             response = await self.getResponseBs(session, url)
             item = self.__parsePropertyDetailPage(item, response)
         except (LoadPropertyPageException, TimeoutError) as e:
@@ -89,15 +94,16 @@ class MitsuiMansionParser(ParserBase):
     
     def __parsePropertyDetailPage(self, item, response):
         try:
-            item.propertyName = response.find_all("span", class_="mrh-heading2-article__title")[0].contents[0]
+            item.propertyName = response.find("h1", class_="o-detail-header__headline o-detail-header__headline--match").contents[0]
         except Exception:
             raise ReadPropertyNameException()
 
-        for i, tr in enumerate(response.find_all("div", id="info")[0].find_all("tr")):
-            for j, th in enumerate(tr.find_all("th")):
+        item.railwayCount = 0
+        for i, tr in enumerate(response.find_all("div", class_="m-status-table__wrapper")[1].find_all("dl")):
+            for j, th in enumerate(tr.find_all("dt")):
                 thTitle = th.contents[0]
                 try:
-                    tdValue = tr.find_all("td")[j].contents[0]
+                    tdValue = tr.find_all("dd")[j].contents[0]
                     tdValue = tdValue.strip()
                     # print("tdValue is " + tdValue + ". thTitle is " + thTitle)
                 except:
@@ -105,7 +111,7 @@ class MitsuiMansionParser(ParserBase):
                     print("error. tdValue is empty. thTitle is " + thTitle)
 
                 if thTitle == u"価格":
-                    tdValue = tr.find_all("td")[j].find_all("span")[0].contents[0]
+                    tdValue = tr.find("dd").find("p").find("span").text
                     item.priceStr = tdValue            
                     priceWork = item.priceStr.replace(',', '')
                     oku = 0
@@ -114,9 +120,11 @@ class MitsuiMansionParser(ParserBase):
                         priceArr = priceWork.split(u"億")
                         oku = int(priceArr[0]) * 10000
                         if len(priceArr) > 1 and len(priceArr[1]) != 0:
-                            man = int(priceArr[1].replace(u'万', '').replace(u'円', ''))
+                            man = Decimal(priceWork.replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
+                            man = int(round(man))
                     else:
-                        man = int(priceWork.replace(u'万', '').replace(u'円', ''))
+                        man = Decimal(priceWork.replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
+                        man = int(round(man))
                     price = oku + man
                     item.price = price
 
@@ -125,16 +133,22 @@ class MitsuiMansionParser(ParserBase):
 
                 if thTitle == u"専有面積":
                     item.senyuMensekiStr = tdValue
-                    senyuMensekiWork = item.senyuMensekiStr.split(u'㎡')[0]
+                    senyuMensekiWork = item.senyuMensekiStr.replace(u'内法', '').replace(u'壁芯', '').replace(u'm', '')
                     item.senyuMenseki = Decimal(senyuMensekiWork)
                     
-                if thTitle == u"階数／階建":  # 6階／地上13階建
-                    item.kaisu = tdValue  # 新規項目
+                if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
+                    item.kaisu = tdValue
+                    item.floorType_kai = int(item.kaisu.split(u"階・")[0].split(u"階 / ")[0].replace(u"地下", "-"))  # 新規項目
+                    item.floorType_chijo = int(item.kaisu.split(u"地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
+                    floorType_chika = 0
+                    if(len(item.kaisu.split(u" 地下")) > 1):
+                        floorType_chika = int(item.kaisu.split(u" 地下")[1].replace(u"階", "").replace(u"建", ""))
+                    item.floorType_chika = floorType_chika
 
                 if thTitle == u"建物構造":
-                    item.kouzou = tdValue  # 新規項目
+                    item.kouzou = tdValue  # 鉄筋コンクリート造
 
-                if thTitle == u"築年月":
+                if thTitle == u"築年月":  # u1998年3月
                     item.chikunengetsuStr = tdValue
                     if (item.chikunengetsuStr == u"不詳"):
                         nen = 1900
@@ -145,18 +159,13 @@ class MitsuiMansionParser(ParserBase):
                     item.chikunengetsu = datetime.date(nen, tsuki, 1)
 
                 if thTitle == u"所在地":
-                    addressSplit = tdValue.split(u"　")
-                    addressFrontSplit = addressSplit[0].split("\xa0")
-                    item.address1 = addressFrontSplit[0]  # 新規項目
-                    if(len(addressFrontSplit) > 1):
-                        item.address2 = addressFrontSplit[1]  # 新規項目
-                    if(len(addressFrontSplit) > 2):
-                        item.address3 = addressFrontSplit[2]  # 新規項目
-                    if(len(addressSplit) == 2):
-                        item.addressKyoto = addressSplit[1]  # 新規項目
-                    item.address = tdValue.replace("\xa0", "").replace(u"　", "")
+                    item.address1 = tr.find("dd").find_all("a")[0].find("span").text  # 新規項目
+                    item.address2 = tr.find("dd").find_all("a")[1].find("span").text
+                    item.address3 = tr.find("dd").find_all("a")[2].find("span").text
+                    item.addressKyoto = ""  # 不要
+                    item.address = item.address1 + item.address2 + item.address3
 
-                if thTitle == u"最寄り駅":
+                if thTitle == u"交通":
                     item.transfer1 = ""
                     item.railway1 = ""
                     item.station1 = ""
@@ -202,34 +211,35 @@ class MitsuiMansionParser(ParserBase):
                     item.busWalkMinute5Str = ""
                     item.busWalkMinute5 = 0
             
-                    item.railwayCount = 0
-                    for i, content in enumerate(tr.find_all("td")[j].contents):
-                        value = content
-                        if(type(content)==NavigableString):
-                            value = str(content)
-                        if(type(content)==Tag):
-                            value = str(content.string)
-                        if((u"「") in value and not (u"」") in value):
-                        #if(value.contains(u"「") and not value.contains(u"」停")):
-                            item.railwayCount+=1
-                            transfer = tr.find_all("td")[j].contents[i].strip() + tr.find_all("td")[j].contents[1 + i].contents[0].strip() + tr.find_all("td")[j].contents[2 + i].strip()
-                            railway = tr.find_all("td")[j].contents[i].replace(u"「", "").strip()
-                            station = tr.find_all("td")[j].contents[1 + i].contents[0].strip()
+                    for j, element in enumerate(tr.find("dd").find_all("span")):   
+                        value = element.contents[0]
+                        if(type(element.contents[0]) == NavigableString):
+                            value = str(element.contents[0])
+                        if(type(element.contents[0]) == Tag):
+                            value = str(element.contents[0].string)
                             
-                            busSprit=tr.find_all("td")[j].contents[2 + i].split(u"」駅 バス")
-
-                            if(len(busSprit)>1):#」駅 バス17分 「武蔵野北高校」 停歩2分
-                                railwayWalkMinuteStr=""
+                        if (j % 3 == 0):
+                            item.railwayCount += 1
+                            railway = value
+                            transfer = value
+                        elif (j % 3 == 1):
+                            station = value.replace(u"「", "").replace(u"」駅", "")
+                            transfer = transfer + value
+                        elif (j % 3 == 2):
+                            transfer = transfer + value
+                            if (value.find(u"バス") > -1):  # 京王相模原線 「京王永山」駅 バス8分 「聖ヶ丘２丁目」下車 徒歩4分
+                                railwayWalkMinuteStr = ""
                                 railwayWalkMinute = 0
-                                busStation = busSprit[1].split(u"「")[1].split(u"」 停歩")[0].strip()
-                                busWalkMinuteStr = busSprit[1].split(u"」 停歩")[1].strip()
-                                busWalkMinute = int(busWalkMinuteStr.replace(u"分",""))
-                            else:
-                                railwayWalkMinuteStr = tr.find_all("td")[j].contents[2 + i].replace(u"」駅", "").strip()
-                                railwayWalkMinute = railwayWalkMinuteStr.replace(u"徒歩", "").replace(u"分", "")
+                                busStation = value.split(u"「")[1].split(u"」")[0]
+                                busWalkMinuteStr = value.split(u"下車 ")[1]
+                                busWalkMinute = int(busWalkMinuteStr.replace(u"徒歩", "").replace(u"分", ""))
+                            else:  # 京都市烏丸線 「烏丸御池」駅 徒歩6分
+                                railwayWalkMinuteStr = value
+                                railwayWalkMinute = int(railwayWalkMinuteStr.replace(u"徒歩", "").replace(u"分", ""))
                                 busStation = ""
                                 busWalkMinuteStr = ""
                                 busWalkMinute = 0
+
                             if item.railwayCount == 1:
                                 item.transfer1, item.railway1, item.station1, item.railwayWalkMinute1Str, item.railwayWalkMinute1, item.busStation1, item.busWalkMinute1Str, item.busWalkMinute1 = transfer, railway, station, railwayWalkMinuteStr, railwayWalkMinute, busStation, busWalkMinuteStr, busWalkMinute                      
                             if item.railwayCount == 2:
@@ -241,7 +251,7 @@ class MitsuiMansionParser(ParserBase):
                             if item.railwayCount == 5:
                                 item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = transfer, railway, station, railwayWalkMinuteStr, railwayWalkMinute, busStation, busWalkMinuteStr, busWalkMinute                      
                         
-                if thTitle == u"バルコニー面積":
+                if thTitle == u"バルコニー":
                     item.barukoniMensekiStr = tdValue
 
                 if thTitle == u"向き":
@@ -250,27 +260,27 @@ class MitsuiMansionParser(ParserBase):
                 if thTitle == u"総戸数":
                     item.soukosuStr = tdValue
                     item.soukosu = 0
-                    if(item.soukosuStr!="-"):
+                    if(item.soukosuStr != "-"):
                         item.soukosu = int(item.soukosuStr.replace(u",", "").replace(u"戸", "").strip())
 
                 if thTitle == u"管理会社":
-                    item.kanriKaisya = tdValue
+                    item.kanriKaisya = tdValue.replace(u" / ", "").replace(u"全部委託", "")
                     
                 if thTitle == u"管理方式":
                     item.kanriKeitai = tdValue
 
-                if thTitle == u"管理費等":
-                    item.kanrihiStr = tr.find_all("td")[j].contents[0]
+                if thTitle == u"管理費":
+                    item.kanrihiStr = tdValue
                     if "-" in item.kanrihiStr:
                         item.kanrihi = 0
                     else:
-                        item.kanrihi = int(item.kanrihiStr.replace(",", "").replace(u"円／月", ""))
+                        item.kanrihi = int(item.kanrihiStr.replace(",", "").replace(u"（円/月）", ""))
                 if thTitle == u"修繕積立金":
-                    item.syuzenTsumitateStr = tr.find_all("td")[j].contents[0]
+                    item.syuzenTsumitateStr = tdValue
                     if "-" in item.syuzenTsumitateStr:
                         item.syuzenTsumitate = 0
                     else:
-                        item.syuzenTsumitate = int(item.syuzenTsumitateStr.replace(",", "").replace(u"円／月", ""))
+                        item.syuzenTsumitate = int(item.syuzenTsumitateStr.replace(",", "").replace(u"（円/月）", ""))
 
                 if thTitle == u"引渡時期":
                     item.hikiwatashi = tdValue
@@ -305,13 +315,6 @@ class MitsuiMansionParser(ParserBase):
         item.kadobeya = ""
         item.kanriKeitaiKaisya = ""
         
-        item.kaisu.split(u"階／")[0] = tdValue  # 新規項目
-        item.floorType_kai = int(item.kaisu.split(u"階／")[0])  # 新規項目
-        item.floorType_chijo = int(item.kaisu.split(u"／地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
-        floorType_chika = 0
-        if(len(item.kaisu.split(u" 地下")) > 1):
-            floorType_chika = int(item.kaisu.split(u" 地下")[1].replace(u"階", "").replace(u"建", ""))
-        item.floorType_chika = floorType_chika
         if(item.kouzou == u"鉄筋コンクリート造"):
             item.floorType_kouzou = "ＲＣ造"
         if(item.kouzou == u"鉄骨鉄筋コンクリート造"):
@@ -324,14 +327,14 @@ class MitsuiMansionParser(ParserBase):
         if(item.chikunengetsu < datetime.date(1982, 1, 1)):
             item.kyutaishin = 1
         item.busUse1 = 0
-        if(item.busWalkMinute1>0):
+        if(item.busWalkMinute1 > 0):
             item.busUse1 = 1
         item.barukoniMenseki = 0
-        if item.barukoniMensekiStr !="-":
-            item.barukoniMenseki = item.barukoniMensekiStr.replace(u"㎡", "")
+        if item.barukoniMensekiStr != "-":
+            item.barukoniMenseki = item.barukoniMensekiStr.replace(u"m", "")
         item.senyouNiwaMenseki = 0
         item.roofBarukoniMenseki = 0
-        item.kanrihi_p_heibei = item.kanrihi/item.senyuMenseki
-        item.syuzenTsumitate_p_heibei = item.syuzenTsumitate/item.senyuMenseki
+        item.kanrihi_p_heibei = item.kanrihi / item.senyuMenseki
+        item.syuzenTsumitate_p_heibei = item.syuzenTsumitate / item.senyuMenseki
 
         return item

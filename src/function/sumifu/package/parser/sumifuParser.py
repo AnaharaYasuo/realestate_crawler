@@ -9,7 +9,7 @@ import traceback
 import re
 from builtins import IndexError
 from concurrent.futures._base import TimeoutError
-from package.parser.base import ParserBase, LoadPropertyPageException,\
+from package.parser.baseParser import ParserBase, LoadPropertyPageException,\
     ReadPropertyNameException
 
 
@@ -21,7 +21,7 @@ class SumifuMansionParser(ParserBase):
     def getCharset(self):
         return "CP932"
 
-    async def parseRegionPage(self, session, url):
+    async def parseRegionPage(self, response):
 
         def getXpath():
             return u'//a[contains(@href,"/mansion/area_")]/@href'
@@ -29,10 +29,10 @@ class SumifuMansionParser(ParserBase):
         def getDestUrl(linkUrl):
             return 'https://www.stepon.co.jp' + linkUrl
         
-        async for url in self.parsePage(session, url, getXpath, getDestUrl):
-            yield url
+        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+            yield destUrl
 
-    async def parseAreaPage(self, session, url):
+    async def parseAreaPage(self, response):
 
         def getXpath():
             return u'//a[contains(@href,"/mansion/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
@@ -41,10 +41,10 @@ class SumifuMansionParser(ParserBase):
             return 'https://www.stepon.co.jp' + linkUrl + "?limit=1000&mode=2"
             # return 'https://www.stepon.co.jp' + linkUrl + "?limit=10000&mode=2"
         
-        async for url in self.parsePage(session, url, getXpath, getDestUrl):
-            yield url
+        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+            yield destUrl
 
-    async def parsePropertyListPage(self, session, url):
+    async def parsePropertyListPage(self, response):
 
         def getXpath():
             return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
@@ -52,14 +52,13 @@ class SumifuMansionParser(ParserBase):
         def getDestUrl(linkUrl):
             return linkUrl
         
-        async for url in self.parsePage(session, url, getXpath, getDestUrl):
-            yield url
+        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+            yield destUrl
 
-    async def getPropertyListNextPageUrl(self, session, url):
-        print("getPropertyListNextPageUrl targetUrl:" + url)
+    async def getPropertyListNextPageUrl(self, response):
+        print("getPropertyListNextPageUrl")
         # 次のページをひらくURLを取得数
         nextPageXpath = '//*[@id="searchCondition"]/div/div[2]/div[2]/div[1]/ul/li[last()]/a'
-        response = await self.getResponse(session, url)
         nextPageTag = response.xpath(nextPageXpath)
         if(len(nextPageTag) == 0):  # 複数のページが存在しない場合
             return None

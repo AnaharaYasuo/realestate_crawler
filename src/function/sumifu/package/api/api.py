@@ -4,26 +4,25 @@ import os
 import json
 import traceback
 from abc import ABCMeta, abstractmethod
-from package.parser.base import LoadPropertyPageException, \
+from package.parser.baseParser import LoadPropertyPageException, \
     ReadPropertyNameException
 import datetime
 from django.core.exceptions import ValidationError
+from django.db.utils import OperationalError
+from builtins import Exception
+from time import sleep
 
+API_KEY_ALL_START = '/api/all/mansion/start'
 API_KEY_MITSUI_START = '/api/mitsui/mansion/start'
 API_KEY_MITSUI_START_GCP = '/sumifu_mansion_start'
-API_KEY_MITSUI_REGION = '/api/mitsui_mansion/region'
-API_KEY_MITSUI_REGION_GCP = '/mitsui_mansion_region'
 API_KEY_MITSUI_AREA = '/api/mitsui/mansion/area'
 API_KEY_MITSUI_AREA_GCP = '/mitsui_mansion_area'
 API_KEY_MITSUI_LIST = '/api/mitsui/mansion/list'
 API_KEY_MITSUI_LIST_GCP = '/mitsui_mansion_list'
 API_KEY_MITSUI_DETAIL = '/api/mitsui/mansion/detail'
-API_KEY_MITSUI_DETAIL_TEST = '/api/mitsui/mansion/detail/test'
 API_KEY_MITSUI_DETAIL_GCP = '/mitsui_mansion_detail'
-API_KEY_MITSUI_LIST_DETAIL = '/api/mitsui/mansion/listdetail'
-API_KEY_MITSUI_LIST_DETAIL_GCP = '/mitsui_mansion_listdetail'
+API_KEY_MITSUI_DETAIL_TEST = '/api/mitsui/mansion/detail/test'
 
-# from package.getsumifu import GetSumifu
 API_KEY_SUMIFU_START = '/api/sumifu/mansion/start'
 API_KEY_SUMIFU_START_GCP = '/sumifu_mansion_start'
 API_KEY_SUMIFU_REGION = '/api/sumifu_mansion/region'
@@ -37,6 +36,16 @@ API_KEY_SUMIFU_DETAIL_GCP = '/sumifu_mansion_detail'
 API_KEY_SUMIFU_LIST_DETAIL = '/api/sumifu/mansion/listdetail'
 API_KEY_SUMIFU_LIST_DETAIL_GCP = '/sumifu_mansion_listdetail'
 
+API_KEY_TOKYU_START = '/api/tokyu/mansion/start'
+API_KEY_TOKYU_START_GCP = '/sumifu_mansion_start'
+API_KEY_TOKYU_AREA = '/api/tokyu/mansion/area'
+API_KEY_TOKYU_AREA_GCP = '/tokyu_mansion_area'
+API_KEY_TOKYU_LIST = '/api/tokyu/mansion/list'
+API_KEY_TOKYU_LIST_GCP = '/tokyu_mansion_list'
+API_KEY_TOKYU_DETAIL = '/api/tokyu/mansion/detail'
+API_KEY_TOKYU_DETAIL_GCP = '/tokyu_mansion_detail'
+API_KEY_TOKYU_DETAIL_TEST = '/api/tokyu/mansion/detail/test'
+
 
 class ApiAsyncProcBase(metaclass=ABCMeta):
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
@@ -48,13 +57,13 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def __init__(self):
         self.parser = self._generateParser()
-        self._loop = self._getActiveEventLoop()
-        self.semaphore = asyncio.Semaphore(self._getPararellLimit())
+        self._getActiveEventLoop()
+        self.semaphore = asyncio.Semaphore(value=self._getPararellLimit(), loop=self._loop)
 
     def _getActiveEventLoop(self):
         if (self._loop is None or self._loop.is_closed()):
             self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
+            asyncio.set_event_loop(None)
         return self._loop
 
     def _generateConnector(self, _loop):
@@ -73,15 +82,15 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         apiUrl = self._getUrl() + self._getApiKey()
         return apiUrl
 
-    async def _fetch(self, session, detailUrl):
-        apiUrl = self._getApiUrl()
+    async def _fetch(self, session, detailUrl, apiUrl, loop):
         _timeout = self._generateTimeout()
         post_json_data = json.dumps('{"url":"' + detailUrl + '"}').encode("utf-8")
         try:
             response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-        except (asyncio.TimeoutError, TimeoutError, aiohttp.client_exceptions.ClientConnectorError):
+        except (asyncio.TimeoutError, TimeoutError, aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
+            sleep(10000)
             _connector = self._generateConnector(self._getActiveEventLoop())
-            async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=_connector, timeout=_timeout) as retrySession:
+            async with aiohttp.ClientSession(loop=loop, connector=_connector, timeout=_timeout) as retrySession:
                 try:
                     response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
                 finally:
@@ -90,6 +99,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     if _connector is not None:
                         await _connector.close()
         except Exception as e:
+            print("fetch error:" + detailUrl)
             print(traceback.format_exc())
             raise e
         return await self._proc_response(detailUrl, response)
@@ -98,10 +108,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         # async with
         # __aenter__がasync with ブロックを呼んだ直後に呼ばれる
         # __aexit__がasync with ブロックを抜けた直後に呼ばれる
-        if (self._loop.is_closed()):
-            self._getActiveEventLoop();
         with await self.semaphore:
-            return await self._fetch(session, detailUrl)
+            loop = self._getActiveEventLoop()
+            return await self._fetch(session, detailUrl, self._getApiUrl(), loop)
 
     async def _proc_response(self, url, response):
         return url, response.status, await response.text()
@@ -131,7 +140,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self.url = url
         try:
             loop = self._getActiveEventLoop();
-            futures = asyncio.gather(*[self._run(url)])
+            futures = asyncio.gather(*[self._run(url)], loop=loop)
             runResult = loop.run_until_complete(futures)
         except:
             return "error end", 500;
@@ -174,17 +183,32 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getTreatPageArg(self):
         pass
 
-#urlを受け取って、そのページから更にドリルダウン先を呼び出す場合の基底クラス
+
+# urlを受け取って、そのページから更にドリルダウン先を呼び出す場合の基底クラス
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
+
     async def _treatPage(self, _session, *arg):
         tasks = []
-        _timeout = self._generateTimeout()
+        response = await self._generateParser().getResponse(_session, self.url, self.parser.getCharset())
 
-        parserFunc = self._getParserFunc()
-        async for detailUrl in parserFunc(_session, self.url):
-            task = asyncio.ensure_future(self._bound_fetch(session=_session, detailUrl=detailUrl))
-            tasks.append(task)
+        try:
+            parserFunc = self._getParserFunc()
+            async for detailUrl in parserFunc(response):
+                # colo = self._fetch(session=_session, detailUrl=detailUrl, apiUrl=self._getApiUrl(), loop=self._getActiveEventLoop())
+                colo = self._bound_fetch(session=_session, detailUrl=detailUrl)
+                # task = asyncio.ensure_future(colo)
+                task = asyncio.create_task(colo)
+                tasks.append(task)
+        finally:
+            # 次のページを開く
+            parserNextFunc = self._getNextPageParserFunc()
+            if parserNextFunc is not None:
+                nextPageUrl = await parserNextFunc(response)
+                if len(nextPageUrl) > 0:
+                    asyncio.ensure_future(self._fetch(session=_session, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget                
+            
         responses = await asyncio.gather(*tasks)
+
         return responses
 
     def _getTreatPageArg(self):
@@ -194,7 +218,14 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
     def _getParserFunc(self):
         pass
 
-#物件詳細ページのurlを受け取って、そのページ内の物件情報を取得、保存する場合の基底クラス
+    def _getNextPageParserFunc(self):
+        return None
+
+    def _getNextPageApiKey(self):
+        return None
+
+
+# 物件詳細ページのurlを受け取って、そのページ内の物件情報を取得、保存する場合の基底クラス
 class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _treatPage(self, _session, *arg):
@@ -242,12 +273,19 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         return 
     
     def _afterRunProc(self, runResult):
+
+        def _save(item):
+            item.save(False, False, None, None)
+            print(item.propertyName + ":" + item.pageUrl)
+
         for item in runResult:
             if item is not None:
                 try:
-                    item.save(False, False, None, None)
-                    print(item.propertyName + ":" + item.pageUrl)
-                except (Exception,ValidationError) as e:
-                    print("save error "+item.propertyName + ":" + item.pageUrl)
+                    _save(item)
+                except (OperationalError) as e:  # too many connection
+                    sleep(30000);  # u30秒待機
+                    _save(item)
+                except (Exception, ValidationError) as e:
+                    print("save error " + item.propertyName + ":" + item.pageUrl)
                     print(traceback.format_exc())
                     print(e)

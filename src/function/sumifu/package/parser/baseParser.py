@@ -7,6 +7,8 @@ import logging
 
 from abc import ABCMeta, abstractmethod
 from builtins import Exception
+import asyncio
+from time import sleep
 
 
 class ReadPropertyNameException(Exception):
@@ -27,13 +29,17 @@ class ParserBase(metaclass=ABCMeta):
     def getCharset(self):
         pass
 
-    async def parsePage(self, session, url, getXpath , getDestUrl):
-        response = await self.getResponse(session, url, self.getCharset())
+    async def _parsePageCore(self, response, getXpath , getDestUrl):
         linklist = response.xpath(getXpath())
         for linkUrl in linklist:
             destUrl = getDestUrl(linkUrl)
             logging.info(destUrl)
             yield destUrl        
+
+    async def parsePage(self, session, url, getXpath , getDestUrl):
+        response = await self.getResponse(session, url, self.getCharset())        
+        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+            yield destUrl
 
     async def parsePageBs(self, session, url, getXpath , getDestUrl):
         response = await self.getResponseBs(session, url, self.getCharset())
@@ -42,19 +48,27 @@ class ParserBase(metaclass=ABCMeta):
             destUrl = getDestUrl(linkUrl)
             logging.info(destUrl)
             yield destUrl
+
+    async def _get(self, session, url):
+        try:
+            r = await session.get(url)
+        except (asyncio.TimeoutError, TimeoutError, aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
+            sleep(10000)
+            r = await session.get(url)
+        return r
             
     async def _getContent(self, session, url):
         try:
-            r = await session.get(url)
+            r = await self._get(session, url)
+            # r = await session.get(url)
             content = await r.content.read()
             return  content
         except aiohttp.ClientError as e:
             print(traceback.format_exc())
-            print(e)
-            return  None
+            raise e
         except (Exception) as e:
             print(traceback.format_exc())
-            print(e)
+            raise e
             
     async def getResponse(self, session, url, charset=None):
 

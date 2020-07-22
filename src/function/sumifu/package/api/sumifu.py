@@ -42,7 +42,7 @@ class ParseSumifuListFuncAsync(ParseMiddlePageAsyncBase):
         return 2
 
     def _getTimeOutSecond(self):
-        return 60
+        return 300
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -59,13 +59,13 @@ class ParseSumifuAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 20
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 20
 
     def _getTimeOutSecond(self):
-        return 600
+        return 3600
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -88,7 +88,7 @@ class ParseSumifuRegionFuncAsync(ParseMiddlePageAsyncBase):
         return 3
 
     def _getTimeOutSecond(self):
-        return 3600
+        return 7200
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -116,7 +116,7 @@ class ParseSumifuStartAsync(ApiAsyncProcBase):
         return 8
 
     def _getTimeOutSecond(self):
-        return 3600
+        return 7200
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
