@@ -316,4 +316,4 @@ def tokyuPropertyDetailTest():
 
 if __name__ == "__main__":
     if not os.getenv('IS_CLOUD', ''):
-        app.run('127.0.0.1', 8000, debug=True)
+        app.run(host='0.0.0.0', 8000, debug=True)
