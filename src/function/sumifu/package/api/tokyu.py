@@ -10,10 +10,10 @@ class ParseTokyuDetailFuncAsync(ParseDetailPageAsyncBase):
         return TokyuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 3
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 3
 
     def _getTimeOutSecond(self):
         return 60
@@ -36,10 +36,10 @@ class ParseTokyuListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 3
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 3
 
     def _getTimeOutSecond(self):
         return 300
@@ -63,13 +63,13 @@ class ParseTokyuAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 20
+        return 4
 
     def _getCloudPararellLimit(self):
-        return 20
+        return 4
 
     def _getTimeOutSecond(self):
-        return 3600
+        return 1800
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -92,7 +92,7 @@ class ParseTokyuStartAsync(ParseMiddlePageAsyncBase):
         return 14
 
     def _getTimeOutSecond(self):
-        return 7200
+        return 1800
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):

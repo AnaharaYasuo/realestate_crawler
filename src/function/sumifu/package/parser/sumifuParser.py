@@ -9,7 +9,7 @@ import traceback
 import re
 from builtins import IndexError
 from concurrent.futures._base import TimeoutError
-from package.parser.baseParser import ParserBase, LoadPropertyPageException,\
+from package.parser.baseParser import ParserBase, LoadPropertyPageException, \
     ReadPropertyNameException
 
 
@@ -111,10 +111,28 @@ class SumifuMansionParser(ParserBase):
         senyuMensekiWork = item.senyuMensekiStr.replace('m', '')
         item.senyuMenseki = Decimal(senyuMensekiWork)
         try:
-            item.floorType = response.find_all("dl", id="s_summaryFloor")[0].find_all("dd")[0].contents[0]
-            if(item.floorType.count(u'部分') > 1):
+            item.floorType = str(response.find_all("dl", id="s_summaryFloor")[0].find_all("dd")[0].contents[0])
+            if((item.floorType.count(u'部分') > 1) 
+               or (item.floorType.count(u'／') > 1)
+               or (item.floorType.count(u'建') > 1)
+               or (item.floorType.count(u'・') > 1)
+               or (item.floorType.count(u'造') > 1)
+               or (item.floorType[-1:]!="造" and item.floorType[-1:]!="他")
+               ):
+                print("item.floorType is " + item.floorType)
                 raise LoadPropertyPageException()
+
+            try:
+                item.floorType_kai = int(item.floorType.split(u"部分")[0].split(u"階")[0].replace(u"地下", "-"))  # 新規項目
+                item.floorType_chijo = int(item.floorType.split(u"地上")[1].split(u"階")[0])
+                item.floorType_chika = 0
+                if(len(item.floorType.split(u"地下")) > 1):
+                    item.floorType_chika = int(item.floorType.split(u"地下")[1].split(u"階")[0])
+            except ValueError:
+                print("ValueError item.floorType is " + item.floorType)
+            
         except IndexError:
+            print(traceback.format_exc())
             raise LoadPropertyPageException()
         item.chikunengetsuStr = response.find_all("dl", id="s_summaryChikunengetsu")[0].find_all("dd")[0].contents[0]
         if (item.chikunengetsuStr == u"築年月不詳"):
@@ -183,8 +201,8 @@ class SumifuMansionParser(ParserBase):
             i.replace_with("\n")  # brタグを改行コードに変換
         transferList = re.split("\n", response.select('dd[id="s_summaryTransfer"]')[0].text)
         transList = response.select('dd[id="s_summaryTransfer"]>a')
-        transCount = int(len(transList) // 2)
-        for i in range(transCount):
+        item.railwayCount = int(len(transList) // 2)
+        for i in range(item.railwayCount):
             try:                    
                 railway = response.select('dd[id="s_summaryTransfer"]>a:nth-child(' + str(i * 2 + 1) + ')')[0].contents[0]  # 東海道本線
                 station = response.select('dd[id="s_summaryTransfer"]>a:nth-child(' + str(i * 2 + 2) + ')')[0].contents[0]  # 戸塚
@@ -213,10 +231,8 @@ class SumifuMansionParser(ParserBase):
                 except:
                     tdValue = ""
                     print("tdValue is empty. thTitle is " + thTitle)
-                if thTitle == "バルコニー面積":
-                    item.barukoniMenseki = tdValue
                 if thTitle == "バルコニー（テラス）面積":
-                    item.barukoniMenseki = tdValue
+                    item.barukoniMensekiStr = tdValue
                 if thTitle == "採光方向":
                     item.saikouKadobeya = tdValue
                     temp = item.saikouKadobeya.split(u"／")
@@ -258,6 +274,59 @@ class SumifuMansionParser(ParserBase):
                     item.tyusyajo = tdValue
                 if thTitle == "土地権利":
                     item.tochikenri = tdValue
+                if thTitle == "施工会社":
+                    item.sekouKaisya = tdValue
+                if thTitle == "取引態様":
+                    item.torihiki = tdValue
+                if thTitle == "備考":
+                    item.biko = ""
+
+        # 不要項目
+        item.kaisu = ""
+        item.kouzou = ""
+        item.address1 = ""
+        item.address2 = ""
+        item.address3 = ""
+        item.addressKyoto = ""
+        item.sonotaHiyouStr = ""
+        item.bunjoKaisya = ""
+        
+        if(item.floorType.count(u"・ＲＣ造") > 0):
+            item.floorType_kouzou = "ＲＣ造"
+        if(item.floorType.count(u"・ＳＲＣ造") > 0):
+            item.floorType_kouzou = "ＳＲＣ造"
+        if(item.floorType.count(u"・Ｓ造") > 0):
+            item.floorType_kouzou = "Ｓ造"
+        if(item.floorType.count(u"・木造") > 0):
+            item.floorType_kouzou = "木造"
+        if(item.floorType.count(u"・その他") > 0):
+            item.floorType_kouzou = "その他"
+
+        item.kyutaishin = 0
+        if(item.chikunengetsu < datetime.date(1982, 1, 1)):
+            item.kyutaishin = 1
+        item.busUse1 = 0
+        if(item.busWalkMinute1 > 0):
+            item.busUse1 = 1
+            
+        item.barukoniMenseki = 0
+        if item.barukoniMensekiStr != "--":
+            barukoniMenseki = item.barukoniMensekiStr.split(u"／")[0].split(u"専用庭面積")[0].split(u"ルーフバルコニー面積")[0].split(u"m")[0].strip()
+            if(len(barukoniMenseki) > 0):
+                item.barukoniMenseki = Decimal(barukoniMenseki)
+
+        item.senyouNiwaMenseki = 0
+        senyouNiwaList = item.barukoniMensekiStr.split(u"専用庭面積")
+        if(len(senyouNiwaList) > 1):
+            item.senyouNiwaMenseki = Decimal(senyouNiwaList[1].split(u"m")[0])
+        
+        item.roofBarukoniMenseki = 0
+        roofList = item.barukoniMensekiStr.split(u"ルーフバルコニー面積")
+        if(len(roofList) > 1):
+            item.roofBarukoniMenseki = Decimal(roofList[1].split(u"m")[0])
+
+        item.kanrihi_p_heibei = item.kanrihi / item.senyuMenseki
+        item.syuzenTsumitate_p_heibei = item.syuzenTsumitate / item.senyuMenseki
 
         return item
 
@@ -298,6 +367,7 @@ class SumifuMansionParser(ParserBase):
             _busWalkMinute = int(_busWalkMinuteStr)
             return _transfer, _railway, _station, _railwayWalkMinuteStr, _railwayWalkMinute, _busStation, _busWalkMinuteStr, _busWalkMinute
         except ValueError as e:
+            print(traceback.format_exc())
             raise LoadPropertyPageException()
         except Exception as e:
             print("error __getRailWayPropertyValues:" + _walkStr)

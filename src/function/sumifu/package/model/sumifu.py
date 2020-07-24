@@ -65,7 +65,7 @@ class SumifuMansion(models.Model):
     busWalkMinute5Str = models.TextField()
     busWalkMinute5 = models.IntegerField()
 
-    barukoniMenseki = models.TextField()
+    barukoniMensekiStr = models.TextField()
     saikouKadobeya = models.TextField()
     saikou = models.TextField()
     kadobeya = models.TextField()
@@ -82,6 +82,32 @@ class SumifuMansion(models.Model):
     genkyo = models.TextField()
     tyusyajo = models.TextField()
     tochikenri = models.TextField()
+    #追加項目
+    kaisu  = models.TextField()
+    kouzou  = models.TextField()
+    address1 = models.TextField()
+    address2 = models.TextField()
+    address3 = models.TextField()
+    addressKyoto = models.TextField()
+    sonotaHiyouStr  = models.TextField()
+    bunjoKaisya  = models.TextField()
+    sekouKaisya  = models.TextField()
+    torihiki  = models.TextField()
+    biko  = models.TextField()
+
+    floorType_kai = models.IntegerField()
+    floorType_chijo = models.IntegerField()
+    floorType_chika = models.IntegerField()
+    floorType_kouzou = models.TextField()
+    kyutaishin = models.IntegerField()
+    railwayCount = models.IntegerField()
+    busUse1 = models.IntegerField()
+    barukoniMenseki = models.DecimalField(max_digits=6,decimal_places=3)
+    senyouNiwaMenseki = models.DecimalField(max_digits=6,decimal_places=3)
+    roofBarukoniMenseki = models.DecimalField(max_digits=6,decimal_places=3)
+    kanrihi_p_heibei = models.DecimalField(max_digits=7,decimal_places=3)
+    syuzenTsumitate_p_heibei = models.DecimalField(max_digits=7,decimal_places=3)
+
             
     def __init__(self, *args, **kwargs):
         super(SumifuMansion, self).__init__(*args, **kwargs)
@@ -145,7 +171,7 @@ class SumifuMansion(models.Model):
         self.busWalkMinute5Str = ""
         self.busWalkMinute5 = 0
     
-        self.barukoniMenseki = ""
+        self.barukoniMensekiStr = ""
         self.saikouKadobeya = ""
         self.saikou = ""
         self.kadobeya = ""
@@ -162,6 +188,31 @@ class SumifuMansion(models.Model):
         self.genkyo = ""
         self.tyusyajo = ""
         self.tochikenri = ""
+    #追加項目
+        self.kaisu  = ""
+        self.kouzou  = ""
+        self.address1 = ""
+        self.address2 = ""
+        self.address3 = ""
+        self.addressKyoto = ""
+        self.sonotaHiyouStr  = ""
+        self.bunjoKaisya  = ""
+        self.sekouKaisya  = ""
+        self.torihiki  = ""
+        self.biko  = ""
+        
+        self.floorType_kai = 0
+        self.floorType_chijo = 0
+        self.floorType_chika = 0
+        self.floorType_kouzou = ""
+        self.kyutaishin = 0
+        self.railwayCount = 0
+        self.busUse1 = 0
+        self.barukoniMenseki = 0
+        self.senyouNiwaMenseki = 0
+        self.roofBarukoniMenseki = 0
+        self.kanrihi_p_heibei = 0
+        self.syuzenTsumitate_p_heibei = 0
 
     class Meta:
         db_table = "sumifu_mansion"

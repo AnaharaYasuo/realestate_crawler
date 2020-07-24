@@ -35,6 +35,7 @@ API_KEY_SUMIFU_DETAIL = '/api/sumifu/mansion/detail'
 API_KEY_SUMIFU_DETAIL_GCP = '/sumifu_mansion_detail'
 API_KEY_SUMIFU_LIST_DETAIL = '/api/sumifu/mansion/listdetail'
 API_KEY_SUMIFU_LIST_DETAIL_GCP = '/sumifu_mansion_listdetail'
+API_KEY_SUMIFU_DETAIL_TEST = '/api/sumifu/mansion/detail/test'
 
 API_KEY_TOKYU_START = '/api/tokyu/mansion/start'
 API_KEY_TOKYU_START_GCP = '/sumifu_mansion_start'
@@ -45,6 +46,7 @@ API_KEY_TOKYU_LIST_GCP = '/tokyu_mansion_list'
 API_KEY_TOKYU_DETAIL = '/api/tokyu/mansion/detail'
 API_KEY_TOKYU_DETAIL_GCP = '/tokyu_mansion_detail'
 API_KEY_TOKYU_DETAIL_TEST = '/api/tokyu/mansion/detail/test'
+API_KEY_KILL = '/api/kill'
 
 
 class ApiAsyncProcBase(metaclass=ABCMeta):
@@ -240,8 +242,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     except ReadPropertyNameException:
                         item = None
                         print("None get item")
-                    except Exception:
+                    except Exception as e:
+                        print(traceback.format_exc())
                         print("exception get item")
+                        raise e
                     finally:
                         if dtlSession is not None:
                             await dtlSession.close()
@@ -251,6 +255,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
         _timeout = self._generateTimeout()
         retry = False
+        item = None
         try:
             item = await getItem(_timeout)
         except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError):

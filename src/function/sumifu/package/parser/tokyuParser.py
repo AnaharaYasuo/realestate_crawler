@@ -120,7 +120,7 @@ class TokyuMansionParser(ParserBase):
                         priceArr = priceWork.split(u"億")
                         oku = int(priceArr[0]) * 10000
                         if len(priceArr) > 1 and len(priceArr[1]) != 0:
-                            man = Decimal(priceWork.replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
+                            man = Decimal(priceArr[1].replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
                             man = int(round(man))
                     else:
                         man = Decimal(priceWork.replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))

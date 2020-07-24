@@ -3,7 +3,8 @@ from package.api.api import API_KEY_SUMIFU_DETAIL, API_KEY_SUMIFU_REGION, API_KE
     API_KEY_MITSUI_START, API_KEY_MITSUI_AREA, API_KEY_MITSUI_LIST, \
     API_KEY_MITSUI_DETAIL, API_KEY_MITSUI_DETAIL_TEST, API_KEY_TOKYU_START, \
     API_KEY_TOKYU_AREA, API_KEY_TOKYU_LIST, API_KEY_TOKYU_DETAIL, \
-    API_KEY_TOKYU_DETAIL_TEST, API_KEY_ALL_START
+    API_KEY_TOKYU_DETAIL_TEST, API_KEY_ALL_START, API_KEY_SUMIFU_DETAIL_TEST,\
+    API_KEY_KILL
 import json
 import realestateSettings
 import traceback
@@ -222,6 +223,14 @@ def sumifuPropertyDetail(request):
     return result
 
 
+@app.route(API_KEY_SUMIFU_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuPropertyDetailTest():
+    print("start propertyDetail")
+    url = "https://www.stepon.co.jp/mansion/detail_19273047/"
+    obj = ParseSumifuDetailFuncAsync()
+    result = obj.main(url)
+    print("end propertyDetail")
+    return result
 ###################################################
 # tokyu
 ###################################################
@@ -313,6 +322,14 @@ def tokyuPropertyDetailTest():
     print("end propertyDetail")
     return result
 
+
+@app.route(API_KEY_KILL, methods=['OPTIONS', 'POST', 'GET'])
+def seriouslykill():
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func is None:
+        raise RuntimeError('Not running with the Werkzeug Server')
+    func()
+    return "Shutting down..."
 
 if __name__ == "__main__":
     if not os.getenv('IS_CLOUD', ''):
