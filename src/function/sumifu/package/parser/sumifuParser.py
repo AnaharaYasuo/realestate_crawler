@@ -11,6 +11,7 @@ from builtins import IndexError
 from concurrent.futures._base import TimeoutError
 from package.parser.baseParser import ParserBase, LoadPropertyPageException, \
     ReadPropertyNameException
+import logging
 
 
 class SumifuMansionParser(ParserBase):
@@ -56,7 +57,7 @@ class SumifuMansionParser(ParserBase):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
-        print("getPropertyListNextPageUrl")
+        logging.info("getPropertyListNextPageUrl")
         # 次のページをひらくURLを取得数
         nextPageXpath = '//*[@id="searchCondition"]/div/div[2]/div[2]/div[1]/ul/li[last()]/a'
         nextPageTag = response.xpath(nextPageXpath)
@@ -65,7 +66,7 @@ class SumifuMansionParser(ParserBase):
         elif(nextPageTag[0].text != "次へ"):  # 最後が"次へ"ではない場合(すでに最終ページを開いている場合)
             return None
         nextPageUrl = 'https://www.stepon.co.jp' + nextPageTag[0].get("href")
-        print("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
+        logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
     async def parsePropertyDetailPage(self, session, url):
@@ -80,8 +81,8 @@ class SumifuMansionParser(ParserBase):
         except (ReadPropertyNameException) as e:
             raise e
         except Exception as e:
-            print('Detail parse error:' + url)
-            print(traceback.format_exc())
+            logging.error('Detail parse error:' + url)
+            logging.error(traceback.format_exc())
             raise e
         return item
     
@@ -119,7 +120,7 @@ class SumifuMansionParser(ParserBase):
                or (item.floorType.count(u'造') > 1)
                or (item.floorType[-1:]!="造" and item.floorType[-1:]!="他")
                ):
-                print("item.floorType is " + item.floorType)
+                logging.info("item.floorType is " + item.floorType)
                 raise LoadPropertyPageException()
 
             try:
@@ -129,10 +130,10 @@ class SumifuMansionParser(ParserBase):
                 if(len(item.floorType.split(u"地下")) > 1):
                     item.floorType_chika = int(item.floorType.split(u"地下")[1].split(u"階")[0])
             except ValueError:
-                print("ValueError item.floorType is " + item.floorType)
+                logging.warn("ValueError item.floorType is " + item.floorType)
             
         except IndexError:
-            print(traceback.format_exc())
+            logging.warn(traceback.format_exc())
             raise LoadPropertyPageException()
         item.chikunengetsuStr = response.find_all("dl", id="s_summaryChikunengetsu")[0].find_all("dd")[0].contents[0]
         if (item.chikunengetsuStr == u"築年月不詳"):
@@ -220,7 +221,7 @@ class SumifuMansionParser(ParserBase):
                 elif i == 1:
                     item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
             except IndexError:
-                print("transfer:" + transfer)
+                logging.warn("transfer:" + transfer)
                 raise LoadPropertyPageException()
 
         for i, tr in enumerate(response.find_all("div", id="detailBlock")[0].find_all("tr")):
@@ -230,7 +231,7 @@ class SumifuMansionParser(ParserBase):
                     tdValue = tr.find_all("td")[j].contents[0]
                 except:
                     tdValue = ""
-                    print("tdValue is empty. thTitle is " + thTitle)
+                    logging.warn("tdValue is empty. thTitle is " + thTitle)
                 if thTitle == "バルコニー（テラス）面積":
                     item.barukoniMensekiStr = tdValue
                 if thTitle == "採光方向":
@@ -367,11 +368,11 @@ class SumifuMansionParser(ParserBase):
             _busWalkMinute = int(_busWalkMinuteStr)
             return _transfer, _railway, _station, _railwayWalkMinuteStr, _railwayWalkMinute, _busStation, _busWalkMinuteStr, _busWalkMinute
         except ValueError as e:
-            print(traceback.format_exc())
+            logging.warn(traceback.format_exc())
             raise LoadPropertyPageException()
         except Exception as e:
-            print("error __getRailWayPropertyValues:" + _walkStr)
-            print("error __getRailWayPropertyValues:" + _railwayWalkMinuteStr)
+            logging.error("error __getRailWayPropertyValues:" + _walkStr)
+            logging.error("error __getRailWayPropertyValues:" + _railwayWalkMinuteStr)
             raise e
 
     def __getPropertyValues(self, transList1, transList2, i):

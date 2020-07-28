@@ -3,11 +3,12 @@ from package.api.api import API_KEY_SUMIFU_DETAIL, API_KEY_SUMIFU_REGION, API_KE
     API_KEY_MITSUI_START, API_KEY_MITSUI_AREA, API_KEY_MITSUI_LIST, \
     API_KEY_MITSUI_DETAIL, API_KEY_MITSUI_DETAIL_TEST, API_KEY_TOKYU_START, \
     API_KEY_TOKYU_AREA, API_KEY_TOKYU_LIST, API_KEY_TOKYU_DETAIL, \
-    API_KEY_TOKYU_DETAIL_TEST, API_KEY_ALL_START, API_KEY_SUMIFU_DETAIL_TEST,\
+    API_KEY_TOKYU_DETAIL_TEST, API_KEY_ALL_START, API_KEY_SUMIFU_DETAIL_TEST, \
     API_KEY_KILL
 import json
 import realestateSettings
 import traceback
+from _datetime import datetime
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
 from package.api.mitsui import ParseMitsuiStartAsync, ParseMitsuiAreaFuncAsync, ParseMitsuiListFuncAsync, ParseMitsuiDetailFuncAsync
 from package.api.sumifu import ParseSumifuStartAsync, ParseSumifuRegionFuncAsync, ParseSumifuAreaFuncAsync, ParseSumifuListFuncAsync, ParseSumifuDetailFuncAsync
@@ -15,6 +16,7 @@ from package.api.tokyu import ParseTokyuStartAsync, ParseTokyuAreaFuncAsync, \
     ParseTokyuListFuncAsync, ParseTokyuDetailFuncAsync
 
 from flask import Flask, request
+import logging
 
 app = Flask(__name__)
 
@@ -32,26 +34,28 @@ def parseMitsuiStartAsyncPubSub(event, context):
 def parseSumifuStartAsyncPubSub(event, context):
     return sumifuStart()
 
+
 @app.route(API_KEY_ALL_START, methods=['OPTIONS', 'POST', 'GET'])
 def allStart():
     mitsuiStart()
     sumifuStart()
     tokyuStart()
 
+
 ###################################################
 # mitsui
 ###################################################
 @app.route(API_KEY_MITSUI_START, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiStart():
-    print("start")
+    logging.info("start")
     obj = ParseMitsuiStartAsync()
     url = "https://www.rehouse.co.jp/sitemap/"
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end")
     return result
 
 
@@ -61,16 +65,16 @@ def mitsuiAreaLocal():
 
 
 def mitsuiArea(request):
-    print("start area")
+    logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseMitsuiAreaFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end area")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end area")
     return result
 
 
@@ -80,16 +84,16 @@ def mitsuiPropertyListLocal():
 
 
 def mitsuiPropertyList(request):
-    print("start propertyList")
+    logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseMitsuiListFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyList")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyList")
     return result
 
 
@@ -99,7 +103,7 @@ def mitsuiPropertyDetailLocal():
 
 
 def mitsuiPropertyDetail(request):
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FQQXGA22/"
@@ -107,16 +111,16 @@ def mitsuiPropertyDetail(request):
     obj = ParseMitsuiDetailFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyDetail")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyDetail")
     return result
 
 
 @app.route(API_KEY_MITSUI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiPropertyDetailTest():
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FQQXGA22/"
@@ -125,7 +129,7 @@ def mitsuiPropertyDetailTest():
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FGPX5A1C/"#バス停留所のみあり
     obj = ParseMitsuiDetailFuncAsync()
     result = obj.main(url)
-    print("end propertyDetail")
+    logging.info("end propertyDetail")
     return result
 
 
@@ -134,15 +138,15 @@ def mitsuiPropertyDetailTest():
 ###################################################
 @app.route(API_KEY_SUMIFU_START, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuStart():
-    print("start")
+    logging.info("start")
     obj = ParseSumifuStartAsync()
     url = "dammy"
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end")
     
     return result
 
@@ -153,16 +157,16 @@ def sumifuRegionLocal():
 
 
 def sumifuRegion(request):
-    print("start region")
+    logging.info("start region")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseSumifuRegionFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end region")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end region")
     return result
 
 
@@ -172,16 +176,16 @@ def sumifuAreaLocal():
 
 
 def sumifuArea(request):
-    print("start area")
+    logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseSumifuAreaFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end area")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end area")
     return result
 
 
@@ -191,16 +195,16 @@ def sumifuPropertyListLocal():
 
 
 def sumifuPropertyList(request):
-    print("start propertyList")
+    logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseSumifuListFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyList")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyList")
     return result
 
 
@@ -210,41 +214,43 @@ def sumifuPropertyDetailLocal():
 
     
 def sumifuPropertyDetail(request):
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseSumifuDetailFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyDetail")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyDetail")
     return result
 
 
 @app.route(API_KEY_SUMIFU_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuPropertyDetailTest():
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     url = "https://www.stepon.co.jp/mansion/detail_19273047/"
     obj = ParseSumifuDetailFuncAsync()
     result = obj.main(url)
-    print("end propertyDetail")
+    logging.info("end propertyDetail")
     return result
+
+
 ###################################################
 # tokyu
 ###################################################
 @app.route(API_KEY_TOKYU_START, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuStart():
-    print("start")
+    logging.info("start")
     obj = ParseTokyuStartAsync()
     url = "https://www.livable.co.jp/kounyu/chuko-mansion/select-area/"
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end")
     return result
 
 
@@ -254,16 +260,16 @@ def tokyuAreaLocal():
 
 
 def tokyuArea(request):
-    print("start area")
+    logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseTokyuAreaFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end area")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end area")
     return result
 
 
@@ -273,16 +279,16 @@ def tokyuPropertyListLocal():
 
 
 def tokyuPropertyList(request):
-    print("start propertyList")
+    logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseTokyuListFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyList")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyList")
     return result
 
 
@@ -292,22 +298,22 @@ def tokyuPropertyDetailLocal():
 
 
 def tokyuPropertyDetail(request):
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     obj = ParseTokyuDetailFuncAsync()
     try:
         result = obj.main(url)
-    except Exception as e:
-        print(traceback.format_exc())
-        raise e
-    print("end propertyDetail")
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500;
+    logging.info("end propertyDetail")
     return result
 
 
 @app.route(API_KEY_TOKYU_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuPropertyDetailTest():
-    print("start propertyDetail")
+    logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
     obj = ParseTokyuDetailFuncAsync()
@@ -319,7 +325,7 @@ def tokyuPropertyDetailTest():
     obj.main(url)    
     url = "https://www.livable.co.jp/mansion/CXW202010/"  # 内法
     result = obj.main(url)
-    print("end propertyDetail")
+    logging.info("end propertyDetail")
     return result
 
 
@@ -331,6 +337,9 @@ def seriouslykill():
     func()
     return "Shutting down..."
 
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    #logging.basicConfig(filename='flask' + datetime.now().strftime('%Y%m%d_%H%M%S') + ".log", level=logging.INFO)
     if not os.getenv('IS_CLOUD', ''):
         app.run(host='0.0.0.0', port=8000, debug=True)

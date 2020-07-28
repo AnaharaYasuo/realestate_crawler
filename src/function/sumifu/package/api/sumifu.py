@@ -13,10 +13,10 @@ class ParseSumifuDetailFuncAsync(ParseDetailPageAsyncBase):
         return SumifuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 3
+        return 10
 
     def _getCloudPararellLimit(self):
-        return 3
+        return 10
 
     def _getTimeOutSecond(self):
         return 60
@@ -42,7 +42,7 @@ class ParseSumifuListFuncAsync(ParseMiddlePageAsyncBase):
         return 2
 
     def _getTimeOutSecond(self):
-        return 300
+        return 60
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -59,10 +59,10 @@ class ParseSumifuAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 3
+        return 2
 
     def _getCloudPararellLimit(self):
-        return 3
+        return 2
 
     def _getTimeOutSecond(self):
         return 1200
@@ -82,13 +82,13 @@ class ParseSumifuRegionFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRegionPage
 
     def _getLocalPararellLimit(self):
-        return 4
+        return 2
 
     def _getCloudPararellLimit(self):
-        return 4
+        return 2
 
     def _getTimeOutSecond(self):
-        return 1200
+        return 2400
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -110,27 +110,30 @@ class ParseSumifuStartAsync(ApiAsyncProcBase):
         return SumifuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 8
+        return 2
 
     def _getCloudPararellLimit(self):
-        return 8
+        return 2
 
     def _getTimeOutSecond(self):
-        return 1800
+        return 2400
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
             return API_KEY_SUMIFU_REGION_GCP
         return API_KEY_SUMIFU_REGION
-    
+
+    def _callApi(self):
+        return None
+
     async def _treatPage(self, _session, *arg):
         tasks = []
         _timeout = self._generateTimeout()
 
         for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._bound_fetch(session=_session, detailUrl=_detailUrl))
+            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
-        responses = await asyncio.gather(*tasks)
+        responses = await asyncio.gather(*tasks, loop=self._getActiveEventLoop())
         return responses
 
     def _getTreatPageArg(self):

@@ -10,7 +10,8 @@ from concurrent.futures._base import TimeoutError
 from package.parser.baseParser import LoadPropertyPageException, \
     ReadPropertyNameException, ParserBase
 from bs4.element import NavigableString, Tag
-        
+import logging
+
 
 class TokyuMansionParser(ParserBase):
 
@@ -68,7 +69,7 @@ class TokyuMansionParser(ParserBase):
             destUrl = response.xpath(getXpath())
             return destUrl
 
-        print("getPropertyListNextPageUrl")
+        logging.info("getPropertyListNextPageUrl")
         linkUrlList = response.xpath(getNextPageXpath())
         if (len(linkUrlList) > 0):
             linkUrl = linkUrlList[0]
@@ -87,8 +88,8 @@ class TokyuMansionParser(ParserBase):
         except (ReadPropertyNameException) as e:
             raise e
         except Exception as e:
-            print('Detail parse error:' + url)
-            print(traceback.format_exc())
+            logging.error('Detail parse error:' + url)
+            logging.error(traceback.format_exc())
             raise e
         return item
     
@@ -105,10 +106,10 @@ class TokyuMansionParser(ParserBase):
                 try:
                     tdValue = tr.find_all("dd")[j].contents[0]
                     tdValue = tdValue.strip()
-                    # print("tdValue is " + tdValue + ". thTitle is " + thTitle)
+                    # logging.info("tdValue is " + tdValue + ". thTitle is " + thTitle)
                 except:
                     tdValue = ""
-                    print("error. tdValue is empty. thTitle is " + thTitle)
+                    logging.warn("error. tdValue is empty. thTitle is " + thTitle)
 
                 if thTitle == u"価格":
                     tdValue = tr.find("dd").find("p").find("span").text
@@ -138,7 +139,7 @@ class TokyuMansionParser(ParserBase):
                     
                 if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
                     item.kaisu = tdValue
-                    item.floorType_kai = int(item.kaisu.split(u"階・")[0].split(u"階 / ")[0].replace(u"地下", "-"))  # 新規項目
+                    item.floorType_kai = int(item.kaisu.split(u"階・")[0].split(u"階 / ")[0].replace(u"地下", "-").strip())  # 新規項目
                     item.floorType_chijo = int(item.kaisu.split(u"地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
                     floorType_chika = 0
                     if(len(item.kaisu.split(u" 地下")) > 1):
@@ -232,6 +233,12 @@ class TokyuMansionParser(ParserBase):
                                 railwayWalkMinute = 0
                                 busStation = value.split(u"「")[1].split(u"」")[0]
                                 busWalkMinuteStr = value.split(u"下車 ")[1]
+                                busWalkMinute = int(busWalkMinuteStr.replace(u"徒歩", "").replace(u"分", ""))
+                            elif(value.find(u"「") > -1):  # 福知山線 「新三田」駅 「中央公園前」下車 徒歩1分
+                                railwayWalkMinuteStr = ""
+                                railwayWalkMinute = 0
+                                busStation = value.split(u"「")[1].split(u"」")[0].strip()
+                                busWalkMinuteStr = value.split(u"下車 ")[1].strip()
                                 busWalkMinute = int(busWalkMinuteStr.replace(u"徒歩", "").replace(u"分", ""))
                             else:  # 京都市烏丸線 「烏丸御池」駅 徒歩6分
                                 railwayWalkMinuteStr = value

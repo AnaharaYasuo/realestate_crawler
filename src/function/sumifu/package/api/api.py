@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from django.db.utils import OperationalError
 from builtins import Exception
 from time import sleep
+import logging
 
 API_KEY_ALL_START = '/api/all/mansion/start'
 API_KEY_MITSUI_START = '/api/mitsui/mansion/start'
@@ -84,12 +85,32 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         apiUrl = self._getUrl() + self._getApiKey()
         return apiUrl
 
+    async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):       
+        await self.semaphore.acquire()
+        try:
+            async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
+                try:
+                    return await self._fetch(_session, detailUrl, apiUrl, loop)
+                finally:
+                    if _session is not None:
+                        await _session.close()
+        finally:
+            self.semaphore.release()
+            
+#        with await self.semaphore:
+#            async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
+#                try:
+#                    return await self._fetch(_session, detailUrl, apiUrl, loop)
+#                finally:
+#                    if _session is not None:
+#                        await _session.close()
+
     async def _fetch(self, session, detailUrl, apiUrl, loop):
         _timeout = self._generateTimeout()
         post_json_data = json.dumps('{"url":"' + detailUrl + '"}').encode("utf-8")
         try:
             response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-        except (asyncio.TimeoutError, TimeoutError, aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
+        except (aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
             sleep(10000)
             _connector = self._generateConnector(self._getActiveEventLoop())
             async with aiohttp.ClientSession(loop=loop, connector=_connector, timeout=_timeout) as retrySession:
@@ -100,40 +121,33 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                         await retrySession.close()
                     if _connector is not None:
                         await _connector.close()
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            logging.error("call api timeout error:" + detailUrl)
+            raise e
         except Exception as e:
-            print("fetch error:" + detailUrl)
-            print(traceback.format_exc())
+            logging.error("fetch error:" + detailUrl)
             raise e
         return await self._proc_response(detailUrl, response)
     
-    async def _bound_fetch(self, session, detailUrl):
-        # async with
-        # __aenter__がasync with ブロックを呼んだ直後に呼ばれる
-        # __aexit__がasync with ブロックを抜けた直後に呼ばれる
-        with await self.semaphore:
-            loop = self._getActiveEventLoop()
-            return await self._fetch(session, detailUrl, self._getApiUrl(), loop)
-
     async def _proc_response(self, url, response):
         return url, response.status, await response.text()
 
     async def _run(self, _url):
-        responses = None
         _loop = self._getActiveEventLoop()
         _timeout = self._generateTimeout()
         _connector = self._generateConnector(_loop)
+        urlList = []
         async with aiohttp.ClientSession(loop=_loop, connector=_connector, timeout=_timeout) as session:
             try:
-                responses = await self._treatPage(session, self._getTreatPageArg())
+                urlList = await self._treatPage(session, self._getTreatPageArg())
             except Exception as e:
-                print(traceback.format_exc())
-                print(e)
+                raise e
             finally:
                 if session is not None:
                     await session.close()
                 if _connector is not None:
                     await _connector.close()
-        return responses
+        return await self._callApi(urlList)
     
     def _afterRunProc(self, runResult):
         pass
@@ -144,8 +158,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             loop = self._getActiveEventLoop();
             futures = asyncio.gather(*[self._run(url)], loop=loop)
             runResult = loop.run_until_complete(futures)
-        except:
-            return "error end", 500;
+        except Exception as e:
+            raise e
         finally:
             loop.close()
         self._afterRunProc(runResult)
@@ -185,36 +199,54 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getTreatPageArg(self):
         pass
 
+    @abstractmethod
+    async def _callApi(self, urlList):
+        pass
+
 
 # urlを受け取って、そのページから更にドリルダウン先を呼び出す場合の基底クラス
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _treatPage(self, _session, *arg):
-        tasks = []
         response = await self._generateParser().getResponse(_session, self.url, self.parser.getCharset())
 
+        detailUrlList = []
         try:
             parserFunc = self._getParserFunc()
             async for detailUrl in parserFunc(response):
-                # colo = self._fetch(session=_session, detailUrl=detailUrl, apiUrl=self._getApiUrl(), loop=self._getActiveEventLoop())
-                colo = self._bound_fetch(session=_session, detailUrl=detailUrl)
-                # task = asyncio.ensure_future(colo)
-                task = asyncio.create_task(colo)
-                tasks.append(task)
+                detailUrlList.append(detailUrl)
         finally:
             # 次のページを開く
             parserNextFunc = self._getNextPageParserFunc()
             if parserNextFunc is not None:
                 nextPageUrl = await parserNextFunc(response)
                 if len(nextPageUrl) > 0:
-                    asyncio.ensure_future(self._fetch(session=_session, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget                
-            
-        responses = await asyncio.gather(*tasks)
+                    async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
+                        try:
+                            task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
+                            # task = asyncio.ensure_future(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
+                            sleep(3)
+                        finally:
+                            if not (task is None or task.cancelled() or task.done()):
+                                task.cancel()
+                            if anotherSession is not None:
+                                await anotherSession.close()
 
-        return responses
+        return detailUrlList
 
     def _getTreatPageArg(self):
         return 
+
+    async def _callApi(self, urlList):
+        tasks = []
+        loop = self._getActiveEventLoop()
+        for detailUrl in urlList:
+            colo = self._fetchWithEachSession(detailUrl, self._getApiUrl(), loop)
+            task = asyncio.create_task(colo)
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks, loop=self._getActiveEventLoop())
+        return responses
 
     @abstractmethod
     def _getParserFunc(self):
@@ -230,41 +262,64 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 # 物件詳細ページのurlを受け取って、そのページ内の物件情報を取得、保存する場合の基底クラス
 class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
+    async def _run(self, _url):
+        _loop = self._getActiveEventLoop()
+        _timeout = self._generateTimeout()
+        _connector = self._generateConnector(_loop)
+        async with aiohttp.ClientSession(loop=_loop, connector=_connector, timeout=_timeout) as session:
+            try:
+                item = await self._treatPage(session, self._getTreatPageArg())
+            except Exception as e:
+                logging.error(traceback.format_exc())
+                logging.error(e)
+                item = None
+            finally:
+                if session is not None:
+                    await session.close()
+                if _connector is not None:
+                    await _connector.close()
+        return item
+
     async def _treatPage(self, _session, *arg):
 
-        async def getItem(_timeout):
+        async def getItem():
             item = None
             _connector = self._generateConnector(self._getActiveEventLoop())
-            with await self.semaphore:
-                async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=_connector, timeout=_timeout) as dtlSession:
+            await self.semaphore.acquire()
+            try:
+            #with await self.semaphore:
+                async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtlSession:
                     try:
                         item = await self.parser.parsePropertyDetailPage(session=dtlSession, url=self.url)
                     except ReadPropertyNameException:
                         item = None
-                        print("None get item")
+                        logging.warn("None get item")
                     except Exception as e:
-                        print(traceback.format_exc())
-                        print("exception get item")
+                        logging.error("exception get item")
                         raise e
                     finally:
                         if dtlSession is not None:
                             await dtlSession.close()
                         if _connector is not None:
                             await _connector.close()
+            finally:
+                self.semaphore.release()
             return item
 
-        _timeout = self._generateTimeout()
         retry = False
         item = None
         try:
-            item = await getItem(_timeout)
+            item = await getItem()
         except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError):
             retry = True
         except :
-            print("get item exception")
+            logging.error("get item exception")
         if retry:
-            print("get item retry")
-            item = await getItem(_timeout)
+            logging.info("get item retry")
+            try:
+                item = await getItem()
+            except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError):
+                logging.error("get item exception")
 
         if item is not None:
             currentTime = datetime.datetime.now()
@@ -277,12 +332,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     def _getTreatPageArg(self):
         return 
     
+    async def _callApi(self, urlList):
+        return
+    
     def _afterRunProc(self, runResult):
 
         def _save(item):
             item.save(False, False, None, None)
-            print(item.propertyName + ":" + item.pageUrl)
+            logging.info("saved:" + item.propertyName + ":" + item.pageUrl)
 
+        logging.info("start afterRunProc")
         for item in runResult:
             if item is not None:
                 try:
@@ -291,6 +350,5 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     sleep(30000);  # u30秒待機
                     _save(item)
                 except (Exception, ValidationError) as e:
-                    print("save error " + item.propertyName + ":" + item.pageUrl)
-                    print(traceback.format_exc())
-                    print(e)
+                    logging.error("save error " + item.propertyName + ":" + item.pageUrl)
+                    raise e

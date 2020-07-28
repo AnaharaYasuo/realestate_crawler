@@ -10,13 +10,13 @@ class ParseMitsuiDetailFuncAsync(ParseDetailPageAsyncBase):
         return MitsuiMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 3
+        return 16
 
     def _getCloudPararellLimit(self):
-        return 3
+        return 16
 
     def _getTimeOutSecond(self):
-        return 60
+        return 15
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -38,7 +38,7 @@ class ParseMitsuiListFuncAsync(ParseMiddlePageAsyncBase):
         return 3
 
     def _getTimeOutSecond(self):
-        return 300
+        return 360
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -55,13 +55,13 @@ class ParseMitsuiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 5
+        return 2
 
     def _getCloudPararellLimit(self):
-        return 5
+        return 2
 
     def _getTimeOutSecond(self):
-        return 1800
+        return 2400
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
@@ -77,13 +77,13 @@ class ParseMitsuiStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 8
+        return 2
 
     def _getCloudPararellLimit(self):
-        return 8
+        return 2
 
     def _getTimeOutSecond(self):
-        return 1800
+        return 2400
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):

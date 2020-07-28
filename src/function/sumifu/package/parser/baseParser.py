@@ -14,13 +14,13 @@ from time import sleep
 class ReadPropertyNameException(Exception):
 
     def __init__(self):
-        print('Can not read property name')
+        logging.info('Can not read property name')
 
 
 class LoadPropertyPageException(Exception):
 
     def __init__(self):
-        print('Can not load property page')
+        logging.info('Can not load property page')
 
 
 class ParserBase(metaclass=ABCMeta):
@@ -33,8 +33,8 @@ class ParserBase(metaclass=ABCMeta):
         linklist = response.xpath(getXpath())
         for linkUrl in linklist:
             destUrl = getDestUrl(linkUrl)
-            logging.info(destUrl)
-            yield destUrl        
+            logging.debug(destUrl)
+            yield destUrl
 
     async def parsePage(self, session, url, getXpath , getDestUrl):
         response = await self.getResponse(session, url, self.getCharset())        
@@ -64,10 +64,10 @@ class ParserBase(metaclass=ABCMeta):
             content = await r.content.read()
             return  content
         except aiohttp.ClientError as e:
-            print(traceback.format_exc())
+            logging.error(traceback.format_exc())
             raise e
         except (Exception) as e:
-            print(traceback.format_exc())
+            logging.error(traceback.format_exc())
             raise e
             
     async def getResponse(self, session, url, charset=None):
