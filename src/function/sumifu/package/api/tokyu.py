@@ -86,7 +86,7 @@ class ParseTokyuStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 5
 
     def _getCloudPararellLimit(self):
         return 2

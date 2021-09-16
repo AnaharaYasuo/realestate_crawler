@@ -1,4 +1,5 @@
 import os
+import logging
 from package.api.api import API_KEY_SUMIFU_DETAIL, API_KEY_SUMIFU_REGION, API_KEY_SUMIFU_AREA, API_KEY_SUMIFU_START, API_KEY_SUMIFU_LIST, \
     API_KEY_MITSUI_START, API_KEY_MITSUI_AREA, API_KEY_MITSUI_LIST, \
     API_KEY_MITSUI_DETAIL, API_KEY_MITSUI_DETAIL_TEST, API_KEY_TOKYU_START, \
@@ -8,7 +9,8 @@ from package.api.api import API_KEY_SUMIFU_DETAIL, API_KEY_SUMIFU_REGION, API_KE
 import json
 import realestateSettings
 import traceback
-from _datetime import datetime
+from asyncio import AbstractEventLoop
+#from _datetime import datetime
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
 from package.api.mitsui import ParseMitsuiStartAsync, ParseMitsuiAreaFuncAsync, ParseMitsuiListFuncAsync, ParseMitsuiDetailFuncAsync
 from package.api.sumifu import ParseSumifuStartAsync, ParseSumifuRegionFuncAsync, ParseSumifuAreaFuncAsync, ParseSumifuListFuncAsync, ParseSumifuDetailFuncAsync
@@ -16,8 +18,6 @@ from package.api.tokyu import ParseTokyuStartAsync, ParseTokyuAreaFuncAsync, \
     ParseTokyuListFuncAsync, ParseTokyuDetailFuncAsync
 
 from flask import Flask, request
-import logging
-
 app = Flask(__name__)
 
 # cloud functionsとComputeEngineはサーバーレスVPCで接続
@@ -54,7 +54,7 @@ def mitsuiStart():
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end")
     return result
 
@@ -73,7 +73,7 @@ def mitsuiArea(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end area")
     return result
 
@@ -92,7 +92,7 @@ def mitsuiPropertyList(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyList")
     return result
 
@@ -113,7 +113,7 @@ def mitsuiPropertyDetail(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyDetail")
     return result
 
@@ -145,9 +145,9 @@ def sumifuStart():
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end")
-    
+
     return result
 
 
@@ -165,7 +165,7 @@ def sumifuRegion(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end region")
     return result
 
@@ -184,7 +184,7 @@ def sumifuArea(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end area")
     return result
 
@@ -203,7 +203,7 @@ def sumifuPropertyList(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyList")
     return result
 
@@ -212,7 +212,7 @@ def sumifuPropertyList(request):
 def sumifuPropertyDetailLocal():
     return sumifuPropertyDetail(request)
 
-    
+
 def sumifuPropertyDetail(request):
     logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
@@ -222,7 +222,7 @@ def sumifuPropertyDetail(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyDetail")
     return result
 
@@ -249,7 +249,7 @@ def tokyuStart():
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end")
     return result
 
@@ -268,7 +268,7 @@ def tokyuArea(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end area")
     return result
 
@@ -287,7 +287,7 @@ def tokyuPropertyList(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyList")
     return result
 
@@ -306,7 +306,7 @@ def tokyuPropertyDetail(request):
         result = obj.main(url)
     except:
         logging.error(traceback.format_exc())
-        return "error end", 500;
+        return "error end", 500
     logging.info("end propertyDetail")
     return result
 
@@ -322,7 +322,7 @@ def tokyuPropertyDetailTest():
     url = "https://www.livable.co.jp/mansion/C11207001/"
     obj.main(url)
     url = "https://www.livable.co.jp/mansion/CZW206A54/"  # バスあり
-    obj.main(url)    
+    obj.main(url)
     url = "https://www.livable.co.jp/mansion/CXW202010/"  # 内法
     result = obj.main(url)
     logging.info("end propertyDetail")
@@ -339,7 +339,8 @@ def seriouslykill():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    AbstractEventLoop.set_debug()
+    logging.basicConfig(level=logging.INFO,filename="flask.log")
     #logging.basicConfig(filename='flask' + datetime.now().strftime('%Y%m%d_%H%M%S') + ".log", level=logging.INFO)
     if not os.getenv('IS_CLOUD', ''):
         app.run(host='0.0.0.0', port=8000, debug=True)

@@ -110,10 +110,10 @@ class ParseSumifuStartAsync(ApiAsyncProcBase):
         return SumifuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 5
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 5
 
     def _getTimeOutSecond(self):
         return 2400

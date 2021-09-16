@@ -61,7 +61,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def __init__(self):
         self.parser = self._generateParser()
         self._getActiveEventLoop()
-        self.semaphore = asyncio.Semaphore(value=self._getPararellLimit(), loop=self._loop)
+        self.semaphore = asyncio.Semaphore(
+            value=self._getPararellLimit(), loop=self._loop)
 
     def _getActiveEventLoop(self):
         if (self._loop is None or self._loop.is_closed()):
@@ -71,7 +72,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def _generateConnector(self, _loop):
         return aiohttp.TCPConnector(loop=_loop, limit=40, ssl=False)
-    
+
     def _generateTimeout(self):
         _total = self._getTimeOutSecond()
         return aiohttp.ClientTimeout(total=_total)
@@ -85,7 +86,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         apiUrl = self._getUrl() + self._getApiKey()
         return apiUrl
 
-    async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):       
+    async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):
         await self.semaphore.acquire()
         try:
             async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
@@ -96,7 +97,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                         await _session.close()
         finally:
             self.semaphore.release()
-            
+
 #        with await self.semaphore:
 #            async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
 #                try:
@@ -107,7 +108,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     async def _fetch(self, session, detailUrl, apiUrl, loop):
         _timeout = self._generateTimeout()
-        post_json_data = json.dumps('{"url":"' + detailUrl + '"}').encode("utf-8")
+        post_json_data = json.dumps(
+            '{"url":"' + detailUrl + '"}').encode("utf-8")
         try:
             response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
         except (aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
@@ -128,7 +130,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             logging.error("fetch error:" + detailUrl)
             raise e
         return await self._proc_response(detailUrl, response)
-    
+
     async def _proc_response(self, url, response):
         return url, response.status, await response.text()
 
@@ -148,22 +150,22 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 if _connector is not None:
                     await _connector.close()
         return await self._callApi(urlList)
-    
+
     def _afterRunProc(self, runResult):
         pass
-    
+
     def main(self, url):
         self.url = url
         try:
-            loop = self._getActiveEventLoop();
+            loop = self._getActiveEventLoop()
             futures = asyncio.gather(*[self._run(url)], loop=loop)
             runResult = loop.run_until_complete(futures)
         except Exception as e:
             raise e
-        finally:
-            loop.close()
+        # finally:
+            # loop.close()
         self._afterRunProc(runResult)
-        return "finish", 200;
+        return "finish", 200
 
     def _getPararellLimit(self):
         pararellLimit = self._getLocalPararellLimit()
@@ -190,7 +192,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     @abstractmethod
     def _getApiKey(self):
         pass
-    
+
     @abstractmethod
     async def _treatPage(self, _session, *arg):
         pass
@@ -223,7 +225,8 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 if len(nextPageUrl) > 0:
                     async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
                         try:
-                            task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
+                            task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
+                            ) + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
                             # task = asyncio.ensure_future(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
                             sleep(3)
                         finally:
@@ -235,13 +238,14 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         return detailUrlList
 
     def _getTreatPageArg(self):
-        return 
+        return
 
     async def _callApi(self, urlList):
         tasks = []
         loop = self._getActiveEventLoop()
         for detailUrl in urlList:
-            colo = self._fetchWithEachSession(detailUrl, self._getApiUrl(), loop)
+            colo = self._fetchWithEachSession(
+                detailUrl, self._getApiUrl(), loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 
@@ -287,7 +291,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             _connector = self._generateConnector(self._getActiveEventLoop())
             await self.semaphore.acquire()
             try:
-            #with await self.semaphore:
+                # with await self.semaphore:
                 async with aiohttp.ClientSession(loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtlSession:
                     try:
                         item = await self.parser.parsePropertyDetailPage(session=dtlSession, url=self.url)
@@ -312,7 +316,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             item = await getItem()
         except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError):
             retry = True
-        except :
+        except:
             logging.error("get item exception")
         if retry:
             logging.info("get item retry")
@@ -330,11 +334,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         return item
 
     def _getTreatPageArg(self):
-        return 
-    
+        return
+
     async def _callApi(self, urlList):
         return
-    
+
     def _afterRunProc(self, runResult):
 
         def _save(item):
@@ -347,8 +351,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 try:
                     _save(item)
                 except (OperationalError) as e:  # too many connection
-                    sleep(30000);  # u30秒待機
+                    sleep(30000)  # u30秒待機
                     _save(item)
                 except (Exception, ValidationError) as e:
-                    logging.error("save error " + item.propertyName + ":" + item.pageUrl)
+                    logging.error("save error " +
+                                  item.propertyName + ":" + item.pageUrl)
                     raise e
