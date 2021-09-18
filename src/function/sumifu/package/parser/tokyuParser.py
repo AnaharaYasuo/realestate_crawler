@@ -160,9 +160,9 @@ class TokyuMansionParser(ParserBase):
                     item.chikunengetsu = datetime.date(nen, tsuki, 1)
 
                 if thTitle == u"所在地":
-                    item.address1 = tr.find("dd").find_all("a")[0].find("span").text  # 新規項目
-                    item.address2 = tr.find("dd").find_all("a")[1].find("span").text
-                    item.address3 = tr.find("dd").find_all("a")[2].find("span").text
+                    item.address1 = tr.find("dd").find_all("a")[0].text  # 新規項目
+                    item.address2 = tr.find("dd").find_all("a")[1].text
+                    item.address3 = tr.find("dd").find_all("a")[2].text
                     item.addressKyoto = ""  # 不要
                     item.address = item.address1 + item.address2 + item.address3
 

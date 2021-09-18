@@ -317,13 +317,14 @@ def tokyuPropertyDetailTest():
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
     obj = ParseTokyuDetailFuncAsync()
-    url = "https://www.livable.co.jp/mansion/CVI207001/"  # メゾネット
-    obj.main(url)
-    url = "https://www.livable.co.jp/mansion/C11207001/"
-    obj.main(url)
-    url = "https://www.livable.co.jp/mansion/CZW206A54/"  # バスあり
-    obj.main(url)
-    url = "https://www.livable.co.jp/mansion/CXW202010/"  # 内法
+    #url = "https://www.livable.co.jp/mansion/CVI207001/"  # メゾネット
+    #obj.main(url)
+    #url = "https://www.livable.co.jp/mansion/C11207001/"
+    #obj.main(url)
+    #url = "https://www.livable.co.jp/mansion/CZW206A54/"  # バスあり
+    #obj.main(url)
+    #url = "https://www.livable.co.jp/mansion/CXW202010/"  # 内法
+    url = "https://www.livable.co.jp/mansion/CZY219M09/"
     result = obj.main(url)
     logging.info("end propertyDetail")
     return result
