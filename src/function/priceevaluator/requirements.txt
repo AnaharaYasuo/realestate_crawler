@@ -66,7 +66,7 @@ python-dateutil==2.8.2
 pytz==2020.1
 pywin32==301
 pywinpty==1.1.4
-PyYAML==5.3.1
+PyYAML==5.4
 pyzmq==22.3.0
 requests==2.23.0
 Send2Trash==1.8.0
