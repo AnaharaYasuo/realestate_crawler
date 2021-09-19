@@ -161,9 +161,11 @@ class DataOrganizer():
         display(X_score)
         display(X_score.info())
         display(X_score.dtypes)
-        for val in X_score.columns:
-            display(type(val))
-            display(val)
+        showDetail=False
+        if showDetail:
+            for val in X_score.columns:
+                display(type(val))
+                display(val)
         display(X_score.describe())
 
         return X_model,X_score
