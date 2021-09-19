@@ -6,6 +6,7 @@ from sklearn.feature_selection import RFECV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split # データセット分割用
 import lightgbm as lgb #LightGBM
+from IPython.display import display
 
 # 表示列数のオプション変更
 pd.options.display.max_columns = 500

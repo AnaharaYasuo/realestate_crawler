@@ -4,6 +4,7 @@ import ipywidgets as widgets
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import KFold
 from sklearn.model_selection import cross_validate
+from IPython.display import display
 
 class RegressionEvaluator():
     def __init__(self):

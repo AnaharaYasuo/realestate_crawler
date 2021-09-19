@@ -1,3 +1,4 @@
+import numpy as np
 from hyperopt import fmin, tpe, STATUS_OK, STATUS_FAIL, Trials
 
 # 分類モデルの評価指標計算のための関数の読込
@@ -26,6 +27,7 @@ from sklearn.ensemble import BaseEnsemble
 import traceback
 
 from abc import ABCMeta
+from IPython.display import display
 class HyperOptRegressor(RegressorMixin, BaseEnsemble, metaclass=ABCMeta):
 
     def __init__(self):

@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import japanize_matplotlib #日本語化matplotlib
 from sklearn.model_selection import cross_val_predict
 from hyperopt import hp
+from IPython.display import display
 
 class EstimateRankingMaker():
     def __displayFeatureImportance(self,est,X):       
