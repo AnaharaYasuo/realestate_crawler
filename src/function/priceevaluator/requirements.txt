@@ -78,7 +78,7 @@ testpath==0.5.0
 toml==0.10.2
 tornado==6.1
 traitlets==5.1.0
-urllib3==1.25.9
+urllib3==1.26.5
 wcwidth==0.2.5
 webencodings==0.5.1
 Werkzeug==1.0.1
