@@ -340,7 +340,6 @@ def seriouslykill():
 
 
 if __name__ == "__main__":
-    AbstractEventLoop.set_debug()
     logging.basicConfig(level=logging.INFO,filename="flask.log")
     #logging.basicConfig(filename='flask' + datetime.now().strftime('%Y%m%d_%H%M%S') + ".log", level=logging.INFO)
     if not os.getenv('IS_CLOUD', ''):

@@ -161,8 +161,8 @@ class DataOrganizer():
         display(X_score)
         display(X_score.info())
         display(X_score.dtypes)
-        showDetail=False
-        if showDetail:
+        showDetailVal=False
+        if showDetailVal:
             for val in X_score.columns:
                 display(type(val))
                 display(val)
@@ -174,12 +174,44 @@ class DataOrganizer():
     def _getImputedData(self,X_model,X_score):
         display('start _getImputedData')
         imp = SimpleImputer()
-        imp.fit(X_model)
+        #imp.fit(X_model)
         display('start Impute')
         display(X_model.head())
+        X_modelResult=None
+        X_scoreResult=None
+        tempColumns=[]
         #X_model = pd.DataFrame(imp.transform(X_model),index=X_model.index.values.tolist())
-        X_model = pd.DataFrame(imp.transform(X_model),columns=X_model.columns.values,index=X_model.index.values.tolist())
-        X_score = pd.DataFrame(imp.transform(X_score),columns=X_model.columns.values,index=X_score.index.values.tolist())
+        for i,targetColumn in enumerate(X_model.columns.values):
+            tempColumns.append(targetColumn)
+            if not ((i+1) % 1000 !=0 and (i+1)!=len(X_model.columns.values)) :#1000列づつ処理
+                X_modelTemp = X_model[tempColumns]
+                X_scoreTemp = X_score[tempColumns]
+                imp.fit(X_modelTemp)
+                X_modelTemp = pd.DataFrame(imp.transform(X_modelTemp),columns=tempColumns,index=X_model.index.values.tolist())
+                X_scoreTemp = pd.DataFrame(imp.transform(X_scoreTemp),columns=tempColumns,index=X_score.index.values.tolist())
+                if X_modelResult is None:
+                    X_modelResult=X_modelTemp
+                    X_scoreResult=X_scoreTemp
+                else:
+                    X_modelResult=pd.concat((X_modelResult,X_modelTemp),axis=1)
+                    X_scoreResult=pd.concat((X_scoreResult,X_scoreTemp),axis=1)
+                    #X_modelResult[targetColumn] = X_modelTemp[targetColumn]
+                    #X_scoreResult[targetColumn] = X_scoreTemp[targetColumn]
+                    #X_modelResult=pd.merge(X_modelResult, X_modelTemp, on=X_model.index.name, how="inner")
+                    #X_scoreResult=pd.merge(X_scoreResult, X_scoreTemp, on=X_score.index.name, how="inner")
+                tempColumns=[]
+        cols_model = set(X_model.columns.values)
+        cols_result = set(X_modelResult.columns.values)
+
+        lackCol = cols_model - cols_result
+        display('減ってしまった項目: %s' % lackCol)
+
+        print("X_model column count:"+str(len(X_model.columns.values)))
+        print("X_modelResult column count:"+str(len(X_modelResult.columns.values)))
+        X_model = X_modelResult
+        X_score = X_scoreResult
+        #X_model = pd.DataFrame(imp.transform(X_model),columns=X_model.columns.values,index=X_model.index.values.tolist())
+        #X_score = pd.DataFrame(imp.transform(X_score),columns=X_model.columns.values,index=X_score.index.values.tolist())
         return X_model,X_score
 
     #データを確認

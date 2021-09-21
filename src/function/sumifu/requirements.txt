@@ -1,5 +1,5 @@
 aiohttp==3.7.4
-asgiref==3.2.7
+asgiref==3.2.10
 async-timeout==3.0.1
 attrs==19.3.0
 beautifulsoup4==4.9.1
@@ -17,7 +17,7 @@ lxml==4.6.3
 MarkupSafe==1.1.1
 multidict==4.7.6
 mysql-connector==2.2.9
-mysqlclient==1.4.6
+mysqlclient @ file:///D:/Users/anaharayasuo/Downloads/mysqlclient-1.4.6-cp39-cp39-win_amd64.whl
 packaging==20.4
 pyparsing==2.4.7
 pytz==2020.1
@@ -26,6 +26,7 @@ requests==2.23.0
 six==1.15.0
 soupsieve==2.0.1
 sqlparse==0.3.1
-urllib3==1.26.5
+typing-extensions==3.10.0.2
+urllib3==1.25.11
 Werkzeug==1.0.1
 yarl==1.4.2
