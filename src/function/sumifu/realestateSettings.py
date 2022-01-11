@@ -11,7 +11,7 @@ def configure():
                         'NAME': 'real_estate',
                         'USER': 'sumifu',
                         'PASSWORD': 'mayumimayumi0413',
-                        'HOST': '10.128.0.2',
+                        'HOST': '10.128.0.17',
                         'PORT': '13306',
                     }
                 }
@@ -27,7 +27,7 @@ def configure():
                         'NAME': 'real_estate',
                         'USER': 'sumifu',
                         'PASSWORD': 'mayumimayumi0413',
-                        'HOST': '35.226.184.250',
+                        'HOST': '35.226.116.161',
                         'PORT': '13306',
                     }
                 }
