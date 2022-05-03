@@ -156,6 +156,7 @@ targetColumn="minPrice_p_heibei"
 #              ,'nouzei_person_sum','syotoku_sum','syotoku_sum_p_area','syotoku_sum_p_person','chouki_jouto','chouki_jouto_p_person','tanki_jouto','tanki_jouto_p_person','kabu_ippan_jouto','kabu_ippan_jouto_p_person','kabu_jojo_jouto','kabu_jojo_jouto_p_person','kabu_jojo_haito','kabu_jojo_haito_p_person','sakimono','sakimono_p_person','kazei_taisyou','kazei_taisyou_p_person','kazei_hyojyun','kazei_hyojyun_p_person','syotoku_wari','syotoku_wari_p_person'
 #              ,'JINKO_dtl','SETAI_dtl','busStation1','madori']
 unusedColumns=['genkyo','minPrice','maxPrice','minInputDate','maxInputDate','propertyName','address','busStation1','busStation2','busStation3','busStation4','busStation5','busWalkMinute2','busWalkMinute3','busWalkMinute4','busWalkMinute5'
+              ,'nouzei_person_sum','syotoku_sum','syotoku_sum_p_area','chouki_jouto','tanki_jouto','kabu_ippan_jouto','kabu_jojo_haito','sakimono','kazei_taisyou','kazei_hyojyun','syotoku_wari'
               ,'railway2','railway3','railway4','railway5','railwayWalkMinute2','railwayWalkMinute3','railwayWalkMinute4','railwayWalkMinute5','station2','station3','station4','station5','transfer1','transfer2','transfer3','transfer4','transfer5']#リーク＆クラッシュするので
 categoryColumns=[]
 min_features_to_select=[10,15,20]

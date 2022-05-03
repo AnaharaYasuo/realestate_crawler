@@ -4,7 +4,9 @@ import os
 import json
 import traceback
 from abc import ABCMeta, abstractmethod
-from package.parser.baseParser import LoadPropertyPageException, \
+
+from bs4 import BeautifulSoup
+from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
     ReadPropertyNameException
 import datetime
 from django.core.exceptions import ValidationError
@@ -17,40 +19,68 @@ ua = UserAgent()
 header = {'User-Agent': str(ua.chrome)}
 
 
-API_KEY_ALL_START = '/api/all/mansion/start'
-API_KEY_MITSUI_START = '/api/mitsui/mansion/start'
-API_KEY_MITSUI_START_GCP = '/sumifu_mansion_start'
-API_KEY_MITSUI_AREA = '/api/mitsui/mansion/area'
-API_KEY_MITSUI_AREA_GCP = '/mitsui_mansion_area'
-API_KEY_MITSUI_LIST = '/api/mitsui/mansion/list'
-API_KEY_MITSUI_LIST_GCP = '/mitsui_mansion_list'
-API_KEY_MITSUI_DETAIL = '/api/mitsui/mansion/detail'
-API_KEY_MITSUI_DETAIL_GCP = '/mitsui_mansion_detail'
-API_KEY_MITSUI_DETAIL_TEST = '/api/mitsui/mansion/detail/test'
+API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
+API_KEY_MITSUI_MANSION_START = '/api/mitsui/mansion/start'
+API_KEY_MITSUI_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_MITSUI_MANSION_AREA = '/api/mitsui/mansion/area'
+API_KEY_MITSUI_MANSION_AREA_GCP = '/mitsui_mansion_area'
+API_KEY_MITSUI_MANSION_LIST = '/api/mitsui/mansion/list'
+API_KEY_MITSUI_MANSION_LIST_GCP = '/mitsui_mansion_list'
+API_KEY_MITSUI_MANSION_DETAIL = '/api/mitsui/mansion/detail'
+API_KEY_MITSUI_MANSION_DETAIL_GCP = '/mitsui_mansion_detail'
+API_KEY_MITSUI_MANSION_DETAIL_TEST = '/api/mitsui/mansion/detail/test'
 
-API_KEY_SUMIFU_START = '/api/sumifu/mansion/start'
-API_KEY_SUMIFU_START_GCP = '/sumifu_mansion_start'
-API_KEY_SUMIFU_REGION = '/api/sumifu_mansion/region'
-API_KEY_SUMIFU_REGION_GCP = '/sumifu_mansion_region'
-API_KEY_SUMIFU_AREA = '/api/sumifu/mansion/area'
-API_KEY_SUMIFU_AREA_GCP = '/sumifu_mansion_area'
-API_KEY_SUMIFU_LIST = '/api/sumifu/mansion/list'
-API_KEY_SUMIFU_LIST_GCP = '/sumifu_mansion_list'
-API_KEY_SUMIFU_DETAIL = '/api/sumifu/mansion/detail'
-API_KEY_SUMIFU_DETAIL_GCP = '/sumifu_mansion_detail'
-API_KEY_SUMIFU_LIST_DETAIL = '/api/sumifu/mansion/listdetail'
-API_KEY_SUMIFU_LIST_DETAIL_GCP = '/sumifu_mansion_listdetail'
-API_KEY_SUMIFU_DETAIL_TEST = '/api/sumifu/mansion/detail/test'
+API_KEY_SUMIFU_MANSION_START = '/api/sumifu/mansion/start'
+API_KEY_SUMIFU_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_SUMIFU_MANSION_REGION = '/api/sumifu/mansion/region'
+API_KEY_SUMIFU_MANSION_REGION_GCP = '/sumifu_mansion_region'
+API_KEY_SUMIFU_MANSION_AREA = '/api/sumifu/mansion/area'
+API_KEY_SUMIFU_MANSION_AREA_GCP = '/sumifu_mansion_area'
+API_KEY_SUMIFU_MANSION_LIST = '/api/sumifu/mansion/list'
+API_KEY_SUMIFU_MANSION_LIST_GCP = '/sumifu_mansion_list'
+API_KEY_SUMIFU_MANSION_DETAIL = '/api/sumifu/mansion/detail'
+API_KEY_SUMIFU_MANSION_DETAIL_GCP = '/sumifu_mansion_detail'
+API_KEY_SUMIFU_MANSION_LIST_DETAIL = '/api/sumifu/mansion/listdetail'
+API_KEY_SUMIFU_MANSION_LIST_DETAIL_GCP = '/sumifu_mansion_listdetail'
+API_KEY_SUMIFU_MANSION_DETAIL_TEST = '/api/sumifu/mansion/detail/test'
 
-API_KEY_TOKYU_START = '/api/tokyu/mansion/start'
-API_KEY_TOKYU_START_GCP = '/sumifu_mansion_start'
-API_KEY_TOKYU_AREA = '/api/tokyu/mansion/area'
-API_KEY_TOKYU_AREA_GCP = '/tokyu_mansion_area'
-API_KEY_TOKYU_LIST = '/api/tokyu/mansion/list'
-API_KEY_TOKYU_LIST_GCP = '/tokyu_mansion_list'
-API_KEY_TOKYU_DETAIL = '/api/tokyu/mansion/detail'
-API_KEY_TOKYU_DETAIL_GCP = '/tokyu_mansion_detail'
-API_KEY_TOKYU_DETAIL_TEST = '/api/tokyu/mansion/detail/test'
+API_KEY_SUMIFU_TOCHI_START = '/api/sumifu/tochi/start'
+API_KEY_SUMIFU_TOCHI_START_GCP = '/sumifu_tochi_start'
+API_KEY_SUMIFU_TOCHI_REGION = '/api/sumifu/tochi/region'
+API_KEY_SUMIFU_TOCHI_REGION_GCP = '/sumifu_tochi_region'
+API_KEY_SUMIFU_TOCHI_AREA = '/api/sumifu/tochi/area'
+API_KEY_SUMIFU_TOCHI_AREA_GCP = '/sumifu_tochi_area'
+API_KEY_SUMIFU_TOCHI_LIST = '/api/sumifu/tochi/list'
+API_KEY_SUMIFU_TOCHI_LIST_GCP = '/sumifu_tochi_list'
+API_KEY_SUMIFU_TOCHI_DETAIL = '/api/sumifu/tochi/detail'
+API_KEY_SUMIFU_TOCHI_DETAIL_GCP = '/sumifu_tochi_detail'
+API_KEY_SUMIFU_TOCHI_LIST_DETAIL = '/api/sumifu/tochi/listdetail'
+API_KEY_SUMIFU_TOCHI_LIST_DETAIL_GCP = '/sumifu_tochi_listdetail'
+API_KEY_SUMIFU_TOCHI_DETAIL_TEST = '/api/sumifu/tochi/detail/test'
+
+API_KEY_SUMIFU_KODATE_START = '/api/sumifu/kodate/start'
+API_KEY_SUMIFU_KODATE_START_GCP = '/sumifu_kodate_start'
+API_KEY_SUMIFU_KODATE_REGION = '/api/sumifu/kodate/region'
+API_KEY_SUMIFU_KODATE_REGION_GCP = '/sumifu_kodate_region'
+API_KEY_SUMIFU_KODATE_AREA = '/api/sumifu/kodate/area'
+API_KEY_SUMIFU_KODATE_AREA_GCP = '/sumifu_kodate_area'
+API_KEY_SUMIFU_KODATE_LIST = '/api/sumifu/kodate/list'
+API_KEY_SUMIFU_KODATE_LIST_GCP = '/sumifu_kodate_list'
+API_KEY_SUMIFU_KODATE_DETAIL = '/api/sumifu/kodate/detail'
+API_KEY_SUMIFU_KODATE_DETAIL_GCP = '/sumifu_kodate_detail'
+API_KEY_SUMIFU_KODATE_LIST_DETAIL = '/api/sumifu/kodate/listdetail'
+API_KEY_SUMIFU_KODATE_LIST_DETAIL_GCP = '/sumifu_kodate_listdetail'
+API_KEY_SUMIFU_KODATE_DETAIL_TEST = '/api/sumifu/kodate/detail/test'
+
+API_KEY_TOKYU_MANSION_START = '/api/tokyu/mansion/start'
+API_KEY_TOKYU_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_TOKYU_MANSION_AREA = '/api/tokyu/mansion/area'
+API_KEY_TOKYU_MANSION_AREA_GCP = '/tokyu_mansion_area'
+API_KEY_TOKYU_MANSION_LIST = '/api/tokyu/mansion/list'
+API_KEY_TOKYU_MANSION_LIST_GCP = '/tokyu_mansion_list'
+API_KEY_TOKYU_MANSION_DETAIL = '/api/tokyu/mansion/detail'
+API_KEY_TOKYU_MANSION_DETAIL_GCP = '/tokyu_mansion_detail'
+API_KEY_TOKYU_MANSION_DETAIL_TEST = '/api/tokyu/mansion/detail/test'
 API_KEY_KILL = '/api/kill'
 
 
@@ -63,7 +93,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     _loop = None
 
     def __init__(self):
-        self.parser = self._generateParser()
+        self.parser:ParserBase = self._generateParser()
         self._getActiveEventLoop()
         self.semaphore = asyncio.Semaphore(
             value=self._getPararellLimit(), loop=self._loop)
@@ -102,40 +132,48 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         finally:
             self.semaphore.release()
 
-#        with await self.semaphore:
-#            async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
-#                try:
-#                    return await self._fetch(_session, detailUrl, apiUrl, loop)
-#                finally:
-#                    if _session is not None:
-#                        await _session.close()
-
-    async def _fetch(self, session, detailUrl, apiUrl, loop):
+    async def _fetch(self, session:aiohttp.ClientSession, detailUrl, apiUrl, loop, retryTimes :int):
         _timeout = self._generateTimeout()
         post_json_data = json.dumps(
             '{"url":"' + detailUrl + '"}').encode("utf-8")
         try:
-            response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-        except (aiohttp.client_exceptions.ClientConnectorError, aiohttp.client_exceptions.ServerDisconnectedError):
-            sleep(10000)
-            _connector = self._generateConnector(self._getActiveEventLoop())
-            async with aiohttp.ClientSession(headers=header,loop=loop, connector=_connector, timeout=_timeout) as retrySession:
-                try:
-                    response = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-                finally:
-                    if retrySession is not None:
-                        await retrySession.close()
-                    if _connector is not None:
-                        await _connector.close()
+            response:aiohttp.ClientResponse = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+        except (aiohttp.client_exceptions.ClientConnectorError):
+            if(retryTimes>0):
+                sleep(10000)
+                self._fetch(session, detailUrl, apiUrl, loop, retryTimes+1)
+            else:
+                logging.error("ClientConnectorError:" + detailUrl)
+                logging.error(e.__cause__)
+                raise e
+        except (aiohttp.client_exceptions.ServerDisconnectedError):
+            if(retryTimes>0):
+                sleep(10000)
+                self._fetch(session, detailUrl, apiUrl, loop, retryTimes+1)
+            #_connector = self._generateConnector(self._getActiveEventLoop())
+            #async with aiohttp.ClientSession(headers=header,loop=loop, connector=_connector, timeout=_timeout) as retrySession:
+            #    try:
+            #        response = await retrySession.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+            #    finally:
+            #        if retrySession is not None:
+            #            await retrySession.close()
+            #        if _connector is not None:
+            #            await _connector.close()
+            else:
+                logging.error("ServerDisconnectedError:" + detailUrl)
+                logging.error(e.__cause__)
+                raise e
         except (asyncio.TimeoutError, TimeoutError) as e:
-            logging.error("call api timeout error:" + detailUrl)
+            logging.error("TimeoutError:" + detailUrl)
+            logging.error(e.__cause__)
             raise e
         except Exception as e:
             logging.error("fetch error:" + detailUrl)
+            logging.error(e.__cause__)
             raise e
         return await self._proc_response(detailUrl, response)
 
-    async def _proc_response(self, url, response):
+    async def _proc_response(self, url, response:aiohttp.ClientResponse):
         return url, response.status, await response.text()
 
     async def _run(self, _url):
@@ -178,19 +216,19 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return pararellLimit
 
     @abstractmethod
-    def _generateParser(self):
+    def _generateParser(self)->ParserBase:
         pass
 
     @abstractmethod
-    def _getLocalPararellLimit(self):
+    def _getLocalPararellLimit(self)->int:
         pass
 
     @abstractmethod
-    def _getCloudPararellLimit(self):
+    def _getCloudPararellLimit(self)->int:
         pass
 
     @abstractmethod
-    def _getTimeOutSecond(self):
+    def _getTimeOutSecond(self)->int:
         pass
 
     @abstractmethod
@@ -214,7 +252,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _treatPage(self, _session, *arg):
-        response = await self._generateParser().getResponse(_session, self.url, self.parser.getCharset())
+        response:BeautifulSoup = await self._generateParser().getResponse(_session, self.url, self.parser.getCharset())
 
         detailUrlList = []
         try:
@@ -272,7 +310,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _run(self, _url):
         _loop = self._getActiveEventLoop()
-        _timeout = self._generateTimeout()
+        _timeout:int = self._generateTimeout()
         _connector = self._generateConnector(_loop)
         async with aiohttp.ClientSession(headers=header,loop=_loop, connector=_connector, timeout=_timeout) as session:
             try:
@@ -355,9 +393,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 try:
                     _save(item)
                 except (OperationalError) as e:  # too many connection
+                    logging.error(e.__cause__)
                     sleep(30000)  # u30秒待機
-                    _save(item)
+                    _save(item)   
                 except (Exception, ValidationError) as e:
                     logging.error("save error " +
                                   item.propertyName + ":" + item.pageUrl)
+                    logging.error(e.__cause__)
                     raise e

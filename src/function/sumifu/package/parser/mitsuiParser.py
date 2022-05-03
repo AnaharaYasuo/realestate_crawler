@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
+
+from bs4 import BeautifulSoup
 from package.model.mitsui import MitsuiMansion
 import importlib
 importlib.reload(sys)
@@ -71,13 +73,16 @@ class MitsuiMansionParser(ParserBase):
         logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
+    def createEntity(self):
+        return  MitsuiMansion()
+
     async def parsePropertyDetailPage(self, session, url):
         item = MitsuiMansion()
         # url="https://www.stepon.co.jp/mansion/detail_10393001/" #for test
         try:
             item.pageUrl = url
             response = await self.getResponseBs(session, url)
-            item = self.__parsePropertyDetailPage(item, response)
+            item = self._parsePropertyDetailPage(item, response)
         except (LoadPropertyPageException, TimeoutError) as e:
             raise e
         except (ReadPropertyNameException) as e:
@@ -88,7 +93,7 @@ class MitsuiMansionParser(ParserBase):
             raise e
         return item
     
-    def __parsePropertyDetailPage(self, item, response):
+    def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         try:
             item.propertyName = response.find_all("span", class_="mrh-heading2-article__title")[0].contents[0]
         except Exception:

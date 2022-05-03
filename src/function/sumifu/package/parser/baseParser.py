@@ -9,6 +9,7 @@ from abc import ABCMeta, abstractmethod
 from builtins import Exception
 import asyncio
 from time import sleep
+from django.db import models
 
 
 class ReadPropertyNameException(Exception):
@@ -28,6 +29,30 @@ class ParserBase(metaclass=ABCMeta):
     @abstractmethod
     def getCharset(self):
         pass
+
+    @abstractmethod
+    def createEntity(self)->models.Model:
+        return None
+        
+    @abstractmethod
+    def _parsePropertyDetailPage(self, item:models.Model, response:BeautifulSoup)->models.Model:
+        return item
+    
+    async def parsePropertyDetailPage(self, session, url)->models.Model:
+        item:models.Model = self.createEntity()
+        try:
+            item.pageUrl = url
+            response:BeautifulSoup = await self.getResponseBs(session, url)
+            item = self._parsePropertyDetailPage(item, response)
+        except (LoadPropertyPageException, TimeoutError) as e:
+            raise e
+        except (ReadPropertyNameException) as e:
+            raise e
+        except Exception as e:
+            logging.error('Detail parse error:' + url)
+            logging.error(traceback.format_exc())
+            raise e
+        return item
 
     async def _parsePageCore(self, response, getXpath , getDestUrl):
         linklist = response.xpath(getXpath())
@@ -87,7 +112,7 @@ class ParserBase(metaclass=ABCMeta):
         except(TypeError):
             return await getDocument()
 
-    async def getResponseBs(self, session, url, charset=None):
+    async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
 
         async def getDocument():
             content = await self._getContent(session, url)

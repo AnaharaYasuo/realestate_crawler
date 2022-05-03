@@ -1,10 +1,11 @@
 import os
 import logging
-from package.api.api import API_KEY_SUMIFU_DETAIL, API_KEY_SUMIFU_REGION, API_KEY_SUMIFU_AREA, API_KEY_SUMIFU_START, API_KEY_SUMIFU_LIST, \
-    API_KEY_MITSUI_START, API_KEY_MITSUI_AREA, API_KEY_MITSUI_LIST, \
-    API_KEY_MITSUI_DETAIL, API_KEY_MITSUI_DETAIL_TEST, API_KEY_TOKYU_START, \
-    API_KEY_TOKYU_AREA, API_KEY_TOKYU_LIST, API_KEY_TOKYU_DETAIL, \
-    API_KEY_TOKYU_DETAIL_TEST, API_KEY_ALL_START, API_KEY_SUMIFU_DETAIL_TEST, \
+from tokenize import String
+from package.api.api import API_KEY_SUMIFU_MANSION_DETAIL, API_KEY_SUMIFU_MANSION_REGION, API_KEY_SUMIFU_MANSION_AREA, API_KEY_SUMIFU_MANSION_START, API_KEY_SUMIFU_MANSION_LIST, \
+    API_KEY_SUMIFU_TOCHI_DETAIL, API_KEY_SUMIFU_TOCHI_REGION, API_KEY_SUMIFU_TOCHI_AREA, API_KEY_SUMIFU_TOCHI_START, API_KEY_SUMIFU_TOCHI_LIST,API_KEY_SUMIFU_TOCHI_DETAIL_TEST, \
+    API_KEY_SUMIFU_KODATE_DETAIL, API_KEY_SUMIFU_KODATE_REGION, API_KEY_SUMIFU_KODATE_AREA, API_KEY_SUMIFU_KODATE_START, API_KEY_SUMIFU_KODATE_LIST,API_KEY_SUMIFU_KODATE_DETAIL_TEST, \
+    API_KEY_MITSUI_MANSION_START, API_KEY_MITSUI_MANSION_AREA, API_KEY_MITSUI_MANSION_LIST, API_KEY_MITSUI_MANSION_DETAIL, API_KEY_MITSUI_MANSION_DETAIL_TEST, API_KEY_TOKYU_MANSION_START, \
+    API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_DETAIL_TEST, API_KEY_MANSION_ALL_START, API_KEY_SUMIFU_MANSION_DETAIL_TEST, \
     API_KEY_KILL
 import json
 import realestateSettings
@@ -12,10 +13,11 @@ import traceback
 from asyncio import AbstractEventLoop
 #from _datetime import datetime
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
-from package.api.mitsui import ParseMitsuiStartAsync, ParseMitsuiAreaFuncAsync, ParseMitsuiListFuncAsync, ParseMitsuiDetailFuncAsync
-from package.api.sumifu import ParseSumifuStartAsync, ParseSumifuRegionFuncAsync, ParseSumifuAreaFuncAsync, ParseSumifuListFuncAsync, ParseSumifuDetailFuncAsync
-from package.api.tokyu import ParseTokyuStartAsync, ParseTokyuAreaFuncAsync, \
-    ParseTokyuListFuncAsync, ParseTokyuDetailFuncAsync
+from package.api.mitsui import ParseMitsuiMansionStartAsync, ParseMitsuiMansionAreaFuncAsync, ParseMitsuiMansionListFuncAsync, ParseMitsuiMansionDetailFuncAsync
+from package.api.sumifu import ParseSumifuMansionStartAsync, ParseSumifuMansionRegionFuncAsync, ParseSumifuMansionAreaFuncAsync, ParseSumifuMansionListFuncAsync, ParseSumifuMansionDetailFuncAsync
+from package.api.sumifu import ParseSumifuTochiStartAsync, ParseSumifuTochiRegionFuncAsync, ParseSumifuTochiAreaFuncAsync, ParseSumifuTochiListFuncAsync, ParseSumifuTochiDetailFuncAsync
+from package.api.sumifu import ParseSumifuKodateStartAsync, ParseSumifuKodateRegionFuncAsync, ParseSumifuKodateAreaFuncAsync, ParseSumifuKodateListFuncAsync, ParseSumifuKodateDetailFuncAsync
+from package.api.tokyu import ParseTokyuMansionStartAsync, ParseTokyuMansionAreaFuncAsync, ParseTokyuMansionListFuncAsync, ParseTokyuMansionDetailFuncAsync
 
 from flask import Flask, request
 app = Flask(__name__)
@@ -27,28 +29,27 @@ app = Flask(__name__)
 # そのうえで、http://127.0.0.1:8000/api/sumifu/mansion/startにアクセス
 
 
-def parseMitsuiStartAsyncPubSub(event, context):
-    return mitsuiStart()
+def parseMitsuiStartMansionAsyncPubSub(event, context):
+    return mitsuiMansionStart()
 
 
-def parseSumifuStartAsyncPubSub(event, context):
-    return sumifuStart()
+def parseSumifuStartMansionAsyncPubSub(event, context):
+    return sumifuMansionStart()
 
 
-@app.route(API_KEY_ALL_START, methods=['OPTIONS', 'POST', 'GET'])
-def allStart():
-    mitsuiStart()
-    sumifuStart()
-    tokyuStart()
-
+@app.route(API_KEY_MANSION_ALL_START, methods=['OPTIONS', 'POST', 'GET'])
+def allMansionStart():
+    mitsuiMansionStart()
+    sumifuMansionStart()
+    tokyuMansionStart()
 
 ###################################################
-# mitsui
+# mitsui mansion
 ###################################################
-@app.route(API_KEY_MITSUI_START, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiStart():
+@app.route(API_KEY_MITSUI_MANSION_START, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiMansionStart():
     logging.info("start")
-    obj = ParseMitsuiStartAsync()
+    obj = ParseMitsuiMansionStartAsync()
     url = "https://www.rehouse.co.jp/sitemap/"
     try:
         result = obj.main(url)
@@ -59,16 +60,16 @@ def mitsuiStart():
     return result
 
 
-@app.route(API_KEY_MITSUI_AREA, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiAreaLocal():
-    return mitsuiArea(request)
+@app.route(API_KEY_MITSUI_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiMansionAreaLocal():
+    return mitsuiMansionArea(request)
 
 
-def mitsuiArea(request):
+def mitsuiMansionArea(request):
     logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseMitsuiAreaFuncAsync()
+    obj = ParseMitsuiMansionAreaFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -78,16 +79,16 @@ def mitsuiArea(request):
     return result
 
 
-@app.route(API_KEY_MITSUI_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiPropertyListLocal():
-    return mitsuiPropertyList(request)
+@app.route(API_KEY_MITSUI_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiMansionPropertyListLocal():
+    return mitsuiMansionPropertyList(request)
 
 
-def mitsuiPropertyList(request):
+def mitsuiMansionPropertyList(request):
     logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseMitsuiListFuncAsync()
+    obj = ParseMitsuiMansionListFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -97,18 +98,18 @@ def mitsuiPropertyList(request):
     return result
 
 
-@app.route(API_KEY_MITSUI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiPropertyDetailLocal():
-    return mitsuiPropertyDetail(request)
+@app.route(API_KEY_MITSUI_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiMansionPropertyDetailLocal():
+    return mitsuiMansionPropertyDetail(request)
 
 
-def mitsuiPropertyDetail(request):
+def mitsuiMansionPropertyDetail(request):
     logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FQQXGA22/"
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FEPX7A12/"#バスあり
-    obj = ParseMitsuiDetailFuncAsync()
+    obj = ParseMitsuiMansionDetailFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -118,8 +119,8 @@ def mitsuiPropertyDetail(request):
     return result
 
 
-@app.route(API_KEY_MITSUI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
-def mitsuiPropertyDetailTest():
+@app.route(API_KEY_MITSUI_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
@@ -127,19 +128,19 @@ def mitsuiPropertyDetailTest():
     url = "https://www.rehouse.co.jp/mansion/bkdetail/FEPX7A12/"  # バスあり
     # url="https://www.rehouse.co.jp/mansion/bkdetail/F69X7A19/"
     # url="https://www.rehouse.co.jp/mansion/bkdetail/FGPX5A1C/"#バス停留所のみあり
-    obj = ParseMitsuiDetailFuncAsync()
+    obj = ParseMitsuiMansionDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
     return result
 
 
 ###################################################
-# sumifu
+# sumifu Mansion
 ###################################################
-@app.route(API_KEY_SUMIFU_START, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuStart():
+@app.route(API_KEY_SUMIFU_MANSION_START, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionStart():
     logging.info("start")
-    obj = ParseSumifuStartAsync()
+    obj = ParseSumifuMansionStartAsync()
     url = "dammy"
     try:
         result = obj.main(url)
@@ -151,16 +152,16 @@ def sumifuStart():
     return result
 
 
-@app.route(API_KEY_SUMIFU_REGION, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuRegionLocal():
-    return sumifuRegion(request)
+@app.route(API_KEY_SUMIFU_MANSION_REGION, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionRegionLocal():
+    return sumifuMansionRegion(request)
 
 
-def sumifuRegion(request):
+def sumifuMansionRegion(request):
     logging.info("start region")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseSumifuRegionFuncAsync()
+    obj = ParseSumifuMansionRegionFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -170,16 +171,16 @@ def sumifuRegion(request):
     return result
 
 
-@app.route(API_KEY_SUMIFU_AREA, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuAreaLocal():
-    return sumifuArea(request)
+@app.route(API_KEY_SUMIFU_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionAreaLocal():
+    return sumifuMansionArea(request)
 
 
-def sumifuArea(request):
+def sumifuMansionArea(request):
     logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseSumifuAreaFuncAsync()
+    obj = ParseSumifuMansionAreaFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -189,16 +190,16 @@ def sumifuArea(request):
     return result
 
 
-@app.route(API_KEY_SUMIFU_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuPropertyListLocal():
-    return sumifuPropertyList(request)
+@app.route(API_KEY_SUMIFU_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionPropertyListLocal():
+    return sumifuMansionPropertyList(request)
 
 
-def sumifuPropertyList(request):
+def sumifuMansionPropertyList(request):
     logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseSumifuListFuncAsync()
+    obj = ParseSumifuMansionListFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -208,16 +209,16 @@ def sumifuPropertyList(request):
     return result
 
 
-@app.route(API_KEY_SUMIFU_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuPropertyDetailLocal():
-    return sumifuPropertyDetail(request)
+@app.route(API_KEY_SUMIFU_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionPropertyDetailLocal():
+    return sumifuMansionPropertyDetail(request)
 
 
-def sumifuPropertyDetail(request):
+def sumifuMansionPropertyDetail(request):
     logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseSumifuDetailFuncAsync()
+    obj = ParseSumifuMansionDetailFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -227,23 +228,229 @@ def sumifuPropertyDetail(request):
     return result
 
 
-@app.route(API_KEY_SUMIFU_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
-def sumifuPropertyDetailTest():
+@app.route(API_KEY_SUMIFU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     url = "https://www.stepon.co.jp/mansion/detail_19273047/"
-    obj = ParseSumifuDetailFuncAsync()
+    obj = ParseSumifuMansionDetailFuncAsync()
+    result = obj.main(url)
+    logging.info("end propertyDetail")
+    return result
+
+###################################################
+# sumifu tochi
+###################################################
+@app.route(API_KEY_SUMIFU_TOCHI_START, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiStart():
+    logging.info("start")
+    obj = ParseSumifuTochiStartAsync()
+    url = "dammy"
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end")
+
+    return result
+
+
+@app.route(API_KEY_SUMIFU_TOCHI_REGION, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiRegionLocal():
+    return sumifuTochiRegion(request)
+
+
+def sumifuTochiRegion(request):
+    logging.info("start region")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuTochiRegionFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end region")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_TOCHI_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiAreaLocal():
+    return sumifuTochiArea(request)
+
+
+def sumifuTochiArea(request):
+    logging.info("start area")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuTochiAreaFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end area")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiPropertyListLocal():
+    return sumifuTochiPropertyList(request)
+
+
+def sumifuTochiPropertyList(request):
+    logging.info("start propertyList")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuTochiListFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyList")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiPropertyDetailLocal():
+    return sumifuTochiPropertyDetail(request)
+
+
+def sumifuTochiPropertyDetail(request):
+    logging.info("start propertyDetail")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuTochiDetailFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyDetail")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuTochiPropertyDetailTest():
+    logging.info("start propertyDetail")
+    url = "https://www.stepon.co.jp/tochi/detail_31571065/"
+    obj = ParseSumifuTochiDetailFuncAsync()
+    result = obj.main(url)
+    logging.info("end propertyDetail")
+    return result
+
+###################################################
+# sumifu kodate
+###################################################
+@app.route(API_KEY_SUMIFU_KODATE_START, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodateStart():
+    logging.info("start")
+    obj = ParseSumifuKodateStartAsync()
+    url = "dammy"
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end")
+
+    return result
+
+
+@app.route(API_KEY_SUMIFU_KODATE_REGION, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodateRegionLocal():
+    return sumifuKodateRegion(request)
+
+
+def sumifuKodateRegion(request):
+    logging.info("start region")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuKodateRegionFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end region")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_KODATE_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodateAreaLocal():
+    return sumifuKodateArea(request)
+
+
+def sumifuKodateArea(request):
+    logging.info("start area")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuKodateAreaFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end area")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodatePropertyListLocal():
+    return sumifuKodatePropertyList(request)
+
+
+def sumifuKodatePropertyList(request):
+    logging.info("start propertyList")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuKodateListFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyList")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodatePropertyDetailLocal():
+    return sumifuKodatePropertyDetail(request)
+
+
+def sumifuKodatePropertyDetail(request):
+    logging.info("start propertyDetail")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseSumifuKodateDetailFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyDetail")
+    return result
+
+
+@app.route(API_KEY_SUMIFU_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def sumifuKodatePropertyDetailTest():
+    logging.info("start propertyDetail")
+    url:String = "https://www.stepon.co.jp/kodate/detail_11182017/"
+    obj:ParseSumifuKodateDetailFuncAsync = ParseSumifuKodateDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
     return result
 
 
 ###################################################
-# tokyu
+# tokyu mansion
 ###################################################
-@app.route(API_KEY_TOKYU_START, methods=['OPTIONS', 'POST', 'GET'])
-def tokyuStart():
+@app.route(API_KEY_TOKYU_MANSION_START, methods=['OPTIONS', 'POST', 'GET'])
+def tokyuMansionStart():
     logging.info("start")
-    obj = ParseTokyuStartAsync()
+    obj = ParseTokyuMansionStartAsync()
     url = "https://www.livable.co.jp/kounyu/chuko-mansion/select-area/"
     try:
         result = obj.main(url)
@@ -254,16 +461,16 @@ def tokyuStart():
     return result
 
 
-@app.route(API_KEY_TOKYU_AREA, methods=['OPTIONS', 'POST', 'GET'])
-def tokyuAreaLocal():
-    return tokyuArea(request)
+@app.route(API_KEY_TOKYU_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def tokyuMansionAreaLocal():
+    return tokyuMansionArea(request)
 
 
-def tokyuArea(request):
+def tokyuMansionArea(request):
     logging.info("start area")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseTokyuAreaFuncAsync()
+    obj = ParseTokyuMansionAreaFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -273,16 +480,16 @@ def tokyuArea(request):
     return result
 
 
-@app.route(API_KEY_TOKYU_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def tokyuPropertyListLocal():
-    return tokyuPropertyList(request)
+@app.route(API_KEY_TOKYU_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def tokyuMansionPropertyListLocal():
+    return tokyuMansionPropertyList(request)
 
 
-def tokyuPropertyList(request):
+def tokyuMansionPropertyList(request):
     logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseTokyuListFuncAsync()
+    obj = ParseTokyuMansionListFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -292,16 +499,16 @@ def tokyuPropertyList(request):
     return result
 
 
-@app.route(API_KEY_TOKYU_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def tokyuPropertyDetailLocal():
-    return tokyuPropertyDetail(request)
+@app.route(API_KEY_TOKYU_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def tokyuMansionPropertyDetailLocal():
+    return tokyuMansionPropertyDetail(request)
 
 
-def tokyuPropertyDetail(request):
+def tokyuMansionPropertyDetail(request):
     logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseTokyuDetailFuncAsync()
+    obj = ParseTokyuMansionDetailFuncAsync()
     try:
         result = obj.main(url)
     except:
@@ -311,12 +518,12 @@ def tokyuPropertyDetail(request):
     return result
 
 
-@app.route(API_KEY_TOKYU_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
-def tokyuPropertyDetailTest():
+@app.route(API_KEY_TOKYU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def tokyuMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
-    obj = ParseTokyuDetailFuncAsync()
+    obj = ParseTokyuMansionDetailFuncAsync()
     #url = "https://www.livable.co.jp/mansion/CVI207001/"  # メゾネット
     #obj.main(url)
     #url = "https://www.livable.co.jp/mansion/C11207001/"

@@ -1,29 +1,29 @@
 import os
 
-from package.api.api import API_KEY_MITSUI_DETAIL_GCP, API_KEY_MITSUI_DETAIL, API_KEY_MITSUI_AREA_GCP, API_KEY_MITSUI_AREA, API_KEY_MITSUI_LIST_GCP, API_KEY_MITSUI_LIST, ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
+from package.api.api import API_KEY_MITSUI_MANSION_DETAIL_GCP, API_KEY_MITSUI_MANSION_DETAIL, API_KEY_MITSUI_MANSION_AREA_GCP, API_KEY_MITSUI_MANSION_AREA, API_KEY_MITSUI_MANSION_LIST_GCP, API_KEY_MITSUI_MANSION_LIST, ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
 from package.parser.mitsuiParser import MitsuiMansionParser
 
 
-class ParseMitsuiDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
     def _generateParser(self):
         return MitsuiMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 16
+        return 6
 
     def _getCloudPararellLimit(self):
-        return 16
+        return 6
 
     def _getTimeOutSecond(self):
-        return 15
+        return 60
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
             return ""
         return ""
     
-class ParseMitsuiListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMitsuiMansionListFuncAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return MitsuiMansionParser("")
@@ -42,11 +42,11 @@ class ParseMitsuiListFuncAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_MITSUI_DETAIL_GCP
-        return API_KEY_MITSUI_DETAIL
+            return API_KEY_MITSUI_MANSION_DETAIL_GCP
+        return API_KEY_MITSUI_MANSION_DETAIL
     
 
-class ParseMitsuiAreaFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMitsuiMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return MitsuiMansionParser("")
@@ -65,10 +65,10 @@ class ParseMitsuiAreaFuncAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_MITSUI_LIST_GCP
-        return API_KEY_MITSUI_LIST
+            return API_KEY_MITSUI_MANSION_LIST_GCP
+        return API_KEY_MITSUI_MANSION_LIST
     
-class ParseMitsuiStartAsync(ParseMiddlePageAsyncBase):
+class ParseMitsuiMansionStartAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return MitsuiMansionParser("")
@@ -87,5 +87,5 @@ class ParseMitsuiStartAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_MITSUI_AREA_GCP
-        return API_KEY_MITSUI_AREA
+            return API_KEY_MITSUI_MANSION_AREA_GCP
+        return API_KEY_MITSUI_MANSION_AREA

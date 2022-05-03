@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
+
+from bs4 import BeautifulSoup
 from package.model.tokyu import TokyuMansion
 import importlib
 importlib.reload(sys)
@@ -76,13 +78,16 @@ class TokyuMansionParser(ParserBase):
             return getDestUrl(linkUrl)
         return ""
 
+    def createEntity(self):
+        return  TokyuMansion()
+
     async def parsePropertyDetailPage(self, session, url):
         item = TokyuMansion()
         # url="https://www.stepon.co.jp/mansion/detail_10393001/" #for test
         try:
             item.pageUrl = url.replace("?from=property_list", "")
             response = await self.getResponseBs(session, url)
-            item = self.__parsePropertyDetailPage(item, response)
+            item = self._parsePropertyDetailPage(item, response)
         except (LoadPropertyPageException, TimeoutError) as e:
             raise e
         except (ReadPropertyNameException) as e:
@@ -93,7 +98,7 @@ class TokyuMansionParser(ParserBase):
             raise e
         return item
     
-    def __parsePropertyDetailPage(self, item, response):
+    def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         try:
             item.propertyName = response.find("h1", class_="o-detail-header__headline o-detail-header__headline--match").contents[0]
         except Exception:

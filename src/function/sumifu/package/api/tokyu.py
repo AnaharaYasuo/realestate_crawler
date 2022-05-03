@@ -1,19 +1,19 @@
 import os
 
-from package.api.api import API_KEY_TOKYU_DETAIL_GCP, API_KEY_TOKYU_DETAIL, API_KEY_TOKYU_AREA_GCP, API_KEY_TOKYU_AREA, API_KEY_TOKYU_LIST_GCP, API_KEY_TOKYU_LIST, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
+from package.api.api import API_KEY_TOKYU_MANSION_DETAIL_GCP, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_AREA_GCP, API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST_GCP, API_KEY_TOKYU_MANSION_LIST, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 from package.parser.tokyuParser import TokyuMansionParser
 
 
-class ParseTokyuDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseTokyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
     def _generateParser(self):
         return TokyuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 8
+        return 6
 
     def _getCloudPararellLimit(self):
-        return 8
+        return 6
 
     def _getTimeOutSecond(self):
         return 60
@@ -24,7 +24,7 @@ class ParseTokyuDetailFuncAsync(ParseDetailPageAsyncBase):
         return ""
 
     
-class ParseTokyuListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseTokyuMansionListFuncAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return TokyuMansionParser("")
@@ -36,25 +36,25 @@ class ParseTokyuListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 2
+        return 3
 
     def _getCloudPararellLimit(self):
-        return 2
+        return 3
 
     def _getTimeOutSecond(self):
-        return 60
+        return 360
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_TOKYU_DETAIL_GCP
-        return API_KEY_TOKYU_DETAIL
+            return API_KEY_TOKYU_MANSION_DETAIL_GCP
+        return API_KEY_TOKYU_MANSION_DETAIL
     
     def _getNextPageApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_TOKYU_LIST_GCP
-        return API_KEY_TOKYU_LIST
+            return API_KEY_TOKYU_MANSION_LIST_GCP
+        return API_KEY_TOKYU_MANSION_LIST
 
-class ParseTokyuAreaFuncAsync(ParseMiddlePageAsyncBase):
+class ParseTokyuMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return TokyuMansionParser("")
@@ -73,11 +73,11 @@ class ParseTokyuAreaFuncAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_TOKYU_LIST_GCP
-        return API_KEY_TOKYU_LIST
+            return API_KEY_TOKYU_MANSION_LIST_GCP
+        return API_KEY_TOKYU_MANSION_LIST
 
     
-class ParseTokyuStartAsync(ParseMiddlePageAsyncBase):
+class ParseTokyuMansionStartAsync(ParseMiddlePageAsyncBase):
 
     def _generateParser(self):
         return TokyuMansionParser("")
@@ -96,5 +96,5 @@ class ParseTokyuStartAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_TOKYU_AREA_GCP
-        return API_KEY_TOKYU_AREA
+            return API_KEY_TOKYU_MANSION_AREA_GCP
+        return API_KEY_TOKYU_MANSION_AREA
