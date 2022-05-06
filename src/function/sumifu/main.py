@@ -1,12 +1,16 @@
 import os
 import logging
 from tokenize import String
-from package.api.api import API_KEY_SUMIFU_MANSION_DETAIL, API_KEY_SUMIFU_MANSION_REGION, API_KEY_SUMIFU_MANSION_AREA, API_KEY_SUMIFU_MANSION_START, API_KEY_SUMIFU_MANSION_LIST, \
+from package.api.api import \
+    API_KEY_SUMIFU_MANSION_DETAIL, API_KEY_SUMIFU_MANSION_REGION, API_KEY_SUMIFU_MANSION_AREA, API_KEY_SUMIFU_MANSION_START, API_KEY_SUMIFU_MANSION_LIST, API_KEY_SUMIFU_MANSION_DETAIL_TEST, \
     API_KEY_SUMIFU_TOCHI_DETAIL, API_KEY_SUMIFU_TOCHI_REGION, API_KEY_SUMIFU_TOCHI_AREA, API_KEY_SUMIFU_TOCHI_START, API_KEY_SUMIFU_TOCHI_LIST,API_KEY_SUMIFU_TOCHI_DETAIL_TEST, \
     API_KEY_SUMIFU_KODATE_DETAIL, API_KEY_SUMIFU_KODATE_REGION, API_KEY_SUMIFU_KODATE_AREA, API_KEY_SUMIFU_KODATE_START, API_KEY_SUMIFU_KODATE_LIST,API_KEY_SUMIFU_KODATE_DETAIL_TEST, \
-    API_KEY_MITSUI_MANSION_START, API_KEY_MITSUI_MANSION_AREA, API_KEY_MITSUI_MANSION_LIST, API_KEY_MITSUI_MANSION_DETAIL, API_KEY_MITSUI_MANSION_DETAIL_TEST, API_KEY_TOKYU_MANSION_START, \
-    API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_DETAIL_TEST, API_KEY_MANSION_ALL_START, API_KEY_SUMIFU_MANSION_DETAIL_TEST, \
-    API_KEY_KILL
+    API_KEY_MITSUI_MANSION_START, API_KEY_MITSUI_MANSION_AREA, API_KEY_MITSUI_MANSION_LIST, API_KEY_MITSUI_MANSION_DETAIL, API_KEY_MITSUI_MANSION_DETAIL_TEST, \
+    API_KEY_MITSUI_TOCHI_START, API_KEY_MITSUI_TOCHI_AREA, API_KEY_MITSUI_TOCHI_LIST, API_KEY_MITSUI_TOCHI_DETAIL, API_KEY_MITSUI_TOCHI_DETAIL_TEST, \
+    API_KEY_MITSUI_KODATE_START, API_KEY_MITSUI_KODATE_AREA, API_KEY_MITSUI_KODATE_LIST, API_KEY_MITSUI_KODATE_DETAIL, API_KEY_MITSUI_KODATE_DETAIL_TEST, \
+    API_KEY_TOKYU_MANSION_START, API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_DETAIL_TEST, \
+    API_KEY_MANSION_ALL_START, API_KEY_KILL
+    
 import json
 import realestateSettings
 import traceback
@@ -14,6 +18,8 @@ from asyncio import AbstractEventLoop
 #from _datetime import datetime
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
 from package.api.mitsui import ParseMitsuiMansionStartAsync, ParseMitsuiMansionAreaFuncAsync, ParseMitsuiMansionListFuncAsync, ParseMitsuiMansionDetailFuncAsync
+from package.api.mitsui import ParseMitsuiTochiStartAsync, ParseMitsuiTochiAreaFuncAsync, ParseMitsuiTochiListFuncAsync, ParseMitsuiTochiDetailFuncAsync
+from package.api.mitsui import ParseMitsuiKodateStartAsync, ParseMitsuiKodateAreaFuncAsync, ParseMitsuiKodateListFuncAsync, ParseMitsuiKodateDetailFuncAsync
 from package.api.sumifu import ParseSumifuMansionStartAsync, ParseSumifuMansionRegionFuncAsync, ParseSumifuMansionAreaFuncAsync, ParseSumifuMansionListFuncAsync, ParseSumifuMansionDetailFuncAsync
 from package.api.sumifu import ParseSumifuTochiStartAsync, ParseSumifuTochiRegionFuncAsync, ParseSumifuTochiAreaFuncAsync, ParseSumifuTochiListFuncAsync, ParseSumifuTochiDetailFuncAsync
 from package.api.sumifu import ParseSumifuKodateStartAsync, ParseSumifuKodateRegionFuncAsync, ParseSumifuKodateAreaFuncAsync, ParseSumifuKodateListFuncAsync, ParseSumifuKodateDetailFuncAsync
@@ -107,8 +113,6 @@ def mitsuiMansionPropertyDetail(request):
     logging.info("start propertyDetail")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    # url="https://www.rehouse.co.jp/mansion/bkdetail/FQQXGA22/"
-    # url="https://www.rehouse.co.jp/mansion/bkdetail/FEPX7A12/"#バスあり
     obj = ParseMitsuiMansionDetailFuncAsync()
     try:
         result = obj.main(url)
@@ -124,15 +128,181 @@ def mitsuiMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
-    # url="https://www.rehouse.co.jp/mansion/bkdetail/FQQXGA22/"
-    url = "https://www.rehouse.co.jp/mansion/bkdetail/FEPX7A12/"  # バスあり
-    # url="https://www.rehouse.co.jp/mansion/bkdetail/F69X7A19/"
-    # url="https://www.rehouse.co.jp/mansion/bkdetail/FGPX5A1C/"#バス停留所のみあり
+    url = "https://www.rehouse.co.jp/mansion/bkdetail/F31ZGA43/"
     obj = ParseMitsuiMansionDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
     return result
 
+###################################################
+# mitsui tochi
+###################################################
+@app.route(API_KEY_MITSUI_TOCHI_START, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiTochiStart():
+    logging.info("start")
+    obj = ParseMitsuiTochiStartAsync()
+    url = "https://www.rehouse.co.jp/sitemap/"
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end")
+    return result
+
+
+@app.route(API_KEY_MITSUI_TOCHI_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiTochiAreaLocal():
+    return mitsuiTochiArea(request)
+
+
+def mitsuiTochiArea(request):
+    logging.info("start area")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiTochiAreaFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end area")
+    return result
+
+
+@app.route(API_KEY_MITSUI_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiTochiPropertyListLocal():
+    return mitsuiTochiPropertyList(request)
+
+
+def mitsuiTochiPropertyList(request):
+    logging.info("start propertyList")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiTochiListFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyList")
+    return result
+
+
+@app.route(API_KEY_MITSUI_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiTochiPropertyDetailLocal():
+    return mitsuiTochiPropertyDetail(request)
+
+
+def mitsuiTochiPropertyDetail(request):
+    logging.info("start propertyDetail")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiTochiDetailFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyDetail")
+    return result
+
+
+@app.route(API_KEY_MITSUI_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiTochiPropertyDetailTest():
+    logging.info("start propertyDetail")
+    # request_json = json.loads(request.get_json())
+    # url = request_json['url']
+    url = "https://www.rehouse.co.jp/tochi/bkdetail/FBIZGA58/"
+    obj = ParseMitsuiTochiDetailFuncAsync()
+    result = obj.main(url)
+    logging.info("end propertyDetail")
+    return result
+
+###################################################
+# mitsui kodate
+###################################################
+@app.route(API_KEY_MITSUI_KODATE_START, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiKodateStart():
+    logging.info("start")
+    obj = ParseMitsuiKodateStartAsync()
+    url = "https://www.rehouse.co.jp/sitemap/"
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end")
+    return result
+
+
+@app.route(API_KEY_MITSUI_KODATE_AREA, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiKodateAreaLocal():
+    return mitsuiKodateArea(request)
+
+
+def mitsuiKodateArea(request):
+    logging.info("start area")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiKodateAreaFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end area")
+    return result
+
+
+@app.route(API_KEY_MITSUI_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiKodatePropertyListLocal():
+    return mitsuiKodatePropertyList(request)
+
+
+def mitsuiKodatePropertyList(request):
+    logging.info("start propertyList")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiKodateListFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyList")
+    return result
+
+
+@app.route(API_KEY_MITSUI_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiKodatePropertyDetailLocal():
+    return mitsuiKodatePropertyDetail(request)
+
+
+def mitsuiKodatePropertyDetail(request):
+    logging.info("start propertyDetail")
+    request_json = json.loads(request.get_json())
+    url = request_json['url']
+    obj = ParseMitsuiKodateDetailFuncAsync()
+    try:
+        result = obj.main(url)
+    except:
+        logging.error(traceback.format_exc())
+        return "error end", 500
+    logging.info("end propertyDetail")
+    return result
+
+
+@app.route(API_KEY_MITSUI_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
+def mitsuiKodatePropertyDetailTest():
+    logging.info("start propertyDetail")
+    # request_json = json.loads(request.get_json())
+    # url = request_json['url']
+    url = "https://www.rehouse.co.jp/kodate/bkdetail/FLGZ4A09/"
+    obj = ParseMitsuiKodateDetailFuncAsync()
+    result = obj.main(url)
+    logging.info("end propertyDetail")
+    return result
 
 ###################################################
 # sumifu Mansion
@@ -334,7 +504,7 @@ def sumifuTochiPropertyDetail(request):
 @app.route(API_KEY_SUMIFU_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuTochiPropertyDetailTest():
     logging.info("start propertyDetail")
-    url = "https://www.stepon.co.jp/tochi/detail_31571065/"
+    url = "https://www.stepon.co.jp/tochi/detail_12011023/"
     obj = ParseSumifuTochiDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
@@ -437,7 +607,7 @@ def sumifuKodatePropertyDetail(request):
 @app.route(API_KEY_SUMIFU_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuKodatePropertyDetailTest():
     logging.info("start propertyDetail")
-    url:String = "https://www.stepon.co.jp/kodate/detail_11182017/"
+    url:String = "https://www.stepon.co.jp/kodate/detail_12012003/"
     obj:ParseSumifuKodateDetailFuncAsync = ParseSumifuKodateDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
@@ -524,13 +694,6 @@ def tokyuMansionPropertyDetailTest():
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
     obj = ParseTokyuMansionDetailFuncAsync()
-    #url = "https://www.livable.co.jp/mansion/CVI207001/"  # メゾネット
-    #obj.main(url)
-    #url = "https://www.livable.co.jp/mansion/C11207001/"
-    #obj.main(url)
-    #url = "https://www.livable.co.jp/mansion/CZW206A54/"  # バスあり
-    #obj.main(url)
-    #url = "https://www.livable.co.jp/mansion/CXW202010/"  # 内法
     url = "https://www.livable.co.jp/mansion/CZY219M09/"
     result = obj.main(url)
     logging.info("end propertyDetail")

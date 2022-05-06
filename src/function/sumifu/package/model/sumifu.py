@@ -17,7 +17,6 @@ class SumifuModel(models.Model):
     railwayWalkMinute1 = models.IntegerField()
     busStation1 = models.TextField()
     busWalkMinute1Str = models.TextField()
-    busWalkMinute1Str = models.TextField()
     busWalkMinute1 = models.IntegerField()
     
     transfer2 = models.TextField()

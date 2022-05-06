@@ -20,6 +20,8 @@ header = {'User-Agent': str(ua.chrome)}
 
 
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
+API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
+
 API_KEY_MITSUI_MANSION_START = '/api/mitsui/mansion/start'
 API_KEY_MITSUI_MANSION_START_GCP = '/sumifu_mansion_start'
 API_KEY_MITSUI_MANSION_AREA = '/api/mitsui/mansion/area'
@@ -29,6 +31,26 @@ API_KEY_MITSUI_MANSION_LIST_GCP = '/mitsui_mansion_list'
 API_KEY_MITSUI_MANSION_DETAIL = '/api/mitsui/mansion/detail'
 API_KEY_MITSUI_MANSION_DETAIL_GCP = '/mitsui_mansion_detail'
 API_KEY_MITSUI_MANSION_DETAIL_TEST = '/api/mitsui/mansion/detail/test'
+
+API_KEY_MITSUI_TOCHI_START = '/api/mitsui/tochi/start'
+API_KEY_MITSUI_TOCHI_START_GCP = '/sumifu_tochi_start'
+API_KEY_MITSUI_TOCHI_AREA = '/api/mitsui/tochi/area'
+API_KEY_MITSUI_TOCHI_AREA_GCP = '/mitsui_tochi_area'
+API_KEY_MITSUI_TOCHI_LIST = '/api/mitsui/tochi/list'
+API_KEY_MITSUI_TOCHI_LIST_GCP = '/mitsui_tochi_list'
+API_KEY_MITSUI_TOCHI_DETAIL = '/api/mitsui/tochi/detail'
+API_KEY_MITSUI_TOCHI_DETAIL_GCP = '/mitsui_tochi_detail'
+API_KEY_MITSUI_TOCHI_DETAIL_TEST = '/api/mitsui/tochi/detail/test'
+
+API_KEY_MITSUI_KODATE_START = '/api/mitsui/kodate/start'
+API_KEY_MITSUI_KODATE_START_GCP = '/sumifu_kodate_start'
+API_KEY_MITSUI_KODATE_AREA = '/api/mitsui/kodate/area'
+API_KEY_MITSUI_KODATE_AREA_GCP = '/mitsui_kodate_area'
+API_KEY_MITSUI_KODATE_LIST = '/api/mitsui/kodate/list'
+API_KEY_MITSUI_KODATE_LIST_GCP = '/mitsui_kodate_list'
+API_KEY_MITSUI_KODATE_DETAIL = '/api/mitsui/kodate/detail'
+API_KEY_MITSUI_KODATE_DETAIL_GCP = '/mitsui_kodate_detail'
+API_KEY_MITSUI_KODATE_DETAIL_TEST = '/api/mitsui/kodate/detail/test'
 
 API_KEY_SUMIFU_MANSION_START = '/api/sumifu/mansion/start'
 API_KEY_SUMIFU_MANSION_START_GCP = '/sumifu_mansion_start'
@@ -125,7 +147,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         try:
             async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
                 try:
-                    return await self._fetch(_session, detailUrl, apiUrl, loop)
+                    return await self._fetch(_session, detailUrl, apiUrl, loop, retryTimes=0)
                 finally:
                     if _session is not None:
                         await _session.close()
@@ -268,7 +290,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                     async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
                         try:
                             task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
-                            ) + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
+                            ) + self._getNextPageApiKey(), loop=self._getActiveEventLoop(), retryTimes=0))  # fire and forget
                             # task = asyncio.ensure_future(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
                             sleep(3)
                         finally:

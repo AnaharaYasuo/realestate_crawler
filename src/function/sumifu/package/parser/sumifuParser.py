@@ -37,7 +37,6 @@ class SumifuParser(ParserBase):
         return self.BASE_URL + linkUrl
 
     async def parseRegionPage(self, response):
-
         async for destUrl in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
             print(destUrl)
             yield destUrl
@@ -47,7 +46,6 @@ class SumifuParser(ParserBase):
 
     def getAreaDestUrl(self,linkUrl):
         return self.BASE_URL + linkUrl + "?limit=1000&mode=2"
-        # return self.BASE_URL + linkUrl + "?limit=10000&mode=2"
 
     async def parseAreaPage(self, response):       
         async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
@@ -330,49 +328,6 @@ class SumifuParser(ParserBase):
         item.kenpei = item.kenpeiYousekiStr.split("／")[0].split("%")[0].split(" ")[0]
         item.youseki = item.kenpeiYousekiStr.split("／")[1].split("%")[0].split(" ")[0]
 
-class SumifuTochiParser(SumifuParser):
-    
-    def getRegionXpath(self):
-        return u'//a[contains(@href,"/tochi/area_")]/@href'
-
-    def getAreaXpath(self):
-        return u'//a[contains(@href,"/tochi/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
-
-    def getPropertyListXpath(self):
-        return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
-
-    def createEntity(self):
-        return  SumifuTochi()
-
-
-    def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item:SumifuTochi=super()._parsePropertyDetailPage(item, response)
-        item.tochiMensekiStr = response.find_all("dl", id="s_summaryTochiMenseki")[0].find_all("dd")[0].contents[0]
-        item.tochiMenseki = item.tochiMensekiStr.split("m")[0]
-        if(len(response.find_all("dl", id="s_coverageLandVolume"))>0):
-            item.kenpeiYousekiStr = response.find_all("dl", id="s_coverageLandVolume")[0].find_all("dd")[0].contents[0]
-            self._parseKenpeiYousekiText(item)
-        for i, tr in enumerate(response.find_all("div", id="detailBlock")[0].find_all("tr")):
-                for j, th in enumerate(tr.find_all("th")):
-                    thTitle = th.contents[0]
-                    tdValue:str = ""
-                    try:
-                        tdValue = tr.find_all("td")[j].contents[0]
-                    except:
-                        tdValue = ""
-                        logging.warn("tdValue is empty. thTitle is " + thTitle)
-                    if thTitle == "地目／地勢":
-                        self._getChimokuChiseiText(item,tdValue)
-                    elif thTitle == "接道状況":
-                        self._getSetudouText(item,tdValue)
-                    elif thTitle == "地域地区":
-                        self._getChiikiChikuText(item,tdValue)
-                    elif thTitle == "建築条件":
-                        item.kenchikuJoken = tdValue.strip()
-                    elif thTitle == "国土法":
-                        item.kokudoHou = tdValue
-        return item
-    
 class SumifuMansionParser(SumifuParser):
 
     def getRegionXpath(self):
@@ -386,26 +341,9 @@ class SumifuMansionParser(SumifuParser):
 
     def createEntity(self):
         return  SumifuMansion()
-
-    async def parsePropertyDetailPage(self, session, url):
-        item = self.createEntity()
-        # url=self.BASE_URL+"/mansion/detail_10393001/" #for test
-        try:
-            item.pageUrl = url
-            response:BeautifulSoup = await self.getResponseBs(session, url)
-            item = self._parsePropertyDetailPage(item, response)
-        except (LoadPropertyPageException, TimeoutError) as e:
-            raise e
-        except (ReadPropertyNameException) as e:
-            raise e
-        except Exception as e:
-            logging.error('Detail parse error:' + url)
-            logging.error(traceback.format_exc())
-            raise e
-        return item
             
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item=super()._parsePropertyDetailPage(item, response)
+        item:SumifuMansion=super()._parsePropertyDetailPage(item, response)
 
         item.madori = response.find_all("dl", id="s_summaryMadori")[0].find_all("dd")[0].find_all("em")[0].string
         item.senyuMensekiStr = response.find_all("dl", id="s_summarySenyuMenseki")[0].find_all("dd")[0].contents[0]
@@ -542,6 +480,48 @@ class SumifuMansionParser(SumifuParser):
 
         return item
 
+class SumifuTochiParser(SumifuParser):
+    
+    def getRegionXpath(self):
+        return u'//a[contains(@href,"/tochi/area_")]/@href'
+
+    def getAreaXpath(self):
+        return u'//a[contains(@href,"/tochi/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
+
+    def getPropertyListXpath(self):
+        return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
+
+    def createEntity(self):
+        return  SumifuTochi()
+
+    def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
+        item:SumifuTochi=super()._parsePropertyDetailPage(item, response)
+        item.tochiMensekiStr = response.find_all("dl", id="s_summaryTochiMenseki")[0].find_all("dd")[0].contents[0]
+        item.tochiMenseki = Decimal(item.tochiMensekiStr.split("m")[0])
+        if(len(response.find_all("dl", id="s_coverageLandVolume"))>0):
+            item.kenpeiYousekiStr = response.find_all("dl", id="s_coverageLandVolume")[0].find_all("dd")[0].contents[0]
+            self._parseKenpeiYousekiText(item)
+        for i, tr in enumerate(response.find_all("div", id="detailBlock")[0].find_all("tr")):
+                for j, th in enumerate(tr.find_all("th")):
+                    thTitle = th.contents[0]
+                    tdValue:str = ""
+                    try:
+                        tdValue = tr.find_all("td")[j].contents[0]
+                    except:
+                        tdValue = ""
+                        logging.warn("tdValue is empty. thTitle is " + thTitle)
+                    if thTitle == "地目／地勢":
+                        self._getChimokuChiseiText(item,tdValue)
+                    elif thTitle == "接道状況":
+                        self._getSetudouText(item,tdValue)
+                    elif thTitle == "地域地区":
+                        self._getChiikiChikuText(item,tdValue)
+                    elif thTitle == "建築条件":
+                        item.kenchikuJoken = tdValue.strip()
+                    elif thTitle == "国土法":
+                        item.kokudoHou = tdValue
+        return item
+    
 class SumifuKodateParser(SumifuParser):
     
     def getRegionXpath(self):
