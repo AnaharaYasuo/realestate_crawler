@@ -34,6 +34,9 @@ class ParseMitsuiMansionListFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
 
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
+
     def _getLocalPararellLimit(self):
         return 3
 
@@ -47,6 +50,11 @@ class ParseMitsuiMansionListFuncAsync(ParseMiddlePageAsyncBase):
         if os.getenv('IS_CLOUD', ''):
             return API_KEY_MITSUI_MANSION_DETAIL_GCP
         return API_KEY_MITSUI_MANSION_DETAIL
+
+    def _getNextPageApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_MITSUI_MANSION_LIST_GCP
+        return API_KEY_MITSUI_MANSION_LIST
     
 
 class ParseMitsuiMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
@@ -120,6 +128,9 @@ class ParseMitsuiTochiListFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
 
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
+
     def _getLocalPararellLimit(self):
         return 3
 
@@ -133,7 +144,11 @@ class ParseMitsuiTochiListFuncAsync(ParseMiddlePageAsyncBase):
         if os.getenv('IS_CLOUD', ''):
             return API_KEY_MITSUI_TOCHI_DETAIL_GCP
         return API_KEY_MITSUI_TOCHI_DETAIL
-    
+
+    def _getNextPageApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_MITSUI_TOCHI_LIST_GCP
+        return API_KEY_MITSUI_TOCHI_LIST    
 
 class ParseMitsuiTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -207,6 +222,9 @@ class ParseMitsuiKodateListFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
 
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
+
     def _getLocalPararellLimit(self):
         return 3
 
@@ -220,7 +238,11 @@ class ParseMitsuiKodateListFuncAsync(ParseMiddlePageAsyncBase):
         if os.getenv('IS_CLOUD', ''):
             return API_KEY_MITSUI_KODATE_DETAIL_GCP
         return API_KEY_MITSUI_KODATE_DETAIL
-    
+
+    def _getNextPageApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_MITSUI_KODATE_LIST_GCP
+        return API_KEY_MITSUI_KODATE_LIST
 
 class ParseMitsuiKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
 

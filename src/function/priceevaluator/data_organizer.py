@@ -13,13 +13,13 @@ pd.options.display.max_columns = 500
 
 class DataOrganizer():
 
-    def __init__(self,categoryColumns,targetColumn,indexColumn,unusedColumns):
-        self.categoryColumns=categoryColumns
+    def __init__(self,targetColumn,indexColumn,unusedColumns):
+        #self.categoryColumns=categoryColumns
         self.targetColumn = targetColumn
         self.indexColumn = indexColumn
         self.unusedColumns=unusedColumns
 
-    def main(self,model_data,score_data):
+    def main(self,model_data:pd.DataFrame,score_data:pd.DataFrame):
         self._displayData(model_data,score_data)
         model_data,score_data = self._dropUnusedData(model_data,score_data)
 
@@ -44,7 +44,7 @@ class DataOrganizer():
         return X_model,y_model,X_score,y_score
 
     #有効でない列を削除
-    def _deleteMeaninglessData(self,X_model,y_model,X_score,y_score):
+    def _deleteMeaninglessData(self,X_model:pd.DataFrame,y_model:pd.DataFrame,X_score:pd.DataFrame,y_score:pd.DataFrame):
         # トレーニングデータ,テストデータの分割
         X_train, X_test, y_train, y_test = train_test_split(X_model, y_model,test_size=0.20, random_state=2)
         
@@ -84,14 +84,14 @@ class DataOrganizer():
         return X_model,X_score
 
     
-    def _dropUnusedData(self,model_data,score_data):
+    def _dropUnusedData(self,model_data:pd.DataFrame,score_data:pd.DataFrame):
         model_data = model_data.drop(list(set(model_data.columns.values) & set(self.unusedColumns)),axis=1)
         score_data = score_data.drop(list(set(score_data.columns.values) & set(self.unusedColumns)),axis=1)
         return model_data,score_data
         
-    def _divideInputData(self,data):
-        X = data
-        y = data[self.targetColumn]
+    def _divideInputData(self,data:pd.DataFrame):
+        X:pd.DataFrame = data
+        y:pd.DataFrame = data[self.targetColumn]
         #if(len(self.indexColumn)>0 and self.indexColumn in X.columns):
         #    X = X.drop(self.indexColumn,axis=1)
         X = X.drop(self.targetColumn,axis=1)
@@ -100,7 +100,7 @@ class DataOrganizer():
     def _displayLine(self):
         display('--------------------------------------------------')
 
-    def _getOneHotEncodedData(self,X_model,X_score):
+    def _getOneHotEncodedData(self,X_model:pd.DataFrame,X_score:pd.DataFrame):
         display('start _getOneHotEncodedData')
         self._displayLine()
         display('スコア側の項目の情報')
@@ -115,9 +115,9 @@ class DataOrganizer():
         #One hot encode
         #Object型の列を全てエンコード
         #X_model = pd.get_dummies(X_model,dummy_na=True,columns=list(self.categoryColumns))
-        X_model = pd.get_dummies(X_model,dummy_na=True,columns=X_model.select_dtypes(include=object).columns.values)
+        X_model:pd.DataFrame = pd.get_dummies(X_model,dummy_na=True,columns=X_model.select_dtypes(include=object).columns.values)
         #X_score = pd.get_dummies(X_score,dummy_na=True,columns=list(self.categoryColumns))
-        X_score = pd.get_dummies(X_score,dummy_na=True,columns=X_score.select_dtypes(include=object).columns.values)
+        X_score:pd.DataFrame = pd.get_dummies(X_score,dummy_na=True,columns=X_score.select_dtypes(include=object).columns.values)
 
         #One hot encodeによる列の差異の対応
         cols_model = set(X_model.columns.values)
@@ -171,14 +171,14 @@ class DataOrganizer():
         return X_model,X_score
 
     #欠損値の対応
-    def _getImputedData(self,X_model,X_score):
+    def _getImputedData(self,X_model:pd.DataFrame,X_score:pd.DataFrame):
         display('start _getImputedData')
         imp = SimpleImputer()
         #imp.fit(X_model)
         display('start Impute')
         display(X_model.head())
-        X_modelResult=None
-        X_scoreResult=None
+        X_modelResult:pd.DataFrame=None
+        X_scoreResult:pd.DataFrame=None
         tempColumns=[]
         #X_model = pd.DataFrame(imp.transform(X_model),index=X_model.index.values.tolist())
         for i,targetColumn in enumerate(X_model.columns.values):
@@ -215,7 +215,7 @@ class DataOrganizer():
         return X_model,X_score
 
     #データを確認
-    def _displayData(self,model_data,score_data):
+    def _displayData(self,model_data:pd.DataFrame,score_data:pd.DataFrame):
         self._displayLine()
         display('train data')
         self._displayLine()
@@ -226,7 +226,7 @@ class DataOrganizer():
         display(score_data.head())
 
     #データを説明変数と目的変数に分割
-    def _divideData(self,model_data,score_data):
+    def _divideData(self,model_data:pd.DataFrame,score_data:pd.DataFrame):
         X_model,y_model=self._divideInputData(model_data)
         X_score,y_score=self._divideInputData(score_data)
         return X_model,y_model,X_score,y_score

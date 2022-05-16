@@ -128,7 +128,7 @@ def mitsuiMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
-    url = "https://www.rehouse.co.jp/mansion/bkdetail/F31ZGA43/"
+    url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/FSFZ4A03/"
     obj = ParseMitsuiMansionDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
@@ -213,7 +213,7 @@ def mitsuiTochiPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
-    url = "https://www.rehouse.co.jp/tochi/bkdetail/FBIZGA58/"
+    url = "https://www.rehouse.co.jp/buy/tochi/bkdetail/FBHZGA14/"
     obj = ParseMitsuiTochiDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")
@@ -225,7 +225,7 @@ def mitsuiTochiPropertyDetailTest():
 @app.route(API_KEY_MITSUI_KODATE_START, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiKodateStart():
     logging.info("start")
-    obj = ParseMitsuiKodateStartAsync()
+    obj:ParseMitsuiKodateStartAsync = ParseMitsuiKodateStartAsync()
     url = "https://www.rehouse.co.jp/sitemap/"
     try:
         result = obj.main(url)
@@ -264,7 +264,7 @@ def mitsuiKodatePropertyList(request):
     logging.info("start propertyList")
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    obj = ParseMitsuiKodateListFuncAsync()
+    obj:ParseMitsuiKodateListFuncAsync = ParseMitsuiKodateListFuncAsync()
     try:
         result = obj.main(url)
     except:

@@ -118,7 +118,7 @@ class EstimateRankingMaker():
                                                        )
                 display('cross validate Done')
                 pipe=cross_validate_scores["estimator"][0]
-                hyperOptRegressor=pipe["est"]
+                hyperOptRegressor:HyperOptRegressor=pipe["est"]
                 est=hyperOptRegressor.getEst()
                 ests[fn_name]={'pipe' : pipe, 'est' : est,' fit_params' : fit_params}
                 

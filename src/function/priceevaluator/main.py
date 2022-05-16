@@ -1,4 +1,6 @@
 import os
+import sys
+from unittest import case
 #from hyperopt import hp
 #from hyperopt import fmin
 #from hyperopt import tpe
@@ -15,9 +17,18 @@ from IPython.display import display
 
 import data_organizer as do
 
+
 # 分析データ別の設定
 confFilePath:str="./config/option.ini"
-confSection="MANSION"
+confSection:str="MANSION"
+args: list[str] = sys.argv
+if 2 <= len(args):
+    sectionValue:str=args[1]
+
+    if sectionValue=="TOCHI":
+        confSection=sectionValue
+
+
 conf:ConfigProvider=ConfigProvider(confFilePath,"utf-8")
 indexColumn=conf.get(confSection,"indexColumn")
 targetColumn=conf.get(confSection,"targetColumn")
@@ -39,7 +50,7 @@ if os.path.exists(resultFolderPath):
 scoreFilePath=modelFilePath
 
 categoryColumns=[]
-min_features_to_select=json.loads(conf.get("DEFAULT","minFeaturesToSelect"))#考慮すべき特徴量の最小値
+min_features_to_select=json.loads(conf.get(confSection,"minFeaturesToSelect"))#考慮すべき特徴量の最小値
 
 eva:reg.RegressionEvaluator = reg.RegressionEvaluator() 
 eva.showEvaluationRadioButtons()
@@ -53,7 +64,7 @@ for i in categoryColumns:
 model_data= pd.read_csv(modelFilePath,dtype=category_dtype,index_col=indexColumn,engine='python', sep='\t')
 score_data= pd.read_csv(scoreFilePath,dtype=category_dtype,index_col=indexColumn,engine='python', sep='\t')
 
-dataOrganizer = do.DataOrganizer(categoryColumns,targetColumn,indexColumn,unusedColumns)
+dataOrganizer:do.DataOrganizer = do.DataOrganizer(targetColumn,indexColumn,unusedColumns)
 X_model,y_model,X_score,y_score=dataOrganizer.main(model_data,score_data)
 
 from lightgbm import LGBMRegressor
