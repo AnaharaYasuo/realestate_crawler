@@ -131,9 +131,9 @@ class HyperParamProvider():
 
     # XGB parameters
     xgb_reg_params = {
-        'learning_rate':    hp.uniform('learning_rate', 0.01, 0.3),
-        'n_estimators':     hp.choice('n_estimators',    np.arange(100, 201, 50)),
-        'max_depth':        hp.choice('max_depth',        np.arange(3, 16, 2, dtype=int)),#決定木の深さの最大値
+        'learning_rate':    hp.uniform('learning_rate', 0.01, 0.1),
+        'n_estimators':     hp.choice('n_estimators',    np.arange(200, 300)),
+        'max_depth':        hp.choice('max_depth',        np.arange(3, 9, 2, dtype=int)),
     #    'min_child_samples': hp.choice('min_child_samples', np.arange(20, 41, 10, dtype=int)),
         'min_child_weight': hp.choice('min_child_weight', np.arange(1, 40, 2, dtype=int)),#決定木の葉の重みの下限
         'colsample_bytree': hp.choice('colsample_bytree', np.arange(0.3, 0.8, 0.2)),
@@ -151,10 +151,10 @@ class HyperParamProvider():
 
     # LightGBM parameters
     lgb_reg_params = {
-        'learning_rate':    hp.uniform('learning_rate', 0.01, 0.3),
-        'n_estimators':     hp.choice('n_estimators',    np.arange(100, 201, 50)),
+        'learning_rate':    hp.uniform('learning_rate', 0.01, 0.1),
+        'n_estimators':     hp.choice('n_estimators',    np.arange(200, 300)),
         'num_leaves':        hp.choice('num_leaves',        np.arange(25, 51, 5, dtype=int)),
-        'max_depth':        hp.choice('max_depth',        np.arange(3, 16, 2, dtype=int)),
+        'max_depth':        hp.choice('max_depth',        np.arange(3, 9, 2, dtype=int)),
     #    'min_child_samples': hp.choice('min_child_samples', np.arange(20, 41, 10, dtype=int)),
         'min_child_weight': hp.choice('min_child_weight', np.arange(1, 40, 2, dtype=int)),
         'colsample_bytree': hp.choice('colsample_bytree', np.arange(0.3, 0.8, 0.2)),
@@ -167,7 +167,7 @@ class HyperParamProvider():
     lgb_para['pca_params'] = pca_params
 
     @classmethod
-    def getLbgParam(self):
+    def getLgbParam(self):
         return HyperParamProvider.lgb_para
 
     # CatBoost parameters

@@ -14,49 +14,46 @@ from package.parser.baseParser import LoadPropertyPageException, \
 from bs4.element import NavigableString, Tag
 import logging
 
-
-class TokyuMansionParser(ParserBase):
-
+class TokyuParser(ParserBase):
+    BASE_URL='https://www.livable.co.jp'
     def __init__(self, params):
         ""
         
     def getCharset(self):
         return "utf-8"
 
+    def createEntity(self):
+        pass
+
+    def getRootXpath(self):
+        return u''
+
+    def getRootDestUrl(self,linkUrl):
+        return self.BASE_URL +  linkUrl
+
     async def parseRootPage(self, response):
-
-        def getXpath():
-            # "https://www.rehouse.co.jp/sitemap/buy/syutoken/tokyo-mansion/"
-            return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/select-area/")]/@href'
-
-        def getDestUrl(linkUrl):
-            return 'https://www.livable.co.jp' + linkUrl
-
-        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+        async for destUrl in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
             yield destUrl
 
-    async def parseAreaPage(self, response):
+    def getAreaXpath(self):
+        return u''
 
-        def getXpath():
-            # "https://www.rehouse.co.jp/list/area/mansion/syutoken/tokyo/13-101/"
-            return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
+    def getAreaDestUrl(self,linkUrl):
+        return  self.BASE_URL + linkUrl
 
-        def getDestUrl(linkUrl):
-            return 'https://www.livable.co.jp' + linkUrl
-            # "https://www.rehouse.co.jp/list/area/mansion/syutoken/tokyo/13-101/?limit=100"
-        
-        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+    async def parseAreaPage(self, response):        
+        async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
             yield destUrl
+
+    def getPropertyListXpath(self):
+        return u''
+
+    def getPropertyListDestUrl(self,linkUrl):
+        return self.BASE_URL+linkUrl
 
     async def parsePropertyListPage(self, response):
-
-        def getXpath():
-            return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/mansion/")]/@href'
-
-        def getDestUrl(linkUrl):
-            return 'https://www.livable.co.jp' + linkUrl
-
-        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
+        
+        async for destUrl in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
@@ -65,11 +62,11 @@ class TokyuMansionParser(ParserBase):
             return u'(//div[@class="m-page-navigation__inner"])[1]/a[@class="m-page-navigation__next iconfont-livable-arrow_right"]/@href'
 
         def getDestUrl(linkUrl):
-            return 'https://www.livable.co.jp' + linkUrl
+            return self.BASE_URL + linkUrl
 
         def _parsePageCore(self, response, getXpath , getDestUrl):
             destUrl = response.xpath(getXpath())
-            return destUrl
+            return self.BASE_URL + destUrl
 
         logging.info("getPropertyListNextPageUrl")
         linkUrlList = response.xpath(getNextPageXpath())
@@ -78,32 +75,12 @@ class TokyuMansionParser(ParserBase):
             return getDestUrl(linkUrl)
         return ""
 
-    def createEntity(self):
-        return  TokyuMansion()
-
-    async def parsePropertyDetailPage(self, session, url):
-        item = TokyuMansion()
-        # url="https://www.stepon.co.jp/mansion/detail_10393001/" #for test
-        try:
-            item.pageUrl = url.replace("?from=property_list", "")
-            response = await self.getResponseBs(session, url)
-            item = self._parsePropertyDetailPage(item, response)
-        except (LoadPropertyPageException, TimeoutError) as e:
-            raise e
-        except (ReadPropertyNameException) as e:
-            raise e
-        except Exception as e:
-            logging.error('Detail parse error:' + url)
-            logging.error(traceback.format_exc())
-            raise e
-        return item
-    
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
+        item=super()._parsePropertyDetailPage(item, response)
         try:
             item.propertyName = response.find("h1", class_="o-detail-header__headline o-detail-header__headline--match").contents[0]
         except Exception:
             raise ReadPropertyNameException()
-
         item.railwayCount = 0
         for i, tr in enumerate(response.find_all("div", class_="m-status-table__wrapper")[1].find_all("dl")):
             for j, th in enumerate(tr.find_all("dt")):
@@ -133,36 +110,6 @@ class TokyuMansionParser(ParserBase):
                         man = int(round(man))
                     price = oku + man
                     item.price = price
-
-                if thTitle == u"間取り":
-                    item.madori = tdValue
-
-                if thTitle == u"専有面積":
-                    item.senyuMensekiStr = tdValue
-                    senyuMensekiWork = item.senyuMensekiStr.replace(u'内法', '').replace(u'壁芯', '').replace(u'm', '')
-                    item.senyuMenseki = Decimal(senyuMensekiWork)
-                    
-                if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
-                    item.kaisu = tdValue
-                    item.floorType_kai = int(item.kaisu.split(u"階・")[0].split(u"階 / ")[0].replace(u"地下", "-").strip())  # 新規項目
-                    item.floorType_chijo = int(item.kaisu.split(u"地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
-                    floorType_chika = 0
-                    if(len(item.kaisu.split(u" 地下")) > 1):
-                        floorType_chika = int(item.kaisu.split(u" 地下")[1].replace(u"階", "").replace(u"建", ""))
-                    item.floorType_chika = floorType_chika
-
-                if thTitle == u"建物構造":
-                    item.kouzou = tdValue  # 鉄筋コンクリート造
-
-                if thTitle == u"築年月":  # u1998年3月
-                    item.chikunengetsuStr = tdValue
-                    if (item.chikunengetsuStr == u"不詳"):
-                        nen = 1900
-                        tsuki = 1
-                    else:
-                        nen = int(item.chikunengetsuStr.split(u"年")[0])
-                        tsuki = int(item.chikunengetsuStr.split(u"年")[1].split(u"月")[0])
-                    item.chikunengetsu = datetime.date(nen, tsuki, 1)
 
                 if thTitle == u"所在地":
                     item.address1 = tr.find("dd").find_all("a")[0].text  # 新規項目
@@ -263,6 +210,88 @@ class TokyuMansionParser(ParserBase):
                             if item.railwayCount == 5:
                                 item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = transfer, railway, station, railwayWalkMinuteStr, railwayWalkMinute, busStation, busWalkMinuteStr, busWalkMinute                      
                         
+                if thTitle == u"引渡時期":
+                    item.hikiwatashi = tdValue
+
+                if thTitle == u"現況":
+                    item.genkyo = tdValue
+
+                if thTitle == u"土地権利":
+                    item.tochikenri = tdValue
+                    
+                if thTitle == u"その他費用":
+                    item.sonotaHiyouStr = tdValue  # 新規
+                    
+                if thTitle == u"取引態様":
+                    item.torihiki = tdValue  # 新規
+                    
+                if thTitle == u"備考":
+                    item.biko = tdValue  # 新規
+        item.busUse1 = 0
+        if(item.busWalkMinute1 > 0):
+            item.busUse1 = 1
+        return item
+    
+class TokyuMansionParser(TokyuParser):
+
+    def getRootXpath(self):
+        return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/select-area/")]/@href'
+
+    def getAreaXpath(self):
+        return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
+
+    def getPropertyListXpath(self):
+        return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/mansion/")]/@href'
+
+    def createEntity(self):
+        return  TokyuMansion()
+
+    def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
+        item:TokyuMansion=super()._parsePropertyDetailPage(item, response)
+
+        item.railwayCount = 0
+        for i, tr in enumerate(response.find_all("div", class_="m-status-table__wrapper")[1].find_all("dl")):
+            for j, th in enumerate(tr.find_all("dt")):
+                thTitle = th.contents[0]
+                try:
+                    tdValue = tr.find_all("dd")[j].contents[0]
+                    tdValue = tdValue.strip()
+                    # logging.info("tdValue is " + tdValue + ". thTitle is " + thTitle)
+                except:
+                    tdValue = ""
+                    logging.warn("error. tdValue is empty. thTitle is " + thTitle)
+
+
+                if thTitle == u"間取り":
+                    item.madori = tdValue
+
+                if thTitle == u"専有面積":
+                    item.senyuMensekiStr = tdValue
+                    senyuMensekiWork = item.senyuMensekiStr.replace(u'内法', '').replace(u'壁芯', '').replace(u'm', '')
+                    item.senyuMenseki = Decimal(senyuMensekiWork)
+                    
+                if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
+                    item.kaisu = tdValue
+                    item.floorType_kai = int(item.kaisu.split(u"階・")[0].split(u"階 / ")[0].replace(u"地下", "-").strip())  # 新規項目
+                    item.floorType_chijo = int(item.kaisu.split(u"地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
+                    floorType_chika = 0
+                    if(len(item.kaisu.split(u" 地下")) > 1):
+                        floorType_chika = int(item.kaisu.split(u" 地下")[1].replace(u"階", "").replace(u"建", ""))
+                    item.floorType_chika = floorType_chika
+
+                if thTitle == u"建物構造":
+                    item.kouzou = tdValue  # 鉄筋コンクリート造
+
+                if thTitle == u"築年月":  # u1998年3月
+                    item.chikunengetsuStr = tdValue
+                    if (item.chikunengetsuStr == u"不詳"):
+                        nen = 1900
+                        tsuki = 1
+                    else:
+                        nen = int(item.chikunengetsuStr.split(u"年")[0])
+                        tsuki = int(item.chikunengetsuStr.split(u"年")[1].split(u"月")[0])
+                    item.chikunengetsu = datetime.date(nen, tsuki, 1)
+                        
                 if thTitle == u"バルコニー":
                     item.barukoniMensekiStr = tdValue
 
@@ -294,33 +323,15 @@ class TokyuMansionParser(ParserBase):
                     else:
                         item.syuzenTsumitate = int(item.syuzenTsumitateStr.replace(",", "").replace(u"（円/月）", ""))
 
-                if thTitle == u"引渡時期":
-                    item.hikiwatashi = tdValue
-
-                if thTitle == u"現況":
-                    item.genkyo = tdValue
-
                 if thTitle == u"駐車場":
                     item.tyusyajo = tdValue
 
-                if thTitle == u"土地権利":
-                    item.tochikenri = tdValue
-                    
-                if thTitle == u"その他費用":
-                    item.sonotaHiyouStr = tdValue  # 新規
-                    
                 if thTitle == u"分譲会社":
                     item.bunjoKaisya = tdValue.replace(u"（新築分譲時における売主）", "")  # 新規
                     
                 if thTitle == u"施工会社":
                     item.sekouKaisya = tdValue  # 新規
-                    
-                if thTitle == u"取引態様":
-                    item.torihiki = tdValue  # 新規
-                    
-                if thTitle == u"備考":
-                    item.biko = tdValue  # 新規
-                    
+
         # 不要項目
         item.floorType = ""
         item.saikouKadobeya = ""
@@ -338,9 +349,6 @@ class TokyuMansionParser(ParserBase):
         item.kyutaishin = 0
         if(item.chikunengetsu < datetime.date(1982, 1, 1)):
             item.kyutaishin = 1
-        item.busUse1 = 0
-        if(item.busWalkMinute1 > 0):
-            item.busUse1 = 1
         item.barukoniMenseki = 0
         if item.barukoniMensekiStr != "-":
             item.barukoniMenseki = item.barukoniMensekiStr.replace(u"m", "")

@@ -11,6 +11,7 @@ from catboost import CatBoostRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import StratifiedKFold
 from sklearn.model_selection import KFold
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 import pickle
 
@@ -28,10 +29,12 @@ from sklearn.model_selection import cross_val_predict
 from hyperopt import hp
 from IPython.display import display
 
+from regression_evaluator import RegressionEvaluator
+
 class EstimateRankingMaker():
     def __displayFeatureImportance(self,est,X):       
         display("start __displayFeatureImportance")
-        if (type(est)==RandomForestRegressor):
+        if (type(est)==RandomForestRegressor or type(est)==LGBMRegressor):
             #特徴量毎の重要性を可視化
             print('Feature Importances:')
             fi = est.feature_importances_
@@ -199,7 +202,7 @@ class HyperOptRegressor(RegressorMixin, BaseEnsemble, metaclass=ABCMeta):
             display("_train cls",cls)
             display("_train cls_params",cls_params)
             est = cls(**cls_params)
-            evaluator = params["eva"]
+            evaluator:RegressionEvaluator = params["eva"]
             loss=evaluator.getLossValue(est, X, params["y"])
             display("train loss is " + str(loss))
             return {'loss': loss, 'status': STATUS_OK, 'est':est}
@@ -216,6 +219,8 @@ class HyperOptRegressor(RegressorMixin, BaseEnsemble, metaclass=ABCMeta):
             cls=RandomForestRegressor
         elif (cls=="GradientBoostingRegressor"):
             cls=GradientBoostingRegressor
+        elif (cls=="LGBMRegressor"):
+            cls=LGBMRegressor
 
         self.REFResult_={}
         loss=float('inf')

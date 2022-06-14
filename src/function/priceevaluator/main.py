@@ -6,6 +6,7 @@ from unittest import case
 #from hyperopt import tpe
 import numpy as np
 import pandas as pd
+from sklearn.neural_network import MLPRegressor
 from config_provider import ConfigProvider
 import json
 from hyper_param_provider import HyperParamProvider
@@ -69,7 +70,7 @@ X_model,y_model,X_score,y_score=dataOrganizer.main(model_data,score_data)
 
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
-from catboost import CatBoostRegressor
+from catboost import CatBoostClassifier, CatBoostRegressor
 from hyperopt import fmin, tpe, STATUS_OK, STATUS_FAIL, Trials
 import column_optimizer as co
 import estimate_ranking_maker as erm
@@ -77,14 +78,14 @@ import estimate_ranking_maker as erm
 #実行用
 estParam={
     'xgb':{'param':HyperParamProvider.getXbgParam(),'est':XGBRegressor,"trials":Trials()}
-#    ,'rf':{'param':HyperParamProvider.getRf_para(),'est':"RandomForestRegressor","trials":Trials()}
-#    ,'mlp':{'param':HyperParamProvider.getMlp_para(),'est':MLPRegressor,"trials":Trials()}
-#    ,'lgb':{'param':HyperParamProvider.getLgb_para(),'est':LGBMRegressor,"trials":Trials()}
-#    ,'gb':{'param':HyperParamProvider.getGb_para(),'est':"GradientBoostingRegressor","trials":Trials()}#遅いので除外
-#    ,'ctb':{'param':HyperParamProvider.getCtb_para(),'est':CatBoostClassifier,"trials":Trials()}#処理がものすごく遅い
+#    ,'rf':{'param':HyperParamProvider.getRfParam(),'est':"RandomForestRegressor","trials":Trials()}
+#    ,'mlp':{'param':HyperParamProvider.getMlpParam(),'est':MLPRegressor,"trials":Trials()}
+    ,'lgb':{'param':HyperParamProvider.getLgbParam(),'est':LGBMRegressor,"trials":Trials()}
+#    ,'gb':{'param':HyperParamProvider.getGbParam(),'est':"GradientBoostingRegressor","trials":Trials()}#遅いので除外
+#    ,'ctb':{'param':HyperParamProvider.getCtbParam(),'est':CatBoostClassifier,"trials":Trials()}#処理がものすごく遅い
 }
-columnOptimizer = co.ColumnOptimizer(X_model,y_model)
-estimateRankingMaker = erm.EstimateRankingMaker()
+columnOptimizer:co.ColumnOptimizer = co.ColumnOptimizer(X_model,y_model)
+estimateRankingMaker:erm.EstimateRankingMaker = erm.EstimateRankingMaker()
 #モデルの絞り込み(1回目)
 max_evals=1
 ests,rankResultDf = estimateRankingMaker.getRanking(X=X_model

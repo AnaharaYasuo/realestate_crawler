@@ -273,7 +273,7 @@ class MitsuiMansionParser(MitsuiParser):
         return  MitsuiMansion()
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item=super()._parsePropertyDetailPage(item, response)
+        item:MitsuiMansion=super()._parsePropertyDetailPage(item, response)
         for i, tr in enumerate(response.find_all("tr",class_="table-row")):
             thTitle = tr.find_all("td")[0].contents[0]
             try:
@@ -400,7 +400,7 @@ class MitsuiTochiParser(MitsuiParser):
         return  MitsuiTochi()
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item=super()._parsePropertyDetailPage(item, response)
+        item:MitsuiTochi=super()._parsePropertyDetailPage(item, response)
 
         for i, tr in enumerate(response.find_all("tr",class_="table-row")):
             thTitle = tr.find_all("td")[0].contents[0]
@@ -457,7 +457,7 @@ class MitsuiKodateParser(MitsuiParser):
         return  MitsuiKodate()
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item=super()._parsePropertyDetailPage(item, response)
+        item:MitsuiKodate=super()._parsePropertyDetailPage(item, response)
 
         for i, tr in enumerate(response.find_all("tr",class_="table-row")):
             thTitle = tr.find_all("td")[0].contents[0]

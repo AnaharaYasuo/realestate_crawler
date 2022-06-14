@@ -221,13 +221,20 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def main(self, url):
         self.url = url
         try:
-            loop = self._getActiveEventLoop()
-            futures = asyncio.gather(*[self._run(url)], loop=loop)
-            runResult = loop.run_until_complete(futures)
+            try:
+                loop = self._getActiveEventLoop()
+                futures = asyncio.gather(*[self._run(url)], loop=loop)
+                runResult = loop.run_until_complete(futures)
+            except asyncio.exceptions.TimeoutError as e:
+                if loop.is_running():
+                    loop.stop()
+                futures = asyncio.gather(*[self._run(url)], loop=loop)
+                runResult = loop.run_until_complete(futures)
         except Exception as e:
             raise e
-        # finally:
-            # loop.close()
+        finally:
+            if loop.is_running():
+                loop.stop()
         self._afterRunProc(runResult)
         return "finish", 200
 
