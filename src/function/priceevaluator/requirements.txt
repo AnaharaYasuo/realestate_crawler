@@ -40,7 +40,7 @@ lxml @ file:///D:/Users/anaharayasuo/Downloads/lxml-4.6.3-cp39-cp39-win_amd64.wh
 MarkupSafe==1.1.1
 matplotlib==3.4.3
 matplotlib-inline==0.1.3
-mistune==0.8.4
+mistune==2.0.3
 multidict==4.7.6
 mysql-connector==2.2.9
 mysqlclient @ file:///D:/Users/anaharayasuo/Downloads/mysqlclient-1.4.6-cp39-cp39-win_amd64.whl
