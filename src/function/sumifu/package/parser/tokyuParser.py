@@ -180,11 +180,11 @@ class TokyuParser(ParserBase):
                             transfer = transfer + value
                         elif (j % 3 == 2):
                             transfer = transfer + value
-                            if (value.find(u"バス") > -1):  # 京王相模原線 「京王永山」駅 バス8分 「聖ヶ丘２丁目」下車 徒歩4分
+                            if (value.find(u"バス") > -1):  # 中央線 「武蔵小金井」駅 バス11分 「はなの木通り」停 徒歩4分
                                 railwayWalkMinuteStr = ""
                                 railwayWalkMinute = 0
                                 busStation = value.split(u"「")[1].split(u"」")[0]
-                                busWalkMinuteStr = value.split(u"下車 ")[1]
+                                busWalkMinuteStr = value.split(u"停 ")[1]
                                 busWalkMinute = int(busWalkMinuteStr.replace(u"徒歩", "").replace(u"分", ""))
                             elif(value.find(u"「") > -1):  # 福知山線 「新三田」駅 「中央公園前」下車 徒歩1分
                                 railwayWalkMinuteStr = ""

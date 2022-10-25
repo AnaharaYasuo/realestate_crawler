@@ -153,17 +153,17 @@ class SumifuParser(ParserBase):
                 railway = response.select('dd[id="s_summaryTransfer"]>a:nth-child(' + str(i * 2 + 1) + ')')[0].contents[0]  # 東海道本線
                 station = response.select('dd[id="s_summaryTransfer"]>a:nth-child(' + str(i * 2 + 2) + ')')[0].contents[0]  # 戸塚
                 transfer = transferList[i].replace(" ", "")  # 「東海道本線戸塚」駅よりバス10分「上矢部」バス停徒歩6分
-                wkTransferList = transfer.split("」駅より")
+                wkTransferList = transfer.split("」駅")
                 walkStr = "」駅より" + wkTransferList[1]  # 」駅よりバス10分「上矢部」バス停徒歩6分
                 if i == 0:
                     item.transfer1, item.railway1, item.station1, item.railwayWalkMinute1Str, item.railwayWalkMinute1, item.busStation1, item.busWalkMinute1Str, item.busWalkMinute1 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
                 elif i == 1:
                     item.transfer2, item.railway2, item.station2, item.railwayWalkMinute2Str, item.railwayWalkMinute2, item.busStation2, item.busWalkMinute2Str, item.busWalkMinute2 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
-                elif i == 1:
+                elif i == 2:
                     item.transfer3, item.railway3, item.station3, item.railwayWalkMinute3Str, item.railwayWalkMinute3, item.busStation3, item.busWalkMinute3Str, item.busWalkMinute3 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
-                elif i == 1:
+                elif i == 3:
                     item.transfer4, item.railway4, item.station4, item.railwayWalkMinute4Str, item.railwayWalkMinute4, item.busStation4, item.busWalkMinute4Str, item.busWalkMinute4 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
-                elif i == 1:
+                elif i == 4:
                     item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = self.__getRailWayPropertyValues(transfer, railway, station, walkStr)
             except IndexError:
                 logging.warn("transfer:" + transfer)

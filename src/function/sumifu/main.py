@@ -401,7 +401,7 @@ def sumifuMansionPropertyDetail(request):
 @app.route(API_KEY_SUMIFU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuMansionPropertyDetailTest():
     logging.info("start propertyDetail")
-    url = "https://www.stepon.co.jp/mansion/detail_19273047/"
+    url = "https://www.stepon.co.jp/mansion/detail_12583039/"
     obj = ParseSumifuMansionDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")

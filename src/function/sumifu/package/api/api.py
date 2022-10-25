@@ -112,7 +112,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
     }
-    _loop = None
+    _loop:asyncio.BaseEventLoop = None
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
@@ -123,7 +123,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getActiveEventLoop(self):
         if (self._loop is None or self._loop.is_closed()):
             self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(None)
+            asyncio.set_event_loop(self._loop)
         return self._loop
 
     def _generateConnector(self, _loop):
@@ -166,7 +166,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 self._fetch(session, detailUrl, apiUrl, loop, retryTimes+1)
             else:
                 logging.error("ClientConnectorError:" + detailUrl)
-                logging.error(e.__cause__)
+                #logging.error(e.__cause__)
+                #logging.error(traceback.format_exc())
+                #logging.error(e)
                 raise e
         except (aiohttp.client_exceptions.ServerDisconnectedError):
             if(retryTimes>0):
@@ -183,15 +185,21 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             #            await _connector.close()
             else:
                 logging.error("ServerDisconnectedError:" + detailUrl)
-                logging.error(e.__cause__)
+                #logging.error(e.__cause__)
+                #logging.error(traceback.format_exc())
+                #logging.error(e)
                 raise e
         except (asyncio.TimeoutError, TimeoutError) as e:
             logging.error("TimeoutError:" + detailUrl)
-            logging.error(e.__cause__)
+            #logging.error(e.__cause__)
+            #logging.error(traceback.format_exc())
+            #logging.error(e)
             raise e
         except Exception as e:
             logging.error("fetch error:" + detailUrl)
-            logging.error(e.__cause__)
+            #logging.error(e.__cause__)
+            #logging.error(traceback.format_exc())
+            #logging.error(e)
             raise e
         return await self._proc_response(detailUrl, response)
 
@@ -200,8 +208,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     async def _run(self, _url):
         _loop = self._getActiveEventLoop()
-        _timeout = self._generateTimeout()
-        _connector = self._generateConnector(_loop)
+        _timeout: aiohttp.ClientTimeout = self._generateTimeout()
+        _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
         urlList = []
         async with aiohttp.ClientSession(headers=header,loop=_loop, connector=_connector, timeout=_timeout) as session:
             try:
@@ -222,7 +230,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self.url = url
         try:
             try:
-                loop = self._getActiveEventLoop()
+                loop:asyncio.BaseEventLoop = self._getActiveEventLoop()
                 futures = asyncio.gather(*[self._run(url)], loop=loop)
                 runResult = loop.run_until_complete(futures)
             except asyncio.exceptions.TimeoutError as e:
@@ -235,6 +243,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         finally:
             if loop.is_running():
                 loop.stop()
+            if not loop.is_closed():
+                loop.close()
         self._afterRunProc(runResult)
         return "finish", 200
 
@@ -344,7 +354,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         async with aiohttp.ClientSession(headers=header,loop=_loop, connector=_connector, timeout=_timeout) as session:
             try:
                 item = await self._treatPage(session, self._getTreatPageArg())
-            except Exception as e:
+            except BaseException as e:
                 logging.error(traceback.format_exc())
                 logging.error(e)
                 item = None
@@ -422,11 +432,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 try:
                     _save(item)
                 except (OperationalError) as e:  # too many connection
+                    logging.error(traceback.format_exc())
                     logging.error(e.__cause__)
                     sleep(30000)  # u30秒待機
                     _save(item)   
                 except (Exception, ValidationError) as e:
                     logging.error("save error " +
                                   item.propertyName + ":" + item.pageUrl)
+                    logging.error(traceback.format_exc())
                     logging.error(e.__cause__)
                     raise e
