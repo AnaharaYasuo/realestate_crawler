@@ -3,6 +3,8 @@ import os
 from package.api.api import API_KEY_TOKYU_MANSION_DETAIL_GCP, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_AREA_GCP, API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST_GCP, API_KEY_TOKYU_MANSION_LIST, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 from package.parser.tokyuParser import TokyuMansionParser
 
+DEFAULT_PARARELL_LIMIT = 2
+DETAIL_PARARELL_LIMIT = 6
 
 class ParseTokyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
@@ -10,10 +12,10 @@ class ParseTokyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return TokyuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -36,10 +38,10 @@ class ParseTokyuMansionListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -63,10 +65,10 @@ class ParseTokyuMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -86,10 +88,10 @@ class ParseTokyuMansionStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

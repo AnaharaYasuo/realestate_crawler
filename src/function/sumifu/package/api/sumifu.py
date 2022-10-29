@@ -10,6 +10,8 @@ API_KEY_SUMIFU_KODATE_DETAIL_GCP, API_KEY_SUMIFU_KODATE_REGION_GCP, API_KEY_SUMI
     ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 from package.parser.sumifuParser import SumifuMansionParser,SumifuTochiParser,SumifuKodateParser
 
+DEFAULT_PARARELL_LIMIT = 2
+DETAIL_PARARELL_LIMIT = 6
 
 class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
@@ -17,10 +19,10 @@ class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return SumifuMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -40,10 +42,10 @@ class ParseSumifuMansionListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parsePropertyListPage
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -63,10 +65,10 @@ class ParseSumifuMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -86,10 +88,10 @@ class ParseSumifuMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRegionPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -149,10 +151,10 @@ class ParseSumifuTochiDetailFuncAsync(ParseDetailPageAsyncBase):
         return SumifuTochiParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -172,10 +174,10 @@ class ParseSumifuTochiListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parsePropertyListPage
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -195,10 +197,10 @@ class ParseSumifuTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -218,10 +220,10 @@ class ParseSumifuTochiRegionFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRegionPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -246,10 +248,10 @@ class ParseSumifuTochiStartAsync(ApiAsyncProcBase):
         return SumifuTochiParser("")
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -281,10 +283,10 @@ class ParseSumifuKodateDetailFuncAsync(ParseDetailPageAsyncBase):
         return SumifuKodateParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -304,10 +306,10 @@ class ParseSumifuKodateListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parsePropertyListPage
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -327,10 +329,10 @@ class ParseSumifuKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -350,10 +352,10 @@ class ParseSumifuKodateRegionFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRegionPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -378,10 +380,10 @@ class ParseSumifuKodateStartAsync(ApiAsyncProcBase):
         return SumifuKodateParser("")
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

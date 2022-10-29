@@ -19,6 +19,7 @@ ua = UserAgent()
 header = {'User-Agent': str(ua.chrome)}
 
 
+TCP_CONNECTOR_LIMIT = 100
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
 
@@ -127,7 +128,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return self._loop
 
     def _generateConnector(self, _loop):
-        return aiohttp.TCPConnector(loop=_loop, limit=40, ssl=False)
+        return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=False)
 
     def _generateTimeout(self):
         _total = self._getTimeOutSecond()

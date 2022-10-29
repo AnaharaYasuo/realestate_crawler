@@ -4,4 +4,4 @@
 **/*.pickle
 **/*.csv
 **/xgb
-workspace.code-workspace
+*.code-workspace

@@ -6,6 +6,8 @@ from package.api.api import API_KEY_MITSUI_KODATE_AREA, API_KEY_MITSUI_KODATE_AR
 from package.api.api import ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiTochiParser, MitsuiKodateParser
 
+DEFAULT_PARARELL_LIMIT = 2
+DETAIL_PARARELL_LIMIT = 6
 
 class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
@@ -13,10 +15,10 @@ class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return MitsuiMansionParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -38,10 +40,10 @@ class ParseMitsuiMansionListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -66,10 +68,10 @@ class ParseMitsuiMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -88,10 +90,10 @@ class ParseMitsuiMansionStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -107,10 +109,10 @@ class ParseMitsuiTochiDetailFuncAsync(ParseDetailPageAsyncBase):
         return MitsuiTochiParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -132,10 +134,10 @@ class ParseMitsuiTochiListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -159,10 +161,10 @@ class ParseMitsuiTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -181,10 +183,10 @@ class ParseMitsuiTochiStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -201,10 +203,10 @@ class ParseMitsuiKodateDetailFuncAsync(ParseDetailPageAsyncBase):
         return MitsuiKodateParser("")
 
     def _getLocalPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 6
+        return DETAIL_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 60
@@ -226,10 +228,10 @@ class ParseMitsuiKodateListFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 3
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -253,10 +255,10 @@ class ParseMitsuiKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 2
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -275,10 +277,10 @@ class ParseMitsuiKodateStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 5
+        return DEFAULT_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
