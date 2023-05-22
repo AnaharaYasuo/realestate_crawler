@@ -23,7 +23,7 @@ packaging==20.4
 pyparsing==2.4.7
 pytz==2020.1
 PyYAML==5.4
-requests==2.23.0
+requests==2.31.0
 six==1.15.0
 soupsieve==2.0.1
 sqlparse==0.4.4
