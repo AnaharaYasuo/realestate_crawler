@@ -68,7 +68,7 @@ pywin32==301
 pywinpty==1.1.4
 PyYAML==5.4
 pyzmq==22.3.0
-requests==2.23.0
+requests==2.31.0
 Send2Trash==1.8.0
 six==1.15.0
 soupsieve==2.0.1
