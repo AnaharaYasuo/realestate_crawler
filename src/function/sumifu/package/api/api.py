@@ -14,8 +14,8 @@ from django.db.utils import OperationalError
 from builtins import Exception
 from time import sleep
 import logging
-from fake_useragent import UserAgent
-ua = UserAgent()
+from fake_useragent import UserAgent,FakeUserAgent
+ua:FakeUserAgent = UserAgent()
 header = {'User-Agent': str(ua.chrome)}
 
 
