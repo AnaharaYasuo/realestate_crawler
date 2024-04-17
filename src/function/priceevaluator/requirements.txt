@@ -17,7 +17,7 @@ cycler==0.10.0
 debugpy==1.4.3
 decorator==5.1.0
 defusedxml==0.7.1
-Django==3.1.14
+Django==3.2.25
 entrypoints==0.3
 Flask==2.3.2
 gunicorn==22.0.0
