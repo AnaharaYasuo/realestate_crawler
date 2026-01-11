@@ -59,10 +59,26 @@ task crawl COMPANY=mitsui TYPE=mansion
 
 | COMPANY | TYPE |
 | :--- | :--- |
-| `mitsui` | `mansion`, `tochi`, `kodate` |
-| `sumifu` | `mansion`, `tochi`, `kodate` |
-| `tokyu` | `mansion` |
-| `nomura` | `mansion`, `tochi`, `kodate`, `apartment`, `building` |
+| `mitsui` | `mansion`, `tochi`, `kodate`, `investment` |
+| `sumifu` | `mansion`, `tochi`, `kodate`, `investment` |
+| `tokyu` | `mansion`, `tochi`, `kodate`, `investment` |
+| `nomura` | `mansion`, `tochi`, `kodate`, `investment` |
+| `misawa` | `mansion`, `tochi`, `kodate`, `investment` |
+
+---
+
+## 技術スタック (Tech Stack)
+
+*   **Language**: Python 3.10 (Standard `python:3.10-slim` image)
+*   **Libraries**:
+    *   `aiohttp`: 非同期HTTP通信 (JavaScriptレンダリングなしで実行可能)
+    *   `BeautifulSoup4`: HTML解析
+    *   `Django`: ORM / DB管理
+    *   `Pytest`: テストフレームワーク
+*   **Infrastructure**: Docker / Docker Compose
+
+> [!NOTE]
+> 以前のバージョンで使用していた Playwright (Node.js/JavaScript rendering) は、軽量化と安定性向上のため削除されました。現在は `aiohttp` による高速な静的パースを採用しています。
 
 ### 3. ログの確認
 
