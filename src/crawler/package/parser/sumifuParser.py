@@ -197,20 +197,12 @@ class SumifuParser(ParserBase):
             logging.error(traceback.format_exc())
             raise ReadPropertyNameException()
         
-        # Use generic extractor
-        # Sumifu uses 'th' in 'table.table-detail'
-        data = self._extract_table_data(response, self.MAPPING, header_selector="table.table-detail th")
         
-        # Map simple fields
-        for k, v in data.items():
-            if k not in ["transportStr"]:
-                if hasattr(item, k):
-                    setattr(item, k, v)
-        
-        # Price Logic
-        if "priceStr" in data:
-            # Handle cases like "5,980万円" and remove annotations
-            price_text = data["priceStr"]
+        # Extract fields from table using existing _getValueFromTable method
+        # Price
+        price_td = self._getValueFromTable(response, "価格")
+        if price_td:
+            price_text = price_td.get_text(strip=True)
             price_text = re.split(r"\(", price_text)[0]
             item.priceStr = price_text
             item.price = converter.parse_price(item.priceStr)
@@ -225,6 +217,11 @@ class SumifuParser(ParserBase):
                         item.price = converter.parse_price(item.priceStr)
              except:
                  logging.warn("Could not find price")
+        
+        # Address
+        address_td = self._getValueFromTable(response, "所在地")
+        if address_td:
+            item.address = address_td.get_text(strip=True)
 
         # Address Fallback
         if not getattr(item, "address", None):
@@ -235,6 +232,28 @@ class SumifuParser(ParserBase):
             except:
                  pass
 
+        
+        # Extract other fields from MAPPING
+        hikiwatashi_td = self._getValueFromTable(response, "引渡時期")
+        if hikiwatashi_td:
+            item.hikiwatashi = hikiwatashi_td.get_text(strip=True)
+        
+        genkyo_td = self._getValueFromTable(response, "現況")
+        if genkyo_td:
+            item.genkyo = genkyo_td.get_text(strip=True)
+        
+        tochikenri_td = self._getValueFromTable(response, "土地権利")
+        if tochikenri_td:
+            item.tochikenri = tochikenri_td.get_text(strip=True)
+        
+        torihiki_td = self._getValueFromTable(response, "取引態様")
+        if torihiki_td:
+            item.torihiki = torihiki_td.get_text(strip=True)
+        
+        biko_td = self._getValueFromTable(response, "備考")
+        if biko_td:
+            item.biko = converter.truncate_str(biko_td.get_text(strip=True), 2000).strip()
+        
         # Reset transport fields
         item.transfer1 = ""
         item.railway1 = ""
@@ -255,25 +274,7 @@ class SumifuParser(ParserBase):
 
 
         # Transportation Logic
-        transport_td = None
-        if "transportStr" in data:
-            # We need the TD tag to find <p> tags properly?
-            # _extract_table_data returns text mostly.
-            # But transport logic relies on <p> tags structure or <br>.
-            # If _extract_table_data returns joined text, we might lose structure.
-            
-            # Re-fetch transport TD because we need structural info (p tags) not just text
-            # Or use _getValueFromTable replacement
-            
-            try:
-                # Manual Fetch for Transport
-                # Since data["transportStr"] is just text.
-                # We need p tags.
-                # Find the TH with "交通"
-                t_th = response.find("th", string=re.compile("交通"))
-                if t_th:
-                    transport_td = t_th.find_next_sibling("td")
-            except: transport_td = None
+        transport_td = self._getValueFromTable(response, "交通")
 
         if transport_td:
             # Replace br with newlines for splitting
@@ -347,9 +348,6 @@ class SumifuParser(ParserBase):
              # Fallback
              pass
         
-        # "備考" truncation
-        if getattr(item, "biko", None):
-             item.biko = converter.truncate_str(item.biko, 2000).strip() # Using new converter!
 
         item.busUse1 = 0
         if(item.busWalkMinute1 > 0):
