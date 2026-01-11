@@ -5,3 +5,4 @@
 **/*.csv
 **/xgb
 *.code-workspace
+Temp/
