@@ -13,7 +13,91 @@
 | `Parse{Site}{Type}StartAsync` | 各社ディレクトリ (e.g. `mitsui/start.py`) | サイトごとのクロール開始地点（初手）のロジック |
 | 各社共通パーサー | 各社ディレクトリ (e.g. `mitsui/mitsui_base.py`) | HTML 解析の共通ユーティリティ、タグ抽出、正規化 |
 
-## 2. アーキテクチャ概要 (Architecture)
+## 2. 主要概念 (Key Concepts)
+
+### Fire-and-Forget Chain Pattern
+
+再帰的な非同期API呼び出しにより、各ステップが独立して実行される設計パターン。
+
+**特徴:**
+- 各APIは即座にHTTP 200を返却（処理完了を待たない）
+- 次のステップをHTTP POSTで起動
+- タイムアウト（3秒）は成功とみなす
+- サーバーレス環境での分散実行が可能
+
+**実装詳細:**
+- 基底クラス: `ApiAsyncProcBase` (`src/crawler/package/api/api.py`)
+- タイムアウト設定: `FIRE_AND_FORGET_TIMEOUT = 3.0`
+
+### Dual Storage Pattern
+
+数値データを文字列と数値の両方で保持するパターン。
+
+**目的:**
+- 元の表記を保持（表示用）
+- 数値化してクエリ・集計を可能に
+
+**対象フィールド:**
+- 価格: `priceStr` (例: "5,480万円") + `price` (例: 54800000)
+- 面積: `senyuMensekiStr` (例: "81.65㎡") + `senyuMenseki` (例: 81.65)
+- 管理費: `kanrihiStr` + `kanrihi`
+- 修繕積立金: `syuzenTsumitateStr` + `syuzenTsumitate`
+- 徒歩分数: `railwayWalkMinute{N}Str` + `railwayWalkMinute{N}`
+
+### Transportation Fields Pattern
+
+最大5路線までのアクセス情報を保持。
+
+**構造:**
+- 5路線 × 8フィールド = 40フィールド
+- 各路線のフィールド（N=1~5）:
+  1. `transfer{N}`: 乗り換え情報
+  2. `railway{N}`: 沿線名
+  3. `station{N}`: 駅名
+  4. `railwayWalkMinute{N}Str`: 徒歩分数（文字列）
+  5. `railwayWalkMinute{N}`: 徒歩分数（数値）
+  6. `busStation{N}`: バス停名
+  7. `busWalkMinute{N}Str`: バス徒歩分数（文字列）
+  8. `busWalkMinute{N}`: バス徒歩分数（数値）
+
+**例:**
+```
+railway1 = "JR山手線"
+station1 = "東京"
+railwayWalkMinute1Str = "5分"
+railwayWalkMinute1 = 5
+```
+
+### Computed and Derived Fields
+
+パース時に計算される派生フィールド。
+
+**主な計算フィールド:**
+
+1. **kyutaishin（旧耐震判定）**
+   - 築年月が1982年1月1日より前の場合に1
+   - 新耐震基準導入前の物件を特定
+
+2. **per-square-meter fees（平米単価）**
+   - `kanrihi_p_heibei = kanrihi / senyuMenseki`
+   - `syuzenTsumitate_p_heibei = syuzenTsumitate / senyuMenseki`
+   - 管理費・修繕積立金の平米あたりコスト
+
+3. **floor decomposition（階数情報の分解）**
+   - `floorType_kai`: 所在階
+   - `floorType_chijo`: 地上階数
+   - `floorType_chika`: 地下階数
+   - 例: "2階/地上10階/地下1階" → kai=2, chijo=10, chika=1
+
+4. **railwayCount（路線数）**
+   - 利用可能な路線の数（1~5）
+
+5. **busUse1（バス利用の有無）**
+   - バスを利用する場合は1、そうでない場合は0
+
+---
+
+## 3. アーキテクチャ詳細 (Architecture Details)
 
 ### 対応種別
 本クローラーは、以下の不動産種別に対応しています。
@@ -33,12 +117,51 @@
 本システムは `python:3.10-slim` イメージを使用し、不要なブラウザエンジン（Playwright）を排除した最小構成です。
 すべてのサイトが `aiohttp` による HTTP リクエストと `BeautifulSoup4` による HTML 解析で完結するよう設計されています。
 
-*   **TCPコネクタ制限**: `TCP_CONNECTOR_LIMIT = 100` (全体)
-*   **詳細ページ取得時の並列数**:
-    *   デフォルト: `DEFAULT_PARARELL_LIMIT = 2`
-    *   詳細ページ (`DetailFunc`): `DETAIL_PARARELL_LIMIT = 6`
+### 並列処理設定 (Concurrent Processing Configuration)
 
-## 3. エラーハンドリング & リトライ (Error Handling)
+#### パラメータ一覧
+
+| パラメータ | 値 | 説明 | 定義場所 |
+|-----------|-----|------|---------|
+| `FIRE_AND_FORGET_TIMEOUT` | 3.0秒 | 次ステップ起動時のHTTPタイムアウト | `api.py` |
+| `DEFAULT_PARARELL_LIMIT` | 2 | デフォルトの並列リクエスト数 | `api.py` |
+| `DETAIL_PARARELL_LIMIT` | 6 | 詳細ページ取得時の並列数 | `api.py` |
+| `TCP_CONNECTOR_LIMIT` | 100 | aiohttpのTCP接続プール上限 | `api.py` |
+
+#### 並列処理の動作
+
+**Region/List API:**
+- 並列数: `DEFAULT_PARARELL_LIMIT = 2`
+- 同時に2地域または2ページを処理
+- サイトへの負荷を考慮した控えめの設定
+
+**Detail API:**
+- 並列数: `DETAIL_PARARELL_LIMIT = 6`
+- 同時に6物件の詳細ページを取得
+- 詳細ページは個別の物件情報のため、やや高い並列数を許容
+
+**TCP接続:**
+- 上限: `TCP_CONNECTOR_LIMIT = 100`
+- aiohttpのコネクションプール全体で100接続まで
+- 全てのリクエストで共有されるプール
+
+#### 調整方法
+
+サイトへの負荷を調整したい場合、`src/crawler/package/api/api.py` で値を変更できます：
+
+```python
+# より控えめの設定
+DEFAULT_PARARELL_LIMIT = 1  # 2 → 1に変更
+DETAIL_PARARELL_LIMIT = 3   # 6 → 3に変更
+
+# より高速な設定（非推奨）
+DEFAULT_PARARELL_LIMIT = 4  # 2 → 4に変更
+DETAIL_PARARELL_LIMIT = 10  # 6 → 10に変更
+```
+
+---
+
+## 4. エラーハンドリング & リトライ (Error Handling)
 
 クローリングの安定性を高めるため、以下のエラーハンドリングを実装しています。
 

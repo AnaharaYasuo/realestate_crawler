@@ -1,0 +1,76 @@
+# Mitsui Selectors Configuration
+# CSS selectors for parsing Mitsui property pages
+
+mansion:
+  # Basic selectors
+  title: "h1.headline1"
+  price: ".price-value"
+  
+  # Table selectors
+  table:
+    header: "td.table-header.label"
+    value: "td.table-value"
+  
+  # Field mappings (label -> model field name)
+  field_mappings:
+    専有面積: "senyuMensekiStr"
+    築年月: "chikunengetsuStr"
+    管理費等: "kanrihiStr"
+    修繕積立金: "syuzenTsumitateStr"
+    間取り: "madori"
+    バルコニー面積: "balconyMensekiStr"
+    所在階/階建: "floorType"
+
+kodate:
+  # Basic selectors
+  title: "h1.headline1"
+  price: ".price-value"
+  
+  # Table selectors
+  table:
+    header: "td.table-header.label"
+    value: "td.table-value"
+  
+  # Field mappings
+  field_mappings:
+    土地面積: "tochiMensekiStr"
+    建物面積: "tatemonoMensekiStr"
+    築年月: "chikunengetsuStr"
+    間取り: "madori"
+    構造: "kouzou"
+
+tochi:
+  # Basic selectors
+  title: "h1.headline1"
+  price: ".price-value"
+  
+  # Table selectors
+  table:
+    header: "td.table-header.label"
+    value: "td.table-value"
+  
+  # Field mappings
+  field_mappings:
+    土地面積: "tochiMensekiStr"
+    用途地域: "youto"
+    建ぺい率: "kenpeiritsu"
+    容積率: "yousekritsu"
+
+investment:
+  # Basic selectors
+  title: "h1.headline1"
+  price: ".price-value"
+  
+  # Table selectors
+  table:
+    header: "td.table-header.label"
+    value: "td.table-value"
+  
+  # Field mappings
+  field_mappings:
+    専有面積: "senyuMensekiStr"
+    築年月: "chikunengetsuStr"
+    管理費等: "kanrihiStr"
+    修繕積立金: "syuzenTsumitateStr"
+    間取り: "madori"
+    想定利回り: "souteiRimawari"
