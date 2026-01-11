@@ -4,6 +4,7 @@ import os
 import json
 import traceback
 from abc import ABCMeta, abstractmethod
+from typing import Dict, Any, Optional
 
 from bs4 import BeautifulSoup
 from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
@@ -14,6 +15,7 @@ from django.db.utils import OperationalError
 from builtins import Exception
 from time import sleep
 import logging
+from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from fake_useragent import UserAgent,FakeUserAgent
 ua:FakeUserAgent = UserAgent()
 header = {'User-Agent': str(ua.chrome)}
@@ -162,6 +164,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         'User-Agent': USER_AGENT,
     }
     _loop:asyncio.BaseEventLoop = None
+    middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
@@ -203,7 +206,30 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         finally:
             self.semaphore.release()
 
+    async def _apply_middlewares_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+        for mw in self.middlewares:
+            result = await mw.process_request(request_context)
+            if result is not None:
+                return result
+        return None
+
+    async def _apply_middlewares_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+        for mw in reversed(self.middlewares):
+            response_context = await mw.process_response(response_context)
+        return response_context
+
     async def _fetch(self, session:aiohttp.ClientSession, detailUrl, apiUrl, loop, retryTimes :int):
+        # Middleware request hook
+        request_context = {
+            'method': 'POST',
+            'url': apiUrl,
+            'detailUrl': detailUrl,
+            'retryTimes': retryTimes
+        }
+        mw_result = await self._apply_middlewares_request(request_context)
+        if mw_result is not None:
+            return mw_result
+
         # Fire-and-Forget implementation:
         # Instead of waiting for the recursive API chain to complete (which can take minutes),
         # we set a short timeout to ensure the request is triggered, then disconnect.
@@ -272,7 +298,21 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return await self._proc_response(detailUrl, response)
 
     async def _proc_response(self, url, response:aiohttp.ClientResponse):
-        return url, response.status, await response.text()
+        response_context = {
+            'url': url,
+            'status': response.status,
+            'text': await response.text(),
+            'response': response
+        }
+        # Middleware response hook
+        response_context = await self._apply_middlewares_response(response_context)
+        
+        if response_context.get('should_retry'):
+            # Note: This simple implementation might need session management refinement
+            # but follows the proposed structure.
+            pass
+
+        return url, response_context['status'], response_context['text']
 
     async def _run(self, _url):
         _loop = self._getActiveEventLoop()
