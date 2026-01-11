@@ -1,0 +1,68 @@
+# Sumifu Selectors Configuration
+# CSS selectors for parsing Sumifu property pages
+
+mansion:
+  # Basic selectors
+  title: "h1.heading-1" # Fallback: "h1"
+  price: "dl#s_summaryPrice dd p em"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  
+  # List page selectors
+  next_page: "#searchCondition ul.pagination li:last-child a"
+  property_links: "a.property-info-anchor"
+  
+  root_xpath: ""
+  area_xpath: ""
+  property_list_xpath: ""
+  region_xpath: ""
+
+  # Table selectors
+  table:
+    selector: "table.table-detail"
+    header: "th"
+    value: "td"
+
+kodate:
+  title: "h1.heading-1"
+  price: "dl#s_summaryPrice dd p em"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  next_page: "#searchCondition ul.pagination li:last-child a"
+  property_links: "a.property-info-anchor"
+  
+  root_xpath: ""
+  area_xpath: ""
+  property_list_xpath: ""
+  region_xpath: ""
+
+  table:
+    selector: "table.table-detail"
+    header: "th"
+    value: "td"
+
+tochi:
+  title: "h1.heading-1"
+  price: "dl#s_summaryPrice dd p em"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  next_page: "#searchCondition ul.pagination li:last-child a"
+  property_links: "a.property-info-anchor"
+  
+  root_xpath: ""
+  area_xpath: ""
+  property_list_xpath: ""
+  region_xpath: ""
+
+  table:
+    selector: "table.table-detail"
+    header: "th"
+    value: "td"
+
+investment:
+  title: "h1.heading-1"
+  price: "table.table-detail tr" # Special handling in parser
+  address: "所在地" # Mapping key
+  next_page: "次へ" # Text search
+  property_links: "a[href*='/pro/detail_']"
+  table:
+    selector: "table.table-detail"
+    header: "th"
+    value: "td"

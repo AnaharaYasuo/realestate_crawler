@@ -16,13 +16,14 @@ from package.parser.baseParser import LoadPropertyPageException, \
 from bs4.element import NavigableString, Tag
 import logging
 import re
+from package.utils.selector_loader import SelectorLoader
 
 
 class MitsuiParser(ParserBase):
     BASE_URL='https://www.rehouse.co.jp'
 
-    def __init__(self, params):
-        ""
+    def __init__(self, params=None):
+        self.selectors = SelectorLoader.load('mitsui', self.property_type)
         
     def getCharset(self):
         return "utf-8"
@@ -63,71 +64,42 @@ class MitsuiParser(ParserBase):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
-
-        def getNextPageXpath():
-            return u'//*[@id="__layout"]/div/div/div/main/section[2]/div[2]/a[contains(@class,"button-pagination-prev-next pagination-next ml-16")]/@href'
-
-        def getDestUrl(linkUrl):
-            return self.BASE_URL + linkUrl
-
-        def _parsePageCore(self, response, getXpath , getDestUrl):
-            destUrl = response.xpath(getXpath())
-            return self.BASE_URL + destUrl
-
         logging.info("getPropertyListNextPageUrl")
-        linkUrlList = response.xpath(getNextPageXpath())
+        next_page_xpath = self.selectors.get('next_page_xpath')
+        linkUrlList = response.xpath(next_page_xpath)
         if (len(linkUrlList) > 0):
             linkUrl = linkUrlList[0]
-            return getDestUrl(linkUrl)
+            return self.BASE_URL + linkUrl
         
-        # Fallback if xpath fails or is not supported (BS4 usually doesn't support xpath directly unless configured)
-        # Fallback using xpath since response is lxml HtmlElement
-        fallback_xpath = '//a[contains(@class, "pagination-next")]/@href'
-        linkUrlList = response.xpath(fallback_xpath)
-        if (len(linkUrlList) > 0):
-            return self.BASE_URL + linkUrlList[0]
-            
         return ""
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item=super()._parsePropertyDetailPage(item, response)
         try:
-            name_tag = response.select_one("h1.headline1")
+            title_selector = self.selectors.get('title')
+            name_tag = response.select_one(title_selector)
+            
             if name_tag:
                  item.propertyName = name_tag.get_text(strip=True)
-            else:
-                 fallback = response.select_one("h1.headline1.mb-4")
-                 if fallback:
-                     item.propertyName = fallback.get_text(strip=True)
-            
-            if not getattr(item, 'propertyName', None): # Check if propertyName was set by previous attempts
-                # Generic fallback
-                generic_h1 = response.select_one("h1")
-                if generic_h1:
-                    item.propertyName = generic_h1.get_text(strip=True)
 
             if not getattr(item, 'propertyName', None):
                 raise ReadPropertyNameException("Could not find property name")
         except Exception:
             raise ReadPropertyNameException()
 
+        table_config = self.selectors.get('table', {})
+        header_selector = table_config.get('header')
+        value_selector = table_config.get('value')
+
         for i, tr in enumerate(response.find_all("tr",class_="table-row")):
-            th_tag = tr.select_one("td.table-header.label")
+            th_tag = tr.select_one(header_selector)
             if not th_tag: continue
             thTitle = th_tag.get_text(strip=True)
             
             try:
-                td_content = tr.select_one("td.table-data.content")
+                td_content = tr.select_one(value_selector)
                 if td_content: tdValue = td_content.get_text(strip=True)
-                else: 
-                     tds = tr.find_all("td")
-                     if len(tds) > 1:
-                         spans = tds[1].find_all("span")
-                         if spans:
-                             tdValue = spans[0].get_text(strip=True)
-                         else:
-                             tdValue = tds[1].get_text(strip=True)
-                     else: tdValue = ""
+                else: tdValue = ""
             except:
                 tdValue = ""
                 logging.warn("error. tdValue is empty. thTitle is " + thTitle)
@@ -232,19 +204,16 @@ class MitsuiParser(ParserBase):
 
 
 class MitsuiMansionParser(MitsuiParser):
+    property_type = 'mansion'
 
     def getRootXpath(self):
-        #return u'//div/a[contains(@href,"/sitemap/buy/") and contains(@href, "-mansion/")]/@href'
-        return u'//li/a[contains(@href,"/buy/mansion/prefecture/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/list/area/mansion/")]/@href'
-        return u'//a[contains(@href,"/buy/mansion/prefecture/") and contains(@href, "city/") and @class="link"]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        # "https://www.rehouse.co.jp/mansion/bkdetail/FWRX7A04/"
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/mansion/bkdetail/")]/@href'
-        return u'//a[contains(@href,"/buy/mansion/bkdetail/") and not (contains(@href, "/inquiry/input/"))]/@href'
+        return self.selectors.get('property_list_xpath')
 
     def createEntity(self):
         return  MitsuiMansion()
@@ -380,39 +349,37 @@ class MitsuiMansionParser(MitsuiParser):
         return item
 
 class MitsuiTochiParser(MitsuiParser):
+    property_type = 'tochi'
     def getRootXpath(self):
-        #return u'//div/a[contains(@href,"/sitemap/buy/") and contains(@href, "-tochi/")]/@href'
-        return u'//li/a[contains(@href,"/buy/tochi/prefecture/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/list/area/tochi/")]/@href'
-        return u'//a[contains(@href,"/buy/tochi/prefecture/") and contains(@href, "city/") and @class="link"]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/tochi/bkdetail/")]/@href'
-        return u'//a[contains(@href,"/buy/tochi/bkdetail/") and not (contains(@href, "/inquiry/input/"))]/@href'
+        return self.selectors.get('property_list_xpath')
 
 
     def createEntity(self):
         return  MitsuiTochi()
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
-        item:MitsuiTochi=super()._parsePropertyDetailPage(item, response)
+        item = super()._parsePropertyDetailPage(item, response)
 
-        def get_table_value_sub(tr):
-            try:
-                td_content = tr.select_one("td.table-data.content")
-                if td_content: return td_content.get_text(strip=True)
-                tds = tr.find_all("td")
-                if len(tds) > 1: return tds[1].get_text(strip=True)
-                return ""
-            except: return ""
+        table_config = self.selectors.get('table', {})
+        header_selector = table_config.get('header')
+        value_selector = table_config.get('value')
 
         for tr in response.select("tr.table-row"):
-            th_tag = tr.select_one("td.table-header.label")
+            th_tag = tr.select_one(header_selector)
             if not th_tag: continue
             thTitle = th_tag.get_text(strip=True)
-            tdValue = get_table_value_sub(tr)
+            
+            try:
+                td_content = tr.select_one(value_selector)
+                if td_content: tdValue = td_content.get_text(strip=True)
+                else: tdValue = ""
+            except: tdValue = ""
 
             if thTitle == u"土地面積":
                 item.tochiMensekiStr = tdValue
@@ -444,36 +411,41 @@ class MitsuiTochiParser(MitsuiParser):
         return item
 
 class MitsuiKodateParser(MitsuiParser):
+    property_type = 'kodate'
     def getRootXpath(self):
-        #return u'//div/a[contains(@href,"/sitemap/buy/") and contains(@href, "-kodate/")]/@href' 以前のレイアウト
-        return u'//li/a[contains(@href,"/buy/kodate/prefecture/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/list/area/kodate/")]/@href'
-        return u'//a[contains(@href,"/buy/kodate/prefecture/") and contains(@href, "city/") and @class="link"]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        #return u'//a[contains(@href,"https://www.rehouse.co.jp/kodate/bkdetail/")]/@href'
-        return u'//a[contains(@href,"/buy/kodate/bkdetail/") and not (contains(@href, "/inquiry/input/"))]/@href'
+        return self.selectors.get('property_list_xpath')
     
     def createEntity(self):
         return  MitsuiKodate()
 
+    def get_table_value_sub(self, tr):
+        val = tr.select_one('.table-data')
+        if val: return val.get_text(strip=True)
+        tds = tr.select('td')
+        return tds[1].get_text(strip=True) if len(tds) > 1 else ""
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:MitsuiKodate=super()._parsePropertyDetailPage(item, response)
 
-        def get_table_value_sub(tr):
-            try:
-                td_content = tr.select_one("td.table-data.content")
-                if td_content: return td_content.get_text(strip=True)
-                return tr.find_all("td")[1].get_text(strip=True)
-            except: return ""
+
+
+        table_config = self.selectors.get('table', {})
+        header_selector = table_config.get('header')
+        value_selector = table_config.get('value')
 
         for tr in response.select("tr.table-row"):
-            th_tag = tr.select_one("td.table-header.label")
+            th_tag = tr.select_one(header_selector)
             if not th_tag: continue
             thTitle = th_tag.get_text(strip=True)
-            tdValue = get_table_value_sub(tr)
+            tdValue = self.get_table_value_sub(tr)
+
+
 
             if thTitle == u"建物面積":
                 item.tatemonoMensekiStr = tdValue
@@ -526,6 +498,7 @@ class MitsuiKodateParser(MitsuiParser):
 
 
 class MitsuiInvestmentParser(MitsuiParser):
+    property_type = 'investment'
     def getRootXpath(self):
         return u''
 
@@ -545,20 +518,22 @@ class MitsuiInvestmentParser(MitsuiParser):
         # For now, reuse base logic and add specific fields
         item = super()._parsePropertyDetailPage(item, response)
         
-        # Override or add specific extractions
-        # Example: Yield
         # Look for "利回り" in table
+        table_config = self.selectors.get('table', {})
+        header_selector = table_config.get('header')
+        value_selector = table_config.get('value')
+
         for tr in response.select("tr.table-row"):
-            th_tag = tr.select_one("td.table-header.label")
+            th_tag = tr.select_one(header_selector)
             if not th_tag: continue
             thTitle = th_tag.get_text(strip=True)
             
             # Helper to get value
             def get_val(r):
                  try:
-                    td = r.select_one("td.table-data.content")
+                    td = r.select_one(value_selector)
                     if td: return td.get_text(strip=True)
-                    return r.find_all("td")[1].get_text(strip=True)
+                    return ""
                  except: return ""
 
             tdValue = get_val(tr)

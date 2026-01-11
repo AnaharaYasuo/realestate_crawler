@@ -1,0 +1,53 @@
+# Misawa Selectors Configuration
+
+mansion:
+  title: "h1.detail-title"
+  title_fallback: "h1"
+  title_fallback_2: "h2"
+  price: ".detail-price .num"
+  address: ".detail-address"
+  root_xpath: "//ul[contains(@class, 'bukken-list')]/li/a/@href"
+  table:
+    selector: "table.detail-spec"
+    row: "tr"
+    header: "th"
+    value: "td"
+
+kodate:
+  title: "h1.detail-title"
+  title_fallback: "h1"
+  title_fallback_2: "h2"
+  price: ".detail-price .num"
+  address: ".detail-address"
+  root_xpath: "//ul[contains(@class, 'bukken-list')]/li/a/@href"
+  table:
+    selector: "table.detail-spec"
+    row: "tr"
+    header: "th"
+    value: "td"
+
+tochi:
+  title: "h1.detail-title"
+  title_fallback: "h1"
+  title_fallback_2: "h2"
+  price: ".detail-price .num"
+  address: ".detail-address"
+  root_xpath: "//ul[contains(@class, 'bukken-list')]/li/a/@href"
+  table:
+    selector: "table.detail-spec"
+    row: "tr"
+    header: "th"
+    value: "td"
+
+investment:
+  title: "h1.detail-title"
+  title_fallback: "h1"
+  title_fallback_2: "h2"
+  price: ".detail-price .num"
+  address: ".detail-address"
+  root_xpath: "//ul[contains(@class, 'bukken-list')]/li/a/@href"
+  table:
+    selector: "table.detail-spec"
+    row: "tr"
+    header: "th"
+    value: "td"

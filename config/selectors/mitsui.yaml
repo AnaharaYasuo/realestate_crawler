@@ -1,15 +1,22 @@
 # Mitsui Selectors Configuration
 # CSS selectors for parsing Mitsui property pages
 
+
 mansion:
   # Basic selectors
   title: "h1.headline1"
   price: ".price-value"
+  # Navigation XPaths
+  root_xpath: "//li/a[contains(@href,'/buy/mansion/prefecture/')]/@href"
+  area_xpath: "//a[contains(@href,'/buy/mansion/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
+  property_list_xpath: "//a[contains(@href,'/buy/mansion/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
+  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
+  property_links_xpath: "//a[contains(@href,\"/buy/mansion/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
   
   # Table selectors
   table:
     header: "td.table-header.label"
-    value: "td.table-value"
+    value: "td.table-data"
   
   # Field mappings (label -> model field name)
   field_mappings:
@@ -25,11 +32,17 @@ kodate:
   # Basic selectors
   title: "h1.headline1"
   price: ".price-value"
+  # Navigation XPaths
+  root_xpath: "//li/a[contains(@href,'/buy/kodate/prefecture/')]/@href"
+  area_xpath: "//a[contains(@href,'/buy/kodate/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
+  property_list_xpath: "//a[contains(@href,'/buy/kodate/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
+  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
+  property_links_xpath: "//a[contains(@href,\"/buy/kodate/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
   
   # Table selectors
   table:
     header: "td.table-header.label"
-    value: "td.table-value"
+    value: "td.table-data"
   
   # Field mappings
   field_mappings:
@@ -43,11 +56,17 @@ tochi:
   # Basic selectors
   title: "h1.headline1"
   price: ".price-value"
+  # Navigation XPaths
+  root_xpath: "//li/a[contains(@href,'/buy/tochi/prefecture/')]/@href"
+  area_xpath: "//a[contains(@href,'/buy/tochi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
+  property_list_xpath: "//a[contains(@href,'/buy/tochi/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
+  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
+  property_links_xpath: "//a[contains(@href,\"/buy/tochi/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
   
   # Table selectors
   table:
     header: "td.table-header.label"
-    value: "td.table-value"
+    value: "td.table-data"
   
   # Field mappings
   field_mappings:
@@ -64,7 +83,7 @@ investment:
   # Table selectors
   table:
     header: "td.table-header.label"
-    value: "td.table-value"
+    value: "td.table-data"
   
   # Field mappings
   field_mappings:

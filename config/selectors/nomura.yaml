@@ -1,0 +1,102 @@
+# Nomura Selectors Configuration
+
+investment:
+  title: "h1.c_title_primary"
+  title_fallback: "h1"
+  breadcrumb: ".c_breadcrumb_item"
+  price: ".c_price_primary_value"
+  price_fallback: ".c_price_primary_text"
+  
+  address_key: "所在地"
+  traffic_key: "交通"
+  structure_key: "構造"
+  year_built_key: "築年月"
+  current_status_key: "現況"
+  yield_key: "利回り"
+  surface_yield_key: "表面利回り"
+  menseki_key: "専有面積"
+  tochikenri_key: "土地権利"
+  tochi_menseki_key: "土地面積"
+  tatemono_menseki_key: "建物面積"
+  nobeyuka_menseki_key: "延床面積"
+  
+  address: "所在地"
+  next_page: "a.next"
+  property_links: "a[href*='/pro/bukken_local_id/']"
+  table:
+    selector: "table.c_table_spec"
+    header: "th"
+    value: "td"
+  dl_table:
+    selector: "dl"
+    header: "dt"
+    value: "dd"
+
+mansion:
+  title: "h1"
+  price: ".price"
+  
+  madori_key: "間取り"
+  senyu_menseki_key: "専有面積"
+  year_built_key: "築年月"
+  balcony_key: "バルコニー面積"
+  facing_key: "向き"
+  other_area_key: "その他面積"
+  floor_key: "所在階"
+  soukosu_key: "総戸数"
+  tochikenri_key: "土地権利"
+  youto_chiiki_key: "用途地域"
+  kanri_kaisya_key: "管理会社"
+  kanri_keitai_key: "管理形態"
+  kanrihi_key: "管理費"
+  syuzen_tsumitate_key: "修繕積立金"
+  parking_key: "駐車場"
+  bunjo_kaisya_key: "分譲会社"
+  sekou_kaisya_key: "施工会社"
+  structure_key: "構造"
+  
+  table:
+    selector: "tr"
+    header: "th"
+    value: "td"
+
+kodate:
+  title: "h1"
+  price: ".price"
+  
+  madori_key: "間取り"
+  tatemono_menseki_key: "建物面積"
+  tochi_menseki_key: "土地面積"
+  year_built_key: "築年月"
+  kouzou_key: "構造"
+  kaisu_key: "階建"
+  setsudou_key: "接道状況"
+  chimoku_key: "地目"
+  youto_chiiki_key: "用途地域"
+  kenpei_key: "建ぺい率"
+  youseki_key: "容積率"
+  kuiki_key: "都市計画"
+  
+  table:
+    selector: "tr"
+    header: "th"
+    value: "td"
+
+tochi:
+  title: "h1"
+  price: ".price"
+  
+  tochi_menseki_key: "土地面積"
+  chimoku_key: "地目"
+  setsudou_key: "接道状況"
+  youto_chiiki_key: "用途地域"
+  kenpei_key: "建ぺい率"
+  youseki_key: "容積率"
+  kenchiku_joken_key: "建築条件"
+  kuiki_key: "都市計画"
+  kokudohou_key: "国土法届け出"
+  
+  table:
+    selector: "tr"
+    header: "th"
+    value: "td"
