@@ -2,9 +2,9 @@ name: Parser Tests
 
 on:
   pull_request:
-    branches: [ feature/optimize-crawler-and-parsers, main ]
+    branches: [ main, master ]
   push:
-    branches: [ feature/optimize-crawler-and-parsers, main ]
+    branches: [ main, master ]
 
 jobs:
   test:
