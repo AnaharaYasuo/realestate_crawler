@@ -17,11 +17,12 @@ from package.parser.baseParser import LoadPropertyPageException, \
     ReadPropertyNameException, ParserBase
 from bs4.element import NavigableString, Tag
 import logging
+from package.utils.selector_loader import SelectorLoader
 
 class TokyuParser(ParserBase):
     BASE_URL='https://www.livable.co.jp'
-    def __init__(self, params):
-        ""
+    def __init__(self, params=None):
+        self.selectors = SelectorLoader.load('tokyu', self.property_type)
         
     def getCharset(self):
         return "utf-8"
@@ -61,44 +62,42 @@ class TokyuParser(ParserBase):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
-
-        def getNextPageXpath():
-            return u'(//div[@class="m-page-navigation__inner"])[1]/a[@class="m-page-navigation__next iconfont-livable-arrow_right"]/@href'
-
-        def getDestUrl(linkUrl):
-            return self.BASE_URL + linkUrl
-
-        def _parsePageCore(self, response, getXpath , getDestUrl):
-            destUrl = response.xpath(getXpath())
-            return self.BASE_URL + destUrl
-
         logging.info("getPropertyListNextPageUrl")
-        linkUrlList = response.xpath(getNextPageXpath())
+        next_page_xpath = self.selectors.get('next_page_xpath')
+        linkUrlList = response.xpath(next_page_xpath)
         if (len(linkUrlList) > 0):
             linkUrl = linkUrlList[0]
-            return getDestUrl(linkUrl)
+            return self.BASE_URL + linkUrl
         return ""
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item=super()._parsePropertyDetailPage(item, response)
         try:
-            h1 = response.select_one("h1.o-detail-header__headline")
+            title_selector = self.selectors.get('title')
+            h1 = response.select_one(title_selector)
             if h1 and h1.contents:
                 item.propertyName = h1.contents[0]
             else:
-                logging.warn("Could not find property name h1")
+                logging.warn("Could not find property name")
                 item.propertyName = "" # Default
         except Exception:
              logging.error("Error parsing property name")
              raise ReadPropertyNameException()
         item.railwayCount = 0
-        wrappers = response.find_all("div", class_="m-status-table__wrapper")
+        
+        table_config = self.selectors.get('table', {})
+        table_selector = table_config.get('selector', 'div.m-status-table__wrapper')
+        dl_selector = table_config.get('dl_selector', 'dl')
+        header_selector = table_config.get('header', 'dt')
+        value_selector = table_config.get('value', 'dd')
+
+        wrappers = response.select(table_selector)
         target_wrapper = wrappers[1] if len(wrappers) > 1 else (wrappers[0] if wrappers else None)
         
         if target_wrapper:
-            for i, tr in enumerate(target_wrapper.find_all("dl")):
-                dds = tr.find_all("dd")
-                for j, th in enumerate(tr.find_all("dt")):
+            for i, tr in enumerate(target_wrapper.select(dl_selector)):
+                dds = tr.select(value_selector)
+                for j, th in enumerate(tr.select(header_selector)):
                     if len(th.contents) > 0:
                         thTitle = th.contents[0]
                     else:
@@ -115,15 +114,23 @@ class TokyuParser(ParserBase):
                         tdValue = ""
                         logging.warn("error. tdValue is empty. thTitle is " + str(thTitle))
 
-                if thTitle == u"価格":
-                    tdValue = tr.find("dd").find("p").find("span").text
-                    item.priceStr = tdValue
-                    item.price = converter.parse_price(item.priceStr)
+                if thTitle == self.selectors.get('price_key', u"価格"):
+                    price_selector = self.selectors.get('price')
+                    if price_selector:
+                        price_tag = tr.select_one(price_selector)
+                        if price_tag:
+                            tdValue = price_tag.text
+                            item.priceStr = tdValue
+                            item.price = converter.parse_price(item.priceStr)
 
-                if thTitle == u"所在地":
+                if thTitle == self.selectors.get('address_key', u"所在地"):
+                    address_selector = self.selectors.get('address')
                     dd = tr.find("dd")
                     if dd:
-                        links = dd.find_all("a")
+                        links = []
+                        if address_selector:
+                             links = dd.select(address_selector)
+                        
                         if len(links) >= 3:
                             item.address1 = links[0].text
                             item.address2 = links[1].text
@@ -133,10 +140,10 @@ class TokyuParser(ParserBase):
                             item.address2 = ""
                             item.address3 = ""
                     
-                    item.addressKyoto = ""  # 不要
+                    item.addressKyoto = ""
                     item.address = item.address1 + item.address2 + item.address3
 
-                if thTitle == u"交通":
+                if thTitle == self.selectors.get('transport_key', u"交通"):
                     item.transfer1 = ""
                     item.railway1 = ""
                     item.station1 = ""
@@ -228,22 +235,22 @@ class TokyuParser(ParserBase):
                             if item.railwayCount == 5:
                                 item.transfer5, item.railway5, item.station5, item.railwayWalkMinute5Str, item.railwayWalkMinute5, item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = transfer, railway, station, railwayWalkMinuteStr, railwayWalkMinute, busStation, busWalkMinuteStr, busWalkMinute                      
                         
-                if thTitle == u"引渡時期":
+                if thTitle == self.selectors.get('hikiwatashi_key', u"引渡時期"):
                     item.hikiwatashi = tdValue
 
-                if thTitle == u"現況":
+                if thTitle == self.selectors.get('genkyo_key', u"現況"):
                     item.genkyo = tdValue
 
-                if thTitle == u"土地権利":
+                if thTitle == self.selectors.get('tochikenri_key', u"土地権利"):
                     item.tochikenri = tdValue
                     
-                if thTitle == u"その他費用":
+                if thTitle == self.selectors.get('sonota_hiyou_key', u"その他費用"):
                     item.sonotaHiyouStr = tdValue  # 新規
                     
-                if thTitle == u"取引態様":
+                if thTitle == self.selectors.get('torihiki_key', u"取引態様"):
                     item.torihiki = tdValue  # 新規
                     
-                if thTitle == u"備考":
+                if thTitle == self.selectors.get('biko_key', u"備考"):
                     item.biko = tdValue  # 新規
         item.busUse1 = 0
         if(item.busWalkMinute1 > 0):
@@ -251,15 +258,16 @@ class TokyuParser(ParserBase):
         return item
     
 class TokyuMansionParser(TokyuParser):
+    property_type = 'mansion'
 
     def getRootXpath(self):
-        return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/select-area/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/kounyu/chuko-mansion/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/mansion/")]/@href'
+        return self.selectors.get('property_links_xpath')
 
     def createEntity(self):
         return  TokyuMansion()
@@ -284,14 +292,14 @@ class TokyuMansionParser(TokyuParser):
                         logging.warn("error. tdValue is empty. thTitle is " + thTitle)
 
 
-                    if thTitle == u"間取り":
+                    if thTitle == self.selectors.get('madori_key', u"間取り"):
                         item.madori = tdValue
 
-                    if thTitle == u"専有面積":
+                    if thTitle == self.selectors.get('senyu_menseki_key', u"専有面積"):
                         item.senyuMensekiStr = tdValue
                         item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
                         
-                    if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
+                    if thTitle == self.selectors.get('kaisu_key', u"所在階数"):  # u'2階 / 地上8階 地下1階'
                         item.kaisu = tdValue
                         try:
                             # Try generic regex for "X階" or "Xbe" extraction
@@ -321,32 +329,32 @@ class TokyuMansionParser(TokyuParser):
                         except Exception as e:
                             logging.warning(f"Failed to parse floor info '{item.kaisu}': {e}")
 
-                    if thTitle == u"建物構造":
+                    if thTitle == self.selectors.get('kouzou_key', u"建物構造"):
                         item.kouzou = tdValue  # 鉄筋コンクリート造
 
-                    if thTitle == u"築年月":  # u1998年3月
+                    if thTitle == self.selectors.get('chikunengetsu_key', u"築年月"):  # u1998年3月
                         item.chikunengetsuStr = tdValue
                         item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
                             
-                    if thTitle == u"バルコニー":
+                    if thTitle == self.selectors.get('balcony_key', u"バルコニー"):
                         item.barukoniMensekiStr = tdValue
 
-                    if thTitle == u"向き":
+                    if thTitle == self.selectors.get('saikou_key', u"向き"):
                         item.saikou = tdValue
 
-                    if thTitle == u"総戸数":
+                    if thTitle == self.selectors.get('soukosu_key', u"総戸数"):
                         item.soukosuStr = tdValue
                         item.soukosu = 0
                         if(item.soukosuStr != "-"):
                             item.soukosu = int(item.soukosuStr.replace(u",", "").replace(u"戸", "").strip())
 
-                    if thTitle == u"管理会社":
+                    if thTitle == self.selectors.get('kanri_kaisya_key', u"管理会社"):
                         item.kanriKaisya = tdValue.replace(u" / ", "").replace(u"全部委託", "")
                         
-                    if thTitle == u"管理方式":
+                    if thTitle == self.selectors.get('kanri_keitai_key', u"管理方式"):
                         item.kanriKeitai = tdValue
 
-                    if thTitle == u"管理費":
+                    if thTitle == self.selectors.get('kanrihi_key', u"管理費"):
                         item.kanrihiStr = tdValue
                         if "-" in item.kanrihiStr:
                             item.kanrihi = 0
@@ -355,7 +363,7 @@ class TokyuMansionParser(TokyuParser):
                                 item.kanrihi = int(item.kanrihiStr.replace(",", "").replace(u"（円/月）", "").replace(u"円/月", "").replace(u"円", "").strip())
                             except: item.kanrihi = 0
                             
-                    if thTitle == u"修繕積立金":
+                    if thTitle == self.selectors.get('syuzen_tsumitate_key', u"修繕積立金"):
                         item.syuzenTsumitateStr = tdValue
                         if "-" in item.syuzenTsumitateStr:
                             item.syuzenTsumitate = 0
@@ -364,13 +372,13 @@ class TokyuMansionParser(TokyuParser):
                                 item.syuzenTsumitate = int(item.syuzenTsumitateStr.replace(",", "").replace(u"（円/月）", "").replace(u"円/月", "").replace(u"円", "").strip())
                             except: item.syuzenTsumitate = 0
 
-                    if thTitle == u"駐車場":
+                    if thTitle == self.selectors.get('parking_key', u"駐車場"):
                         item.tyusyajo = tdValue
 
-                    if thTitle == u"分譲会社":
+                    if thTitle == self.selectors.get('bunjo_kaisya_key', u"分譲会社"):
                         item.bunjoKaisya = tdValue.replace(u"（新築分譲時における売主）", "")  # 新規
                         
-                    if thTitle == u"施工会社":
+                    if thTitle == self.selectors.get('sekou_kaisya_key', u"施工会社"):
                         item.sekouKaisya = tdValue  # 新規
 
         # 不要項目
@@ -406,15 +414,16 @@ class TokyuMansionParser(TokyuParser):
 
 
 class TokyuTochiParser(TokyuParser):
+    property_type = 'tochi'
 
     def getRootXpath(self):
-        return u'//a[contains(@href,"/kounyu/tochi/") and contains(@href, "/select-area/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/kounyu/tochi/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/tochi/")]/@href'
+        return self.selectors.get('property_links_xpath')
 
     def createEntity(self):
         return  TokyuTochi()
@@ -437,7 +446,7 @@ class TokyuTochiParser(TokyuParser):
                         tdValue = ""
                         logging.warn("error. tdValue is empty. thTitle is " + thTitle)
 
-                    if thTitle == u"土地面積":
+                    if thTitle == self.selectors.get('tochi_menseki_key', u"土地面積"):
                         item.tochiMensekiStr = tdValue
                         try:
                             tochiMensekiWork = item.tochiMensekiStr.replace(u'実測', '').replace(u'公簿', '').replace(u'm', '').strip()
@@ -445,57 +454,55 @@ class TokyuTochiParser(TokyuParser):
                         except:
                             item.tochiMenseki = 0
                     
-                    if thTitle == u"私道負担": # Not in model but good to know, mapping to generic or ignoring if not in schema.
-                        pass 
-
-                    if thTitle == u"地目":
+                    if thTitle == self.selectors.get('chimoku_key', u"地目"):
                         item.chimoku = tdValue
 
-                    if thTitle == u"地勢":
+                    if thTitle == self.selectors.get('chisei_key', u"地勢"):
                         item.chisei = tdValue
 
-                    if thTitle == u"接道状況":
+                    if thTitle == self.selectors.get('setsudou_key', u"接道状況"):
                         item.setsudou = tdValue # Example: 北東側 4.00m 公道 接面11.00m
 
-                    if thTitle == u"建ぺい率":
+                    if thTitle == self.selectors.get('kenpei_key', u"建ぺい率"):
                         item.kenpeiYousekiStr += "建ぺい率:" + tdValue + " "
                         try:
                             item.kenpei = int(tdValue.replace("%", ""))
                         except:
                             pass
                     
-                    if thTitle == u"容積率":
+                    if thTitle == self.selectors.get('youseki_key', u"容積率"):
                         item.kenpeiYousekiStr += "容積率:" + tdValue
                         try:
                             item.youseki = int(tdValue.replace("%", ""))
                         except:
                             pass
                     
-                    if thTitle == u"用途地域":
+                    if thTitle == self.selectors.get('youto_chiiki_key', u"用途地域"):
                         item.youtoChiiki = tdValue
 
-                    if thTitle == u"都市計画":
+                    if thTitle == self.selectors.get('kuiki_key', u"都市計画"):
                         item.kuiki = tdValue
                         
-                    if thTitle == u"国土法届出":
+                    if thTitle == self.selectors.get('kokudohou_key', u"国土法届出"):
                         item.kokudoHou = tdValue
 
-                    if thTitle == u"建築条件":
+                    if thTitle == self.selectors.get('kenchiku_joken_key', u"建築条件"):
                         item.kenchikuJoken = tdValue
 
         return item
 
 
 class TokyuKodateParser(TokyuParser):
+    property_type = 'kodate'
 
     def getRootXpath(self):
-        return u'//a[contains(@href,"/kounyu/kodate/") and contains(@href, "/select-area/")]/@href'
+        return self.selectors.get('root_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/kounyu/kodate/") and contains(@href, "/a") and not(contains(@href, "/select-town"))]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//a[@class="o-product-list__menu-link rec_detail_link" and contains(@href,"/kodate/")]/@href'
+        return self.selectors.get('property_links_xpath')
 
     def createEntity(self):
         return  TokyuKodate()
@@ -518,14 +525,14 @@ class TokyuKodateParser(TokyuParser):
                         tdValue = ""
                         logging.warn("error. tdValue is empty. thTitle is " + thTitle)
 
-                    if thTitle == u"間取り": # Mansion ok
+                    if thTitle == self.selectors.get('madori_key', u"間取り"): # Mansion ok
                         item.madori = tdValue
 
-                    if thTitle == u"建物面積":
+                    if thTitle == self.selectors.get('tatemono_menseki_key', u"建物面積"):
                         item.tatemonoMensekiStr = tdValue
                         item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-                    if thTitle == u"土地面積":
+                    if thTitle == self.selectors.get('tochi_menseki_key', u"土地面積"):
                         item.tochiMensekiStr = tdValue
                         try:
                             tochiMensekiWork = item.tochiMensekiStr.replace(u'実測', '').replace(u'公簿', '').replace(u'm', '').strip()
@@ -533,44 +540,48 @@ class TokyuKodateParser(TokyuParser):
                         except:
                             item.tochiMenseki = 0
 
-                    if thTitle == u"建物構造":
+                    if thTitle == self.selectors.get('kouzou_key', u"建物構造"):
                         item.kouzou = tdValue
                         item.kaisuKouzou = tdValue # Combined field for Kodate
 
-                    if thTitle == u"築年月": # Mansion ok
+                    if thTitle == self.selectors.get('chikunengetsu_key', u"築年月"): # Mansion ok
                         item.chikunengetsuStr = tdValue
                         item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-                    if thTitle == u"地目":
+                    if thTitle == self.selectors.get('chimoku_key', u"地目"):
                         item.chimoku = tdValue
 
-                    if thTitle == u"用途地域":
+                    if thTitle == self.selectors.get('youto_chiiki_key', u"用途地域"):
                         item.youtoChiiki = tdValue
 
-                    if thTitle == u"接道状況":
+                    if thTitle == self.selectors.get('setsudou_key', u"接道状況"):
                         item.setsudou = tdValue
 
-                    if thTitle == u"建ぺい率":
+                    if thTitle == self.selectors.get('kenpei_key', u"建ぺい率"):
                         item.kenpeiYousekiStr += "建ぺい率:" + tdValue + " "
                         try:
                             item.kenpei = int(tdValue.replace("%", ""))
                         except:
                             pass
                     
-                    if thTitle == u"容積率":
+                    if thTitle == self.selectors.get('youseki_key', u"容積率"):
                         item.kenpeiYousekiStr += "容積率:" + tdValue
                         try:
                             item.youseki = int(tdValue.replace("%", ""))
                         except:
                             pass
                     
-                    if thTitle == u"都市計画":
+                    if thTitle == self.selectors.get('kuiki_key', u"都市計画"):
                         item.kuiki = tdValue
 
         return item
 
 
 class TokyuInvestmentParser(InvestmentParser):
+    property_type = 'investment'
+    def __init__(self, params=None):
+        self.selectors = SelectorLoader.load('tokyu', self.property_type)
+
     def getCharset(self):
         return "utf-8"
 
@@ -579,7 +590,8 @@ class TokyuInvestmentParser(InvestmentParser):
 
     def _parsePropertyDetailPage(self, item: TokyuInvestment, response: BeautifulSoup) -> models.Model:
         # Title
-        title_el = response.select_one("h1")
+        title_selector = self.selectors.get('title', 'h1')
+        title_el = response.select_one(title_selector)
         item.propertyName = self._clean_text(title_el.get_text()) if title_el else ""
 
         # Robust extraction from dataLayer script if present
@@ -604,7 +616,8 @@ class TokyuInvestmentParser(InvestmentParser):
 
         # Fallback to selectors if dataLayer failed or missing fields
         if not item.priceStr:
-            price_el = response.select_one(".price")
+            price_selector = self.selectors.get('price', ".price")
+            price_el = response.select_one(price_selector)
             if not price_el:
                 price_text = response.find(string=lambda t: "万円" in t or "億円" in t)
                 item.priceStr = self._clean_text(price_text) if price_text else ""
@@ -613,52 +626,68 @@ class TokyuInvestmentParser(InvestmentParser):
             item.price = self._parse_price(item.priceStr)
 
         # Specs in DL list
+        table_config = self.selectors.get('table', {})
+        dl_selector = table_config.get('selector', 'dl')
+        header_selector = table_config.get('header', 'dt')
+        value_selector = table_config.get('value', 'dd')
+
         specs = {}
-        dl_list = response.select("dl")
+        dl_list = response.select(dl_selector)
         for dl in dl_list:
-            dts = dl.select("dt")
-            dds = dl.select("dd")
+            dts = dl.select(header_selector)
+            dds = dl.select(value_selector)
             for dt, dd in zip(dts, dds):
                 label = self._clean_text(dt.get_text())
                 value = self._clean_text(dd.get_text())
                 specs[label] = value
 
         # Mapping with type sensitivity
-        item.address = item.address or specs.get("所在地", "")
-        item.traffic = item.traffic or specs.get("交通", "")
-        item.structure = specs.get("構造", "")
-        item.yearBuilt = specs.get("築年月", "")
+        item.address = item.address or specs.get(self.selectors.get('address_key', "所在地"), "")
+        item.traffic = item.traffic or specs.get(self.selectors.get('traffic_key', "交通"), "")
+        item.structure = specs.get(self.selectors.get('structure_key', "構造"), "")
+        item.yearBuilt = specs.get(self.selectors.get('year_built_key', "築年月"), "")
         
         # Area branching
+        menseki_key = self.selectors.get('menseki_key', "専有面積")
+        tochikenri_key = self.selectors.get('tochikenri_key', "土地権利")
+        tochi_menseki_key = self.selectors.get('tochi_menseki_key', "土地面積")
+        tatemono_menseki_key = self.selectors.get('tatemono_menseki_key', "建物面積")
+        nobeyuka_menseki_key = self.selectors.get('nobeyuka_menseki_key', "延床面積")
+
         if "マンション" in property_type:
-            item.buildingArea = specs.get("専有面積", "")
-            item.landArea = specs.get("土地権利", "")
+            item.buildingArea = specs.get(menseki_key, "")
+            item.landArea = specs.get(tochikenri_key, "")
         elif "土地" in property_type:
-            item.landArea = specs.get("土地面積", "")
+            item.landArea = specs.get(tochi_menseki_key, "")
             item.buildingArea = None
         else: # Building, House, Apartment
-            item.landArea = specs.get("土地面積", "")
-            item.buildingArea = specs.get("建物面積", "") or specs.get("延床面積", "")
+            item.landArea = specs.get(tochi_menseki_key, "")
+            item.buildingArea = specs.get(tatemono_menseki_key, "") or specs.get(nobeyuka_menseki_key, "")
 
         # Yield
-        # Yield
-        yield_val = specs.get("利回り", "") or specs.get("表面利回り", "")
+        yield_key = self.selectors.get('yield_key', u"利回り")
+        surface_yield_key = self.selectors.get('surface_yield_key', u"表面利回り")
+        yield_val = specs.get(yield_key, "") or specs.get(surface_yield_key, "")
         item.grossYield = self._parse_yield(yield_val)
 
         return item
 
     def parsePropertyListPage(self, response: BeautifulSoup):
         # Pattern: /fudosan-toushi/C[ID]/
-        links = response.select("a[href*='/fudosan-toushi/C']")
-        for link in links:
-            href = link.get("href")
-            if href.startswith("/"):
-                href = "https://www.livable.co.jp" + href
-            yield href
+        links_selector = self.selectors.get('property_links')
+        if links_selector:
+            links = response.select(links_selector)
+            for link in links:
+                href = link.get("href")
+                if href and href.startswith("/"):
+                    href = "https://www.livable.co.jp" + href
+                if href: yield href
+
 
     def parseNextPage(self, response: BeautifulSoup):
         # a contains "次へ"
-        next_link = response.find("a", string=lambda t: t and "次へ" in t)
+        next_text = self.selectors.get('next_page', "次へ")
+        next_link = response.find("a", string=lambda t: t and next_text in t)
         if next_link:
             href = next_link.get("href")
             if href.startswith("/"):

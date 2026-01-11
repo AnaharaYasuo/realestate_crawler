@@ -20,13 +20,14 @@ from concurrent.futures._base import TimeoutError
 from package.parser.baseParser import ParserBase, LoadPropertyPageException, \
     ReadPropertyNameException
 import logging
+from package.utils.selector_loader import SelectorLoader
 
 
 class SumifuParser(ParserBase):
     BASE_URL='https://www.stepon.co.jp'
 
-    def __init__(self, params):
-        ""
+    def __init__(self, params=None):
+        self.selectors = SelectorLoader.load('sumifu', self.property_type)
     def getCharset(self):
         return "CP932"
 
@@ -66,21 +67,8 @@ class SumifuParser(ParserBase):
 
     async def getPropertyListNextPageUrl(self, response):
         logging.info("getPropertyListNextPageUrl")
-        nextPageXpath = '//*[@id="searchCondition"]/div/div[2]/div[2]/div[1]/ul/li[last()]/a'
-        # Since we use BeautifulSoup, xpath is not supported directly unless we use lxml with xpath or adapt.
-        # But wait, original code used response.xpath? 
-        # ParserBase might be using standard BeautifulSoup response. 
-        # If the original code was working, response object must support xpath (e.g. lxml html element) OR this code was broken/legacy.
-        # Assuming response is BeautifulSoup object as per type hint in other methods.
-        # BS4 doesn't support xpath. Inspecting usage suggests this might have been from a scrapy migration or similar?
-        # But let's check parseRegionPage logic, it calls _parsePageCore.
-        # Let's assume response is BS4 and use select_one for 'next page'.
-        
-        # Selector for "Next" button in pagination
-        # Usually li.next > a, or checking text "次へ"
-        # The xpath implies: id="searchCondition" -> ... -> ul -> li:last-child -> a
-        
-        next_link = response.select_one('#searchCondition ul.pagination li:last-child a') # Hypothesis selector based on xpath
+        next_page_selector = self.selectors.get('next_page')
+        next_link = response.select_one(next_page_selector)
         # Or simpler search for text "次へ"
         if not next_link:
              # Try finding by text "次へ"
@@ -94,10 +82,15 @@ class SumifuParser(ParserBase):
         return nextPageUrl
 
     def _getValueFromTable(self, response, target_th_text):
-        ths = response.select("table.table-detail th")
+        table_config = self.selectors.get('table', {})
+        table_selector = table_config.get('selector', 'table.table-detail')
+        header_selector = table_config.get('header', 'th')
+        value_selector = table_config.get('value', 'td')
+
+        ths = response.select(f"{table_selector} {header_selector}")
         for th in ths:
             if target_th_text in th.get_text():
-                td = th.find_next_sibling("td")
+                td = th.find_next_sibling(value_selector)
                 if td:
                     return td
                 if td:
@@ -166,30 +159,32 @@ class SumifuParser(ParserBase):
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         try:
             # New Name Selector
-            name_tag = response.select_one("h1.heading-1")
-            if not name_tag:
-                 name_tag = response.select_one("h1") 
+            name_selector = self.selectors.get('title')
+            name_tag = response.select_one(name_selector)
+            
             if not name_tag:
                  # Fallback
-                 name_block = response.find("div", id="bukkenNameBlockIcon")
-                 if name_block:
-                     # Safe traversal
-                     h2s = name_block.find_all("h2")
-                     if h2s:
-                         spans = h2s[0].find_all("span")
-                         if len(spans) > 1:
-                             name_tag = spans[1]
+                 name_block_selector = self.selectors.get('name_block_fallback')
+                 if name_block_selector:
+                     name_block = response.select_one(name_block_selector)
+                     if name_block:
+                         # Safe traversal
+                         h2s = name_block.find_all("h2")
+                         if h2s:
+                             spans = h2s[0].find_all("span")
+                             if len(spans) > 1:
+                                 name_tag = spans[1]
             
             if name_tag:
                 item.propertyName = name_tag.get_text(strip=True)
             
-            if not item.propertyName:
+            if not getattr(item, 'propertyName', None):
                 # Try generic h1 if specific classes failed or were empty
                 name_tag = response.select_one("h1")
                 if name_tag:
                     item.propertyName = name_tag.get_text(strip=True)
 
-            if not item.propertyName:
+            if not getattr(item, 'propertyName', None):
                 logging.warn("Could not find property name")
                 raise ReadPropertyNameException()
 
@@ -200,7 +195,8 @@ class SumifuParser(ParserBase):
         
         # Extract fields from table using existing _getValueFromTable method
         # Price
-        price_td = self._getValueFromTable(response, "価格")
+        price_key = self.selectors.get('price_key', "価格")
+        price_td = self._getValueFromTable(response, price_key)
         if price_td:
             price_text = price_td.get_text(strip=True)
             price_text = re.split(r"\(", price_text)[0]
@@ -209,9 +205,9 @@ class SumifuParser(ParserBase):
         else:
              # Fallback
              try:
-                price_dl = response.select_one("dl#s_summaryPrice")
-                if price_dl:
-                    em = price_dl.select_one("dd p em")
+                price_selector = self.selectors.get('price')
+                if price_selector:
+                    em = response.select_one(price_selector)
                     if em:
                         item.priceStr = em.get_text(strip=True)
                         item.price = converter.parse_price(item.priceStr)
@@ -219,38 +215,46 @@ class SumifuParser(ParserBase):
                  logging.warn("Could not find price")
         
         # Address
-        address_td = self._getValueFromTable(response, "所在地")
+        address_key = self.selectors.get('address_key', "所在地")
+        address_td = self._getValueFromTable(response, address_key)
         if address_td:
             item.address = address_td.get_text(strip=True)
 
         # Address Fallback
         if not getattr(item, "address", None):
             try:
-                addr_elem = response.select_one("div#bukkenDetailBlock div.itemInfo dl.address dd")
-                if addr_elem:
-                    item.address = addr_elem.get_text(strip=True)
+                address_selector = self.selectors.get('address')
+                if address_selector:
+                    addr_elem = response.select_one(address_selector)
+                    if addr_elem:
+                        item.address = addr_elem.get_text(strip=True)
             except:
                  pass
 
         
         # Extract other fields from MAPPING
-        hikiwatashi_td = self._getValueFromTable(response, "引渡時期")
+        hiki_key = self.selectors.get('hikiwatashi_key', "引渡時期")
+        hikiwatashi_td = self._getValueFromTable(response, hiki_key)
         if hikiwatashi_td:
             item.hikiwatashi = hikiwatashi_td.get_text(strip=True)
         
-        genkyo_td = self._getValueFromTable(response, "現況")
+        genkyo_key = self.selectors.get('genkyo_key', "現況")
+        genkyo_td = self._getValueFromTable(response, genkyo_key)
         if genkyo_td:
             item.genkyo = genkyo_td.get_text(strip=True)
         
-        tochikenri_td = self._getValueFromTable(response, "土地権利")
+        kenri_key = self.selectors.get('tochikenri_key', "土地権利")
+        tochikenri_td = self._getValueFromTable(response, kenri_key)
         if tochikenri_td:
             item.tochikenri = tochikenri_td.get_text(strip=True)
         
-        torihiki_td = self._getValueFromTable(response, "取引態様")
+        torihiki_key = self.selectors.get('torihiki_key', "取引態様")
+        torihiki_td = self._getValueFromTable(response, torihiki_key)
         if torihiki_td:
             item.torihiki = torihiki_td.get_text(strip=True)
         
-        biko_td = self._getValueFromTable(response, "備考")
+        biko_key = self.selectors.get('biko_key', "備考")
+        biko_td = self._getValueFromTable(response, biko_key)
         if biko_td:
             item.biko = converter.truncate_str(biko_td.get_text(strip=True), 2000).strip()
         
@@ -274,7 +278,8 @@ class SumifuParser(ParserBase):
 
 
         # Transportation Logic
-        transport_td = self._getValueFromTable(response, "交通")
+        transport_key = self.selectors.get('transport_key', "交通")
+        transport_td = self._getValueFromTable(response, transport_key)
 
         if transport_td:
             # Replace br with newlines for splitting
@@ -371,6 +376,9 @@ class SumifuParser(ParserBase):
 
         
 class SumifuInvestmentParser(InvestmentParser):
+    property_type = 'investment'
+    def __init__(self, params=None):
+        self.selectors = SelectorLoader.load('sumifu', self.property_type)
     def getCharset(self):
         return "utf-8"
 
@@ -387,11 +395,13 @@ class SumifuInvestmentParser(InvestmentParser):
         return None
 
     def parsePropertyListPage(self, response: BeautifulSoup):
-        # Pattern: a.property-info-anchor or internal links in list
-        links = response.select("a.property-info-anchor")
+        property_links_selector = self.selectors.get('property_links')
+        links = response.select(property_links_selector)
         if not links:
-             # Fallback: find links containing detail_
-             links = response.select("a[href*='/pro/detail_']")
+             # Fallback
+             fallback_selector = self.selectors.get('property_links_fallback')
+             if fallback_selector:
+                 links = response.select(fallback_selector)
              
         for link in links:
             href = link.get("href")
@@ -400,8 +410,9 @@ class SumifuInvestmentParser(InvestmentParser):
             yield href
 
     def parseNextPage(self, response: BeautifulSoup):
-        # a.post_param:contains('次へ') -> Handled by finding text
-        next_link = response.find("a", string=lambda t: t and "次へ" in t)
+        # Text search for '次へ'
+        next_text = self.selectors.get('next_page')
+        next_link = response.find("a", string=lambda t: t and next_text in t)
         if next_link:
             href = next_link.get("href")
             # For Sumifu, pagination might be javascript post or URL part
@@ -415,30 +426,32 @@ class SumifuInvestmentParser(InvestmentParser):
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         try:
             # New Name Selector
-            name_tag = response.select_one("h1.heading-1")
-            if not name_tag:
-                 name_tag = response.select_one("h1") 
+            name_selector = self.selectors.get('title')
+            name_tag = response.select_one(name_selector)
+            
             if not name_tag:
                  # Fallback
-                 name_block = response.find("div", id="bukkenNameBlockIcon")
-                 if name_block:
-                     # Safe traversal
-                     h2s = name_block.find_all("h2")
-                     if h2s:
-                         spans = h2s[0].find_all("span")
-                         if len(spans) > 1:
-                             name_tag = spans[1]
+                 name_block_selector = self.selectors.get('name_block_fallback')
+                 if name_block_selector:
+                     name_block = response.select_one(name_block_selector)
+                     if name_block:
+                         # Safe traversal
+                         h2s = name_block.find_all("h2")
+                         if h2s:
+                             spans = h2s[0].find_all("span")
+                             if len(spans) > 1:
+                                 name_tag = spans[1]
             
             if name_tag:
                 item.propertyName = name_tag.get_text(strip=True)
             
-            if not item.propertyName:
+            if not getattr(item, 'propertyName', None):
                 # Try generic h1 if specific classes failed or were empty
                 name_tag = response.select_one("h1")
                 if name_tag:
                     item.propertyName = name_tag.get_text(strip=True)
 
-            if not item.propertyName:
+            if not getattr(item, 'propertyName', None):
                 logging.warn("Could not find property name")
                 raise ReadPropertyNameException()
 
@@ -447,7 +460,8 @@ class SumifuInvestmentParser(InvestmentParser):
             raise ReadPropertyNameException()
         
         # Price
-        price_td = self._getValueFromTable(response, "価格")
+        price_key = self.selectors.get('price_key', "価格")
+        price_td = self._getValueFromTable(response, price_key)
         if price_td:
             # Handle cases like "5,980万円"
             price_text = price_td.get_text(strip=True)
@@ -478,41 +492,40 @@ class SumifuInvestmentParser(InvestmentParser):
             item.price = oku + man
         else:
              # Old selector fallback
-             # Old selector fallback
              try:
-                price_dl = response.select_one("dl#s_summaryPrice")
-                if price_dl:
-                    em = price_dl.select_one("dd p em")
+                price_selector = self.selectors.get('price')
+                if price_selector:
+                    em = response.select_one(price_selector)
                     if em:
                         item.priceStr = em.get_text(strip=True)
-                        parent_p = em.find_parent("p")
-                        priceUnit = ""
-                        if parent_p:
-                             # Extract text node after em?
-                             # Assuming straightforward text logic:
-                             priceWork = item.priceStr.replace(',', '')
-                             oku = 0
-                             man = 0
-                             if u"億" in item.priceStr:
-                                 priceArr = priceWork.split("億")
-                                 oku = int(priceArr[0]) * 10000
-                                 if len(priceArr) > 1 and len(priceArr[1]) != 0:
-                                     man = int(priceArr[1])
-                             else:
-                                 man = int(priceWork)
-                             item.price = oku + man
+                        priceWork = item.priceStr.replace(',', '')
+                        oku = 0
+                        man = 0
+                        if u"億" in item.priceStr:
+                            priceArr = priceWork.split("億")
+                            oku = int(priceArr[0]) * 10000
+                            if len(priceArr) > 1 and len(priceArr[1]) != 0:
+                                man = int(priceArr[1])
+                        else:
+                            digits = re.sub(r'\D', '', priceWork)
+                            if digits:
+                                man = int(digits)
+                        item.price = oku + man
              except:
                  logging.warn("Could not find price")
 
         # Address
-        address_td = self._getValueFromTable(response, "所在地")
+        address_key = self.selectors.get('address_key', "所在地")
+        address_td = self._getValueFromTable(response, address_key)
         if address_td:
             item.address = address_td.get_text(strip=True)
         else:
             try:
-                addr_elem = response.select_one("div#bukkenDetailBlock div.itemInfo dl.address dd")
-                if addr_elem:
-                    item.address = addr_elem.get_text(strip=True)
+                address_selector = self.selectors.get('address')
+                if address_selector:
+                    addr_elem = response.select_one(address_selector)
+                    if addr_elem:
+                        item.address = addr_elem.get_text(strip=True)
             except:
                  pass
 
@@ -855,15 +868,16 @@ class SumifuInvestmentParser(InvestmentParser):
         item.youseki = item.kenpeiYousekiStr.split("／")[1].split("%")[0].split(" ")[0]
 
 class SumifuMansionParser(SumifuParser):
+    property_type = 'mansion'
 
     def getRegionXpath(self):
-        return u'//a[contains(@href,"/mansion/area_")]/@href'
+        return self.selectors.get('region_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/mansion/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
+        return self.selectors.get('property_list_xpath')
 
     def createEntity(self):
         return  SumifuMansion()
@@ -1029,15 +1043,16 @@ class SumifuMansionParser(SumifuParser):
         return item
 
 class SumifuTochiParser(SumifuParser):
+    property_type = 'tochi'
     
     def getRegionXpath(self):
-        return u'//a[contains(@href,"/tochi/area_")]/@href'
+        return self.selectors.get('region_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/tochi/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
+        return self.selectors.get('property_list_xpath')
 
     def createEntity(self):
         return  SumifuTochi()
@@ -1104,15 +1119,16 @@ class SumifuTochiParser(SumifuParser):
         return item
     
 class SumifuKodateParser(SumifuParser):
+    property_type = 'kodate'
     
     def getRegionXpath(self):
-        return u'//a[contains(@href,"/kodate/area_")]/@href'
+        return self.selectors.get('region_xpath')
 
     def getAreaXpath(self):
-        return u'//a[contains(@href,"/kodate/area_") and contains(@href,"/list_") and contains(text(),"（")]/@href'
+        return self.selectors.get('area_xpath')
 
     def getPropertyListXpath(self):
-        return u'//*[@id="searchResultBlock"]/div/div/div/div[1]/*//label/h2/a/@href'
+        return self.selectors.get('property_list_xpath')
 
     def createEntity(self):
         return  SumifuKodate()

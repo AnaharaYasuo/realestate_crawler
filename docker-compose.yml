@@ -30,6 +30,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./Temp:/app/Temp
+      - ./config:/app/config
     depends_on:
       - db
     restart: always
