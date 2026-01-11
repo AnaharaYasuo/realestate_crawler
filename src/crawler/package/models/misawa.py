@@ -2,7 +2,7 @@ from django.db import models
 
 class MisawaCommon(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()

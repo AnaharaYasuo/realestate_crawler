@@ -6,7 +6,7 @@ from django.db import models
 class MitsuiMansion(models.Model):
     # unique_id = models.CharField(max_length=100, null=True)
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -219,7 +219,7 @@ class MitsuiMansion(models.Model):
         
 class MitsuiTochi(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -379,7 +379,7 @@ class MitsuiTochi(models.Model):
         
 class MitsuiKodate(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -546,7 +546,7 @@ class MitsuiKodate(models.Model):
 
 class MitsuiInvestment(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()

@@ -2,7 +2,7 @@ from django.db import models
 
 class NomuraInvestmentModel(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     
@@ -43,6 +43,7 @@ class NomuraInvestmentModel(models.Model):
         abstract = False
 
 class NomuraMansion(models.Model):
+    pageUrl = models.CharField(max_length=500, db_index=True)
     propertyName = models.TextField()
     priceStr = models.TextField()
     price = models.IntegerField()
@@ -76,6 +77,7 @@ class NomuraMansion(models.Model):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.pageUrl = ""
         self.propertyName = ""
         self.priceStr = ""
         self.price = 0
@@ -111,6 +113,7 @@ class NomuraMansion(models.Model):
         db_table = "nomura_mansion"
 
 class NomuraKodate(models.Model):
+    pageUrl = models.CharField(max_length=500, db_index=True)
     propertyName = models.TextField()
     priceStr = models.TextField()
     price = models.IntegerField()
@@ -140,6 +143,7 @@ class NomuraKodate(models.Model):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.pageUrl = ""
         self.propertyName = ""
         self.priceStr = ""
         self.price = 0
@@ -171,6 +175,7 @@ class NomuraKodate(models.Model):
         db_table = "nomura_kodate"
 
 class NomuraTochi(models.Model):
+    pageUrl = models.CharField(max_length=500, db_index=True)
     propertyName = models.TextField()
     priceStr = models.TextField()
     price = models.IntegerField()
@@ -196,6 +201,7 @@ class NomuraTochi(models.Model):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.pageUrl = ""
         self.propertyName = ""
         self.priceStr = ""
         self.price = 0

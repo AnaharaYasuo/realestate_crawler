@@ -4,7 +4,7 @@ from django.db import models
 
 class SumifuModel(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()    
     priceStr = models.TextField()
@@ -140,7 +140,7 @@ class SumifuModel(models.Model):
 class SumifuInvestment(models.Model):
     # Basic Info
     propertyName = models.TextField()
-    pageUrl = models.TextField(unique=True)
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     updatedAt = models.DateField(null=True)

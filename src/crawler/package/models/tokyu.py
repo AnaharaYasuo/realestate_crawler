@@ -6,7 +6,7 @@ from django.db import models
 class TokyuMansion(models.Model):
     # unique_id = models.CharField(max_length=100, null=True)
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -220,7 +220,7 @@ class TokyuMansion(models.Model):
 
 class TokyuTochi(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -414,7 +414,7 @@ class TokyuTochi(models.Model):
 
 class TokyuKodate(models.Model):
     propertyName = models.TextField()
-    pageUrl = models.TextField()
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     priceStr = models.TextField()
@@ -622,7 +622,7 @@ class TokyuKodate(models.Model):
 class TokyuInvestment(models.Model):
     # Basic Info
     propertyName = models.TextField()
-    pageUrl = models.TextField(unique=True)
+    pageUrl = models.CharField(max_length=500, db_index=True)
     inputDate = models.DateField()
     inputDateTime = models.DateTimeField()
     updatedAt = models.DateField(null=True)
