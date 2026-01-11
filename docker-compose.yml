@@ -1,0 +1,38 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: real_estate
+      MYSQL_USER: sumifu
+      MYSQL_PASSWORD: mayumimayumi0413
+    ports:
+      - "13306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    restart: always
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db
+      - DB_NAME=real_estate
+      - DB_USER=sumifu
+      - DB_PASSWORD=mayumimayumi0413
+      - DB_PORT=3306
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      # クラウド環境設定用フラグ（必要な場合）
+      # - IS_CLOUD=true
+    volumes:
+      - ./src:/app/src
+      - ./Temp:/app/Temp
+    depends_on:
+      - db
+    restart: always
+
+volumes:
+  db_data:
