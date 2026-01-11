@@ -4,33 +4,33 @@ tasks:
   default:
     desc: Start the application in detached mode
     cmds:
-      - docker-compose up -d
+      - docker compose up -d
 
   stop:
     desc: Stop the application
     cmds:
-      - docker-compose down
+      - docker compose down
 
   init:
     desc: Build and start the application with DB setup
     cmds:
-      - docker-compose up -d --build
-      - docker-compose exec -T app python src/crawler/db_setup.py
+      - docker compose up -d --build
+      - docker compose exec -T app python src/crawler/db_setup.py
 
   logs:
     desc: Tail the application logs
     cmds:
-      - docker-compose logs -f
+      - docker compose logs -f
 
   flask-start:
     desc: Start the application (Docker - app service)
     cmds:
-      - docker-compose up -d app
+      - docker compose up -d app
 
   flask-stop:
     desc: Stop the application (Docker - app service)
     cmds:
-      - docker-compose stop app
+      - docker compose stop app
 
   crawl:
     desc: 'Start a crawler. Usage: task crawl COMPANY=mitsui TYPE=mansion'
@@ -40,4 +40,4 @@ tasks:
   test:
     desc: Run all parser tests
     cmds:
-      - docker-compose exec -T app pytest src/crawler/tests/unit/
+      - docker compose exec -T app pytest src/crawler/tests/unit/
