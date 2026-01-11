@@ -890,8 +890,14 @@ class SumifuMansionParser(SumifuParser):
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuMansion=super()._parsePropertyDetailPage(item, response)
 
-        # Madori, SenyuMensekiStr, etc are populated by Base _extract_table_data via MAPPING inheritance
-
+        # Extract mansion-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                # Skip fields already handled by parent class
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
+        
         if hasattr(item, "senyuMensekiStr") and item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
@@ -1052,7 +1058,12 @@ class SumifuTochiParser(SumifuParser):
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuTochi=super()._parsePropertyDetailPage(item, response)
         
-        # Fields populated via MAPPING: tochiMensekiStr, kenchikuJoken, kokudoHou, etc.
+        # Extract tochi-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
         
         if getattr(item, "tochiMensekiStr", None):
              try: item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
@@ -1128,6 +1139,13 @@ class SumifuKodateParser(SumifuParser):
 
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuKodate=super()._parsePropertyDetailPage(item, response)
+        
+        # Extract kodate-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
         
         # Tochi Menseki
         if getattr(item, "tochiMensekiStr", None):
