@@ -1,6 +1,10 @@
 import os
 import django
 from django.conf import settings
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 def configure():
     if not settings.configured:
         if os.getenv('IS_CLOUD', ''):
@@ -8,11 +12,11 @@ def configure():
                 DATABASES={
                     'default': {
                         'ENGINE': 'django.db.backends.mysql',
-                        'NAME': 'real_estate',
-                        'USER': 'sumifu',
-                        'PASSWORD': 'mayumimayumi0413',
-                        'HOST': '10.128.0.17',
-                        'PORT': '13306',
+                        'NAME': os.getenv('DB_NAME', 'real_estate'),
+                        'USER': os.getenv('DB_USER', 'sumifu'),
+                        'PASSWORD': os.getenv('DB_PASSWORD'),
+                        'HOST': os.getenv('DB_HOST', '10.128.0.17'),
+                        'PORT': os.getenv('DB_PORT', '13306'),
                     }
                 }
                 , INSTALLED_APPS=[
@@ -26,7 +30,7 @@ def configure():
                         'ENGINE': 'django.db.backends.mysql',
                         'NAME': os.getenv('DB_NAME', 'real_estate'),
                         'USER': os.getenv('DB_USER', 'sumifu'),
-                        'PASSWORD': os.getenv('DB_PASSWORD', 'mayumimayumi0413'),
+                        'PASSWORD': os.getenv('DB_PASSWORD'),
                         'HOST': os.getenv('DB_HOST', '34.122.252.162'),
                         'PORT': os.getenv('DB_PORT', '13306'),
                     }

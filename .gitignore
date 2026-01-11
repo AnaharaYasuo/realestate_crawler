@@ -6,3 +6,4 @@
 **/xgb
 *.code-workspace
 Temp/
+.env
