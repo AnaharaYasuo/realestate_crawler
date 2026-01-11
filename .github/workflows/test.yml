@@ -1,0 +1,33 @@
+name: Parser Tests
+
+on:
+  pull_request:
+    branches: [ feature/optimize-crawler-and-parsers, main ]
+  push:
+    branches: [ feature/optimize-crawler-and-parsers, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Start containers and setup DB
+        run: |
+          docker-compose up -d --build
+          # Wait for MySQL to be ready
+          sleep 15
+          docker-compose exec -T app python src/crawler/db_setup.py
+
+      - name: Run Parser Tests
+        run: |
+          docker-compose exec -T app pytest src/crawler/tests/unit/
+
+      - name: Stop containers
+        if: always()
+        run: docker-compose down
