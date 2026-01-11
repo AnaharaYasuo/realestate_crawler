@@ -5,6 +5,7 @@ import re
 from package.parser.investmentParser import InvestmentParser
 from package.parser.baseParser import ReadPropertyNameException
 from package.models.nomura import NomuraInvestmentModel
+from package.utils import converter
 
 class NomuraParser(InvestmentParser):
     def getCharset(self):
@@ -114,12 +115,7 @@ class NomuraResidentialBaseHelper:
         price_el = response.select_one(".price") or response.find(string=lambda t: t and "万円" in t)
         if price_el:
             item.priceStr = price_el.get_text(strip=True) if hasattr(price_el, 'get_text') else price_el.strip()
-            # Simple clean
-            try:
-                p = item.priceStr.replace(",", "").replace("万円", "")
-                item.price = int(p) * 10000
-            except:
-                item.price = 0
+            item.price = converter.parse_price(item.priceStr)
         
         # Specs (DL/DT/DD or Table)
         # Try finding table with th/td

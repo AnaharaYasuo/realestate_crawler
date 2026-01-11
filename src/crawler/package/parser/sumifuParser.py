@@ -15,6 +15,7 @@ import datetime
 import traceback
 import re
 from builtins import IndexError
+from package.utils import converter
 from concurrent.futures._base import TimeoutError
 from package.parser.baseParser import ParserBase, LoadPropertyPageException, \
     ReadPropertyNameException
@@ -151,6 +152,17 @@ class SumifuParser(ParserBase):
         if hasattr(item, 'chiikiChiku'): item.chiikiChiku = text
         if hasattr(item, 'urbanPlanning'): item.urbanPlanning = text
 
+    MAPPING = {
+        "価格": ("priceStr", None),
+        "所在地": ("address", None),
+        "交通": ("transportStr", None), # Special handling
+        "引渡時期": ("hikiwatashi", None),
+        "現況": ("genkyo", None),
+        "土地権利": ("tochikenri", None),
+        "取引態様": ("torihiki", None),
+        "備考": ("biko", None),
+    }
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         try:
             # New Name Selector
@@ -185,74 +197,34 @@ class SumifuParser(ParserBase):
             logging.error(traceback.format_exc())
             raise ReadPropertyNameException()
         
+        
+        # Extract fields from table using existing _getValueFromTable method
         # Price
         price_td = self._getValueFromTable(response, "価格")
         if price_td:
-            # Handle cases like "5,980万円"
             price_text = price_td.get_text(strip=True)
-            # Remove annotations like "(税込)"
-            price_text = re.split(r"\(", price_text)[0] 
+            price_text = re.split(r"\(", price_text)[0]
             item.priceStr = price_text
-            
-            priceWork = item.priceStr.replace(',', '').replace(u'万円', '')
-            # If "億" exists
-            oku = 0
-            man = 0
-            if u"億" in priceWork:
-                parts = priceWork.split(u"億")
-                if parts[0]:
-                    try:
-                        oku = int(parts[0]) * 10000
-                    except:
-                        oku = 0
-                if len(parts) > 1 and parts[1]:
-                    # Extract digits only from parts[1]
-                    digit_match = re.search(r'\d+', parts[1])
-                    if digit_match:
-                        man = int(digit_match.group())
-                    else:
-                        man = 0
-            else:
-                try:
-                    # Extract digits only to avoid "ローンシミュレーション" etc
-                    digit_match = re.search(r'\d+', priceWork)
-                    if digit_match:
-                        man = int(digit_match.group())
-                    else:
-                        man = 0
-                except:
-                    man = 0
-            item.price = oku + man
+            item.price = converter.parse_price(item.priceStr)
         else:
-             # Old selector fallback
+             # Fallback
              try:
                 price_dl = response.select_one("dl#s_summaryPrice")
                 if price_dl:
                     em = price_dl.select_one("dd p em")
                     if em:
                         item.priceStr = em.get_text(strip=True)
-                        parent_p = em.find_parent("p")
-                        priceUnit = ""
-                        if parent_p:
-                             priceWork = item.priceStr.replace(',', '')
-                             oku = 0
-                             man = 0
-                             if u"億" in item.priceStr:
-                                 priceArr = priceWork.split("億")
-                                 oku = int(priceArr[0]) * 10000
-                                 if len(priceArr) > 1 and len(priceArr[1]) != 0:
-                                     man = int(priceArr[1])
-                             else:
-                                 man = int(priceWork)
-                             item.price = oku + man
+                        item.price = converter.parse_price(item.priceStr)
              except:
                  logging.warn("Could not find price")
-
+        
         # Address
         address_td = self._getValueFromTable(response, "所在地")
         if address_td:
             item.address = address_td.get_text(strip=True)
-        else:
+
+        # Address Fallback
+        if not getattr(item, "address", None):
             try:
                 addr_elem = response.select_one("div#bukkenDetailBlock div.itemInfo dl.address dd")
                 if addr_elem:
@@ -260,6 +232,28 @@ class SumifuParser(ParserBase):
             except:
                  pass
 
+        
+        # Extract other fields from MAPPING
+        hikiwatashi_td = self._getValueFromTable(response, "引渡時期")
+        if hikiwatashi_td:
+            item.hikiwatashi = hikiwatashi_td.get_text(strip=True)
+        
+        genkyo_td = self._getValueFromTable(response, "現況")
+        if genkyo_td:
+            item.genkyo = genkyo_td.get_text(strip=True)
+        
+        tochikenri_td = self._getValueFromTable(response, "土地権利")
+        if tochikenri_td:
+            item.tochikenri = tochikenri_td.get_text(strip=True)
+        
+        torihiki_td = self._getValueFromTable(response, "取引態様")
+        if torihiki_td:
+            item.torihiki = torihiki_td.get_text(strip=True)
+        
+        biko_td = self._getValueFromTable(response, "備考")
+        if biko_td:
+            item.biko = converter.truncate_str(biko_td.get_text(strip=True), 2000).strip()
+        
         # Reset transport fields
         item.transfer1 = ""
         item.railway1 = ""
@@ -269,158 +263,98 @@ class SumifuParser(ParserBase):
         item.busStation1 = ""
         item.busWalkMinute1Str = ""
         item.busWalkMinute1 = 0
-
-        item.transfer2 = ""
-        item.railway2 = ""
-        item.station2 = ""
-        item.railwayWalkMinute2Str = ""
-        item.railwayWalkMinute2 = 0
-        item.busStation2 = ""
-        item.busWalkMinute2Str = ""
         item.busWalkMinute2 = 0
-
-        item.transfer3 = ""
-        item.railway3 = ""
-        item.station3 = ""
-        item.railwayWalkMinute3Str = ""
-        item.railwayWalkMinute3 = 0
-        item.busStation3 = ""
-        item.busWalkMinute3Str = ""
         item.busWalkMinute3 = 0
-
-        item.transfer4 = ""
-        item.railway4 = ""
-        item.station4 = ""
-        item.railwayWalkMinute4Str = ""
-        item.railwayWalkMinute4 = 0
-        item.busStation4 = ""
-        item.busWalkMinute4Str = ""
         item.busWalkMinute4 = 0
-
-        item.transfer5 = ""
-        item.railway5 = ""
-        item.station5 = ""
-        item.railwayWalkMinute5Str = ""
-        item.railwayWalkMinute5 = 0
-        item.busStation5 = ""
-        item.busWalkMinute5Str = ""
         item.busWalkMinute5 = 0
+        item.railwayWalkMinute2 = 0
+        item.railwayWalkMinute3 = 0
+        item.railwayWalkMinute4 = 0
+        item.railwayWalkMinute5 = 0
 
-        # Transportation
+
+        # Transportation Logic
         transport_td = self._getValueFromTable(response, "交通")
-        if transport_td:
-            # New structure: multiple p tags or line breaks
-            transport_lines = []
-            p_tags = transport_td.find_all("p")
-            if p_tags:
-                transport_lines = [p.get_text(strip=True) for p in p_tags]
-            else:
-                # Fallback: split by <br> or newlines
-                transport_text = transport_td.get_text(separator="\n", strip=True)
-                transport_lines = [line.strip() for line in transport_text.split("\n") if line.strip()]
-            
-            # Parse each line
-            for i, line in enumerate(transport_lines):
-                if i >= 5: break
-                # Example line: "JR山手線 五反田駅 徒歩10分"
-                # or "東京メトロ南北線 白金高輪駅 徒歩5分 バス5分"
-                
-                # Simple parsing: split by spaces
-                parts = line.split()
-                if len(parts) >= 3:
-                    railway = parts[0]
-                    station = parts[1]
-                    walk_info = " ".join(parts[2:])
-                    
-                    # Extract walk minutes
-                    walk_match = re.search(r'徒歩(\d+)分', walk_info)
-                    walk_min = int(walk_match.group(1)) if walk_match else 0
-                    
-                    # Extract bus info
-                    bus_match = re.search(r'バス(\d+)分', walk_info)
-                    bus_min = int(bus_match.group(1)) if bus_match else 0
-                    
-                    if i == 0:
-                        item.transfer1 = line
-                        item.railway1 = railway
-                        item.station1 = station
-                        item.railwayWalkMinute1Str = f"{walk_min}分" if walk_min > 0 else ""
-                        item.railwayWalkMinute1 = walk_min
-                        item.busWalkMinute1Str = f"{bus_min}分" if bus_min > 0 else ""
-                        item.busWalkMinute1 = bus_min
-                    elif i == 1:
-                        item.transfer2 = line
-                        item.railway2 = railway
-                        item.station2 = station
-                        item.railwayWalkMinute2Str = f"{walk_min}分" if walk_min > 0 else ""
-                        item.railwayWalkMinute2 = walk_min
-                        item.busWalkMinute2Str = f"{bus_min}分" if bus_min > 0 else ""
-                        item.busWalkMinute2 = bus_min
-                    elif i == 2:
-                        item.transfer3 = line
-                        item.railway3 = railway
-                        item.station3 = station
-                        item.railwayWalkMinute3Str = f"{walk_min}分" if walk_min > 0 else ""
-                        item.railwayWalkMinute3 = walk_min
-                        item.busWalkMinute3Str = f"{bus_min}分" if bus_min > 0 else ""
-                        item.busWalkMinute3 = bus_min
-                    elif i == 3:
-                        item.transfer4 = line
-                        item.railway4 = railway
-                        item.station4 = station
-                        item.railwayWalkMinute4Str = f"{walk_min}分" if walk_min > 0 else ""
-                        item.railwayWalkMinute4 = walk_min
-                        item.busWalkMinute4Str = f"{bus_min}分" if bus_min > 0 else ""
-                        item.busWalkMinute4 = bus_min
-                    elif i == 4:
-                        item.transfer5 = line
-                        item.railway5 = railway
-                        item.station5 = station
-                        item.railwayWalkMinute5Str = f"{walk_min}分" if walk_min > 0 else ""
-                        item.railwayWalkMinute5 = walk_min
-                        item.busWalkMinute5Str = f"{bus_min}分" if bus_min > 0 else ""
-                        item.busWalkMinute5 = bus_min
-        else:
-            # Old selector fallback
-            try:
-                transport_elem = response.select_one("div#bukkenDetailBlock div.itemInfo dl.traffic dd")
-                if transport_elem:
-                    # Old parsing logic
-                    pass
-            except Exception:
-                pass
 
+        if transport_td:
+            # Replace br with newlines for splitting
+            for br in transport_td.select("br"):
+                br.replace_with("\n")
+            
+            # Text might be: "JR山手線 「品川」駅 徒歩10分\n京急本線 「北品川」駅 徒歩5分"
+            full_text = transport_td.get_text("\n").strip() # Use newline as separator
+            lines = [line.strip() for line in full_text.split("\n") if line.strip()]
+            
+            item.railwayCount = len(lines)
+            
+            for i, line in enumerate(lines):
+                if i >= 5: break
+                try:
+                    match = re.search(r'(.*?)「(.*?)」(.*)', line)
+                    if match:
+                        railway = match.group(1).strip().replace("線駅", "線") # Cleanup
+                        station = match.group(2).strip()
+                        walk_part = match.group(3).strip() # "駅 徒歩10分" or similar
+                        
+                        if walk_part.startswith("駅"):
+                            walk_part = walk_part[1:].strip()
+                            
+                        walk_min = 0
+                        walk_min_str = ""
+                        num_match = re.search(r'徒歩(\d+)分', walk_part)
+                        if num_match:
+                            walk_min_str = num_match.group(1)
+                            walk_min = int(walk_min_str)
+                        
+                        bus_stop = ""
+                        bus_min_str = ""
+                        bus_min = 0
+                        if "バス" in walk_part:
+                             bus_match = re.search(r'バス(\d+)分', walk_part)
+                             if bus_match:
+                                 bus_min_str = bus_match.group(1)
+                                 bus_min = int(bus_match.group(1))
+                             
+                             stop_match = re.search(r'「(.*?)」', walk_part) # Bus stop name
+                             if stop_match:
+                                 bus_stop = stop_match.group(1)
+                        
+                        if i == 0:
+                             item.transfer1, item.railway1, item.station1 = line, railway, station
+                             item.railwayWalkMinute1Str, item.railwayWalkMinute1 = walk_min_str, walk_min
+                             item.busStation1, item.busWalkMinute1Str, item.busWalkMinute1 = bus_stop, bus_min_str, bus_min
+                        elif i == 1:
+                             item.transfer2, item.railway2, item.station2 = line, railway, station
+                             item.railwayWalkMinute2Str, item.railwayWalkMinute2 = walk_min_str, walk_min
+                             item.busStation2, item.busWalkMinute2Str, item.busWalkMinute2 = bus_stop, bus_min_str, bus_min
+                        elif i == 2:
+                             item.transfer3, item.railway3, item.station3 = line, railway, station
+                             item.railwayWalkMinute3Str, item.railwayWalkMinute3 = walk_min_str, walk_min
+                             item.busStation3, item.busWalkMinute3Str, item.busWalkMinute3 = bus_stop, bus_min_str, bus_min
+                        elif i == 3:
+                             item.transfer4, item.railway4, item.station4 = line, railway, station
+                             item.railwayWalkMinute4Str, item.railwayWalkMinute4 = walk_min_str, walk_min
+                             item.busStation4, item.busWalkMinute4Str, item.busWalkMinute4 = bus_stop, bus_min_str, bus_min
+                        elif i == 4:
+                             item.transfer5, item.railway5, item.station5 = line, railway, station
+                             item.railwayWalkMinute5Str, item.railwayWalkMinute5 = walk_min_str, walk_min
+                             item.busStation5, item.busWalkMinute5Str, item.busWalkMinute5 = bus_stop, bus_min_str, bus_min
+                    else:
+                        logging.warn(f"Could not parse line: {line}")
+                except:
+                    logging.warn(f"Error parsing transport line: {line}")
+
+        else:
+             # Fallback
+             pass
+        
 
         item.busUse1 = 0
         if(item.busWalkMinute1 > 0):
             item.busUse1 = 1
  
-        # Parse Generic Table Rows (Hikiwatashi, Genkyo, etc)
-        detail_rows = response.select("table.table-detail tr")
-        for tr in detail_rows:
-            ths = tr.select("th")
-            tds = tr.select("td")
-            if not ths or not tds: continue
-            
-            thTitle = ths[0].get_text(strip=True)
-            tdValue = tds[0].get_text(strip=True)
-            
-            if "引渡時期" in thTitle:
-                item.hikiwatashi = tdValue
-            elif "現況" in thTitle:
-                item.genkyo = tdValue
-            elif "土地権利" in thTitle:
-                item.tochikenri = tdValue
-            elif "取引態様" in thTitle:
-                item.torihiki = tdValue
-            elif "備考" in thTitle:
-                item.biko = self.truncate_double_byte_str(tdValue,2000).strip()
-
         return item
 
-    def truncate_double_byte_str(self,text, len)->str:
-        """ 全角・半角を区別して文字列を切り詰める
-            """
         count = 0
         sliced_text:str = ''
         for c in text:
@@ -934,191 +868,121 @@ class SumifuMansionParser(SumifuParser):
     def createEntity(self):
         return  SumifuMansion()
             
+    MAPPING = SumifuParser.MAPPING.copy()
+    MAPPING.update({
+        "間取り": ("madori", None),
+        "専有面積": ("senyuMensekiStr", None),
+        "階建": ("floorType", None), # Try both 階建 and 階?
+        "階": ("floorType", None),
+        "築年月": ("chikunengetsuStr", None), # Base processes this logic but mapping helps? Base doesn't map chikunengetsuStr in MAPPING.
+        "バルコニー": ("barukoniMensekiStr", None), # search contains 'バルコニー' and '面積'
+        "採光方向": ("saikouKadobeya", None),
+        "総戸数": ("soukosuStr", None),
+        "管理方式": ("kanriKeitaiKaisya", None),
+        "管理会社": ("kanriKeitaiKaisya", None),
+        "管理費": ("kanrihiStr", None),
+        "修繕積立金": ("syuzenTsumitateStr", None),
+        "駐車場": ("tyusyajo", None),
+        "施工会社": ("sekouKaisya", None),
+        # Base handles Tochikenri, Hikiwatashi, Genkyo, Torihiki, Biko
+    })
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuMansion=super()._parsePropertyDetailPage(item, response)
 
-        # Madori
-        madori_td = self._getValueFromTable(response, "間取り")
-        if madori_td:
-             item.madori = madori_td.get_text(strip=True)
-        else:
-             # Fallback
-             try:
-                elem = response.select_one("dl#s_summaryMadori dd em")
-                if elem:
-                     item.madori = elem.get_text(strip=True)
-             except: pass
-
-        # Senyu Menseki
-        area_td = self._getValueFromTable(response, "専有面積")
-        if area_td:
-             item.senyuMensekiStr = area_td.get_text(strip=True)
-        else:
-             # Fallback
-             try:
-                elem = response.select_one("dl#s_summarySenyuMenseki dd")
-                if elem:
-                     item.senyuMensekiStr = elem.get_text(strip=True)
-             except: pass
-
+        # Extract mansion-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                # Skip fields already handled by parent class
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
+        
         if hasattr(item, "senyuMensekiStr") and item.senyuMensekiStr:
-            # Extract numeric part from strings like "81.65m2(壁芯)" or "81.65平米"
-            digit_match = re.search(r'[\d.]+', item.senyuMensekiStr)
-            if digit_match:
-                try:
-                    item.senyuMenseki = Decimal(digit_match.group())
-                except:
-                    item.senyuMenseki = 0
-            else:
-                item.senyuMenseki = 0
+            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        # Floor / Structure
-        # The table usually has "階建 / 階" or similar.
-        # Let's search for "階" in header
-        floor_td = self._getValueFromTable(response, "階建") # e.g. "地上10階地下1階建 3階部分"
-        if not floor_td:
-             floor_td = self._getValueFromTable(response, "階") # Sometimes just "階"
-
-        if floor_td:
-             item.floorType = floor_td.get_text(strip=True)
-        else:
-             try:
+        # Floor / Structure logic
+        if not item.floorType:
+            # Fallback
+            try:
                 elem = response.select_one("dl#s_summaryFloor dd")
-                if elem:
-                    item.floorType = elem.get_text(strip=True)
-             except: 
-                item.floorType = ""
+                if elem: item.floorType = elem.get_text(strip=True)
+            except: pass
 
         if item.floorType:
             try:
-                # Logic to parse "地上X階... Y階部分"
-                # Existing logic:
-                # item.floorType_kai = int(item.floorType.split(u"部分")[0].split(u"階")[0].replace(u"地下", "-"))
-                # item.floorType_chijo = int(item.floorType.split(u"地上")[1].split(u"階")[0])
-                
-                # New strings might look like: "地上14階建 / 6階" or similar.
-                # Let's try to adapt specific regex or keep existing logic if string format matches.
-                # Assuming format is relatively consistent or we can make it robust.
-                
-                # Check for "階建" and "/" separator
-                # Example: "RC14階建 / 6階"
-                # Or: "地上14階 地下1階建 / 3階"
-                
-                # Try to parse "Floor" (part) first
+                # Use simplified or existing regex logic
                 part_match = re.search(r'(\d+)階部分', item.floorType)
-                if not part_match:
-                     # Maybe it says " / 5階"
-                     part_match = re.search(r'/\s*(\d+)階', item.floorType)
-
+                if not part_match: part_match = re.search(r'/\s*(\d+)階', item.floorType)
+                
                 if part_match:
                     item.floorType_kai = int(part_match.group(1))
                     if "地下" in item.floorType and "地下" in item.floorType.split(part_match.group(0))[0]: 
-                         item.floorType_kai = -item.floorType_kai # Simplified heuristic
+                         item.floorType_kai = -item.floorType_kai
                 
-                # Total floors
                 total_match = re.search(r'地上(\d+)階', item.floorType)
-                if total_match:
-                    item.floorType_chijo = int(total_match.group(1))
+                if total_match: item.floorType_chijo = int(total_match.group(1))
                 else: 
-                     # Try "14階建"
                      total_match = re.search(r'(\d+)階建', item.floorType)
-                     if total_match:
-                         item.floorType_chijo = int(total_match.group(1))
+                     if total_match: item.floorType_chijo = int(total_match.group(1))
 
-
-                # Basement
                 chika_match = re.search(r'地下(\d+)階', item.floorType)
-                if chika_match:
-                    item.floorType_chika = int(chika_match.group(1))
-                else:
-                    item.floorType_chika = 0
-
-            except Exception:
-                logging.warn(f"Value Error item.floorType is {item.floorType}")
+                if chika_match: item.floorType_chika = int(chika_match.group(1))
+                else: item.floorType_chika = 0
+            except: pass
         
         # Chikunengetsu
-        age_td = self._getValueFromTable(response, "築年月")
-        if age_td:
-             item.chikunengetsuStr = age_td.get_text(strip=True)
-        else:
-             try:
+        if not getattr(item, 'chikunengetsuStr', None):
+              try:
                   elem = response.select_one("dl#s_summaryChikunengetsu dd")
-                  if elem:
-                      item.chikunengetsuStr = elem.get_text(strip=True)
-             except: pass
-        if hasattr(item, 'chikunengetsuStr'):
-            self._parseChikunengetsuText(item)
+                  if elem: item.chikunengetsuStr = elem.get_text(strip=True)
+              except: pass
+        
+        if getattr(item, 'chikunengetsuStr', None):
+             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr) # Use converter!
 
-        # Iterate table for other fields
-        detail_rows = response.select("table.table-detail tr")
-        for tr in detail_rows:
-            ths = tr.select("th")
-            tds = tr.select("td")
-            if not ths or not tds: continue
-            
-            thTitle = ths[0].get_text(strip=True)
-            tdValue = tds[0].get_text(strip=True)
+        # Saikou / Kadobeya
+        if getattr(item, "saikouKadobeya", None):
+             temp = item.saikouKadobeya.split(u"／")
+             if len(temp) == 1:
+                 item.saikou = item.saikouKadobeya
+                 item.kadobeya = ""
+             else:
+                 item.saikou = temp[0]
+                 item.kadobeya = temp[1]
 
-            if "バルコニー" in thTitle and "面積" in thTitle:
-                item.barukoniMensekiStr = tdValue
-            if thTitle == "採光方向":
-                item.saikouKadobeya = tdValue
-                temp = item.saikouKadobeya.split(u"／")
-                if len(temp) == 1:
-                    item.saikou = item.saikouKadobeya
-                    item.kadobeya = ""
-                else:
-                    item.saikou = temp[0]
-                    item.kadobeya = temp[1]
-            if thTitle == "総戸数":
-                item.soukosuStr = tdValue
-                try:
-                    item.soukosu = int(re.sub(r'\D', '', item.soukosuStr))
-                except: item.soukosu = 0
-            if "管理方式" in thTitle or "管理会社" in thTitle:
-                item.kanriKeitaiKaisya = tdValue
-                temp = item.kanriKeitaiKaisya.split(u"／")
-                if len(temp) == 1:
-                    item.kanriKeitai = temp[0]
-                    item.kanriKaisya = ""
-                else:
-                    item.kanriKeitai = temp[0]
-                    item.kanriKaisya = temp[1]
-            if "管理費" in thTitle and "月額" in thTitle:
-                item.kanrihiStr = tdValue
-                if "-" in item.kanrihiStr:
-                     item.kanrihi = 0
-                else:
-                     try:
-                        item.kanrihi = int(re.sub(r'\D', '', item.kanrihiStr))
-                     except: item.kanrihi = 0
-            if "修繕積立金" in thTitle and "月額" in thTitle:
-                item.syuzenTsumitateStr = tdValue
-                if "-" in item.syuzenTsumitateStr:
-                    item.syuzenTsumitate = 0
-                else:
-                    try:
-                        item.syuzenTsumitate = int(re.sub(r'\D', '', item.syuzenTsumitateStr))
-                    except: item.syuzenTsumitate = 0
-            
-            # Others
-            if "引渡時期" in thTitle:
-                    item.hikiwatashi = tdValue
-            if "現況" in thTitle:
-                item.genkyo = tdValue
-            if "駐車場" in thTitle:
-                item.tyusyajo = tdValue
-            if "土地権利" in thTitle:
-                item.tochikenri = tdValue
-            if "施工会社" in thTitle:
-                item.sekouKaisya = tdValue
-            if "取引態様" in thTitle:
-                item.torihiki = tdValue
-            if "備考" in thTitle:
-                 item.biko = "" # Already handled in base? Or re-read here.
+        # Soukosu
+        if getattr(item, "soukosuStr", None):
+             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
+        # Kanri
+        if getattr(item, "kanriKeitaiKaisya", None):
+             temp = item.kanriKeitaiKaisya.split(u"／")
+             if len(temp) == 1:
+                 item.kanriKeitai = temp[0]
+                 item.kanriKaisya = ""
+             else:
+                 item.kanriKeitai = temp[0]
+                 item.kanriKaisya = temp[1]
 
-        # 不要項目
+        # Kanrihi / Syuzen
+        if getattr(item, "kanrihiStr", None):
+             item.kanrihi = converter.parse_price(item.kanrihiStr) # Check unit? Usually 円. parse_price handles numbers ok?
+             # parse_price expects X万X円 or numeric string
+             if "万" not in item.kanrihiStr and "円" not in item.kanrihiStr: # just digits
+                  try: item.kanrihi = int(re.sub(r'\D', '', item.kanrihiStr))
+                  except: item.kanrihi = 0
+             else:
+                  item.kanrihi = converter.parse_price(item.kanrihiStr)
+
+        if getattr(item, "syuzenTsumitateStr", None):
+             if "万" not in item.syuzenTsumitateStr and "円" not in item.syuzenTsumitateStr: 
+                  try: item.syuzenTsumitate = int(re.sub(r'\D', '', item.syuzenTsumitateStr))
+                  except: item.syuzenTsumitate = 0
+             else:
+                  item.syuzenTsumitate = converter.parse_price(item.syuzenTsumitateStr)
+
+        # Defaults and derived
         item.kaisu = ""
         item.kouzou = ""
         item.address1 = ""
@@ -1128,37 +992,32 @@ class SumifuMansionParser(SumifuParser):
         item.sonotaHiyouStr = ""
         item.bunjoKaisya = ""
         
-        if(item.floorType.count(u"・ＲＣ造") > 0):
-            item.floorType_kouzou = "ＲＣ造"
-        if(item.floorType.count(u"・ＳＲＣ造") > 0):
-            item.floorType_kouzou = "ＳＲＣ造"
-        if(item.floorType.count(u"・Ｓ造") > 0):
-            item.floorType_kouzou = "Ｓ造"
-        if(item.floorType.count(u"・木造") > 0):
-            item.floorType_kouzou = "木造"
-        if(item.floorType.count(u"・その他") > 0):
-            item.floorType_kouzou = "その他"
+        if getattr(item, "floorType", ""):
+            if(item.floorType.count(u"・ＲＣ造") > 0): item.floorType_kouzou = "ＲＣ造"
+            elif(item.floorType.count(u"・ＳＲＣ造") > 0): item.floorType_kouzou = "ＳＲＣ造"
+            elif(item.floorType.count(u"・Ｓ造") > 0): item.floorType_kouzou = "Ｓ造"
+            elif(item.floorType.count(u"・木造") > 0): item.floorType_kouzou = "木造"
+            elif(item.floorType.count(u"・その他") > 0): item.floorType_kouzou = "その他"
 
         item.kyutaishin = 0
-        item.kyutaishin = 0
-        if(item.chikunengetsu and item.chikunengetsu < datetime.date(1982, 1, 1)):
+        if item.chikunengetsu and item.chikunengetsu < datetime.date(1982, 1, 1):
             item.kyutaishin = 1
             
         item.barukoniMenseki = 0
-        if item.barukoniMensekiStr != "--":
-            barukoniMenseki = item.barukoniMensekiStr.split(u"／")[0].split(u"専用庭面積")[0].split(u"ルーフバルコニー面積")[0].split(u"m")[0].strip()
-            if(len(barukoniMenseki) > 0):
-                item.barukoniMenseki = Decimal(barukoniMenseki)
+        if getattr(item, "barukoniMensekiStr", "-") != "-" and item.barukoniMensekiStr:
+            item.barukoniMenseki = converter.parse_menseki(item.barukoniMensekiStr.split(u"／")[0])
 
         item.senyouNiwaMenseki = 0
-        senyouNiwaList = item.barukoniMensekiStr.split(u"専用庭面積")
-        if(len(senyouNiwaList) > 1):
-            item.senyouNiwaMenseki = Decimal(senyouNiwaList[1].split(u"m")[0])
-        
+        if getattr(item, "barukoniMensekiStr", ""):
+             senyouNiwaList = item.barukoniMensekiStr.split(u"専用庭面積")
+             if len(senyouNiwaList) > 1:
+                 item.senyouNiwaMenseki = converter.parse_menseki(senyouNiwaList[1])
+
         item.roofBarukoniMenseki = 0
-        roofList = item.barukoniMensekiStr.split(u"ルーフバルコニー面積")
-        if(len(roofList) > 1):
-            item.roofBarukoniMenseki = Decimal(roofList[1].split(u"m")[0])
+        if getattr(item, "barukoniMensekiStr", ""):
+             roofList = item.barukoniMensekiStr.split(u"ルーフバルコニー面積")
+             if len(roofList) > 1:
+                 item.roofBarukoniMenseki = converter.parse_menseki(roofList[1])
 
         if item.senyuMenseki and item.senyuMenseki > 0:
              item.kanrihi_p_heibei = item.kanrihi / item.senyuMenseki
@@ -1183,69 +1042,64 @@ class SumifuTochiParser(SumifuParser):
     def createEntity(self):
         return  SumifuTochi()
 
+    MAPPING = SumifuParser.MAPPING.copy()
+    MAPPING.update({
+        "土地面積": ("tochiMensekiStr", None),
+        "建ぺい率": ("kenpeiStr", None),
+        "容積率": ("yousekiStr", None),
+        "地目": ("chimokuChisei", None),
+        "地勢": ("chimokuChisei", None),
+        "接道状況": ("setsudou", None),
+        "地域地区": ("chiikiChiku", None),
+        "建築条件": ("kenchikuJoken", None),
+        "国土法": ("kokudoHou", None),
+    })
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuTochi=super()._parsePropertyDetailPage(item, response)
         
-        # Tochi Menseki
-        tochi_td = self._getValueFromTable(response, "土地面積")
-        if tochi_td:
-            item.tochiMensekiStr = tochi_td.get_text(strip=True)
-        else:
-            try:
-                elem = response.select_one("dl#s_summaryTochiMenseki dd")
-                if elem:
-                    item.tochiMensekiStr = elem.get_text(strip=True)
-            except: pass
-            
-        if hasattr(item, "tochiMensekiStr") and item.tochiMensekiStr:
+        # Extract tochi-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
+        
+        if getattr(item, "tochiMensekiStr", None):
+             try: item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+             except: item.tochiMenseki = 0
+        elif not item.tochiMensekiStr:
+             # Fallback
              try:
-                # "100.00m2" -> 100.00
-                item.tochiMenseki = Decimal(item.tochiMensekiStr.split("m")[0])
-             except:
-                item.tochiMenseki = 0
-
-        # Kenpei / Youseki
-        # Try finding combined first?
-        # Often separate in table.
-        kenpei_td = self._getValueFromTable(response, "建ぺい率")
-        youseki_td = self._getValueFromTable(response, "容積率")
-        
-        kenpei_str = ""
-        youseki_str = ""
-        
-        if kenpei_td: kenpei_str = kenpei_td.get_text(strip=True)
-        if youseki_td: youseki_str = youseki_td.get_text(strip=True)
-        
-        if kenpei_str and youseki_str:
-             item.kenpeiYousekiStr = f"{kenpei_str}／{youseki_str}"
-             self._parseKenpeiYousekiText(item)
-        else:
-             # Fallback to old ID or check if combined
-             try:
-                 item.kenpeiYousekiStr = response.find_all("dl", id="s_coverageLandVolume")[0].find_all("dd")[0].contents[0]
-                 self._parseKenpeiYousekiText(item)
+                 elem = response.select_one("dl#s_summaryTochiMenseki dd")
+                 if elem: 
+                     item.tochiMensekiStr = elem.get_text(strip=True)
+                     item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
              except: pass
 
-        # Iterate table for other fields
-        detail_rows = response.select("table.table-detail tr")
-        for tr in detail_rows:
-            ths = tr.select("th")
-            tds = tr.select("td")
-            if not ths or not tds: continue
-            
-            thTitle = ths[0].get_text(strip=True)
-            tdValue = tds[0].get_text(strip=True)
+        # Kenpei / Youseki
+        item.kenpeiYousekiStr = ""
+        if getattr(item, "kenpeiStr", "") and getattr(item, "yousekiStr", ""):
+             item.kenpeiYousekiStr = f"{item.kenpeiStr}／{item.yousekiStr}"
+        elif not getattr(item, "kenpeiStr", ""):
+              try:
+                  item.kenpeiYousekiStr = response.find_all("dl", id="s_coverageLandVolume")[0].find_all("dd")[0].contents[0]
+              except: pass
 
-            if "地目" in thTitle or "地勢" in thTitle:
-                 self._getChimokuChiseiText(item, tdValue)
-            elif "接道状況" in thTitle:
-                 self._getSetudouText(item, tdValue)
-            elif "地域地区" in thTitle:
-                 self._getChiikiChikuText(item, tdValue)
-            elif "建築条件" in thTitle:
-                 item.kenchikuJoken = tdValue.strip()
-            elif "国土法" in thTitle:
-                 item.kokudoHou = tdValue
+        if item.kenpeiYousekiStr:
+             self._parseKenpeiYousekiText(item)
+
+        # Chimoku / Chisei
+        if getattr(item, "chimokuChisei", None):
+             self._getChimokuChiseiText(item, item.chimokuChisei)
+        
+        # Setsudou
+        if getattr(item, "setsudou", None):
+             self._getSetudouText(item, item.setsudou)
+
+        # Chiiki / Chiku
+        if getattr(item, "chiikiChiku", None):
+             self._getChiikiChikuText(item, item.chiikiChiku)
             
         return item
     
@@ -1264,67 +1118,79 @@ class SumifuKodateParser(SumifuParser):
         return  SumifuKodate()
 
 
+    MAPPING = SumifuParser.MAPPING.copy()
+    MAPPING.update({
+        "土地面積": ("tochiMensekiStr", None),
+        "建物面積": ("tatemonoMensekiStr", None),
+        "間取り": ("madori", None),
+        "築年月": ("chikunengetsuStr", None),
+        "建ぺい率": ("kenpeiStr", None),
+        "容積率": ("yousekiStr", None),
+        "階数": ("kaisuKouzou", None),
+        "構造": ("kaisuKouzou", None),
+        "階建": ("kaisuKouzou", None),
+        "地目": ("chimokuChisei", None),
+        "地勢": ("chimokuChisei", None),
+        "接道状況": ("setsudou", None),
+        "地域地区": ("chiikiChiku", None),
+        "建築条件": ("kenchikuJoken", None),
+        "国土法": ("kokudoHou", None),
+    })
+
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item:SumifuKodate=super()._parsePropertyDetailPage(item, response)
         
+        # Extract kodate-specific fields from MAPPING
+        for field_name_jp, (field_name_en, _) in self.MAPPING.items():
+            if field_name_jp not in ["価格", "所在地", "交通", "引渡時期", "現況", "土地権利", "取引態様", "備考"]:
+                td = self._getValueFromTable(response, field_name_jp)
+                if td and hasattr(item, field_name_en):
+                    setattr(item, field_name_en, td.get_text(strip=True))
+        
         # Tochi Menseki
-        tochi_td = self._getValueFromTable(response, "土地面積")
-        if tochi_td:
-             item.tochiMensekiStr = tochi_td.get_text(strip=True)
-             try: item.tochiMenseki = item.tochiMensekiStr.split("m")[0]
-             except: item.tochiMenseki = 0
+        if getattr(item, "tochiMensekiStr", None):
+             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
         else:
-             try:
-                 elem = response.select_one("dl#s_summaryTochiMenseki dd")
-                 if elem:
-                     item.tochiMensekiStr = elem.get_text(strip=True)
-                     item.tochiMenseki = item.tochiMensekiStr.split("m")[0]
-             except: pass
+              try:
+                  elem = response.select_one("dl#s_summaryTochiMenseki dd")
+                  if elem:
+                      item.tochiMensekiStr = elem.get_text(strip=True)
+                      item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+              except: pass
 
         # Tatemono Menseki
-        tatemono_td = self._getValueFromTable(response, "建物面積")
-        if tatemono_td:
-             item.tatemonoMensekiStr = tatemono_td.get_text(strip=True)
-             try: item.tatemonoMenseki = item.tatemonoMensekiStr.split("m")[0]
-             except: item.tatemonoMenseki = 0
+        if getattr(item, "tatemonoMensekiStr", None):
+             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
         else:
-             try:
-                 elem = response.select_one("dl#s_summaryTatemonoMenseki dd")
-                 if elem:
-                     item.tatemonoMensekiStr = elem.get_text(strip=True)
-                     item.tatemonoMenseki = item.tatemonoMensekiStr.split("m")[0]
-             except: pass
+              try:
+                  elem = response.select_one("dl#s_summaryTatemonoMenseki dd")
+                  if elem:
+                      item.tatemonoMensekiStr = elem.get_text(strip=True)
+                      item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
+              except: pass
 
         # Madori
-        madori_td = self._getValueFromTable(response, "間取り")
-        if madori_td:
-             item.madori = madori_td.get_text(strip=True)
-        else:
+        if not getattr(item, "madori", None):
              try:
                 elem = response.select_one("dl#s_summaryMadori dd em")
-                if elem:
-                    item.madori = elem.get_text(strip=True)
+                if elem: item.madori = elem.get_text(strip=True)
              except: pass
 
         # Chikunengetsu
-        age_td = self._getValueFromTable(response, "築年月")
-        if age_td:
-             item.chikunengetsuStr = age_td.get_text(strip=True)
-             self._parseChikunengetsuText(item)
-        else:
+        if not getattr(item, "chikunengetsuStr", None):
              try:
                  elem = response.select_one("dl#s_summaryChikunengetsu dd")
-                 if elem:
-                     item.chikunengetsuStr = elem.get_text(strip=True)
-                     self._parseChikunengetsuText(item)
+                 if elem: item.chikunengetsuStr = elem.get_text(strip=True)
              except: pass
+        if getattr(item, "chikunengetsuStr", None):
+             self._parseChikunengetsuText(item)
 
-
-        # Kenpei/Youseki
-        kenpei_td = self._getValueFromTable(response, "建ぺい率")
-        youseki_td = self._getValueFromTable(response, "容積率")
-        if kenpei_td and youseki_td:
-             item.kenpeiYousekiStr = f"{kenpei_td.get_text(strip=True)}／{youseki_td.get_text(strip=True)}"
+        # Kenpei / Youseki
+        item.kenpeiYousekiStr = ""
+        if getattr(item, "kenpeiStr", "") and getattr(item, "yousekiStr", ""):
+             item.kenpeiYousekiStr = f"{item.kenpeiStr}／{item.yousekiStr}"
+        
+        if item.kenpeiYousekiStr:
              self._parseKenpeiYousekiText(item)
         else:
              try:
@@ -1332,46 +1198,31 @@ class SumifuKodateParser(SumifuParser):
                  self._parseKenpeiYousekiText(item)
              except: pass
         
+        # Kaisu / Kouzou
+        if getattr(item, "kaisuKouzou", None):
+             if "・" in item.kaisuKouzou:
+                  parts = item.kaisuKouzou.split("・")
+                  item.kaisu = parts[0]
+                  item.kouzou = parts[1]
+             else:
+                  item.kaisu = item.kaisuKouzou
+                  item.kouzou = ""
+
+        # Chimoku / Chisei
+        if getattr(item, "chimokuChisei", None):
+             self._getChimokuChiseiText(item, item.chimokuChisei)
         
-        # Iterate table for other fields
-        detail_rows = response.select("table.table-detail tr")
-        for tr in detail_rows:
-            ths = tr.select("th")
-            tds = tr.select("td")
-            if not ths or not tds: continue
-            
-            thTitle = ths[0].get_text(strip=True)
-            tdValue = tds[0].get_text(strip=True)
-            
-            if "階数" in thTitle or "構造" in thTitle or thTitle == "階建":
-                 item.kaisuKouzou = tdValue
-                 # Try to split "木造2階建" -> kaisu=2階建, kouzou=木造
-                 # Heuristic split? Or keep raw?
-                 # Existing logic expected "階数・構造" header and value split by "・"
-                 # e.g. "2階建・木造"
-                 if "・" in item.kaisuKouzou:
-                     parts = item.kaisuKouzou.split("・")
-                     item.kaisu = parts[0]
-                     item.kouzou = parts[1]
-                 else:
-                     # Just assign raw to kaisu for now if not split
-                     item.kaisu = item.kaisuKouzou
-                     item.kouzou = ""
+        # Setsudou
+        if getattr(item, "setsudou", None):
+             self._getSetudouText(item, item.setsudou)
 
-            elif "地目" in thTitle or "地勢" in thTitle:
-                 self._getChimokuChiseiText(item, tdValue)
-            elif "接道状況" in thTitle:
-                 self._getSetudouText(item, tdValue)
-            elif "建ぺい率" in thTitle: # Handled above but redundancy ok?
-                 item.kenpei = tdValue.replace("%","").split(" ")[0]
-            elif "容積率" in thTitle:
-                 item.youseki = tdValue.replace("%","").split(" ")[0]
-            elif "地域地区" in thTitle:
-                 self._getChiikiChikuText(item, tdValue)
-            elif "建築条件" in thTitle:
-                 item.kenchikuJoken = tdValue.strip()
-            elif "国土法" in thTitle:
-                 item.kokudoHou = tdValue
+        # Chiiki / Chiku
+        if getattr(item, "chiikiChiku", None):
+             self._getChiikiChikuText(item, item.chiikiChiku)
 
+        # Already mapped in Base/SubMapping: KenchikuJoken, KokudoHou
+        # But we need to check if they need processing? 
+        # Base implementation used tdValue.strip() or assign. Sets them as strings. So OK.
+        
         return item
     

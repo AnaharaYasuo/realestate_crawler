@@ -6,6 +6,7 @@ from package.models.tokyu import TokyuMansion, TokyuTochi, TokyuKodate, TokyuInv
 from package.parser.investmentParser import InvestmentParser
 from django.db import models
 import re
+from package.utils import converter
 import importlib
 importlib.reload(sys)
 from decimal import Decimal
@@ -116,21 +117,8 @@ class TokyuParser(ParserBase):
 
                 if thTitle == u"価格":
                     tdValue = tr.find("dd").find("p").find("span").text
-                    item.priceStr = tdValue            
-                    priceWork = item.priceStr.replace(',', '')
-                    oku = 0
-                    man = 0
-                    if (u"億" in item.priceStr):
-                        priceArr = priceWork.split(u"億")
-                        oku = int(priceArr[0]) * 10000
-                        if len(priceArr) > 1 and len(priceArr[1]) != 0:
-                            man = Decimal(priceArr[1].replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
-                            man = int(round(man))
-                    else:
-                        man = Decimal(priceWork.replace(u'万', '').replace(u'円', '').replace(u"（消費税込）", ""))
-                        man = int(round(man))
-                    price = oku + man
-                    item.price = price
+                    item.priceStr = tdValue
+                    item.price = converter.parse_price(item.priceStr)
 
                 if thTitle == u"所在地":
                     dd = tr.find("dd")
@@ -301,8 +289,7 @@ class TokyuMansionParser(TokyuParser):
 
                     if thTitle == u"専有面積":
                         item.senyuMensekiStr = tdValue
-                        senyuMensekiWork = item.senyuMensekiStr.replace(u'内法', '').replace(u'壁芯', '').replace(u'm', '')
-                        item.senyuMenseki = Decimal(senyuMensekiWork)
+                        item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
                         
                     if thTitle == u"所在階数":  # u'2階 / 地上8階 地下1階'
                         item.kaisu = tdValue
@@ -339,13 +326,7 @@ class TokyuMansionParser(TokyuParser):
 
                     if thTitle == u"築年月":  # u1998年3月
                         item.chikunengetsuStr = tdValue
-                        if (item.chikunengetsuStr == u"不詳"):
-                            nen = 1900
-                            tsuki = 1
-                        else:
-                            nen = int(item.chikunengetsuStr.split(u"年")[0])
-                            tsuki = int(item.chikunengetsuStr.split(u"年")[1].split(u"月")[0])
-                        item.chikunengetsu = datetime.date(nen, tsuki, 1)
+                        item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
                             
                     if thTitle == u"バルコニー":
                         item.barukoniMensekiStr = tdValue
@@ -411,7 +392,7 @@ class TokyuMansionParser(TokyuParser):
             item.kyutaishin = 1
         item.barukoniMenseki = 0
         if item.barukoniMensekiStr != "-":
-            item.barukoniMenseki = item.barukoniMensekiStr.replace(u"m", "")
+            item.barukoniMenseki = converter.parse_menseki(item.barukoniMensekiStr)
         item.senyouNiwaMenseki = 0
         item.roofBarukoniMenseki = 0
         if item.senyuMenseki and item.senyuMenseki > 0:
@@ -542,11 +523,7 @@ class TokyuKodateParser(TokyuParser):
 
                     if thTitle == u"建物面積":
                         item.tatemonoMensekiStr = tdValue
-                        try:
-                            tatemonoMensekiWork = item.tatemonoMensekiStr.replace(u'm', '').strip()
-                            item.tatemonoMenseki = Decimal(tatemonoMensekiWork)
-                        except:
-                            item.tatemonoMenseki = 0
+                        item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
                     if thTitle == u"土地面積":
                         item.tochiMensekiStr = tdValue
@@ -562,16 +539,7 @@ class TokyuKodateParser(TokyuParser):
 
                     if thTitle == u"築年月": # Mansion ok
                         item.chikunengetsuStr = tdValue
-                        if (item.chikunengetsuStr == u"不詳"):
-                            nen = 1900
-                            tsuki = 1
-                        else:
-                            try:
-                                nen = int(item.chikunengetsuStr.split(u"年")[0])
-                                tsuki = int(item.chikunengetsuStr.split(u"年")[1].split(u"月")[0])
-                                item.chikunengetsu = datetime.date(nen, tsuki, 1)
-                            except:
-                                pass
+                        item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
                     if thTitle == u"地目":
                         item.chimoku = tdValue
