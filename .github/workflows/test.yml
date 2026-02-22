@@ -22,7 +22,7 @@ jobs:
           docker compose up -d --build
           # Wait for MySQL to be ready
           sleep 15
-          docker compose exec -T app python src/crawler/db_setup.py
+          docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Run Parser Tests
         run: |
