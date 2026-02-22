@@ -12,7 +12,7 @@ chardet==5.2.0
 charset-normalizer==3.4.4
 click==8.3.1
 colorama==0.4.6
-Django==5.2.10
+Django==5.2.11
 fake-useragent==2.2.0
 Flask==3.1.2
 frozenlist==1.8.0
