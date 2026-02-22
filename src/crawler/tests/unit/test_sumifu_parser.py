@@ -8,8 +8,8 @@ from bs4 import BeautifulSoup
 # Ensure package is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
 
-from package.parser.sumifuParser import SumifuMansionParser, SumifuKodateParser, SumifuTochiParser, SumifuInvestmentParser
-from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi, SumifuInvestment
+from package.parser.sumifuParser import SumifuMansionParser, SumifuTochiParser, SumifuKodateParser, SumifuInvestmentKodateParser, SumifuInvestmentApartmentParser
+from package.models.sumifu import SumifuMansion, SumifuTochi, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
 
 def load_mock_html(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,10 +35,8 @@ class TestSumifuParser:
         html_content = load_mock_html('sumifu_mansion_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Parse
         result = parser._parsePropertyDetailPage(item, soup)
         
-        # Verify Generic
         print(f"Parsed Property: {result.propertyName}")
         assert result.propertyName is not None
         assert len(result.propertyName) > 0
@@ -85,30 +83,15 @@ class TestSumifuParser:
         print(f"Tochi Name: {result.propertyName}")
         assert result.propertyName
 
-    def test_parse_investment_mansion(self):
-        if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'sumifu_investment_mansion_mock.html')):
-             pytest.skip("sumifu_investment_mansion_mock.html not found")
-             return
-             
-        parser = SumifuInvestmentParser()
-        item = parser.createEntity()
-        html_content = load_mock_html('sumifu_investment_mansion_mock.html')
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        result = parser._parsePropertyDetailPage(item, soup)
-        
-        print(f"Investment Mansion: {result.propertyName}")
-        assert result.propertyName
-        # Generic check
-        assert item.price is not None
-
     def test_parse_investment_apartment(self):
         if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'sumifu_investment_apartment_mock.html')):
              pytest.skip("sumifu_investment_apartment_mock.html not found")
              return
              
-        parser = SumifuInvestmentParser()
+        parser = SumifuInvestmentApartmentParser()
         item = parser.createEntity()
+        assert isinstance(item, SumifuInvestmentApartment)
+        
         html_content = load_mock_html('sumifu_investment_apartment_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
         
@@ -122,8 +105,10 @@ class TestSumifuParser:
              pytest.skip("sumifu_investment_kodate_mock.html not found")
              return
              
-        parser = SumifuInvestmentParser()
+        parser = SumifuInvestmentKodateParser()
         item = parser.createEntity()
+        assert isinstance(item, SumifuInvestmentKodate)
+
         html_content = load_mock_html('sumifu_investment_kodate_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
         

@@ -17,6 +17,7 @@ def configure():
                         'PASSWORD': os.getenv('DB_PASSWORD'),
                         'HOST': os.getenv('DB_HOST', '10.128.0.17'),
                         'PORT': os.getenv('DB_PORT', '13306'),
+                        'OPTIONS': {'charset': 'utf8mb4'},
                     }
                 }
                 , INSTALLED_APPS=[
@@ -33,6 +34,7 @@ def configure():
                         'PASSWORD': os.getenv('DB_PASSWORD'),
                         'HOST': os.getenv('DB_HOST', '34.122.252.162'),
                         'PORT': os.getenv('DB_PORT', '13306'),
+                        'OPTIONS': {'charset': 'utf8mb4'},
                     }
                 }
                 , INSTALLED_APPS=[

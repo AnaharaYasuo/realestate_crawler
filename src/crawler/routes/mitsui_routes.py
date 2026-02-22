@@ -102,7 +102,7 @@ def mitsuiMansionPropertyDetailTest():
     logging.info("start propertyDetail")
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
-    url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/FSFZ4A03/"
+    url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/"
     obj = ParseMitsuiMansionDetailFuncAsync()
     result = obj.main(url)
     logging.info("end propertyDetail")

@@ -29,7 +29,7 @@ def sumifuMansionStart():
     url = "dammy"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuMansionStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -45,12 +45,14 @@ def sumifuMansionRegionLocal():
 
 def sumifuMansionRegion(request):
     logging.info("Start sumifuMansionRegion")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuMansionRegionFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuMansionRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -65,12 +67,14 @@ def sumifuMansionAreaLocal():
 
 def sumifuMansionArea(request):
     logging.info("Start sumifuMansionArea")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuMansionAreaFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuMansionArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -85,12 +89,14 @@ def sumifuMansionPropertyListLocal():
 
 def sumifuMansionPropertyList(request):
     logging.info("Start sumifuMansionPropertyList")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuMansionListFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuMansionPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -105,12 +111,14 @@ def sumifuMansionPropertyDetailLocal():
 
 def sumifuMansionPropertyDetail(request):
     logging.info("Start sumifuMansionPropertyDetail")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuMansionDetailFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuMansionPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -137,7 +145,7 @@ def sumifuTochiStart():
     url = "dammy"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuTochiStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -153,12 +161,14 @@ def sumifuTochiRegionLocal():
 
 def sumifuTochiRegion(request):
     logging.info("Start sumifuTochiRegion")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuTochiRegionFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuTochiRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -173,12 +183,14 @@ def sumifuTochiAreaLocal():
 
 def sumifuTochiArea(request):
     logging.info("Start sumifuTochiArea")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuTochiAreaFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuTochiArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -193,12 +205,14 @@ def sumifuTochiPropertyListLocal():
 
 def sumifuTochiPropertyList(request):
     logging.info("Start sumifuTochiPropertyList")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuTochiListFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuTochiPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -213,12 +227,14 @@ def sumifuTochiPropertyDetailLocal():
 
 def sumifuTochiPropertyDetail(request):
     logging.info("Start sumifuTochiPropertyDetail")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuTochiDetailFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuTochiPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -245,7 +261,7 @@ def sumifuKodateStart():
     url = "dammy"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuKodateStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -261,12 +277,14 @@ def sumifuKodateRegionLocal():
 
 def sumifuKodateRegion(request):
     logging.info("Start sumifuKodateRegion")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuKodateRegionFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuKodateRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -281,12 +299,14 @@ def sumifuKodateAreaLocal():
 
 def sumifuKodateArea(request):
     logging.info("Start sumifuKodateArea")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuKodateAreaFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuKodateArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -301,12 +321,14 @@ def sumifuKodatePropertyListLocal():
 
 def sumifuKodatePropertyList(request):
     logging.info("Start sumifuKodatePropertyList")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuKodateListFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuKodatePropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -321,12 +343,14 @@ def sumifuKodatePropertyDetailLocal():
 
 def sumifuKodatePropertyDetail(request):
     logging.info("Start sumifuKodatePropertyDetail")
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     obj = ParseSumifuKodateDetailFuncAsync()
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed sumifuKodatePropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500

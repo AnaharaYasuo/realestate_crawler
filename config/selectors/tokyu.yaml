@@ -2,55 +2,70 @@
 # CSS selectors for parsing Tokyu property pages
 
 mansion:
-  title: "h1.o-detail-header__headline"
-  price: "table.m-status-table__wrapper dl dd p span"
-  address: "table.m-status-table__wrapper dl dd a"
+  title: "h1"
+  # Price and Address will be retrieved via Label in _scrape_specs
+  address_link_selector: "a"
   
-  root_xpath: ""
-  area_xpath: ""
+  root_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/select-area')]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/a')]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
-  property_links_xpath: "//a[@class=\"o-product-list__menu-link rec_detail_link\" and contains(@href,\"/mansion/\")]/@href"
+  saikou_key: "向き"
+  property_links_xpath: "//a[contains(@href,\"/mansion/C\")]/@href"
   
   table:
-    selector: "div.m-status-table__wrapper table" # Some sections use dl/dt/dd, others use table
+    # New selector: #propertySummarySection dl
+    # Old selector: div.m-status-table__wrapper
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper"
+    # New row: div
+    # Old row: dl
+    row_selector: "div, dl"
     header: "dt"
     value: "dd"
+    
+  # Specific keys for new HTML (overriding defaults)
+  balcony_key: "バルコニー面積"
+  hikiwatashi_key: "引渡可能年月"
+  kanri_keitai_key: "管理員の勤務形態"
 
 kodate:
-  title: "h1.o-detail-header__headline"
-  price: "table.m-status-table__wrapper dl dd p span"
-  address: "table.m-status-table__wrapper dl dd a"
+  title: "h1"
+  address_link_selector: "a"
   
-  root_xpath: ""
-  area_xpath: ""
+  root_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/select-area')]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/a')]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
-  property_links_xpath: "//a[@class=\"o-product-list__menu-link rec_detail_link\" and contains(@href,\"/kodate/\")]/@href"
+  property_links_xpath: "//a[contains(@href,\"/kodate/C\")]/@href"
   table:
-    selector: "div.m-status-table__wrapper"
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
+    row_selector: "div, dl"
     header: "dt"
     value: "dd"
+  saikou_key: "向き"
 
 tochi:
-  title: "h1.o-detail-header__headline"
-  price: "table.m-status-table__wrapper dl dd p span"
-  address: "table.m-status-table__wrapper dl dd a"
+  title: "h1"
+  address_link_selector: "a"
   
-  root_xpath: ""
-  area_xpath: ""
+  root_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/select-area')]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/a')]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
-  property_links_xpath: "//a[@class=\"o-product-list__menu-link rec_detail_link\" and contains(@href,\"/tochi/\")]/@href"
+  property_links_xpath: "//a[contains(@href,\"/tochi/C\")]/@href"
   table:
-    selector: "div.m-status-table__wrapper"
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
+    row_selector: "div, dl"
     header: "dt"
     value: "dd"
+  douro_muki_key: "接道方向／幅員"
 
 investment:
   title: "h1"
-  price: ".price"
-  address: "所在地"
+  # Price and Address will be retrieved via Label in _scrape_specs
   next_page: "次へ"
-  property_links: "a[href*='/fudosan-toushi/C']"
+  saikou_key: "向き"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a"
   table:
-    selector: "dl"
+    # Same unified structure
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
+    row_selector: "div, dl"
     header: "dt"
     value: "dd"

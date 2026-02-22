@@ -8,8 +8,8 @@ from bs4 import BeautifulSoup
 # Ensure package is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
 
-from package.parser.nomuraParser import NomuraMansionParser, NomuraKodateParser, NomuraTochiParser
-from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi
+from package.parser.nomuraParser import NomuraMansionParser, NomuraKodateParser, NomuraTochiParser, NomuraInvestmentKodateParser, NomuraInvestmentApartmentParser
+from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, NomuraInvestmentKodate, NomuraInvestmentApartment
 
 def load_mock_html(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -31,18 +31,13 @@ class TestNomuraParser:
 
         parser = NomuraMansionParser()
         item = parser.createEntity()
-        
         html_content = load_mock_html('nomura_mansion_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Parse
         result = parser._parsePropertyDetailPage(item, soup)
         
-        # Verify Generic
         print(f"Parsed Property: {result.propertyName}")
         assert result.propertyName is not None
-        
-        # assert result.price > 0
         assert result.address is not None
 
     def test_create_entity_kodate(self):
@@ -56,7 +51,6 @@ class TestNomuraParser:
              return
 
         parser = NomuraKodateParser()
-
         item = parser.createEntity()
         html_content = load_mock_html('nomura_kodate_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -84,4 +78,36 @@ class TestNomuraParser:
         result = parser._parsePropertyDetailPage(item, soup)
         
         print(f"Tochi Name: {result.propertyName}")
+        assert result.propertyName
+
+    def test_parse_investment_apartment(self):
+        if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'nomura_investment_apartment_mock.html')):
+             pytest.skip("nomura_investment_apartment_mock.html not found")
+             return
+             
+        parser = NomuraInvestmentApartmentParser()
+        item = parser.createEntity()
+        assert isinstance(item, NomuraInvestmentApartment)
+        
+        html_content = load_mock_html('nomura_investment_apartment_mock.html')
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        result = parser._parsePropertyDetailPage(item, soup)
+        print(f"Investment Apartment: {result.propertyName}")
+        assert result.propertyName
+
+    def test_parse_investment_kodate(self):
+        if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'nomura_investment_kodate_mock.html')):
+             pytest.skip("nomura_investment_kodate_mock.html not found")
+             return
+             
+        parser = NomuraInvestmentKodateParser()
+        item = parser.createEntity()
+        assert isinstance(item, NomuraInvestmentKodate)
+        
+        html_content = load_mock_html('nomura_investment_kodate_mock.html')
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        result = parser._parsePropertyDetailPage(item, soup)
+        print(f"Investment Kodate: {result.propertyName}")
         assert result.propertyName

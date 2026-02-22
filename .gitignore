@@ -7,3 +7,7 @@
 *.code-workspace
 Temp/
 .env
+src/crawler/tests/error_pages/
+docs/error_pages/
+src/crawler/docs/
+src/crawler/logs/reports/

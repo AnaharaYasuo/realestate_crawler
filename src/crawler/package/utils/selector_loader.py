@@ -43,6 +43,7 @@ class SelectorLoader:
         """
         cls._config_dir = config_dir
     
+
     @classmethod
     def get_config_dir(cls) -> Path:
         """
@@ -54,9 +55,38 @@ class SelectorLoader:
         if cls._config_dir is None:
             # Default: config/selectors relative to project root
             # Assuming this file is in src/crawler/package/utils/
-            current_file = Path(__file__)
-            project_root = current_file.parent.parent.parent.parent.parent
-            cls._config_dir = project_root / "config" / "selectors"
+            current_file = Path(__file__).resolve()
+            
+            # Try to find project root by looking for 'src' in parents
+            root = current_file.parent
+            while root.name != 'src' and root.parent != root:
+                root = root.parent
+            
+            if root.name == 'src':
+                # We found src, parent is project root
+                project_root = root.parent
+            else:
+                # Fallback: assume standard depth if src not found in path matching
+                # utils -> package -> crawler -> src -> root (4 levels up from package/utils)
+                # current_file -> utils -> package -> crawler -> src -> root
+                project_root = current_file.parent.parent.parent.parent.parent
+
+            # Candidate paths
+            candidate_paths = [
+                project_root / "config" / "selectors",
+                Path("/app/config/selectors"),  # Docker default
+                Path("C:/Users/weare/Documents/realestate_crawler/config/selectors") # Windows absolute fallback
+            ]
+
+            for path in candidate_paths:
+                if path.exists():
+                    cls._config_dir = path
+                    break
+            
+            if cls._config_dir is None:
+                # Fallback to calculated path even if not exists, for error reporting
+                cls._config_dir = project_root / "config" / "selectors"
+                logger.warning(f"Config directory not found. defaulting to {cls._config_dir}")
         
         return cls._config_dir
     

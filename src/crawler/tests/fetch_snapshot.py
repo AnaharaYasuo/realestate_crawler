@@ -18,86 +18,86 @@ TARGETS = {
         'mansion': {
             'list_url': "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=1",
             'base_url': "https://realestate.misawa.co.jp",
-            'output': "data/misawa_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/misawa_mansion_mock.html"
         },
          'kodate': {
             'list_url': "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=2",
             'base_url': "https://realestate.misawa.co.jp",
-            'output': "data/misawa_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/misawa_kodate_mock.html"
         },
         'tochi': {
             'list_url': "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=3",
             'base_url': "https://realestate.misawa.co.jp",
-            'output': "data/misawa_tochi_mock.html"
+            'output': "../../../docs/requirements/site_samples/misawa_tochi_mock.html"
         },
         'investment': {
             'list_url': "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=9",
             'base_url': "https://realestate.misawa.co.jp",
-            'output': "data/misawa_investment_mock.html"
+            'output': "../../../docs/requirements/site_samples/misawa_investment_mock.html"
         }
     },
     'mitsui': {
         'mansion': {
             'list_url': "https://www.rehouse.co.jp/buy/mansion/prefecture/13/",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_mansion_mock.html"
         },
         'kodate': {
             'list_url': "https://www.rehouse.co.jp/buy/kodate/prefecture/13/",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_kodate_mock.html"
         },
         'tochi': {
             'list_url': "https://www.rehouse.co.jp/buy/tochi/prefecture/13/",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_tochi_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_tochi_mock.html"
         },
         'investment_mansion': {
             'list_url': "https://www.rehouse.co.jp/buy/tohshi/prefecture-list/13/?buildingTypes=2",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_investment_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_investment_mansion_mock.html"
         },
          'investment_apartment': {
             'list_url': "https://www.rehouse.co.jp/buy/tohshi/prefecture-list/13/?buildingTypes=4",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_investment_apartment_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_investment_apartment_mock.html"
         },
          'investment_kodate': {
             'list_url': "https://www.rehouse.co.jp/buy/tohshi/prefecture-list/13/?buildingTypes=3",
             'base_url': "https://www.rehouse.co.jp",
-            'output': "data/mitsui_investment_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/mitsui_investment_kodate_mock.html"
         }
     },
     'sumifu': {
         'mansion': {
             'list_url': "https://www.stepon.co.jp/mansion/",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_mansion_mock.html"
         },
          'kodate': {
             'list_url': "https://www.stepon.co.jp/kodate/",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_kodate_mock.html"
         },
         'tochi': {
             'list_url': "https://www.stepon.co.jp/tochi/",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_tochi_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_tochi_mock.html"
         },
         'investment_mansion': {
             'list_url': "https://www.stepon.co.jp/pro/area_13/list_13_100/?category=tatemono&smk=000100000000",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_investment_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_investment_mansion_mock.html"
         },
         'investment_apartment': {
             'list_url': "https://www.stepon.co.jp/pro/area_13/list_13_100/?category=tatemono&smk=001000000000",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_investment_apartment_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_investment_apartment_mock.html"
         },
         'investment_kodate': {
             'list_url': "https://www.stepon.co.jp/pro/area_13/list_13_100/?category=tatemono&smk=000001000000",
             'base_url': "https://www.stepon.co.jp",
-            'output': "data/sumifu_investment_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/sumifu_investment_kodate_mock.html"
         }
     },
     'tokyu': {
@@ -139,22 +139,22 @@ TARGETS = {
         'mansion': {
             'list_url': "https://www.nomu.com/mansion/tokyo/",
             'base_url': "https://www.nomu.com",
-            'output': "data/nomura_mansion_mock.html"
+            'output': "../../../docs/requirements/site_samples/nomura_mansion_mock.html"
         },
         'kodate': {
             'list_url': "https://www.nomu.com/house/tokyo/",
             'base_url': "https://www.nomu.com",
-            'output': "data/nomura_kodate_mock.html"
+            'output': "../../../docs/requirements/site_samples/nomura_kodate_mock.html"
         },
         'tochi': {
             'list_url': "https://www.nomu.com/land/tokyo/",
             'base_url': "https://www.nomu.com",
-            'output': "data/nomura_tochi_mock.html"
+            'output': "../../../docs/requirements/site_samples/nomura_tochi_mock.html"
         },
         'investment': {
             'list_url': "https://www.nomu.com/pro/",
             'base_url': "https://www.nomu.com",
-            'output': "data/nomura_investment_mock.html"
+            'output': "../../../docs/requirements/site_samples/nomura_investment_mock.html"
         }
     }
 }
@@ -198,7 +198,11 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
                     print(f"Failed to fetch list page: Status {resp.status}")
                     return
                 content = await resp.read()
-                html = content.decode('utf-8', errors='replace')
+                # Sumifu is typically Shift-JIS (cp932)
+                if target_site == 'sumifu':
+                    html = content.decode('cp932', errors='replace')
+                else:
+                    html = content.decode('utf-8', errors='replace')
         except Exception as e:
             print(f"Failed to fetch list page: {e}")
             return
@@ -242,7 +246,7 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
                 for a in soup.find_all("a", href=True):
                     href = a['href']
                     if any(p in href for p in patterns) and href.count('/') >= 3:
-                        if not any(x in href for x in ['area', 'search', 'library', 'select', 'request', 'tokyo', 'new', 'bukken-all']):
+                        if not any(x in href for x in ['area', 'search', 'library', 'select', 'request', 'tokyo', 'new', 'bukken-all', 'baikyaku', 'kashitai']):
                             links.append(href)
                     
         elif target_site == 'nomura':
@@ -275,9 +279,19 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
         
         print(f"Found property URL: {full_url}")
         
-        # Save to data directory relative to the script
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        abs_output = os.path.join(script_dir, config['output'])
+        # Determine output path
+        output_path = config['output']
+        env_output_dir = os.environ.get('SNAPSHOT_OUTPUT_DIR')
+        
+        if env_output_dir:
+            # If env var is set, use it as base and append the filename
+            filename = os.path.basename(output_path)
+            abs_output = os.path.join(env_output_dir, filename)
+        else:
+            # Default behavior: relative to script
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            abs_output = os.path.join(script_dir, output_path)
+            
         os.makedirs(os.path.dirname(abs_output), exist_ok=True)
 
         if not use_playwright:
@@ -289,7 +303,10 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
                             print(f"Failed to fetch detail page: Status {resp.status}")
                             return
                         content = await resp.read()
-                        detail_html = content.decode('utf-8', errors='replace')
+                        if target_site == 'sumifu':
+                            detail_html = content.decode('cp932', errors='replace')
+                        else:
+                            detail_html = content.decode('utf-8', errors='replace')
                         
                 with open(abs_output, "w", encoding="utf-8") as f:
                     f.write(detail_html)
