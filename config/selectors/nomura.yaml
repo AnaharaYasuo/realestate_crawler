@@ -1,11 +1,11 @@
 # Nomura Selectors Configuration
 
 investment:
-  title: "h1.c_title_primary"
+  title: "h1.c_heading_1__ttl"
   title_fallback: "h1"
   breadcrumb: ".c_breadcrumb_item"
-  price: ".c_price_primary_value"
-  price_fallback: ".c_price_primary_text"
+  price: "#kakaku_kakaku .num"
+  price_fallback: ".c_price_wrap .num"
   
   address_key: "所在地"
   traffic_key: "交通"
@@ -22,7 +22,7 @@ investment:
   
   address: "所在地"
   next_page: "a.next"
-  property_links: "a[href*='/pro/bukken_local_id/']"
+  property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
   table:
     selector: "table.c_table_spec"
     header: "th"
@@ -32,9 +32,77 @@ investment:
     header: "dt"
     value: "dd"
 
+invest_apartment:
+  title: "h1.c_heading_1__ttl"
+  title_fallback: "h1"
+  breadcrumb: ".c_breadcrumb_item"
+  price: "#kakaku_kakaku .num"
+  price_fallback: ".c_price_wrap .num"
+  
+  address_key: "所在地"
+  traffic_key: "交通"
+  structure_key: "構造"
+  year_built_key: "築年月"
+  current_status_key: "現況"
+  yield_key: "利回り"
+  surface_yield_key: "表面利回り"
+  menseki_key: "専有面積"
+  tochikenri_key: "土地権利"
+  tochi_menseki_key: "土地面積"
+  tatemono_menseki_key: "建物面積"
+  nobeyuka_menseki_key: "延床面積"
+  
+  address: "所在地"
+  next_page: "a.next"
+  property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
+  table:
+    selector: "table.c_table_spec"
+    header: "th"
+    value: "td"
+  dl_table:
+    selector: "dl"
+    header: "dt"
+    value: "dd"
+
+invest_kodate:
+  title: "h1.c_heading_1__ttl"
+  title_fallback: "h1"
+  breadcrumb: ".c_breadcrumb_item"
+  price: "#kakaku_kakaku .num"
+  price_fallback: ".c_price_wrap .num"
+  
+  address_key: "所在地"
+  traffic_key: "交通"
+  structure_key: "構造"
+  year_built_key: "築年月"
+  current_status_key: "現況"
+  yield_key: "利回り"
+  surface_yield_key: "表面利回り"
+  menseki_key: "専有面積"
+  tochikenri_key: "土地権利"
+  tochi_menseki_key: "土地面積"
+  tatemono_menseki_key: "建物面積"
+  nobeyuka_menseki_key: "延床面積"
+  
+  address: "所在地"
+  next_page: "a.next"
+  property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
+  table:
+    selector: "table.c_table_spec"
+    header: "th"
+    value: "td"
+  dl_table:
+    selector: "dl"
+    header: "dt"
+    value: "dd"
+
+
 mansion:
   title: "h1"
-  price: ".price"
+  property_links: "a[href*='/mansion/id/']"
+  next_page: "a.next"
+  price: ".item_price"
+  price_fallback: ".num"
   
   madori_key: "間取り"
   senyu_menseki_key: "専有面積"
@@ -62,6 +130,9 @@ mansion:
 
 kodate:
   title: "h1"
+  property_links: "a[href*='/house/id/']"
+  region_links: ".list-railway a"
+  next_page: "a.next"
   price: ".price"
   
   madori_key: "間取り"
@@ -69,7 +140,7 @@ kodate:
   tochi_menseki_key: "土地面積"
   year_built_key: "築年月"
   kouzou_key: "構造"
-  kaisu_key: "階建"
+  kaisu_key: "階数"
   setsudou_key: "接道状況"
   chimoku_key: "地目"
   youto_chiiki_key: "用途地域"
@@ -84,6 +155,9 @@ kodate:
 
 tochi:
   title: "h1"
+  property_links: "a[href*='/land/id/']"
+  region_links: ".list-railway a"
+  next_page: "a.next"
   price: ".price"
   
   tochi_menseki_key: "土地面積"

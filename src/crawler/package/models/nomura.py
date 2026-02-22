@@ -1,230 +1,163 @@
 from django.db import models
+from .base import PropertyBaseModel, TransportationMixin
 
-class NomuraInvestmentModel(models.Model):
-    propertyName = models.TextField()
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    inputDate = models.DateField()
-    inputDateTime = models.DateTimeField()
+
+class NomuraModel(PropertyBaseModel, TransportationMixin):
+    pass
+    # address and traffic are in PropertyBaseModel
+    # But wait, NomuraModel had traffic not in Mixin? PropertyBaseModel has traffic.
+    # So traffic is covered.
     
-    priceStr = models.TextField()
-    price = models.IntegerField(null=True)
-    grossYield = models.DecimalField(max_digits=5, decimal_places=2, null=True) # 利回り
-    
-    address = models.TextField()
-    traffic = models.TextField(null=True)
-    
-    structure = models.TextField(null=True)
-    yearBuilt = models.TextField(null=True)
-    
-    landArea = models.TextField(null=True)
-    buildingArea = models.TextField(null=True)
-    
-    currentStatus = models.TextField(null=True) # 現況
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.propertyName = ""
-        self.pageUrl = ""
-        self.inputDate = None
-        self.inputDateTime = None
-        self.priceStr = ""
-        self.price = None
-        self.grossYield = None
-        self.address = ""
-        self.traffic = ""
-        self.structure = ""
-        self.yearBuilt = ""
-        self.landArea = ""
-        self.buildingArea = ""
-        self.currentStatus = ""
+    currentStatus = models.TextField()
+    hikiwatashi = models.TextField()
+    torihiki = models.TextField()
+    biko = models.TextField(blank=True)
+    address1 = models.TextField(null=True, blank=True)
+    address2 = models.TextField(null=True, blank=True)
+    address3 = models.TextField(null=True, blank=True)
+    addressKyoto = models.TextField(null=True, blank=True)
+    updateDate = models.TextField()
+    nextUpdateDate = models.TextField()
+    kaisuStr = models.TextField(null=True)
 
     class Meta:
-        db_table = "nomura_investment"
-        abstract = False
+        abstract = True
 
-class NomuraMansion(models.Model):
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    propertyName = models.TextField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address = models.TextField()
-    traffic = models.TextField()
+class NomuraMansion(NomuraModel):
     madori = models.TextField()
-    senyuMensekiStr = models.TextField()
-    senyuMenseki = models.DecimalField(max_digits=6,decimal_places=3)
-    balconyArea = models.TextField(null=True)
-    facing = models.TextField(null=True)
-    otherArea = models.TextField(null=True)
-    structure = models.TextField(null=True)
-    floorNumber = models.TextField(null=True)
-    yearBuilt = models.TextField()
-    totalUnits = models.TextField(null=True)
-    landRights = models.TextField(null=True)
-    zoning = models.TextField(null=True)
-    managementCompany = models.TextField(null=True)
-    managementForm = models.TextField(null=True)
-    manager = models.TextField(null=True)
-    managementFee = models.TextField(null=True)
-    repairReserveFund = models.TextField(null=True)
-    otherFees = models.TextField(null=True)
-    parking = models.TextField(null=True)
-    currentStatus = models.TextField(null=True)
-    deliveryDate = models.TextField(null=True)
-    transactionMode = models.TextField(null=True)
-    remarks = models.TextField(null=True)
-    updateDate = models.TextField(null=True)
-    nextUpdateDate = models.TextField(null=True)
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pageUrl = ""
-        self.propertyName = ""
-        self.priceStr = ""
-        self.price = 0
-        self.address = ""
-        self.traffic = ""
-        self.madori = ""
-        self.senyuMensekiStr = ""
-        self.senyuMenseki = 0
-        self.balconyArea = ""
-        self.facing = ""
-        self.otherArea = ""
-        self.structure = ""
-        self.floorNumber = ""
-        self.yearBuilt = ""
-        self.totalUnits = ""
-        self.landRights = ""
-        self.zoning = ""
-        self.managementCompany = ""
-        self.managementForm = ""
-        self.manager = ""
-        self.managementFee = ""
-        self.repairReserveFund = ""
-        self.otherFees = ""
-        self.parking = ""
-        self.currentStatus = ""
-        self.deliveryDate = ""
-        self.transactionMode = ""
-        self.remarks = ""
-        self.updateDate = ""
-        self.nextUpdateDate = ""
+    senyuMensekiStr = models.TextField(default="")
+    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, default=0) # Strict
+    balconyMensekiStr = models.TextField()
+    balconyMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    saikou = models.TextField()
+    otherArea = models.TextField(blank=True)
+    kouzou = models.TextField()
+    kaisu = models.TextField()
+    chikunengetsuStr = models.TextField()
+    chikunengetsu = models.DateField(null=True)
+    soukosuStr = models.TextField()
+    soukosu = models.IntegerField(null=True)
+    tochikenri = models.TextField()
+    youtoChiiki = models.TextField()
+    kanriKaisya = models.TextField()
+    kanriKeitai = models.TextField()
+    manager = models.TextField()
+    kanrihiStr = models.TextField()
+    kanrihi = models.IntegerField(null=True)
+    syuzenTsumitateStr = models.TextField()
+    syuzenTsumitate = models.IntegerField(null=True)
+    otherFees = models.TextField(blank=True)
+    tyusyajo = models.TextField(blank=True)
 
     class Meta:
         db_table = "nomura_mansion"
 
-class NomuraKodate(models.Model):
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    propertyName = models.TextField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address = models.TextField()
-    traffic = models.TextField()
-    landArea = models.TextField()
-    buildingArea = models.TextField()
-    structure = models.TextField(null=True)
-    yearBuilt = models.TextField(null=True)
-    parking = models.TextField(null=True)
-    landRights = models.TextField(null=True)
-    landCategory = models.TextField(null=True) # 地目
-    privateRoadBurden = models.TextField(null=True)
-    setback = models.TextField(null=True)
-    cityPlanning = models.TextField(null=True)
-    zoning = models.TextField(null=True)
-    buildingCoverageRatio = models.TextField(null=True) # 建ぺい率
-    floorAreaRatio = models.TextField(null=True) # 容積率
-    roadAccess = models.TextField(null=True)
-    facilities = models.TextField(null=True)
-    currentStatus = models.TextField(null=True)
-    deliveryDate = models.TextField(null=True)
-    transactionMode = models.TextField(null=True)
-    remarks = models.TextField(null=True)
-    updateDate = models.TextField(null=True)
-    nextUpdateDate = models.TextField(null=True)
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pageUrl = ""
-        self.propertyName = ""
-        self.priceStr = ""
-        self.price = 0
-        self.address = ""
-        self.traffic = ""
-        self.landArea = ""
-        self.buildingArea = ""
-        self.structure = ""
-        self.yearBuilt = ""
-        self.parking = ""
-        self.landRights = ""
-        self.landCategory = ""
-        self.privateRoadBurden = ""
-        self.setback = ""
-        self.cityPlanning = ""
-        self.zoning = ""
-        self.buildingCoverageRatio = ""
-        self.floorAreaRatio = ""
-        self.roadAccess = ""
-        self.facilities = ""
-        self.currentStatus = ""
-        self.deliveryDate = ""
-        self.transactionMode = ""
-        self.remarks = ""
-        self.updateDate = ""
-        self.nextUpdateDate = ""
+class NomuraKodate(NomuraModel):
+    tochiMensekiStr = models.TextField(default="")
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
+    tatemonoMensekiStr = models.TextField(default="")
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
+    kouzou = models.TextField()
+    chikunengetsuStr = models.TextField()
+    chikunengetsu = models.DateField(null=True)
+    tyusyajo = models.TextField(blank=True)
+    tochikenri = models.TextField()
+    chimoku = models.TextField() # 地目
+    privateRoadBurden = models.TextField(blank=True)
+    setback = models.TextField(blank=True)
+    cityPlanning = models.TextField()
+    youtoChiiki = models.TextField()
+    kenpeiStr = models.TextField(default="") # 建ぺい率
+    kenpei = models.IntegerField(null=True, blank=True)
+    yousekiStr = models.TextField(default="") # 容積率
+    youseki = models.IntegerField(null=True, blank=True)
+    setsudou = models.TextField()
+    facilities = models.TextField(blank=True)
 
     class Meta:
         db_table = "nomura_kodate"
 
-class NomuraTochi(models.Model):
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    propertyName = models.TextField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address = models.TextField()
-    traffic = models.TextField()
-    landArea = models.TextField()
-    landRights = models.TextField(null=True)
-    landCategory = models.TextField(null=True)
-    privateRoadBurden = models.TextField(null=True)
-    setback = models.TextField(null=True)
-    cityPlanning = models.TextField(null=True)
-    zoning = models.TextField(null=True)
-    buildingCoverageRatio = models.TextField(null=True)
-    floorAreaRatio = models.TextField(null=True)
-    roadAccess = models.TextField(null=True)
-    facilities = models.TextField(null=True)
-    currentStatus = models.TextField(null=True)
-    deliveryDate = models.TextField(null=True)
-    transactionMode = models.TextField(null=True)
-    remarks = models.TextField(null=True)
-    updateDate = models.TextField(null=True)
-    nextUpdateDate = models.TextField(null=True)
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pageUrl = ""
-        self.propertyName = ""
-        self.priceStr = ""
-        self.price = 0
-        self.address = ""
-        self.traffic = ""
-        self.landArea = ""
-        self.landRights = ""
-        self.landCategory = ""
-        self.privateRoadBurden = ""
-        self.setback = ""
-        self.cityPlanning = ""
-        self.zoning = ""
-        self.buildingCoverageRatio = ""
-        self.floorAreaRatio = ""
-        self.roadAccess = ""
-        self.facilities = ""
-        self.currentStatus = ""
-        self.deliveryDate = ""
-        self.transactionMode = ""
-        self.remarks = ""
-        self.updateDate = ""
-        self.nextUpdateDate = ""
+class NomuraTochi(NomuraModel):
+    tochiMensekiStr = models.TextField(default="")
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
+    tochikenri = models.TextField()
+    chimoku = models.TextField()
+    privateRoadBurden = models.TextField(blank=True)
+    setback = models.TextField(blank=True)
+    cityPlanning = models.TextField()
+    youtoChiiki = models.TextField()
+    kenpeiStr = models.TextField(default="")
+    kenpei = models.IntegerField(null=True, blank=True)
+    yousekiStr = models.TextField(default="")
+    youseki = models.IntegerField(null=True, blank=True)
+    setsudou = models.TextField()
+    facilities = models.TextField(blank=True)
 
     class Meta:
         db_table = "nomura_tochi"
+
+
+# ========== Investment Kodate & Apartment Models ==========
+
+class NomuraInvestmentKodate(NomuraModel):
+    """戸建て賃貸専用モデル"""
+    # Investment Info (Mandatory)
+    grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
+    annualRent = models.IntegerField() # Strict
+    monthlyRent = models.IntegerField() # Strict
+    currentStatus = models.TextField() # Strict (Override base to strict if needed, validation handles it)
+    
+    # Kodate Specific (Strict)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
+    kouzou = models.TextField()
+    chikunengetsuStr = models.TextField()
+    chikunengetsu = models.DateField(null=True)
+    
+    # Land Details
+    kenpeiStr = models.TextField(null=True, blank=True)
+    kenpei = models.IntegerField(null=True, blank=True)
+    yousekiStr = models.TextField(null=True, blank=True)
+    youseki = models.IntegerField(null=True, blank=True)
+    setsudou = models.TextField(null=True, blank=True)
+    chimoku = models.TextField(null=True, blank=True)
+    youtoChiiki = models.TextField(null=True, blank=True)
+    tochikenri = models.TextField(null=True, blank=True)
+
+    propertyType = models.TextField()  # "Kodate"
+
+    class Meta:
+        db_table = "nomura_investment_kodate"
+
+
+class NomuraInvestmentApartment(NomuraModel):
+    """アパート専用モデル"""
+    # Investment Info (Mandatory)
+    grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
+    annualRent = models.IntegerField() # Strict
+    monthlyRent = models.IntegerField() # Strict
+    currentStatus = models.TextField() # Strict
+    
+    # Apartment Specific (Strict)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
+    kouzou = models.TextField()
+    chikunengetsuStr = models.TextField()
+    chikunengetsu = models.DateField(null=True)
+    soukosu = models.IntegerField(null=True)
+    
+    # Land Details
+    kenpeiStr = models.TextField(null=True, blank=True)
+    kenpei = models.IntegerField(null=True, blank=True)
+    yousekiStr = models.TextField(null=True, blank=True)
+    youseki = models.IntegerField(null=True, blank=True)
+    setsudou = models.TextField(null=True, blank=True)
+    chimoku = models.TextField(null=True, blank=True)
+    youtoChiiki = models.TextField(null=True, blank=True)
+    tochikenri = models.TextField(null=True, blank=True)
+
+    propertyType = models.TextField()  # "Apartment"
+
+    class Meta:
+        db_table = "nomura_investment_apartment"
 

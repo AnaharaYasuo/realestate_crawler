@@ -9,9 +9,9 @@ mansion:
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/mansion/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/mansion/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
-  property_list_xpath: "//a[contains(@href,'/buy/mansion/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
-  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
-  property_links_xpath: "//a[contains(@href,\"/buy/mansion/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
+  property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/mansion/bkdetail/')]/@href"
+  next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
+  property_links_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/mansion/bkdetail/') and not (contains(@href, '/inquiry/'))]/@href"
   
   # Table selectors
   table:
@@ -25,8 +25,9 @@ mansion:
     管理費等: "kanrihiStr"
     修繕積立金: "syuzenTsumitateStr"
     間取り: "madori"
-    バルコニー面積: "balconyMensekiStr"
-    所在階/階建: "floorType"
+    バルコニー: "barukoniMensekiStr"
+    管理形態: "kanriKeitai"
+    所在階 / 階建: "kaisu"
 
 kodate:
   # Basic selectors
@@ -35,9 +36,9 @@ kodate:
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/kodate/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/kodate/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
-  property_list_xpath: "//a[contains(@href,'/buy/kodate/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
-  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
-  property_links_xpath: "//a[contains(@href,\"/buy/kodate/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
+  property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/kodate/bkdetail/')]/@href"
+  next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
+  property_links_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/kodate/bkdetail/') and not (contains(@href, '/inquiry/'))]/@href"
   
   # Table selectors
   table:
@@ -59,9 +60,9 @@ tochi:
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/tochi/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/tochi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
-  property_list_xpath: "//a[contains(@href,'/buy/tochi/bkdetail/') and not (contains(@href, '/inquiry/input/'))]/@href"
-  next_page_xpath: "//*[@id=\"__layout\"]/div/div/div/main/section[2]/div[2]/a[contains(@class,\"button-pagination-prev-next pagination-next ml-16\")]/@href"
-  property_links_xpath: "//a[contains(@href,\"/buy/tochi/bkdetail/\") and not (contains(@href, \"/inquiry/input/\"))]/@href"
+  property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/tochi/bkdetail/')]/@href"
+  next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
+  property_links_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/tochi/bkdetail/') and not (contains(@href, '/inquiry/'))]/@href"
   
   # Table selectors
   table:
@@ -79,6 +80,12 @@ investment:
   # Basic selectors
   title: "h1.headline1"
   price: ".price-value"
+  # Navigation XPaths - Corrected to /buy/tohshi/ as per user instruction
+  root_xpath: "//a[starts-with(@href,'prefecture/')]/@href"
+  area_xpath: "//a[contains(@href,'/buy/tohshi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
+  property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/bkdetail/')]/@href"
+  next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
+  property_links_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/bkdetail/') and not (contains(@href, '/inquiry/'))]/@href"
   
   # Table selectors
   table:

@@ -12,9 +12,9 @@ mansion:
   property_links: "a.property-info-anchor"
   
   root_xpath: ""
-  area_xpath: ""
-  property_list_xpath: ""
-  region_xpath: ""
+  region_xpath: '//a[contains(@href,"/mansion/area_")]/@href'
+  area_xpath: '//a[contains(@href,"/mansion/area_") and contains(@href,"/list_")]/@href'
+  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/mansion/detail_")]/@href'
 
   # Table selectors
   table:
@@ -30,9 +30,9 @@ kodate:
   property_links: "a.property-info-anchor"
   
   root_xpath: ""
-  area_xpath: ""
-  property_list_xpath: ""
-  region_xpath: ""
+  region_xpath: '//a[contains(@href,"/kodate/area_")]/@href'
+  area_xpath: '//a[contains(@href,"/kodate/area_") and contains(@href,"/list_")]/@href'
+  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/kodate/detail_")]/@href'
 
   table:
     selector: "table.table-detail"
@@ -47,9 +47,9 @@ tochi:
   property_links: "a.property-info-anchor"
   
   root_xpath: ""
-  area_xpath: ""
-  property_list_xpath: ""
-  region_xpath: ""
+  region_xpath: '//a[contains(@href,"/tochi/area_")]/@href'
+  area_xpath: '//a[contains(@href,"/tochi/area_") and contains(@href,"/list_")]/@href'
+  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/tochi/detail_")]/@href'
 
   table:
     selector: "table.table-detail"
@@ -62,6 +62,10 @@ investment:
   address: "所在地" # Mapping key
   next_page: "次へ" # Text search
   property_links: "a[href*='/pro/detail_']"
+  property_links_fallback: ".bukken-list .article-card a"
+  region_xpath: '//a[contains(@href,"/pro/area_")]/@href'
+  area_xpath: '//a[contains(@href,"/pro/area_") and contains(@href,"/list_")]/@href'
+  property_list_xpath: '//div[@id="searchResultBlock" or @class="bukken-list"]//a[contains(@href, "/pro/detail_")]/@href'
   table:
     selector: "table.table-detail"
     header: "th"

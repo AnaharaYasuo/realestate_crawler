@@ -6,8 +6,8 @@ from package.api.api import API_KEY_MITSUI_KODATE_AREA, API_KEY_MITSUI_KODATE_AR
 from package.api.api import ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiTochiParser, MitsuiKodateParser
 
-DEFAULT_PARARELL_LIMIT = 2
-DETAIL_PARARELL_LIMIT = 6
+DEFAULT_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 1
 
 class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
@@ -286,7 +286,9 @@ class ParseMitsuiKodateStartAsync(ParseMiddlePageAsyncBase):
         return 2400
 
     def _getApiKey(self):
-        return API_KEY_MITSUI_KODATE_LIST
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_MITSUI_KODATE_AREA_GCP
+        return API_KEY_MITSUI_KODATE_AREA
 
 from package.api.registry import ApiRegistry
 

@@ -8,8 +8,8 @@ from bs4 import BeautifulSoup
 # Ensure package is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
 
-from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser, MitsuiInvestmentParser
-from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi, MitsuiInvestment
+from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser, MitsuiInvestmentKodateParser, MitsuiInvestmentApartmentParser
+from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi, MitsuiInvestmentKodate, MitsuiInvestmentApartment
 
 def load_mock_html(filename):
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -25,22 +25,17 @@ class TestMitsuiParser:
         assert isinstance(entity, MitsuiMansion)
 
     def test_parse_property_detail_page(self):
-        # We prefer real snapshots. If not present, skip
         if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'mitsui_mansion_mock.html')):
             pytest.skip("Snapshot mitsui_mansion_mock.html not found")
             return
             
         parser = MitsuiMansionParser(None)
         item = parser.createEntity()
-        
-        # Check if file exists to avoid error if snapshot missing
         html_content = load_mock_html('mitsui_mansion_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
         
-        # Parse
         result = parser._parsePropertyDetailPage(item, soup)
         
-        # Verify Generic
         print(f"Parsed Property: {result.propertyName}")
         assert result.propertyName is not None
         assert len(result.propertyName) > 0
@@ -65,7 +60,7 @@ class TestMitsuiParser:
         
         print(f"Kodate Name: {result.propertyName}")
         assert result.propertyName
-        assert result.tochiMenseki # Should have land area
+        assert result.tochiMenseki 
 
     def test_create_entity_tochi(self):
         parser = MitsuiTochiParser(None)
@@ -88,28 +83,15 @@ class TestMitsuiParser:
         assert result.propertyName
         assert result.tochiMenseki
 
-    def test_parse_investment_mansion(self):
-        if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'mitsui_investment_mansion_mock.html')):
-             pytest.skip("mitsui_investment_mansion_mock.html not found")
-             return
-
-        parser = MitsuiInvestmentParser(None)
-        item = parser.createEntity()
-        html_content = load_mock_html('mitsui_investment_mansion_mock.html')
-        soup = BeautifulSoup(html_content, 'html.parser')
-
-        result = parser._parsePropertyDetailPage(item, soup)
-        print(f"Investment Mansion: {result.propertyName}")
-        assert result.propertyName
-        assert result.grossYield is not None
-
     def test_parse_investment_apartment(self):
         if not os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'data', 'mitsui_investment_apartment_mock.html')):
              pytest.skip("mitsui_investment_apartment_mock.html not found")
              return
 
-        parser = MitsuiInvestmentParser(None)
+        parser = MitsuiInvestmentApartmentParser(None)
         item = parser.createEntity()
+        assert isinstance(item, MitsuiInvestmentApartment)
+        
         html_content = load_mock_html('mitsui_investment_apartment_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -123,8 +105,10 @@ class TestMitsuiParser:
              pytest.skip("mitsui_investment_kodate_mock.html not found")
              return
 
-        parser = MitsuiInvestmentParser(None)
+        parser = MitsuiInvestmentKodateParser(None)
         item = parser.createEntity()
+        assert isinstance(item, MitsuiInvestmentKodate)
+        
         html_content = load_mock_html('mitsui_investment_kodate_mock.html')
         soup = BeautifulSoup(html_content, 'html.parser')
 

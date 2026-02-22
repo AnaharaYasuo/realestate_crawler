@@ -99,7 +99,7 @@ def tokyuMansionPropertyDetailTest():
     # request_json = json.loads(request.get_json())
     # url = request_json['url']
     obj = ParseTokyuMansionDetailFuncAsync()
-    url = "https://www.livable.co.jp/mansion/CZY219M09/"
+    url = "https://www.livable.co.jp/mansion/C13261K62/"
     result = obj.main(url)
     logging.info("end propertyDetail")
     return result

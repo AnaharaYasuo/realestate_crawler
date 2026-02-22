@@ -26,9 +26,9 @@ class PropertyBaseModel(models.Model):
     pageUrl = models.CharField(max_length=500, db_index=True, verbose_name="URL")
     inputDate = models.DateField(auto_now_add=True, verbose_name="登録日")
     inputDateTime = models.DateTimeField(auto_now_add=True, verbose_name="登録日時")
-    priceStr = models.TextField(blank=True, null=True, verbose_name="価格（文字列）")
-    price = models.IntegerField(blank=True, null=True, verbose_name="価格（数値）")
-    address = models.TextField(blank=True, null=True, verbose_name="住所")
+    priceStr = models.TextField(verbose_name="価格（文字列）")
+    price = models.IntegerField(verbose_name="価格（数値）")
+    address = models.TextField(verbose_name="住所")
     traffic = models.TextField(blank=True, null=True, verbose_name="交通")
 
 
@@ -92,6 +92,14 @@ class TransportationMixin(models.Model):
     busStation5 = models.TextField(blank=True, null=True, verbose_name="バス停5")
     busWalkMinute5Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数5（文字列）")
     busWalkMinute5 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数5（数値）")
+    
+    # Metadata
+    railwayCount = models.IntegerField(blank=True, null=True, verbose_name="沿線数")
+    busUse1 = models.IntegerField(blank=True, null=True, verbose_name="バス利用フラグ1")
+    busUse2 = models.IntegerField(blank=True, null=True, verbose_name="バス利用フラグ2")
+    busUse3 = models.IntegerField(blank=True, null=True, verbose_name="バス利用フラグ3")
+    busUse4 = models.IntegerField(blank=True, null=True, verbose_name="バス利用フラグ4")
+    busUse5 = models.IntegerField(blank=True, null=True, verbose_name="バス利用フラグ5")
 
 
 class MansionBaseModel(PropertyBaseModel, TransportationMixin):
@@ -120,7 +128,7 @@ class MansionBaseModel(PropertyBaseModel, TransportationMixin):
     madori = models.TextField(blank=True, null=True, verbose_name="間取り")
     balconyMensekiStr = models.TextField(blank=True, null=True, verbose_name="バルコニー面積（文字列）")
     balconyMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="バルコニー面積（数値）")
-    floorType = models.TextField(blank=True, null=True, verbose_name="階数")
+    kaisu = models.TextField(blank=True, null=True, verbose_name="所在階")
 
 
 class KodateBaseModel(PropertyBaseModel, TransportationMixin):
@@ -161,6 +169,6 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
     
     # Tochi-specific fields
-    youto = models.TextField(blank=True, null=True, verbose_name="用途地域")
-    kenpeiritsu = models.TextField(blank=True, null=True, verbose_name="建ぺい率")
-    yousekritsu = models.TextField(blank=True, null=True, verbose_name="容積率")
+    youtoChiiki = models.TextField(blank=True, null=True, verbose_name="用途地域")
+    kenpei = models.TextField(blank=True, null=True, verbose_name="建ぺい率")
+    youseki = models.TextField(blank=True, null=True, verbose_name="容積率")

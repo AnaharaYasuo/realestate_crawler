@@ -1,589 +1,203 @@
+# -*- coding: utf-8 -*-
 from django.db import models
+from .base import PropertyBaseModel, TransportationMixin
 
 # Create your models here.
 
 
-class MitsuiMansion(models.Model):
+
+class MitsuiModel(PropertyBaseModel, TransportationMixin):
+    address1 = models.TextField(null=True, blank=True)
+    address2 = models.TextField(null=True, blank=True)
+    address3 = models.TextField(null=True, blank=True)
+    addressKyoto = models.TextField(null=True, blank=True)
+
+    hikiwatashi = models.TextField(blank=True)
+    genkyo = models.TextField(blank=True)
+    tochikenri = models.TextField(blank=True)
+    torihiki  = models.TextField(blank=True)
+    biko  = models.TextField(blank=True)
+
+    class Meta:
+        abstract = True
+
+class MitsuiMansion(MitsuiModel):
     # unique_id = models.CharField(max_length=100, null=True)
-    propertyName = models.TextField()
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    inputDate = models.DateField()
-    inputDateTime = models.DateTimeField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    madori = models.TextField()
-    senyuMensekiStr = models.TextField()
-    senyuMenseki = models.DecimalField(max_digits=6,decimal_places=3)
-    floorType = models.TextField()  
-    chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField()
-    address = models.TextField()
+    madori = models.TextField(blank=True)
+    senyuMensekiStr = models.TextField(blank=True)
+    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kaisuStr = models.TextField(null=True, blank=True)
 
-    transfer1 = models.TextField()
-    railway1 = models.TextField()
-    station1 = models.TextField()
-    railwayWalkMinute1Str = models.TextField()
-    railwayWalkMinute1 = models.IntegerField()
-    busStation1 = models.TextField()
-    busWalkMinute1Str = models.TextField()
-    busWalkMinute1Str = models.TextField()
-    busWalkMinute1 = models.IntegerField()
-    
-    transfer2 = models.TextField()
-    railway2 = models.TextField()
-    station2 = models.TextField()
-    railwayWalkMinute2Str = models.TextField()
-    railwayWalkMinute2 = models.IntegerField()
-    busStation2 = models.TextField()
-    busWalkMinute2Str = models.TextField()
-    busWalkMinute2 = models.IntegerField()
-    
-    transfer3 = models.TextField()
-    railway3 = models.TextField()
-    station3 = models.TextField()
-    railwayWalkMinute3Str = models.TextField()
-    railwayWalkMinute3 = models.IntegerField()
-    busStation3 = models.TextField()
-    busWalkMinute3Str = models.TextField()
-    busWalkMinute3 = models.IntegerField()
-    
-    transfer4 = models.TextField()
-    railway4 = models.TextField()
-    station4 = models.TextField()
-    railwayWalkMinute4Str = models.TextField()
-    railwayWalkMinute4 = models.IntegerField()
-    busStation4 = models.TextField()
-    busWalkMinute4Str = models.TextField()
-    busWalkMinute4 = models.IntegerField()
+    chikunengetsuStr = models.TextField(blank=True)
+    chikunengetsu = models.DateField(null=True)
 
-    transfer5 = models.TextField()
-    railway5 = models.TextField()
-    station5 = models.TextField()
-    railwayWalkMinute5Str = models.TextField()
-    railwayWalkMinute5 = models.IntegerField()
-    busStation5 = models.TextField()
-    busWalkMinute5Str = models.TextField()
-    busWalkMinute5 = models.IntegerField()
-
-    barukoniMensekiStr = models.TextField()
-    saikouKadobeya = models.TextField()
-    saikou = models.TextField()
-    kadobeya = models.TextField()
-    soukosuStr = models.TextField()
-    soukosu = models.IntegerField()
-    kanriKeitaiKaisya = models.TextField()
-    kanriKeitai = models.TextField()
-    kanriKaisya = models.TextField()
-    kanrihiStr = models.TextField()
-    kanrihi = models.IntegerField()
-    syuzenTsumitateStr = models.TextField()
-    syuzenTsumitate = models.IntegerField()
-    hikiwatashi = models.TextField()
-    genkyo = models.TextField()
-    tyusyajo = models.TextField()
-    tochikenri = models.TextField()
+    balconyMensekiStr = models.TextField(blank=True)
+    saikouKadobeya = models.TextField(blank=True)
+    saikou = models.TextField(blank=True)
+    kadobeya = models.TextField(blank=True)
+    soukosuStr = models.TextField(blank=True)
+    soukosu = models.IntegerField(null=True)
+    kanriKeitaiKaisya = models.TextField(blank=True)
+    kanriKeitai = models.TextField(blank=True)
+    kanriKaisya = models.TextField(blank=True)
+    kanrihiStr = models.TextField(blank=True)
+    kanrihi = models.IntegerField(null=True)
+    syuzenTsumitateStr = models.TextField(blank=True)
+    syuzenTsumitate = models.IntegerField(null=True)
+    tyusyajo = models.TextField(blank=True)
     #追加項目
-    kaisu  = models.TextField()
-    kouzou  = models.TextField()
-    address1 = models.TextField()
-    address2 = models.TextField()
-    address3 = models.TextField()
-    addressKyoto = models.TextField()
-    sonotaHiyouStr  = models.TextField()
-    bunjoKaisya  = models.TextField()
-    sekouKaisya  = models.TextField()
-    torihiki  = models.TextField()
-    biko  = models.TextField()
+    kouzou  = models.TextField(blank=True)
+    sonotaHiyouStr  = models.TextField(blank=True)
+    bunjoKaisya  = models.TextField(blank=True)
+    sekouKaisya  = models.TextField(blank=True)
 
-    floorType_kai = models.IntegerField()
-    floorType_chijo = models.IntegerField()
-    floorType_chika = models.IntegerField()
-    floorType_kouzou = models.TextField()
-    kyutaishin = models.IntegerField()
-    railwayCount = models.IntegerField()
-    busUse1 = models.IntegerField()
-    barukoniMenseki = models.DecimalField(max_digits=6,decimal_places=3)
-    senyouNiwaMenseki = models.DecimalField(max_digits=6,decimal_places=3)
-    roofBarukoniMenseki = models.DecimalField(max_digits=6,decimal_places=3)
-    kanrihi_p_heibei = models.DecimalField(max_digits=7,decimal_places=3)
-    syuzenTsumitate_p_heibei = models.DecimalField(max_digits=7,decimal_places=3)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.propertyName = ""        
-        self.pageUrl = ""
-        self.inputDate = None
-        self.inputDateTime = None
-        self.priceStr = ""
-        self.price = 0
-        self.madori = ""
-        self.senyuMensekiStr = ""
-        self.senyuMenseki = 0
-        self.floorType = ""  
-        self.chikunengetsuStr = ""
-        self.chikunengetsu = None
-        self.address = ""
-    
-        self.transfer1 = ""
-        self.railway1 = ""
-        self.station1 = ""
-        self.railwayWalkMinute1Str = ""
-        self.railwayWalkMinute1 = 0
-        self.busStation1 = ""
-        self.busWalkMinute1Str = ""
-        self.busWalkMinute1Str = ""
-        self.busWalkMinute1 = 0
-
-        self.transfer2 = ""
-        self.railway2 = ""
-        self.station2 = ""
-        self.railwayWalkMinute2Str = ""
-        self.railwayWalkMinute2 = 0
-        self.busStation2 = ""
-        self.busWalkMinute2Str = ""
-        self.busWalkMinute2 = 0
-
-        self.transfer3 = ""
-        self.railway3 = ""
-        self.station3 = ""
-        self.railwayWalkMinute3Str = ""
-        self.railwayWalkMinute3 = 0
-        self.busStation3 = ""
-        self.busWalkMinute3Str = ""
-        self.busWalkMinute3 = 0
-
-        self.transfer4 = ""
-        self.railway4 = ""
-        self.station4 = ""
-        self.railwayWalkMinute4Str = ""
-        self.railwayWalkMinute4 = 0
-        self.busStation4 = ""
-        self.busWalkMinute4Str = ""
-        self.busWalkMinute4 = 0
-    
-        self.transfer5 = ""
-        self.railway5 = ""
-        self.station5 = ""
-        self.railwayWalkMinute5Str = ""
-        self.railwayWalkMinute5 = 0
-        self.busStation5 = ""
-        self.busWalkMinute5Str = ""
-        self.busWalkMinute5 = 0
-    
-        self.barukoniMensekiStr = ""
-        self.saikouKadobeya = ""
-        self.saikou = ""
-        self.kadobeya = ""
-        self.soukosuStr = ""
-        self.soukosu = 0
-        self.kanriKeitaiKaisya = ""
-        self.kanriKeitai = ""
-        self.kanriKaisya = ""
-        self.kanrihiStr = ""
-        self.kanrihi = 0
-        self.syuzenTsumitateStr = ""
-        self.syuzenTsumitate = 0
-        self.hikiwatashi = ""
-        self.genkyo = ""
-        self.tyusyajo = ""
-        self.tochikenri = ""
-    #追加項目
-        self.kaisu  = ""
-        self.kouzou  = ""
-        self.address1 = ""
-        self.address2 = ""
-        self.address3 = ""
-        self.addressKyoto = ""
-        self.sonotaHiyouStr  = ""
-        self.bunjoKaisya  = ""
-        self.sekouKaisya  = ""
-        self.torihiki  = ""
-        self.biko  = ""
-        
-        self.floorType_kai = 0
-        self.floorType_chijo = 0
-        self.floorType_chika = 0
-        self.floorType_kouzou = ""
-        self.kyutaishin = 0
-        self.railwayCount = 0
-        self.busUse1 = 0
-        self.barukoniMenseki = 0
-        self.senyouNiwaMenseki = 0
-        self.roofBarukoniMenseki = 0
-        self.kanrihi_p_heibei = 0
-        self.syuzenTsumitate_p_heibei = 0
+    floorType_kai = models.IntegerField(null=True)
+    floorType_chijo = models.IntegerField(null=True)
+    floorType_chika = models.IntegerField(null=True)
+    floorType_kouzou = models.TextField(blank=True)
+    kyutaishin = models.IntegerField(null=True)
+    balconyMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    senyouNiwaMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    roofBarukoniMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    kanrihi_p_heibei = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    syuzenTsumitate_p_heibei = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
 
     class Meta:
         db_table = "mitsui_mansion"
 
         
-class MitsuiTochi(models.Model):
-    propertyName = models.TextField()
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    inputDate = models.DateField()
-    inputDateTime = models.DateTimeField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address1 = models.TextField()
-    address2 = models.TextField()
-    address3 = models.TextField()
-    addressKyoto = models.TextField()
-    address = models.TextField()
-    transfer1 = models.TextField()
-    railway1 = models.TextField()
-    station1 = models.TextField()
-    railwayWalkMinute1Str = models.TextField()
-    railwayWalkMinute1 = models.IntegerField()
-    busStation1 = models.TextField()
-    busWalkMinute1Str = models.TextField()
-    busWalkMinute1 = models.IntegerField()
-    transfer2 = models.TextField()
-    railway2 = models.TextField()
-    station2 = models.TextField()
-    railwayWalkMinute2Str = models.TextField()
-    railwayWalkMinute2 = models.IntegerField()
-    busStation2 = models.TextField()
-    busWalkMinute2Str = models.TextField()
-    busWalkMinute2 = models.IntegerField()
-    transfer3 = models.TextField()
-    railway3 = models.TextField()
-    station3 = models.TextField()
-    railwayWalkMinute3Str = models.TextField()
-    railwayWalkMinute3 = models.IntegerField()
-    busStation3 = models.TextField()
-    busWalkMinute3Str = models.TextField()
-    busWalkMinute3 = models.IntegerField()
-    transfer4 = models.TextField()
-    railway4 = models.TextField()
-    station4 = models.TextField()
-    railwayWalkMinute4Str = models.TextField()
-    railwayWalkMinute4 = models.IntegerField()
-    busStation4 = models.TextField()
-    busWalkMinute4Str = models.TextField()
-    busWalkMinute4 = models.IntegerField()
-    transfer5 = models.TextField()
-    railway5 = models.TextField()
-    station5 = models.TextField()
-    railwayWalkMinute5Str = models.TextField()
-    railwayWalkMinute5 = models.IntegerField()
-    busStation5 = models.TextField()
-    busWalkMinute5Str = models.TextField()
-    busWalkMinute5 = models.IntegerField()
-    railwayCount = models.IntegerField()
-    busUse1 = models.IntegerField()
-    hikiwatashi = models.TextField()
-    genkyo = models.TextField()
-    tochikenri = models.TextField()
-    sonotaHiyouStr = models.TextField()
-    torihiki  = models.TextField()
-    biko  = models.TextField()
+class MitsuiTochi(MitsuiModel):
+    tochiMensekiStr = models.TextField(blank=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenchikuJoken = models.TextField(blank=True)
+    chimoku = models.TextField(blank=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpeiStr = models.TextField(blank=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    yousekiStr = models.TextField(blank=True)
 
-    tochiMensekiStr = models.TextField()
-    tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    kenchikuJoken = models.TextField()
-    chimoku = models.TextField()
-    kenpei = models.DecimalField(max_digits=6,decimal_places=3)
-    youseki = models.DecimalField(max_digits=6,decimal_places=3)
-    youtoChiiki = models.TextField()
-    kuiki = models.TextField()
-    kokudoHou = models.TextField()
+    youtoChiiki = models.TextField(blank=True)
+    kuiki = models.TextField(blank=True)
+    kokudoHou = models.TextField(blank=True)
+    
+    sonotaHiyouStr = models.TextField(blank=True)
 
     setsudou = models.TextField()
     douroMuki = models.TextField()
-    douroHaba = models.DecimalField(max_digits=6,decimal_places=3)
+    douroHaba = models.DecimalField(max_digits=10,decimal_places=3, null=True)
     douroKubun = models.TextField()
-    setsumen = models.DecimalField(max_digits=6,decimal_places=3)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.propertyName = ""
-        self.pageUrl = ""
-        self.inputDate = None
-        self.inputDateTime = None
-        self.priceStr = ""
-        self.price = 0
-        self.address1 = ""
-        self.address2 = ""
-        self.address3 = ""
-        self.addressKyoto = ""
-        self.address = ""
-        self.transfer1 = ""
-        self.railway1 = ""
-        self.station1 = ""
-        self.railwayWalkMinute1Str = ""
-        self.railwayWalkMinute1 = 0
-        self.busStation1 = ""
-        self.busWalkMinute1Str = ""
-        self.busWalkMinute1 = 0
-        self.transfer2 = ""
-        self.railway2 = ""
-        self.station2 = ""
-        self.railwayWalkMinute2Str = ""
-        self.railwayWalkMinute2 = 0
-        self.busStation2 = ""
-        self.busWalkMinute2Str = ""
-        self.busWalkMinute2 = 0
-        self.transfer3 = ""
-        self.railway3 = ""
-        self.station3 = ""
-        self.railwayWalkMinute3Str = ""
-        self.railwayWalkMinute3 = 0
-        self.busStation3 = ""
-        self.busWalkMinute3Str = ""
-        self.busWalkMinute3 = 0
-        self.transfer4 = ""
-        self.railway4 = ""
-        self.station4 = ""
-        self.railwayWalkMinute4Str = ""
-        self.railwayWalkMinute4 = 0
-        self.busStation4 = ""
-        self.busWalkMinute4Str = ""
-        self.busWalkMinute4 = 0
-        self.transfer5 = ""
-        self.railway5 = ""
-        self.station5 = ""
-        self.railwayWalkMinute5Str = ""
-        self.railwayWalkMinute5 = 0
-        self.busStation5 = ""
-        self.busWalkMinute5Str = ""
-        self.busWalkMinute5 = 0
-        self.railwayCount = 0
-        self.busUse1 = 0
-        self.hikiwatashi = ""
-        self.genkyo = ""
-        self.tochikenri = ""
-        self.sonotaHiyouStr = ""
-        self.torihiki  = ""
-        self.biko  = ""
-
-        self.tochiMensekiStr = ""
-        self.tochiMenseki = 0
-        self.kenchikuJoken = ""
-        self.chimoku = ""
-        self.kenpei = 0
-        self.youseki = 0
-        self.youtoChiiki = ""
-        self.kuiki = ""
-        self.kokudoHou = ""
-
-        self.setsudou = ""
-        self.douroMuki = ""
-        self.douroHaba = 0
-        self.douroKubun = ""
-        self.setsumen = 0
-
+    setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True)
 
     class Meta:
         db_table = "mitsui_tochi"
 
         
-class MitsuiKodate(models.Model):
-    propertyName = models.TextField()
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    inputDate = models.DateField()
-    inputDateTime = models.DateTimeField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address1 = models.TextField()
-    address2 = models.TextField()
-    address3 = models.TextField()
-    addressKyoto = models.TextField()
-    address = models.TextField()
-    transfer1 = models.TextField()
-    railway1 = models.TextField()
-    station1 = models.TextField()
-    railwayWalkMinute1Str = models.TextField()
-    railwayWalkMinute1 = models.IntegerField()
-    busStation1 = models.TextField()
-    busWalkMinute1Str = models.TextField()
-    busWalkMinute1 = models.IntegerField()
-    transfer2 = models.TextField()
-    railway2 = models.TextField()
-    station2 = models.TextField()
-    railwayWalkMinute2Str = models.TextField()
-    railwayWalkMinute2 = models.IntegerField()
-    busStation2 = models.TextField()
-    busWalkMinute2Str = models.TextField()
-    busWalkMinute2 = models.IntegerField()
-    transfer3 = models.TextField()
-    railway3 = models.TextField()
-    station3 = models.TextField()
-    railwayWalkMinute3Str = models.TextField()
-    railwayWalkMinute3 = models.IntegerField()
-    busStation3 = models.TextField()
-    busWalkMinute3Str = models.TextField()
-    busWalkMinute3 = models.IntegerField()
-    transfer4 = models.TextField()
-    railway4 = models.TextField()
-    station4 = models.TextField()
-    railwayWalkMinute4Str = models.TextField()
-    railwayWalkMinute4 = models.IntegerField()
-    busStation4 = models.TextField()
-    busWalkMinute4Str = models.TextField()
-    busWalkMinute4 = models.IntegerField()
-    transfer5 = models.TextField()
-    railway5 = models.TextField()
-    station5 = models.TextField()
-    railwayWalkMinute5Str = models.TextField()
-    railwayWalkMinute5 = models.IntegerField()
-    busStation5 = models.TextField()
-    busWalkMinute5Str = models.TextField()
-    busWalkMinute5 = models.IntegerField()
-    railwayCount = models.IntegerField()
-    busUse1 = models.IntegerField()
-    hikiwatashi = models.TextField()
-    genkyo = models.TextField()
-    tochikenri = models.TextField()
-    sonotaHiyouStr = models.TextField()
-    torihiki  = models.TextField()
-    biko  = models.TextField()
+class MitsuiKodate(MitsuiModel):
+    tochiMensekiStr = models.TextField(blank=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tatemonoMensekiStr = models.TextField(blank=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    
+    kaisuKouzou  = models.TextField(blank=True)
+    kaisu  = models.TextField(blank=True)
+    kaisuStr = models.TextField(null=True, blank=True)
+    kouzou  = models.TextField(blank=True)
 
-    tochiMensekiStr = models.TextField()
-    tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    tatemonoMensekiStr = models.TextField()
-    tatemonoMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    kaisuKouzou  = models.TextField()
-    kaisu  = models.TextField()
-    kouzou  = models.TextField()
-    tyusyajo = models.TextField()
-    chimoku = models.TextField()
-    kenpei = models.DecimalField(max_digits=6,decimal_places=3)
-    youseki = models.DecimalField(max_digits=6,decimal_places=3)
-    youtoChiiki = models.TextField()
-    kuiki = models.TextField()
+    tyusyajo = models.TextField(blank=True)
+    chimoku = models.TextField(blank=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpeiStr = models.TextField(blank=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    yousekiStr = models.TextField(blank=True)
 
-    setsudou = models.TextField()
-    douroMuki = models.TextField()
-    douroHaba = models.DecimalField(max_digits=6,decimal_places=3)
-    douroKubun = models.TextField()
-    setsumen = models.DecimalField(max_digits=6,decimal_places=3)
+    youtoChiiki = models.TextField(blank=True)
+    kuiki = models.TextField(blank=True)
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.propertyName = ""
-        self.pageUrl = ""
-        self.inputDate = None
-        self.inputDateTime = None
-        self.priceStr = ""
-        self.price = 0
-        self.address1 = ""
-        self.address2 = ""
-        self.address3 = ""
-        self.addressKyoto = ""
-        self.address = ""
-        self.transfer1 = ""
-        self.railway1 = ""
-        self.station1 = ""
-        self.railwayWalkMinute1Str = ""
-        self.railwayWalkMinute1 = 0
-        self.busStation1 = ""
-        self.busWalkMinute1Str = ""
-        self.busWalkMinute1 = 0
-        self.transfer2 = ""
-        self.railway2 = ""
-        self.station2 = ""
-        self.railwayWalkMinute2Str = ""
-        self.railwayWalkMinute2 = 0
-        self.busStation2 = ""
-        self.busWalkMinute2Str = ""
-        self.busWalkMinute2 = 0
-        self.transfer3 = ""
-        self.railway3 = ""
-        self.station3 = ""
-        self.railwayWalkMinute3Str = ""
-        self.railwayWalkMinute3 = 0
-        self.busStation3 = ""
-        self.busWalkMinute3Str = ""
-        self.busWalkMinute3 = 0
-        self.transfer4 = ""
-        self.railway4 = ""
-        self.station4 = ""
-        self.railwayWalkMinute4Str = ""
-        self.railwayWalkMinute4 = 0
-        self.busStation4 = ""
-        self.busWalkMinute4Str = ""
-        self.busWalkMinute4 = 0
-        self.transfer5 = ""
-        self.railway5 = ""
-        self.station5 = ""
-        self.railwayWalkMinute5Str = ""
-        self.railwayWalkMinute5 = 0
-        self.busStation5 = ""
-        self.busWalkMinute5Str = ""
-        self.busWalkMinute5 = 0
-        self.railwayCount = 0
-        self.busUse1 = 0
-        self.hikiwatashi = ""
-        self.genkyo = ""
-        self.tochikenri = ""
-        self.sonotaHiyouStr = ""
-        self.torihiki  = ""
-        self.biko  = ""
-
-        self.tochiMensekiStr = ""
-        self.tochiMenseki = 0
-        self.tatemonoMensekiStr = ""
-        self.tatemonoMenseki = 0
-        self.kaisuKouzou  = ""
-        self.kaisu  = ""
-        self.kouzou  = ""
-        self.tyusyajo = ""
-        self.chimoku = ""
-        self.kenpei = 0
-        self.youseki = 0
-        self.youtoChiiki = ""
-        self.kuiki = ""
-
-        self.setsudou = ""
-        self.douroMuki = ""
-        self.douroHaba = 0
-        self.douroKubun = ""
-        self.setsumen = 0
+    setsudou = models.TextField(blank=True)
+    douroMuki = models.TextField(blank=True)
+    douroHaba = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    douroKubun = models.TextField(blank=True)
+    setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    sonotaHiyouStr = models.TextField(blank=True)
 
     class Meta:
         db_table = "mitsui_kodate"
 
 
-class MitsuiInvestment(models.Model):
-    propertyName = models.TextField()
-    pageUrl = models.CharField(max_length=500, db_index=True)
-    inputDate = models.DateField()
-    inputDateTime = models.DateTimeField()
-    priceStr = models.TextField()
-    price = models.IntegerField()
-    address = models.TextField()
-    traffic = models.TextField()
+class MitsuiInvestmentKodate(MitsuiModel):
+    # Transportation (Strict - at least railway1)
     
-    # Investment specific
-    grossYield = models.DecimalField(max_digits=5, decimal_places=2)
-    currentStatus = models.TextField()
+    # Investment specific (Mandatory)
+    grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
+    annualRent = models.IntegerField() # Strict
+    monthlyRent = models.IntegerField() # Strict
+    currentStatus = models.TextField() # Strict
     
     # Common specs
-    structure = models.TextField()
-    yearBuilt = models.TextField()
+    kouzou = models.TextField()
+    chikunengetsuStr = models.TextField()
     
-    # Areas
-    landArea = models.TextField() 
-    buildingArea = models.TextField() 
+    # Areas (Strict for Kodate)
+    tochiMensekiStr = models.TextField(null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2) # Strict
+    tatemonoMensekiStr = models.TextField(null=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2) # Strict
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.propertyName = ""
-        self.pageUrl = ""
-        self.inputDate = None
-        self.inputDateTime = None
-        self.priceStr = ""
-        self.price = 0
-        self.address = ""
-        self.traffic = ""
-        self.grossYield = 0
-        self.currentStatus = ""
-        self.structure = ""
-        self.yearBuilt = ""
-        self.landArea = ""
-        self.buildingArea = ""
+    # Land Details
+    setsudou = models.TextField(null=True)
+    chimoku = models.TextField(null=True)
+    youtoChiiki = models.TextField(null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpeiStr = models.TextField(null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    yousekiStr = models.TextField(null=True)
+    kaisuStr = models.TextField(null=True)
+    
+    propertyType = models.TextField() # "Kodate"
 
     class Meta:
-        db_table = "mitsui_investment"
+        db_table = "mitsui_investment_kodate"
+        
+class MitsuiInvestmentApartment(MitsuiModel):
+    # Transportation
+    
+    # Investment specific (Mandatory)
+    grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
+    annualRent = models.IntegerField() # Strict
+    monthlyRent = models.IntegerField() # Strict
+    currentStatus = models.TextField() # Strict
+    
+    # Common specs
+    kouzou = models.TextField()
+    chikunengetsuStr = models.TextField() # Strict
+    soukosuStr = models.TextField(null=True)
+    soukosu = models.IntegerField(null=True)
+    kaisuStr = models.TextField(null=True)
+    
+    # Areas (Optional for Apartment - mansion properties don't display these fields)
+    tochiMensekiStr = models.TextField(null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True)
+    tatemonoMensekiStr = models.TextField(null=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True)
+    
+    # Land Details
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpeiStr = models.TextField(null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    yousekiStr = models.TextField(null=True)
+
+    setsudou = models.TextField(null=True)
+    chimoku = models.TextField(null=True)
+    youtoChiiki = models.TextField(null=True)
+    tochikenri = models.TextField(null=True)
+    
+    # Management
+    kanrihi = models.IntegerField(null=True)
+    syuzenTsumitate = models.IntegerField(null=True)
+
+    propertyType = models.TextField() # "Apartment"
+
+    class Meta:
+        db_table = "mitsui_investment_apartment"
 
         

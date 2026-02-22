@@ -10,8 +10,8 @@ API_KEY_SUMIFU_KODATE_DETAIL_GCP, API_KEY_SUMIFU_KODATE_REGION_GCP, API_KEY_SUMI
     ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 from package.parser.sumifuParser import SumifuMansionParser,SumifuTochiParser,SumifuKodateParser
 
-DEFAULT_PARARELL_LIMIT = 2
-DETAIL_PARARELL_LIMIT = 6
+DEFAULT_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 1
 
 class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
@@ -129,7 +129,7 @@ class ParseSumifuMansionStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_MANSION_REGION_GCP
         return API_KEY_SUMIFU_MANSION_REGION
 
-    def _callApi(self):
+    async def _callApi(self, urlList):
         return None
 
     async def _treatPage(self, _session, *arg):
@@ -261,7 +261,7 @@ class ParseSumifuTochiStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_TOCHI_REGION_GCP
         return API_KEY_SUMIFU_TOCHI_REGION
 
-    def _callApi(self):
+    async def _callApi(self, urlList):
         return None
 
     async def _treatPage(self, _session, *arg):
@@ -393,7 +393,7 @@ class ParseSumifuKodateStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_KODATE_REGION_GCP
         return API_KEY_SUMIFU_KODATE_REGION
 
-    def _callApi(self):
+    async def _callApi(self, urlList):
         return None
 
     async def _treatPage(self, _session, *arg):
@@ -408,6 +408,7 @@ class ParseSumifuKodateStartAsync(ApiAsyncProcBase):
 
     def _getTreatPageArg(self):
         return 
+
 
 from package.api.registry import ApiRegistry
 
@@ -431,3 +432,10 @@ ApiRegistry.register(API_KEY_SUMIFU_KODATE_REGION, ParseSumifuKodateRegionFuncAs
 ApiRegistry.register(API_KEY_SUMIFU_KODATE_AREA, ParseSumifuKodateAreaFuncAsync)
 ApiRegistry.register(API_KEY_SUMIFU_KODATE_LIST, ParseSumifuKodateListFuncAsync)
 ApiRegistry.register(API_KEY_SUMIFU_KODATE_DETAIL, ParseSumifuKodateDetailFuncAsync) 
+
+# Kodate
+ApiRegistry.register(API_KEY_SUMIFU_KODATE_START, ParseSumifuKodateStartAsync)
+ApiRegistry.register(API_KEY_SUMIFU_KODATE_REGION, ParseSumifuKodateRegionFuncAsync)
+ApiRegistry.register(API_KEY_SUMIFU_KODATE_AREA, ParseSumifuKodateAreaFuncAsync)
+ApiRegistry.register(API_KEY_SUMIFU_KODATE_LIST, ParseSumifuKodateListFuncAsync)
+ApiRegistry.register(API_KEY_SUMIFU_KODATE_DETAIL, ParseSumifuKodateDetailFuncAsync)
