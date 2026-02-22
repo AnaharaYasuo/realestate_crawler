@@ -44,7 +44,7 @@ tomli==2.3.0
 typing_extensions==4.15.0
 tzdata==2025.3
 urllib3==2.6.3
-Werkzeug==3.1.5
+Werkzeug==3.1.6
 yarl==1.22.0
 zipp==3.23.0
 pytest==9.0.2
