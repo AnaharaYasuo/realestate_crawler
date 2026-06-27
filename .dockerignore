@@ -11,3 +11,9 @@ venv/
 .gitignore
 *.bat
 flask.log
+Temp/
+*.log
+.idea/
+.vscode/
+.pytest_cache/
+src/crawler/tests/error_pages/
