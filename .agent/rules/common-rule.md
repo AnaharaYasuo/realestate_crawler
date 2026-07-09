@@ -1,4 +1,4 @@
-﻿---
+---
 trigger: always_on
 ---
 
@@ -46,3 +46,10 @@ trigger: always_on
 - 全サイト全物件種別でデータを取得できるようにすること。
 - 検証手順、エラーHTMLの取扱い、品質基準については [パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md) に従うこと。
 - ログには詳細なエラー情報が出力されるようにすること。
+
+## セントラルドグマ：ドキュメント駆動開発 (Document-Driven Development)
+- **ドキュメント・ファースト**: 新規実装・修正・デバッグなどのあらゆる開発行為は、実装前に必ず [ドキュメント管理ガイドライン ＆ ドキュメント駆動開発規約](docs/operation/documentation_guidelines.md) に従い、設計書・仕様書を先に記述または更新すること。
+- **完全同期**: コードの変更はドキュメントの変更と完全に同期していなければならない。ドキュメントとコードの乖離はシステムバグと同義である。
+- **AI駆動開発ガイドの遵守**: AIエージェントは必ず [AI駆動開発ガイド](docs/implementation/ai_developer_guide.md) の手順、ライフサイクル、および禁止事項を厳格に遵守すること。
+- **Dockerの強制**: テスト実行や検証コマンドは、必ず Docker コンテナ内で実行すること。
+- **同期更新**: モデル変更時は [database_schema.md](docs/internal_design/database_schema.md) を、ドキュメント追加・変更時は [README.md](README.md) を必ず同期して更新すること。

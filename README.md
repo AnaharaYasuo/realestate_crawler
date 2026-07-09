@@ -329,6 +329,7 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
     *   **[investment_property_types.md](docs/requirements/investment_property_types.md)**: 投資用物件種別定義一覧
     *   **[sumifu_crawling_report.md](docs/requirements/sumifu_crawling_report.md)**: 住友不動産予備調査レポート
     *   **[site_structures/](docs/requirements/site_structures/)**: 各社サイト構造解析資料
+    *   **[project_status_and_design_intent.md](docs/requirements/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
 
 
 ### 📐 2. 外部設計 (Basic Design)
@@ -364,6 +365,8 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
     *   **[quick_start.md](docs/implementation/quick_start.md)**: クイックスタートガイド
     *   **[task_commands.md](docs/implementation/task_commands.md)**: Taskコマンドリファレンス
     *   **[parser_implementation_procedure.md](docs/implementation/parser_implementation_procedure.md)**: パーサー実装手順ガイドライン
+    *   **[parser_design_guidelines.md](docs/implementation/parser_design_guidelines.md)**: パーサー設計ガイドライン
+    *   **[ai_developer_guide.md](docs/implementation/ai_developer_guide.md)**: AI駆動開発ガイドライン (AIエージェント向け)
 
 
 ### 🔧 5. 運用・保守 (Operation)
