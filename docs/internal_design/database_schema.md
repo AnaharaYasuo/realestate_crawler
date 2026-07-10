@@ -478,21 +478,19 @@
 | 52 | kouzou | Text | ❌ | 構造 |
 | 53 | chikunengetsuStr | Text | ❌ | 築年月(文字列) |
 | 54 | soukosu | Int | ✅ | 総戸数 |
-| 55 | kanrihi | Int | ✅ | 管理費 |
-| 56 | syuzenTsumitate | Int | ✅ | 修繕積立金 |
-| 57 | tochiMensekiStr | Text | ✅| 土地面積(文字列) |
-| 58 | tochiMenseki | Dec(10,2) | ✅ | 土地面積(数値) |
-| 59 | tatemonoMensekiStr| Text | ✅ | 建物面積(文字列) |
-| 60 | tatemonoMenseki | Dec(10,2) | ✅ | 建物面積(数値) |
-| 61 | kenpei | Dec(10,3) | ✅ | 建ぺい率 |
-| 62 | kenpeiStr | Text | ✅ | 建ぺい率(文字列) |
-| 63 | youseki | Dec(10,3) | ✅ | 容積率 |
-| 64 | yousekiStr | Text | ✅ | 容積率(文字列) |
-| 65 | setsudou | Text | ✅ | 接道 |
-| 66 | chimoku | Text | ✅ | 地目 |
-| 67 | youtoChiiki | Text | ✅ | 用途地域 |
-| 68 | tochikenri | Text | ✅ | 土地権利 |
-| 69 | propertyType | Text | ❌ | 物件種別 ("Apartment") |
+| 55 | tochiMensekiStr | Text | ✅| 土地面積(文字列) |
+| 56 | tochiMenseki | Dec(10,2) | ✅ | 土地面積(数値) |
+| 57 | tatemonoMensekiStr| Text | ✅ | 建物面積(文字列) |
+| 58 | tatemonoMenseki | Dec(10,2) | ✅ | 建物面積(数値) |
+| 59 | kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 60 | kenpeiStr | Text | ✅ | 建ぺい率(文字列) |
+| 61 | youseki | Dec(10,3) | ✅ | 容積率 |
+| 62 | yousekiStr | Text | ✅ | 容積率(文字列) |
+| 63 | setsudou | Text | ✅ | 接道 |
+| 64 | chimoku | Text | ✅ | 地目 |
+| 65 | youtoChiiki | Text | ✅ | 用途地域 |
+| 66 | tochikenri | Text | ✅ | 土地権利 |
+| 67 | propertyType | Text | ❌ | 物件種別 ("Apartment") |
 
 ---
 
@@ -946,3 +944,101 @@ WARNING: Skipping save for this property due to validation errors.
 ### データ保存ポリシー
 - 厳格化フィールドが欠損している場合、レコードは保存されず**スキップ**されます
 - これにより、不完全なデータがデータベースに混入することを防ぎます
+
+---
+
+## 7. Area Potential & Property Evaluation (統計・評価・画像)
+
+### 7.1 MunicipalPotential
+
+**テーブル名**: `municipal_potential`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | prefecture | Char(100) | ❌ | 都道府県 |
+| 3 | city | Char(100) | ❌ | 市区町村 |
+| 4 | population_growth_rate | Dec(5,2) | ❌ | 人口増減率（％） |
+| 5 | average_income | Int | ❌ | 1人あたり平均所得（千円） |
+
+### 7.2 StationPotential
+
+**テーブル名**: `station_potential`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | station_name | Char(100) | ❌ | 駅名 |
+| 3 | railway_line | Char(100) | ❌ | 路線名 |
+| 4 | passenger_volume | Int | ❌ | 1日平均乗降客数 |
+
+### 7.3 PropertyEvaluation
+
+**テーブル名**: `property_evaluation`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | company | Char(50) | ❌ | 不動産会社コード |
+| 3 | property_type | Char(50) | ❌ | 物件種別 |
+| 4 | property_id | Int | ❌ | 元テーブルレコードID |
+| 5 | property_url | Char(500) | ❌ | 物件URL (Unique) |
+| 6 | first_stage_predicted_price | Dec(12,0) | ✅ | 一次予測理論価格 |
+| 7 | is_first_stage_passed | Bool | ❌ | 一次合格フラグ (Default: False) |
+| 8 | second_stage_predicted_price | Dec(12,0) | ✅ | 二次予測理論価格 |
+| 9 | interior_score | Float | ✅ | 内装スコア (1.0-5.0) |
+| 10 | layout_score | Float | ✅ | 間取りスコア (1.0-5.0) |
+| 11 | investment_score | Float | ✅ | 投資スコア (0-100) |
+| 12 | estimated_sekisan_price | Dec(12,0) | ✅ | 推定積算価格 |
+| 13 | net_operating_income | Dec(12,0) | ✅ | ネット営業純利益 (NOI) |
+| 14 | debt_service | Dec(12,0) | ✅ | 年間元利金返済額 (ADS) |
+| 15 | cash_flow | Dec(12,0) | ✅ | 年間手残りキャッシュフロー |
+| 16 | dscr | Dec(6,2) | ✅ | 債務サービスカバー率 (DSCR) |
+| 17 | coc_return | Dec(6,2) | ✅ | 自己資金配当率 (CoC) |
+| 18 | sekisan_ratio | Dec(6,2) | ✅ | 積算価格比率 |
+| 19 | cashflow_score | Float | ✅ | キャッシュフロースコア (0-100) |
+| 20 | finance_score | Float | ✅ | 融資適合性スコア (0-100) |
+| 21 | total_investment_score | Float | ✅ | 総合投資スコア (0-100) |
+| 22 | analysis_status | Char(30) | ❌ | 画像解析ステータス (Default: 'pending') |
+| 23 | analyzed_at | DateTime | ✅ | 解析実行日時 |
+
+### 7.4 PropertyImage
+
+**テーブル名**: `property_image`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | evaluation_id | Int | ❌ | 評価レコードID (ForeignKey) |
+| 3 | image_url | Char(1000) | ❌ | 画像URL |
+| 4 | local_path | Char(500) | ✅ | ローカル保存パス |
+| 5 | category | Char(50) | ❌ | 画像カテゴリ ('layout', 'exterior', 'interior') |
+| 6 | is_cleaned | Bool | ❌ | クレンジング済みフラグ (Default: True) |
+
+### 7.5 LandPricePotential
+
+**テーブル名**: `land_price_potential`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | prefecture | Char(100) | ❌ | 都道府県 |
+| 3 | city | Char(100) | ❌ | 市区町村 |
+| 4 | average_land_price | Int | ❌ | 平均公示地価（円/㎡） |
+| 5 | estimated_rosenka_price | Int | ✅ | 推定相続税路線価（円/㎡） |
+| 6 | estimated_fixed_asset_price | Int | ✅ | 推定固定資産税評価価格（円/㎡） |
+| 7 | land_use | Char(50) | ❌ | 用途区分 ('residential', 'commercial') |
+
+### 7.6 HazardMapPotential
+
+**テーブル名**: `hazard_map_potential`
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | id | Int | ❌ | 主キー |
+| 2 | prefecture | Char(100) | ❌ | 都道府県 |
+| 3 | city | Char(100) | ❌ | 市区町村 |
+| 4 | flood_risk_level | Int | ❌ | 浸水リスクレベル (0:低 - 4:極めて高) |
+| 5 | landslide_risk_level | Int | ❌ | 土砂災害リスクレベル (0:無 - 2:高) |
+
+

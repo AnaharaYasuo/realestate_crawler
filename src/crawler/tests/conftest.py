@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 import django
+import asyncio
 from django.conf import settings
 
 # Ensure current directory is in path for fetch_snapshot
@@ -20,10 +21,16 @@ def fetch_snapshots_fixture():
     Automatically fetch snapshots for all targets at the start of the test session.
     Changes CWD to the directory of fetch_snapshot.py to ensure relative paths work correctly.
     """
+    if os.environ.get("SKIP_FETCH_SNAPSHOTS") == "true":
+        print("\n[Fixture] Skipping automatic snapshot fetch as SKIP_FETCH_SNAPSHOTS=true")
+        return
+
     print("\n[Fixture] Starting automatic snapshot fetch...")
     original_cwd = os.getcwd()
     # Assuming fetch_snapshot is in the intended working directory (src/crawler)
     target_cwd = os.path.dirname(os.path.abspath(fetch_snapshot.__file__))
+    
+    force_fetch = os.environ.get("FORCE_FETCH_SNAPSHOTS") == "true"
     
     try:
         if target_cwd:
@@ -32,8 +39,9 @@ def fetch_snapshots_fixture():
             
         for site, types_dict in fetch_snapshot.TARGETS.items():
             for target_type in types_dict:
-                print(f"[Fixture] Fetching {site} - {target_type}")
-                fetch_snapshot.fetch_snapshot(site, target_type)
+                print(f"[Fixture] Fetching {site} - {target_type} (force={force_fetch})")
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(fetch_snapshot.fetch_snapshot(site, target_type, force=force_fetch))
                 
     except Exception as e:
         print(f"[Fixture] Error during snapshot fetch: {e}")
@@ -42,6 +50,7 @@ def fetch_snapshots_fixture():
         print(f"[Fixture] Restored CWD to: {original_cwd}")
 
 def pytest_configure():
+    from django.core.management import call_command
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
     if not settings.configured:
         settings.configure(
@@ -54,6 +63,11 @@ def pytest_configure():
                     'ENGINE': 'django.db.backends.sqlite3',
                     'NAME': ':memory:',
                 }
+            },
+            MIGRATION_MODULES={
+                'package': None,
             }
         )
     django.setup()
+    # メモリDBにテーブルを自動作成
+    call_command('migrate', interactive=False, verbosity=0, run_syncdb=True)

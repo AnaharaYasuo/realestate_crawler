@@ -7,6 +7,27 @@ from dotenv import load_dotenv
 load_dotenv()
 def configure():
     if not settings.configured:
+        import sys
+        is_testing = 'pytest' in sys.argv[0] or os.getenv('FORCE_SQLITE') == 'true'
+        if is_testing:
+            settings.configure(
+                SECRET_KEY='test_secret_key',
+                INSTALLED_APPS=[
+                    'package',
+                ],
+                DATABASES={
+                    'default': {
+                        'ENGINE': 'django.db.backends.sqlite3',
+                        'NAME': ':memory:',
+                    }
+                },
+                MIGRATION_MODULES={
+                    'package': None,
+                }
+            )
+            django.setup()
+            return
+
         if os.getenv('IS_CLOUD', ''):
             settings.configure(
                 DATABASES={

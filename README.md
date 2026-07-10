@@ -8,10 +8,11 @@
 
 ### システムの目的
 
-本システムは以下の2つの主要目的を持ちます：
+本システムは以下の3つの主要目的を持ちます：
 
 1. **データ収集**: 5社の不動産サイトから非同期HTTPリクエストとHTML解析により物件情報を自動取得
 2. **データ永続化**: 正規化されたデータベーススキーマ（16-17テーブル）に変換・保存
+3. **投資評価・スクリーニング**: 周辺統計（地価・所得・駅力）、機械学習による理論価格予測、Geminiによる画像評価、および**「積算価格評価」「収支・キャッシュフロー・DSCR/CoCローンシミュレーション」**を行い、総合投資スコアとして可視化・アラート通知します。
 
 ### 対応サイトと物件種別
 
@@ -51,7 +52,7 @@
 `task init` コマンドは以下の3ステップを自動実行します：
 
 1. **Dockerイメージビルド**
-   - `python:3.10-slim` ベースイメージ使用
+   - `python:3.11-slim` ベースイメージ使用
    - MySQLクライアントライブラリのインストール
    - Python依存関係のインストール（aiohttp, BeautifulSoup4, Django等）
 
@@ -179,7 +180,7 @@ Detail API → DB保存
 ## 技術スタック (Tech Stack)
 
 ### コア言語
-- **Python 3.10** (`python:3.10-slim` Dockerイメージ)
+- **Python 3.11** (`python:3.11-slim` Dockerイメージ)
 
 ### HTTP & パース
 - **aiohttp**: 非同期HTTPクライアント（JavaScriptレンダリング不要）
@@ -221,11 +222,26 @@ task logs
 
 ### 4. サーバーの停止
 
-アプリケーションを停止するには：
+アプリケーションコンテナの停止:
 
 ```bash
 task stop
 ```
+
+### 5. クオータ制限回避用自動実行ループ（Antigravity専用）
+
+Antigravityエージェントのクオータ制限を回避し、バックグラウンドで開発を継続させるための自動実行スケジュールです。
+
+*   **指示内容テキスト**: [antigravity_instruction.txt](file:///c:/Users/weare/Documents/realestate_crawler/antigravity_instruction.txt)
+
+**動作概要:**
+1. エージェントは自ら開発指示（[antigravity_instruction.txt](file:///c:/Users/weare/Documents/realestate_crawler/antigravity_instruction.txt)）を読み込み、APIクオータが許す限り、連続して次の開発イテレーションを自律的に実行し続けます。
+2. **ハイブリッド役割分担（マルチエージェント方式）**:
+   * クオータ節約と高精度の設計を両立するため、親エージェント（Claude等の高機能モデル）が設計方針を決定します。
+   * 実際のファイル編集や再学習、テスト実行等の実作業は、親エージェントが低廉なモデル（Gemini等）をサブエージェントとして起動して実行させ、トークン消費を最小化します。
+3. クオータ制限エラー等に直面して開発を継続できなくなった場合、エージェントは自律的に `schedule` ツールを使用し、5時間（18,000秒）後に自身を再起動するワンショットタイマーを仕掛けて休眠に入ります。
+4. タイマーが発火すると自動的にセッションが再開され、ステップ1からの自律開発ループが再起動します。外部プロセスや固定cronを使用しないため、セッションロック競合は発生しません。
+5. 指示内容を変更したい場合は、[antigravity_instruction.txt](file:///c:/Users/weare/Documents/realestate_crawler/antigravity_instruction.txt) を直接書き換えて保存してください。次回の再開時に新しい指示が自動で読み込まれます。
 
 ---
 
@@ -394,6 +410,36 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 | `task crawl` | クローラー実行 | `curl POST http://localhost:8000/...` | `task crawl COMPANY=mitsui TYPE=mansion` |
 | `task logs` | ログ表示 | `docker compose logs -f app` | デバッグ時 |
 | `task test` | テスト実行 | `docker compose exec -T app pytest` | コード変更後 |
+
+## 定期クローリングとエラー監視
+
+本システムは、`scheduler` コンテナを利用したcron自動クローリングおよびパースエラー監視機能を備えています。
+
+### 1. 動作概要
+* **実行スケジュール**: 毎日深夜 `02:00` に自動起動します。
+* **順次実行**: 5社 × 最大6物件種別の計25ジョブを順次実行します。
+* **負荷軽減**: ジョブ間に `180秒`（3分）のクールダウンを挟み、対象サイトへのアクセス集中を避けます。
+* **エラー監視**: 実行完了後、`scripts/monitor_error_pages.py` が自動起動し、過去24時間以内に `error_pages/` に退避されたパースエラーを集計・分析して `logs/error_report_YYYYMMDD.json` に出力します。
+
+### 2. 手動での全社実行・テスト
+定期バッチ処理を手動で直接実行したり、動作確認を行うことができます。
+
+```bash
+# クローラーの一括順次実行（手動トリガー）
+docker compose exec -T scheduler python src/crawler/scripts/run_all_crawlers.py
+
+# ジョブのリスト確認（シミュレーション）
+docker compose exec -T scheduler python src/crawler/scripts/run_all_crawlers.py --dry-run
+
+# エラーページ監視レポートの単体実行
+docker compose exec -T scheduler python src/crawler/scripts/monitor_error_pages.py
+```
+
+### 3. 環境変数カスタマイズ
+`docker-compose.yml` の `scheduler` サービスの `environment` で以下の項目をカスタマイズ可能です：
+* `CRAWL_COOLDOWN_SEC`: ジョブ間の待機秒数（デフォルト: `180`）
+* `CRAWL_TIMEOUT_SEC`: 1ジョブの最大実行秒数（デフォルト: `1800`）
+* `CRAWLER_LIMIT`: 1ジョブで保存する最大物件数（デフォルト: `100`。本番時は `0`（無制限）に設定することを推奨）
 
 ### 詳細な使用例
 

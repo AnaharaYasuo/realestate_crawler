@@ -160,7 +160,7 @@ TARGETS = {
 }
 
 
-async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwright=True):
+async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwright=True, force=False):
     if target_site not in TARGETS:
         print(f"Unknown site: {target_site}")
         return
@@ -170,10 +170,25 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
 
     config = TARGETS[target_site][target_type]
     
+    # Determine output path
+    output_path = str(config['output'])
+    env_output_dir = os.environ.get('SNAPSHOT_OUTPUT_DIR')
+    
+    if env_output_dir:
+        filename = os.path.basename(output_path)
+        abs_output = os.path.join(env_output_dir, filename)
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        abs_output = os.path.join(script_dir, output_path)
+        
+    if not force and os.path.exists(abs_output):
+        print(f"[{target_site}-{target_type}] Mock already exists at {abs_output}. Skipping fetch.")
+        return
+
     # Delete existing mock if it exists
-    if os.path.exists(config['output']):
-        print(f"[{target_site}-{target_type}] Deleting existing mock: {config['output']}")
-        os.remove(config['output'])
+    if os.path.exists(abs_output):
+        print(f"[{target_site}-{target_type}] Deleting existing mock: {abs_output}")
+        os.remove(abs_output)
 
     print(f"[{target_site}-{target_type}] Accessing list page: {config['list_url']}")
     
@@ -279,19 +294,6 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
         
         print(f"Found property URL: {full_url}")
         
-        # Determine output path
-        output_path = config['output']
-        env_output_dir = os.environ.get('SNAPSHOT_OUTPUT_DIR')
-        
-        if env_output_dir:
-            # If env var is set, use it as base and append the filename
-            filename = os.path.basename(output_path)
-            abs_output = os.path.join(env_output_dir, filename)
-        else:
-            # Default behavior: relative to script
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            abs_output = os.path.join(script_dir, output_path)
-            
         os.makedirs(os.path.dirname(abs_output), exist_ok=True)
 
         if not use_playwright:
@@ -352,9 +354,10 @@ async def main():
     parser.add_argument("type", help="Property type (e.g. mansion, kodate, investment_mansion)")
     parser.add_argument("--debug-links", action="store_true")
     parser.add_argument("--no-playwright", action="store_true", help="Use aiohttp instead of Playwright for detail page")
+    parser.add_argument("--force", action="store_true", help="Force fetch even if mock already exists")
     args = parser.parse_args()
     
-    await fetch_snapshot(args.site, args.type, args.debug_links, use_playwright=not args.no_playwright)
+    await fetch_snapshot(args.site, args.type, args.debug_links, use_playwright=not args.no_playwright, force=args.force)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

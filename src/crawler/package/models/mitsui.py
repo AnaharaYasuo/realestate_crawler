@@ -18,7 +18,7 @@ class MitsuiModel(PropertyBaseModel, TransportationMixin):
     torihiki  = models.TextField(blank=True)
     biko  = models.TextField(blank=True)
 
-    class Meta:
+    class Meta(PropertyBaseModel.Meta):
         abstract = True
 
 class MitsuiMansion(MitsuiModel):
@@ -62,7 +62,7 @@ class MitsuiMansion(MitsuiModel):
     kanrihi_p_heibei = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
     syuzenTsumitate_p_heibei = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
 
-    class Meta:
+    class Meta(MitsuiModel.Meta):
         db_table = "mitsui_mansion"
 
         
@@ -88,7 +88,7 @@ class MitsuiTochi(MitsuiModel):
     douroKubun = models.TextField()
     setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True)
 
-    class Meta:
+    class Meta(MitsuiModel.Meta):
         db_table = "mitsui_tochi"
 
         
@@ -120,7 +120,7 @@ class MitsuiKodate(MitsuiModel):
     setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
     sonotaHiyouStr = models.TextField(blank=True)
 
-    class Meta:
+    class Meta(MitsuiModel.Meta):
         db_table = "mitsui_kodate"
 
 
@@ -155,7 +155,7 @@ class MitsuiInvestmentKodate(MitsuiModel):
     
     propertyType = models.TextField() # "Kodate"
 
-    class Meta:
+    class Meta(MitsuiModel.Meta):
         db_table = "mitsui_investment_kodate"
         
 class MitsuiInvestmentApartment(MitsuiModel):
@@ -191,13 +191,11 @@ class MitsuiInvestmentApartment(MitsuiModel):
     youtoChiiki = models.TextField(null=True)
     tochikenri = models.TextField(null=True)
     
-    # Management
-    kanrihi = models.IntegerField(null=True)
-    syuzenTsumitate = models.IntegerField(null=True)
+
 
     propertyType = models.TextField() # "Apartment"
 
-    class Meta:
+    class Meta(MitsuiModel.Meta):
         db_table = "mitsui_investment_apartment"
 
         

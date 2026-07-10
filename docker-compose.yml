@@ -23,6 +23,7 @@ services:
       - DB_USER=sumifu
       - DB_PASSWORD=mayumimayumi0413
       - DB_PORT=3306
+      - CRAWLER_LIMIT=100
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -35,6 +36,32 @@ services:
       - ./docs:/app/docs
     depends_on:
       - db
+    restart: always
+
+  scheduler:
+    build: .
+    environment:
+      - DB_HOST=db
+      - DB_NAME=real_estate
+      - DB_USER=sumifu
+      - DB_PASSWORD=mayumimayumi0413
+      - DB_PORT=3306
+      - CRAWLER_LIMIT=${CRAWLER_LIMIT:-100}
+      - CRAWL_COOLDOWN_SEC=${CRAWL_COOLDOWN_SEC:-180}
+      - CRAWL_TIMEOUT_SEC=${CRAWL_TIMEOUT_SEC:-1800}
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    volumes:
+      - ./src:/app/src
+      - ./Temp:/app/Temp
+      - ./config:/app/config
+      - ./docs:/app/docs
+      - ./logs:/app/logs
+    depends_on:
+      - db
+      - app
+    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && python src/crawler/scripts/run_all_crawlers.py >> /app/logs/scheduler.log 2>&1' | crontab - && crond -f"]
     restart: always
 
 volumes:

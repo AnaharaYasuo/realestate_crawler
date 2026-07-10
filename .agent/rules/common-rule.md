@@ -22,6 +22,7 @@ trigger: always_on
 - **開発・検証プロセス**:
     パーサーの開発、修正、および修正後の動作確認（エラーHTML検証、実機検証、DB確認）は、[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md) に規定された手順に厳格に従うこと。
 - コードを修正したら必ずローカルでテストを実行し、全て成功するようにする。それまで絶対にGitHubにプッシュしない。
+- **Problems（静的解析・型エラー）の確認**: コード修正後は、常にIDEのProblems（PyreflyやLinter等による警告やエラー）を確認し、それらをすべて解消すること。
 - 変更がGitHubにマージされたら、そのフィーチャーブランチはもう利用しない。ローカルブランチはマスターに変更し、マージされた変更を取り込む。
 - **Pythonを動かす場合には必ずDockerを起動して、そのコンテナ内で実施すること（例: `docker-compose exec -T app python ...`）。**
 
