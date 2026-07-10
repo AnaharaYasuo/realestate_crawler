@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+from typing import Dict, Tuple, Any, Optional
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -54,6 +55,7 @@ def calculate_chikunen(chikunengetsu, base_date=None):
             era = m.group(1)
             year = int(m.group(2))
             month = int(m.group(3)) if m.group(3) else 1
+            gregorian_year = 2000
             if era == '昭和':
                 gregorian_year = 1925 + year
             elif era == '平成':
@@ -86,6 +88,49 @@ def calculate_chikunen(chikunengetsu, base_date=None):
             chikunengetsu = chikunengetsu.date()
         return (base_date - chikunengetsu).days / 365.25
     return 20.0
+
+# グローバルキャッシュ変数
+_muni_cache: Dict[Tuple[str, str], Any] = {}
+_muni_pref_cache: Dict[str, list] = {}
+_station_cache: Dict[str, Any] = {}
+_lp_cache: Dict[Tuple[str, str, str], Any] = {}
+_lp_pref_res_cache: Dict[str, list] = {}
+_lp_pref_comm_cache: Dict[str, list] = {}
+_hazard_cache: Dict[Tuple[str, str], Any] = {}
+_zone_cache: Dict[str, Any] = {}
+
+def _init_global_caches():
+    """
+    特徴量抽出のボトルネックを解消するため、
+    全 Potential 関連マスタを一括でインメモリキャッシュします。
+    """
+    global _muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache, _lp_pref_comm_cache, _hazard_cache, _zone_cache
+    from package.models.evaluation import MunicipalPotential, StationPotential, LandPricePotential, HazardMapPotential, UrbanPlanningZonePotential
+
+    if not _muni_cache:
+        for m in MunicipalPotential.objects.all():
+            _muni_cache[(m.prefecture, m.city)] = m
+            _muni_pref_cache.setdefault(m.prefecture, []).append(m)
+            
+    if not _station_cache:
+        for s in StationPotential.objects.all():
+            _station_cache[s.station_name] = s
+            
+    if not _lp_cache:
+        for lp in LandPricePotential.objects.all():
+            _lp_cache[(lp.prefecture, lp.city, lp.land_use)] = lp
+            if lp.land_use == 'residential':
+                _lp_pref_res_cache.setdefault(lp.prefecture, []).append(lp)
+            elif lp.land_use == 'commercial':
+                _lp_pref_comm_cache.setdefault(lp.prefecture, []).append(lp)
+            
+    if not _hazard_cache:
+        for hz in HazardMapPotential.objects.all():
+            _hazard_cache[(hz.prefecture, hz.city)] = hz
+            
+    if not _zone_cache:
+        for z in UrbanPlanningZonePotential.objects.all():
+            _zone_cache[z.zone_name] = z
 
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
     """
@@ -130,25 +175,27 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     tatemono_area = float(tatemono_menseki) if tatemono_menseki else 0.0
     tochi_area = float(tochi_menseki) if tochi_menseki else 0.0
     
+    # グローバルキャッシュの初期化
+    _init_global_caches()
+    
     # 2. 自治体ポテンシャルマスタとの結合
     pop_growth = 0.0
     income = 3000
-    muni = MunicipalPotential.objects.filter(prefecture=address1, city=address2).first()
+    muni = _muni_cache.get((address1, address2))
     if muni:
         pop_growth = float(muni.population_growth_rate)
         income = muni.average_income
     else:
-        # 都道府県の平均にバックオフ
-        muni_pref = MunicipalPotential.objects.filter(prefecture=address1)
-        if muni_pref.exists():
-            pop_growth = sum(float(x.population_growth_rate) for x in muni_pref) / len(muni_pref)
-            income = int(sum(x.average_income for x in muni_pref) / len(muni_pref))
+        muni_pref_vals = _muni_pref_cache.get(address1, [])
+        if muni_pref_vals:
+            pop_growth = sum(float(x.population_growth_rate) for x in muni_pref_vals) / len(muni_pref_vals)
+            income = int(sum(x.average_income for x in muni_pref_vals) / len(muni_pref_vals))
 
     # 3. 駅ポテンシャルマスタとの結合
     passenger_volume = 10000
     if station1:
         station_clean = station1.replace("駅", "")
-        station_pot = StationPotential.objects.filter(station_name=station_clean).first()
+        station_pot = _station_cache.get(station_clean)
         if station_pot:
             passenger_volume = station_pot.passenger_volume
 
@@ -159,11 +206,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         if not text:
             return None
         text = str(text)
-        # "200%" や "建ぺい率60%" などのパーセント数値を抽出
         match = re.search(r'(\d+(?:\.\d+)?)\s*%', text)
         if match:
             return float(match.group(1))
-        # 数値のみの抽出 (10% - 1000%の範囲に制限)
         match = re.search(r'(\d+(?:\.\d+)?)', text)
         if match:
             val = float(match.group(1))
@@ -180,7 +225,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     max_youseki = extract_limit(youseki_raw)
     max_kenpei = extract_limit(kenpei_raw)
     
-    # 抽出できない場合、用途地域テキストからマスタ引き当てを試みる
     if max_youseki is None or max_kenpei is None:
         zone_keyword = None
         if youseki_raw:
@@ -196,7 +240,11 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         
         if zone_keyword:
             try:
-                zone_rec = UrbanPlanningZonePotential.objects.filter(zone_name__icontains=zone_keyword).first()
+                zone_rec = None
+                for name, z in _zone_cache.items():
+                    if zone_keyword in name:
+                        zone_rec = z
+                        break
                 if zone_rec:
                     if max_youseki is None:
                         max_youseki = float(zone_rec.max_youseki)
@@ -205,7 +253,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             except:
                 pass
                 
-    # 最終的なデフォルト値
     if max_youseki is None:
         max_youseki = 200.0
     if max_kenpei is None:
@@ -225,14 +272,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     res_price = None
     res_rosenka = None
     res_fixed = None
-    lp_res = LandPricePotential.objects.filter(prefecture=address1, city=address2, land_use='residential').first()
+    lp_res = _lp_cache.get((address1, address2, 'residential'))
     if lp_res:
         res_price = lp_res.average_land_price
         res_rosenka = lp_res.estimated_rosenka_price
         res_fixed = lp_res.estimated_fixed_asset_price
     else:
-        lp_pref_res = LandPricePotential.objects.filter(prefecture=address1, land_use='residential')
-        if lp_pref_res.exists():
+        lp_pref_res = _lp_pref_res_cache.get(address1, [])
+        if lp_pref_res:
             res_price = sum(x.average_land_price for x in lp_pref_res) / len(lp_pref_res)
             res_rosenka = sum(x.estimated_rosenka_price for x in lp_pref_res if x.estimated_rosenka_price is not None) / len(lp_pref_res)
             res_fixed = sum(x.estimated_fixed_asset_price for x in lp_pref_res if x.estimated_fixed_asset_price is not None) / len(lp_pref_res)
@@ -241,14 +288,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     comm_price = None
     comm_rosenka = None
     comm_fixed = None
-    lp_comm = LandPricePotential.objects.filter(prefecture=address1, city=address2, land_use='commercial').first()
+    lp_comm = _lp_cache.get((address1, address2, 'commercial'))
     if lp_comm:
         comm_price = lp_comm.average_land_price
         comm_rosenka = lp_comm.estimated_rosenka_price
         comm_fixed = lp_comm.estimated_fixed_asset_price
     else:
-        lp_pref_comm = LandPricePotential.objects.filter(prefecture=address1, land_use='commercial')
-        if lp_pref_comm.exists():
+        lp_pref_comm = _lp_pref_comm_cache.get(address1, [])
+        if lp_pref_comm:
             comm_price = sum(x.average_land_price for x in lp_pref_comm) / len(lp_pref_comm)
             comm_rosenka = sum(x.estimated_rosenka_price for x in lp_pref_comm if x.estimated_rosenka_price is not None) / len(lp_pref_comm)
             comm_fixed = sum(x.estimated_fixed_asset_price for x in lp_pref_comm if x.estimated_fixed_asset_price is not None) / len(lp_pref_comm)
@@ -306,12 +353,11 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         key = (address1, address2, property_type, age_band)
         avg_unit_price = mkt_comparison_master.get(key)
         if avg_unit_price is None:
-            # 都道府県レベルでバックオフ
             keys_pref = [k for k in mkt_comparison_master.keys() if k[0] == address1 and k[2] == property_type and k[3] == age_band]
             if keys_pref:
                 avg_unit_price = sum(mkt_comparison_master[k] for k in keys_pref) / len(keys_pref)
             else:
-                avg_unit_price = 30.0  # 全国平均30万円/㎡
+                avg_unit_price = 30.0
         mkt_comparison_value = avg_unit_price * eval_area
     else:
         mkt_comparison_value = eval_area * (average_land_price / 10000.0)
@@ -323,7 +369,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     if annual_rent is not None:
         rent = float(annual_rent)
     else:
-        # 実需物件は公示地価の5%を想定年間家賃とする
         rent = eval_area * (average_land_price / 10000.0) * 0.05
         
     if gross_yield is not None:
@@ -344,7 +389,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         if chikunengetsu < datetime.date(1981, 6, 1):
             is_shin_taishin = 0
     else:
-        # 築年月がない場合のフォールバック: 築45年超なら旧耐震と判定
         if chikunen > 45.0:
             is_shin_taishin = 0
 
@@ -352,7 +396,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     flood_risk_level = 0
     landslide_risk_level = 0
     try:
-        hz = HazardMapPotential.objects.filter(prefecture=address1, city=address2).first()
+        hz = _hazard_cache.get((address1, address2))
         if hz:
             flood_risk_level = int(hz.flood_risk_level)
             landslide_risk_level = int(hz.landslide_risk_level)

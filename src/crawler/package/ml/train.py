@@ -37,6 +37,16 @@ def load_all_properties_from_db():
     """
     print("Loading properties from DB...")
     
+    # N+1問題解消のため、評価レコードを一括ロードして辞書化
+    print("Caching property evaluations...")
+    eval_map = {}
+    for e in PropertyEvaluation.objects.all().only("property_url", "interior_score", "layout_score"):
+        eval_map[e.property_url] = (
+            float(e.interior_score) if e.interior_score is not None else 3.0,
+            float(e.layout_score) if e.layout_score is not None else 3.0
+        )
+    print(f"Cached {len(eval_map)} evaluations.")
+
     queries = {
         "mansion": [
             ("mitsui", MitsuiMansion.objects.all()),
@@ -79,12 +89,10 @@ def load_all_properties_from_db():
                 price_man = float(price) / 10000.0
                 
                 page_url = getattr(p, 'pageUrl', '')
-                eval_record = PropertyEvaluation.objects.filter(property_url=page_url).first()
                 interior_score = 3.0
                 layout_score = 3.0
-                if eval_record and eval_record.interior_score is not None:
-                    interior_score = float(eval_record.interior_score)
-                    layout_score = float(eval_record.layout_score)
+                if page_url in eval_map:
+                    interior_score, layout_score = eval_map[page_url]
                 
                 data_by_type[ptype].append({
                     "obj": p,
@@ -305,9 +313,110 @@ def clean_training_data(df, ptype):
     print(f"Cleaned training data for {ptype}. Final records: {len(df)}")
     return df
 
+def tune_hyperparameters(X, y, algo_name) -> dict:
+    """
+    簡易的なハイパーパラメータグリッドサーチを行い、
+    3-Fold CV で最も MAPE が良かったパラメータの辞書を返します。
+    """
+    kf = KFold(n_splits=3, shuffle=True, random_state=42)
+    best_params = {}
+    best_mape = float('inf')
+    
+    if algo_name == "lgb":
+        param_grid = [
+            {"learning_rate": 0.05, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
+            {"learning_rate": 0.05, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10},
+            {"learning_rate": 0.1, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
+            {"learning_rate": 0.1, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10}
+        ]
+        for params in param_grid:
+            mapes = []
+            for train_idx, val_idx in kf.split(X):
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                
+                model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
+                model.fit(X_train, y_train)
+                preds = model.predict(X_val)
+                mapes.append(calculate_mape(y_val, preds))
+            
+            avg_mape = np.mean(mapes)
+            if avg_mape < best_mape:
+                best_mape = avg_mape
+                best_params = params
+                
+    elif algo_name == "xgb":
+        param_grid = [
+            {"learning_rate": 0.05, "max_depth": 5, "subsample": 0.8},
+            {"learning_rate": 0.05, "max_depth": 7, "subsample": 0.9},
+            {"learning_rate": 0.1, "max_depth": 5, "subsample": 0.8},
+            {"learning_rate": 0.1, "max_depth": 7, "subsample": 0.9}
+        ]
+        for params in param_grid:
+            mapes = []
+            for train_idx, val_idx in kf.split(X):
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                
+                model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
+                model.fit(X_train, y_train)
+                preds = model.predict(X_val)
+                mapes.append(calculate_mape(y_val, preds))
+                
+            avg_mape = np.mean(mapes)
+            if avg_mape < best_mape:
+                best_mape = avg_mape
+                best_params = params
+                
+    elif algo_name == "cat":
+        param_grid = [
+            {"learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3},
+            {"learning_rate": 0.05, "depth": 8, "l2_leaf_reg": 5},
+            {"learning_rate": 0.1, "depth": 6, "l2_leaf_reg": 3},
+            {"learning_rate": 0.1, "depth": 8, "l2_leaf_reg": 5}
+        ]
+        for params in param_grid:
+            mapes = []
+            for train_idx, val_idx in kf.split(X):
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                
+                model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
+                model.fit(X_train, y_train)
+                preds = model.predict(X_val)
+                mapes.append(calculate_mape(y_val, preds))
+                
+            avg_mape = np.mean(mapes)
+            if avg_mape < best_mape:
+                best_mape = avg_mape
+                best_params = params
+                
+    return best_params
+
+def print_feature_importance(model, algo_name, feature_cols):
+    """
+    学習済みモデルから特徴量重要度を集計し、上位10項目を出力します。
+    """
+    try:
+        if algo_name == "lgb":
+            importances = model.feature_importances_
+        elif algo_name == "xgb":
+            importances = model.feature_importances_
+        elif algo_name == "cat":
+            importances = model.get_feature_importance()
+        else:
+            return
+            
+        feat_imp = pd.Series(importances, index=feature_cols).sort_values(ascending=False)
+        print(f"  [{algo_name}] Feature Importance (Top 10):")
+        for name, val in feat_imp.head(10).items():
+            print(f"    - {name}: {val:.4f}")
+    except Exception as e:
+        print(f"  [{algo_name}] Failed to compute feature importance: {e}")
+
 def train_and_compare(df, feature_cols, stage_name) -> dict:
     """
-    指定された特徴量を用いて3つのモデルを学習し、
+    指定された特徴量を用いて3つのモデルをチューニング＆学習し、
     クロスバリデーション(5-Fold)評価を行った上で、全データで最終学習したモデルを返します。
     """
     X = df[feature_cols].copy()
@@ -319,51 +428,72 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
             X[col] = X[col].astype('category').cat.codes
             
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    
     algos = ['lgb', 'xgb', 'cat']
     
-    print(f"\n--- Cross-Validating models for Stage: {stage_name} ---")
+    print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ---")
     
     trained_models = {}
+    best_params_dict = {}
     
+    # 事前チューニングの実行（データ数が多い場合のみ）
+    for name in algos:
+        if len(df) >= 30:
+            print(f"Tuning hyperparameters for {name}...")
+            best_params_dict[name] = tune_hyperparameters(X, y, name)
+            print(f"Best params for {name}: {best_params_dict[name]}")
+        else:
+            best_params_dict[name] = {}
+            
     for name in algos:
         mapes = []
+        maes = []
+        r2s = []
+        params = best_params_dict[name]
+        
         for train_idx, val_idx in kf.split(X):
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             
-            # 毎回独立したインスタンスを生成して学習（メモリリーク対策）
             if name == "lgb":
-                fold_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1)
+                fold_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
             elif name == "xgb":
-                fold_model = xgb.XGBRegressor(random_state=42, n_jobs=1)
+                fold_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
             elif name == "cat":
-                fold_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1)
+                fold_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
             else:
                 raise ValueError(f"Unknown algorithm: {name}")
                 
             fold_model.fit(X_train, y_train)
             preds = fold_model.predict(X_val)
-            mapes.append(calculate_mape(y_val, preds))
             
-            # クリーンアップ
+            mapes.append(calculate_mape(y_val, preds))
+            maes.append(mean_absolute_error(y_val, preds))
+            r2s.append(r2_score(y_val, preds))
+            
             del fold_model, X_train, X_val, y_train, y_val
             gc.collect()
             
         avg_mape = np.mean(mapes)
-        print(f"[{name}] Cross-Val MAPE: {avg_mape:.2f}%")
+        avg_mae = np.mean(maes)
+        avg_r2 = np.mean(r2s)
+        print(f"[{name}] 5-Fold CV Scores:")
+        print(f"  - MAPE: {avg_mape:.2f}%")
+        print(f"  - MAE:  {avg_mae:.2f}万円")
+        print(f"  - R2:   {avg_r2:.4f}")
         
         # 全データで本番学習
         if name == "lgb":
-            final_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1)
+            final_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
         elif name == "xgb":
-            final_model = xgb.XGBRegressor(random_state=42, n_jobs=1)
+            final_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
         elif name == "cat":
-            final_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1)
+            final_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
         else:
             raise ValueError(f"Unknown algorithm: {name}")
             
-        trained_models[name] = final_model.fit(X, y)
+        final_model.fit(X, y)
+        print_feature_importance(final_model, name, feature_cols)
+        trained_models[name] = final_model
         
     return trained_models
 
