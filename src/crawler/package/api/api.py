@@ -822,6 +822,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         }
                     )
                     
+                    # 投資用物件の場合は、一次合格の有無にかかわらず、
+                    # まずテキスト情報のみから詳細な収支・融資・総合投資スコアの評価を実行
+                    if "investment" in property_type:
+                        from package.ml.investment_evaluator import evaluate_investment_property
+                        eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
+                        await sync_to_async(eval_record.save)()
+                    
                     logging.info(f"ML: Stage 1 predicted for {item.propertyName} ({item.pageUrl}) = {price_stage1}万円 (Asking: {asking_price}万円, Passed: {is_passed})")
                     
                     # 一次合格の場合のみ、詳細画像の取得と画像解析の実行
