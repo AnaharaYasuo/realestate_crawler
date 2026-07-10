@@ -22,6 +22,7 @@ from package.utils.report import CrawlerReporter
 from fake_useragent import UserAgent,FakeUserAgent
 from asgiref.sync import sync_to_async
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+GLOBAL_SAVE_COUNT = 0
 
 
 TCP_CONNECTOR_LIMIT = 100
@@ -299,7 +300,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
     }
-    _loop:asyncio.BaseEventLoop = None
+    _loop: Optional[asyncio.AbstractEventLoop] = None
     middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
 
     def __init__(self):
@@ -337,7 +338,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return "http://127.0.0.1:8000"
 
     def _getApiUrl(self):
-        apiUrl = self._getUrl() + self._getApiKey()
+        apiUrl = self._getUrl() + (self._getApiKey() or '')
         return apiUrl
 
     async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):
@@ -501,22 +502,23 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def main(self, url):
         self.url = url
+        loop: Optional[asyncio.AbstractEventLoop] = None
         try:
             try:
-                loop:asyncio.BaseEventLoop = self._getActiveEventLoop()
+                loop = self._getActiveEventLoop()
                 futures = asyncio.gather(*[self._run(url)])
                 runResult = loop.run_until_complete(futures)
             except asyncio.exceptions.TimeoutError as e:
-                if loop.is_running():
+                if loop and loop.is_running():
                     loop.stop()
                 futures = asyncio.gather(*[self._run(url)])
                 runResult = loop.run_until_complete(futures)
         except Exception as e:
             raise e
         finally:
-            if loop.is_running():
+            if loop and loop.is_running():
                 loop.stop()
-            if not loop.is_closed():
+            if loop and not loop.is_closed():
                 loop.close()
         self._afterRunProc(runResult)
         return "finish", 200
@@ -633,7 +635,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                     async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
                         try:
                             task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
-                            ) + self._getNextPageApiKey(), loop=self._getActiveEventLoop(), retryTimes=0))  # fire and forget
+                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retryTimes=0))  # fire and forget
                             # task = asyncio.ensure_future(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
                             await asyncio.sleep(3)
                         finally:
@@ -660,7 +662,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         return responses
 
     @abstractmethod
-    def _getParserFunc(self):
+    def _getParserFunc(self) -> Any:
         pass
 
     def _getNextPageParserFunc(self):
@@ -857,7 +859,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 
                                 # 投資価値スコアの算出 (割安度×50。最大100)
                                 if asking_price > 0:
-                                    ratio = float(price_stage2) / float(asking_price)
+                                    ratio = price_stage2 / asking_price
                                     investment_score = min(100.0, max(0.0, ratio * 50.0))
                                 else:
                                     investment_score = 0.0
@@ -895,7 +897,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 threshold = 70.0 if "investment" in property_type else 60.0
                                 if final_score and final_score >= threshold:
                                     if "investment" in property_type:
-                                        logging.info(
+                                        msg = (
                                             f"📢 [PREMIUM ALERT] プレミアムお宝物件を検出しました！\n"
                                             f"物件名: {item.propertyName}\n"
                                             f"価格: {asking_price}万円 (理論価格: {price_stage2}万円, 積算価格: {eval_record.estimated_sekisan_price}万円)\n"
@@ -904,7 +906,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                             f"URL: {item.pageUrl}"
                                         )
                                     else:
-                                        logging.info(f"📢 [NOTIFICATION] 優良物件を検出しました！\n物件名: {item.propertyName}\n価格: {asking_price}万円 (理論価格: {price_stage2}万円, 投資スコア: {final_score:.1f})\nURL: {item.pageUrl}")
+                                        msg = f"📢 [NOTIFICATION] 優良物件を検出しました！\n物件名: {item.propertyName}\n価格: {asking_price}万円 (理論価格: {price_stage2}万円, 投資スコア: {final_score:.1f})\nURL: {item.pageUrl}"
+                                    
+                                    logging.info(msg)
+                                    
+                                    # Slack送信を実行
+                                    from package.utils.slack import send_slack_message
+                                    await send_slack_message(msg)
                             else:
                                 eval_record.analysis_status = "skipped_by_budget"
                                 await sync_to_async(eval_record.save)()
