@@ -250,8 +250,8 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
     _, second_models, mkt_master = _get_models_and_master(ptype)
     
     features = build_features(property_obj, ptype, mkt_comparison_master=mkt_master)
-    features["interior_score"] = float(interior_score)
-    features["layout_score"] = float(layout_score)
+    features["interior_score"] = interior_score
+    features["layout_score"] = layout_score
     
     feature_sets = {
         "mansion": [
