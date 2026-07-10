@@ -38,6 +38,16 @@ tasks:
       - curl "http://127.0.0.1:8000/api/{{.COMPANY}}/{{.TYPE}}/start"
 
   test:
-    desc: Run all parser tests
+    desc: Run all tests in the test suite
     cmds:
-      - docker compose exec -T app pytest src/crawler/tests/unit/
+      - docker compose exec -T app pytest src/crawler/tests
+
+  test-slack:
+    desc: Run Slack utility unit tests
+    cmds:
+      - docker compose exec -T app pytest src/crawler/tests/unit/test_slack.py -v
+
+  test-slack-dispatch:
+    desc: Send a live Slack message to verify real-time notification dispatch
+    cmds:
+      - docker compose exec -T app python Temp/test_slack_dispatch.py
