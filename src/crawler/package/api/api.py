@@ -511,8 +511,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             except asyncio.exceptions.TimeoutError as e:
                 if loop and loop.is_running():
                     loop.stop()
-                futures = asyncio.gather(*[self._run(url)])
-                runResult = loop.run_until_complete(futures)
+                if loop:
+                    futures = asyncio.gather(*[self._run(url)])
+                    runResult = loop.run_until_complete(futures)
         except Exception as e:
             raise e
         finally:
@@ -910,9 +911,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                     
                                     logging.info(msg)
                                     
-                                    # Slack送信を実行
+                                    # Slack送信を実行し、成否を明示的に判定・ログ記録する
                                     from package.utils.slack import send_slack_message
-                                    await send_slack_message(msg)
+                                    success = await send_slack_message(msg)
+                                    if not success:
+                                        logging.error(f"❌ [SLACK ERROR] Failed to send Slack alert for {item.propertyName} ({item.pageUrl})")
                             else:
                                 eval_record.analysis_status = "skipped_by_budget"
                                 await sync_to_async(eval_record.save)()
