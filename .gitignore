@@ -11,3 +11,6 @@ src/crawler/tests/error_pages/
 docs/error_pages/
 src/crawler/docs/
 src/crawler/logs/reports/
+logs/
+catboost_info/
+**/catboost_info/

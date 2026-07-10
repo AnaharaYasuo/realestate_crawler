@@ -1,5 +1,5 @@
-# 標準のPython 3.10 Slimイメージを使用
-FROM python:3.10-slim
+# 標準のPython 3.11 Slimイメージを使用
+FROM python:3.11-slim
 
 # 作業ディレクトリの設定
 WORKDIR /app

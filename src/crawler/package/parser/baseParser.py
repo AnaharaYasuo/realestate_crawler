@@ -129,6 +129,7 @@ class ParserBase(metaclass=ABCMeta):
                     raise ServerBusyException()
 
             item = self._parsePropertyDetailPage(item, soup)
+            item._soup = soup
             
             # Centralized validation for "Strict Extraction"
             self.validate_required_fields(item)

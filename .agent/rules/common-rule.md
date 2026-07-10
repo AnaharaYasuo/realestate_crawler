@@ -1,4 +1,4 @@
-﻿---
+---
 trigger: always_on
 ---
 
@@ -22,6 +22,7 @@ trigger: always_on
 - **開発・検証プロセス**:
     パーサーの開発、修正、および修正後の動作確認（エラーHTML検証、実機検証、DB確認）は、[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md) に規定された手順に厳格に従うこと。
 - コードを修正したら必ずローカルでテストを実行し、全て成功するようにする。それまで絶対にGitHubにプッシュしない。
+- **Problems（静的解析・型エラー）の確認**: コード修正後は、常にIDEのProblems（PyreflyやLinter等による警告やエラー）を確認し、それらをすべて解消すること。
 - 変更がGitHubにマージされたら、そのフィーチャーブランチはもう利用しない。ローカルブランチはマスターに変更し、マージされた変更を取り込む。
 - **Pythonを動かす場合には必ずDockerを起動して、そのコンテナ内で実施すること（例: `docker-compose exec -T app python ...`）。**
 
@@ -46,3 +47,10 @@ trigger: always_on
 - 全サイト全物件種別でデータを取得できるようにすること。
 - 検証手順、エラーHTMLの取扱い、品質基準については [パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md) に従うこと。
 - ログには詳細なエラー情報が出力されるようにすること。
+
+## セントラルドグマ：ドキュメント駆動開発 (Document-Driven Development)
+- **ドキュメント・ファースト**: 新規実装・修正・デバッグなどのあらゆる開発行為は、実装前に必ず [ドキュメント管理ガイドライン ＆ ドキュメント駆動開発規約](docs/operation/documentation_guidelines.md) に従い、設計書・仕様書を先に記述または更新すること。
+- **完全同期**: コードの変更はドキュメントの変更と完全に同期していなければならない。ドキュメントとコードの乖離はシステムバグと同義である。
+- **AI駆動開発ガイドの遵守**: AIエージェントは必ず [AI駆動開発ガイド](docs/implementation/ai_developer_guide.md) の手順、ライフサイクル、および禁止事項を厳格に遵守すること。
+- **Dockerの強制**: テスト実行や検証コマンドは、必ず Docker コンテナ内で実行すること。
+- **同期更新**: モデル変更時は [database_schema.md](docs/internal_design/database_schema.md) を、ドキュメント追加・変更時は [README.md](README.md) を必ず同期して更新すること。

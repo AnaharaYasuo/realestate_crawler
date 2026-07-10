@@ -781,6 +781,135 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 await sync_to_async(item.save)()
                 logging.info(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
                 
+                # ----------------------------------------------------
+                # 2段階スクリーニング統合処理
+                # ----------------------------------------------------
+                try:
+                    # 機械学習・画像解析モジュールのインポート
+                    from package.ml.predict import predict_first_stage, predict_second_stage
+                    from package.models.evaluation import PropertyEvaluation, PropertyImage
+                    from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
+                    from django.utils import timezone
+                    
+                    # 1. 不動産会社名と物件種別の特定
+                    model_name = item.__class__.__name__
+                    company = "unknown"
+                    for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa"]:
+                        if model_name.lower().startswith(c):
+                            company = c
+                            break
+                    property_type = model_name.lower().replace(company, "")
+                    
+                    # 2. 一次理論価格予測の実行
+                    price_stage1 = await sync_to_async(predict_first_stage)(item)
+                    
+                    # 3. 一次合格判定（理論価格が販売価格以上） - 販売価格（円）を万円単位にスケール変換して比較
+                    asking_price = (float(item.price) / 10000.0) if item.price else 0.0
+                    is_passed = False
+                    if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
+                        is_passed = True
+                        
+                    # 4. PropertyEvaluation レコードの作成/更新
+                    eval_record, created = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
+                        property_url=item.pageUrl,
+                        defaults={
+                            "company": company,
+                            "property_type": property_type,
+                            "property_id": item.id,
+                            "first_stage_predicted_price": price_stage1,
+                            "is_first_stage_passed": is_passed,
+                            "analysis_status": "pending"
+                        }
+                    )
+                    
+                    logging.info(f"ML: Stage 1 predicted for {item.propertyName} ({item.pageUrl}) = {price_stage1}万円 (Asking: {asking_price}万円, Passed: {is_passed})")
+                    
+                    # 一次合格の場合のみ、詳細画像の取得と画像解析の実行
+                    if is_passed:
+                        soup = getattr(item, "_soup", None)
+                        raw_images = []
+                        if soup:
+                            # BeautifulSoup から画像をスクレイピング
+                            raw_images = extract_images_from_soup(soup, item.pageUrl)
+                            
+                        cleaned_images = clean_images(raw_images)
+                        
+                        if cleaned_images:
+                            # 予算上限 (1日200件) チェック
+                            if await sync_to_async(check_api_budget_cap)():
+                                logging.info(f"ML: Executing Gemini image analysis for {item.propertyName}...")
+                                # 解析ステータスを処理中に変更
+                                eval_record.analysis_status = "processing"
+                                await sync_to_async(eval_record.save)()
+                                
+                                # Gemini API で画像スコアを算出
+                                interior_score, layout_score = await sync_to_async(analyze_property_images_with_gemini)(cleaned_images)
+                                
+                                # 二次理論価格予測の実行
+                                price_stage2 = await sync_to_async(predict_second_stage)(item, interior_score, layout_score)
+                                
+                                # 投資価値スコアの算出 (割安度×50。最大100)
+                                if asking_price > 0:
+                                    ratio = float(price_stage2) / float(asking_price)
+                                    investment_score = min(100.0, max(0.0, ratio * 50.0))
+                                else:
+                                    investment_score = 0.0
+                                    
+                                # 結果を更新
+                                eval_record.second_stage_predicted_price = price_stage2
+                                eval_record.interior_score = interior_score
+                                eval_record.layout_score = layout_score
+                                eval_record.investment_score = investment_score
+                                eval_record.analysis_status = "completed"
+                                eval_record.analyzed_at = timezone.now()
+                                
+                                # 投資用物件の場合は、詳細な収支・融資・総合投資スコアの評価を実行
+                                if "investment" in property_type:
+                                    from package.ml.investment_evaluator import evaluate_investment_property
+                                    eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
+                                
+                                await sync_to_async(eval_record.save)()
+                                
+                                # 総合投資スコア（投資用以外は従来のinvestment_scoreを使用）
+                                final_score = eval_record.total_investment_score if "investment" in property_type else eval_record.investment_score
+                                
+                                logging.info(f"ML: Stage 2 prediction for {item.propertyName}: {price_stage2}万円 (Interior: {interior_score}, Layout: {layout_score}, Score: {final_score:.1f if final_score else 0.0})")
+                                
+                                # クレンジング画像情報を保存
+                                for img in cleaned_images:
+                                    await sync_to_async(PropertyImage.objects.create)(
+                                        evaluation=eval_record,
+                                        image_url=img["url"],
+                                        category=img["category"],
+                                        is_cleaned=True
+                                    )
+                                    
+                                # 投資スコアが基準値(例: 投資用は70以上、その他は60以上)を上回った場合にSlack/通知を行う
+                                threshold = 70.0 if "investment" in property_type else 60.0
+                                if final_score and final_score >= threshold:
+                                    if "investment" in property_type:
+                                        logging.info(
+                                            f"📢 [PREMIUM ALERT] プレミアムお宝物件を検出しました！\n"
+                                            f"物件名: {item.propertyName}\n"
+                                            f"価格: {asking_price}万円 (理論価格: {price_stage2}万円, 積算価格: {eval_record.estimated_sekisan_price}万円)\n"
+                                            f"キャッシュフロー: {eval_record.cash_flow}万円/年, DSCR: {eval_record.dscr}\n"
+                                            f"総合投資スコア: {final_score:.1f} (資産: {eval_record.investment_score:.1f}, 収益: {eval_record.cashflow_score:.1f}, 融資: {eval_record.finance_score:.1f})\n"
+                                            f"URL: {item.pageUrl}"
+                                        )
+                                    else:
+                                        logging.info(f"📢 [NOTIFICATION] 優良物件を検出しました！\n物件名: {item.propertyName}\n価格: {asking_price}万円 (理論価格: {price_stage2}万円, 投資スコア: {final_score:.1f})\nURL: {item.pageUrl}")
+                            else:
+                                eval_record.analysis_status = "skipped_by_budget"
+                                await sync_to_async(eval_record.save)()
+                                logging.warning(f"ML: Skipped Gemini analysis for {item.propertyName} due to daily budget cap.")
+                        else:
+                            logging.info(f"ML: No valid property images found for {item.propertyName}.")
+                            
+                except Exception as ex:
+                    logging.error(f"ML/Image screening error for {item.pageUrl}: {ex}")
+                    logging.error(traceback.format_exc())
+                # ----------------------------------------------------
+                
                 # Global Limit Check for Verification
                 global GLOBAL_SAVE_COUNT
                 try:
