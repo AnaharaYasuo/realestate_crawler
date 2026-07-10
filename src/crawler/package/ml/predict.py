@@ -200,8 +200,15 @@ def predict_first_stage(property_obj) -> int:
         if df[col].dtype == 'object':
             df[col] = df[col].astype('category').cat.codes
             
-    # アンサンブル予測の実行 (加重平均)
-    weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
+    # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
+    if ptype == 'mansion':
+        weights = {'lgb': 0.4, 'xgb': 0.4, 'cat': 0.2}
+    elif ptype == 'kodate':
+        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+    elif ptype == 'apartment':
+        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+    else:
+        weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
     loaded_weights = {}
     total_weight = 0.0
     
@@ -283,8 +290,15 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
         if df[col].dtype == 'object':
             df[col] = df[col].astype('category').cat.codes
             
-    # アンサンブル予測の実行 (加重平均)
-    weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
+    # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
+    if ptype == 'mansion':
+        weights = {'lgb': 0.4, 'xgb': 0.4, 'cat': 0.2}
+    elif ptype == 'kodate':
+        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+    elif ptype == 'apartment':
+        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+    else:
+        weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
     loaded_weights = {}
     total_weight = 0.0
     
