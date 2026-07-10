@@ -503,6 +503,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def main(self, url):
         self.url = url
         loop: Optional[asyncio.AbstractEventLoop] = None
+        runResult = None
         try:
             try:
                 loop = self._getActiveEventLoop()
