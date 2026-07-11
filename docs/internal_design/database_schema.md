@@ -1001,6 +1001,7 @@ WARNING: Skipping save for this property due to validation errors.
 | 21 | total_investment_score | Float | ✅ | 総合投資スコア (0-100) |
 | 22 | analysis_status | Char(30) | ❌ | 画像解析ステータス (Default: 'pending') |
 | 23 | analyzed_at | DateTime | ✅ | 解析実行日時 |
+| 24 | is_slack_notified | Bool | ❌ | Slack通知済みフラグ (Default: False) |
 
 ### 7.4 PropertyImage
 

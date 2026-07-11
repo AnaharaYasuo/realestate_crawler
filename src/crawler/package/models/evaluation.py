@@ -102,6 +102,7 @@ class PropertyEvaluation(models.Model):
         verbose_name="画像解析ステータス"
     )
     analyzed_at = models.DateTimeField(null=True, blank=True, verbose_name="解析実行日時")
+    is_slack_notified = models.BooleanField(default=False, verbose_name="Slack通知済みフラグ")
 
     class Meta:
         db_table = 'property_evaluation'

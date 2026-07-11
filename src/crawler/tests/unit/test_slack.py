@@ -65,3 +65,56 @@ async def test_send_slack_message_http_error(monkeypatch):
     with patch("aiohttp.ClientSession.post", return_value=mock_post):
         result = await send_slack_message("Hello Test")
         assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_url_active_empty():
+    """空のURLが指定された場合、Falseを返すことをテスト"""
+    from package.utils.slack import verify_url_active
+    result = await verify_url_active("")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_url_active_success():
+    """URL接続が成功(200 OK)した場合、Trueを返すことをテスト"""
+    from package.utils.slack import verify_url_active
+    
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_get.__aexit__ = AsyncMock()
+    
+    with patch("aiohttp.ClientSession.get", return_value=mock_get):
+        result = await verify_url_active("http://example.com")
+        assert result is True
+
+
+@pytest.mark.asyncio
+async def test_verify_url_active_failed():
+    """URL接続が失敗(404等)した場合、Falseを返すことをテスト"""
+    from package.utils.slack import verify_url_active
+    
+    mock_resp = AsyncMock()
+    mock_resp.status = 404
+    
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_get.__aexit__ = AsyncMock()
+    
+    with patch("aiohttp.ClientSession.get", return_value=mock_get):
+        result = await verify_url_active("http://example.com")
+        assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_url_active_exception():
+    """URLリクエストで例外が発生した場合、Falseを返すことをテスト"""
+    from package.utils.slack import verify_url_active
+    
+    with patch("aiohttp.ClientSession.get", side_effect=Exception("Connection refused")):
+        result = await verify_url_active("http://example.com")
+        assert result is False
+
