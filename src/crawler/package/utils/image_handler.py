@@ -166,10 +166,10 @@ def check_api_budget_cap() -> bool:
     """
     当日の画像解析APIの実行数が上限（200件）を超えていないかチェックする。
     """
-    today = timezone.now().date()
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
     current_count = PropertyEvaluation.objects.filter(
         analysis_status__in=['completed', 'processing'],
-        analyzed_at__date=today
+        analyzed_at__gte=today_start
     ).count()
     
     return current_count < MAX_DAILY_IMAGE_ANALYSIS
