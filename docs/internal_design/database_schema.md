@@ -10,6 +10,24 @@
 4. [Tokyu (東急リバブル)](#4-tokyu-東急リバブル)
 5. [Nomura (野村の仲介+)](#5-nomura-野村の仲介)
 6. [Misawa (ミサワホーム不動産)](#6-misawa-ミサワホーム不動産)
+7. [Athome (アットホーム)](#7-athome-アットホーム)
+8. [Homes (LIFULL HOME'S)](#8-homes-lifull-homes)
+9. [Smtrc (三井住友トラスト不動産)](#9-smtrc-三井住友トラスト不動産)
+10. [Sumai1 (三菱UFJ不動産販売)](#10-sumai1-三菱ufj不動産販売)
+11. [Sekisui (積水ハウス不動産)](#11-sekisui-積水ハウス不動産)
+12. [Mizuho (みずほ不動産販売)](#13-mizuho-みずほ不動産販売---mizuho)
+13. [Odakyu (小田急不動産)](#14-odakyu-小田急不動産---odakyu)
+14. [Totate (東京建物不動産販売)](#15-totate-東京建物不動産販売---totate)
+15. [Daiwa (大和ハウスリアルエステート)](#16-daiwa-大和ハウスリアルエステート---daiwa)
+16. [Sumirin (住友林業ホームサービス)](#17-sumirin-住友林業ホームサービス---sumirin)
+17. [Heim (セキスイハイム不動産)](#18-heim-セキスイハイム不動産---heim)
+18. [Rearie (パナソニックホームズ不動産)](#19-rearie-パナソニックホームズ不動産---rearie)
+19. [Keio (京王不動産)](#20-keio-京王不動産---keio)
+20. [Seibu (西武不動産)](#21-seibu-西武不動産---seibu)
+21. [Keikyu (京急不動産)](#22-keikyu-京急不動産---keikyu)
+22. [Sotetsu (相鉄不動産販売)](#23-sotetsu-相鉄不動産販売---sotetsu)
+23. [Keisei (京成不動産)](#24-keisei-京成不動産---keisei)
+24. [Daikyo (大京穴吹不動産)](#25-daikyo-大京穴吹不動産---daikyo)
 
 ---
 
@@ -341,6 +359,15 @@
 | 73 | youseki | Int | ✅ | 容積率 |
 | 74-80 | chiikiChiku, kuiki, youtoChiiki, boukaChiiki, saikenchiku, sonotaChiiki, kenchikuJoken | Text | ❌ | 用途・建築条件等 |
 | 81 | kokudoHou | Text | ❌ | 国土法 |
+| 82 | maguchiStr | Text | ✅ | 間口（文字列） |
+| 83 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
+| 84 | okuyukiStr | Text | ✅ | 奥行（文字列） |
+| 85 | okuyuki | Dec(6,2) | ✅ | 奥行（数値） |
+| 86 | roadWidthStr | Text | ✅ | 前面道路幅員（文字列） |
+| 87 | roadWidth | Dec(6,2) | ✅ | 前面道路幅員（数値） |
+| 88 | roadDirection | Text | ✅ | 接道方位 |
+| 89 | roadType | Text | ✅ | 道路区分 |
+| 90 | roadStructure | Text | ✅ | 接道状況 |
 
 ---
 
@@ -434,6 +461,15 @@
 | 49 | kenpei | Int | ✅ | 建ぺい率 |
 | 50 | youseki | Int | ✅ | 容積率 |
 | 51 | chimoku | Text | ✅ | 地目 |
+| 52 | maguchiStr | Text | ✅ | 間口（文字列） |
+| 53 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
+| 54 | okuyukiStr | Text | ✅ | 奥行（文字列） |
+| 55 | okuyuki | Dec(6,2) | ✅ | 奥行（数値） |
+| 56 | roadWidthStr | Text | ✅ | 前面道路幅員（文字列） |
+| 57 | roadWidth | Dec(6,2) | ✅ | 前面道路幅員（数値） |
+| 58 | roadDirection | Text | ✅ | 接道方位 |
+| 59 | roadType | Text | ✅ | 道路区分 |
+| 60 | roadStructure | Text | ✅ | 接道状況 |
 
 ### 3.5 MitsuiInvestmentKodate
 
@@ -569,6 +605,15 @@
 | 47 | kenpei | Int | ✅ | 建ぺい率 |
 | 48 | youseki | Int | ✅ | 容積率 |
 | 49 | chimoku | Text | ✅ | 地目 |
+| 50 | maguchiStr | Text | ✅ | 間口（文字列） |
+| 51 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
+| 52 | okuyukiStr | Text | ✅ | 奥行（文字列） |
+| 53 | okuyuki | Dec(6,2) | ✅ | 奥行（数値） |
+| 54 | roadWidthStr | Text | ✅ | 前面道路幅員（文字列） |
+| 55 | roadWidth | Dec(6,2) | ✅ | 前面道路幅員（数値） |
+| 56 | roadDirection | Text | ✅ | 接道方位 |
+| 57 | roadType | Text | ✅ | 道路区分 |
+| 58 | roadStructure | Text | ✅ | 接道状況 |
 
 ### 4.5 TokyuInvestmentKodate
 
@@ -732,6 +777,15 @@
 | 54 | kenpei | Int | ✅ | 建ぺい率(数値) |
 | 55 | yousekiStr | Text | ❌ | 容積率(文字列) |
 | 56 | youseki | Int | ✅ | 容積率(数値) |
+| 57 | maguchiStr | Text | ✅ | 間口（文字列） |
+| 58 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
+| 59 | okuyukiStr | Text | ✅ | 奥行（文字列） |
+| 60 | okuyuki | Dec(6,2) | ✅ | 奥行（数値） |
+| 61 | roadWidthStr | Text | ✅ | 前面道路幅員（文字列） |
+| 62 | roadWidth | Dec(6,2) | ✅ | 前面道路幅員（数値） |
+| 63 | roadDirection | Text | ✅ | 接道方位 |
+| 64 | roadType | Text | ✅ | 道路区分 |
+| 65 | roadStructure | Text | ✅ | 接道状況 |
 
 ### 5.5 NomuraInvestmentKodate
 
@@ -879,6 +933,15 @@
 | 64 | buildingCondition | Text | ❌ | 建築条件 |
 | 65 | urbanPlanning | Text | ❌ | 都市計画 |
 | 66 | currentStatus | Text | ❌ | 現況 |
+| 67 | maguchiStr | Text | ✅ | 間口（文字列） |
+| 68 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
+| 69 | okuyukiStr | Text | ✅ | 奥行（文字列） |
+| 70 | okuyuki | Dec(6,2) | ✅ | 奥行（数値） |
+| 71 | roadWidthStr | Text | ✅ | 前面道路幅員（文字列） |
+| 72 | roadWidth | Dec(6,2) | ✅ | 前面道路幅員（数値） |
+| 73 | roadDirection | Text | ✅ | 接道方位 |
+| 74 | roadType | Text | ✅ | 道路区分 |
+| 75 | roadStructure | Text | ✅ | 接道状況 |
 
 ### 6.5 MisawaInvestmentApartment
 
@@ -960,6 +1023,9 @@ WARNING: Skipping save for this property due to validation errors.
 | 3 | city | Char(100) | ❌ | 市区町村 |
 | 4 | population_growth_rate | Dec(5,2) | ❌ | 人口増減率（％） |
 | 5 | average_income | Int | ❌ | 1人あたり平均所得（千円） |
+| 6 | total_population | Int | ✅ | 総人口（人） |
+| 7 | income_growth_rate | Dec(5,2) | ✅ | 所得変動率（％） |
+| 8 | population_density | Dec(8,2) | ✅ | 人口密度（人/㎢） |
 
 ### 7.2 StationPotential
 
@@ -999,9 +1065,13 @@ WARNING: Skipping save for this property due to validation errors.
 | 19 | cashflow_score | Float | ✅ | キャッシュフロースコア (0-100) |
 | 20 | finance_score | Float | ✅ | 融資適合性スコア (0-100) |
 | 21 | total_investment_score | Float | ✅ | 総合投資スコア (0-100) |
-| 22 | analysis_status | Char(30) | ❌ | 画像解析ステータス (Default: 'pending') |
-| 23 | analyzed_at | DateTime | ✅ | 解析実行日時 |
-| 24 | is_slack_notified | Bool | ❌ | Slack通知済みフラグ (Default: False) |
+| 22 | plot_shape_type | Char(30) | ❌ | 土地の形状 ('regular', 'irregular', 'flagpole', 'unknown') |
+| 23 | plot_shape_description | Text | ✅ | 土地の形状に関する説明・コメント |
+| 24 | maintenance_score | Float | ✅ | 外観メンテナンス状態スコア (1.0-5.0) |
+| 25 | maintenance_comment | Text | ✅ | 外観メンテナンス評価コメント |
+| 26 | analysis_status | Char(30) | ❌ | 画像解析ステータス (Default: 'pending') |
+| 27 | analyzed_at | DateTime | ✅ | 解析実行日時 |
+| 28 | is_slack_notified | Bool | ❌ | Slack通知済みフラグ (Default: False) |
 
 ### 7.4 PropertyImage
 
@@ -1028,7 +1098,8 @@ WARNING: Skipping save for this property due to validation errors.
 | 4 | average_land_price | Int | ❌ | 平均公示地価（円/㎡） |
 | 5 | estimated_rosenka_price | Int | ✅ | 推定相続税路線価（円/㎡） |
 | 6 | estimated_fixed_asset_price | Int | ✅ | 推定固定資産税評価価格（円/㎡） |
-| 7 | land_use | Char(50) | ❌ | 用途区分 ('residential', 'commercial') |
+| 7 | land_price_growth_rate | Dec(5,2) | ✅ | 地価変動率（％） |
+| 8 | land_use | Char(50) | ❌ | 用途区分 ('residential', 'commercial') |
 
 ### 7.6 HazardMapPotential
 
@@ -1041,5 +1112,926 @@ WARNING: Skipping save for this property due to validation errors.
 | 3 | city | Char(100) | ❌ | 市区町村 |
 | 4 | flood_risk_level | Int | ❌ | 浸水リスクレベル (0:低 - 4:極めて高) |
 | 5 | landslide_risk_level | Int | ❌ | 土砂災害リスクレベル (0:無 - 2:高) |
+
+
+## 7. Athome (アットホーム)
+
+### 7.1 AthomeCommon
+アットホーム共通の基本属性モデル。
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | hikiwatashi | Text | ✅ | 引渡時期 |
+| 2 | genkyo | Text | ✅ | 現況 |
+| 3 | tochikenri | Text | ✅ | 土地権利種類 |
+| 4 | biko | Text | ✅ | 備考 |
+
+### 7.2 AthomeMansion
+**テーブル名**: `athome_mansion`
+**継承**: AthomeCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | madori | Text | ✅ | 間取り |
+| 6 | senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| 7 | senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| 8 | kaisuStr | Text | ✅ | 所在階・階建 |
+| 9 | chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 10| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+| 11| saikou | Text | ✅ | 主要採光面 |
+| 12| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 13| soukosu | Int | ✅ | 総戸数 (数値) |
+| 14| kanriKeitai | Text | ✅ | 管理形態 |
+| 15| kanriKaisya | Text | ✅ | 管理会社 |
+| 16| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| 17| kanrihi | Int | ✅ | 管理費 (数値) |
+| 18| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| 19| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| 20| tyusyajo | Text | ✅ | 駐車場状況 |
+| 21| kouzou | Text | ✅ | 建物構造 |
+
+### 7.3 AthomeKodate
+**テーブル名**: `athome_kodate`
+**継承**: AthomeCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 6 | tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 7 | tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 8 | tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| 9 | kaisuStr | Text | ✅ | 階数・階建 |
+| 10| kouzou | Text | ✅ | 建物構造 |
+| 11| tyusyajo | Text | ✅ | 駐車場状況 |
+| 12| chimoku | Text | ✅ | 地目 |
+| 13| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 14| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 15| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 16| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 17| youtoChiiki | Text | ✅ | 用途地域 |
+| 18| setsudou | Text | ✅ | 接道状況 |
+| 19| douroMuki | Text | ✅ | 道路方位 |
+
+### 7.4 AthomeInvestmentApartment
+**テーブル名**: `athome_investment_apartment`
+**継承**: AthomeCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | grossYield | Dec(5,2) | ✅ | 表面利回り |
+| 6 | annualRent | Int | ✅ | 年間想定賃料 |
+| 7 | monthlyRent | Int | ✅ | 月額想定賃料 |
+| 8 | currentStatus | Text | ✅ | 現況 |
+| 9 | kouzou | Text | ✅ | 建物構造 |
+| 10| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 11| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 12| soukosu | Int | ✅ | 総戸数 (数値) |
+| 13| kaisuStr | Text | ✅ | 階数・階建 |
+| 14| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 15| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 16| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 17| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 18| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 19| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 20| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 21| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 22| setsudou | Text | ✅ | 接道状況 |
+| 23| chimoku | Text | ✅ | 地目 |
+| 24| youtoChiiki | Text | ✅ | 用途地域 |
+| 25| propertyType | Text | ❌ | 物件識別子 ("Apartment") |
+
+### 7.5 AthomeTochi
+**テーブル名**: `athome_tochi`
+**継承**: AthomeCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 6 | tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 7 | youtoChiiki | Text | ✅ | 用途地域 |
+| 8 | kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 9 | kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 10| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 11| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 12| maguchiStr | Text | ✅ | 間口 (文字列) |
+| 13| maguchi | Dec(6,2) | ✅ | 間口 (数値) |
+| 14| okuyukiStr | Text | ✅ | 奥行 (文字列) |
+| 15| okuyuki | Dec(6,2) | ✅ | 奥行 (数値) |
+| 16| roadWidthStr | Text | ✅ | 前面道路幅員 (文字列) |
+| 17| roadWidth | Dec(6,2) | ✅ | 前面道路幅員 (数値) |
+| 18| roadDirection | Text | ✅ | 接道方位 |
+| 19| roadType | Text | ✅ | 道路区分 (公道/私道) |
+| 20| roadStructure | Text | ✅ | 接道状況 (角地、中間地等) |
+| 21| chimoku | Text | ✅ | 地目 |
+| 22| setsudou | Text | ✅ | 接道状況詳細 |
+
+
+## 8. Homes (LIFULL HOME'S)
+
+### 8.1 HomesCommon
+ホームズ共通の基本属性モデル。
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | hikiwatashi | Text | ✅ | 引渡時期 |
+| 2 | genkyo | Text | ✅ | 現況 |
+| 3 | tochikenri | Text | ✅ | 土地権利種類 |
+| 4 | biko | Text | ✅ | 備考 |
+
+### 8.2 HomesMansion
+**テーブル名**: `homes_mansion`
+**継承**: HomesCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | madori | Text | ✅ | 間取り |
+| 6 | senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| 7 | senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| 8 | kaisuStr | Text | ✅ | 所在階・階建 |
+| 9 | chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 10| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+| 11| saikou | Text | ✅ | 主要採光面 |
+| 12| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 13| soukosu | Int | ✅ | 総戸数 (数値) |
+| 14| kanriKeitai | Text | ✅ | 管理形態 |
+| 15| kanriKaisya | Text | ✅ | 管理会社 |
+| 16| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| 17| kanrihi | Int | ✅ | 管理費 (数値) |
+| 18| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| 19| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| 20| tyusyajo | Text | ✅ | 駐車場状況 |
+| 21| kouzou | Text | ✅ | 建物構造 |
+
+### 8.3 HomesKodate
+**テーブル名**: `homes_kodate`
+**継承**: HomesCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 6 | tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 7 | tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 8 | tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| 9 | kaisuStr | Text | ✅ | 階数・階建 |
+| 10| kouzou | Text | ✅ | 建物構造 |
+| 11| tyusyajo | Text | ✅ | 駐車場状況 |
+| 12| chimoku | Text | ✅ | 地目 |
+| 13| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 14| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 15| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 16| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 17| youtoChiiki | Text | ✅ | 用途地域 |
+| 18| setsudou | Text | ✅ | 接道状況 |
+| 19| douroMuki | Text | ✅ | 道路方位 |
+
+### 8.4 HomesInvestmentApartment
+**テーブル名**: `homes_investment_apartment`
+**継承**: HomesCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | grossYield | Dec(5,2) | ✅ | 表面利回り |
+| 6 | annualRent | Int | ✅ | 年間想定賃料 |
+| 7 | monthlyRent | Int | ✅ | 月額想定賃料 |
+| 8 | currentStatus | Text | ✅ | 現況 |
+| 9 | kouzou | Text | ✅ | 建物構造 |
+| 10| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 11| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 12| soukosu | Int | ✅ | 総戸数 (数値) |
+| 13| kaisuStr | Text | ✅ | 階数・階建 |
+| 14| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 15| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 16| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 17| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 18| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 19| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 20| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 21| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 22| setsudou | Text | ✅ | 接道状況 |
+| 23| chimoku | Text | ✅ | 地目 |
+| 24| youtoChiiki | Text | ✅ | 用途地域 |
+| 25| propertyType | Text | ❌ | 物件識別子 ("Apartment") |
+
+### 8.5 HomesTochi
+**テーブル名**: `homes_tochi`
+**継承**: HomesCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 5 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 6 | tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 7 | youtoChiiki | Text | ✅ | 用途地域 |
+| 8 | kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 9 | kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 10| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 11| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 12| maguchiStr | Text | ✅ | 間口 (文字列) |
+| 13| maguchi | Dec(6,2) | ✅ | 間口 (数値) |
+| 14| okuyukiStr | Text | ✅ | 奥行 (文字列) |
+| 15| okuyuki | Dec(6,2) | ✅ | 奥行 (数値) |
+| 16| roadWidthStr | Text | ✅ | 前面道路幅員 (文字列) |
+| 17| roadWidth | Dec(6,2) | ✅ | 前面道路幅員 (数値) |
+| 18| roadDirection | Text | ✅ | 接道方位 |
+| 19| roadType | Text | ✅ | 道路区分 (公道/私道) |
+| 20| roadStructure | Text | ✅ | 接道状況 (角地、中間地等) |
+| 21| chimoku | Text | ✅ | 地目 |
+| 22 | setsudou | Text | ✅ | 接道状況詳細 |
+
+## 9. Smtrc (三井住友トラスト不動産)
+
+### 9.1 SmtrcCommon
+三井住友トラスト不動産共通の基本属性モデル。
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | address1 | Text | ✅ | 都道府県 |
+| 2 | address2 | Text | ✅ | 市区町村 |
+| 3 | address3 | Text | ✅ | それ以下の住所 |
+| 4 | hikiwatashi | Text | ✅ | 引渡時期 |
+| 5 | genkyo | Text | ✅ | 現況 |
+| 6 | tochikenri | Text | ✅ | 土地権利種類 |
+| 7 | torihiki | Text | ✅ | 取引態様 |
+| 8 | biko | Text | ✅ | 備考 |
+
+### 9.2 SmtrcMansion
+**テーブル名**: `smtrc_mansion`
+**継承**: SmtrcCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | madori | Text | ✅ | 間取り |
+| 10| senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| 11| senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| 12| kaisuStr | Text | ✅ | 所在階 |
+| 13| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 14| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+| 15| saikou | Text | ✅ | 主要採光面 |
+| 16| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 17| soukosu | Int | ✅ | 総戸数 (数値) |
+| 18| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| 19| kanrihi | Int | ✅ | 管理費 (数値) |
+| 20| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| 21| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| 22| kanriKeitai | Text | ✅ | 管理形態 |
+| 23| kanriKaisya | Text | ✅ | 管理会社 |
+| 24| kouzou | Text | ✅ | 建物構造 |
+
+### 9.3 SmtrcKodate
+**テーブル名**: `smtrc_kodate`
+**継承**: SmtrcCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 12| tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| 13| kaisuStr | Text | ✅ | 階数 |
+| 14| madori | Text | ✅ | 間取り |
+| 15| kouzou | Text | ✅ | 構造 |
+| 16| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 17| youtoChiiki | Text | ✅ | 用途地域 |
+| 18| kuiki | Text | ✅ | 都市計画 |
+| 19| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 20| youseki | Dec(10,3) | ✅ | 容積率 |
+| 21| setsudou | Text | ✅ | 接道状況 |
+
+### 9.4 SmtrcTochi
+**テーブル名**: `smtrc_tochi`
+**継承**: SmtrcCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| kenchikuJoken | Text | ✅ | 建築条件 |
+| 12| chimoku | Text | ✅ | 地目 |
+| 13| youtoChiiki | Text | ✅ | 用途地域 |
+| 14| kuiki | Text | ✅ | 都市計画 |
+| 15| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 16| youseki | Dec(10,3) | ✅ | 容積率 |
+| 17| setsudou | Text | ✅ | 接道状況 |
+
+### 9.5 SmtrcInvestment
+**テーブル名**: `smtrc_investment`
+**継承**: SmtrcCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | grossYield | Dec(5,2) | ✅ | 表面利回り |
+| 10| annualRent | Int | ✅ | 想定年間収入 |
+| 11| currentStatus | Text | ✅ | 現況 |
+| 12| kouzou | Text | ✅ | 建物構造 |
+| 13| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 14| chikunengetsu | Date | ✅ | 築年月 (日付) |
+| 15| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 16| soukosu | Int | ✅ | 総戸数 (数値) |
+| 17| kaisuStr | Text | ✅ | 階数 |
+| 18| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 19| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 20| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 21| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 22| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 23| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 24| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 25| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 26| setsudou | Text | ✅ | 接道状況 |
+| 27| chimoku | Text | ✅ | 地目 |
+| 28| youtoChiiki | Text | ✅ | 用途地域 |
+| 29| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+
+## 10. Sumai1 (三菱UFJ不動産販売)
+
+
+### 10.1 Sumai1Common
+三菱UFJ不動産販売共通の基本属性モデル。
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | address1 | Text | ✅ | 都道府県 |
+| 2 | address2 | Text | ✅ | 市区町村 |
+| 3 | address3 | Text | ✅ | それ以下の住所 |
+| 4 | hikiwatashi | Text | ✅ | 引渡時期 |
+| 5 | genkyo | Text | ✅ | 現況 |
+| 6 | tochikenri | Text | ✅ | 土地権利種類 |
+| 7 | torihiki | Text | ✅ | 取引態様 |
+| 8 | biko | Text | ✅ | 備考 |
+
+### 10.2 Sumai1Mansion
+**テーブル名**: `sumai1_mansion`
+**継承**: Sumai1Common
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | madori | Text | ✅ | 間取り |
+| 10| senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| 11| senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| 12| kaisuStr | Text | ✅ | 所在階 |
+| 13| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 14| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+| 15| saikou | Text | ✅ | 主要採光面 |
+| 16| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 17| soukosu | Int | ✅ | 総戸数 (数値) |
+| 18| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| 19| kanrihi | Int | ✅ | 管理費 (数値) |
+| 20| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| 21| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| 22| kanriKeitai | Text | ✅ | 管理形態 |
+| 23| kanriKaisya | Text | ✅ | 管理会社 |
+| 24| kouzou | Text | ✅ | 建物構造 |
+
+### 10.3 Sumai1Kodate
+**テーブル名**: `sumai1_kodate`
+**継承**: Sumai1Common
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 12| tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| 13| kaisuStr | Text | ✅ | 階数 |
+| 14| madori | Text | ✅ | 間取り |
+| 15| kouzou | Text | ✅ | 構造 |
+| 16| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 17| youtoChiiki | Text | ✅ | 用途地域 |
+| 18| kuiki | Text | ✅ | 都市計画 |
+| 19| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 20| youseki | Dec(10,3) | ✅ | 容積率 |
+| 21| setsudou | Text | ✅ | 接道状況 |
+
+### 10.4 Sumai1Tochi
+**テーブル名**: `sumai1_tochi`
+**継承**: Sumai1Common
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| kenchikuJoken | Text | ✅ | 建築条件 |
+| 12| chimoku | Text | ✅ | 地目 |
+| 13| youtoChiiki | Text | ✅ | 用途地域 |
+| 14| kuiki | Text | ✅ | 都市計画 |
+| 15| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 16| youseki | Dec(10,3) | ✅ | 容積率 |
+| 17| setsudou | Text | ✅ | 接道状況 |
+
+### 10.5 Sumai1Investment
+**テーブル名**: `sumai1_investment`
+**継承**: Sumai1Common
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | grossYield | Dec(5,2) | ✅ | 表面利回り |
+| 10| annualRent | Int | ✅ | 想定年間収入 |
+| 11| currentStatus | Text | ✅ | 現況 |
+| 12| kouzou | Text | ✅ | 建物構造 |
+| 13| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 14| chikunengetsu | Date | ✅ | 築年月 (日付) |
+| 15| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 16| soukosu | Int | ✅ | 総戸数 (数値) |
+| 17| kaisuStr | Text | ✅ | 階数 |
+| 18| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 19| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| 20| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 21| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| 22| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| 23| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| 24| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| 25| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| 26| setsudou | Text | ✅ | 接道状況 |
+| 27| chimoku | Text | ✅ | 地目 |
+| 28| youtoChiiki | Text | ✅ | 用途地域 |
+| 29| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+
+## 11. Sekisui (積水ハウス不動産)
+
+
+### 11.1 SekisuiCommon
+積水ハウス不動産共通の基本属性モデル。
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 1 | address1 | Text | ✅ | 都道府県 |
+| 2 | address2 | Text | ✅ | 市区町村 |
+| 3 | address3 | Text | ✅ | それ以下の住所 |
+| 4 | hikiwatashi | Text | ✅ | 引渡時期 |
+| 5 | genkyo | Text | ✅ | 現況 |
+| 6 | tochikenri | Text | ✅ | 土地権利種類 |
+| 7 | torihiki | Text | ✅ | 取引態様 |
+| 8 | biko | Text | ✅ | 備考 |
+
+### 11.2 SekisuiMansion
+**テーブル名**: `sekisui_mansion`
+**継承**: SekisuiCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | madori | Text | ✅ | 間取り |
+| 10| senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| 11| senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| 12| kaisuStr | Text | ✅ | 所在階 |
+| 13| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 14| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+| 15| saikou | Text | ✅ | 主要採光面 |
+| 16| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| 17| soukosu | Int | ✅ | 総戸数 (数値) |
+| 18| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| 19| kanrihi | Int | ✅ | 管理費 (数値) |
+| 20| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| 21| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| 22| kanriKeitai | Text | ✅ | 管理形態 |
+| 23| kanriKaisya | Text | ✅ | 管理会社 |
+| 24| kouzou | Text | ✅ | 建物構造 |
+
+### 11.3 SekisuiKodate
+**テーブル名**: `sekisui_kodate`
+**継承**: SekisuiCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| 12| tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| 13| kaisuStr | Text | ✅ | 階数 |
+| 14| madori | Text | ✅ | 間取り |
+| 15| kouzou | Text | ✅ | 構造 |
+| 16| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| 17| youtoChiiki | Text | ✅ | 用途地域 |
+| 18| kuiki | Text | ✅ | 都市計画 |
+| 19| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 20| youseki | Dec(10,3) | ✅ | 容積率 |
+| 21| setsudou | Text | ✅ | 接道状況 |
+
+### 11.4 SekisuiTochi
+**テーブル名**: `sekisui_tochi`
+**継承**: SekisuiCommon
+
+| # | フィールド名 | 型 | NULL | 説明 |
+|---|:---|:---|:---:|:---|
+| 9 | tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| 10| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| 11| kenchikuJoken | Text | ✅ | 建築条件 |
+| 12| chimoku | Text | ✅ | 地目 |
+| 13| youtoChiiki | Text | ✅ | 用途地域 |
+| 14| kuiki | Text | ✅ | 都市計画 |
+| 15| kenpei | Dec(10,3) | ✅ | 建ぺい率 |
+| 16| youseki | Dec(10,3) | ✅ | 容積率 |
+| 17| setsudou | Text | ✅ | 接道状況 |
+## 12. Asahi Kasei (旭化成不動産レジデンス - afr)
+
+### 12.1 AfrCommon (共通抽象モデル)
+**継承**: PropertyBaseModel, TransportationMixin
+※すべての `afr_` テーブルに共通して存在する基本カラム。
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| id | Auto | ❌ | 主キー |
+| companyKey | Text | ❌ | 企業キー (`afr`) |
+| pageUrl | Text | ❌ | 物件詳細URL (ユニークキー) |
+| propertyName | Text | ❌ | 物件名 |
+| address | Text | ❌ | 住所 (全体) |
+| address1 | Text | ✅ | 都道府県 |
+| address2 | Text | ✅ | 市区町村 |
+| address3 | Text | ✅ | それ以下の町名・番地 |
+| addressKyoto | Text | ✅ | 京都市特有の通り名など |
+| priceStr | Text | ✅ | 価格 (表示文字列) |
+| price | BigInt | ✅ | 価格 (数値) |
+| genkyo | Text | ✅ | 現況 |
+| hikiwatashi | Text | ✅ | 引渡時期 |
+| tochikenri | Text | ✅ | 土地権利 |
+| torihiki | Text | ✅ | 取引態様 |
+| biko | Text | ✅ | 備考・その他情報 |
+| created_at | DateTime| ❌ | データ取得日時 |
+| updated_at | DateTime| ❌ | データ更新日時 |
+
+### 12.2 AfrMansion
+**テーブル名**: `afr_mansion`
+**継承**: AfrCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| madori | Text | ✅ | 間取り |
+| senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| kaisuStr | Text | ✅ | 所在階 (文字列) |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 |
+| saikou | Text | ✅ | 主要採光面 |
+| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| soukosu | Int | ✅ | 総戸数 (数値) |
+| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| kanrihi | Int | ✅ | 管理費 (数値) |
+| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| kanriKeitai | Text | ✅ | 管理形態 |
+| kanriKaisya | Text | ✅ | 管理会社 |
+| kouzou | Text | ✅ | 構造 |
+| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+
+### 12.3 AfrKodate
+**テーブル名**: `afr_kodate`
+**継承**: AfrCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| kaisuStr | Text | ✅ | 階数 (文字列) |
+| kaisu | Int | ✅ | 階数 (数値) |
+| kouzou | Text | ✅ | 建物構造 |
+| madori | Text | ✅ | 間取り |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| kuiki | Text | ✅ | 都市計画 |
+| setsudou | Text | ✅ | 接道状況 |
+| douroHaba | Dec(10,3) | ✅ | 接道道路幅員 |
+| setsumen | Dec(10,3) | ✅ | 接面長さ |
+
+### 12.4 AfrTochi
+**テーブル名**: `afr_tochi`
+**継承**: AfrCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| kenchikuJoken | Text | ✅ | 建築条件 |
+| chimoku | Text | ✅ | 地目 |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| kuiki | Text | ✅ | 都市計画 |
+| setsudou | Text | ✅ | 接道状況 |
+| douroHaba | Dec(10,3) | ✅ | 接道道路幅員 |
+| setsumen | Dec(10,3) | ✅ | 接面長さ |
+
+## 13. Mizuho (みずほ不動産販売 - mizuho)
+
+### 13.1 MizuhoCommon (共通抽象モデル)
+**継承**: PropertyBaseModel, TransportationMixin
+※すべての `mizuho_` テーブルに共通して存在する基本カラム。
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| id | Auto | ❌ | 主キー |
+| companyKey | Text | ❌ | 企業キー (`mizuho`) |
+| pageUrl | Text | ❌ | 物件詳細URL (ユニークキー) |
+| propertyName | Text | ❌ | 物件名 |
+| address | Text | ❌ | 住所 (全体) |
+| address1 | Text | ✅ | 都道府県 |
+| address2 | Text | ✅ | 市区町村 |
+| address3 | Text | ✅ | それ以下の町名・番地 |
+| addressKyoto | Text | ✅ | 京都市特有の通り名など |
+| priceStr | Text | ✅ | 価格 (表示文字列) |
+| price | BigInt | ✅ | 価格 (数値) |
+| genkyo | Text | ✅ | 現況 |
+| hikiwatashi | Text | ✅ | 引渡時期 |
+| tochikenri | Text | ✅ | 土地権利 |
+| torihiki | Text | ✅ | 取引態様 |
+| biko | Text | ✅ | 備考・その他情報 |
+| created_at | DateTime| ❌ | データ取得日時 |
+| updated_at | DateTime| ❌ | データ更新日時 |
+
+### 13.2 MizuhoMansion
+**テーブル名**: `mizuho_mansion`
+**継承**: MizuhoCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| madori | Text | ✅ | 間取り |
+| senyuMensekiStr | Text | ✅ | 専有面積 (文字列) |
+| senyuMenseki | Dec(10,3) | ✅ | 専有面積 (数値) |
+| kaisuStr | Text | ✅ | 所在階 (文字列) |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 |
+| saikou | Text | ✅ | 主要採光面 |
+| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| soukosu | Int | ✅ | 総戸数 (数値) |
+| kanrihiStr | Text | ✅ | 管理費 (文字列) |
+| kanrihi | Int | ✅ | 管理費 (数値) |
+| syuzenTsumitateStr | Text | ✅ | 修繕積立金 (文字列) |
+| syuzenTsumitate | Int | ✅ | 修繕積立金 (数値) |
+| kanriKeitai | Text | ✅ | 管理形態 |
+| kanriKaisya | Text | ✅ | 管理会社 |
+| kouzou | Text | ✅ | 構造 |
+| balconyMensekiStr | Text | ✅ | バルコニー面積 (文字列) |
+
+### 13.3 MizuhoKodate
+**テーブル名**: `mizuho_kodate`
+**継承**: MizuhoCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| tatemonoMenseki | Dec(10,3) | ✅ | 建物面積 (数値) |
+| kaisuStr | Text | ✅ | 階数 (文字列) |
+| kaisu | Int | ✅ | 階数 (数値) |
+| kouzou | Text | ✅ | 建物構造 |
+| madori | Text | ✅ | 間取り |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| kuiki | Text | ✅ | 都市計画 |
+| setsudou | Text | ✅ | 接道状況 |
+| douroHaba | Dec(10,3) | ✅ | 接道道路幅員 |
+| setsumen | Dec(10,3) | ✅ | 接面長さ |
+
+### 13.4 MizuhoTochi
+**テーブル名**: `mizuho_tochi`
+**継承**: MizuhoCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,3) | ✅ | 土地面積 (数値) |
+| kenchikuJoken | Text | ✅ | 建築条件 |
+| chimoku | Text | ✅ | 地目 |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| kuiki | Text | ✅ | 都市計画 |
+| setsudou | Text | ✅ | 接道状況 |
+| douroHaba | Dec(10,3) | ✅ | 接道道路幅員 |
+| setsumen | Dec(10,3) | ✅ | 接面長さ |
+
+### 13.5 MizuhoInvestment
+**テーブル名**: `mizuho_investment`
+**継承**: MizuhoCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| grossYield | Dec(5,2) | ✅ | 表面利回り |
+| annualRent | Int | ✅ | 想定年間収入 |
+| currentStatus | Text | ✅ | 現況 |
+| kouzou | Text | ✅ | 建物構造 |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 (日付) |
+| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| soukosu | Int | ✅ | 総戸数 (数値) |
+| kaisuStr | Text | ✅ | 階数 |
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| setsudou | Text | ✅ | 接道状況 |
+| chimoku | Text | ✅ | 地目 |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+
+## 14. Odakyu (小田急不動産 - odakyu)
+
+### 14.1 OdakyuCommon (共通抽象モデル)
+**テーブル**: `odakyu_mansion`, `odakyu_kodate`, `odakyu_tochi`, `odakyu_investment` の共通カラム。
+
+### 14.2 OdakyuInvestment
+**テーブル名**: `odakyu_investment`
+**継承**: OdakyuCommon
+
+| フィールド名 | 型 | NULL | 説明 |
+|:---|:---|:---:|:---|
+| grossYield | Dec(5,2) | ✅ | 表面利回り |
+| annualRent | Int | ✅ | 想定年間収入 |
+| currentStatus | Text | ✅ | 現況 |
+| kouzou | Text | ✅ | 建物構造 |
+| chikunengetsuStr | Text | ✅ | 築年月 (文字列) |
+| chikunengetsu | Date | ✅ | 築年月 (日付) |
+| soukosuStr | Text | ✅ | 総戸数 (文字列) |
+| soukosu | Int | ✅ | 総戸数 (数値) |
+| kaisuStr | Text | ✅ | 階数 |
+| tochiMensekiStr | Text | ✅ | 土地面積 (文字列) |
+| tochiMenseki | Dec(10,2) | ✅ | 土地面積 (数値) |
+| tatemonoMensekiStr | Text | ✅ | 建物面積 (文字列) |
+| tatemonoMenseki | Dec(10,2) | ✅ | 建物面積 (数値) |
+| kenpeiStr | Text | ✅ | 建ぺい率 (文字列) |
+| kenpei | Dec(10,3) | ✅ | 建ぺい率 (数値) |
+| yousekiStr | Text | ✅ | 容積率 (文字列) |
+| youseki | Dec(10,3) | ✅ | 容積率 (数値) |
+| setsudou | Text | ✅ | 接道状況 |
+| chimoku | Text | ✅ | 地目 |
+| youtoChiiki | Text | ✅ | 用途地域 |
+| propertyType | Text | ❌ | 物件種別識別子 ("Apartment", "Mansion", "Building") |
+
+### 15. Totate (東京建物不動産販売 - totate)
+
+### 15.1 TotateCommon (共通抽象モデル)
+**テーブル**: `totate_mansion`, `totate_kodate`, `totate_tochi` の共通カラム。
+
+### 16. Daiwa (大和ハウスリアルエステート - daiwa)
+### 16.1 DaiwaCommon (共通抽象モデル)
+**テーブル**: `daiwa_mansion`, `daiwa_kodate`, `daiwa_tochi` の共通カラム。
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 17. Sumirin (住友林業ホームサービス - sumirin)
+
+### 17.1 SumirinCommon (共通抽象モデル)
+**テーブル**: `sumirin_mansion`, `sumirin_kodate`, `sumirin_tochi`, `sumirin_investment` の共通カラム。
+
+### 17.2 SumirinMansion
+**テーブル名**: `sumirin_mansion`
+
+### 17.3 SumirinKodate
+**テーブル名**: `sumirin_kodate`
+
+### 17.4 SumirinTochi
+**テーブル名**: `sumirin_tochi`
+
+### 17.5 SumirinInvestment
+**テーブル名**: `sumirin_investment`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 18. Heim (セキスイハイム不動産 - heim)
+
+### 18.1 HeimCommon (共通抽象モデル)
+**テーブル**: `heim_mansion`, `heim_kodate`, `heim_tochi` の共通カラム。
+
+### 18.2 HeimMansion
+**テーブル名**: `heim_mansion`
+
+### 18.3 HeimKodate
+**テーブル名**: `heim_kodate`
+
+### 18.4 HeimTochi
+**テーブル名**: `heim_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 19. Rearie (パナソニックホームズ不動産 - rearie)
+
+### 19.1 RearieCommon (共通抽象モデル)
+**テーブル**: `rearie_mansion`, `rearie_kodate`, `rearie_tochi` の共通カラム。
+
+### 19.2 RearieMansion
+**テーブル名**: `rearie_mansion`
+
+### 19.3 RearieKodate
+**テーブル名**: `rearie_kodate`
+
+### 19.4 RearieTochi
+**テーブル名**: `rearie_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 20. Keio (京王不動産 - keio)
+
+### 20.1 KeioCommon (共通抽象モデル)
+**テーブル**: `keio_mansion`, `keio_kodate`, `keio_tochi` の共通カラム。
+
+### 20.2 KeioMansion
+**テーブル名**: `keio_mansion`
+
+### 20.3 KeioKodate
+**テーブル名**: `keio_kodate`
+
+### 20.4 KeioTochi
+**テーブル名**: `keio_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 21. Seibu (西武不動産 - seibu)
+
+### 21.1 SeibuCommon (共通抽象モデル)
+**テーブル**: `seibu_mansion`, `seibu_kodate`, `seibu_tochi` の共通カラム。
+
+### 21.2 SeibuMansion
+**テーブル名**: `seibu_mansion`
+
+### 21.3 SeibuKodate
+**テーブル名**: `seibu_kodate`
+
+### 21.4 SeibuTochi
+**テーブル名**: `seibu_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 22. Keikyu (京急不動産 - keikyu)
+
+### 22.1 KeikyuCommon (共通抽象モデル)
+**テーブル**: `keikyu_mansion`, `keikyu_kodate`, `keikyu_tochi` の共通カラム。
+
+### 22.2 KeikyuMansion
+**テーブル名**: `keikyu_mansion`
+
+### 22.3 KeikyuKodate
+**テーブル名**: `keikyu_kodate`
+
+### 22.4 KeikyuTochi
+**テーブル名**: `keikyu_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 23. Sotetsu (相鉄不動産販売 - sotetsu)
+
+### 23.1 SotetsuCommon (共通抽象モデル)
+**テーブル**: `sotetsu_mansion`, `sotetsu_kodate`, `sotetsu_tochi` の共通カラム。
+
+### 23.2 SotetsuMansion
+**テーブル名**: `sotetsu_mansion`
+
+### 23.3 SotetsuKodate
+**テーブル名**: `sotetsu_kodate`
+
+### 23.4 SotetsuTochi
+**テーブル名**: `sotetsu_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 24. Keisei (京成不動産 - keisei)
+
+### 24.1 KeiseiCommon (共通抽象モデル)
+**テーブル**: `keisei_mansion`, `keisei_kodate`, `keisei_tochi` の共通カラム。
+
+### 24.2 KeiseiMansion
+**テーブル名**: `keisei_mansion`
+
+### 24.3 KeiseiKodate
+**テーブル名**: `keisei_kodate`
+
+### 24.4 KeiseiTochi
+**テーブル名**: `keisei_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+## 25. Daikyo (大京穴吹不動産 - daikyo)
+
+### 25.1 DaikyoCommon (共通抽象モデル)
+**テーブル**: `daikyo_mansion`, `daikyo_kodate`, `daikyo_tochi` の共通カラム。
+
+### 25.2 DaikyoMansion
+**テーブル名**: `daikyo_mansion`
+
+### 25.3 DaikyoKodate
+**テーブル名**: `daikyo_kodate`
+
+### 25.4 DaikyoTochi
+**テーブル名**: `daikyo_tochi`
+
+※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+
+
 
 

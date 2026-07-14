@@ -25,6 +25,7 @@ import lxml.html
 
 
 class SumifuParser(ParserBase):
+    property_type = ""
     BASE_URL='https://www.stepon.co.jp'
 
     def __init__(self, params=None):
@@ -164,8 +165,6 @@ class SumifuParser(ParserBase):
         val = specs.get("接道状況", "")
         return val if val else "-"
 
-        return val if val else "-"
-
     def _parseDouroInfo(self, response):
         specs = self._get_specs(response)
         val = specs.get("接道状況", "")
@@ -266,85 +265,15 @@ class SumifuParser(ParserBase):
         item.address3 = self._parseAddress3(response)
 
         # Traffic
-        traffic_data = self._getTrafficFields(response)
-        item.railwayCount = traffic_data.get('railwayCount', 0)
-        item.transfer1 = traffic_data.get('transfer1', "")
-        item.railway1 = traffic_data.get('railway1', "")
-        item.station1 = traffic_data.get('station1', "")
-        item.railwayWalkMinute1Str = traffic_data.get('railwayWalkMinute1Str', "")
-        item.railwayWalkMinute1 = traffic_data.get('railwayWalkMinute1', 0)
-        item.busStation1 = traffic_data.get('busStation1', "")
-        item.busWalkMinute1Str = traffic_data.get('busWalkMinute1Str', "")
-        item.busWalkMinute1 = traffic_data.get('busWalkMinute1', 0)
-        item.busUse1 = traffic_data.get('busUse1', 0)
-        
-        item.transfer2 = traffic_data.get('transfer2', "")
-        item.railway2 = traffic_data.get('railway2', "")
-        item.station2 = traffic_data.get('station2', "")
-        item.railwayWalkMinute2Str = traffic_data.get('railwayWalkMinute2Str', "")
-        item.railwayWalkMinute2 = traffic_data.get('railwayWalkMinute2', 0)
-        item.busStation2 = traffic_data.get('busStation2', "")
-        item.busWalkMinute2Str = traffic_data.get('busWalkMinute2Str', "")
-        item.busWalkMinute2 = traffic_data.get('busWalkMinute2', 0)
-        item.busUse2 = traffic_data.get('busUse2', 0)
-        
-        item.transfer3 = traffic_data.get('transfer3', "")
-        item.railway3 = traffic_data.get('railway3', "")
-        item.station3 = traffic_data.get('station3', "")
-        item.railwayWalkMinute3Str = traffic_data.get('railwayWalkMinute3Str', "")
-        item.railwayWalkMinute3 = traffic_data.get('railwayWalkMinute3', 0)
-        item.busStation3 = traffic_data.get('busStation3', "")
-        item.busWalkMinute3Str = traffic_data.get('busWalkMinute3Str', "")
-        item.busWalkMinute3 = traffic_data.get('busWalkMinute3', 0)
-        item.busUse3 = traffic_data.get('busUse3', 0)
-
-        item.transfer4 = traffic_data.get('transfer4', "")
-        item.railway4 = traffic_data.get('railway4', "")
-        item.station4 = traffic_data.get('station4', "")
-        item.railwayWalkMinute4Str = traffic_data.get('railwayWalkMinute4Str', "")
-        item.railwayWalkMinute4 = traffic_data.get('railwayWalkMinute4', 0)
-        item.busStation4 = traffic_data.get('busStation4', "")
-        item.busWalkMinute4Str = traffic_data.get('busWalkMinute4Str', "")
-        item.busWalkMinute4 = traffic_data.get('busWalkMinute4', 0)
-        item.busUse4 = traffic_data.get('busUse4', 0)
-
-        item.transfer5 = traffic_data.get('transfer5', "")
-        item.railway5 = traffic_data.get('railway5', "")
-        item.station5 = traffic_data.get('station5', "")
-        item.railwayWalkMinute5Str = traffic_data.get('railwayWalkMinute5Str', "")
-        item.railwayWalkMinute5 = traffic_data.get('railwayWalkMinute5', 0)
-        item.busStation5 = traffic_data.get('busStation5', "")
-        item.busWalkMinute5Str = traffic_data.get('busWalkMinute5Str', "")
-        item.busWalkMinute5 = traffic_data.get('busWalkMinute5', 0)
-        item.busUse5 = traffic_data.get('busUse5', 0)
+        # Traffic
+        traffic_lines = self._parseTrafficLines(response)
+        item.railwayCount = len(traffic_lines)
+        traffic_str = "  ".join(traffic_lines)
+        self._populateTraffic(item, traffic_str)
 
         item.biko = self._parseBiko(response)
 
         return item
-
-    def _parsePropertyName(self, response):
-        name_selector = self.selectors.get('title')
-        name_tag = response.select_one(name_selector) if name_selector else None
-        if not name_tag:
-             name_block_selector = self.selectors.get('name_block_fallback')
-             if name_block_selector:
-                 name_block = response.select_one(name_block_selector)
-                 if name_block:
-                     h2s = name_block.find_all("h2")
-                     if h2s:
-                         spans = h2s[0].find_all("span")
-                         if len(spans) > 1: name_tag = spans[1]
-        
-        name = ""
-        if name_tag: name = name_tag.get_text(strip=True)
-        if not name:
-            name_tag = response.select_one("h1")
-            if name_tag: name = name_tag.get_text(strip=True)
-            
-        if not name:
-            logging.warning("Could not find property name")
-            raise ReadPropertyNameException()
-        return name
 
     def _parsePriceStr(self, response):
         price_key = self.selectors.get('price_key', "価格")
@@ -382,12 +311,12 @@ class SumifuParser(ParserBase):
         addr = self._parseAddress(response)
         components = {'address1': '', 'address2': '', 'address3': ''}
         if not addr: return components
-        match = re.match(r'^([^都道府県]+[都道府県])([^市市区町村]+[市区町村])(.*)$', addr)
-        if match:
-            components['address1'] = match.group(1)
-            components['address2'] = match.group(2)
-            components['address3'] = match.group(3).strip()
+        pref, city, town = self._split_address(addr)
+        components['address1'] = pref
+        components['address2'] = city
+        components['address3'] = town
         return components
+
 
     def _parseAddress1(self, response):
         return self._parseAddressComponents(response).get('address1', '')
@@ -505,106 +434,6 @@ class SumifuParser(ParserBase):
     def _parseRailwayCount(self, response):
         return len(self._parseTrafficLines(response))
 
-    def _getTrafficField(self, response, index, field_name, default):
-        data = self._getTrafficFields(response)
-        return data.get(f'{field_name}{index}', default)
-
-    def _parseTransfer1(self, response): return self._getTrafficField(response, 1, 'transfer', "")
-    def _parseRailway1(self, response): return self._getTrafficField(response, 1, 'railway', "")
-    def _parseStation1(self, response): return self._getTrafficField(response, 1, 'station', "")
-    def _parseRailwayWalkMinute1Str(self, response): return self._getTrafficField(response, 1, 'railwayWalkMinute', "")
-    def _parseRailwayWalkMinute1(self, response): return self._getTrafficField(response, 1, 'railwayWalkMinute', 0) # Fixed key to match logic
-    def _parseBusStation1(self, response): return self._getTrafficField(response, 1, 'busStation', "")
-    def _parseBusWalkMinute1Str(self, response): return self._getTrafficField(response, 1, 'busWalkMinute', "")
-    def _parseBusWalkMinute1(self, response): return self._getTrafficField(response, 1, 'busWalkMinute', 0)
-    def _parseBusUse1(self, response): return self._getTrafficField(response, 1, 'busUse', 0)
-
-    def _parseTransfer2(self, response): return self._getTrafficField(response, 2, 'transfer', "")
-    def _parseRailway2(self, response): return self._getTrafficField(response, 2, 'railway', "")
-    def _parseStation2(self, response): return self._getTrafficField(response, 2, 'station', "")
-    def _parseRailwayWalkMinute2Str(self, response): return self._getTrafficField(response, 2, 'railwayWalkMinute', "")
-    def _parseRailwayWalkMinute2(self, response): return self._getTrafficField(response, 2, 'railwayWalkMinute', 0)
-    def _parseBusStation2(self, response): return self._getTrafficField(response, 2, 'busStation', "")
-    def _parseBusWalkMinute2Str(self, response): return self._getTrafficField(response, 2, 'busWalkMinute', "")
-    def _parseBusWalkMinute2(self, response): return self._getTrafficField(response, 2, 'busWalkMinute', 0)
-    def _parseBusUse2(self, response): return self._getTrafficField(response, 2, 'busUse', 0)
-
-    def _parseTransfer3(self, response): return self._getTrafficField(response, 3, 'transfer', "")
-    def _parseRailway3(self, response): return self._getTrafficField(response, 3, 'railway', "")
-    def _parseStation3(self, response): return self._getTrafficField(response, 3, 'station', "")
-    def _parseRailwayWalkMinute3Str(self, response): return self._getTrafficField(response, 3, 'railwayWalkMinute', "")
-    def _parseRailwayWalkMinute3(self, response): return self._getTrafficField(response, 3, 'railwayWalkMinute', 0)
-    def _parseBusStation3(self, response): return self._getTrafficField(response, 3, 'busStation', "")
-    def _parseBusWalkMinute3Str(self, response): return self._getTrafficField(response, 3, 'busWalkMinute', "")
-    def _parseBusWalkMinute3(self, response): return self._getTrafficField(response, 3, 'busWalkMinute', 0)
-    def _parseBusUse3(self, response): return self._getTrafficField(response, 3, 'busUse', 0)
-
-    def _parseTransfer4(self, response): return self._getTrafficField(response, 4, 'transfer', "")
-    def _parseRailway4(self, response): return self._getTrafficField(response, 4, 'railway', "")
-    def _parseStation4(self, response): return self._getTrafficField(response, 4, 'station', "")
-    def _parseRailwayWalkMinute4Str(self, response): return self._getTrafficField(response, 4, 'railwayWalkMinute', "")
-    def _parseRailwayWalkMinute4(self, response): return self._getTrafficField(response, 4, 'railwayWalkMinute', 0)
-    def _parseBusStation4(self, response): return self._getTrafficField(response, 4, 'busStation', "")
-    def _parseBusWalkMinute4Str(self, response): return self._getTrafficField(response, 4, 'busWalkMinute', "")
-    def _parseBusWalkMinute4(self, response): return self._getTrafficField(response, 4, 'busWalkMinute', 0)
-    def _parseBusUse4(self, response): return self._getTrafficField(response, 4, 'busUse', 0)
-
-    def _parseTransfer5(self, response): return self._getTrafficField(response, 5, 'transfer', "")
-    def _parseRailway5(self, response): return self._getTrafficField(response, 5, 'railway', "")
-    def _parseStation5(self, response): return self._getTrafficField(response, 5, 'station', "")
-    def _parseRailwayWalkMinute5Str(self, response): return self._getTrafficField(response, 5, 'railwayWalkMinute', "")
-    def _parseRailwayWalkMinute5(self, response): return self._getTrafficField(response, 5, 'railwayWalkMinute', 0)
-    def _parseBusStation5(self, response): return self._getTrafficField(response, 5, 'busStation', "")
-    def _parseBusWalkMinute5Str(self, response): return self._getTrafficField(response, 5, 'busWalkMinute', "")
-    def _parseBusWalkMinute5(self, response): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
-    def _parseBusUse5(self, response): return self._getTrafficField(response, 5, 'busUse', 0)
-            
-    def _getTrafficFields(self, response):
-        data = {'railwayCount': 0}
-        for i in range(1, 6):
-            data[f'transfer{i}'] = ""
-            data[f'railway{i}'] = ""
-            data[f'station{i}'] = ""
-            data[f'railwayWalkMinute{i}Str'] = ""
-            data[f'railwayWalkMinute{i}'] = 0
-            data[f'busStation{i}'] = ""
-            data[f'busWalkMinute{i}Str'] = ""
-            data[f'busWalkMinute{i}'] = 0
-            data[f'busUse{i}'] = 0
-            
-        lines = self._parseTrafficLines(response)
-        data['railwayCount'] = len(lines)
-        for i, line in enumerate(lines[:5]):
-            idx = i + 1
-            data[f'transfer{idx}'] = line
-            try:
-                match = re.search(r'(.*?)「(.*?)」(.*)', line)
-                if match:
-                    railway = match.group(1).strip().replace("線駅", "線")
-                    station = match.group(2).strip()
-                    walk_part = match.group(3).strip()
-                    if walk_part.startswith("駅"): walk_part = walk_part[1:].strip()
-                    
-                    data[f'railway{idx}'] = railway
-                    data[f'station{idx}'] = station
-                    
-                    num_match = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', walk_part)
-                    if num_match:
-                        data[f'railwayWalkMinute{idx}Str'] = num_match.group(1)
-                        data[f'railwayWalkMinute{idx}'] = int(num_match.group(1))
-                    
-                    if "バス" in walk_part:
-                        bus_match = re.search(r'バス\s*(\d+)\s*分', walk_part)
-                        if bus_match:
-                            data[f'busWalkMinute{idx}Str'] = bus_match.group(1)
-                            data[f'busWalkMinute{idx}'] = int(bus_match.group(1))
-                            data[f'busUse{idx}'] = 1
-                        stop_match = re.search(r'「(.*?)」', walk_part)
-                        if stop_match:
-                            data[f'busStation{idx}'] = stop_match.group(1)
-            except:
-                logging.warning(f"Error parsing transport line: {line}")
-        return data
 
         
 class SumifuInvestmentParserBase(SumifuParser, InvestmentParser):
@@ -649,14 +478,14 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser):
         if hasattr(response, 'xpath') and callable(response.xpath):
              # LXML support
              links = response.xpath(f"//a[contains(text(), '{next_text}')]")
-             if links:
+             if isinstance(links, list) and len(links) > 0:
                  next_link = links[0]
         else:
              # BS4 support
              next_link = response.find("a", string=lambda t: t and next_text in t)
 
         if next_link:
-            href = next_link.get("href")
+            href = getattr(next_link, "get", lambda k: None)("href")
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
             if href and href != "#":
@@ -707,65 +536,12 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser):
         item.biko = self._parseBiko(response)
         
         # Traffic
-        item.railwayCount = self._parseRailwayCount(response)
-        
-        item.transfer1 = self._parseTransfer1(response)
-        item.railway1 = self._parseRailway1(response)
-        item.station1 = self._parseStation1(response)
-        item.railwayWalkMinute1Str = self._parseRailwayWalkMinute1Str(response)
-        item.railwayWalkMinute1 = self._parseRailwayWalkMinute1(response)
-        item.busStation1 = self._parseBusStation1(response)
-        item.busWalkMinute1Str = self._parseBusWalkMinute1Str(response)
-        item.busWalkMinute1 = self._parseBusWalkMinute1(response)
-        item.busUse1 = self._parseBusUse1(response)
-        
-        item.transfer2 = self._parseTransfer2(response)
-        item.railway2 = self._parseRailway2(response)
-        item.station2 = self._parseStation2(response)
-        item.railwayWalkMinute2Str = self._parseRailwayWalkMinute2Str(response)
-        item.railwayWalkMinute2 = self._parseRailwayWalkMinute2(response)
-        item.busStation2 = self._parseBusStation2(response)
-        item.busWalkMinute2Str = self._parseBusWalkMinute2Str(response)
-        item.busWalkMinute2 = self._parseBusWalkMinute2(response)
-        item.busUse2 = self._parseBusUse2(response)
-        
-        item.transfer3 = self._parseTransfer3(response)
-        item.railway3 = self._parseRailway3(response)
-        item.station3 = self._parseStation3(response)
-        item.railwayWalkMinute3Str = self._parseRailwayWalkMinute3Str(response)
-        item.railwayWalkMinute3 = self._parseRailwayWalkMinute3(response)
-        item.busStation3 = self._parseBusStation3(response)
-        item.busWalkMinute3Str = self._parseBusWalkMinute3Str(response)
-        item.busWalkMinute3 = self._parseBusWalkMinute3(response)
-        item.busUse3 = self._parseBusUse3(response)
-
-        item.transfer4 = self._parseTransfer4(response)
-        item.railway4 = self._parseRailway4(response)
-        item.station4 = self._parseStation4(response)
-        item.railwayWalkMinute4Str = self._parseRailwayWalkMinute4Str(response)
-        item.railwayWalkMinute4 = self._parseRailwayWalkMinute4(response)
-        item.busStation4 = self._parseBusStation4(response)
-        item.busWalkMinute4Str = self._parseBusWalkMinute4Str(response)
-        item.busWalkMinute4 = self._parseBusWalkMinute4(response)
-        item.busUse4 = self._parseBusUse4(response)
-
-        item.transfer5 = self._parseTransfer5(response)
-        item.railway5 = self._parseRailway5(response)
-        item.station5 = self._parseStation5(response)
-        item.railwayWalkMinute5Str = self._parseRailwayWalkMinute5Str(response)
-        item.railwayWalkMinute5 = self._parseRailwayWalkMinute5(response)
-        item.busStation5 = self._parseBusStation5(response)
-        item.busWalkMinute5Str = self._parseBusWalkMinute5Str(response)
-        item.busWalkMinute5 = self._parseBusWalkMinute5(response)
-        item.busUse5 = self._parseBusUse5(response)
+        traffic_lines = self._parseTrafficLines(response)
+        item.railwayCount = len(traffic_lines)
+        traffic_str = "  ".join(traffic_lines)
+        self._populateTraffic(item, traffic_str)
 
         return item
-
-    def _parsePropertyName(self, response):
-        name_tag = response.select_one(".article-header__heading .heading-1") or response.select_one("h1")
-        if name_tag: return name_tag.get_text(strip=True)
-        logging.warn("Could not find property name.")
-        raise ReadPropertyNameException()
 
     def _parseGrossYield(self, response):
         specs = self._get_specs(response)
@@ -873,6 +649,10 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser):
              except: pass
         return Decimal(0)
     
+    def _parse_type_specific_fields(self, item, response):
+        """Override in subclass"""
+        pass
+
     def _set_type_specific_fields(self, item, response):
         """Override in subclass for type-specific field parsing"""
         self._parse_type_specific_fields(item, response)
@@ -913,7 +693,10 @@ class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase):
     def _parseSoukosu(self, response):
         u_val = self._parseSoukosuStr(response)
         if u_val:
-            try: return int(re.search(r'(\d+)', u_val).group(1))
+            try:
+                m = re.search(r'(\d+)', u_val)
+                if m:
+                    return int(m.group(1))
             except: pass
         return 0
 
@@ -1273,6 +1056,36 @@ class SumifuTochiParser(SumifuParser):
         item.kuiki = self._parseKuiki(response)
         item.saikenchiku = self._parseSaikenchiku(response)
         item.kokudoHou = self._parseKokudoHou(response)
+
+        # 統一土地評価フィールドのパース ＆ 代入
+        import re
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+                
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+                
+        if item.douroMuki:
+            item.roadDirection = item.douroMuki
+            
+        if item.douroKubun:
+            item.roadType = item.douroKubun
+            
+        if item.setsudou:
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
 
         return item
 

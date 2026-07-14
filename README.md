@@ -23,8 +23,23 @@
 | 東急リバブル | マンション・戸建て・土地 | マンション一棟・アパート | 戸建ては対象外（サイトに物件種別なし） |
 | 野村の仲介+ | マンション・戸建て・土地 | 一棟マンション・一棟アパート・投資用戸建 | 11種類中3種類を収集 |
 | ミサワホーム不動産 | マンション・戸建て・土地 | 一棟マンション・一棟アパート | 戸建ては対象外（サイトに物件種別なし） |
+| 三井住友トラスト不動産 | マンション・戸建て・土地 | 一棟マンション・一棟アパート・一棟ビル等 | 投資用物件に対応 |
+| 三菱UFJ不動産販売 | マンション・戸建て・土地 | 一棟マンション・一棟アパート・一棟ビル等 | 投資用物件に対応 |
+| みずほ不動産販売 | マンション・戸建て・土地 | 一棟マンション・一棟アパート・一棟ビル等 | 投資用物件に対応 |
+| 小田急不動産 | マンション・戸建て・土地 | 一棟マンション・一棟アパート・一棟ビル等 | 投資用物件に対応 |
+| 東京建物不動産販売 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 大和ハウスリアルエステート | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 住友林業ホームサービス | マンション・戸建て・土地 | 一棟マンション・一棟アパート等 | 4種別を収集 |
+| セキスイハイム不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| パナソニックホームズ不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 京王不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 西武不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 京急不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 相鉄不動産販売 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 京成不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| 大京穴吹不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
 
-**収集対象**: 5社 × 4カテゴリ（居住用3種別 + 投資用）
+**収集対象**: 主要不動産会社各社の居住用3種別（マンション・戸建て・土地）＋投資用物件
 
 > [!NOTE]
 > **投資用物件の収集対象**
@@ -130,6 +145,24 @@ task crawl COMPANY=mitsui TYPE=mansion
     *   `sumifu`: 住友不動産販売
     *   `tokyu`: 東急リバブル
     *   `nomura`: ノムコム・プロ (投資用)
+    *   `misawa`: ミサワホーム不動産
+    *   `smtrc`: 三井住友トラスト不動産
+    *   `sumai1`: 三菱UFJ不動産販売 (住まい1)
+    *   `sekisui`: 積水ハウス不動産 (BIZ投資)
+    *   `afr`: 旭化成不動産レジデンス (ヘーベル)
+    *   `mizuho`: みずほ不動産販売
+    *   `odakyu`: 小田急不動産
+    *   `totate`: 東京建物不動産販売
+    *   `daiwa`: 大和ハウスリアルエステート
+    *   `sumirin`: 住友林業ホームサービス (すみなび)
+    *   `heim`: セキスイハイム不動産 (住むハイム)
+    *   `rearie`: パナソニックホームズ不動産 (リアリエ)
+    *   `keio`: 京王不動産
+    *   `seibu`: 西武不動産 (西武の住まい情報)
+    *   `keikyu`: 京急不動産 (京急の住まい)
+    *   `sotetsu`: 相鉄不動産販売
+    *   `keisei`: 京成不動産 (京成土地建物)
+    *   `daikyo`: 大京穴吹不動産 (オリックス)
 *   **TYPE**:
     *   `mansion`: 中古マンション
     *   `tochi`: 土地
@@ -144,6 +177,23 @@ task crawl COMPANY=mitsui TYPE=mansion
 | `tokyu` | `mansion`, `tochi`, `kodate`, `investment` |
 | `nomura` | `mansion`, `tochi`, `kodate`, `investment` |
 | `misawa` | `mansion`, `tochi`, `kodate`, `investment` |
+| `smtrc` | `mansion`, `tochi`, `kodate` |
+| `sumai1` | `mansion`, `tochi`, `kodate` |
+| `sekisui` | `mansion`, `tochi`, `kodate` |
+| `afr` | `mansion`, `tochi`, `kodate` |
+| `mizuho` | `mansion`, `tochi`, `kodate` |
+| `odakyu` | `mansion`, `tochi`, `kodate` |
+| `totate` | `mansion`, `tochi`, `kodate` |
+| `daiwa` | `mansion`, `tochi`, `kodate` |
+| `sumirin` | `mansion`, `tochi`, `kodate`, `investment` |
+| `heim` | `mansion`, `tochi`, `kodate` |
+| `rearie` | `mansion`, `tochi`, `kodate` |
+| `keio` | `mansion`, `tochi`, `kodate` |
+| `seibu` | `mansion`, `tochi`, `kodate` |
+| `keikyu` | `mansion`, `tochi`, `kodate` |
+| `sotetsu` | `mansion`, `tochi`, `kodate` |
+| `keisei` | `mansion`, `tochi`, `kodate` |
+| `daikyo` | `mansion`, `tochi`, `kodate` |
 
 ---
 
@@ -350,8 +400,11 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
     **詳細ドキュメント:**
     *   **[investment_property_types.md](docs/requirements/investment_property_types.md)**: 投資用物件種別定義一覧
     *   **[sumifu_crawling_report.md](docs/requirements/sumifu_crawling_report.md)**: 住友不動産予備調査レポート
+    *   **[additional_brokers_research.md](docs/requirements/additional_brokers_research.md)**: 不動産会社クローラー開発ロードマップ ＆ ターゲットリスト
     *   **[site_structures/](docs/requirements/site_structures/)**: 各社サイト構造解析資料
     *   **[project_status_and_design_intent.md](docs/requirements/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
+    *   **[land_evaluation_design.md](docs/requirements/land_evaluation_design.md)**: 土地情報収集＆高精度土地評価エンジン詳細設計書
+
 
 
 ### 📐 2. 外部設計 (Basic Design)
@@ -366,7 +419,7 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 システム内部のアーキテクチャやデータ構造。
 
 **技術仕様書:**
-- **[データベーススキーマ設計](docs/internal_design/database_schema.md)** - 全モデルのフィールド定義とリレーション
+- **[データベーススキーマ設計](docs/internal_design/database_schema.md)** - 全モデルのフィールド定義とリレーション (土地評価用新フィールドの追加を反映)
 - **[詳細設計マスター](docs/internal_design/detailed_design_master.md)** - システム全体の詳細設計概要
 - **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャと投資用物件取得戦略の詳細
 - **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約

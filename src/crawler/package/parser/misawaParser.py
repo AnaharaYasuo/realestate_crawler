@@ -73,59 +73,13 @@ class MisawaParser(ParserBase):
         item.priceStr = self._parsePriceStr(response)
         item.price = self._parsePrice(response)
         item.address = self._parseAddress(response)
+        if item.address:
+            item.address1, item.address2, item.address3 = self._split_address(item.address)
 
         # Traffic
-        item.railwayCount = self._parseRailwayCount(response)
-        
-        item.transfer1 = self._parseTransfer1(response)
-        item.railway1 = self._parseRailway1(response)
-        item.station1 = self._parseStation1(response)
-        item.railwayWalkMinute1Str = self._parseRailwayWalkMinute1Str(response)
-        item.railwayWalkMinute1 = self._parseRailwayWalkMinute1(response)
-        item.busStation1 = self._parseBusStation1(response)
-        item.busWalkMinute1Str = self._parseBusWalkMinute1Str(response)
-        item.busWalkMinute1 = self._parseBusWalkMinute1(response)
-        item.busUse1 = self._parseBusUse1(response)
-        
-        item.transfer2 = self._parseTransfer2(response)
-        item.railway2 = self._parseRailway2(response)
-        item.station2 = self._parseStation2(response)
-        item.railwayWalkMinute2Str = self._parseRailwayWalkMinute2Str(response)
-        item.railwayWalkMinute2 = self._parseRailwayWalkMinute2(response)
-        item.busStation2 = self._parseBusStation2(response)
-        item.busWalkMinute2Str = self._parseBusWalkMinute2Str(response)
-        item.busWalkMinute2 = self._parseBusWalkMinute2(response)
-        item.busUse2 = self._parseBusUse2(response)
-        
-        item.transfer3 = self._parseTransfer3(response)
-        item.railway3 = self._parseRailway3(response)
-        item.station3 = self._parseStation3(response)
-        item.railwayWalkMinute3Str = self._parseRailwayWalkMinute3Str(response)
-        item.railwayWalkMinute3 = self._parseRailwayWalkMinute3(response)
-        item.busStation3 = self._parseBusStation3(response)
-        item.busWalkMinute3Str = self._parseBusWalkMinute3Str(response)
-        item.busWalkMinute3 = self._parseBusWalkMinute3(response)
-        item.busUse3 = self._parseBusUse3(response)
-        
-        item.transfer4 = self._parseTransfer4(response)
-        item.railway4 = self._parseRailway4(response)
-        item.station4 = self._parseStation4(response)
-        item.railwayWalkMinute4Str = self._parseRailwayWalkMinute4Str(response)
-        item.railwayWalkMinute4 = self._parseRailwayWalkMinute4(response)
-        item.busStation4 = self._parseBusStation4(response)
-        item.busWalkMinute4Str = self._parseBusWalkMinute4Str(response)
-        item.busWalkMinute4 = self._parseBusWalkMinute4(response)
-        item.busUse4 = self._parseBusUse4(response)
-
-        item.transfer5 = self._parseTransfer5(response)
-        item.railway5 = self._parseRailway5(response)
-        item.station5 = self._parseStation5(response)
-        item.railwayWalkMinute5Str = self._parseRailwayWalkMinute5Str(response)
-        item.railwayWalkMinute5 = self._parseRailwayWalkMinute5(response)
-        item.busStation5 = self._parseBusStation5(response)
-        item.busWalkMinute5Str = self._parseBusWalkMinute5Str(response)
-        item.busWalkMinute5 = self._parseBusWalkMinute5(response)
-        item.busUse5 = self._parseBusUse5(response)
+        traffic_str = self._parseTrafficFull(response)
+        if traffic_str:
+            self._populateTraffic(item, traffic_str)
 
         # Common Fields
         item.tochikenri = self._parseTochikenri(response)
@@ -153,21 +107,6 @@ class MisawaParser(ParserBase):
         
         return item
     
-    def _parsePropertyName(self, response):
-        title_tag = response.select_one(self.selectors.get('title', 'h2.title'))
-        if not title_tag:
-            title_tag = response.select_one(self.selectors.get('title_fallback', 'h1'))
-        if not title_tag:
-            title_tag = response.select_one(self.selectors.get('title_fallback_2', 'h2'))
-
-        if title_tag:
-            title = title_tag.get_text(strip=True)
-            # Remove "物件番号：XXXXXX" if present
-            title = re.sub(r'物件番号：\d+$', '', title).strip()
-            return title
-        
-        raise ReadPropertyNameException("Could not find property name in Misawa detail page")
-
     def _parsePriceStr(self, response):
         price_selector = self.selectors.get('price', '.detail-price .num')
         price_tag = response.select_one(price_selector)
@@ -182,6 +121,9 @@ class MisawaParser(ParserBase):
         address_tag = response.select_one(address_selector)
         return address_tag.get_text(strip=True) if address_tag else ""
 
+    def _split_address(self, address):
+        return super()._split_address(address)
+
     def _parseTrafficFull(self, response):
         specs = self._get_specs(response)
         traffic_key = self.selectors.get('traffic_key', '交通')
@@ -193,9 +135,14 @@ class MisawaParser(ParserBase):
         if not traffic: return []
         
         norm_traffic = traffic.replace("・", " ").replace("　", " ")
+        # 沿線名、駅名、徒歩分数の直後にスペースがない場合、スペースを強制挿入して誤判定を防止
+        norm_traffic = re.sub(r'(\S+?(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール))\s*(?=\S)', r'\1 ', norm_traffic)
+        norm_traffic = re.sub(r'(\S+?駅)\s*(?=\S)', r'\1 ', norm_traffic)
+        norm_traffic = re.sub(r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=\S)', r'\1 ', norm_traffic)
+        
         # Try various patterns
         # 1. Standard pattern: 線駅 徒歩/バス分
-        matches = re.findall(r'(\S+線)\s+(\S+駅)\s*(.*?(?:徒歩|停歩|バス)\s*\d+\s*分(?:.*?停歩\s*\d+\s*分)?)', norm_traffic)
+        matches = re.findall(r'(\S+?(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール|電気鉄道|急行)?)\s+(\S+駅)\s*(.*?(?:徒歩|停歩|バス)\s*\d+\s*分(?:.*?停歩\s*\d+\s*分)?)', norm_traffic)
         
         if not matches:
              # 2. Bracketed station name: 線 「駅」 徒歩/バス分
@@ -523,6 +470,44 @@ class MisawaKodateParser(MisawaParser):
         item.setsudou = self._parseSetsudou(response)
         item.tyusyajo = self._parseParkingCount(response)
         
+        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
+        import re
+        if item.setsudou:
+            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if mag_match:
+                item.maguchiStr = mag_match.group(0)
+                item.maguchi = Decimal(mag_match.group(1))
+            else:
+                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
+                if m:
+                    item.maguchiStr = m.group(0)
+                    item.maguchi = Decimal(m.group(1))
+                
+            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if width_match:
+                item.roadWidthStr = width_match.group(0)
+                item.roadWidth = Decimal(width_match.group(1))
+            else:
+                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
+                if dir_width_match:
+                    item.roadWidthStr = dir_width_match.group(0)
+                    item.roadWidth = Decimal(dir_width_match.group(1))
+                
+            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
+            item.roadDirection = direction_match.group(1) if direction_match else ""
+            
+            type_match = re.search(r'(公道|私道)', item.setsudou)
+            item.roadType = type_match.group(1) if type_match else ""
+            
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+            
         return item
 
     def _parseTochiMensekiStr(self, response):
@@ -577,6 +562,44 @@ class MisawaTochiParser(MisawaParser):
         item.buildingCondition = self._parseBuildingCondition(response)
         item.currentStatus = self._parseCurrentStatus(response)
         
+        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
+        import re
+        if item.setsudou:
+            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if mag_match:
+                item.maguchiStr = mag_match.group(0)
+                item.maguchi = Decimal(mag_match.group(1))
+            else:
+                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
+                if m:
+                    item.maguchiStr = m.group(0)
+                    item.maguchi = Decimal(m.group(1))
+                
+            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if width_match:
+                item.roadWidthStr = width_match.group(0)
+                item.roadWidth = Decimal(width_match.group(1))
+            else:
+                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
+                if dir_width_match:
+                    item.roadWidthStr = dir_width_match.group(0)
+                    item.roadWidth = Decimal(dir_width_match.group(1))
+                
+            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
+            item.roadDirection = direction_match.group(1) if direction_match else ""
+            
+            type_match = re.search(r'(公道|私道)', item.setsudou)
+            item.roadType = type_match.group(1) if type_match else ""
+            
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
         return item
 
     def _parseTochiMensekiStr(self, response):
@@ -610,6 +633,30 @@ class MisawaInvestmentParser(MisawaParser):
     property_type = 'investment'
     
     def _parsePropertyDetailPage(self, item, response):
+        if not getattr(self, '_is_delegating', False):
+            specs = self._get_specs(response)
+            shumoku = specs.get("物件種別", specs.get("物件種目", specs.get("種別", "")))
+            
+            is_apartment_parser = self.__class__.__name__ == "MisawaInvestmentApartmentParser"
+            
+            if shumoku:
+                if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
+                    if not is_apartment_parser:
+                        from package.parser.misawaParser import MisawaInvestmentApartmentParser
+                        parser = MisawaInvestmentApartmentParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+                else:
+                    if is_apartment_parser:
+                        from package.parser.misawaParser import MisawaInvestmentKodateParser
+                        parser = MisawaInvestmentKodateParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+
         item = super()._parsePropertyDetailPage(item, response)
         
         item.grossYield = self._parseGrossYield(response)
@@ -642,6 +689,46 @@ class MisawaInvestmentParser(MisawaParser):
         item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
         item.tatemonoMenseki = self._parseTatemonoMenseki(response)
         
+        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
+        specs = self._get_specs(response)
+        item.setsudou = specs.get(self.selectors.get('setsudou_key', '接道状況'), '')
+        import re
+        if item.setsudou:
+            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if mag_match:
+                item.maguchiStr = mag_match.group(0)
+                item.maguchi = Decimal(mag_match.group(1))
+            else:
+                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
+                if m:
+                    item.maguchiStr = m.group(0)
+                    item.maguchi = Decimal(m.group(1))
+                
+            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if width_match:
+                item.roadWidthStr = width_match.group(0)
+                item.roadWidth = Decimal(width_match.group(1))
+            else:
+                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
+                if dir_width_match:
+                    item.roadWidthStr = dir_width_match.group(0)
+                    item.roadWidth = Decimal(dir_width_match.group(1))
+                
+            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
+            item.roadDirection = direction_match.group(1) if direction_match else ""
+            
+            type_match = re.search(r'(公道|私道)', item.setsudou)
+            item.roadType = type_match.group(1) if type_match else ""
+            
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+            
         return item
 
     def _parseGrossYield(self, response):
@@ -738,7 +825,16 @@ class MisawaInvestmentKodateParser(MisawaInvestmentParser):
     
     def _parsePropertyDetailPage(self, item, response):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         
+        # 委譲処理中の場合はSkipPropertyExceptionをバイパス
+        if getattr(self, '_is_delegating', False):
+            item.propertyType = "Kodate"
+            item.setsudou = self._parseSetsudou(response)
+            item.chimoku = self._parseChimoku(response)
+            return item
+            
         # 動的判定ロジック: 「物件種目」ラベルを確認
         specs = self._get_specs(response)
         syumoku = specs.get("物件種目", "")
@@ -776,7 +872,18 @@ class MisawaInvestmentApartmentParser(MisawaInvestmentParser):
     
     def _parsePropertyDetailPage(self, item, response):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         
+        # 委譲処理中の場合はSkipPropertyExceptionをバイパス
+        if getattr(self, '_is_delegating', False):
+            item.propertyType = "Apartment"
+            item.soukosuStr = self._parseSoukosuStr(response)
+            item.soukosu = self._parseSoukosu(response)
+            item.setsudou = self._parseSetsudou(response)
+            item.chimoku = self._parseChimoku(response)
+            return item
+            
         # 動的判定ロジック: 「物件種目」ラベルを確認
         specs = self._get_specs(response)
         syumoku = specs.get("物件種目", "")

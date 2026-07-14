@@ -1,0 +1,26 @@
+# Keio Selectors Configuration
+# CSS selectors for parsing Keio property pages
+
+mansion:
+  title: "h1"
+  table:
+    selector: "table.spec_table_default"
+    row_selector: "tr"
+    header: "th"
+    value: "td"
+
+kodate:
+  title: "h1"
+  table:
+    selector: "table.spec_table_default"
+    row_selector: "tr"
+    header: "th"
+    value: "td"
+
+tochi:
+  title: "h1"
+  table:
+    selector: "table.spec_table_default"
+    row_selector: "tr"
+    header: "th"
+    value: "td"

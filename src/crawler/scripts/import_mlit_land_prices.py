@@ -73,6 +73,7 @@ def import_land_prices(csv_path):
             city = row.get("city", "").strip()
             price_str = row.get("average_land_price", "0").strip()
             use = row.get("land_use", "").strip()
+            growth_str = row.get("land_price_growth_rate", "0.0").strip()
             
             if not pref or not city or use not in ['residential', 'commercial']:
                 continue
@@ -82,6 +83,12 @@ def import_land_prices(csv_path):
             except ValueError:
                 price = 0
                 
+            try:
+                from decimal import Decimal
+                growth = Decimal(growth_str)
+            except:
+                growth = Decimal("0.0")
+                
             # 重複時は update_or_create で最新値に洗い替える
             obj, created = LandPricePotential.objects.update_or_create(
                 prefecture=pref,
@@ -90,7 +97,8 @@ def import_land_prices(csv_path):
                 defaults={
                     "average_land_price": price,
                     "estimated_rosenka_price": int(price * 0.8),
-                    "estimated_fixed_asset_price": int(price * 0.7)
+                    "estimated_fixed_asset_price": int(price * 0.7),
+                    "land_price_growth_rate": growth
                 }
             )
             processed += 1
@@ -109,19 +117,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     csv_file = args.csv
-    is_temp = False
-    
     if not csv_file:
-        csv_file = "/app/src/crawler/scripts/temp_land_price_sample.csv"
-        generate_sample_land_price_csv(csv_file)
-        is_temp = True
+        csv_file = "/app/src/crawler/package/ml/data/mlit_land_prices_kanto.csv"
         
     try:
         import_land_prices(csv_file)
-    finally:
-        if is_temp and os.path.exists(csv_file):
-            try:
-                os.remove(csv_file)
-                logging.info(f"Cleaned up temporary sample CSV: {csv_file}")
-            except Exception as e:
-                logging.warning(f"Failed to delete temp file {csv_file}: {e}")
+    except Exception as e:
+        logging.error(f"Failed to import land prices: {e}")

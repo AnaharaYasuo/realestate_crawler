@@ -4,8 +4,8 @@ investment:
   title: "h1.c_heading_1__ttl"
   title_fallback: "h1"
   breadcrumb: ".c_breadcrumb_item"
-  price: "#kakaku_kakaku .num"
-  price_fallback: ".c_price_wrap .num"
+  price: "#kakaku_kakaku"
+  price_fallback: ".c_price_wrap"
   
   address_key: "所在地"
   traffic_key: "交通"
@@ -36,8 +36,8 @@ invest_apartment:
   title: "h1.c_heading_1__ttl"
   title_fallback: "h1"
   breadcrumb: ".c_breadcrumb_item"
-  price: "#kakaku_kakaku .num"
-  price_fallback: ".c_price_wrap .num"
+  price: "#kakaku_kakaku"
+  price_fallback: ".c_price_wrap"
   
   address_key: "所在地"
   traffic_key: "交通"
@@ -68,8 +68,8 @@ invest_kodate:
   title: "h1.c_heading_1__ttl"
   title_fallback: "h1"
   breadcrumb: ".c_breadcrumb_item"
-  price: "#kakaku_kakaku .num"
-  price_fallback: ".c_price_wrap .num"
+  price: "#kakaku_kakaku"
+  price_fallback: ".c_price_wrap"
   
   address_key: "所在地"
   traffic_key: "交通"
@@ -133,7 +133,8 @@ kodate:
   property_links: "a[href*='/house/id/']"
   region_links: ".list-railway a"
   next_page: "a.next"
-  price: ".price"
+  price: ".item_price"
+  price_fallback: ".num"
   
   madori_key: "間取り"
   tatemono_menseki_key: "建物面積"
@@ -158,7 +159,8 @@ tochi:
   property_links: "a[href*='/land/id/']"
   region_links: ".list-railway a"
   next_page: "a.next"
-  price: ".price"
+  price: ".item_price"
+  price_fallback: ".num"
   
   tochi_menseki_key: "土地面積"
   chimoku_key: "地目"

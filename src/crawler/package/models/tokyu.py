@@ -94,6 +94,17 @@ class TokyuTochi(TokyuModel):
     bunjoKaisya  = models.TextField(blank=True)
     sekouKaisya  = models.TextField(blank=True)
 
+    # 統一土地評価フィールド
+    maguchiStr = models.TextField(null=True, blank=True)
+    maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    okuyukiStr = models.TextField(null=True, blank=True)
+    okuyuki = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    roadDirection = models.TextField(null=True, blank=True)
+    roadType = models.TextField(null=True, blank=True)
+    roadStructure = models.TextField(null=True, blank=True)
+
     class Meta:
         db_table = "tokyu_tochi"
 

@@ -18,11 +18,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import realestateSettings
 realestateSettings.configure()
 
-from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiInvestmentKodate, MitsuiInvestmentApartment
-from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
-from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuInvestmentKodate, TokyuInvestmentApartment
-from package.models.nomura import NomuraMansion, NomuraKodate, NomuraInvestmentKodate, NomuraInvestmentApartment
-from package.models.misawa import MisawaMansion, MisawaKodate, MisawaInvestmentKodate, MisawaInvestmentApartment
+from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiInvestmentKodate, MitsuiInvestmentApartment, MitsuiTochi
+from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment, SumifuTochi
+from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuInvestmentKodate, TokyuInvestmentApartment, TokyuTochi
+from package.models.nomura import NomuraMansion, NomuraKodate, NomuraInvestmentKodate, NomuraInvestmentApartment, NomuraTochi
+from package.models.misawa import MisawaMansion, MisawaKodate, MisawaInvestmentKodate, MisawaInvestmentApartment, MisawaTochi
+from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
+from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment, HomesTochi
 from package.models.evaluation import PropertyEvaluation
 from package.ml.features import build_features, calculate_chikunen
 
@@ -47,13 +49,23 @@ def load_all_properties_from_db():
         )
     print(f"Cached {len(eval_map)} evaluations.")
 
+    # 重複物件のURLキャッシュ (名寄せされた重複分を排除するため)
+    print("Caching duplicate property URLs...")
+    duplicate_urls = set(
+        PropertyEvaluation.objects.filter(duplicate_of__isnull=False)
+        .values_list("property_url", flat=True)
+    )
+    print(f"Found {len(duplicate_urls)} duplicate properties to exclude.")
+
     queries = {
         "mansion": [
             ("mitsui", MitsuiMansion.objects.all()),
             ("sumifu", SumifuMansion.objects.all()),
             ("tokyu", TokyuMansion.objects.all()),
             ("nomura", NomuraMansion.objects.all()),
-            ("misawa", MisawaMansion.objects.all())
+            ("misawa", MisawaMansion.objects.all()),
+            ("athome", AthomeMansion.objects.all()),
+            ("homes", HomesMansion.objects.all())
         ],
         "kodate": [
             ("mitsui", MitsuiKodate.objects.all()),
@@ -61,6 +73,8 @@ def load_all_properties_from_db():
             ("tokyu", TokyuKodate.objects.all()),
             ("nomura", NomuraKodate.objects.all()),
             ("misawa", MisawaKodate.objects.all()),
+            ("athome", AthomeKodate.objects.all()),
+            ("homes", HomesKodate.objects.all()),
             ("mitsui_inv", MitsuiInvestmentKodate.objects.all()),
             ("sumifu_inv", SumifuInvestmentKodate.objects.all()),
             ("tokyu_inv", TokyuInvestmentKodate.objects.all()),
@@ -72,23 +86,44 @@ def load_all_properties_from_db():
             ("sumifu_inv", SumifuInvestmentApartment.objects.all()),
             ("tokyu_inv", TokyuInvestmentApartment.objects.all()),
             ("nomura_inv", NomuraInvestmentApartment.objects.all()),
-            ("misawa_inv", MisawaInvestmentApartment.objects.all())
+            ("misawa_inv", MisawaInvestmentApartment.objects.all()),
+            ("athome", AthomeInvestmentApartment.objects.all()),
+            ("homes", HomesInvestmentApartment.objects.all())
+        ],
+        "tochi": [
+            ("mitsui", MitsuiTochi.objects.all()),
+            ("sumifu", SumifuTochi.objects.all()),
+            ("tokyu", TokyuTochi.objects.all()),
+            ("nomura", NomuraTochi.objects.all()),
+            ("misawa", MisawaTochi.objects.all()),
+            ("athome", AthomeTochi.objects.all()),
+            ("homes", HomesTochi.objects.all())
         ]
     }
     
-    data_by_type = {"mansion": [], "kodate": [], "apartment": []}
+    data_by_type = {"mansion": [], "kodate": [], "apartment": [], "tochi": []}
     
     for ptype, list_qs in queries.items():
         for company, qs in list_qs:
+            # テーブルが存在しない場合はスキップ (初期マイグレーション前などの対策)
+            try:
+                # クエリ実行を確認するためにcount()を呼ぶ
+                qs.count()
+            except Exception:
+                continue
+                
             for p in qs:
                 price = getattr(p, 'price', 0)
                 if not price or price <= 0:
                     continue
                 
+                page_url = getattr(p, 'pageUrl', '')
+                if page_url in duplicate_urls:
+                    continue  # 重複物件は学習データから排除
+                
                 # DB上の「円」単位の価格を「万円」単位に変換
                 price_man = float(price) / 10000.0
                 
-                page_url = getattr(p, 'pageUrl', '')
                 interior_score = 3.0
                 layout_score = 3.0
                 if page_url in eval_map:
@@ -102,7 +137,7 @@ def load_all_properties_from_db():
                     "layout_score": layout_score
                 })
                 
-    print(f"Loaded Mansion: {len(data_by_type['mansion'])}, Kodate: {len(data_by_type['kodate'])}, Apartment: {len(data_by_type['apartment'])}")
+    print(f"Loaded Mansion: {len(data_by_type['mansion'])}, Kodate: {len(data_by_type['kodate'])}, Apartment: {len(data_by_type['apartment'])}, Tochi: {len(data_by_type['tochi'])}")
     return data_by_type
 
 def build_mkt_comparison_master(data_by_type):
@@ -129,7 +164,12 @@ def build_mkt_comparison_master(data_by_type):
             
             senyu_menseki = getattr(p, 'senyuMenseki', 0.0)
             tatemono_menseki = getattr(p, 'tatemonoMenseki', 0.0)
-            eval_area = float(senyu_menseki) if ptype == 'mansion' else float(tatemono_menseki)
+            tochi_menseki = getattr(p, 'tochiMenseki', 0.0)
+            
+            if ptype == 'tochi':
+                eval_area = float(tochi_menseki) if tochi_menseki else 0.0
+            else:
+                eval_area = float(senyu_menseki) if ptype == 'mansion' else float(tatemono_menseki)
             
             if eval_area > 0 and price > 0:
                 age_band = int(chikunen // 10)
@@ -161,8 +201,13 @@ def generate_dummy_data(ptype, num_records=500):
     records = []
     
     for _ in range(num_records):
-        area = np.random.uniform(25.0, 100.0) if ptype == 'mansion' else np.random.uniform(60.0, 150.0)
-        tochi_area = 0.0 if ptype == 'mansion' else np.random.uniform(70.0, 200.0)
+        if ptype == 'tochi':
+            tochi_area = np.random.uniform(50.0, 300.0)
+            area = tochi_area
+        else:
+            area = np.random.uniform(25.0, 100.0) if ptype == 'mansion' else np.random.uniform(60.0, 150.0)
+            tochi_area = 0.0 if ptype == 'mansion' else np.random.uniform(70.0, 200.0)
+            
         chikunen = np.random.uniform(1.0, 45.0)
         walk_min = np.random.randint(1, 20)
         kanrihi = int(area * 200) if ptype == 'mansion' else 0
@@ -191,6 +236,8 @@ def generate_dummy_data(ptype, num_records=500):
         
         if ptype == 'mansion':
             cost_approach_value = (area * 0.2) * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
+        elif ptype == 'tochi':
+            cost_approach_value = tochi_area * (average_land_price / 10000.0)
         else:
             cost_approach_value = tochi_area * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
             
@@ -254,7 +301,20 @@ def generate_dummy_data(ptype, num_records=500):
             "city": "世田谷区",
             "station": "世田谷駅",
             "company": "mitsui",
-            "kouzou": "木造" if ptype == 'kodate' else "RC"
+            "kouzou": "木造" if ptype == 'kodate' else "RC",
+            # 土地用ダミー
+            "maguchi": np.random.uniform(2.0, 10.0),
+            "road_width": np.random.uniform(3.0, 6.0),
+            "setback_ratio": 0.0,
+            "actual_volume_limit": 200.0,
+            "volume_digest_factor": 1.0,
+            "road_condition_factor": 1.0,
+            "frontage_penalty_factor": 1.0,
+            "residual_land_value": 0.0,
+            "road_direction": "南",
+            "road_type": "公道",
+            "road_structure": "中間地",
+            "chimoku": "宅地"
         })
         
     return pd.DataFrame(records)
@@ -337,8 +397,9 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
                 
                 model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
                 model.fit(X_train, y_train)
-                preds = model.predict(X_val)
-                mapes.append(calculate_mape(y_val, preds))
+                preds_log = model.predict(X_val)
+                val_areas = X_val["area"].values
+                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
             
             avg_mape = np.mean(mapes)
             if avg_mape < best_mape:
@@ -360,8 +421,9 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
                 
                 model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
                 model.fit(X_train, y_train)
-                preds = model.predict(X_val)
-                mapes.append(calculate_mape(y_val, preds))
+                preds_log = model.predict(X_val)
+                val_areas = X_val["area"].values
+                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
                 
             avg_mape = np.mean(mapes)
             if avg_mape < best_mape:
@@ -383,8 +445,9 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
                 
                 model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
                 model.fit(X_train, y_train)
-                preds = model.predict(X_val)
-                mapes.append(calculate_mape(y_val, preds))
+                preds_log = model.predict(X_val)
+                val_areas = X_val["area"].values
+                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
                 
             avg_mape = np.mean(mapes)
             if avg_mape < best_mape:
@@ -420,7 +483,7 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
     クロスバリデーション(5-Fold)評価を行った上で、全データで最終学習したモデルを返します。
     """
     X = df[feature_cols].copy()
-    y = df["price"]
+    y = np.log1p(df["price"] / df["area"]) # 平米単価の対数変換 (log1p) を施す
     
     # カテゴリカル変数の処理 (Label Encoding)
     for col in X.columns:
@@ -464,11 +527,16 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
                 raise ValueError(f"Unknown algorithm: {name}")
                 
             fold_model.fit(X_train, y_train)
-            preds = fold_model.predict(X_val)
+            preds_log = fold_model.predict(X_val)
             
-            mapes.append(calculate_mape(y_val, preds))
-            maes.append(mean_absolute_error(y_val, preds))
-            r2s.append(r2_score(y_val, preds))
+            # 元の万円スケールに逆対数変換 ＆ 面積乗算して総額に戻して評価
+            val_areas = df.iloc[val_idx]["area"].values
+            preds_actual = np.expm1(preds_log) * val_areas
+            y_val_actual = np.expm1(y_val) * val_areas
+            
+            mapes.append(calculate_mape(y_val_actual, preds_actual))
+            maes.append(mean_absolute_error(y_val_actual, preds_actual))
+            r2s.append(r2_score(y_val_actual, preds_actual))
             
             del fold_model, X_train, X_val, y_train, y_val
             gc.collect()
@@ -538,7 +606,10 @@ def main():
                 "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
+                "max_youseki", "max_kenpei",
+                # 土地補正特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ],
             "second": [
                 "area", "tochi_menseki", "chikunen", "walk_min",
@@ -547,7 +618,10 @@ def main():
                 "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score"
+                "max_youseki", "max_kenpei", "interior_score", "layout_score",
+                # 土地補正特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ]
         },
         "apartment": {
@@ -559,7 +633,10 @@ def main():
                 "gross_yield", "annual_rent",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
+                "max_youseki", "max_kenpei",
+                # 土地補正特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ],
             "second": [
                 "area", "tochi_menseki", "chikunen", "walk_min",
@@ -569,7 +646,34 @@ def main():
                 "gross_yield", "annual_rent",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score"
+                "max_youseki", "max_kenpei", "interior_score", "layout_score",
+                # 土地補正特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+            ]
+        },
+        "tochi": {
+            "first": [
+                "area", "tochi_menseki", "walk_min",
+                "pop_growth", "income", "passenger_volume", "average_land_price",
+                "estimated_rosenka_price", "estimated_fixed_asset_price",
+                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+                "flood_risk_level", "landslide_risk_level",
+                "max_youseki", "max_kenpei",
+                # 土地用特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+            ],
+            "second": [
+                "area", "tochi_menseki", "walk_min",
+                "pop_growth", "income", "passenger_volume", "average_land_price",
+                "estimated_rosenka_price", "estimated_fixed_asset_price",
+                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+                "flood_risk_level", "landslide_risk_level",
+                "max_youseki", "max_kenpei",
+                # 土地用特徴量
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ]
         }
     }
