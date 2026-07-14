@@ -414,7 +414,8 @@ class AthomeInvestmentApartmentParser(AthomeParser):
         shumoku = specs.get("物件種目", "")
         
         if shumoku:
-            if "マンション" in shumoku:
+            # 区分マンションの場合のみ、区分用のAthomeMansionParserに委譲する（一棟マンションは一棟アパートと同様に本クラスでそのままパースする）
+            if "マンション" in shumoku and "一棟" not in shumoku:
                 parser = AthomeMansionParser()
                 new_item = parser.createEntity()
                 new_item.pageUrl = item.pageUrl
