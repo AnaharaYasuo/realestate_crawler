@@ -633,6 +633,30 @@ class MisawaInvestmentParser(MisawaParser):
     property_type = 'investment'
     
     def _parsePropertyDetailPage(self, item, response):
+        if not getattr(self, '_is_delegating', False):
+            specs = self._get_specs(response)
+            shumoku = specs.get("物件種別", specs.get("物件種目", specs.get("種別", "")))
+            
+            is_apartment_parser = self.__class__.__name__ == "MisawaInvestmentApartmentParser"
+            
+            if shumoku:
+                if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
+                    if not is_apartment_parser:
+                        from package.parser.misawaParser import MisawaInvestmentApartmentParser
+                        parser = MisawaInvestmentApartmentParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+                else:
+                    if is_apartment_parser:
+                        from package.parser.misawaParser import MisawaInvestmentKodateParser
+                        parser = MisawaInvestmentKodateParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+
         item = super()._parsePropertyDetailPage(item, response)
         
         item.grossYield = self._parseGrossYield(response)
@@ -801,7 +825,16 @@ class MisawaInvestmentKodateParser(MisawaInvestmentParser):
     
     def _parsePropertyDetailPage(self, item, response):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         
+        # 委譲処理中の場合はSkipPropertyExceptionをバイパス
+        if getattr(self, '_is_delegating', False):
+            item.propertyType = "Kodate"
+            item.setsudou = self._parseSetsudou(response)
+            item.chimoku = self._parseChimoku(response)
+            return item
+            
         # 動的判定ロジック: 「物件種目」ラベルを確認
         specs = self._get_specs(response)
         syumoku = specs.get("物件種目", "")
@@ -839,7 +872,18 @@ class MisawaInvestmentApartmentParser(MisawaInvestmentParser):
     
     def _parsePropertyDetailPage(self, item, response):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         
+        # 委譲処理中の場合はSkipPropertyExceptionをバイパス
+        if getattr(self, '_is_delegating', False):
+            item.propertyType = "Apartment"
+            item.soukosuStr = self._parseSoukosuStr(response)
+            item.soukosu = self._parseSoukosu(response)
+            item.setsudou = self._parseSetsudou(response)
+            item.chimoku = self._parseChimoku(response)
+            return item
+            
         # 動的判定ロジック: 「物件種目」ラベルを確認
         specs = self._get_specs(response)
         syumoku = specs.get("物件種目", "")

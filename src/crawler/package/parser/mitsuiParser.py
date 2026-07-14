@@ -976,6 +976,31 @@ class MitsuiInvestmentParser(MitsuiParser):
         return data
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
+        if not getattr(self, '_is_delegating', False):
+            specs = self._get_specs(response)
+            shumoku = specs.get("物件種目", specs.get("物件種別", specs.get("種別", "")))
+            
+            is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
+            
+            if shumoku:
+                if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
+                    if not is_apartment_parser:
+                        from package.parser.mitsuiParser import MitsuiInvestmentApartmentParser
+                        parser = MitsuiInvestmentApartmentParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+                else:
+                    if is_apartment_parser:
+                        from package.parser.mitsuiParser import MitsuiInvestmentKodateParser
+                        parser = MitsuiInvestmentKodateParser()
+                        parser._is_delegating = True
+                        new_item = parser.createEntity()
+                        new_item.pageUrl = item.pageUrl
+                        return parser._parsePropertyDetailPage(new_item, response)
+
         item = super()._parsePropertyDetailPage(item, response)
         
         item.grossYield = self._parseGrossYield(response)
@@ -1141,6 +1166,8 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser):
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         item.propertyType = "Kodate"
         return item
 
@@ -1180,6 +1207,8 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
+        if item.__class__ != self.createEntity().__class__:
+            return item
         item.propertyType = "Apartment"
         
         item.soukosuStr = self._parseSoukosuStr(response)
