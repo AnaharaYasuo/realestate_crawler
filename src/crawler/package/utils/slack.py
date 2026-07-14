@@ -5,13 +5,14 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-async def send_slack_message(message: str) -> bool:
+async def send_slack_message(message: str, channel: str = None) -> bool:
     """
     非同期でSlackの指定チャンネルにメッセージを投稿します。
-    環境変数 SLACK_BOT_TOKEN および SLACK_CHANNEL_ID を使用します。
+    引数 channel が指定されていない場合は、環境変数 SLACK_CHANNEL_ID を使用します。
     """
     token = os.getenv("SLACK_BOT_TOKEN")
-    channel = os.getenv("SLACK_CHANNEL_ID")
+    if not channel:
+        channel = os.getenv("SLACK_CHANNEL_ID")
 
     if not token or not channel:
         logger.warning("Slack notification skipped: SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set in environment.")
