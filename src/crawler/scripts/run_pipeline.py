@@ -71,6 +71,12 @@ def main():
             "/app/src/crawler/scripts/validate_data.py"
         ], "Step 2/5: Scraping Data Validation & Automated Cleansing")
         
+        # AI自己修復用のバグ指示書生成
+        run_command([
+            sys.executable,
+            "/app/src/crawler/scripts/auto_heal_parsers.py"
+        ], "Step 2.5/5: Auto-Heal Instruction Generation for AI Agent")
+        
         # Step 2 (3/5): 最新データによるMLモデル再学習
         run_command([
             sys.executable,

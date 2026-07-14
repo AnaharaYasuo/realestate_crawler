@@ -184,8 +184,9 @@ def validate_data():
                 
         msg += "\n※ 異常データはモデルの学習およびSlackリコメンドから自動的に除外（クレンジング）されました。"
         
-        logging.info("Sending database scraping validation anomalies to Slack...")
-        async_to_sync(send_slack_message)(msg)
+        logging.info("Sending database scraping validation anomalies to Slack channel 'property_alart'...")
+        alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID", "property_alart")
+        async_to_sync(send_slack_message)(msg, channel=alert_channel)
     else:
         logging.info("No scraping anomalies or HTML errors detected. Data integrity is clean.")
 
