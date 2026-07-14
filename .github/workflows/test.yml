@@ -19,6 +19,7 @@ jobs:
 
       - name: Start containers and setup DB
         run: |
+          touch .env
           docker compose up -d --build
           # Wait for MySQL to be ready
           sleep 15
