@@ -1,0 +1,19 @@
+mansion:
+  title: "#detailTitleArea h2 em"
+  price: "td:contains('価格')"
+  root_xpath: "//a[contains(@href, '/buy/mansion/')]/@href"
+  
+kodate:
+  title: "#detailTitleArea h2 em"
+  price: "td:contains('価格')"
+  root_xpath: "//a[contains(@href, '/buy/kodate/')]/@href"
+
+investmentapartment:
+  title: "#detailTitleArea h2 em"
+  price: "td:contains('価格')"
+  root_xpath: "//a[contains(@href, '/toushi/')]/@href"
+
+tochi:
+  title: "#detailTitleArea h2 em"
+  price: "td:contains('価格')"
+

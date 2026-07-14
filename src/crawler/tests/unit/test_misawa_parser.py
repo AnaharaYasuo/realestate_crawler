@@ -118,3 +118,55 @@ class TestMisawaParser:
         
         print(f"Investment Apartment Name: {result.propertyName}")
         assert result.propertyName
+
+    def test_split_address(self):
+        parser = MisawaMansionParser()
+        pref, city, town = parser._split_address("東京都荒川区南千住2丁目")
+        assert pref == "東京都"
+        assert city == "荒川区"
+        assert town == "南千住2丁目"
+
+        pref, city, town = parser._split_address("神奈川県横浜市中区元町1-1")
+        assert pref == "神奈川県"
+        assert city == "横浜市中区"
+        assert town == "元町1-1"
+
+        # 市/町等の文字で始まる市区町村名のエッジケース検証
+        # 市原市 (「市」で始まる)
+        pref, city, town = parser._split_address("千葉県市原市瀬又")
+        assert pref == "千葉県"
+        assert city == "市原市"
+        assert town == "瀬又"
+
+        # 市川市 (「市」で始まる)
+        pref, city, town = parser._split_address("千葉県市川市大野町")
+        assert pref == "千葉県"
+        assert city == "市川市"
+        assert town == "大野町"
+
+        # 町田市 (「町」で始まる)
+        pref, city, town = parser._split_address("東京都町田市森野")
+        assert pref == "東京都"
+        assert city == "町田市"
+        assert town == "森野"
+
+        # 都道府県名なしの自動補完検証
+        # 神奈川県
+        pref, city, town = parser._split_address("伊勢原市日向")
+        assert pref == "神奈川県"
+        assert city == "伊勢原市"
+        assert town == "日向"
+
+        # 千葉県
+        pref, city, town = parser._split_address("市原市瀬又")
+        assert pref == "千葉県"
+        assert city == "市原市"
+        assert town == "瀬又"
+
+        # 東京都
+        pref, city, town = parser._split_address("世田谷区桜丘")
+        assert pref == "東京都"
+        assert city == "世田谷区"
+        assert town == "桜丘"
+
+

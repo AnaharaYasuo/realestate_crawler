@@ -9,6 +9,9 @@ class MunicipalPotential(models.Model):
     city = models.CharField(max_length=100, verbose_name="市区町村")
     population_growth_rate = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="人口増減率（％）")
     average_income = models.IntegerField(verbose_name="1人あたり平均所得（千円）")
+    total_population = models.IntegerField(null=True, blank=True, verbose_name="総人口（人）")
+    income_growth_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="所得変動率（％）")
+    population_density = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, verbose_name="人口密度（人/㎢）")
 
     class Meta:
         db_table = 'municipal_potential'
@@ -17,7 +20,9 @@ class MunicipalPotential(models.Model):
         verbose_name_plural = "自治体ポテンシャルマスタ"
 
     def __str__(self):
-        return f"{self.prefecture}{self.city} (所得: {self.average_income}千円, 人口増減: {self.population_growth_rate}%)"
+        pop_str = f", 人口: {self.total_population}人" if self.total_population else ""
+        dens_str = f", 密度: {self.population_density}人/㎢" if self.population_density else ""
+        return f"{self.prefecture}{self.city} (所得: {self.average_income}千円, 人口増減: {self.population_growth_rate}%{pop_str}{dens_str})"
 
 
 class StationPotential(models.Model):
@@ -88,6 +93,22 @@ class PropertyEvaluation(models.Model):
     finance_score = models.FloatField(null=True, blank=True, verbose_name="融資適合性スコア (0-100)")
     total_investment_score = models.FloatField(null=True, blank=True, verbose_name="総合投資スコア (0-100)")
 
+    # 土地形状・外観メンテナンス画像解析項目
+    plot_shape_type = models.CharField(
+        max_length=30,
+        default='unknown',
+        choices=[
+            ('regular', '整形地'),
+            ('irregular', '不整形地'),
+            ('flagpole', '旗竿地'),
+            ('unknown', '判定不能')
+        ],
+        verbose_name="土地の形状"
+    )
+    plot_shape_description = models.TextField(null=True, blank=True, verbose_name="土地の形状に関する説明・コメント")
+    maintenance_score = models.FloatField(null=True, blank=True, verbose_name="外観メンテナンス状態スコア (1.0-5.0)")
+    maintenance_comment = models.TextField(null=True, blank=True, verbose_name="外観メンテナンス評価コメント")
+
     # 解析ステータス・制御
     analysis_status = models.CharField(
         max_length=30,
@@ -103,6 +124,7 @@ class PropertyEvaluation(models.Model):
     )
     analyzed_at = models.DateTimeField(null=True, blank=True, verbose_name="解析実行日時")
     is_slack_notified = models.BooleanField(default=False, verbose_name="Slack通知済みフラグ")
+    duplicate_of = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='duplicates', verbose_name="名寄せ先親評価レコード")
 
     class Meta:
         db_table = 'property_evaluation'
@@ -155,6 +177,7 @@ class LandPricePotential(models.Model):
     average_land_price = models.IntegerField(verbose_name="平均公示地価（円/㎡）")
     estimated_rosenka_price = models.IntegerField(null=True, blank=True, verbose_name="推定相続税路線価（円/㎡）")
     estimated_fixed_asset_price = models.IntegerField(null=True, blank=True, verbose_name="推定固定資産税評価価格（円/㎡）")
+    land_price_growth_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="地価変動率（％）")
     land_use = models.CharField(
         max_length=50,
         choices=[
@@ -171,7 +194,8 @@ class LandPricePotential(models.Model):
         verbose_name_plural = "平均地価マスタ"
 
     def __str__(self):
-        return f"{self.prefecture}{self.city} ({self.get_land_use_display()}: {self.average_land_price}円/㎡)"
+        trend = f", 変動率: {self.land_price_growth_rate}%" if self.land_price_growth_rate else ""
+        return f"{self.prefecture}{self.city} ({self.get_land_use_display()}: {self.average_land_price}円/㎡{trend})"
 
 
 class HazardMapPotential(models.Model):

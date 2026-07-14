@@ -9,19 +9,21 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 # システム依存関係のインストール
-# mysqlclientのビルドに必要なライブラリを含める
 RUN apt-get update && apt-get install -y \
     pkg-config \
     default-libmysqlclient-dev \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # ソースコードのコピー
-# ディレクトリ構造に合わせて調整 (srcフォルダがあるため)
 COPY src/ /app/src/
 
 # 依存関係のインストール
-RUN pip install --no-cache-dir -r src/crawler/requirements.txt
+RUN pip install --default-timeout=1000 --no-cache-dir -r src/crawler/requirements.txt
+
+# Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
+RUN playwright install --with-deps chromium
 
 # ポートの公開
 EXPOSE 8000

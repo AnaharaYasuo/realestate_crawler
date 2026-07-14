@@ -26,6 +26,10 @@ services:
       - DB_PASSWORD=mayumimayumi0413
       - DB_PORT=3306
       - CRAWLER_LIMIT=100
+      - STORAGE_ENDPOINT=http://minio:9000
+      - STORAGE_ACCESS_KEY=minioadmin
+      - STORAGE_SECRET_KEY=minioadmin
+      - STORAGE_BUCKET=realestate-images
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -38,6 +42,7 @@ services:
       - ./docs:/app/docs
     depends_on:
       - db
+      - minio
     restart: always
 
   scheduler:
@@ -53,6 +58,10 @@ services:
       - CRAWLER_LIMIT=${CRAWLER_LIMIT:-100}
       - CRAWL_COOLDOWN_SEC=${CRAWL_COOLDOWN_SEC:-180}
       - CRAWL_TIMEOUT_SEC=${CRAWL_TIMEOUT_SEC:-1800}
+      - STORAGE_ENDPOINT=http://minio:9000
+      - STORAGE_ACCESS_KEY=minioadmin
+      - STORAGE_SECRET_KEY=minioadmin
+      - STORAGE_BUCKET=realestate-images
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -65,8 +74,23 @@ services:
     depends_on:
       - db
       - app
-    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && python src/crawler/scripts/run_all_crawlers.py >> /app/logs/scheduler.log 2>&1' | crontab - && crond -f"]
+      - minio
+    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && crond -f"]
+    restart: always
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
     restart: always
 
 volumes:
   db_data:
+  minio_data:

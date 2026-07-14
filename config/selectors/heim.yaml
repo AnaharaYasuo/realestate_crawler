@@ -1,0 +1,32 @@
+# Heim Selectors Configuration
+# CSS selectors for parsing Heim property pages
+
+mansion:
+  title: "div.title_header > h2"
+  price: "div.price_box > h5 > span"
+  address: "p.place"
+  table:
+    selector: ".b_table"
+    row_selector: ".tr"
+    header: ".th"
+    value: ".td"
+
+kodate:
+  title: "div.title_header > h2"
+  price: "div.price_box > h5 > span"
+  address: "p.place"
+  table:
+    selector: ".b_table"
+    row_selector: ".tr"
+    header: ".th"
+    value: ".td"
+
+tochi:
+  title: "div.title_header > h2"
+  price: "div.price_box > h5 > span"
+  address: "p.place"
+  table:
+    selector: ".b_table"
+    row_selector: ".tr"
+    header: ".th"
+    value: ".td"

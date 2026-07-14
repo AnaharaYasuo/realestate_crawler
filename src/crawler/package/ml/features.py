@@ -146,9 +146,35 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     # 1. 基本属性の抽出
     address1 = get_attr(property_obj, 'address1', '') or ''
     address2 = get_attr(property_obj, 'address2', '') or ''
+    
+    if not address1 or not address2:
+        full_address = get_attr(property_obj, 'address', '') or ''
+        import re
+        m = re.match(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^区市町]+[区市町])', full_address)
+        if m:
+            if not address1:
+                address1 = m.group(1)
+            if not address2:
+                address2 = m.group(2)
+                
     station1 = get_attr(property_obj, 'station1', '') or ''
     company = get_attr(property_obj, 'company', 'unknown') or 'unknown'
     
+    from decimal import Decimal
+    def safe_float(val, default_val):
+        if val is None:
+            return default_val
+        if isinstance(val, (int, float, Decimal)):
+            return float(val)
+        if isinstance(val, str):
+            m_val = re.search(r'([0-9\.]+)', val)
+            if m_val:
+                try:
+                    return float(m_val.group(1))
+                except:
+                    pass
+        return default_val
+
     # 基準日の設定
     if not base_date:
         input_date = get_attr(property_obj, 'inputDate', None)
@@ -181,15 +207,21 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     # 2. 自治体ポテンシャルマスタとの結合
     pop_growth = 0.0
     income = 3000
+    total_population = 100000
+    income_growth_rate = 0.0
     muni = _muni_cache.get((address1, address2))
     if muni:
         pop_growth = float(muni.population_growth_rate)
         income = muni.average_income
+        total_population = muni.total_population if muni.total_population is not None else 100000
+        income_growth_rate = float(muni.income_growth_rate) if muni.income_growth_rate is not None else 0.0
     else:
         muni_pref_vals = _muni_pref_cache.get(address1, [])
         if muni_pref_vals:
             pop_growth = sum(float(x.population_growth_rate) for x in muni_pref_vals) / len(muni_pref_vals)
             income = int(sum(x.average_income for x in muni_pref_vals) / len(muni_pref_vals))
+            total_population = int(sum(x.total_population for x in muni_pref_vals if x.total_population is not None) / len(muni_pref_vals)) if any(x.total_population is not None for x in muni_pref_vals) else 100000
+            income_growth_rate = sum(float(x.income_growth_rate) for x in muni_pref_vals if x.income_growth_rate is not None) / len(muni_pref_vals) if any(x.income_growth_rate is not None for x in muni_pref_vals) else 0.0
 
     # 3. 駅ポテンシャルマスタとの結合
     passenger_volume = 10000
@@ -198,6 +230,20 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         station_pot = _station_cache.get(station_clean)
         if station_pot:
             passenger_volume = station_pot.passenger_volume
+
+    # 地域の人口密度（density）に基づき、駅距離に対するペナルティ倍率を動的調整する
+    # 人口密度が 4,000人/㎢ 以上の過密・主要交通エリアは影響度 1.0 (フルに徒歩分数が価格へ影響)
+    # 人口密度が減る（地方や郊外のマイカー社会）に従って、駅距離の影響度を最低 0.4 まで逓減
+    pop_density = 4000.0
+    if muni and muni.population_density is not None:
+        pop_density = float(muni.population_density)
+    else:
+        muni_pref_vals = _muni_pref_cache.get(address1, [])
+        if muni_pref_vals:
+            pop_density = sum(float(x.population_density) for x in muni_pref_vals if x.population_density is not None) / len(muni_pref_vals) if any(x.population_density is not None for x in muni_pref_vals) else 4000.0
+
+    walk_min_penalty_scale = max(0.4, min(1.0, 0.4 + 0.6 * (pop_density / 4000.0)))
+    effective_walk_min = float(walk_min) * walk_min_penalty_scale
 
     # 4. 用途地域規制（上限容積率・建ぺい率）の正規表現抽出とマスタ引き当て
     import re
@@ -310,6 +356,31 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             return int(comm_val)
         return default
 
+    # 変動率の取得とブレンド
+    res_growth = float(lp_res.land_price_growth_rate) if lp_res and lp_res.land_price_growth_rate is not None else None
+    comm_growth = float(lp_comm.land_price_growth_rate) if lp_comm and lp_comm.land_price_growth_rate is not None else None
+    
+    if res_growth is None:
+        lp_pref_res = _lp_pref_res_cache.get(address1, [])
+        if lp_pref_res:
+            res_growth = sum(float(x.land_price_growth_rate) for x in lp_pref_res if x.land_price_growth_rate is not None) / len(lp_pref_res) if any(x.land_price_growth_rate is not None for x in lp_pref_res) else 0.0
+            
+    if comm_growth is None:
+        lp_pref_comm = _lp_pref_comm_cache.get(address1, [])
+        if lp_pref_comm:
+            comm_growth = sum(float(x.land_price_growth_rate) for x in lp_pref_comm if x.land_price_growth_rate is not None) / len(lp_pref_comm) if any(x.land_price_growth_rate is not None for x in lp_pref_comm) else 0.0
+
+    def blend_float_value(res_val, comm_val, default):
+        if res_val is not None and comm_val is not None:
+            return float(res_val * weight_res + comm_val * weight_comm)
+        elif res_val is not None:
+            return float(res_val)
+        elif comm_val is not None:
+            return float(comm_val)
+        return default
+
+    land_price_growth_rate = blend_float_value(res_growth, comm_growth, 0.0)
+
     average_land_price = blend_value(res_price, comm_price, 350000)
     estimated_rosenka_price = blend_value(res_rosenka, comm_rosenka, int(average_land_price * 0.8))
     estimated_fixed_asset_price = blend_value(res_fixed, comm_fixed, int(average_land_price * 0.7))
@@ -403,9 +474,134 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     except:
         pass
 
+    # 土地（tochi）固有の鑑定特徴量の算出
+    maguchi_val = 6.0
+    road_width_val = 4.0
+    setback_ratio = 0.0
+    actual_volume_limit = max_youseki
+    volume_digest_factor = 1.0
+    road_condition_factor = 1.0
+    frontage_penalty_factor = 1.0
+    residual_land_value = 0.0
+    road_direction_str = ""
+    road_type_str = ""
+    road_structure_str = ""
+    chimoku_str = ""
+    
+    if property_type in ['tochi', 'kodate', 'apartment']:
+        import re
+        if property_type == 'tochi':
+            # 主要評価面積を土地面積とする
+            area = tochi_area
+            
+        maguchi = get_attr(property_obj, 'maguchi', None)
+        road_width = get_attr(property_obj, 'roadWidth', None) or get_attr(property_obj, 'douroHaba', None)
+        road_direction_str = get_attr(property_obj, 'roadDirection', '') or get_attr(property_obj, 'douroMuki', '') or ''
+        road_type_str = get_attr(property_obj, 'roadType', '') or get_attr(property_obj, 'douroKubun', '') or ''
+        road_structure_str = get_attr(property_obj, 'roadStructure', '') or get_attr(property_obj, 'setsudou', '') or ''
+        chimoku_str = get_attr(property_obj, 'chimoku', '') or ''
+        
+        # 動的パースのフォールバックロジック (カラムに値が入っていない場合)
+        raw_setsudou = get_attr(property_obj, 'setsudou', '') or ''
+        
+        if not road_width and raw_setsudou:
+            m_width = re.search(r'([0-9\.]+)\s*[mｍ]', raw_setsudou)
+            if m_width:
+                road_width = float(m_width.group(1))
+                
+        if not maguchi and raw_setsudou:
+            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*([0-9\.]+)\s*[mｍ]', raw_setsudou)
+            if m_maguchi:
+                maguchi = float(m_maguchi.group(1))
+                
+        if not road_direction_str and raw_setsudou:
+            for direction in ["北東", "北西", "南東", "南西", "東", "西", "南", "北"]:
+                if direction in raw_setsudou:
+                    road_direction_str = direction
+                    break
+                    
+        if not road_type_str and raw_setsudou:
+            if "公道" in raw_setsudou:
+                road_type_str = "公道"
+            elif "私道" in raw_setsudou:
+                road_type_str = "私道"
+        
+        maguchi_val = safe_float(maguchi, 6.0)
+        road_width_val = safe_float(road_width, 4.0)
+        
+        # ① セットバック（後退）面積比率
+        if road_width_val < 4.0:
+            setback_width = (4.0 - road_width_val) / 2.0
+            setback_area = maguchi_val * setback_width
+            if tochi_area > 0:
+                setback_ratio = min(1.0, setback_area / tochi_area)
+                
+        # ② 実質上限容積率制限 (幅員制限)
+        youto = get_attr(property_obj, 'youtoChiiki', '') or ''
+        is_commercial = any(x in youto for x in ["商業", "近隣商業", "工業", "準工業", "工業専用"])
+        multiplier = 0.6 if is_commercial else 0.4
+        road_volume_limit = road_width_val * multiplier * 100.0
+        actual_volume_limit = min(max_youseki, road_volume_limit)
+        
+        # ③ 北側道路緩和・容積消化効率係数
+        if "北" in road_direction_str and road_width_val >= 4.0:
+            volume_digest_factor = 1.15
+        elif "南" in road_direction_str:
+            est_depth = tochi_area / maguchi_val if maguchi_val > 0 else 10.0
+            if est_depth < 10.0:
+                volume_digest_factor = 0.85
+                
+        # ④ 接道条件加算補正
+        if any(x in road_structure_str for x in ["角地", "準角地", "三方", "四方"]):
+            road_condition_factor = 1.05
+        elif any(x in road_structure_str for x in ["二方", "両面道路"]):
+            road_condition_factor = 1.03
+            
+        # ⑤ 間口狭小ペナルティ
+        if maguchi_val < 2.0:
+            frontage_penalty_factor = 0.25
+        elif maguchi_val < 4.0:
+            frontage_penalty_factor = 0.90
+            
+        # ⑥ 土地残余法比準地価
+        residual_land_value = tochi_area * (average_land_price / 10000.0) * volume_digest_factor * road_condition_factor * frontage_penalty_factor * (1.0 - setback_ratio)
+
+    # ⑦ 最大建築面積、最大延床面積 (前面道路幅員制限考慮)
+    max_building_area = 0.0
+    max_floor_area = 0.0
+    
+    # 角地による建ぺい率緩和 (+10.0%)
+    road_struct = get_attr(property_obj, 'roadStructure', '') or get_attr(property_obj, 'setsudou', '') or ''
+    is_corner = any(x in str(road_struct) for x in ["角地", "準角地", "三方", "四方"])
+    effective_kenpei = max_kenpei
+    if is_corner:
+        effective_kenpei = min(100.0, max_kenpei + 10.0)
+
+    if tochi_area > 0:
+        max_building_area = tochi_area * (effective_kenpei / 100.0)
+        vol_limit = actual_volume_limit if 'actual_volume_limit' in locals() else max_youseki
+        max_floor_area = tochi_area * (vol_limit / 100.0)
+
+    # ⑧ かげ地割合（吉野金次式）の簡易抽出
+    biko_text = get_attr(property_obj, 'biko', '') or ''
+    tochi_text = get_attr(property_obj, 'tochikenri', '') or ''
+    
+    is_hatasao = any(x in str(biko_text) or x in str(tochi_text) for x in ["旗竿", "路地状", "敷地延長", "敷延"])
+    is_fuseigei = any(x in str(biko_text) or x in str(tochi_text) for x in ["不整形", "変形地", "台形地", "袋地"])
+    
+    # オブジェクトに明示的なかげ地割合属性がある場合は優先
+    kagechi_ratio = safe_float(get_attr(property_obj, 'kagechi_ratio', None), None)
+    if kagechi_ratio is None:
+        if is_hatasao:
+            kagechi_ratio = 0.25 # 旗竿地は平均的にかげ地割合25%と仮定
+        elif is_fuseigei:
+            kagechi_ratio = 0.15 # 不整形地は平均的にかげ地割合15%と仮定
+        else:
+            kagechi_ratio = 0.0
+
     # 特徴量辞書を返却
     feats = {
-        "area": area if property_type == 'mansion' else tatemono_area,
+        "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
         "tochi_menseki": tochi_area,
         "chikunen": chikunen,
         "walk_min": walk_min,
@@ -429,7 +625,24 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "flood_risk_level": flood_risk_level,
         "landslide_risk_level": landslide_risk_level,
         "max_youseki": max_youseki,
-        "max_kenpei": max_kenpei
+        "max_kenpei": max_kenpei,
+        # 土地用追加特徴量
+        "maguchi": maguchi_val,
+        "road_width": road_width_val,
+        "setback_ratio": setback_ratio,
+        "actual_volume_limit": actual_volume_limit,
+        "volume_digest_factor": volume_digest_factor,
+        "road_condition_factor": road_condition_factor,
+        "frontage_penalty_factor": frontage_penalty_factor,
+        "residual_land_value": residual_land_value,
+        "max_building_area": max_building_area,
+        "max_floor_area": max_floor_area,
+        "kagechi_ratio": kagechi_ratio,
+        "total_population": total_population,
+        "income_growth_rate": income_growth_rate,
+        "land_price_growth_rate": land_price_growth_rate,
+        "effective_walk_min": effective_walk_min,
+        "population_density": pop_density
     }
     
     # カテゴリカル（文字列）
@@ -438,5 +651,10 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["station"] = station1
     feats["company"] = company
     feats["kouzou"] = kouzou_str
+    # 土地カテゴリカル
+    feats["road_direction"] = road_direction_str
+    feats["road_type"] = road_type_str
+    feats["road_structure"] = road_structure_str
+    feats["chimoku"] = chimoku_str
     
     return feats

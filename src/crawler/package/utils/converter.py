@@ -117,3 +117,33 @@ def truncate_str(text, length):
             break
         sliced_text += c
     return sliced_text
+
+def parse_ratio(text):
+    """
+    割合・パーセント文字列を Decimal に変換する
+    例: "8.0％" -> Decimal("8.00")
+    """
+    if not text or text == "-":
+        return None
+    try:
+        val = text.replace('％', '').replace('%', '').strip()
+        match = re.search(r'([0-9\.]+)', val)
+        if match:
+            return Decimal(match.group(1))
+    except Exception:
+        pass
+    return None
+
+parse_number = parse_numeric
+
+def parse_rent(rent_str):
+    """
+    賃料・収入文字列を数値に変換する (円単位)
+    「万」または「億」が含まれる場合は parse_price (万円ベース)、そうでない場合は parse_yen (円ベース) を使用する。
+    """
+    if not rent_str:
+        return None
+    rent_str = rent_str.strip()
+    if "万" in rent_str or "億" in rent_str:
+        return parse_price(rent_str)
+    return parse_yen(rent_str)

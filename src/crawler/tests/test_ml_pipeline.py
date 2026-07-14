@@ -56,7 +56,9 @@ def test_ml_pipeline():
                 "gross_yield", "annual_rent",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
+                "max_youseki", "max_kenpei",
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ]
         else:
             feats_first = [
@@ -66,7 +68,9 @@ def test_ml_pipeline():
                 "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
+                "max_youseki", "max_kenpei",
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
             ]
             
         feats_second = feats_first + ["interior_score", "layout_score"]

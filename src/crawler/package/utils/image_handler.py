@@ -175,17 +175,26 @@ def check_api_budget_cap() -> bool:
     return current_count < MAX_DAILY_IMAGE_ANALYSIS
 
 
-def analyze_property_images_with_gemini(cleaned_images) -> tuple:
+def analyze_property_images_with_gemini(cleaned_images) -> dict:
     """
     クレンジング済み画像リストから画像をダウンロードし、
-    Gemini API に入力して内装スコアと間取りスコアを取得する。
+    Gemini API に入力して各種画像解析メタデータ（内装、間取り、土地形状、外観状態）を取得する。
     
-    返り値: (interior_score: float, layout_score: float)
+    返り値: dict
     """
+    default_result = {
+        'interior_score': 3.5,
+        'layout_score': 3.5,
+        'plot_shape_type': 'unknown',
+        'plot_shape_description': '画像なしのため判定不能',
+        'maintenance_score': 3.5,
+        'maintenance_comment': '画像なしのため判定不能'
+    }
+    
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        logging.warning("Gemini API key is not set. Using default scores (3.5, 3.5).")
-        return 3.5, 3.5  # フォールバック
+        logging.error("❌ [CRITICAL ERROR] GEMINI_API_KEY env variable is NOT configured. Gemini image analysis will be skipped and default dummy scores will be returned! Please set the API key in your .env or system environment.")
+        return default_result
         
     try:
         genai.configure(api_key=api_key)
@@ -196,29 +205,37 @@ def analyze_property_images_with_gemini(cleaned_images) -> tuple:
         categories_to_send = ['layout', 'exterior', 'interior']
         
         for cat in categories_to_send:
-            target = next((img for img in cleaned_images if img['category'] == cat), None)
-            if target:
+            target = [img for img in cleaned_images if img['category'] == cat]
+            # 各カテゴリ最大2枚まで取得して解析精度を高める
+            for img_info in target[:2]:
                 try:
-                    resp = requests.get(target['url'], timeout=10)
+                    resp = requests.get(img_info['url'], timeout=10)
                     if resp.status_code == 200:
-                        # バイト検証
                         img_bytes = resp.content
                         if verify_image_bytes(img_bytes):
                             pil_img = Image.open(io.BytesIO(img_bytes))
                             images_to_send.append(pil_img)
                 except Exception as e:
-                    logging.warning(f"Failed to download or verify image {target['url']}: {e}")
+                    logging.warning(f"Failed to download or verify image {img_info['url']}: {e}")
                     
         if not images_to_send:
-            logging.warning("No valid images downloaded. Using default scores (3.0, 3.0).")
-            return 3.0, 3.0
+            logging.warning("No valid images downloaded. Using default analysis result.")
+            return default_result
             
         prompt = (
-            "Analyze these real estate images and evaluate the property. "
-            "Return a JSON object containing:\n"
-            "- 'interior_score': float between 1.0 and 5.0 (evaluating interior cleanliness/quality)\n"
-            "- 'layout_score': float between 1.0 and 5.0 (evaluating floor plan utility/rationality)\n"
-            "Return ONLY raw JSON, e.g. {\"interior_score\": 4.2, \"layout_score\": 3.5}"
+            "Analyze these real estate images (interior, layout/plot plan, exterior) and evaluate the property.\n"
+            "Return a JSON object containing the following fields:\n"
+            "1. 'interior_score': float between 1.0 and 5.0 (cleanliness and design of interior)\n"
+            "2. 'layout_score': float between 1.0 and 5.0 (utility and efficiency of floor plan)\n"
+            "3. 'plot_shape_type': string, one of ['regular', 'irregular', 'flagpole', 'unknown']\n"
+            "   - 'regular': Standard rectangular/square shape, easy to build on.\n"
+            "   - 'irregular': Deformed, triangular, or complex shape which is hard to build on efficiently.\n"
+            "   - 'flagpole': Flagpole land / long narrow entrance pathway leading to the main plot (敷地延長/引込線路地).\n"
+            "   - 'unknown': Cannot determine from the given images.\n"
+            "4. 'plot_shape_description': string in Japanese explaining the land shape evaluation.\n"
+            "5. 'maintenance_score': float between 1.0 and 5.0 (structural maintenance quality, paint fade, rust, cleanliness of exterior)\n"
+            "6. 'maintenance_comment': string in Japanese summarizing the maintenance status of the exterior.\n"
+            "Return ONLY raw JSON, e.g. {\"interior_score\": 4.0, \"layout_score\": 3.5, \"plot_shape_type\": \"regular\", \"plot_shape_description\": \"きれいな長方形の角地で非常に建てやすい形状です。\", \"maintenance_score\": 4.2, \"maintenance_comment\": \"外壁の劣化やクラックは見られず、非常によくメンテナンスされています。\"}"
         )
         
         response = model.generate_content(images_to_send + [prompt])
@@ -227,10 +244,19 @@ def analyze_property_images_with_gemini(cleaned_images) -> tuple:
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             data = json.loads(match.group(0))
-            return float(data.get('interior_score', 3.5)), float(data.get('layout_score', 3.5))
+            result = default_result.copy()
+            result.update({
+                'interior_score': float(data.get('interior_score', 3.5)),
+                'layout_score': float(data.get('layout_score', 3.5)),
+                'plot_shape_type': str(data.get('plot_shape_type', 'unknown')),
+                'plot_shape_description': str(data.get('plot_shape_description', '')),
+                'maintenance_score': float(data.get('maintenance_score', 3.5)),
+                'maintenance_comment': str(data.get('maintenance_comment', ''))
+            })
+            return result
             
         logging.warning(f"Failed to parse Gemini response: {text}")
-        return 3.5, 3.5
+        return default_result
     except Exception as e:
         logging.error(f"Error during Gemini image analysis: {e}")
-        return 3.5, 3.5
+        return default_result

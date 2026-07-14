@@ -1,0 +1,26 @@
+# Daikyo Selectors Configuration
+# CSS selectors for parsing Daikyo property pages
+
+mansion:
+  title: "h1"
+  table:
+    selector: "table"
+    row_selector: "tr"
+    header: "th"
+    value: "td"
+
+kodate:
+  title: "h1"
+  table:
+    selector: "table"
+    row_selector: "tr"
+    header: "th"
+    value: "td"
+
+tochi:
+  title: "h1"
+  table:
+    selector: "table"
+    row_selector: "tr"
+    header: "th"
+    value: "td"

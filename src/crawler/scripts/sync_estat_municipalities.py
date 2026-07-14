@@ -105,10 +105,49 @@ def generate_mock_estat_data():
     ]
 
 
-def sync_municipalities():
+def sync_municipalities(csv_path=None):
+    if not csv_path:
+        csv_path = "/app/src/crawler/package/ml/data/estat_municipal_potentials.csv"
+        
     app_id = os.getenv("ESTAT_APP_ID", "")
-    data = fetch_estat_data(app_id)
+    data = []
     
+    if app_id:
+        try:
+            data = fetch_estat_data(app_id)
+        except Exception as e:
+            logging.error(f"Failed to fetch from e-Stat API: {e}")
+            
+    if not data and os.path.exists(csv_path):
+        import csv
+        logging.info(f"Loading e-Stat municipal potential data from local CSV: {csv_path}...")
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                pop_growth = Decimal(row.get("population_growth_rate", "0.0").strip())
+                avg_inc = int(row.get("average_income", "0").strip())
+                tot_pop = row.get("total_population", "").strip()
+                inc_growth = row.get("income_growth_rate", "").strip()
+                pop_dens = row.get("population_density", "").strip()
+                
+                tot_pop_val = int(tot_pop) if tot_pop else None
+                inc_growth_val = Decimal(inc_growth) if inc_growth else Decimal("0.0")
+                pop_dens_val = Decimal(pop_dens) if pop_dens else None
+                
+                data.append({
+                    "prefecture": row["prefecture"].strip(),
+                    "city": row["city"].strip(),
+                    "population_growth_rate": pop_growth,
+                    "average_income": avg_inc,
+                    "total_population": tot_pop_val,
+                    "income_growth_rate": inc_growth_val,
+                    "population_density": pop_dens_val
+                })
+                
+    if not data:
+        logging.error("No municipal data available to sync.")
+        return
+        
     count = 0
     for m in data:
         obj, created = MunicipalPotential.objects.update_or_create(
@@ -116,7 +155,10 @@ def sync_municipalities():
             city=m["city"],
             defaults={
                 "population_growth_rate": m["population_growth_rate"],
-                "average_income": m["average_income"]
+                "average_income": m["average_income"],
+                "total_population": m.get("total_population"),
+                "income_growth_rate": m.get("income_growth_rate", Decimal("0.0")),
+                "population_density": m.get("population_density")
             }
         )
         if created:
@@ -127,4 +169,8 @@ def sync_municipalities():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    sync_municipalities()
+    import argparse
+    parser = argparse.ArgumentParser(description="Sync municipal potential stats.")
+    parser.add_argument("--csv", default=None, help="Path to local stats CSV file")
+    args = parser.parse_args()
+    sync_municipalities(csv_path=args.csv)

@@ -84,19 +84,21 @@ def _get_models_and_master(property_type):
 
 def _detect_property_type(property_obj):
     """
-    オブジェクト名または型から mansion / kodate / apartment の種別を自動判定
+    オブジェクト名または型から mansion / kodate / apartment / tochi の種別を自動判定
     """
     if isinstance(property_obj, dict):
         ptype = property_obj.get("propertyType", "").lower()
         if "mansion" in ptype: return "mansion"
         if "kodate" in ptype: return "kodate"
         if "apartment" in ptype: return "apartment"
+        if "tochi" in ptype: return "tochi"
         
         # 簡易フォールバック判定
         if "senyuMenseki" in property_obj: return "mansion"
         if "tatemonoMenseki" in property_obj:
             if "grossYield" in property_obj: return "apartment"
             return "kodate"
+        if "tochiMenseki" in property_obj or "maguchi" in property_obj: return "tochi"
         return "mansion"
         
     # Djangoオブジェクトの場合
@@ -107,6 +109,8 @@ def _detect_property_type(property_obj):
         return "kodate"
     elif "apartment" in class_name:
         return "apartment"
+    elif "tochi" in class_name:
+        return "tochi"
     return "mansion"
 
 
@@ -151,6 +155,68 @@ def _log_prediction_error(property_obj, property_type, predicted_price, actual_p
             logging.error(f"ML: Failed to write prediction error log: {e}")
 
 
+
+def _apply_rights_discount(property_obj, predicted_price: float) -> int:
+    """
+    借地権・底地などの権利形態による価格ディスカウント補正を行う
+    """
+    tochikenri = getattr(property_obj, "tochikenri", "") or ""
+    if not tochikenri:
+        return int(predicted_price)
+        
+    # 再建築不可の判定 (備考欄や土地権利等に記載がある場合)
+    biko = getattr(property_obj, "biko", "") or ""
+    is_saikenchiku_fuka = any("再建築不可" in str(x) for x in [tochikenri, biko])
+
+    text = tochikenri.lower()
+    rights_ratio = 1.0
+    
+    # 1. 底地（貸地 / 所有権から借地権を引いた残余）
+    if "底地" in text or "貸地" in text:
+        rights_ratio = 0.20
+        
+    # 2. 定期借地権
+    elif "定期" in text or "定借" in text:
+        age = getattr(property_obj, "chikunen", 0) or 0
+        if age > 0:
+            remaining_ratio = max(0.20, (50 - age) / 50.0) # 最低残価20%
+        else:
+            remaining_ratio = 0.50
+        rights_ratio = 0.70 * remaining_ratio
+        
+    # 3. 普通借地権（旧法含む）
+    elif "借地" in text or "賃借" in text:
+        rights_ratio = 0.65
+        
+    price = predicted_price * rights_ratio
+    
+    if is_saikenchiku_fuka:
+        # 再建築不可の場合は 60% 減価 (通常の40%の価値)
+        price = price * 0.40
+        
+    # 吉野金次式かげ地割合による減価補正 (Mansion以外の戸建て・土地・アパート等に適用)
+    # オブジェクトに明示的なかげ地割合があるか、もしくはテキストから判定
+    kagechi_val = getattr(property_obj, 'kagechi_ratio', None)
+    if kagechi_val is None:
+        is_hatasao = any(x in str(biko) or x in str(tochikenri) for x in ["旗竿", "路地状", "敷地延長", "敷延"])
+        is_fuseigei = any(x in str(biko) or x in str(tochikenri) for x in ["不整形", "変形地", "台形地", "袋地"])
+        if is_hatasao:
+            kagechi_val = 0.25
+        elif is_fuseigei:
+            kagechi_val = 0.15
+        else:
+            kagechi_val = 0.0
+            
+    if kagechi_val >= 0.30:
+        price = price * 0.70  # 30%減価
+    elif kagechi_val >= 0.20:
+        price = price * 0.80  # 20%減価
+    elif kagechi_val >= 0.10:
+        price = price * 0.90  # 10%減価
+        
+    return int(price)
+
+
 def predict_first_stage(property_obj) -> int:
     """
     一次理論価格予測 (画像なし予測) - アンサンブル加重平均
@@ -170,7 +236,9 @@ def predict_first_stage(property_obj) -> int:
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei"
+            "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
+            "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ],
         "kodate": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -179,7 +247,13 @@ def predict_first_stage(property_obj) -> int:
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei"
+            "max_youseki", "max_kenpei",
+            # 土地補正特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ],
         "apartment": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -189,7 +263,27 @@ def predict_first_stage(property_obj) -> int:
             "gross_yield", "annual_rent",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei"
+            "max_youseki", "max_kenpei",
+            # 土地補正特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
+        ],
+        "tochi": [
+            "area", "tochi_menseki", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            # 土地用特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ]
     }
     
@@ -224,10 +318,28 @@ def predict_first_stage(property_obj) -> int:
     final_pred = 0.0
     for algo, weight in loaded_weights.items():
         norm_weight = weight / total_weight
-        pred = first_models[algo].predict(df)[0]
+        model = first_models[algo]
+        df_for_pred = df
+        if hasattr(model, "feature_names_in_"):
+            expected_features = list(model.feature_names_in_)
+            for col in expected_features:
+                if col not in df.columns:
+                    df[col] = 0.0
+            df_for_pred = df[expected_features]
+        elif hasattr(model, "feature_names"):
+            expected_features = list(model.feature_names)
+            for col in expected_features:
+                if col not in df.columns:
+                    df[col] = 0.0
+            df_for_pred = df[expected_features]
+            
+        pred_log = model.predict(df_for_pred)[0]
+        pred_unit = np.expm1(pred_log)
+        pred = pred_unit * float(df["area"].values[0])
         final_pred += pred * norm_weight
         
-    predicted_val = int(max(0, final_pred))
+    raw_predicted_val = int(max(0, final_pred))
+    predicted_val = _apply_rights_discount(property_obj, raw_predicted_val)
     
     # 予測エラーのログ化
     def get_attr(obj, name, default=None):
@@ -260,7 +372,10 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "estimated_rosenka_price", "estimated_fixed_asset_price",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei", "interior_score", "layout_score"
+            "max_youseki", "max_kenpei", "interior_score", "layout_score",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ],
         "kodate": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -269,7 +384,13 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei", "interior_score", "layout_score"
+            "max_youseki", "max_kenpei", "interior_score", "layout_score",
+            # 土地補正特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ],
         "apartment": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -279,7 +400,27 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "gross_yield", "annual_rent",
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-            "max_youseki", "max_kenpei", "interior_score", "layout_score"
+            "max_youseki", "max_kenpei", "interior_score", "layout_score",
+            # 土地補正特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
+        ],
+        "tochi": [
+            "area", "tochi_menseki", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei", "interior_score", "layout_score",
+            # 土地用特徴量
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density"
         ]
     }
     
@@ -314,10 +455,28 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
     final_pred = 0.0
     for algo, weight in loaded_weights.items():
         norm_weight = weight / total_weight
-        pred = second_models[algo].predict(df)[0]
+        model = second_models[algo]
+        df_for_pred = df
+        if hasattr(model, "feature_names_in_"):
+            expected_features = list(model.feature_names_in_)
+            for col in expected_features:
+                if col not in df.columns:
+                    df[col] = 0.0
+            df_for_pred = df[expected_features]
+        elif hasattr(model, "feature_names"):
+            expected_features = list(model.feature_names)
+            for col in expected_features:
+                if col not in df.columns:
+                    df[col] = 0.0
+            df_for_pred = df[expected_features]
+            
+        pred_log = model.predict(df_for_pred)[0]
+        pred_unit = np.expm1(pred_log)
+        pred = pred_unit * float(df["area"].values[0])
         final_pred += pred * norm_weight
         
-    predicted_val = int(max(0, final_pred))
+    raw_predicted_val = int(max(0, final_pred))
+    predicted_val = _apply_rights_discount(property_obj, raw_predicted_val)
     
     # 予測エラーのログ化
     def get_attr(obj, name, default=None):

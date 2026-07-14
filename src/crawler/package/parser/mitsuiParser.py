@@ -22,6 +22,7 @@ from package.utils import converter
 
 
 class MitsuiParser(ParserBase):
+    property_type = ""
     BASE_URL='https://www.rehouse.co.jp'
 
     def __init__(self, params=None):
@@ -103,74 +104,25 @@ class MitsuiParser(ParserBase):
         item.torihiki = self._parseTorihiki(response)
         item.biko = self._parseBiko(response)
         
+        # 築年月の追加
+        item.chikunengetsuStr = self._parseChikunengetsuStr(response)
+        item.chikunengetsu = self._parseChikunengetsu(response)
+        
         # Traffic
-        item.railwayCount = self._parseRailwayCount(response)
-        
-        item.transfer1 = self._parseTransfer1(response)
-        item.railway1 = self._parseRailway1(response)
-        item.station1 = self._parseStation1(response)
-        item.railwayWalkMinute1Str = self._parseRailwayWalkMinute1Str(response)
-        item.railwayWalkMinute1 = self._parseRailwayWalkMinute1(response)
-        item.busStation1 = self._parseBusStation1(response)
-        item.busWalkMinute1Str = self._parseBusWalkMinute1Str(response)
-        item.busWalkMinute1 = self._parseBusWalkMinute1(response)
-        item.busUse1 = self._parseBusUse1(response)
-        
-        item.transfer2 = self._parseTransfer2(response)
-        item.railway2 = self._parseRailway2(response)
-        item.station2 = self._parseStation2(response)
-        item.railwayWalkMinute2Str = self._parseRailwayWalkMinute2Str(response)
-        item.railwayWalkMinute2 = self._parseRailwayWalkMinute2(response)
-        item.busStation2 = self._parseBusStation2(response)
-        item.busWalkMinute2Str = self._parseBusWalkMinute2Str(response)
-        item.busWalkMinute2 = self._parseBusWalkMinute2(response)
-        item.busUse2 = self._parseBusUse2(response)
-        
-        item.transfer3 = self._parseTransfer3(response)
-        item.railway3 = self._parseRailway3(response)
-        item.station3 = self._parseStation3(response)
-        item.railwayWalkMinute3Str = self._parseRailwayWalkMinute3Str(response)
-        item.railwayWalkMinute3 = self._parseRailwayWalkMinute3(response)
-        item.busStation3 = self._parseBusStation3(response)
-        item.busWalkMinute3Str = self._parseBusWalkMinute3Str(response)
-        item.busWalkMinute3 = self._parseBusWalkMinute3(response)
-        item.busUse3 = self._parseBusUse3(response)
-
-        item.transfer4 = self._parseTransfer4(response)
-        item.railway4 = self._parseRailway4(response)
-        item.station4 = self._parseStation4(response)
-        item.railwayWalkMinute4Str = self._parseRailwayWalkMinute4Str(response)
-        item.railwayWalkMinute4 = self._parseRailwayWalkMinute4(response)
-        item.busStation4 = self._parseBusStation4(response)
-        item.busWalkMinute4Str = self._parseBusWalkMinute4Str(response)
-        item.busWalkMinute4 = self._parseBusWalkMinute4(response)
-        item.busUse4 = self._parseBusUse4(response)
-
-        item.transfer5 = self._parseTransfer5(response)
-        item.railway5 = self._parseRailway5(response)
-        item.station5 = self._parseStation5(response)
-        item.railwayWalkMinute5Str = self._parseRailwayWalkMinute5Str(response)
-        item.railwayWalkMinute5 = self._parseRailwayWalkMinute5(response)
-        item.busStation5 = self._parseBusStation5(response)
-        item.busWalkMinute5Str = self._parseBusWalkMinute5Str(response)
-        item.busWalkMinute5 = self._parseBusWalkMinute5(response)
-        item.busUse5 = self._parseBusUse5(response)
+        traffic_lines = self._parseTrafficLines(response)
+        item.railwayCount = len(traffic_lines)
+        traffic_str = "  ".join(traffic_lines)
+        self._populateTraffic(item, traffic_str)
 
         return item
 
-    def _parsePropertyName(self, response):
-        title_selector = self.selectors.get('title')
-        title_tag = response.select_one(title_selector) if title_selector else None
-        name = ""
-        if title_tag:
-             name = title_tag.get_text(strip=True)
-        else:
-             res = self._getValueByLabel(response, "物件名") or response.select_one("h1")
-             if res: name = res.get_text(strip=True)
+    def _parseChikunengetsuStr(self, response):
+        specs = self._get_specs(response)
+        return specs.get("築年月", "")
 
-        if not name:
-            raise ReadPropertyNameException("Could not find property name")
-        return name
+    def _parseChikunengetsu(self, response):
+        s = self._parseChikunengetsuStr(response)
+        return converter.parse_chikunengetsu(s) if s else None
 
     def _parsePriceStr(self, response):
         specs = self._get_specs(response)
@@ -182,7 +134,10 @@ class MitsuiParser(ParserBase):
 
     def _parseAddress(self, response):
         specs = self._get_specs(response)
-        return specs.get("所在地", "")
+        addr = specs.get("所在地", "")
+        if addr:
+            addr = re.sub(r'GoogleMaps.*$', '', addr).strip()
+        return addr
 
     def _parseAddress1(self, response):
         address = self._parseAddress(response)
@@ -229,9 +184,26 @@ class MitsuiParser(ParserBase):
     def _parseTrafficLines(self, response):
         res = self._getValueByLabel(response, "最寄り駅") or self._getValueByLabel(response, "交通")
         if not res: return []
-        lines = [p.get_text(strip=True) for p in res.find_all("p")]
-        if not lines: lines = [res.get_text(strip=True)]
-        return [l for l in lines if l]
+        
+        # pタグの中の各テキストノードまたは子要素のテキストをスペース区切りで結合する
+        lines = []
+        for p in res.find_all("p"):
+            parts = [el.get_text(strip=True) for el in p.find_all(True) if el.get_text(strip=True)]
+            if not parts:
+                parts = [p.get_text(strip=True)]
+            lines.append(" ".join(parts))
+            
+        if not lines:
+            parts = [el.get_text(strip=True) for el in res.find_all(True) if el.get_text(strip=True)]
+            if not parts:
+                parts = [res.get_text(strip=True)]
+            lines = [" ".join(parts)]
+
+        filtered_lines = []
+        for l in lines:
+            if l and not ("@context" in l or "schema.org" in l or "{" in l):
+                filtered_lines.append(l)
+        return filtered_lines
 
     def _parseRailwayCount(self, response):
         return len(self._parseTrafficLines(response))
@@ -321,7 +293,7 @@ class MitsuiParser(ParserBase):
 
     def _parseSetudouDetails(self, setsudou):
         details = {
-            'douroHaba': 0,
+            'douroHaba': Decimal(0),
             'douroKubun': "",
             'douroMuki': "",
             'setsumen': Decimal(0)
@@ -340,7 +312,7 @@ class MitsuiParser(ParserBase):
                         max_haba = haba
                         target_setsudou = wkStr
                         
-                        details['douroHaba'] = douroHabaObj.group()
+                        details['douroHaba'] = Decimal(str(haba))
                         details['douroKubun'] = wkStr.split(u"ｍ")[1].replace(u"(","").replace(u")","").strip()
                         details['douroMuki'] = wkStr[0:(douroHabaObj.start())].split("：")[0]
                         details['setsumen'] = Decimal(0)
@@ -388,8 +360,6 @@ class MitsuiMansionParser(MitsuiParser):
         item.kouzou = self._parseKouzou(response)
 
 
-        item.chikunengetsuStr = self._parseChikunengetsuStr(response)
-        item.chikunengetsu = self._parseChikunengetsu(response)
         item.kyutaishin = self._parseKyutaishin(response)
 
         item.balconyMensekiStr = self._parseBalconyMensekiStr(response)
@@ -446,18 +416,18 @@ class MitsuiMansionParser(MitsuiParser):
     def _parseKaisu(self, response):
         val = self._parseKaisuStr(response)
         if val:
-            try: return int(re.search(r'(\d+)', val).group(1))
+            try:
+                m = re.search(r'(\d+)', val)
+                if m:
+                    return int(m.group(1))
             except: pass
         return 0
 
     def _convert_price_string(self, price_str):
         if not price_str: return 0
-        if "万" in price_str: return converter.parse_price(price_str)
+        if "万" in price_str or "億" in price_str: return converter.parse_price(price_str)
         return converter.parse_yen(price_str)
 
-    def _parseChikunengetsuStr(self, response):
-        specs = self._get_specs(response)
-        return specs.get("築年月", "")
 
     def _parseMadori(self, response):
         specs = self._get_specs(response)
@@ -641,6 +611,56 @@ class MitsuiTochiParser(MitsuiParser):
         item.youtoChiiki = self._parseYoutoChiiki(response)
         item.kuiki = self._parseKuiki(response)
         item.kokudoHou = self._parseKokudoHou(response)
+
+        # 統一土地評価フィールドのパース ＆ 代入
+        import re
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+                
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+
+        # テキスト全体からの接道・間口情報のフォールバック抽出
+        full_text = response.get_text()
+        if (getattr(item, 'maguchi', None) is None or item.maguchi == 0) and full_text:
+            m_maguchi = re.search(r'接道間口[：:]\s*(?:約)?\s*([\d\.]+)\s*m', full_text)
+            if m_maguchi:
+                item.maguchi = Decimal(m_maguchi.group(1))
+                item.maguchiStr = f"{m_maguchi.group(1)}m"
+
+        if (getattr(item, 'roadWidth', None) is None or item.roadWidth == 0) and full_text:
+            m_width = re.search(r'幅員[：:]\s*(?:約)?\s*([\d\.]+)\s*m', full_text) or \
+                      re.search(r'接道[：:][^○\n\r\t]*?(?:約)?\s*([\d\.]+)\s*m', full_text)
+            if m_width:
+                item.roadWidth = Decimal(m_width.group(1))
+                item.roadWidthStr = f"{m_width.group(1)}m"
+
+        if not getattr(item, 'roadDirection', None) and full_text:
+            m_dir = re.search(r'接道[：:][^○\n\r\t]*?((?:北|東|西|南)+側)', full_text)
+            if m_dir:
+                item.roadDirection = m_dir.group(1).replace("側", "")
+                
+        if item.douroMuki and not item.roadDirection:
+            item.roadDirection = item.douroMuki
+            
+        if item.douroKubun and not item.roadType:
+            item.roadType = item.douroKubun
+            
+        if item.setsudou:
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
 
         return item
 

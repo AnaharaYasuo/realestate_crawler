@@ -172,3 +172,17 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
     youtoChiiki = models.TextField(blank=True, null=True, verbose_name="用途地域")
     kenpei = models.TextField(blank=True, null=True, verbose_name="建ぺい率")
     youseki = models.TextField(blank=True, null=True, verbose_name="容積率")
+    
+    # 土地評価エンジン用新規取得パラメータ
+    maguchiStr = models.TextField(blank=True, null=True, verbose_name="間口（文字列）")
+    maguchi = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="間口（数値）")
+    
+    okuyukiStr = models.TextField(blank=True, null=True, verbose_name="奥行（文字列）")
+    okuyuki = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="奥行（数値）")
+    
+    roadWidthStr = models.TextField(blank=True, null=True, verbose_name="前面道路幅員（文字列）")
+    roadWidth = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="前面道路幅員（数値）")
+    
+    roadDirection = models.TextField(blank=True, null=True, verbose_name="接道方位")
+    roadType = models.TextField(blank=True, null=True, verbose_name="道路区分")
+    roadStructure = models.TextField(blank=True, null=True, verbose_name="接道状況")

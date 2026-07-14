@@ -21,7 +21,7 @@ from package.utils.selector_loader import SelectorLoader
 
 class TokyuParser(ParserBase):
     BASE_URL = 'https://www.livable.co.jp'
-    property_type = None
+    property_type = ""
 
     def __init__(self, params=None):
         self.selectors = SelectorLoader.load('tokyu', self.property_type)
@@ -147,6 +147,7 @@ class TokyuParser(ParserBase):
         item.addressKyoto = ""
         
         item.transport1 = self._parseTransport1(response)
+        self._populateTraffic(item, item.transport1)
         
         item.hikiwatashi = self._parseHikiwatashi(response)
         item.genkyo = self._parseGenkyo(response)
@@ -156,21 +157,6 @@ class TokyuParser(ParserBase):
         item.biko = self._parseBiko(response)
         
         return item
-
-    def _parsePropertyName(self, response: BeautifulSoup) -> str:
-        try:
-            selector = self.selectors.get('title', 'h1')
-            el = response.select_one(selector)
-            if not el and selector != "title":
-                el = response.select_one("title")
-            if el:
-                text = self._clean_text(el.get_text())
-                if "｜" in text:
-                    text = text.split("｜")[0].strip()
-                return text
-            return ""
-        except Exception:
-            raise ReadPropertyNameException()
 
         item.hikiwatashi = self._parseHikiwatashi(response)
         item.genkyo = self._parseGenkyo(response)
@@ -263,6 +249,7 @@ class TokyuParser(ParserBase):
         specs = self._scrape_specs(response)
         key = u"備考"
         return specs[key]['value'] if key in specs else ""
+
 
     def _parseMadori(self, response: BeautifulSoup) -> str:
         specs = self._scrape_specs(response)
@@ -616,6 +603,37 @@ class TokyuTochiParser(TokyuParser):
         item.sonotaChiiki = self._parseSonotaChiiki(response)
         item.kenchikuJoken = self._parseKenchikuJoken(response)
         item.kokudoHou = self._parseKokudoHou(response)
+
+        # 統一土地評価フィールドのパース ＆ 代入
+        import re
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+                
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+                
+        if item.douroMuki:
+            item.roadDirection = item.douroMuki
+            
+        if item.douroKubun:
+            item.roadType = item.douroKubun
+            
+        if item.setsudou:
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+            
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
         return item
 
 class TokyuKodateParser(TokyuParser):
@@ -662,6 +680,25 @@ class TokyuKodateParser(TokyuParser):
         item.kenpei = Decimal(self._parseKenpei(response))
         item.youseki = Decimal(self._parseYouseki(response))
         item.kuiki = self._parseKuiki(response)
+        
+        # 統一土地評価フィールドのパース ＆ 代入
+        import re
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+                
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+                
+        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+            
         return item
 
     def _parseSetsumen_Str(self, response: BeautifulSoup) -> str:
@@ -763,15 +800,14 @@ class TokyuInvestmentParser(InvestmentParser):
 
     def _parsePropertyName(self, response):
         data = self._getNextJsData(response)
-        if not data: return "" # Original implementation in InvestmentParser is not visible but we can fallback or raise
-        # Actually InvestmentParser doesn't have _parsePropertyName?
-        # Let's check ParserBase?
+        if not data:
+            return super()._parsePropertyName(response)
         
         pageProps = data.get('props', {}).get('pageProps', {})
         viewingProperty = pageProps.get('viewingProperty', {})
         name = viewingProperty.get('propertyName')
         if not name:
-            name = self._get_text_value(self._get_item_data(response, '所在地'))
+            return super()._parsePropertyName(response)
         return name
 
     def _parsePrice(self, response):
@@ -833,15 +869,11 @@ class TokyuInvestmentParser(InvestmentParser):
 
     def _parseMonthlyRent(self, response):
         annual_income_str = self._get_text_value(self._get_item_data(response, '年間予定賃料収入'))
+        if not annual_income_str:
+            annual_income_str = self._scrape_specs(response).get("年間予定賃料収入", "")
         if annual_income_str:
-            import re
-            # Normalize full-width
-            width_kanji = re.sub(r'[０-９]', lambda x: chr(ord(x.group(0)) - 0xFEE0), annual_income_str)
-            match = re.search(r'([\d,]+)', width_kanji)
-            if match:
-                annual_income = int(match.group(1).replace(',', ''))
-                if '万' in annual_income_str:
-                    annual_income *= 10000
+            annual_income = converter.parse_price(annual_income_str)
+            if annual_income:
                 return int(annual_income / 12)
         return None
 
@@ -943,6 +975,7 @@ class TokyuInvestmentParser(InvestmentParser):
         item.price = self._parsePrice(response)
         item.address = self._parseAddress(response)
         item.traffic = self._parseTraffic(response)
+        self._populateTraffic(item, item.traffic)
         item.kouzou = self._parseStructure(response)
         item.chikunengetsuStr = self._parseYearBuilt(response)
         item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
@@ -957,6 +990,41 @@ class TokyuInvestmentParser(InvestmentParser):
         if hasattr(item, 'kenpeiStr'): item.kenpeiStr = self._parseKenpeiStr(response)
         if hasattr(item, 'yousekiStr'): item.yousekiStr = self._parseYousekiStr(response)
         if hasattr(item, 'youtoChiiki'): item.youtoChiiki = self._parseYoutoChiiki(response)
+        
+        # 統一土地評価フィールドのパース ＆ 代入
+        try:
+            specs = self._scrape_specs(response)
+            item.setsudou = specs.get(u"接道状況", specs.get(u"接道", ""))
+            item.setsumen = specs.get(u"接道方向／幅員", specs.get(u"接道", ""))
+            import re
+            if item.setsumen:
+                item.maguchiStr = str(item.setsumen)
+                m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+                if m:
+                    item.maguchi = Decimal(m.group(1))
+                    
+            douro_haba_str = specs.get(u"道路幅員", "") or specs.get(u"前面道路幅員", "") or specs.get(u"道路幅", "")
+            if douro_haba_str:
+                item.roadWidthStr = str(douro_haba_str)
+                m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+                if m:
+                    item.roadWidth = Decimal(m.group(1))
+            elif item.setsudou:
+                width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+                if width_match:
+                    item.roadWidth = Decimal(width_match.group(1))
+                else:
+                    dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
+                    if dir_width_match:
+                        item.roadWidth = Decimal(dir_width_match.group(1))
+                        
+            if getattr(item, 'tochiMenseki', None) and getattr(item, 'maguchi', None) and item.maguchi > 0:
+                item.okuyuki = round(Decimal(item.tochiMenseki) / item.maguchi, 2)
+                item.okuyukiStr = f"{item.okuyuki}m"
+        except Exception as e:
+            import logging
+            logging.error(f"Error parsing setsudou fields: {e}")
+            
         return item
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
@@ -966,11 +1034,6 @@ class TokyuInvestmentParser(InvestmentParser):
                 dd = dt.find_next_sibling('dd')
                 if dd: specs[dt.get_text(strip=True).rstrip("：")] = dd.get_text(strip=True)
         return specs
-
-    def _parsePropertyName(self, response: BeautifulSoup) -> str:
-        el = response.select_one(self.selectors.get('title', 'h1'))
-        if el: return el.get_text().strip().split("｜")[0].strip()
-        return ""
 
     def _parsePriceStr(self, response: BeautifulSoup) -> str:
         specs = self._scrape_specs(response)

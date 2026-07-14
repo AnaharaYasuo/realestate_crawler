@@ -5,22 +5,13 @@ import datetime
 import json
 import logging
 import sys
+import subprocess
 
 # ロギング設定
 log_dir = "/app/logs"
 os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(log_dir, "scheduler.log"), encoding="utf-8")
-    ]
-)
 
 ERROR_DIRS = [
-    "/app/src/crawler/tests/error_pages",
     "/app/docs/error_pages"
 ]
 
@@ -42,11 +33,9 @@ def parse_meta_file(meta_path):
     return info
 
 def main():
-    logging.info("Starting monitor_error_pages.py...")
+    logging.info("Starting monitor_error_pages.py (optimized with linux find)...")
     
-    # 過去24時間に発生したエラーを集計
     now = datetime.datetime.now()
-    one_day_ago = now - datetime.timedelta(days=1)
     
     error_summary = {
         "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -56,53 +45,77 @@ def main():
         "recent_details": []
     }
     
+    recent_files = []
+    
+    # 1. find コマンドで直近24時間(1440分)以内に更新された HTML ファイル一覧を瞬時に取得 (I/O遅延対策)
     for base_dir in ERROR_DIRS:
         if not os.path.exists(base_dir):
             continue
             
-        for company_type in os.listdir(base_dir):
-            comp_path = os.path.join(base_dir, company_type)
-            if not os.path.isdir(comp_path):
-                continue
-                
-            if company_type not in error_summary["by_company_type"]:
-                error_summary["by_company_type"][company_type] = {
-                    "total": 0,
-                    "recent_24h": 0
-                }
-                
-            for filename in os.listdir(comp_path):
-                if not filename.endswith(".html"):
-                    continue
-                    
-                file_path = os.path.join(comp_path, filename)
+        try:
+            res = subprocess.run(
+                ["find", base_dir, "-mmin", "-1440", "-name", "*.html"],
+                capture_output=True, text=True, check=True
+            )
+            for path in res.stdout.splitlines():
+                if path.strip():
+                    recent_files.append(path.strip())
+        except Exception as e:
+            logging.error(f"Failed to run find command in {base_dir}: {e}")
+            
+    # 2. 直近エラーの詳細をパース
+    for file_path in recent_files:
+        comp_path = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+        company_type = os.path.basename(comp_path)
+        
+        if company_type not in error_summary["by_company_type"]:
+            error_summary["by_company_type"][company_type] = {
+                "total": 0,
+                "recent_24h": 0
+            }
+            
+        meta_filename = filename.replace(".html", "_meta.txt")
+        meta_path = os.path.join(comp_path, meta_filename)
+        
+        meta_info = parse_meta_file(meta_path)
+        if meta_info["timestamp"] == "unknown":
+            try:
                 mtime = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
+                meta_info["timestamp"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                meta_info["timestamp"] = now.strftime("%Y-%m-%d %H:%M:%S")
                 
-                is_recent = mtime >= one_day_ago
-                
-                # メタ情報の取得
-                meta_filename = filename.replace(".html", "_meta.txt")
-                meta_path = os.path.join(comp_path, meta_filename)
-                
-                meta_info = parse_meta_file(meta_path)
-                if meta_info["timestamp"] == "unknown":
-                    meta_info["timestamp"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
-                
-                error_summary["total_errors"] += 1
-                error_summary["by_company_type"][company_type]["total"] += 1
-                
-                if is_recent:
-                    error_summary["recent_errors_24h"] += 1
-                    error_summary["by_company_type"][company_type]["recent_24h"] += 1
-                    
-                    error_summary["recent_details"].append({
-                        "company_type": company_type,
-                        "file": filename,
-                        "url": meta_info["url"],
-                        "reason": meta_info["reason"],
-                        "timestamp": meta_info["timestamp"]
-                    })
-                    
+        error_summary["recent_errors_24h"] += 1
+        error_summary["by_company_type"][company_type]["recent_24h"] += 1
+        
+        error_summary["recent_details"].append({
+            "company_type": company_type,
+            "file": filename,
+            "url": meta_info["url"],
+            "reason": meta_info["reason"],
+            "timestamp": meta_info["timestamp"]
+        })
+        
+    # 3. 全体の累積エラー数も find で一瞬で集計する
+    for base_dir in ERROR_DIRS:
+        if not os.path.exists(base_dir):
+            continue
+        try:
+            res_total = subprocess.run(
+                ["find", base_dir, "-name", "*.html"],
+                capture_output=True, text=True, check=True
+            )
+            all_files = [p for p in res_total.stdout.splitlines() if p.strip()]
+            error_summary["total_errors"] += len(all_files)
+            for path in all_files:
+                comp = os.path.basename(os.path.dirname(path))
+                if comp not in error_summary["by_company_type"]:
+                    error_summary["by_company_type"][comp] = {"total": 0, "recent_24h": 0}
+                error_summary["by_company_type"][comp]["total"] += 1
+        except Exception as e:
+            logging.error(f"Failed to count total error files: {e}")
+            
     today_str = datetime.date.today().strftime("%Y%m%d")
     report_path = os.path.join(log_dir, f"error_report_{today_str}.json")
     
@@ -120,4 +133,17 @@ def main():
             logging.warning(f"  - [{detail['company_type']}] Reason: {detail['reason']} | URL: {detail['url']}")
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(os.path.join(log_dir, "error_monitor.log"), encoding="utf-8")
+        ]
+    )
+    # monitor_error_pagesのインポートパス解決のため、カレントディレクトリをscriptsに合わせる
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    if scripts_dir not in sys.path:
+        sys.path.append(scripts_dir)
     main()

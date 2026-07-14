@@ -1,0 +1,26 @@
+# Rearie Selectors Configuration
+# CSS selectors for parsing Rearie property pages
+
+mansion:
+  title: "h1"
+  table:
+    selector: "dl.table-view"
+    row_selector: "div"
+    header: "dt"
+    value: "dd"
+
+kodate:
+  title: "h1"
+  table:
+    selector: "dl.table-view"
+    row_selector: "div"
+    header: "dt"
+    value: "dd"
+
+tochi:
+  title: "h1"
+  table:
+    selector: "dl.table-view"
+    row_selector: "div"
+    header: "dt"
+    value: "dd"

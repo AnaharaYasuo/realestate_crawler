@@ -82,6 +82,7 @@ async def test_verify_url_active_success():
     
     mock_resp = AsyncMock()
     mock_resp.status = 200
+    mock_resp.text = AsyncMock(return_value="<html><title>Active Property</title><body>Normal Page</body></html>")
     
     mock_get = MagicMock()
     mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
@@ -99,10 +100,11 @@ async def test_verify_url_active_failed():
     
     mock_resp = AsyncMock()
     mock_resp.status = 404
+    mock_resp.text = AsyncMock(return_value="<html><title>Not Found</title></html>")
     
     mock_get = MagicMock()
     mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
-    mock_get.__aexit__ = AsyncMock()
+    mock_get.__aexit__ = MagicMock()
     
     with patch("aiohttp.ClientSession.get", return_value=mock_get):
         result = await verify_url_active("http://example.com")
@@ -117,4 +119,23 @@ async def test_verify_url_active_exception():
     with patch("aiohttp.ClientSession.get", side_effect=Exception("Connection refused")):
         result = await verify_url_active("http://example.com")
         assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_url_active_inactive_content():
+    """HTML内に掲載終了のフレーズ、もしくはタイトルに掲載終了が含まれる場合、Falseを返すことをテスト"""
+    from package.utils.slack import verify_url_active
+    
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.text = AsyncMock(return_value="<html><title>エラー</title><body>お探しの物件は、掲載が終了したか、成約済みになった可能性があります。</body></html>")
+    
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_get.__aexit__ = MagicMock()
+    
+    with patch("aiohttp.ClientSession.get", return_value=mock_get):
+        result = await verify_url_active("http://example.com")
+        assert result is False
+
 
