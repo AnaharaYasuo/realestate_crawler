@@ -19,7 +19,7 @@ def parse_price(price_str):
     try:
         if "億" in price_work:
             parts = price_work.split("億")
-            oku = int(float(parts[0])) * 10000
+            oku = int(float(parts[0]) * 10000)
             if len(parts) > 1 and parts[1]:
                 man_match = re.search(r'(\d+(?:\.\d+)?)', parts[1])
                 if man_match:
