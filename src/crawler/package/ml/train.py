@@ -454,6 +454,29 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
                 best_mape = avg_mape
                 best_params = params
                 
+    elif algo_name == "rf":
+        param_grid = [
+            {"n_estimators": 100, "max_depth": 10, "min_samples_leaf": 5},
+            {"n_estimators": 100, "max_depth": 20, "min_samples_leaf": 5},
+            {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 5}
+        ]
+        for params in param_grid:
+            mapes = []
+            for train_idx, val_idx in kf.split(X):
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+                
+                model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
+                model.fit(X_train, y_train)
+                preds_log = model.predict(X_val)
+                val_areas = X_val["area"].values
+                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
+                
+            avg_mape = np.mean(mapes)
+            if avg_mape < best_mape:
+                best_mape = avg_mape
+                best_params = params
+                
     return best_params
 
 def print_feature_importance(model, algo_name, feature_cols):
@@ -467,6 +490,8 @@ def print_feature_importance(model, algo_name, feature_cols):
             importances = model.feature_importances_
         elif algo_name == "cat":
             importances = model.get_feature_importance()
+        elif algo_name == "rf":
+            importances = model.feature_importances_
         else:
             return
             
@@ -491,7 +516,7 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
             X[col] = X[col].astype('category').cat.codes
             
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    algos = ['lgb', 'xgb', 'cat']
+    algos = ['lgb', 'xgb', 'cat', 'rf']
     
     print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ---")
     
@@ -523,6 +548,8 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
                 fold_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
             elif name == "cat":
                 fold_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
+            elif name == "rf":
+                fold_model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
             else:
                 raise ValueError(f"Unknown algorithm: {name}")
                 
@@ -556,6 +583,8 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
             final_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
         elif name == "cat":
             final_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
+        elif name == "rf":
+            final_model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
         else:
             raise ValueError(f"Unknown algorithm: {name}")
             

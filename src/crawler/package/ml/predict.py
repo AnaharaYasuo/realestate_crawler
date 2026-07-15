@@ -40,7 +40,7 @@ def _get_models_and_master(property_type):
     # 2. 一次モデル (LGB, XGB, Cat) のロード
     if property_type not in _first_stage_models:
         _first_stage_models[property_type] = {}
-        for algo in ['lgb', 'xgb', 'cat']:
+        for algo in ['lgb', 'xgb', 'cat', 'rf']:
             path = os.path.join(model_dir, f"{property_type}_first_stage_{algo}.joblib")
             if os.path.exists(path):
                 try:
@@ -61,7 +61,7 @@ def _get_models_and_master(property_type):
     # 3. 二次モデル (LGB, XGB, Cat) のロード
     if property_type not in _second_stage_models:
         _second_stage_models[property_type] = {}
-        for algo in ['lgb', 'xgb', 'cat']:
+        for algo in ['lgb', 'xgb', 'cat', 'rf']:
             path = os.path.join(model_dir, f"{property_type}_second_stage_{algo}.joblib")
             if os.path.exists(path):
                 try:
@@ -247,13 +247,13 @@ def predict_first_stage(property_obj) -> int:
             
     # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
     if ptype == 'mansion':
-        weights = {'lgb': 0.4, 'xgb': 0.4, 'cat': 0.2}
+        weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
     elif ptype == 'kodate':
-        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+        weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     elif ptype == 'apartment':
-        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+        weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     else:
-        weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
+        weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
     loaded_weights = {}
     total_weight = 0.0
     
@@ -388,13 +388,13 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             
     # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
     if ptype == 'mansion':
-        weights = {'lgb': 0.4, 'xgb': 0.4, 'cat': 0.2}
+        weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
     elif ptype == 'kodate':
-        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+        weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     elif ptype == 'apartment':
-        weights = {'lgb': 0.4, 'xgb': 0.5, 'cat': 0.1}
+        weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     else:
-        weights = {'lgb': 0.4, 'xgb': 0.3, 'cat': 0.3}
+        weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
     loaded_weights = {}
     total_weight = 0.0
     

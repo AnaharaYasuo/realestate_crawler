@@ -17,35 +17,48 @@ class MockProperty:
         self.chikunengetsuStr = ""
         self.annualRent = 1200000 # 120万/年
 
-def test_apply_rights_discount_normal():
-    # 所有権（割引なし）
-    prop = MockProperty(tochikenri="所有権")
-    assert _apply_rights_discount(prop, 10000000) == 10000000
+def test_feature_extraction_normal():
+    from package.ml.features import build_features
+    prop = {"address": "東京都世田谷区", "tochikenri": "所有権"}
+    feats = build_features(prop, "kodate")
+    assert feats["rights_ratio"] == 1.0
+    assert feats["is_saikenchiku_fuka"] == 0.0
 
-def test_apply_rights_discount_leasehold():
-    # 借地権 (65%にディスカウント)
-    prop = MockProperty(tochikenri="普通借地権")
-    assert _apply_rights_discount(prop, 10000000) == 6500000
+def test_feature_extraction_leasehold():
+    from package.ml.features import build_features
+    prop = {"address": "東京都世田谷区", "tochikenri": "普通借地権"}
+    feats = build_features(prop, "kodate")
+    assert feats["rights_ratio"] == 0.65
+    assert feats["is_saikenchiku_fuka"] == 0.0
 
-def test_apply_rights_discount_leased_land():
-    # 底地 (20%にディスカウント)
-    prop = MockProperty(tochikenri="底地")
-    assert _apply_rights_discount(prop, 10000000) == 2000000
+def test_feature_extraction_leased_land():
+    from package.ml.features import build_features
+    prop = {"address": "東京都世田谷区", "tochikenri": "底地"}
+    feats = build_features(prop, "kodate")
+    assert feats["rights_ratio"] == 0.20
+    assert feats["is_saikenchiku_fuka"] == 0.0
 
-def test_apply_rights_discount_term_leasehold():
-    # 定期借地権 (築0年の場合: 70% * 50% = 35%にディスカウント)
-    prop = MockProperty(tochikenri="定期借地権", chikunen=0)
-    assert _apply_rights_discount(prop, 10000000) == 3500000
+def test_feature_extraction_term_leasehold():
+    from package.ml.features import build_features
+    import datetime
+    prop = {"address": "東京都世田谷区", "tochikenri": "定期借地権", "chikunengetsu": datetime.date.today()}
+    feats = build_features(prop, "kodate")
+    assert abs(feats["rights_ratio"] - 0.35) < 0.01
+    assert feats["is_saikenchiku_fuka"] == 0.0
 
-def test_apply_rights_discount_non_conforming():
-    # 再建築不可 (単体の場合: 40%にディスカウント)
-    prop = MockProperty(tochikenri="所有権", biko="本物件は再建築不可です。")
-    assert _apply_rights_discount(prop, 10000000) == 4000000
+def test_feature_extraction_non_conforming():
+    from package.ml.features import build_features
+    prop = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "本物件は再建築不可です。"}
+    feats = build_features(prop, "kodate")
+    assert feats["rights_ratio"] == 1.0
+    assert feats["is_saikenchiku_fuka"] == 1.0
 
-def test_apply_rights_discount_leasehold_and_non_conforming():
-    # 借地権 かつ 再建築不可 (65% * 40% = 26%にディスカウント)
-    prop = MockProperty(tochikenri="普通借地権", biko="再建築不可")
-    assert _apply_rights_discount(prop, 10000000) == 2600000
+def test_feature_extraction_leasehold_and_non_conforming():
+    from package.ml.features import build_features
+    prop = {"address": "東京都世田谷区", "tochikenri": "普通借地権", "biko": "再建築不可"}
+    feats = build_features(prop, "kodate")
+    assert feats["rights_ratio"] == 0.65
+    assert feats["is_saikenchiku_fuka"] == 1.0
 
 def test_investment_evaluator_non_conforming_penalty():
     # 再建築不可物件のローン評価ペナルティ (融資額0円)
@@ -56,10 +69,6 @@ def test_investment_evaluator_non_conforming_penalty():
     
     # 評価実行
     res = evaluate_investment_property(prop, eval_rec)
-    
-    # 自己資金（down_payment）が売出価格（1000万円 = 1000万円）と同額になり、
-    # ローン元金（loan_principal）が 0 になっていることをアサーション
-    # evaluate_investment_propertyはインプレースでeval_recを書き換える、または値を返す設計
 
 def test_max_building_and_floor_area():
     from package.ml.features import build_features
@@ -96,13 +105,14 @@ def test_corner_easement():
     assert feats["max_building_area"] == 140.0
 
 def test_kagechi_ratio_depreciation():
-    # 旗竿地による減価（25%かげ地 -> 20%減価 = 80%の価値）
-    prop1 = MockProperty(tochikenri="所有権", biko="旗竿地につき割安")
-    assert _apply_rights_discount(prop1, 10000000) == 8000000
+    from package.ml.features import build_features
+    prop1 = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "旗竿地につき割安"}
+    feats1 = build_features(prop1, "kodate")
+    assert feats1["kagechi_ratio"] == 0.25
     
-    # 不整形地による減価（15%かげ地 -> 10%減価 = 90%の価値）
-    prop2 = MockProperty(tochikenri="所有権", biko="本物件は不整形地です")
-    assert _apply_rights_discount(prop2, 10000000) == 9000000
+    prop2 = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "本物件は不整形地です"}
+    feats2 = build_features(prop2, "kodate")
+    assert feats2["kagechi_ratio"] == 0.15
 
 def test_two_sigma_outlier_exclusion():
     # 正常なお宝物件 (例: 予測価格1000万円、売出価格800万円 = 20%割安) -> 推薦対象

@@ -81,7 +81,7 @@ def main():
         run_command([
             sys.executable,
             "/app/src/crawler/package/ml/train.py"
-        ], "Step 3/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost)")
+        ], "Step 3/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
         
         # Step 3 (4/5): 一括価格予測・投資シミュレーション評価のDB更新
         run_command([
