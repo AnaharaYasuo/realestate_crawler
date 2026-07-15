@@ -59,11 +59,12 @@ class ParserBase(metaclass=ABCMeta):
     def _parsePropertyDetailPage(self, item:models.Model, response:BeautifulSoup)->models.Model:
         return item
     
-    def save_error_html(self, url, content):
+    def save_error_html(self, url, content, reason="Parsing failed"):
         import os
         import hashlib
         import re
         from pathlib import Path
+        import datetime
         try:
             error_dir = Path("docs/error_pages")
             
@@ -78,14 +79,21 @@ class ParserBase(metaclass=ABCMeta):
             company_dir.mkdir(parents=True, exist_ok=True)
             
             # Create filename from URL hash
-            filename = hashlib.md5(url.encode('utf-8')).hexdigest() + ".html"
-            filepath = company_dir / filename
+            base_filename = hashlib.md5(url.encode('utf-8')).hexdigest()
+            html_filepath = company_dir / (base_filename + ".html")
+            meta_filepath = company_dir / (base_filename + "_meta.txt")
             
-            with open(filepath, "wb") as f:
+            with open(html_filepath, "wb") as f:
                 f.write(content)
-            logging.info(f"Saved error HTML to {filepath}")
+                
+            with open(meta_filepath, "w", encoding="utf-8") as f:
+                f.write(f"URL: {url}\n")
+                f.write(f"Reason: {reason}\n")
+                f.write(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                
+            logging.info(f"Saved error HTML and meta to {company_dir}/{base_filename}")
         except Exception as e:
-            logging.error(f"Failed to save error HTML: {e}")
+            logging.error(f"Failed to save error HTML and meta: {e}")
 
     async def parsePropertyDetailPage(self, session, url)->models.Model:
         item:models.Model = self.createEntity()
@@ -143,7 +151,7 @@ class ParserBase(metaclass=ABCMeta):
             raise e
         except (ReadPropertyNameException) as e:
             logging.error(f'Validation or parsing failure for mandatory fields: {url} - Reason: {str(e)}')
-            if content: self.save_error_html(url, content)
+            if content: self.save_error_html(url, content, reason=str(e))
             raise e
         except Exception as e:
             logging.error(f'Detail parse error: {url}')
@@ -151,7 +159,7 @@ class ParserBase(metaclass=ABCMeta):
             logging.error(f'Exception message: {str(e)}')
             logging.error(f'Full traceback:')
             logging.error(traceback.format_exc())
-            if content: self.save_error_html(url, content)
+            if content: self.save_error_html(url, content, reason=str(e))
             raise e
         return item
 
