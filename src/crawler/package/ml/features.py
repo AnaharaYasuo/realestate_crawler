@@ -656,5 +656,30 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["road_type"] = road_type_str
     feats["road_structure"] = road_structure_str
     feats["chimoku"] = chimoku_str
+    # ⑨ 権利関係・制限フラグの抽出 (事後ディスカウントからMLへの移行)
+    tochikenri = get_attr(property_obj, 'tochikenri', '') or ''
+    biko_val = get_attr(property_obj, 'biko', '') or ''
+    kuiki = get_attr(property_obj, 'kuiki', '') or ''
+    youto = get_attr(property_obj, 'youtoChiiki', '') or ''
+    
+    is_shigaika_chousei = 1.0 if any("調整区域" in str(x) for x in [kuiki, youto, biko_val]) else 0.0
+    is_saikenchiku_fuka = 1.0 if any("再建築不可" in str(x) for x in [tochikenri, biko_val]) else 0.0
+    
+    text_rights = tochikenri.lower()
+    rights_ratio = 1.0
+    if "底地" in text_rights or "貸地" in text_rights:
+        rights_ratio = 0.20
+    elif "定期" in text_rights or "定借" in text_rights:
+        if chikunen > 0:
+            remaining_ratio = max(0.20, (50 - chikunen) / 50.0)
+        else:
+            remaining_ratio = 0.50
+        rights_ratio = 0.70 * remaining_ratio
+    elif "借地" in text_rights or "賃借" in text_rights:
+        rights_ratio = 0.65
+
+    feats["is_shigaika_chousei"] = is_shigaika_chousei
+    feats["is_saikenchiku_fuka"] = is_saikenchiku_fuka
+    feats["rights_ratio"] = rights_ratio
     
     return feats
