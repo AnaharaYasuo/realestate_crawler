@@ -586,16 +586,16 @@ def main():
                 "pop_growth", "income", "passenger_volume", "average_land_price",
                 "estimated_rosenka_price", "estimated_fixed_asset_price",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
+                "max_youseki", "max_kenpei",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ],
             "second": [
                 "area", "chikunen", "walk_min", "kanrihi", "syuzen",
                 "pop_growth", "income", "passenger_volume", "average_land_price",
                 "estimated_rosenka_price", "estimated_fixed_asset_price",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score"
+                "max_youseki", "max_kenpei", "interior_score", "layout_score",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ]
         },
         "kodate": {
@@ -609,7 +609,8 @@ def main():
                 "max_youseki", "max_kenpei",
                 # 土地補正特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ],
             "second": [
                 "area", "tochi_menseki", "chikunen", "walk_min",
@@ -621,7 +622,8 @@ def main():
                 "max_youseki", "max_kenpei", "interior_score", "layout_score",
                 # 土地補正特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ]
         },
         "apartment": {
@@ -636,7 +638,8 @@ def main():
                 "max_youseki", "max_kenpei",
                 # 土地補正特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ],
             "second": [
                 "area", "tochi_menseki", "chikunen", "walk_min",
@@ -649,7 +652,8 @@ def main():
                 "max_youseki", "max_kenpei", "interior_score", "layout_score",
                 # 土地補正特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ]
         },
         "tochi": {
@@ -662,7 +666,8 @@ def main():
                 "max_youseki", "max_kenpei",
                 # 土地用特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ],
             "second": [
                 "area", "tochi_menseki", "walk_min",
@@ -673,7 +678,8 @@ def main():
                 "max_youseki", "max_kenpei",
                 # 土地用特徴量
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
             ]
         }
     }
