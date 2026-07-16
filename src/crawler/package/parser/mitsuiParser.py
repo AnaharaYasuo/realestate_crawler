@@ -629,14 +629,14 @@ class MitsuiTochiParser(MitsuiParser):
         # テキスト全体からの接道・間口情報のフォールバック抽出
         full_text = response.get_text()
         if (getattr(item, 'maguchi', None) is None or item.maguchi == 0) and full_text:
-            m_maguchi = re.search(r'接道間口[：:]\s*(?:約)?\s*([\d\.]+)\s*m', full_text)
+            m_maguchi = re.search(r'(?:接道間口|接面|間口)[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text)
             if m_maguchi:
                 item.maguchi = Decimal(m_maguchi.group(1))
                 item.maguchiStr = f"{m_maguchi.group(1)}m"
 
         if (getattr(item, 'roadWidth', None) is None or item.roadWidth == 0) and full_text:
-            m_width = re.search(r'幅員[：:]\s*(?:約)?\s*([\d\.]+)\s*m', full_text) or \
-                      re.search(r'接道[：:][^○\n\r\t]*?(?:約)?\s*([\d\.]+)\s*m', full_text)
+            m_width = re.search(r'幅員[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text) or \
+                      re.search(r'接道[：:]?[^○\n\r\t]*?(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text)
             if m_width:
                 item.roadWidth = Decimal(m_width.group(1))
                 item.roadWidthStr = f"{m_width.group(1)}m"
@@ -730,10 +730,10 @@ class MitsuiTochiParser(MitsuiParser):
         m_muki = re.search(u'(北|東|西|南)+', value)
         if m_muki: res['douroMuki'] = m_muki.group(0)
         
-        m_haba = re.search(r'幅員\s*([\d\.]+)\s*m', value)
+        m_haba = re.search(r'(?:幅員[：:]?)?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', value)
         if m_haba: res['douroHaba'] = m_haba.group(1)
         
-        m_setsumen = re.search(r'接面\s*([\d\.]+)\s*m', value)
+        m_setsumen = re.search(r'(?:接面|間口)[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', value)
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分
