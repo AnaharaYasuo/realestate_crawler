@@ -8,10 +8,35 @@ from datetime import datetime, timedelta
 
 # Django初期化設定
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
-django.setup()
+import realestateSettings
+realestateSettings.configure()
 
-from package.models.base import PropertyEvaluation
+from package.models.evaluation import PropertyEvaluation
+from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi, MitsuiInvestmentKodate, MitsuiInvestmentApartment
+from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi, SumifuInvestmentKodate, SumifuInvestmentApartment
+from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuTochi, TokyuInvestmentKodate, TokyuInvestmentApartment
+from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, NomuraInvestmentKodate, NomuraInvestmentApartment
+from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentKodate, MisawaInvestmentApartment
+from package.models.athome import AthomeMansion, AthomeKodate, AthomeTochi, AthomeInvestmentApartment
+from package.models.homes import HomesMansion, HomesKodate, HomesTochi, HomesInvestmentApartment
+import django.utils.timezone as timezone
+
+MODEL_MAP = {
+    ("mitsui", "mansion"): MitsuiMansion, ("mitsui", "kodate"): MitsuiKodate, ("mitsui", "tochi"): MitsuiTochi,
+    ("mitsui", "investment_kodate"): MitsuiInvestmentKodate, ("mitsui", "apartment"): MitsuiInvestmentApartment,
+    ("sumifu", "mansion"): SumifuMansion, ("sumifu", "kodate"): SumifuKodate, ("sumifu", "tochi"): SumifuTochi,
+    ("sumifu", "investment_kodate"): SumifuInvestmentKodate, ("sumifu", "apartment"): SumifuInvestmentApartment,
+    ("tokyu", "mansion"): TokyuMansion, ("tokyu", "kodate"): TokyuKodate, ("tokyu", "tochi"): TokyuTochi,
+    ("tokyu", "investment_kodate"): TokyuInvestmentKodate, ("tokyu", "apartment"): TokyuInvestmentApartment,
+    ("nomura", "mansion"): NomuraMansion, ("nomura", "kodate"): NomuraKodate, ("nomura", "tochi"): NomuraTochi,
+    ("nomura", "investment_kodate"): NomuraInvestmentKodate, ("nomura", "apartment"): NomuraInvestmentApartment,
+    ("misawa", "mansion"): MisawaMansion, ("misawa", "kodate"): MisawaKodate, ("misawa", "tochi"): MisawaTochi,
+    ("misawa", "investment_kodate"): MisawaInvestmentKodate, ("misawa", "apartment"): MisawaInvestmentApartment,
+    ("athome", "mansion"): AthomeMansion, ("athome", "kodate"): AthomeKodate, ("athome", "tochi"): AthomeTochi,
+    ("athome", "apartment"): AthomeInvestmentApartment,
+    ("homes", "mansion"): HomesMansion, ("homes", "kodate"): HomesKodate, ("homes", "tochi"): HomesTochi,
+    ("homes", "apartment"): HomesInvestmentApartment,
+}
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -28,14 +53,18 @@ def scan_anomalies_and_generate_instructions():
     
     # 1. DBからクレンジングされた異常物件（評価額が0にリセットされたもの）をスキャン
     # 直近3日間に登録・更新されたもので、価格・面積に問題があるか、間口0m警告がある物件
-    three_days_ago = datetime.now() - timedelta(days=3)
+    three_days_ago = timezone.now() - timedelta(days=3)
     eval_anomalies = PropertyEvaluation.objects.filter(
-        updated_at__gte=three_days_ago
+        analyzed_at__gte=three_days_ago
     )
     
     for ev in eval_anomalies:
-        prop = ev.property
-        if not prop:
+        model = MODEL_MAP.get((ev.company, ev.property_type))
+        if not model:
+            continue
+        try:
+            prop = model.objects.get(id=ev.property_id)
+        except model.DoesNotExist:
             continue
             
         reason = ""
@@ -53,12 +82,12 @@ def scan_anomalies_and_generate_instructions():
         if reason:
             target = {
                 "url": prop.pageUrl,
-                "company": prop.company,
-                "property_type": prop.property_type,
+                "company": ev.company,
+                "property_type": ev.property_type,
                 "propertyName": prop.propertyName,
                 "price": float(prop.price) if prop.price else 0,
                 "reason": reason,
-                "detected_at": ev.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                "detected_at": ev.analyzed_at.strftime('%Y-%m-%d %H:%M:%S') if ev.analyzed_at else None
             }
             if target not in heal_targets:
                 heal_targets.append(target)
