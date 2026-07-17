@@ -92,7 +92,7 @@ def main():
         # Step 4 (5/5): お宝物件のスクリーニング & Slack通知
         run_command([
             sys.executable,
-            "/app/src/crawler/scripts/send_alerts.py"
+            "/app/src/crawler/scripts/send_recommendations.py"
         ], "Step 5/5: Slack Notification (Hot Property Recommendation)")
         
         logging.info("=============================================================")
