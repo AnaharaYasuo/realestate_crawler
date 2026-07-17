@@ -73,8 +73,8 @@ def get_property_record(eval_record):
         
     return model_cls.objects.filter(pageUrl=url).first()
 
-def send_alerts():
-    logging.info("Scanning for new hot recommendation properties to alert via Slack...")
+def send_recommendations():
+    logging.info("Scanning for new hot recommendation properties to send via Slack...")
     
     # Slack通知未送信の評価レコードを抽出
     candidates = PropertyEvaluation.objects.filter(is_slack_notified=False)
@@ -186,7 +186,7 @@ def send_alerts():
         elif eval_rec.property_type == "invest_kodate":
             channel_id = "C0BJ0KSJEDC" # alerts-invest-kodate
 
-        logging.info(f"Sending alert for {p_name} ({eval_rec.property_url}) to {channel_id}")
+        logging.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
         
         # 実際のSlack送信実行
         # send_slack_message は async なので、async_to_sync でラップして呼ぶ
@@ -199,10 +199,10 @@ def send_alerts():
             # Slack APIレートリミット対策のための短いスリープ
             time.sleep(1.0)
             
-    logging.info(f"Alert scanning completed. Sent alerts: {sent_count} properties.")
+    logging.info(f"Recommendation sending completed. Sent: {sent_count} properties.")
 
 def main():
-    send_alerts()
+    send_recommendations()
 
 if __name__ == "__main__":
     main()
