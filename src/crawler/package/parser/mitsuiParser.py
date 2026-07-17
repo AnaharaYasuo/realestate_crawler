@@ -4,17 +4,12 @@ import sys
 import unicodedata
 
 from bs4 import BeautifulSoup
-from abc import abstractmethod
 from package.models.mitsui import MitsuiKodate, MitsuiMansion, MitsuiTochi
 import importlib
 importlib.reload(sys)
 from decimal import Decimal
 import datetime
-import traceback
-from concurrent.futures._base import TimeoutError
-from package.parser.baseParser import LoadPropertyPageException, \
-    ReadPropertyNameException, ParserBase
-from bs4.element import NavigableString, Tag
+from package.parser.baseParser import ParserBase
 import logging
 import re
 from package.utils.selector_loader import SelectorLoader

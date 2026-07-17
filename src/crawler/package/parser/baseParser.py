@@ -79,7 +79,7 @@ class ParserBase(metaclass=ABCMeta):
             company_dir.mkdir(parents=True, exist_ok=True)
             
             # Create filename from URL hash
-            base_filename = hashlib.md5(url.encode('utf-8')).hexdigest()
+            base_filename = hashlib.sha256(url.encode('utf-8')).hexdigest()
             html_filepath = company_dir / (base_filename + ".html")
             meta_filepath = company_dir / (base_filename + "_meta.txt")
             
@@ -92,8 +92,8 @@ class ParserBase(metaclass=ABCMeta):
                 f.write(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 
             logging.info(f"Saved error HTML and meta to {company_dir}/{base_filename}")
-        except Exception as e:
-            logging.error(f"Failed to save error HTML and meta: {e}")
+        except Exception:
+            logging.exception("Failed to save error HTML and meta")
 
     async def parsePropertyDetailPage(self, session, url)->models.Model:
         item:models.Model = self.createEntity()

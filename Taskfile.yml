@@ -51,3 +51,27 @@ tasks:
     desc: Send a live Slack message to verify real-time notification dispatch
     cmds:
       - docker compose exec -T app python Temp/test_slack_dispatch.py
+
+  snyk:
+    desc: Run Snyk security scan (dependencies) locally using Docker
+    cmds:
+      - docker run --rm --env-file .env -v .:/app -w /app snyk/snyk:python-3.11 snyk test --file=src/crawler/requirements.txt --skip-unresolved
+
+  snyk-code:
+    desc: Run Snyk Code (SAST) scan locally using Docker
+    cmds:
+      - docker run --rm --env-file .env -v .:/app -w /app snyk/snyk:python-3.11 snyk code test
+
+
+
+  snyk-container:
+    desc: Run Snyk container scan locally using Docker
+    cmds:
+      - docker build -t realestate-crawler:test .
+      - docker run --rm --env-file .env -v /var/run/docker.sock:/var/run/docker.sock -v .:/app -w /app snyk/snyk:docker snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high
+
+  sonar:
+    desc: Run SonarCloud scan locally using Docker
+    cmds:
+      - docker run --rm --env-file .env -v .:/usr/src sonarsource/sonar-scanner-cli
+

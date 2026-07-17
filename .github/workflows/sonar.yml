@@ -1,0 +1,51 @@
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Start containers and setup DB
+        run: |
+          touch .env
+          docker compose up -d --build
+          # Wait for MySQL to be ready
+          sleep 15
+          docker compose exec -T app python src/crawler/manage.py migrate
+
+      - name: Run Tests with Coverage
+        run: |
+          docker compose exec -T app pytest src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
+
+      - name: Copy Coverage and Test Reports
+        run: |
+          docker compose cp app:/app/coverage.xml .
+          docker compose cp app:/app/pytest-report.xml .
+          sed -i 's|/app/||g' coverage.xml || true
+          sed -i 's|/app/||g' pytest-report.xml || true
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@e44258b109568baa0df60ed515909fc6c72cba92 # v2.3.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

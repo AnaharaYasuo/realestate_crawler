@@ -1,0 +1,52 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/src/crawler"
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/src/crawler"
+    ],
+    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingModuleSource": "none"
+    },
+    "python.pyrefly.disableTypeErrors": true,
+    "python.pyrefly.disableLanguageServices": true,
+    "python.pyrefly.typeCheckingMode": "off",
+    "python.pyrefly.searchPath": [
+        "${workspaceFolder}/src/crawler"
+    ],
+    "python.analysis.exclude": [
+        "**/__pyrefly_virtual__/**",
+        "C:/__pyrefly_virtual__/**",
+        "c:/__pyrefly_virtual__/**",
+        "C:\\__pyrefly_virtual__\\**",
+        "c:\\__pyrefly_virtual__\\**",
+        "**/inmemory/**",
+        "*inmemory*",
+        "**\\inmemory\\**"
+    ],
+    "python.analysis.ignore": [
+        "**/__pyrefly_virtual__/**",
+        "C:/__pyrefly_virtual__/**",
+        "c:/__pyrefly_virtual__/**",
+        "C:\\__pyrefly_virtual__\\**",
+        "c:\\__pyrefly_virtual__\\**",
+        "**/inmemory/**",
+        "*inmemory*",
+        "**\\inmemory\\**"
+    ],
+    "sonarlint.connectedMode.connections.sonarcloud": [
+        {
+            "connectionId": "sonarcloud",
+            "organization": "anaharayasuo"
+        }
+    ],
+    "sonarlint.connectedMode.project": {
+        "connectionId": "sonarcloud",
+        "projectKey": "AnaharaYasuo_realestate_crawler"
+    },
+    "snyk.features.snykCode": true,
+    "snyk.features.snykOpenSource": true,
+    "snyk.features.snykContainer": true
+}
