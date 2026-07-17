@@ -129,14 +129,43 @@ def send_alerts():
         
         p_name = getattr(prop, "propertyName", "不明な物件名")
         
+        address = getattr(prop, "address", getattr(prop, "address1", ""))
+        access = getattr(prop, "traffic", "")
+        if not access:
+            rw = getattr(prop, "railway1", "")
+            st = getattr(prop, "station1", "")
+            wm = getattr(prop, "railwayWalkMinute1Str", "")
+            if rw and st:
+                access = f"{rw} {st} {wm}"
+                
+        area_info = ""
+        senyu = getattr(prop, "senyuMensekiStr", "")
+        tochi = getattr(prop, "tochiMensekiStr", "")
+        tate = getattr(prop, "tatemonoMensekiStr", "")
+        if senyu: area_info += f"専有面積: {senyu} "
+        if tochi: area_info += f"土地面積: {tochi} "
+        if tate: area_info += f"建物面積: {tate} "
+            
+        chikunen = getattr(prop, "chikunengetsuStr", getattr(prop, "chikunenki", ""))
+        madori = getattr(prop, "madori", "")
+
         msg = (
             f"🏆 [お宝物件検出] {reason}\n"
             f"物件名: {p_name} ({ptype_jp})\n"
             f"売出価格: {asking_price_man}万円\n"
             f"理論予測価格: {int(pred_price)}万円\n"
+            f"【物件詳細】\n"
+            f"住所: {address}\n"
+            f"アクセス: {access}\n"
         )
+        if area_info:
+            msg += f"面積: {area_info.strip()}\n"
+        if madori:
+            msg += f"間取り: {madori}\n"
+        if chikunen:
+            msg += f"築年月: {chikunen}\n"
         
-        if eval_rec.property_type in ["invest_apartment", "apartment"]:
+        if eval_rec.property_type in ["invest_apartment", "apartment", "invest_kodate"]:
             msg += (
                 f"想定積算価格: {eval_rec.estimated_sekisan_price}万円\n"
                 f"年間キャッシュフロー: {eval_rec.cash_flow}万円/年 (DSCR: {eval_rec.dscr})\n"
@@ -152,8 +181,10 @@ def send_alerts():
             channel_id = "C0BHZA5ASDT" # alerts-kodate
         elif eval_rec.property_type == "tochi":
             channel_id = "C0BJ2JVGCLS" # alerts-tochi
-        elif eval_rec.property_type in ["invest_kodate", "invest_apartment", "apartment"]:
-            channel_id = "C0BJ6A7RW2Y" # alerts-invest
+        elif eval_rec.property_type in ["invest_apartment", "apartment"]:
+            channel_id = "C0BJ6B4R3E0" # alerts-invest-apartment
+        elif eval_rec.property_type == "invest_kodate":
+            channel_id = "C0BJ0KSJEDC" # alerts-invest-kodate
 
         logging.info(f"Sending alert for {p_name} ({eval_rec.property_url}) to {channel_id}")
         
