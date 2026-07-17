@@ -144,11 +144,22 @@ def send_alerts():
             
         msg += f"詳細URL: {eval_rec.property_url}\n"
         
-        logging.info(f"Sending alert for {p_name} ({eval_rec.property_url})")
+        # 物件種別ごとの投稿先チャンネル定義
+        channel_id = os.getenv("SLACK_CHANNEL_ID") # デフォルト
+        if eval_rec.property_type == "mansion":
+            channel_id = "C0BJWUCTRNU" # alerts-mansion
+        elif eval_rec.property_type == "kodate":
+            channel_id = "C0BHZA5ASDT" # alerts-kodate
+        elif eval_rec.property_type == "tochi":
+            channel_id = "C0BJ2JVGCLS" # alerts-tochi
+        elif eval_rec.property_type in ["invest_kodate", "invest_apartment", "apartment"]:
+            channel_id = "C0BJ6A7RW2Y" # alerts-invest
+
+        logging.info(f"Sending alert for {p_name} ({eval_rec.property_url}) to {channel_id}")
         
         # 実際のSlack送信実行
         # send_slack_message は async なので、async_to_sync でラップして呼ぶ
-        success = async_to_sync(send_slack_message)(msg)
+        success = async_to_sync(send_slack_message)(msg, channel=channel_id)
         if success:
             with transaction.atomic():
                 eval_rec.is_slack_notified = True
