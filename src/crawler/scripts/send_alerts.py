@@ -123,7 +123,7 @@ def send_alerts():
             "kodate": "中古戸建",
             "tochi": "土地",
             "invest_kodate": "戸建（投資用）",
-            "invest_apartment": "一棟アパート（投資用）",
+            "invest_apartment": "一棟アパート",
             "apartment": "一棟アパート"
         }.get(eval_rec.property_type, eval_rec.property_type)
         
