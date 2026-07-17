@@ -33,6 +33,34 @@ def calculate_mape(y_true, y_pred):
     y_true = np.where(y_true == 0, 1, y_true)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
+def _load_company_properties(company, qs, duplicate_urls, eval_map):
+    try:
+        qs.count()
+    except Exception:
+        return []
+        
+    records = []
+    for p in qs:
+        price = getattr(p, 'price', 0)
+        if not price or price <= 0:
+            continue
+        
+        page_url = getattr(p, 'pageUrl', '')
+        if page_url in duplicate_urls:
+            continue
+            
+        price_man = float(price) / 10000.0
+        interior_score, layout_score = eval_map.get(page_url, (3.0, 3.0))
+        
+        records.append({
+            "obj": p,
+            "price": price_man,
+            "company": company,
+            "interior_score": interior_score,
+            "layout_score": layout_score
+        })
+    return records
+
 def load_all_properties_from_db():
     """
     全5社の全物件種別のデータをDBからロードする
@@ -105,83 +133,53 @@ def load_all_properties_from_db():
     
     for ptype, list_qs in queries.items():
         for company, qs in list_qs:
-            # テーブルが存在しない場合はスキップ (初期マイグレーション前などの対策)
-            try:
-                # クエリ実行を確認するためにcount()を呼ぶ
-                qs.count()
-            except Exception:
-                continue
-                
-            for p in qs:
-                price = getattr(p, 'price', 0)
-                if not price or price <= 0:
-                    continue
-                
-                page_url = getattr(p, 'pageUrl', '')
-                if page_url in duplicate_urls:
-                    continue  # 重複物件は学習データから排除
-                
-                # DB上の「円」単位の価格を「万円」単位に変換
-                price_man = float(price) / 10000.0
-                
-                interior_score = 3.0
-                layout_score = 3.0
-                if page_url in eval_map:
-                    interior_score, layout_score = eval_map[page_url]
-                
-                data_by_type[ptype].append({
-                    "obj": p,
-                    "price": price_man,
-                    "company": company,
-                    "interior_score": interior_score,
-                    "layout_score": layout_score
-                })
+            data_by_type[ptype].extend(_load_company_properties(company, qs, duplicate_urls, eval_map))
                 
     print(f"Loaded Mansion: {len(data_by_type['mansion'])}, Kodate: {len(data_by_type['kodate'])}, Apartment: {len(data_by_type['apartment'])}, Tochi: {len(data_by_type['tochi'])}")
     return data_by_type
+
+def _extract_unit_price_record(p, price, ptype):
+    address1 = getattr(p, 'address1', '') or ''
+    address2 = getattr(p, 'address2', '') or ''
+    
+    chikunengetsu = getattr(p, 'chikunengetsu', None)
+    if not chikunengetsu:
+        chikunengetsu = getattr(p, 'chikunengetsuStr', None)
+    chikunen = calculate_chikunen(chikunengetsu)
+    
+    senyu_menseki = getattr(p, 'senyuMenseki', 0.0)
+    tatemono_menseki = getattr(p, 'tatemonoMenseki', 0.0)
+    tochi_menseki = getattr(p, 'tochiMenseki', 0.0)
+    
+    if ptype == 'tochi':
+        eval_area = float(tochi_menseki) if tochi_menseki else 0.0
+    else:
+        eval_area = float(senyu_menseki) if ptype == 'mansion' else float(tatemono_menseki)
+    
+    if eval_area > 0 and price > 0:
+        return {
+            "pref": address1,
+            "city": address2,
+            "ptype": ptype,
+            "age_band": int(chikunen // 10),
+            "unit_price": price / eval_area
+        }
+    return None
 
 def build_mkt_comparison_master(data_by_type):
     """
     ロードした全データからエリア別の「平均平米単価」マスタを作成
     """
     print("Building market comparison master...")
-    mkt_master = {}
-    
     all_units = []
     
     for ptype, items in data_by_type.items():
         for item in items:
-            p = item["obj"]
-            price = item["price"]
-            
-            address1 = getattr(p, 'address1', '') or ''
-            address2 = getattr(p, 'address2', '') or ''
-            
-            chikunengetsu = getattr(p, 'chikunengetsu', None)
-            if not chikunengetsu:
-                chikunengetsu = getattr(p, 'chikunengetsuStr', None)
-            chikunen = calculate_chikunen(chikunengetsu)
-            
-            senyu_menseki = getattr(p, 'senyuMenseki', 0.0)
-            tatemono_menseki = getattr(p, 'tatemonoMenseki', 0.0)
-            tochi_menseki = getattr(p, 'tochiMenseki', 0.0)
-            
-            if ptype == 'tochi':
-                eval_area = float(tochi_menseki) if tochi_menseki else 0.0
-            else:
-                eval_area = float(senyu_menseki) if ptype == 'mansion' else float(tatemono_menseki)
-            
-            if eval_area > 0 and price > 0:
-                age_band = int(chikunen // 10)
-                unit_price = price / eval_area
-                all_units.append({
-                    "pref": address1,
-                    "city": address2,
-                    "ptype": ptype,
-                    "age_band": age_band,
-                    "unit_price": unit_price
-                })
+            rec = _extract_unit_price_record(item["obj"], item["price"], ptype)
+            if rec:
+                all_units.append(rec)
                 
+    mkt_master = {}
     df = pd.DataFrame(all_units)
     if not df.empty:
         gp = df.groupby(["pref", "city", "ptype", "age_band"])["unit_price"].mean().reset_index()
@@ -192,131 +190,138 @@ def build_mkt_comparison_master(data_by_type):
     print(f"Created market comparison master with {len(mkt_master)} entries.")
     return mkt_master
 
+def _calculate_dummy_valuation_metrics(ptype, area, tochi_area, average_land_price, chikunen, rng):
+    digest_volume_ratio = 0.0
+    surplus_volume_potential = 0.0
+    non_conforming_flag = 0
+    if ptype in ['kodate', 'apartment']:
+        digest_volume_ratio = (area / tochi_area) * 100.0
+        surplus_volume_potential = max(0.0, 200.0 - digest_volume_ratio)
+        if digest_volume_ratio > 200.0:
+            non_conforming_flag = 1
+            
+    annual_rent = 0
+    gross_yield = 0.0
+    income_approach_value = 0
+    if ptype in ['mansion', 'apartment']:
+        gross_yield = rng.uniform(0.05, 0.15)
+        annual_rent = int(area * rng.uniform(1.5, 3.5)) * 12
+        income_approach_value = int(annual_rent / gross_yield)
+        
+    cost_unit = 25.0 if ptype == 'mansion' else 15.0
+    lifespan = 47 if ptype == 'mansion' else 22
+    remaining_rate = max(0.1, (lifespan - chikunen) / lifespan)
+    
+    if ptype == 'mansion':
+        cost_approach_value = (area * 0.2) * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
+    elif ptype == 'tochi':
+        cost_approach_value = tochi_area * (average_land_price / 10000.0)
+    else:
+        cost_approach_value = tochi_area * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
+        
+    mkt_comparison_value = area * (average_land_price / 10000.0) * 0.95
+    
+    return {
+        "digest_volume_ratio": digest_volume_ratio,
+        "surplus_volume_potential": surplus_volume_potential,
+        "non_conforming_flag": non_conforming_flag,
+        "annual_rent": annual_rent,
+        "gross_yield": gross_yield,
+        "income_approach_value": income_approach_value,
+        "cost_approach_value": cost_approach_value,
+        "mkt_comparison_value": mkt_comparison_value,
+    }
+
+def _generate_single_dummy_record(ptype, rng):
+    if ptype == 'tochi':
+        tochi_area = rng.uniform(50.0, 300.0)
+        area = tochi_area
+    else:
+        area = rng.uniform(25.0, 100.0) if ptype == 'mansion' else rng.uniform(60.0, 150.0)
+        tochi_area = 0.0 if ptype == 'mansion' else rng.uniform(70.0, 200.0)
+        
+    chikunen = rng.uniform(1.0, 45.0)
+    walk_min = rng.integers(1, 20)
+    kanrihi = int(area * 200) if ptype == 'mansion' else 0
+    syuzen = int(area * 150) if ptype == 'mansion' else 0
+    pop_growth = rng.uniform(-1.0, 2.0)
+    income = rng.integers(3000, 12000)
+    passenger_volume = rng.integers(5000, 700000)
+    average_land_price = rng.integers(150000, 3000000)
+    interior_score = rng.uniform(1.5, 4.8)
+    layout_score = rng.uniform(2.0, 4.8)
+    
+    metrics = _calculate_dummy_valuation_metrics(ptype, area, tochi_area, average_land_price, chikunen, rng)
+    
+    base_price = (area * (average_land_price / 10000.0)) - (chikunen * 40.0) - (walk_min * 50.0)
+    area_multiplier = 1.0 + (income / 30000.0) + (passenger_volume / 5000000.0) + pop_growth * 0.05
+    img_multiplier = 0.85 + (interior_score + layout_score) * 0.03
+    
+    if ptype == 'apartment':
+        base_price = metrics["annual_rent"] * 10
+        
+    price = max(1000, int(base_price * area_multiplier * img_multiplier + rng.normal(0, 300)))
+    
+    rand_val = rng.random()
+    if rand_val < 0.02:
+        price = 5
+    elif rand_val < 0.04:
+        area = 1.0
+        
+    return {
+        "price": price,
+        "area": area,
+        "tochi_menseki": tochi_area,
+        "chikunen": chikunen,
+        "walk_min": walk_min,
+        "kanrihi": kanrihi,
+        "syuzen": syuzen,
+        "pop_growth": pop_growth,
+        "income": income,
+        "passenger_volume": passenger_volume,
+        "average_land_price": average_land_price,
+        "estimated_rosenka_price": int(average_land_price * 0.8),
+        "estimated_fixed_asset_price": int(average_land_price * 0.7),
+        "digest_volume_ratio": metrics["digest_volume_ratio"],
+        "surplus_volume_potential": metrics["surplus_volume_potential"],
+        "non_conforming_flag": metrics["non_conforming_flag"],
+        "cost_approach_value": metrics["cost_approach_value"],
+        "mkt_comparison_value": metrics["mkt_comparison_value"],
+        "income_approach_value": metrics["income_approach_value"],
+        "gross_yield": metrics["gross_yield"],
+        "annual_rent": metrics["annual_rent"],
+        "interior_score": interior_score,
+        "layout_score": layout_score,
+        "is_shin_taishin": 1 if chikunen <= 45.0 else 0,
+        "flood_risk_level": rng.integers(0, 5),
+        "landslide_risk_level": rng.integers(0, 3),
+        "max_youseki": 200.0 if ptype == 'mansion' else rng.choice([100.0, 150.0, 200.0]),
+        "max_kenpei": 60.0 if ptype == 'mansion' else rng.choice([40.0, 50.0, 60.0]),
+        "prefecture": "東京都",
+        "city": "世田谷区",
+        "station": "世田谷駅",
+        "company": "mitsui",
+        "kouzou": "木造" if ptype == 'kodate' else "RC",
+        "maguchi": rng.uniform(2.0, 10.0),
+        "road_width": rng.uniform(3.0, 6.0),
+        "setback_ratio": 0.0,
+        "actual_volume_limit": 200.0,
+        "volume_digest_factor": 1.0,
+        "road_condition_factor": 1.0,
+        "frontage_penalty_factor": 1.0,
+        "residual_land_value": 0.0,
+        "road_direction": "南",
+        "road_type": "公道",
+        "road_structure": "中間地",
+    }
+
 def generate_dummy_data(ptype, num_records=500):
     """
     種別ごとのダミー学習データを生成
     """
     print(f"Generating dummy data for {ptype}...")
-    np.random.seed(42)
-    records = []
-    
-    for _ in range(num_records):
-        if ptype == 'tochi':
-            tochi_area = np.random.uniform(50.0, 300.0)
-            area = tochi_area
-        else:
-            area = np.random.uniform(25.0, 100.0) if ptype == 'mansion' else np.random.uniform(60.0, 150.0)
-            tochi_area = 0.0 if ptype == 'mansion' else np.random.uniform(70.0, 200.0)
-            
-        chikunen = np.random.uniform(1.0, 45.0)
-        walk_min = np.random.randint(1, 20)
-        kanrihi = int(area * 200) if ptype == 'mansion' else 0
-        syuzen = int(area * 150) if ptype == 'mansion' else 0
-        pop_growth = np.random.uniform(-1.0, 2.0)
-        income = np.random.randint(3000, 12000)
-        passenger_volume = np.random.randint(5000, 700000)
-        average_land_price = np.random.randint(150000, 3000000)
-        interior_score = np.random.uniform(1.5, 4.8)
-        layout_score = np.random.uniform(2.0, 4.8)
-        
-        # 最有効利用の計算
-        digest_volume_ratio = 0.0
-        surplus_volume_potential = 0.0
-        non_conforming_flag = 0
-        if ptype in ['kodate', 'apartment']:
-            digest_volume_ratio = (area / tochi_area) * 100.0
-            surplus_volume_potential = max(0.0, 200.0 - digest_volume_ratio)
-            if digest_volume_ratio > 200.0:
-                non_conforming_flag = 1
-                
-        # メタ特徴量算出
-        cost_unit = 25.0 if ptype == 'mansion' else 15.0
-        lifespan = 47 if ptype == 'mansion' else 22
-        remaining_rate = max(0.1, (lifespan - chikunen) / lifespan)
-        
-        if ptype == 'mansion':
-            cost_approach_value = (area * 0.2) * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
-        elif ptype == 'tochi':
-            cost_approach_value = tochi_area * (average_land_price / 10000.0)
-        else:
-            cost_approach_value = tochi_area * (average_land_price / 10000.0) + (area * cost_unit * remaining_rate)
-            
-        mkt_comparison_value = area * (average_land_price / 10000.0) * 0.95
-        
-        gross_yield = 0.0
-        annual_rent = 0.0
-        if ptype == 'apartment':
-            gross_yield = np.random.uniform(4.5, 12.0)
-            annual_rent = area * (average_land_price / 10000.0) * (gross_yield / 100.0)
-            income_approach_value = annual_rent / (gross_yield / 100.0)
-        else:
-            rent = area * (average_land_price / 10000.0) * 0.05
-            income_approach_value = rent / 0.06
-            
-        base_price = (area * (average_land_price / 10000.0)) - (chikunen * 40.0) - (walk_min * 50.0)
-        area_multiplier = 1.0 + (income / 30000.0) + (passenger_volume / 5000000.0) + pop_growth * 0.05
-        img_multiplier = 0.85 + (interior_score + layout_score) * 0.03
-        
-        if ptype == 'apartment':
-            base_price = annual_rent * 10
-            
-        price = max(1000, int(base_price * area_multiplier * img_multiplier + np.random.normal(0, 300)))
-        
-        # 稀に異常値を混ぜる (クレンジング動作の検証用)
-        if np.random.rand() < 0.02:
-            price = 5  # 5万円 (異常に安い)
-        elif np.random.rand() < 0.02:
-            area = 1.0  # 1㎡ (異常に狭い)
-        
-        records.append({
-            "price": price,
-            "area": area,
-            "tochi_menseki": tochi_area,
-            "chikunen": chikunen,
-            "walk_min": walk_min,
-            "kanrihi": kanrihi,
-            "syuzen": syuzen,
-            "pop_growth": pop_growth,
-            "income": income,
-            "passenger_volume": passenger_volume,
-            "average_land_price": average_land_price,
-            "estimated_rosenka_price": int(average_land_price * 0.8),
-            "estimated_fixed_asset_price": int(average_land_price * 0.7),
-            "digest_volume_ratio": digest_volume_ratio,
-            "surplus_volume_potential": surplus_volume_potential,
-            "non_conforming_flag": non_conforming_flag,
-            "cost_approach_value": cost_approach_value,
-            "mkt_comparison_value": mkt_comparison_value,
-            "income_approach_value": income_approach_value,
-            "gross_yield": gross_yield,
-            "annual_rent": annual_rent,
-            "interior_score": interior_score,
-            "layout_score": layout_score,
-            "is_shin_taishin": 1 if chikunen <= 45.0 else 0,
-            "flood_risk_level": np.random.randint(0, 5),
-            "landslide_risk_level": np.random.randint(0, 3),
-            "max_youseki": 200.0 if ptype == 'mansion' else np.random.choice([100.0, 150.0, 200.0]),
-            "max_kenpei": 60.0 if ptype == 'mansion' else np.random.choice([40.0, 50.0, 60.0]),
-            "prefecture": "東京都",
-            "city": "世田谷区",
-            "station": "世田谷駅",
-            "company": "mitsui",
-            "kouzou": "木造" if ptype == 'kodate' else "RC",
-            # 土地用ダミー
-            "maguchi": np.random.uniform(2.0, 10.0),
-            "road_width": np.random.uniform(3.0, 6.0),
-            "setback_ratio": 0.0,
-            "actual_volume_limit": 200.0,
-            "volume_digest_factor": 1.0,
-            "road_condition_factor": 1.0,
-            "frontage_penalty_factor": 1.0,
-            "residual_land_value": 0.0,
-            "road_direction": "南",
-            "road_type": "公道",
-            "road_structure": "中間地",
-            "chimoku": "宅地"
-        })
-        
+    rng = np.random.default_rng(42)
+    records = [_generate_single_dummy_record(ptype, rng) for _ in range(num_records)]
     return pd.DataFrame(records)
 
 def clean_training_data(df, ptype):
@@ -361,9 +366,9 @@ def clean_training_data(df, ptype):
             features_for_outlier.append("tochi_menseki")
             
         iso = IsolationForest(contamination=0.02, random_state=42)
-        X_outlier = df[features_for_outlier].fillna(0)
+        x_outlier = df[features_for_outlier].fillna(0)
         
-        preds = iso.fit_predict(X_outlier)
+        preds = iso.fit_predict(x_outlier)
         pre_count = len(df)
         df = df[preds == 1].copy()
         post_count = len(df)
@@ -372,6 +377,24 @@ def clean_training_data(df, ptype):
             
     print(f"Cleaned training data for {ptype}. Final records: {len(df)}")
     return df
+
+def _get_regressor(name, params):
+    if name == "lgb":
+        return lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
+    elif name == "xgb":
+        return xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
+    elif name == "cat":
+        return CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
+    elif name == "rf":
+        return RandomForestRegressor(
+            random_state=42,
+            n_jobs=-1,
+            n_estimators=params.get("n_estimators", 100),
+            max_depth=params.get("max_depth", None),
+            min_samples_leaf=params.get("min_samples_leaf", 5),
+            max_features=params.get("max_features", "sqrt")
+        )
+    raise ValueError(f"Unknown algorithm: {name}")
 
 def tune_hyperparameters(X, y, algo_name) -> dict:
     """
@@ -382,101 +405,50 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
     best_params = {}
     best_mape = float('inf')
     
-    if algo_name == "lgb":
-        param_grid = [
+    grids = {
+        "lgb": [
             {"learning_rate": 0.05, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
             {"learning_rate": 0.05, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10},
             {"learning_rate": 0.1, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
             {"learning_rate": 0.1, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10}
-        ]
-        for params in param_grid:
-            mapes = []
-            for train_idx, val_idx in kf.split(X):
-                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-                
-                model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
-                model.fit(X_train, y_train)
-                preds_log = model.predict(X_val)
-                val_areas = X_val["area"].values
-                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
-            
-            avg_mape = np.mean(mapes)
-            if avg_mape < best_mape:
-                best_mape = avg_mape
-                best_params = params
-                
-    elif algo_name == "xgb":
-        param_grid = [
+        ],
+        "xgb": [
             {"learning_rate": 0.05, "max_depth": 5, "subsample": 0.8},
             {"learning_rate": 0.05, "max_depth": 7, "subsample": 0.9},
             {"learning_rate": 0.1, "max_depth": 5, "subsample": 0.8},
             {"learning_rate": 0.1, "max_depth": 7, "subsample": 0.9}
-        ]
-        for params in param_grid:
-            mapes = []
-            for train_idx, val_idx in kf.split(X):
-                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-                
-                model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
-                model.fit(X_train, y_train)
-                preds_log = model.predict(X_val)
-                val_areas = X_val["area"].values
-                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
-                
-            avg_mape = np.mean(mapes)
-            if avg_mape < best_mape:
-                best_mape = avg_mape
-                best_params = params
-                
-    elif algo_name == "cat":
-        param_grid = [
+        ],
+        "cat": [
             {"learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3},
             {"learning_rate": 0.05, "depth": 8, "l2_leaf_reg": 5},
             {"learning_rate": 0.1, "depth": 6, "l2_leaf_reg": 3},
             {"learning_rate": 0.1, "depth": 8, "l2_leaf_reg": 5}
-        ]
-        for params in param_grid:
-            mapes = []
-            for train_idx, val_idx in kf.split(X):
-                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-                
-                model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
-                model.fit(X_train, y_train)
-                preds_log = model.predict(X_val)
-                val_areas = X_val["area"].values
-                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
-                
-            avg_mape = np.mean(mapes)
-            if avg_mape < best_mape:
-                best_mape = avg_mape
-                best_params = params
-                
-    elif algo_name == "rf":
-        param_grid = [
+        ],
+        "rf": [
             {"n_estimators": 100, "max_depth": 10, "min_samples_leaf": 5},
             {"n_estimators": 100, "max_depth": 20, "min_samples_leaf": 5},
             {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 5}
         ]
-        for params in param_grid:
-            mapes = []
-            for train_idx, val_idx in kf.split(X):
-                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-                y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-                
-                model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
-                model.fit(X_train, y_train)
-                preds_log = model.predict(X_val)
-                val_areas = X_val["area"].values
-                mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
-                
-            avg_mape = np.mean(mapes)
-            if avg_mape < best_mape:
-                best_mape = avg_mape
-                best_params = params
-                
+    }
+    
+    param_grid = grids.get(algo_name, [{}])
+    for params in param_grid:
+        mapes = []
+        for train_idx, val_idx in kf.split(X):
+            x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
+            y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+            
+            model = _get_regressor(algo_name, params)
+            model.fit(x_train, y_train)
+            preds_log = model.predict(x_val)
+            val_areas = x_val["area"].values
+            mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
+            
+        avg_mape = np.mean(mapes)
+        if avg_mape < best_mape:
+            best_mape = avg_mape
+            best_params = params
+            
     return best_params
 
 def print_feature_importance(model, algo_name, feature_cols):
@@ -539,22 +511,12 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
         params = best_params_dict[name]
         
         for train_idx, val_idx in kf.split(X):
-            X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+            x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             
-            if name == "lgb":
-                fold_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
-            elif name == "xgb":
-                fold_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
-            elif name == "cat":
-                fold_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
-            elif name == "rf":
-                fold_model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
-            else:
-                raise ValueError(f"Unknown algorithm: {name}")
-                
-            fold_model.fit(X_train, y_train)
-            preds_log = fold_model.predict(X_val)
+            fold_model = _get_regressor(name, params)
+            fold_model.fit(x_train, y_train)
+            preds_log = fold_model.predict(x_val)
             
             # 元の万円スケールに逆対数変換 ＆ 面積乗算して総額に戻して評価
             val_areas = df.iloc[val_idx]["area"].values
@@ -565,7 +527,7 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
             maes.append(mean_absolute_error(y_val_actual, preds_actual))
             r2s.append(r2_score(y_val_actual, preds_actual))
             
-            del fold_model, X_train, X_val, y_train, y_val
+            del fold_model, x_train, x_val, y_train, y_val
             gc.collect()
             
         avg_mape = np.mean(mapes)
@@ -577,16 +539,7 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
         print(f"  - R2:   {avg_r2:.4f}")
         
         # 全データで本番学習
-        if name == "lgb":
-            final_model = lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
-        elif name == "xgb":
-            final_model = xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
-        elif name == "cat":
-            final_model = CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
-        elif name == "rf":
-            final_model = RandomForestRegressor(random_state=42, n_jobs=-1, **params)
-        else:
-            raise ValueError(f"Unknown algorithm: {name}")
+        final_model = _get_regressor(name, params)
             
         final_model.fit(X, y)
         print_feature_importance(final_model, name, feature_cols)
@@ -717,9 +670,9 @@ def main():
     ptypes = list(data_by_type.keys())
     for ptype in ptypes:
         items = data_by_type[ptype]
-        print(f"\n=========================================")
+        print("\n=========================================")
         print(f"Training models for Property Type: {ptype}")
-        print(f"=========================================")
+        print("=========================================")
         
         # DBデータをもとに特徴量データフレームを作成
         records = []

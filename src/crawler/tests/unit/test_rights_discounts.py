@@ -21,22 +21,22 @@ def test_feature_extraction_normal():
     from package.ml.features import build_features
     prop = {"address": "東京都世田谷区", "tochikenri": "所有権"}
     feats = build_features(prop, "kodate")
-    assert feats["rights_ratio"] == 1.0
-    assert feats["is_saikenchiku_fuka"] == 0.0
+    assert feats["rights_ratio"] == pytest.approx(1.0)
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(0.0)
 
 def test_feature_extraction_leasehold():
     from package.ml.features import build_features
     prop = {"address": "東京都世田谷区", "tochikenri": "普通借地権"}
     feats = build_features(prop, "kodate")
-    assert feats["rights_ratio"] == 0.65
-    assert feats["is_saikenchiku_fuka"] == 0.0
+    assert feats["rights_ratio"] == pytest.approx(0.65)
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(0.0)
 
 def test_feature_extraction_leased_land():
     from package.ml.features import build_features
     prop = {"address": "東京都世田谷区", "tochikenri": "底地"}
     feats = build_features(prop, "kodate")
-    assert feats["rights_ratio"] == 0.20
-    assert feats["is_saikenchiku_fuka"] == 0.0
+    assert feats["rights_ratio"] == pytest.approx(0.20)
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(0.0)
 
 def test_feature_extraction_term_leasehold():
     from package.ml.features import build_features
@@ -44,21 +44,21 @@ def test_feature_extraction_term_leasehold():
     prop = {"address": "東京都世田谷区", "tochikenri": "定期借地権", "chikunengetsu": datetime.date.today()}
     feats = build_features(prop, "kodate")
     assert abs(feats["rights_ratio"] - 0.35) < 0.01
-    assert feats["is_saikenchiku_fuka"] == 0.0
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(0.0)
 
 def test_feature_extraction_non_conforming():
     from package.ml.features import build_features
     prop = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "本物件は再建築不可です。"}
     feats = build_features(prop, "kodate")
-    assert feats["rights_ratio"] == 1.0
-    assert feats["is_saikenchiku_fuka"] == 1.0
+    assert feats["rights_ratio"] == pytest.approx(1.0)
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(1.0)
 
 def test_feature_extraction_leasehold_and_non_conforming():
     from package.ml.features import build_features
     prop = {"address": "東京都世田谷区", "tochikenri": "普通借地権", "biko": "再建築不可"}
     feats = build_features(prop, "kodate")
-    assert feats["rights_ratio"] == 0.65
-    assert feats["is_saikenchiku_fuka"] == 1.0
+    assert feats["rights_ratio"] == pytest.approx(0.65)
+    assert feats["is_saikenchiku_fuka"] == pytest.approx(1.0)
 
 def test_investment_evaluator_non_conforming_penalty():
     # 再建築不可物件のローン評価ペナルティ (融資額0円)
@@ -86,8 +86,8 @@ def test_max_building_and_floor_area():
     
     # 最大建築面積 = 200.0 * 0.6 = 120.0m2
     # 最大延床面積 = 200.0 * 2.0 = 400.0m2 (幅員6.0m * 0.4 = 240%なので容積率制限は指定値の200%が適用される)
-    assert feats["max_building_area"] == 120.0
-    assert feats["max_floor_area"] == 400.0
+    assert feats["max_building_area"] == pytest.approx(120.0)
+    assert feats["max_floor_area"] == pytest.approx(400.0)
 
 def test_corner_easement():
     from package.ml.features import build_features
@@ -102,17 +102,17 @@ def test_corner_easement():
     }
     feats = build_features(prop, "kodate")
     # 最大建築面積 = 200.0 * 0.7 = 140.0m2 (10%緩和)
-    assert feats["max_building_area"] == 140.0
+    assert feats["max_building_area"] == pytest.approx(140.0)
 
 def test_kagechi_ratio_depreciation():
     from package.ml.features import build_features
     prop1 = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "旗竿地につき割安"}
     feats1 = build_features(prop1, "kodate")
-    assert feats1["kagechi_ratio"] == 0.25
+    assert feats1["kagechi_ratio"] == pytest.approx(0.25)
     
     prop2 = {"address": "東京都世田谷区", "tochikenri": "所有権", "biko": "本物件は不整形地です"}
     feats2 = build_features(prop2, "kodate")
-    assert feats2["kagechi_ratio"] == 0.15
+    assert feats2["kagechi_ratio"] == pytest.approx(0.15)
 
 def test_two_sigma_outlier_exclusion():
     # 正常なお宝物件 (例: 予測価格1000万円、売出価格800万円 = 20%割安) -> 推薦対象

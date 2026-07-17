@@ -1,0 +1,51 @@
+name: Snyk Security Scan
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  snyk:
+    name: Snyk Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/crawler/requirements.txt
+
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+
+      - name: Run Snyk Open Source (Python dependencies)
+        run: snyk test --file=src/crawler/requirements.txt --skip-unresolved
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Run Snyk Code (SAST)
+        run: snyk code test
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+
+
+      - name: Build Docker image for analysis
+        run: docker build -t realestate-crawler:test .
+
+      - name: Run Snyk Container (Docker image vulnerabilities)
+        run: snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high --exclude-base-image-vulns
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
