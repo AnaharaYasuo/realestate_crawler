@@ -1291,8 +1291,21 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                         
                                         logging.info(msg)
                                         
+                                        # 物件種別ごとのアラートチャンネル定義
+                                        alert_channel = os.getenv("SLACK_CHANNEL_ID")
+                                        if property_type == "mansion":
+                                            alert_channel = os.getenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU") # alerts-mansion
+                                        elif property_type == "kodate":
+                                            alert_channel = os.getenv("SLACK_ALERT_KODATE", "C0BHZA5ASDT") # alerts-kodate
+                                        elif property_type == "tochi":
+                                            alert_channel = os.getenv("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS") # alerts-tochi
+                                        elif property_type in ["invest_apartment", "apartment"]:
+                                            alert_channel = os.getenv("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0") # alerts-invest-apartment
+                                        elif property_type == "invest_kodate":
+                                            alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
+
                                         # Slack送信を実行し、成否を明示的に判定・ログ記録する
-                                        success = await send_slack_message(msg)
+                                        success = await send_slack_message(msg, channel=alert_channel)
                                         if success:
                                             eval_record.is_slack_notified = True
                                             await sync_to_async(eval_record.save)()

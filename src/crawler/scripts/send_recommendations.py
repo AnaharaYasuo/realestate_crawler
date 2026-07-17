@@ -173,18 +173,18 @@ def send_recommendations():
             
         msg += f"詳細URL: {eval_rec.property_url}\n"
         
-        # 物件種別ごとの投稿先チャンネル定義
-        channel_id = os.getenv("SLACK_CHANNEL_ID") # デフォルト
+        # 物件種別ごとの投稿先チャンネル定義 (環境変数経由での設定に対応し、デフォルトはSLACK_CHANNEL_ID)
+        channel_id = os.getenv("SLACK_RECOMMEND_CHANNEL_ID") or os.getenv("SLACK_CHANNEL_ID")
         if eval_rec.property_type == "mansion":
-            channel_id = "C0BJWUCTRNU" # alerts-mansion
+            channel_id = os.getenv("SLACK_RECOMMEND_MANSION", channel_id)
         elif eval_rec.property_type == "kodate":
-            channel_id = "C0BHZA5ASDT" # alerts-kodate
+            channel_id = os.getenv("SLACK_RECOMMEND_KODATE", channel_id)
         elif eval_rec.property_type == "tochi":
-            channel_id = "C0BJ2JVGCLS" # alerts-tochi
+            channel_id = os.getenv("SLACK_RECOMMEND_TOCHI", channel_id)
         elif eval_rec.property_type in ["invest_apartment", "apartment"]:
-            channel_id = "C0BJ6B4R3E0" # alerts-invest-apartment
+            channel_id = os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", channel_id)
         elif eval_rec.property_type == "invest_kodate":
-            channel_id = "C0BJ0KSJEDC" # alerts-invest-kodate
+            channel_id = os.getenv("SLACK_RECOMMEND_INVEST_KODATE", channel_id)
 
         logging.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
         
