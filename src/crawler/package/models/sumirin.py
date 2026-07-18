@@ -3,10 +3,10 @@ from django.db import models
 from .base import PropertyBaseModel, TransportationMixin
 
 class SumirinModel(PropertyBaseModel, TransportationMixin):
-    address1 = models.TextField(null=True, blank=True)
-    address2 = models.TextField(null=True, blank=True)
-    address3 = models.TextField(null=True, blank=True)
-    addressKyoto = models.TextField(null=True, blank=True)
+    address1 = models.TextField(default="", blank=True)
+    address2 = models.TextField(default="", blank=True)
+    address3 = models.TextField(default="", blank=True)
+    addressKyoto = models.TextField(default="", blank=True)
 
     hikiwatashi = models.TextField(blank=True)
     genkyo = models.TextField(blank=True)
@@ -21,7 +21,7 @@ class SumirinMansion(SumirinModel):
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
-    kaisuStr = models.TextField(null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
 
     chikunengetsuStr = models.TextField(blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
@@ -80,15 +80,15 @@ class SumirinTochi(SumirinModel):
     douroKubun = models.TextField(blank=True)
     setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
-    maguchiStr = models.TextField(null=True, blank=True)
+    maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    okuyukiStr = models.TextField(null=True, blank=True)
+    okuyukiStr = models.TextField(default="", blank=True)
     okuyuki = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidthStr = models.TextField(default="", blank=True)
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadDirection = models.TextField(null=True, blank=True)
-    roadType = models.TextField(null=True, blank=True)
-    roadStructure = models.TextField(null=True, blank=True)
+    roadDirection = models.TextField(default="", blank=True)
+    roadType = models.TextField(default="", blank=True)
+    roadStructure = models.TextField(default="", blank=True)
 
     class Meta(SumirinModel.Meta):
         db_table = "sumirin_tochi"
@@ -135,7 +135,7 @@ class SumirinKodate(SumirinModel):
     chikunengetsu = models.DateField(null=True, blank=True)
 
     kouzou = models.TextField(blank=True)
-    kaisuStr = models.TextField(null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
 
     kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
@@ -149,10 +149,10 @@ class SumirinKodate(SumirinModel):
     setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     sonotaHiyouStr = models.TextField(blank=True)
 
-    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidthStr = models.TextField(default="", blank=True)
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadDirection = models.TextField(null=True, blank=True)
-    roadType = models.TextField(null=True, blank=True)
+    roadDirection = models.TextField(default="", blank=True)
+    roadType = models.TextField(default="", blank=True)
 
     class Meta(SumirinModel.Meta):
         db_table = "sumirin_kodate"

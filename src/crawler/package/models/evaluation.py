@@ -105,9 +105,9 @@ class PropertyEvaluation(models.Model):
         ],
         verbose_name="土地の形状"
     )
-    plot_shape_description = models.TextField(null=True, blank=True, verbose_name="土地の形状に関する説明・コメント")
+    plot_shape_description = models.TextField(default="", blank=True, verbose_name="土地の形状に関する説明・コメント")
     maintenance_score = models.FloatField(null=True, blank=True, verbose_name="外観メンテナンス状態スコア (1.0-5.0)")
-    maintenance_comment = models.TextField(null=True, blank=True, verbose_name="外観メンテナンス評価コメント")
+    maintenance_comment = models.TextField(default="", blank=True, verbose_name="外観メンテナンス評価コメント")
 
     # 解析ステータス・制御
     analysis_status = models.CharField(
@@ -147,7 +147,7 @@ class PropertyImage(models.Model):
         verbose_name="物件評価"
     )
     image_url = models.CharField(max_length=1000, verbose_name="画像URL")
-    local_path = models.CharField(max_length=500, null=True, blank=True, verbose_name="ローカル保存パス")
+    local_path = models.CharField(max_length=500, default="", blank=True, verbose_name="ローカル保存パス")
     category = models.CharField(
         max_length=50,
         choices=[
