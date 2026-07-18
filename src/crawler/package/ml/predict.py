@@ -31,6 +31,19 @@ def _load_mkt_comparison_master(model_dir):
             _mkt_comparison_master = {}
     return _mkt_comparison_master
 
+def _load_legacy_model(property_type, algo, stage, model_dir):
+    if algo != 'lgb':
+        return None
+    legacy_path = os.path.join(model_dir, f"{property_type}_{stage}_model.joblib")
+    if os.path.exists(legacy_path):
+        try:
+            model = joblib.load(legacy_path)
+            logging.info(f"ML: Loaded {property_type} {stage} legacy model as lgb.")
+            return model
+        except:
+            pass
+    return None
+
 def _load_first_stage_models(property_type, model_dir):
     global _first_stage_models
     if property_type not in _first_stage_models:
@@ -41,16 +54,13 @@ def _load_first_stage_models(property_type, model_dir):
                 try:
                     _first_stage_models[property_type][algo] = joblib.load(path)
                     logging.info(f"ML: Loaded {property_type} first stage {algo} model.")
+                    continue
                 except Exception as e:
                     logging.error(f"ML: Failed to load {property_type} first stage {algo} model: {e}")
-            else:
-                legacy_path = os.path.join(model_dir, f"{property_type}_first_stage_model.joblib")
-                if algo == 'lgb' and os.path.exists(legacy_path):
-                    try:
-                        _first_stage_models[property_type]['lgb'] = joblib.load(legacy_path)
-                        logging.info(f"ML: Loaded {property_type} first stage legacy model as lgb.")
-                    except:
-                        pass
+            
+            legacy_model = _load_legacy_model(property_type, algo, "first_stage", model_dir)
+            if legacy_model:
+                _first_stage_models[property_type][algo] = legacy_model
     return _first_stage_models[property_type]
 
 def _load_second_stage_models(property_type, model_dir):
@@ -63,16 +73,13 @@ def _load_second_stage_models(property_type, model_dir):
                 try:
                     _second_stage_models[property_type][algo] = joblib.load(path)
                     logging.info(f"ML: Loaded {property_type} second stage {algo} model.")
+                    continue
                 except Exception as e:
                     logging.error(f"ML: Failed to load {property_type} second stage {algo} model: {e}")
-            else:
-                legacy_path = os.path.join(model_dir, f"{property_type}_second_stage_model.joblib")
-                if algo == 'lgb' and os.path.exists(legacy_path):
-                    try:
-                        _second_stage_models[property_type]['lgb'] = joblib.load(legacy_path)
-                        logging.info(f"ML: Loaded {property_type} second stage legacy model as lgb.")
-                    except:
-                        pass
+            
+            legacy_model = _load_legacy_model(property_type, algo, "second_stage", model_dir)
+            if legacy_model:
+                _second_stage_models[property_type][algo] = legacy_model
     return _second_stage_models[property_type]
 
 def _get_models_and_master(property_type):
@@ -166,6 +173,22 @@ def _apply_rights_discount(_property_obj, predicted_price: float) -> int:
     """
     return int(predicted_price)
 
+def _align_features(df, model):
+    expected_features = None
+    if hasattr(model, "feature_names_in_"):
+        expected_features = list(model.feature_names_in_)
+    elif hasattr(model, "feature_names"):
+        expected_features = list(model.feature_names)
+        
+    if not expected_features:
+        return df
+        
+    df_aligned = df.copy()
+    for col in expected_features:
+        if col not in df_aligned.columns:
+            df_aligned[col] = 0.0
+    return df_aligned[expected_features]
+
 def _ensemble_predict(models, df, weights, ptype) -> float:
     loaded_weights = {}
     total_weight = 0.0
@@ -182,20 +205,7 @@ def _ensemble_predict(models, df, weights, ptype) -> float:
     for algo, weight in loaded_weights.items():
         norm_weight = weight / total_weight
         model = models[algo]
-        df_for_pred = df
-        
-        expected_features = None
-        if hasattr(model, "feature_names_in_"):
-            expected_features = list(model.feature_names_in_)
-        elif hasattr(model, "feature_names"):
-            expected_features = list(model.feature_names)
-            
-        if expected_features:
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0.0
-            df_for_pred = df[expected_features]
-            
+        df_for_pred = _align_features(df, model)
         pred_log = model.predict(df_for_pred)[0]
         pred_unit = np.expm1(pred_log)
         pred = pred_unit * float(df["area"].values[0])
