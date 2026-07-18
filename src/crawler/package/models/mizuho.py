@@ -3,10 +3,10 @@ from django.db import models
 from .base import PropertyBaseModel, TransportationMixin
 
 class MizuhoModel(PropertyBaseModel, TransportationMixin):
-    address1 = models.TextField(null=True, blank=True)
-    address2 = models.TextField(null=True, blank=True)
-    address3 = models.TextField(null=True, blank=True)
-    addressKyoto = models.TextField(null=True, blank=True)
+    address1 = models.TextField(default="", blank=True)
+    address2 = models.TextField(default="", blank=True)
+    address3 = models.TextField(default="", blank=True)
+    addressKyoto = models.TextField(default="", blank=True)
 
     hikiwatashi = models.TextField(blank=True)
     genkyo = models.TextField(blank=True)
@@ -21,7 +21,7 @@ class MizuhoMansion(MizuhoModel):
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
-    kaisuStr = models.TextField(null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
 
     chikunengetsuStr = models.TextField(blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
@@ -78,15 +78,15 @@ class MizuhoTochi(MizuhoModel):
     douroKubun = models.TextField(blank=True)
     setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
-    maguchiStr = models.TextField(null=True, blank=True)
+    maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    okuyukiStr = models.TextField(null=True, blank=True)
+    okuyukiStr = models.TextField(default="", blank=True)
     okuyuki = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidthStr = models.TextField(default="", blank=True)
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadDirection = models.TextField(null=True, blank=True)
-    roadType = models.TextField(null=True, blank=True)
-    roadStructure = models.TextField(null=True, blank=True)
+    roadDirection = models.TextField(default="", blank=True)
+    roadType = models.TextField(default="", blank=True)
+    roadStructure = models.TextField(default="", blank=True)
 
     class Meta(MizuhoModel.Meta):
         db_table = "mizuho_tochi"
@@ -105,7 +105,7 @@ class MizuhoInvestment(MizuhoModel):
     chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
-    kaisuStr = models.TextField(null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
 
     # 面積
     tochiMensekiStr = models.TextField(blank=True)
@@ -155,15 +155,15 @@ class MizuhoKodate(MizuhoModel):
     douroKubun = models.TextField(blank=True)
     setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
-    maguchiStr = models.TextField(null=True, blank=True)
+    maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    okuyukiStr = models.TextField(null=True, blank=True)
+    okuyukiStr = models.TextField(default="", blank=True)
     okuyuki = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidthStr = models.TextField(default="", blank=True)
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadDirection = models.TextField(null=True, blank=True)
-    roadType = models.TextField(null=True, blank=True)
-    roadStructure = models.TextField(null=True, blank=True)
+    roadDirection = models.TextField(default="", blank=True)
+    roadType = models.TextField(default="", blank=True)
+    roadStructure = models.TextField(default="", blank=True)
 
     class Meta(MizuhoModel.Meta):
         db_table = "mizuho_kodate"

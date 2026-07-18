@@ -48,5 +48,7 @@
     },
     "snyk.features.snykCode": true,
     "snyk.features.snykOpenSource": true,
-    "snyk.features.snykContainer": true
+    "snyk.features.snykContainer": true,
+    "snyk.advanced.organization": "706cd171-eb74-45ad-a4a5-b432a8658661",
+    "snyk.advanced.autoSelectOrganization": true
 }

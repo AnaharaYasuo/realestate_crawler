@@ -15,15 +15,8 @@ _first_stage_models = {}
 _second_stage_models = {}
 _mkt_comparison_master = None
 
-def _get_models_and_master(property_type):
-    """
-    指定された物件種別のモデルと、共通の比準想定価格マスタをキャッシュロードする (アンサンブルモデル対応)
-    """
-    global _first_stage_models, _second_stage_models, _mkt_comparison_master
-    
-    model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-    
-    # 1. 共通マスタのロード
+def _load_mkt_comparison_master(model_dir):
+    global _mkt_comparison_master
     if _mkt_comparison_master is None:
         master_path = os.path.join(model_dir, "mkt_comparison_master.joblib")
         if os.path.exists(master_path):
@@ -36,8 +29,23 @@ def _get_models_and_master(property_type):
         else:
             logging.warning("ML: Market comparison master not found. Run train.py first.")
             _mkt_comparison_master = {}
-            
-    # 2. 一次モデル (LGB, XGB, Cat) のロード
+    return _mkt_comparison_master
+
+def _load_legacy_model(property_type, algo, stage, model_dir):
+    if algo != 'lgb':
+        return None
+    legacy_path = os.path.join(model_dir, f"{property_type}_{stage}_model.joblib")
+    if os.path.exists(legacy_path):
+        try:
+            model = joblib.load(legacy_path)
+            logging.info(f"ML: Loaded {property_type} {stage} legacy model as lgb.")
+            return model
+        except:
+            pass
+    return None
+
+def _load_first_stage_models(property_type, model_dir):
+    global _first_stage_models
     if property_type not in _first_stage_models:
         _first_stage_models[property_type] = {}
         for algo in ['lgb', 'xgb', 'cat', 'rf']:
@@ -46,19 +54,17 @@ def _get_models_and_master(property_type):
                 try:
                     _first_stage_models[property_type][algo] = joblib.load(path)
                     logging.info(f"ML: Loaded {property_type} first stage {algo} model.")
+                    continue
                 except Exception as e:
                     logging.error(f"ML: Failed to load {property_type} first stage {algo} model: {e}")
-            else:
-                # 従来モデルが存在する場合の互換フォールバック
-                legacy_path = os.path.join(model_dir, f"{property_type}_first_stage_model.joblib")
-                if algo == 'lgb' and os.path.exists(legacy_path):
-                    try:
-                        _first_stage_models[property_type]['lgb'] = joblib.load(legacy_path)
-                        logging.info(f"ML: Loaded {property_type} first stage legacy model as lgb.")
-                    except:
-                        pass
             
-    # 3. 二次モデル (LGB, XGB, Cat) のロード
+            legacy_model = _load_legacy_model(property_type, algo, "first_stage", model_dir)
+            if legacy_model:
+                _first_stage_models[property_type][algo] = legacy_model
+    return _first_stage_models[property_type]
+
+def _load_second_stage_models(property_type, model_dir):
+    global _second_stage_models
     if property_type not in _second_stage_models:
         _second_stage_models[property_type] = {}
         for algo in ['lgb', 'xgb', 'cat', 'rf']:
@@ -67,41 +73,40 @@ def _get_models_and_master(property_type):
                 try:
                     _second_stage_models[property_type][algo] = joblib.load(path)
                     logging.info(f"ML: Loaded {property_type} second stage {algo} model.")
+                    continue
                 except Exception as e:
                     logging.error(f"ML: Failed to load {property_type} second stage {algo} model: {e}")
-            else:
-                # 従来モデルが存在する場合の互換フォールバック
-                legacy_path = os.path.join(model_dir, f"{property_type}_second_stage_model.joblib")
-                if algo == 'lgb' and os.path.exists(legacy_path):
-                    try:
-                        _second_stage_models[property_type]['lgb'] = joblib.load(legacy_path)
-                        logging.info(f"ML: Loaded {property_type} second stage legacy model as lgb.")
-                    except:
-                        pass
             
-    return _first_stage_models[property_type], _second_stage_models[property_type], _mkt_comparison_master
+            legacy_model = _load_legacy_model(property_type, algo, "second_stage", model_dir)
+            if legacy_model:
+                _second_stage_models[property_type][algo] = legacy_model
+    return _second_stage_models[property_type]
 
+def _get_models_and_master(property_type):
+    """
+    指定された物件種別のモデルと、共通の比準想定価格マスタをキャッシュロードする (アンサンブルモデル対応)
+    """
+    model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    master = _load_mkt_comparison_master(model_dir)
+    first = _load_first_stage_models(property_type, model_dir)
+    second = _load_second_stage_models(property_type, model_dir)
+    return first, second, master
 
-def _detect_property_type(property_obj):
-    """
-    オブジェクト名または型から mansion / kodate / apartment / tochi の種別を自動判定
-    """
-    if isinstance(property_obj, dict):
-        ptype = property_obj.get("propertyType", "").lower()
-        if "mansion" in ptype: return "mansion"
-        if "kodate" in ptype: return "kodate"
-        if "apartment" in ptype: return "apartment"
-        if "tochi" in ptype: return "tochi"
-        
-        # 簡易フォールバック判定
-        if "senyuMenseki" in property_obj: return "mansion"
-        if "tatemonoMenseki" in property_obj:
-            if "grossYield" in property_obj: return "apartment"
-            return "kodate"
-        if "tochiMenseki" in property_obj or "maguchi" in property_obj: return "tochi"
-        return "mansion"
-        
-    # Djangoオブジェクトの場合
+def _detect_property_type_from_dict(property_obj):
+    ptype = property_obj.get("propertyType", "").lower()
+    if "mansion" in ptype: return "mansion"
+    if "kodate" in ptype: return "kodate"
+    if "apartment" in ptype: return "apartment"
+    if "tochi" in ptype: return "tochi"
+    
+    if "senyuMenseki" in property_obj: return "mansion"
+    if "tatemonoMenseki" in property_obj:
+        if "grossYield" in property_obj: return "apartment"
+        return "kodate"
+    if "tochiMenseki" in property_obj or "maguchi" in property_obj: return "tochi"
+    return "mansion"
+
+def _detect_property_type_from_django(property_obj):
     class_name = property_obj.__class__.__name__.lower()
     if "mansion" in class_name:
         return "mansion"
@@ -113,6 +118,13 @@ def _detect_property_type(property_obj):
         return "tochi"
     return "mansion"
 
+def _detect_property_type(property_obj):
+    """
+    オブジェクト名または型から mansion / kodate / apartment / tochi の種別を自動判定
+    """
+    if isinstance(property_obj, dict):
+        return _detect_property_type_from_dict(property_obj)
+    return _detect_property_type_from_django(property_obj)
 
 def _log_prediction_error(property_obj, property_type, predicted_price, actual_price, features):
     """
@@ -154,15 +166,51 @@ def _log_prediction_error(property_obj, property_type, predicted_price, actual_p
         except Exception as e:
             logging.error(f"ML: Failed to write prediction error log: {e}")
 
-
-
-def _apply_rights_discount(property_obj, predicted_price: float) -> int:
+def _apply_rights_discount(_property_obj, predicted_price: float) -> int:
     """
     (廃止) 借地権・底地などの権利形態による価格ディスカウント補正を行う
     ※ 事後ディスカウント処理は廃止し、機械学習の特徴量（is_shigaika_chousei, is_saikenchiku_fuka, rights_ratio等）としてモデル自身に評価させるように移行しました。
     """
     return int(predicted_price)
 
+def _align_features(df, model):
+    expected_features = None
+    if hasattr(model, "feature_names_in_"):
+        expected_features = list(model.feature_names_in_)
+    elif hasattr(model, "feature_names"):
+        expected_features = list(model.feature_names)
+        
+    if not expected_features:
+        return df
+        
+    df_aligned = df.copy()
+    for col in expected_features:
+        if col not in df_aligned.columns:
+            df_aligned[col] = 0.0
+    return df_aligned[expected_features]
+
+def _ensemble_predict(models, df, weights, ptype) -> float:
+    loaded_weights = {}
+    total_weight = 0.0
+    for algo, model in models.items():
+        if model:
+            loaded_weights[algo] = weights[algo]
+            total_weight += weights[algo]
+            
+    if not loaded_weights:
+        logging.error(f"ML: No models available for {ptype}.")
+        return 0.0
+        
+    final_pred = 0.0
+    for algo, weight in loaded_weights.items():
+        norm_weight = weight / total_weight
+        model = models[algo]
+        df_for_pred = _align_features(df, model)
+        pred_log = model.predict(df_for_pred)[0]
+        pred_unit = np.expm1(pred_log)
+        pred = pred_unit * float(df["area"].values[0])
+        final_pred += pred * norm_weight
+    return final_pred
 
 def predict_first_stage(property_obj) -> int:
     """
@@ -172,8 +220,6 @@ def predict_first_stage(property_obj) -> int:
     
     ptype = _detect_property_type(property_obj)
     first_models, _, mkt_master = _get_models_and_master(ptype)
-    
-    # 共通関数を用いて特徴量を構築
     features = build_features(property_obj, ptype, mkt_comparison_master=mkt_master)
     
     feature_sets = {
@@ -196,7 +242,6 @@ def predict_first_stage(property_obj) -> int:
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei",
-            # 土地補正特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -213,7 +258,6 @@ def predict_first_stage(property_obj) -> int:
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei",
-            # 土地補正特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -228,7 +272,6 @@ def predict_first_stage(property_obj) -> int:
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei",
-            # 土地用特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -239,13 +282,11 @@ def predict_first_stage(property_obj) -> int:
     }
     
     feature_cols = feature_sets[ptype]
-    
     df = pd.DataFrame([features])[feature_cols]
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype('category').cat.codes
             
-    # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
     if ptype == 'mansion':
         weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
     elif ptype == 'kodate':
@@ -254,45 +295,11 @@ def predict_first_stage(property_obj) -> int:
         weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     else:
         weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
-    loaded_weights = {}
-    total_weight = 0.0
-    
-    for algo, model in first_models.items():
-        if model:
-            loaded_weights[algo] = weights[algo]
-            total_weight += weights[algo]
-            
-    if not loaded_weights:
-        logging.error(f"ML: No first stage models available for {ptype}.")
-        return 0
         
-    final_pred = 0.0
-    for algo, weight in loaded_weights.items():
-        norm_weight = weight / total_weight
-        model = first_models[algo]
-        df_for_pred = df
-        if hasattr(model, "feature_names_in_"):
-            expected_features = list(model.feature_names_in_)
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0.0
-            df_for_pred = df[expected_features]
-        elif hasattr(model, "feature_names"):
-            expected_features = list(model.feature_names)
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0.0
-            df_for_pred = df[expected_features]
-            
-        pred_log = model.predict(df_for_pred)[0]
-        pred_unit = np.expm1(pred_log)
-        pred = pred_unit * float(df["area"].values[0])
-        final_pred += pred * norm_weight
-        
+    final_pred = _ensemble_predict(first_models, df, weights, ptype)
     raw_predicted_val = int(max(0, final_pred))
     predicted_val = _apply_rights_discount(property_obj, raw_predicted_val)
     
-    # 予測エラーのログ化
     def get_attr(obj, name, default=None):
         if isinstance(obj, dict):
             return obj.get(name, default)
@@ -301,7 +308,6 @@ def predict_first_stage(property_obj) -> int:
     _log_prediction_error(property_obj, ptype, predicted_val, actual_price, features)
     
     return predicted_val
-
 
 def predict_second_stage(property_obj, interior_score: float, layout_score: float) -> int:
     """
@@ -337,7 +343,6 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei", "interior_score", "layout_score",
-            # 土地補正特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -354,7 +359,6 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei", "interior_score", "layout_score",
-            # 土地補正特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -369,7 +373,6 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
             "cost_approach_value", "mkt_comparison_value", "income_approach_value",
             "flood_risk_level", "landslide_risk_level",
             "max_youseki", "max_kenpei", "interior_score", "layout_score",
-            # 土地用特徴量
             "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
             "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
             "max_building_area", "max_floor_area", "kagechi_ratio",
@@ -380,13 +383,11 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
     }
     
     feature_cols = feature_sets[ptype]
-    
     df = pd.DataFrame([features])[feature_cols]
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype('category').cat.codes
             
-    # アンサンブル予測の実行 (加重平均 - 再学習の精度に基づく動的ウェイト)
     if ptype == 'mansion':
         weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
     elif ptype == 'kodate':
@@ -395,45 +396,11 @@ def predict_second_stage(property_obj, interior_score: float, layout_score: floa
         weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
     else:
         weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
-    loaded_weights = {}
-    total_weight = 0.0
-    
-    for algo, model in second_models.items():
-        if model:
-            loaded_weights[algo] = weights[algo]
-            total_weight += weights[algo]
-            
-    if not loaded_weights:
-        logging.error(f"ML: No second stage models available for {ptype}.")
-        return 0
         
-    final_pred = 0.0
-    for algo, weight in loaded_weights.items():
-        norm_weight = weight / total_weight
-        model = second_models[algo]
-        df_for_pred = df
-        if hasattr(model, "feature_names_in_"):
-            expected_features = list(model.feature_names_in_)
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0.0
-            df_for_pred = df[expected_features]
-        elif hasattr(model, "feature_names"):
-            expected_features = list(model.feature_names)
-            for col in expected_features:
-                if col not in df.columns:
-                    df[col] = 0.0
-            df_for_pred = df[expected_features]
-            
-        pred_log = model.predict(df_for_pred)[0]
-        pred_unit = np.expm1(pred_log)
-        pred = pred_unit * float(df["area"].values[0])
-        final_pred += pred * norm_weight
-        
+    final_pred = _ensemble_predict(second_models, df, weights, ptype)
     raw_predicted_val = int(max(0, final_pred))
     predicted_val = _apply_rights_discount(property_obj, raw_predicted_val)
     
-    # 予測エラーのログ化
     def get_attr(obj, name, default=None):
         if isinstance(obj, dict):
             return obj.get(name, default)

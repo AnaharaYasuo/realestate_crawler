@@ -4,9 +4,9 @@ from .base import PropertyBaseModel, TransportationMixin
 class MisawaCommon(PropertyBaseModel, TransportationMixin):
     # Railway/Station fields are in TransportationMixin.
     tochikenri = models.TextField(blank=True, default="") # 土地権利の種類 (landTenure)
-    kenpeiStr = models.TextField(null=True, blank=True, default="")
+    kenpeiStr = models.TextField(blank=True, default="")
     kenpei = models.IntegerField(null=True, blank=True)
-    yousekiStr = models.TextField(null=True, blank=True, default="")
+    yousekiStr = models.TextField(blank=True, default="")
     youseki = models.IntegerField(null=True, blank=True)
     youtoChiiki = models.TextField(blank=True, default="") # 用途地域 (zoning)
     deliveryDate = models.TextField(blank=True, default="") # 引渡（入居予定日）
@@ -24,7 +24,7 @@ class MisawaCommon(PropertyBaseModel, TransportationMixin):
 class MisawaMansion(MisawaCommon):
     senyuMensekiStr = models.TextField(default="")
     senyuMenseki = models.DecimalField(max_digits=7, decimal_places=2, default=0)  # Strict: null=False
-    balconyMensekiStr = models.TextField(null=True, blank=True, default="")
+    balconyMensekiStr = models.TextField(blank=True, default="")
     balconyMenseki = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, default=0)
     madori = models.TextField()  # Strict: null=False
     kaisu = models.TextField(blank=True, default="") # 所在階 (floor)
@@ -69,15 +69,15 @@ class MisawaTochi(MisawaCommon):
     currentStatus = models.TextField(blank=True, default="")
 
     # 統一土地評価フィールド
-    maguchiStr = models.TextField(null=True, blank=True)
+    maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    okuyukiStr = models.TextField(null=True, blank=True)
+    okuyukiStr = models.TextField(default="", blank=True)
     okuyuki = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadWidthStr = models.TextField(null=True, blank=True)
+    roadWidthStr = models.TextField(default="", blank=True)
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
-    roadDirection = models.TextField(null=True, blank=True)
-    roadType = models.TextField(null=True, blank=True)
-    roadStructure = models.TextField(null=True, blank=True)
+    roadDirection = models.TextField(default="", blank=True)
+    roadType = models.TextField(default="", blank=True)
+    roadStructure = models.TextField(default="", blank=True)
 
     class Meta:
         db_table = "misawa_tochi"
@@ -92,26 +92,26 @@ class MisawaInvestmentKodate(MisawaCommon):
     grossYield = models.DecimalField(max_digits=5, decimal_places=2)
     annualRent = models.IntegerField()
     monthlyRent = models.IntegerField(null=True, blank=True)
-    currentStatus = models.TextField(null=True, blank=True)
+    currentStatus = models.TextField(default="", blank=True)
     
     # Kodate Specific (Strict)
-    tochiMensekiStr = models.TextField(null=True, blank=True)
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=8, decimal_places=2)
-    tatemonoMensekiStr = models.TextField(null=True, blank=True)
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=8, decimal_places=2)
-    kouzou = models.TextField(null=True, blank=True)
-    chikunengetsuStr = models.TextField(null=True, blank=True)
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
     
     # Land Details
-    kenpeiStr = models.TextField(null=True, blank=True)
-    yousekiStr = models.TextField(null=True, blank=True)
-    setsudou = models.TextField(null=True, blank=True)
-    chimoku = models.TextField(null=True, blank=True)
-    youtoChiiki = models.TextField(null=True, blank=True)
-    tochikenri = models.TextField(null=True, blank=True)
+    kenpeiStr = models.TextField(default="", blank=True)
+    yousekiStr = models.TextField(default="", blank=True)
+    setsudou = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
+    tochikenri = models.TextField(default="", blank=True)
 
     # Other
-    madori = models.TextField(null=True, blank=True)
+    madori = models.TextField(default="", blank=True)
     propertyType = models.TextField(default="Kodate")
 
     class Meta:
@@ -124,24 +124,24 @@ class MisawaInvestmentApartment(MisawaCommon):
     grossYield = models.DecimalField(max_digits=5, decimal_places=2)
     annualRent = models.IntegerField()
     monthlyRent = models.IntegerField(null=True, blank=True)
-    currentStatus = models.TextField(null=True, blank=True)
+    currentStatus = models.TextField(default="", blank=True)
     
     # Apartment Specific (Strict)
-    tochiMensekiStr = models.TextField(null=True, blank=True)
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=8, decimal_places=2)
-    tatemonoMensekiStr = models.TextField(null=True, blank=True)
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=8, decimal_places=2)
-    kouzou = models.TextField(null=True, blank=True)
-    chikunengetsuStr = models.TextField(null=True, blank=True)
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     
     # Land Details
-    kenpeiStr = models.TextField(null=True, blank=True)
-    yousekiStr = models.TextField(null=True, blank=True)
-    setsudou = models.TextField(null=True, blank=True)
-    chimoku = models.TextField(null=True, blank=True)
-    youtoChiiki = models.TextField(null=True, blank=True)
-    tochikenri = models.TextField(null=True, blank=True)
+    kenpeiStr = models.TextField(default="", blank=True)
+    yousekiStr = models.TextField(default="", blank=True)
+    setsudou = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
+    tochikenri = models.TextField(default="", blank=True)
 
     # Other
     propertyType = models.TextField(default="Apartment")

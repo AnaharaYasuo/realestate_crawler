@@ -75,7 +75,7 @@ services:
       - db
       - app
       - minio
-    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
+    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && /usr/local/bin/python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
     restart: always
 
   minio:
