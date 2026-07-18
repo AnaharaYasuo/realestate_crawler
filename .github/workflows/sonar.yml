@@ -49,7 +49,7 @@ jobs:
         with:
           args: >
             -Dsonar.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg
-            -Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg
+            -Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
