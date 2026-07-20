@@ -23,6 +23,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     procps \
     cron \
     libgomp1 \
+    libexpat1 \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --default-timeout=1000 --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential pkg-config \
