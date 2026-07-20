@@ -2,7 +2,6 @@
 Unit tests for DualStorageDescriptor.
 """
 
-import pytest
 from decimal import Decimal
 from package.models.fields import DualStorageDescriptor
 from package.utils import converter

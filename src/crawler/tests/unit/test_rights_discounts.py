@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import pytest
 from unittest.mock import MagicMock
-from package.ml.predict import _apply_rights_discount
 from package.ml.investment_evaluator import evaluate_investment_property
 
 class MockProperty:

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from flask import Blueprint, request
 import json
-import logging
 from package.api.api import (
     API_KEY_MIZUHO_MANSION_START, API_KEY_MIZUHO_MANSION_DETAIL,
     API_KEY_MIZUHO_KODATE_START, API_KEY_MIZUHO_KODATE_DETAIL,

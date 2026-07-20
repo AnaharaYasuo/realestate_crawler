@@ -2,7 +2,6 @@
 from django.test import TestCase
 from bs4 import BeautifulSoup
 from package.parser.athomeParser import AthomeTochiParser
-from package.models.athome import AthomeTochi
 from decimal import Decimal
 
 class AthomeTochiParserTest(TestCase):

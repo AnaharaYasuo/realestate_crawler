@@ -14,7 +14,6 @@ except Exception as e:
     print(f"Failed to configure settings: {e}")
     sys.exit(1)
 
-import django
 from package.models.evaluation import PropertyEvaluation
 
 def main():
@@ -58,7 +57,7 @@ def main():
             if skipped_count <= 10:
                 print(f"WARNING: Could not guess company/type for ID {ev.id} (type: '{ev.property_type}')")
                 
-    print(f"\nCleansing finished!")
+    print("\nCleansing finished!")
     print(f"Successfully updated: {updated_count} records.")
     print(f"Failed/Skipped: {skipped_count} records.")
 

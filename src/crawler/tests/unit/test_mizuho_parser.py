@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.mizuhoParser import MizuhoMansionParser, MizuhoKodateParser, MizuhoTochiParser
-from package.models.mizuho import MizuhoMansion, MizuhoKodate, MizuhoTochi
+from package.parser.mizuhoParser import MizuhoMansionParser, MizuhoKodateParser
+from package.models.mizuho import MizuhoMansion, MizuhoKodate
 
 def test_mizuho_mansion_parser():
     parser = MizuhoMansionParser()

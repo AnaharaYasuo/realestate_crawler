@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
-import django
 import json
 import logging
 from datetime import datetime, timedelta

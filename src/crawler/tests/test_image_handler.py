@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import io
-import pytest
 from PIL import Image, ImageDraw
 from django.utils import timezone
 from package.utils.image_handler import clean_images, verify_image_bytes, check_api_budget_cap, MAX_DAILY_IMAGE_ANALYSIS

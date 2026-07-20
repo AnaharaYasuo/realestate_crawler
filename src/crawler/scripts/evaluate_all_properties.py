@@ -4,7 +4,6 @@ import sys
 import logging
 import warnings
 import requests
-import json
 warnings.filterwarnings("ignore")
 
 # Django設定の初期化
@@ -189,6 +188,11 @@ def main():
                           property_url=url,
                           defaults=defaults
                       )
+                      
+                      # すでに予測価格が入っている場合は推定スキップ
+                      if not created and eval_record.first_stage_predicted_price is not None:
+                          logging.info(f"Skipping already estimated property: {url}")
+                          continue
                       
                       # 2. シリアライズとAPIリクエスト送信
                       serialized_data = _serialize_property(item, ptype)

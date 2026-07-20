@@ -4,11 +4,8 @@ from package.parser.baseParser import ParserBase
 from package.models.sumai1 import Sumai1Mansion, Sumai1Kodate, Sumai1Tochi, Sumai1Investment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import logging
 import re
-from decimal import Decimal
 import datetime
-import unicodedata
 
 class Sumai1Parser(ParserBase):
     BASE_URL = 'https://www.sumai1.com'

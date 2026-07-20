@@ -4,10 +4,7 @@ from package.parser.baseParser import ParserBase
 from package.models.totate import TotateMansion, TotateKodate, TotateTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import logging
 import re
-from decimal import Decimal
-import datetime
 import urllib.parse
 
 class TotateParser(ParserBase):
@@ -41,7 +38,7 @@ class TotateParser(ParserBase):
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
         # 物件詳細リンクは /mansion/NFD1C4021/ のような形式
-        pattern = re.compile(rf'/{self.property_type or "mansion"}/[A-Za-z0-9]+')
+        re.compile(rf'/{self.property_type or "mansion"}/[A-Za-z0-9]+')
         for a in response.select(".items .item h4.name a, a[href^='/" + (self.property_type or "mansion") + "/N']"):
             href = a.get("href")
             if href:

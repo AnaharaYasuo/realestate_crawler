@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import datetime
 import pandas as pd
 import numpy as np
 import joblib
 import gc
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.ensemble import RandomForestRegressor
 import lightgbm as lgb
 import xgboost as xgb

@@ -2,7 +2,6 @@
 import os
 import sys
 import django
-import re
 
 # Djangoの環境設定 (project_root を追加)
 current_dir = os.path.dirname(os.path.abspath(__file__))

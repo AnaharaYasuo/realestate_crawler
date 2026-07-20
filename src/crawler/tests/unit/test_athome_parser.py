@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.athomeParser import AthomeMansionParser, AthomeKodateParser, AthomeInvestmentApartmentParser
-from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment
+from package.parser.athomeParser import AthomeMansionParser, AthomeInvestmentApartmentParser
+from package.models.athome import AthomeMansion, AthomeInvestmentApartment
 
 def test_athome_mansion_parser():
     parser = AthomeMansionParser()

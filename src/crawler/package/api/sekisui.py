@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
     API_KEY_SEKISUI_MANSION_START, API_KEY_SEKISUI_MANSION_DETAIL,
     API_KEY_SEKISUI_KODATE_START, API_KEY_SEKISUI_KODATE_DETAIL,

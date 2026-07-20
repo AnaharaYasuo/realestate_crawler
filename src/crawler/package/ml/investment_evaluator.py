@@ -3,7 +3,7 @@ import math
 import logging
 from decimal import Decimal
 from django.utils import timezone
-from package.models.evaluation import PropertyEvaluation, LandPricePotential
+from package.models.evaluation import LandPricePotential
 from django.db import models
 
 logger = logging.getLogger(__name__)

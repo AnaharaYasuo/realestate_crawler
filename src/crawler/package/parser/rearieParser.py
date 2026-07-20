@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-import sys
 import re
 import logging
 import urllib.parse
 import asyncio
 from bs4 import BeautifulSoup
-from django.db import models
 
 from package.models.rearie import RearieMansion, RearieKodate, RearieTochi
 from package.parser.baseParser import ParserBase

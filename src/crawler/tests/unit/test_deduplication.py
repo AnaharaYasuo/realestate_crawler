@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import pytest
-from unittest.mock import patch, MagicMock
-from django.utils import timezone
 from package.models.evaluation import PropertyEvaluation
 from package.utils.deduplication import normalize_address, calculate_property_similarity, find_duplicate_property
 

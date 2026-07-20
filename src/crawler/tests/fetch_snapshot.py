@@ -5,7 +5,6 @@ import os
 import sys
 import argparse
 from bs4 import BeautifulSoup
-import urllib3
 try:
     from playwright.async_api import async_playwright
     PLAYWRIGHT_AVAILABLE = True
@@ -297,7 +296,7 @@ async def fetch_snapshot(target_site, target_type, debug_links=False, use_playwr
         os.makedirs(os.path.dirname(abs_output), exist_ok=True)
 
         if not use_playwright:
-            print(f"Fetching detail page with aiohttp (No Playwright)...")
+            print("Fetching detail page with aiohttp (No Playwright)...")
             try:
                 async with aiohttp.ClientSession(headers=headers) as session:
                     async with session.get(full_url, ssl=ssl_val, timeout=30) as resp:

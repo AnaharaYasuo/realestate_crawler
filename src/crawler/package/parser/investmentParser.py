@@ -1,8 +1,5 @@
-from django.db import models
-from bs4 import BeautifulSoup
 import re
 import logging
-import traceback
 from package.parser.baseParser import ParserBase
 
 class InvestmentParser(ParserBase):
@@ -45,7 +42,7 @@ class InvestmentParser(ParserBase):
                 # If there was '億', man_part might be empty or just numeric
                 if man_part:
                     total += int(re.sub(r'[^0-9]', '', man_part)) * 10000
-            elif remainder and not '億' in text: # pure number?
+            elif remainder and '億' not in text: # pure number?
                 # Sometimes prices are just raw numbers
                 clean_num = re.sub(r'[^0-9]', '', remainder)
                 if clean_num:

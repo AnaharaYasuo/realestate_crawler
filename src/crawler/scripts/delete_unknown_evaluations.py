@@ -14,7 +14,6 @@ except Exception as e:
     print(f"Failed to configure settings: {e}")
     sys.exit(1)
 
-import django
 from package.models.evaluation import PropertyEvaluation
 
 def main():
@@ -38,7 +37,7 @@ def main():
     deleted_unknown, _ = unknown_records.delete()
     deleted_old, _ = old_records.delete()
     
-    print(f"\nDeletion finished!")
+    print("\nDeletion finished!")
     print(f"Deleted unknown company records: {deleted_unknown}")
     print(f"Deleted old test evaluation records: {deleted_old}")
 

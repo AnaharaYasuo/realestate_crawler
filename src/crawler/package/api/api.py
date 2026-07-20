@@ -7,19 +7,15 @@ import traceback
 from abc import ABCMeta, abstractmethod
 from typing import Dict, Any, Optional
 
-from bs4 import BeautifulSoup
 from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
     ReadPropertyNameException, SkipPropertyException
 import datetime
 from django.core.exceptions import ValidationError
-from django import db
 from django.db import close_old_connections, OperationalError
 from builtins import Exception
-from time import sleep
 import logging
 from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.utils.report import CrawlerReporter
-from fake_useragent import UserAgent,FakeUserAgent
 from asgiref.sync import sync_to_async
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
@@ -678,7 +674,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 #logging.error(traceback.format_exc())
                 #logging.error(e)
                 raise e
-        except (asyncio.TimeoutError, TimeoutError) as e:
+        except (asyncio.TimeoutError, TimeoutError):
             # Fire-and-Forget Success Path
             logging.info("Fire and forget - Timeout (assumed success): " + detailUrl)
             return detailUrl, 200, "FireAndForget"
@@ -741,7 +737,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 loop = self._getActiveEventLoop()
                 futures = asyncio.gather(*[self._run(url)])
                 runResult = loop.run_until_complete(futures)
-            except asyncio.exceptions.TimeoutError as e:
+            except asyncio.exceptions.TimeoutError:
                 if loop and loop.is_running():
                     loop.stop()
                 if loop:
@@ -1050,27 +1046,49 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                             break
                     property_type = model_name.lower().replace(company, "")
                     
-                    # 2. 一次理論価格予測の実行
-                    price_stage1 = await sync_to_async(predict_first_stage)(item)
+                    # すでに価格推定（一次・二次予測、または一次不合格）が完了している場合は全体をスキップ
+                    existing_eval = await sync_to_async(PropertyEvaluation.objects.filter(property_url=item.pageUrl).first)()
                     
-                    # 3. 一次合格判定（理論価格が販売価格以上） - 販売価格（円）を万円単位にスケール変換して比較
-                    asking_price = (float(item.price) / 10000.0) if item.price else 0.0
+                    price_stage1 = None
                     is_passed = False
-                    if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
-                        is_passed = True
+                    eval_record = None
+                    asking_price = (float(item.price) / 10000.0) if item.price else 0.0
+                    
+                    if existing_eval and existing_eval.first_stage_predicted_price is not None:
+                        # 二次予測まで終わっているか、または一次不合格で終了している場合
+                        if existing_eval.second_stage_predicted_price is not None or not existing_eval.is_first_stage_passed:
+                            logging.info(f"ML: Skipping already fully evaluated property: {item.pageUrl}")
+                            return
+                        else:
+                            # 一次合格しているが二次未完了の場合、一次予測結果を再利用して後半の画像解析へ進む
+                            price_stage1 = float(existing_eval.first_stage_predicted_price)
+                            is_passed = existing_eval.is_first_stage_passed
+                            eval_record = existing_eval
+                            logging.info(f"ML: Reusing Stage 1 result for incomplete Stage 2: {item.pageUrl} ({price_stage1}万円)")
+                    
+                    # 新規または一次予測未実行の場合のみ一次予測を実行
+                    if price_stage1 is None:
+                        # 2. 一次理論価格予測の実行
+                        price_stage1 = await sync_to_async(predict_first_stage)(item)
                         
-                    # 4. PropertyEvaluation レコードの作成/更新
-                    eval_record, created = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
-                        property_url=item.pageUrl,
-                        defaults={
-                            "company": company,
-                            "property_type": property_type,
-                            "property_id": item.id,
-                            "first_stage_predicted_price": price_stage1,
-                            "is_first_stage_passed": is_passed,
-                            "analysis_status": "pending"
-                        }
-                    )
+                        # 3. 一次合格判定（理論価格が販売価格以上） - 販売価格（円）を万円単位にスケール変換して比較
+                        if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
+                            is_passed = True
+                            
+                        # 4. PropertyEvaluation レコードの作成/更新
+                        eval_record, created = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
+                            property_url=item.pageUrl,
+                            defaults={
+                                "company": company,
+                                "property_type": property_type,
+                                "property_id": item.id,
+                                "first_stage_predicted_price": price_stage1,
+                                "is_first_stage_passed": is_passed,
+                                "analysis_status": "pending"
+                            }
+                        )
+                    
+                    assert eval_record is not None
                     
                     # 名寄せロジックによる重複検出
                     from package.utils.deduplication import find_duplicate_property
@@ -1361,7 +1379,6 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     async def _save_error_html_by_url(self, url, model_name, reason="Live Fetch Failure/Parsing Error"):
         """Save HTML of failed property for debugging when we only have the URL"""
         try:
-            import os
             import re
             from pathlib import Path
             import requests
@@ -1401,7 +1418,6 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         def _save_error_html(item):
             """Save HTML of failed property for debugging"""
             try:
-                import os
                 import re
                 from pathlib import Path
                 import requests
@@ -1465,7 +1481,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     missing_fields.append(f"{field} (value: {field_value}): {', '.join(errors)}")
                 msg += f"Missing/invalid fields: {'; '.join(missing_fields)}"
                 logging.warning(msg)
-                logging.warning(f"Skipping save for this property due to validation errors.")
+                logging.warning("Skipping save for this property due to validation errors.")
                 
                 # Save HTML for debugging
                 _save_error_html(item)

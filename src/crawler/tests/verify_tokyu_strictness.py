@@ -2,8 +2,6 @@
 import os
 import sys
 import django
-from decimal import Decimal
-import datetime
 
 # Setup Django
 sys.path.append('/app/src')

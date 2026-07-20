@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import asyncio
 import logging
 from playwright.async_api import async_playwright
 

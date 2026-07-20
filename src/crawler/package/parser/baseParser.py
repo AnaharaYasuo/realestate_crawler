@@ -9,7 +9,6 @@ import re
 from abc import ABCMeta, abstractmethod
 from builtins import Exception
 import asyncio
-from time import sleep
 from django.db import models
 
 
@@ -88,7 +87,6 @@ class ParserBase(metaclass=ABCMeta):
         return item
     
     def save_error_html(self, url, content, reason="Parsing failed"):
-        import os
         import hashlib
         import re
         from pathlib import Path
@@ -186,7 +184,7 @@ class ParserBase(metaclass=ABCMeta):
             logging.error(f'Detail parse error: {url}')
             logging.error(f'Exception type: {type(e).__name__}')
             logging.error(f'Exception message: {str(e)}')
-            logging.error(f'Full traceback:')
+            logging.error('Full traceback:')
             logging.error(traceback.format_exc())
             if content: self.save_error_html(url, content, reason=str(e))
             raise e
@@ -588,7 +586,6 @@ class ParserBase(metaclass=ABCMeta):
             walk_min = None
             walk_min_str = ""
             bus_min = None
-            bus_min_str = ""
             bus_use = 0
             bus_station = ""
             
@@ -598,7 +595,7 @@ class ParserBase(metaclass=ABCMeta):
                 m_bus = re.search(r'バス\s*(\d+)\s*分', line)
                 if m_bus:
                     bus_min = int(m_bus.group(1))
-                    bus_min_str = str(bus_min)
+                    str(bus_min)
                 m_bus_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
                 if m_bus_walk:
                     walk_min = int(m_bus_walk.group(1))
@@ -658,7 +655,6 @@ class ParserBase(metaclass=ABCMeta):
         各サイトの余計なSEO定型文言（「不動産購入、」「マンション（居住用）」など）が混入するのを防ぐため、
         スペックテーブルやパンくずリストなどの構造化された部分から優先的に抽出します。
         """
-        import re
         # 1. サイト個別のカスタムセレクタや汎用クレンジング要素があれば最優先
         custom_selectors = [
             'h1.property-detail-carousel-luxury__building-name',

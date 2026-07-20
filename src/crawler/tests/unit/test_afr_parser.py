@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.afrParser import AfrMansionParser, AfrKodateParser, AfrTochiParser
-from package.models.afr import AfrMansion, AfrKodate, AfrTochi
+from package.parser.afrParser import AfrMansionParser, AfrKodateParser
+from package.models.afr import AfrMansion, AfrKodate
 
 def test_afr_mansion_parser():
     parser = AfrMansionParser()

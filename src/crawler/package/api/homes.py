@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
     API_KEY_HOMES_INVEST_APARTMENT_START, API_KEY_HOMES_INVEST_APARTMENT_DETAIL,
     API_KEY_HOMES_MANSION_START, API_KEY_HOMES_MANSION_DETAIL,
@@ -9,7 +7,7 @@ from package.api.api import (
     ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 )
 from package.parser.homesParser import (
-    HomesMansionParser, HomesKodateParser, HomesInvestmentApartmentParser, HomesTochiParser
+    HomesKodateParser, HomesInvestmentApartmentParser, HomesTochiParser
 )
 from package.api.registry import ApiRegistry
 

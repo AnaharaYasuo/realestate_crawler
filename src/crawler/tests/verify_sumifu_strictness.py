@@ -1,9 +1,7 @@
 
 import os
 import sys
-import django
 from decimal import Decimal
-import datetime
 
 # Setup Django
 sys.path.append('/app/src')
@@ -19,7 +17,6 @@ except Exception as e:
     pass
 
 from bs4 import BeautifulSoup
-from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi, SumifuInvestmentKodate, SumifuInvestmentApartment
 from package.parser.sumifuParser import SumifuMansionParser, SumifuKodateParser, SumifuTochiParser, SumifuInvestmentKodateParser, SumifuInvestmentApartmentParser
 
 DOCS_DIR = os.environ.get('DOCS_DIR', '/app/Temp/docs')

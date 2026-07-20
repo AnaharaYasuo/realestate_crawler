@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.sumai1Parser import Sumai1MansionParser, Sumai1KodateParser, Sumai1TochiParser
-from package.models.sumai1 import Sumai1Mansion, Sumai1Kodate, Sumai1Tochi
+from package.parser.sumai1Parser import Sumai1MansionParser, Sumai1KodateParser
+from package.models.sumai1 import Sumai1Mansion, Sumai1Kodate
 
 def test_sumai1_mansion_parser():
     parser = Sumai1MansionParser()

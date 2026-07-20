@@ -105,7 +105,7 @@ def validate_data():
             # 4. 土地/戸建において間口が0m（接道パース失敗による75%減価疑い）
             if ptype in ["tochi", "kodate", "invest_kodate"] and maguchi <= 0.0:
                 # 警告として記録するが、強制排除はせず警告にとどめる
-                reasons.append(f"間口0m警告 (無道路地ペナルティ対象)")
+                reasons.append("間口0m警告 (無道路地ペナルティ対象)")
                 # 強制排除フラグは立てない (has_error = False)
             
             if reasons and (has_error or "間口0m警告" in reasons[0]):
