@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 import json
 import pytest
+from unittest.mock import patch
 from main import app
+
+@pytest.fixture(autouse=True)
+def mock_predictions():
+    with patch('package.ml.predict.predict_first_stage_local', return_value=45000000), \
+         patch('package.ml.predict.predict_second_stage_local', return_value=46500000):
+        yield
 
 @pytest.fixture
 def client():
