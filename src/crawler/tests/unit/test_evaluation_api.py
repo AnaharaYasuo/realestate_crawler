@@ -6,8 +6,8 @@ from main import app
 
 @pytest.fixture(autouse=True)
 def mock_predictions():
-    with patch('package.ml.predict.predict_first_stage_local', return_value=45000000), \
-         patch('package.ml.predict.predict_second_stage_local', return_value=46500000):
+    with patch('routes.evaluation_routes.predict_first_stage_local', return_value=45000000), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=46500000):
         yield
 
 @pytest.fixture
