@@ -251,6 +251,8 @@ Detail API → DB保存
 - **Django**: ORM（モデル定義・マイグレーション）
   - 役割: データベーススキーマ管理
   - ファイル: `src/crawler/package/models/`
+- **django-db-connection-pool**: SQLAlchemyベースのDB接続プール仲介ライブラリ
+  - 役割: クローラー並行実行時のMySQL接続数制限超過 (Too many connections) を防ぐコネクションプーリング
 - **mysqlclient**: MySQLデータベースアダプター
 - **MySQL 8.0**: リレーショナルデータベース（Dockerコンテナ）
 
