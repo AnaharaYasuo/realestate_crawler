@@ -77,6 +77,60 @@ class Sumai1Parser(ParserBase):
 
         return item
 
+    def _parse_kenpei_youseki(self, item, specs):
+        kenpei_str = specs.get("建ぺい率", "") or specs.get("建ぺい率／容積率", "")
+        youseki_str = specs.get("容積率", "") or specs.get("建ぺい率／容積率", "")
+        
+        if "／" in kenpei_str:
+            parts = kenpei_str.split("／")
+            if len(parts) >= 2:
+                item.kenpeiStr = parts[0].strip()
+                item.yousekiStr = parts[1].strip()
+        elif "/" in kenpei_str:
+            parts = kenpei_str.split("/")
+            if len(parts) >= 2:
+                item.kenpeiStr = parts[0].strip()
+                item.yousekiStr = parts[1].strip()
+        else:
+            item.kenpeiStr = kenpei_str
+            item.yousekiStr = youseki_str
+            
+        item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        item.youseki = converter.parse_ratio(item.yousekiStr)
+
+    def _get_specs(self, response: BeautifulSoup) -> dict:
+        specs = {}
+        # Parse all definition lists and tables
+        for table in response.select("table"):
+            for tr in table.select("tr"):
+                ths = tr.find_all("th")
+                tds = tr.find_all("td")
+                for i in range(min(len(ths), len(tds))):
+                    key = ths[i].get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "")
+                    val = tds[i].get_text().strip()
+                    specs[key] = val
+        for dl in response.select("dl"):
+            for dt, dd in zip(dl.select("dt"), dl.select("dd")):
+                key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "").replace("：", "")
+                val = dd.get_text().strip()
+                specs[key] = val
+
+        # キーの表記揺れ標準化
+        fallback_mappings = {
+            "建ぺい率": ["建ペイ率"],
+            "建ぺい率／容積率": ["建ぺい率/容積率", "建ペイ率/容積率", "建ペイ率／容積率", "建ぺい・容積率"],
+            "引渡時期": ["引渡", "引渡可能時期", "引渡時期可能時期", "引渡し可能年月"],
+            "都市計画": ["都市計画区域"],
+            "建築条件": ["建築条件付", "建築条件付き"]
+        }
+        for std_key, alt_keys in fallback_mappings.items():
+            for alt in alt_keys:
+                if alt in specs and std_key not in specs:
+                    specs[std_key] = specs[alt]
+                if std_key in specs and alt not in specs:
+                    specs[alt] = specs[std_key]
+        return specs
+
     def _parsePropertyName(self, response: BeautifulSoup):
         h1 = response.find("h1")
         if h1:
@@ -136,11 +190,11 @@ class Sumai1MansionParser(Sumai1Parser):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
-        item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "")
+        item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.floorType_kai = converter.parse_numeric(item.kaisuStr)
 
-        item.chikunengetsuStr = specs.get("築年月", "")
+        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
@@ -148,23 +202,23 @@ class Sumai1MansionParser(Sumai1Parser):
         if item.balconyMensekiStr:
             item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
 
-        item.saikou = specs.get("主要採光面", "") or specs.get("採光", "")
-        item.soukosuStr = specs.get("総戸数", "")
+        item.saikou = specs.get("主要採光面", "") or specs.get("採光", "") or specs.get("主要採光", "") or specs.get("向き", "")
+        item.soukosuStr = specs.get("総戸数", "") or specs.get("戸数", "")
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費等", "")
+        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費等", "") or specs.get("管理費/月", "")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_yen(item.kanrihiStr)
 
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        item.syuzenTsumitateStr = specs.get("修繕積立金", "") or specs.get("修繕積立金等", "") or specs.get("修繕積立金/月", "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_yen(item.syuzenTsumitateStr)
 
-        item.kanriKeitai = specs.get("管理形態", "")
+        item.kanriKeitai = specs.get("管理形態", "") or specs.get("管理形態(方式)", "")
         item.kanriKaisya = specs.get("管理会社", "")
-        item.kouzou = specs.get("構造", "")
-        item.bunjoKaisya = specs.get("分譲会社", "")
+        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "")
+        item.bunjoKaisya = specs.get("分譲会社", "") or specs.get("販売会社", "")
         item.sekouKaisya = specs.get("施工会社", "")
         
         return item
@@ -180,31 +234,26 @@ class Sumai1KodateParser(Sumai1Parser):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = specs.get("土地面積", "") or specs.get("敷地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
+        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "") or specs.get("専有面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
         item.madori = specs.get("間取り", "")
         item.kouzou = specs.get("構造", "") or specs.get("建物構造", "")
         
-        item.chikunengetsuStr = specs.get("築年月", "")
+        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.youtoChiiki = specs.get("用途地域", "")
         item.kuiki = specs.get("都市計画", "")
         
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
+        self._parse_kenpei_youseki(item, specs)
 
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
         
@@ -231,12 +280,7 @@ class Sumai1TochiParser(Sumai1Parser):
         item.kuiki = specs.get("都市計画", "")
         item.kokudoHou = specs.get("国土法届出", "") or specs.get("国土法", "")
 
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
+        self._parse_kenpei_youseki(item, specs)
 
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
 
@@ -329,14 +373,7 @@ class Sumai1InvestmentParser(Sumai1Parser):
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        # 建ぺい率・容積率
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
+        self._parse_kenpei_youseki(item, specs)
 
         item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
         item.chimoku = specs.get("地目", "")

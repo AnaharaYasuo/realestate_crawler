@@ -151,3 +151,32 @@ class TestStrictValidation:
         required_fields = ['priceStr', 'price', 'address', 'grossYield', 'annualRent', 'monthlyRent', 'currentStatus', 'kouzou', 'chikunengetsuStr', 'tochiMensekiStr', 'tochiMenseki', 'tatemonoMensekiStr', 'tatemonoMenseki', 'setsudou', 'chimoku', 'youtoChiiki', 'kenpei', 'kenpeiStr', 'youseki', 'yousekiStr', 'kaisuStr']
         for field in required_fields:
             assert field in errors, f"{field} がエラーに含まれていません"
+
+    def test_clean_parsed_item(self):
+        """テスト5: clean_parsed_item による二重空白の除去、None値の空文字化/None化のテスト"""
+        from package.parser.baseParser import ParserBase
+        
+        class DummyParser(ParserBase):
+            def getCharset(self):
+                return "utf-8"
+            def createEntity(self):
+                return SumifuInvestmentKodate()
+            def _parsePropertyDetailPage(self, item, response):
+                return item
+                
+        parser = DummyParser()
+        item = SumifuInvestmentKodate()
+        
+        # 二重空白やタブ、改行が入ったテキストを設定
+        item.propertyName = "  テスト  物件  名前  \n  改行  "
+        item.address = "None"
+        item.currentStatus = "none"
+        item.setsudou = "JR山手線  渋谷駅    徒歩5分"
+        
+        cleaned_item = parser.clean_parsed_item(item)
+        
+        # 検証
+        assert cleaned_item.propertyName == "テスト 物件 名前 改行"
+        assert cleaned_item.setsudou == "JR山手線 渋谷駅 徒歩5分"
+        assert cleaned_item.address == ""
+        assert cleaned_item.currentStatus == ""

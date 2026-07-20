@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import logging
+import warnings
+warnings.filterwarnings("ignore")
 
 # Django設定のロード
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -175,12 +177,62 @@ def _apply_rights_discount(_property_obj, predicted_price: float) -> int:
 
 def _align_features(df, model):
     expected_features = None
-    if hasattr(model, "feature_names_in_"):
-        expected_features = list(model.feature_names_in_)
-    elif hasattr(model, "feature_names"):
-        expected_features = list(model.feature_names)
+    
+    # getattr を使用して静的解析属性エラーを回避
+    names_in = getattr(model, "feature_names_in_", None)
+    if names_in is not None:
+        try:
+            expected_features = list(names_in)
+        except:
+            pass
         
     if not expected_features:
+        name_ = getattr(model, "feature_name_", None)
+        if name_ is not None:
+            try:
+                expected_features = list(name_)
+            except:
+                pass
+            
+    if not expected_features:
+        names = getattr(model, "feature_names", None)
+        if names is not None:
+            try:
+                expected_features = list(names)
+            except:
+                pass
+            
+    if not expected_features:
+        feature_name_func = getattr(model, "feature_name", None)
+        if feature_name_func is not None and callable(feature_name_func):
+            try:
+                expected_features = list(feature_name_func())
+            except:
+                pass
+                
+    if not expected_features:
+        booster = getattr(model, "booster_", None)
+        if booster is not None:
+            booster_feature_name = getattr(booster, "feature_name", None)
+            if booster_feature_name is not None and callable(booster_feature_name):
+                try:
+                    expected_features = list(booster_feature_name())
+                except:
+                    pass
+                    
+    if not expected_features:
+        get_booster_func = getattr(model, "get_booster", None)
+        if get_booster_func is not None and callable(get_booster_func):
+            try:
+                booster_obj = get_booster_func()
+                booster_names = getattr(booster_obj, "feature_names", None)
+                if booster_names is not None:
+                    expected_features = list(booster_names)
+            except:
+                pass
+        
+    if not expected_features:
+        logging.warning("ML: Could not extract feature names from model. Using DataFrame columns as is.")
         return df
         
     df_aligned = df.copy()
@@ -212,9 +264,147 @@ def _ensemble_predict(models, df, weights, ptype) -> float:
         final_pred += pred * norm_weight
     return final_pred
 
+def get_api_base_url():
+    """価格推定APIのベースURLを解決する"""
+    url = os.getenv("EVALUATION_API_URL", "")
+    if url:
+        if not url.endswith("/"):
+            url += "/"
+        return url
+        
+    if os.getenv("IS_CLOUD", ""):
+        return "https://us-central1-sumifu.cloudfunctions.net/api/evaluation/predict/"
+    return "http://localhost:8000/api/evaluation/predict/"
+
+def _serialize_property(item, ptype):
+    """Djangoモデルオブジェクトまたは辞書からAPI送信用のシリアライズ辞書を作成"""
+    def _val(name, default=None):
+        if isinstance(item, dict):
+            return item.get(name, default)
+        return getattr(item, name, default)
+
+    data = {
+        "price": _val("price", None),
+        "address": _val("address", ""),
+        "station1": _val("station1", ""),
+        "railwayWalkMinute1": _val("railwayWalkMinute1", None),
+        "kouzou": _val("kouzou", ""),
+        "yousekiStr": _val("yousekiStr", "") or str(_val("youseki", "")) or "",
+        "kenpeiStr": _val("kenpeiStr", "") or str(_val("kenpei", "")) or "",
+        "tochikenri": _val("tochikenri", ""),
+        "biko": _val("biko", "")
+    }
+    
+    # 築年月のシリアライズ (Date -> Str)
+    chikunengetsu = _val("chikunengetsu", None)
+    if chikunengetsu:
+        if hasattr(chikunengetsu, "strftime"):
+            data["chikunengetsuStr"] = chikunengetsu.strftime("%Y-%m-%d")
+        else:
+            data["chikunengetsuStr"] = str(chikunengetsu)
+    else:
+        data["chikunengetsuStr"] = _val("chikunengetsuStr", "")
+        
+    # 物件種別ごとの固有フィールド
+    if ptype == "mansion":
+        data["senyuMenseki"] = float(_val("senyuMenseki")) if _val("senyuMenseki") is not None else None
+        data["kanrihi"] = _val("kanrihi", None)
+        data["syuzenTsumitate"] = _val("syuzenTsumitate", None)
+    elif ptype == "kodate":
+        data["tatemonoMenseki"] = float(_val("tatemonoMenseki")) if _val("tatemonoMenseki") is not None else None
+        data["tochiMenseki"] = float(_val("tochiMenseki")) if _val("tochiMenseki") is not None else None
+        data["maguchi"] = float(_val("maguchi")) if _val("maguchi") is not None else None
+        data["roadWidth"] = float(_val("roadWidth")) if _val("roadWidth") is not None else None
+        data["setsudou"] = _val("setsudou", "")
+    elif ptype == "apartment":
+        data["tatemonoMenseki"] = float(_val("tatemonoMenseki")) if _val("tatemonoMenseki") is not None else None
+        data["tochiMenseki"] = float(_val("tochiMenseki")) if _val("tochiMenseki") is not None else None
+        data["maguchi"] = float(_val("maguchi")) if _val("maguchi") is not None else None
+        data["roadWidth"] = float(_val("roadWidth")) if _val("roadWidth") is not None else None
+        data["setsudou"] = _val("setsudou", "")
+        data["grossYield"] = float(_val("grossYield")) if _val("grossYield") is not None else None
+        data["annualRent"] = _val("annualRent", None)
+    elif ptype == "tochi":
+        data["tochiMenseki"] = float(_val("tochiMenseki")) if _val("tochiMenseki") is not None else None
+        data["maguchi"] = float(_val("maguchi")) if _val("maguchi") is not None else None
+        data["roadWidth"] = float(_val("roadWidth")) if _val("roadWidth") is not None else None
+        data["setsudou"] = _val("setsudou", "")
+        
+    return data
+
+def _call_predict_api(property_obj, interior_score=3.0, layout_score=3.0):
+    """APIを呼び出して推定結果（first, second）を返すヘルパー"""
+    def _val(name, default=None):
+        if isinstance(property_obj, dict):
+            return property_obj.get(name, default)
+        return getattr(property_obj, name, default)
+
+    ptype = _val("propertyType") or _val("property_type")
+    if not ptype:
+        model_name = property_obj.__class__.__name__
+        company = "unknown"
+        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+            if model_name.lower().startswith(c):
+                company = c
+                break
+        ptype = model_name.lower().replace(company, "")
+    
+    if "kodate" in ptype:
+        ptype = "kodate"
+    elif "apartment" in ptype:
+        ptype = "apartment"
+        
+    if ptype not in ["mansion", "kodate", "apartment", "tochi"]:
+        ptype = "mansion"
+
+    serialized = _serialize_property(property_obj, ptype)
+    payload = {
+        "property_data": serialized,
+        "interior_score": float(interior_score),
+        "layout_score": float(layout_score)
+    }
+    
+    api_base_url = get_api_base_url()
+    api_url = f"{api_base_url}{ptype}"
+    
+    try:
+        import requests
+        response = requests.post(api_url, json=payload, timeout=5)
+        if response.status_code == 200:
+            res_data = response.json()
+            return (
+                int(res_data.get("first_stage_predicted_price", 0)),
+                int(res_data.get("second_stage_predicted_price", 0))
+            )
+        else:
+            logging.error(f"API estimation failed: status={response.status_code}, response={response.text}")
+    except Exception as e:
+        # 接続不可時は警告を出さずにフォールバックできるようデバッグログにする
+        logging.debug(f"API server not reachable, falling back to local prediction: {e}")
+        
+    return 0, 0
+
 def predict_first_stage(property_obj) -> int:
     """
-    一次理論価格予測 (画像なし予測) - アンサンブル加重平均
+    一次理論価格予測 (画像なし予測) - API経由 (接続エラー時はローカルフォールバック)
+    """
+    pred1, _ = _call_predict_api(property_obj)
+    if pred1 > 0:
+        return pred1
+    return predict_first_stage_local(property_obj)
+
+def predict_second_stage(property_obj, interior_score: float, layout_score: float) -> int:
+    """
+    二次理論価格予測 (画像スコアを組み込んだ精密予測) - API経由 (接続エラー時はローカルフォールバック)
+    """
+    _, pred2 = _call_predict_api(property_obj, interior_score, layout_score)
+    if pred2 > 0:
+        return pred2
+    return predict_second_stage_local(property_obj, interior_score, layout_score)
+
+def predict_first_stage_local(property_obj) -> int:
+    """
+    一次理論価格予測 (ローカルフォールバック実装)
     """
     from package.ml.features import build_features
     
@@ -309,9 +499,9 @@ def predict_first_stage(property_obj) -> int:
     
     return predicted_val
 
-def predict_second_stage(property_obj, interior_score: float, layout_score: float) -> int:
+def predict_second_stage_local(property_obj, interior_score: float, layout_score: float) -> int:
     """
-    二次理論価格予測 (画像スコアを組み込んだ精密予測) - アンサンブル加重平均
+    二次理論価格予測 (ローカルフォールバック実装)
     """
     from package.ml.features import build_features
     

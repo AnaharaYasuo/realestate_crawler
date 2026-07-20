@@ -107,7 +107,9 @@ def generate_mock_estat_data():
 
 def sync_municipalities(csv_path=None):
     if not csv_path:
-        csv_path = "/app/src/crawler/package/ml/data/estat_municipal_potentials.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        csv_path = os.path.join(project_root, "src", "crawler", "package", "ml", "data", "estat_municipal_potentials.csv")
         
     app_id = os.getenv("ESTAT_APP_ID", "")
     data = []

@@ -13,13 +13,17 @@ COPY src/crawler/requirements.txt /app/
 
 # システム依存関係のインストール, Pythonパッケージインストール, ビルドツールの削除を一括で実行
 # ※ LightGBMの実行に必要な libgomp1 を明示的にインストールし保持します
-RUN apt-get update && apt-get upgrade -y && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     default-libmysqlclient-dev \
     build-essential \
     curl \
+    wget \
+    git \
+    procps \
     cron \
     libgomp1 \
+    && apt-get upgrade -y \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --default-timeout=1000 --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential pkg-config \
@@ -30,6 +34,9 @@ COPY src/ /app/src/
 
 # Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
 RUN playwright install --with-deps chromium
+
+# デフォルトのシェルをdashからbashへ変更（disownコマンド等のサポートのため）
+RUN ln -sf bash /bin/sh
 
 # ポートの公開
 EXPOSE 8000

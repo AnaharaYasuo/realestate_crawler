@@ -212,11 +212,20 @@ class MitsuiParser(ParserBase):
         if field_to_get == 'transfer':
             return line
         elif field_to_get == 'railway':
-            m = re.search(r'^([^「]+)', line)
-            return m.group(1).strip() if m else ""
+            if "「" in line:
+                m = re.search(r'^([^「]+)', line)
+                return m.group(1).strip() if m else ""
+            else:
+                m = re.search(r'^([^\s]+)\s+([^\s]+)駅', line)
+                if m:
+                    return m.group(1).strip()
+                parts = line.split()
+                return parts[0].strip() if parts else ""
         elif field_to_get == 'station':
-            m = re.search(r'「([^」]+)」', line)
-            return m.group(1).strip() if m else ""
+            m = re.search(r'「([^」]+)」|([^\s「」]+)駅', line)
+            if m:
+                return (m.group(1) or m.group(2)).strip()
+            return ""
         elif field_to_get == 'railwayWalkMinuteStr':
             m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
             return str(m_walk.group(1)) if m_walk else default
@@ -536,10 +545,16 @@ class MitsuiMansionParser(MitsuiParser):
 
     def _parseFloorTypeKouzou(self, response):
         kouzou = self._parseKouzou(response)
-        if kouzou == u"鉄筋コンクリート造": return "ＲＣ造"
-        if kouzou == u"鉄骨鉄筋コンクリート造": return "ＳＲＣ造"
-        if kouzou == u"鉄骨造": return "Ｓ造"
-        if kouzou == u"木造": return "木造"
+        if not kouzou:
+            return ""
+        if u"鉄筋コンクリート" in kouzou: return "ＲＣ造"
+        if u"鉄骨鉄筋コンクリート" in kouzou: return "ＳＲＣ造"
+        if u"鉄骨" in kouzou: return "Ｓ造"
+        if u"木造" in kouzou: return "木造"
+        # Standard fallback mappings
+        if "RC" in kouzou or "ＲＣ" in kouzou: return "ＲＣ造"
+        if "SRC" in kouzou or "ＳＲＣ" in kouzou: return "ＳＲＣ造"
+        if "S" in kouzou or "Ｓ" in kouzou: return "Ｓ造"
         return ""
 
     def _parseSaikouKadobeya(self, response):
@@ -610,13 +625,13 @@ class MitsuiTochiParser(MitsuiParser):
         # 統一土地評価フィールドのパース ＆ 代入
         import re
         if item.setsumen is not None:
-            item.maguchiStr = str(item.setsumen)
+            item.maguchiStr = item.setsumen
             m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
             if m:
                 item.maguchi = Decimal(m.group(1))
                 
         if item.douroHaba is not None:
-            item.roadWidthStr = str(item.douroHaba)
+            item.roadWidthStr = item.douroHaba
             m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
@@ -975,13 +990,11 @@ class MitsuiInvestmentParser(MitsuiParser):
         if not getattr(self, '_is_delegating', False):
             specs = self._get_specs(response)
             shumoku = specs.get("物件種目", specs.get("物件種別", specs.get("種別", "")))
-            
             is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
             
             if shumoku:
                 if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
                     if not is_apartment_parser:
-                        from package.parser.mitsuiParser import MitsuiInvestmentApartmentParser
                         parser = MitsuiInvestmentApartmentParser()
                         parser._is_delegating = True
                         new_item = parser.createEntity()
@@ -989,7 +1002,6 @@ class MitsuiInvestmentParser(MitsuiParser):
                         return parser._parsePropertyDetailPage(new_item, response)
                 else:
                     if is_apartment_parser:
-                        from package.parser.mitsuiParser import MitsuiInvestmentKodateParser
                         parser = MitsuiInvestmentKodateParser()
                         parser._is_delegating = True
                         new_item = parser.createEntity()

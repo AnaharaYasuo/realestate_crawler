@@ -251,6 +251,8 @@ Detail API → DB保存
 - **Django**: ORM（モデル定義・マイグレーション）
   - 役割: データベーススキーマ管理
   - ファイル: `src/crawler/package/models/`
+- **django-db-connection-pool**: SQLAlchemyベースのDB接続プール仲介ライブラリ
+  - 役割: クローラー並行実行時のMySQL接続数制限超過 (Too many connections) を防ぐコネクションプーリング
 - **mysqlclient**: MySQLデータベースアダプター
 - **MySQL 8.0**: リレーショナルデータベース（Dockerコンテナ）
 
@@ -421,7 +423,8 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 **技術仕様書:**
 - **[データベーススキーマ設計](docs/internal_design/database_schema.md)** - 全モデルのフィールド定義とリレーション (土地評価用新フィールドの追加を反映)
 - **[詳細設計マスター](docs/internal_design/detailed_design_master.md)** - システム全体の詳細設計概要
-- **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャと投資用物件取得戦略の詳細
+- **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャ、投資用物件取得戦略、および価格推定APIの詳細
+- **[価格推定API OpenAPI仕様書](docs/api/openapi.yaml)** - Swaggerで閲覧可能な価格推定API仕様書（OpenAPI 3.0）
 - **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
 - **[投資用物件の種別定義](docs/domain/property_types.md)** - 不動産投資における戸建・アパートの定義と判定ロジック
 - **[パーサー設計ガイドライン](docs/parser_design_guidelines.md)** - 一項目一関数（One-Item-One-Method）の設計思想と実装規約

@@ -158,15 +158,6 @@ class TokyuParser(ParserBase):
         
         return item
 
-        item.hikiwatashi = self._parseHikiwatashi(response)
-        item.genkyo = self._parseGenkyo(response)
-        item.tochikenri = self._parseTochikenri(response)
-        item.sonotaHiyouStr = self._parseSonotaHiyouStr(response)
-        item.torihiki = self._parseTorihiki(response)
-        item.biko = self._parseBiko(response)
-        
-        return item
-
     # --- Common Extraction Methods ---
     def _parsePriceStr(self, response: BeautifulSoup) -> str:
         specs = self._scrape_specs(response)
@@ -175,7 +166,7 @@ class TokyuParser(ParserBase):
              return specs[key]['value']
         return ""
 
-    def _parsePrice(self, response: BeautifulSoup) -> int:
+    def _parsePrice(self, response: BeautifulSoup) -> int | None:
         return converter.parse_price(self._parsePriceStr(response))
 
     def _parseAddress(self, response: BeautifulSoup) -> str:
@@ -275,7 +266,7 @@ class TokyuParser(ParserBase):
         key = u"土地面積"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseTochiMenseki(self, response: BeautifulSoup) -> Decimal:
+    def _parseTochiMenseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self._parseTochiMensekiStr(response)
         return converter.parse_menseki(val)
 
@@ -285,7 +276,7 @@ class TokyuParser(ParserBase):
         if key not in specs: key = u"延床面積"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseTatemonoMenseki(self, response: BeautifulSoup) -> Decimal:
+    def _parseTatemonoMenseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self._parseTatemonoMensekiStr(response)
         return converter.parse_menseki(val)
 
@@ -340,7 +331,7 @@ class TokyuParser(ParserBase):
         match = re.search(u"(北|南|東|西)+", val)
         return match.group(0) if match else "-"
 
-    def _parseDouroHaba(self, response: BeautifulSoup) -> Decimal:
+    def _parseDouroHaba(self, response: BeautifulSoup) -> Decimal | None:
         val = self._parseDouro(response)
         match = re.search(r'(\d+(\.\d+)?)\s*m', val)
         if match: return Decimal(match.group(1))
@@ -429,8 +420,8 @@ class TokyuParser(ParserBase):
         key = u"私道面積"
         return specs[key]['value'] if key in specs else "0"
 
-    def _parseShidoMenseki(self, response: BeautifulSoup) -> Decimal:
-        return converter.parse_menseki(self._parseShidoMensekiStr(response)) or 0
+    def _parseShidoMenseki(self, response: BeautifulSoup) -> Decimal | None:
+        return converter.parse_menseki(self._parseShidoMensekiStr(response))
 
     def _parseKaisuStr(self, response: BeautifulSoup) -> str:
         specs = self._scrape_specs(response)
@@ -485,7 +476,7 @@ class TokyuMansionParser(TokyuParser):
         key = u"専有面積"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseSenyuMenseki(self, response: BeautifulSoup) -> Decimal:
+    def _parseSenyuMenseki(self, response: BeautifulSoup) -> Decimal | None:
         return converter.parse_menseki(self._parseSenyuMensekiStr(response))
 
     def _parseKaisu(self, response: BeautifulSoup) -> str:
@@ -505,10 +496,10 @@ class TokyuMansionParser(TokyuParser):
         key = u"バルコニー面積"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseBalconyMenseki(self, response: BeautifulSoup) -> Decimal:
+    def _parseBalconyMenseki(self, response: BeautifulSoup) -> Decimal | None:
         return converter.parse_menseki(self._parseBalconyMensekiStr(response))
 
-    def _parseSoukosu(self, response: BeautifulSoup) -> int:
+    def _parseSoukosu(self, response: BeautifulSoup) -> int | None:
         specs = self._scrape_specs(response)
         key = u"総戸数"
         if key in specs:
@@ -532,7 +523,7 @@ class TokyuMansionParser(TokyuParser):
         key = u"管理費"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseKanrihi(self, response: BeautifulSoup) -> int:
+    def _parseKanrihi(self, response: BeautifulSoup) -> int | None:
         return converter.parse_price(self._parseKanrihiStr(response))
 
     def _parseSyuzenTsumitateStr(self, response: BeautifulSoup) -> str:
@@ -540,7 +531,7 @@ class TokyuMansionParser(TokyuParser):
         key = u"修繕積立金"
         return specs[key]['value'] if key in specs else ""
 
-    def _parseSyuzenTsumitate(self, response: BeautifulSoup) -> int:
+    def _parseSyuzenTsumitate(self, response: BeautifulSoup) -> int | None:
         return converter.parse_price(self._parseSyuzenTsumitateStr(response))
 
     def _parseBunjoKaisya(self, response: BeautifulSoup) -> str:
@@ -625,26 +616,26 @@ class TokyuTochiParser(TokyuParser):
             item.roadType = item.douroKubun
             
         if item.setsudou:
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
+            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
             item.roadStructure = structure_match.group(1) if structure_match else "中間地"
         else:
             item.roadStructure = "中間地"
             
+        # 間口(maguchi)が0またはNoneの場合、接道・道路記述から間口の正規表現マッチを試みる
+        if (not item.maguchi or item.maguchi == 0) and item.setsudou:
+            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
+            if mag_match:
+                item.maguchi = Decimal(mag_match.group(1))
+                item.maguchiStr = mag_match.group(0)
+
         if item.tochiMenseki and item.maguchi and item.maguchi > 0:
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
             item.okuyukiStr = f"{item.okuyuki}m"
+        else:
+            item.okuyuki = None
+            item.okuyukiStr = ""
 
         return item
-
-class TokyuKodateParser(TokyuParser):
-    property_type = 'kodate'
-
-    def getRootXpath(self): return self.selectors.get('root_xpath')
-    def getAreaXpath(self): return self.selectors.get('area_xpath')
-    def getPropertyListXpath(self): return self.selectors.get('property_links_xpath')
-
-    def createEntity(self):
-        return TokyuKodate()
 
 class TokyuKodateParser(TokyuParser):
     property_type = 'kodate'
@@ -684,13 +675,13 @@ class TokyuKodateParser(TokyuParser):
         # 統一土地評価フィールドのパース ＆ 代入
         import re
         if item.setsumen is not None:
-            item.maguchiStr = str(item.setsumen)
+            item.maguchiStr = item.setsumen
             m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
             if m:
                 item.maguchi = Decimal(m.group(1))
                 
         if item.douroHaba is not None:
-            item.roadWidthStr = str(item.douroHaba)
+            item.roadWidthStr = item.douroHaba
             m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
@@ -784,8 +775,36 @@ class TokyuInvestmentParser(InvestmentParser):
         pageProps = data.get('props', {}).get('pageProps', {})
         summary = pageProps.get('summary', {})
         tableItems = summary.get('tableItems', [])
+        
+        # 表記揺れのフォールバック定義
+        fallback_titles = {
+            '価格': ['価格', '販売価格'],
+            '所在地': ['所在地', '住所'],
+            '交通': ['交通', '最寄り駅', '最寄駅'],
+            '年間予定賃料収入': ['年間予定賃料収入', '満室時想定年収', '満室想定年収', '想定年収', '年間想定賃料'],
+            '予定利回り': ['予定利回り', '表面利回り', '利回り', '想定利回り', '実質利回り'],
+            '土地面積': ['土地面積', '敷地面積'],
+            '建物面積': ['建物面積', '延床面積', '専有面積'],
+            '間取り': ['間取り'],
+            '総戸数': ['総戸数', '戸数'],
+            '築年月': ['築年月', '築年'],
+            '建ぺい率': ['建ぺい率', '建ペイ率'],
+            '容積率': ['容積率'],
+            '用途地域等': ['用途地域等', '用途地域'],
+            '接道状況': ['接道状況', '接道'],
+            '接道方向／幅員': ['接道方向／幅員', '接道状況', '前面道路'],
+            '地目': ['地目'],
+            '現況': ['現況', '建物現況'],
+            '引渡可能年月': ['引渡可能年月', '引渡時期', '引渡', '引渡可能時期'],
+            '取引態様': ['取引態様'],
+            '備考': ['備考'],
+            '土地権利': ['土地権利', '権利'],
+            '管理形態': ['管理形態']
+        }
+        
+        target_titles = fallback_titles.get(title, [title])
         for t_item in tableItems:
-            if t_item.get('title') == title:
+            if t_item.get('title') in target_titles:
                 return t_item.get('data')
         return None
 
@@ -807,6 +826,9 @@ class TokyuInvestmentParser(InvestmentParser):
         viewingProperty = pageProps.get('viewingProperty', {})
         name = viewingProperty.get('propertyName')
         if not name:
+            # tableItemsからもフォールバックで物件名を探す
+            name = self._get_text_value(self._get_item_data(response, '物件名'))
+        if not name:
             return super()._parsePropertyName(response)
         return name
 
@@ -820,8 +842,11 @@ class TokyuInvestmentParser(InvestmentParser):
         
         if price is None:
             price_data = self._get_item_data(response, '価格')
-            if price_data and 'price' in price_data:
-                 price = price_data['price'].get('price')
+            if price_data:
+                if 'price' in price_data:
+                    price = price_data['price'].get('price')
+                elif isinstance(price_data, dict) and 'value' in price_data:
+                    price = converter.parse_price(str(price_data['value']))
         return price
 
     def _parseYield(self, response):
@@ -844,8 +869,10 @@ class TokyuInvestmentParser(InvestmentParser):
             return viewingProperty.get('address')
         
         addr_data = self._get_item_data(response, '所在地')
-        if addr_data and 'links' in addr_data:
-            return "".join([l.get('text', '') for l in addr_data['links']])
+        if addr_data:
+            if isinstance(addr_data, dict) and 'links' in addr_data:
+                return "".join([l.get('text', '') for l in addr_data['links']])
+            return self._get_text_value(addr_data)
         return ""
 
     def _parseAccess(self, response):
@@ -859,12 +886,17 @@ class TokyuInvestmentParser(InvestmentParser):
             return viewingProperty.get('access')
         
         access_data = self._get_item_data(response, '交通')
-        if access_data and 'links' in access_data:
-            lines = []
-            for link_group in access_data['links']:
-                line_str = "".join([l.get('text', '') for l in link_group])
-                lines.append(line_str)
-            return " ".join(lines)
+        if access_data:
+            if isinstance(access_data, dict) and 'links' in access_data:
+                lines = []
+                for link_group in access_data['links']:
+                    if isinstance(link_group, list):
+                        line_str = "".join([l.get('text', '') for l in link_group])
+                        lines.append(line_str)
+                    else:
+                        lines.append(link_group.get('text', ''))
+                return " ".join(lines)
+            return self._get_text_value(access_data)
         return ""
 
     def _parseMonthlyRent(self, response):
@@ -897,79 +929,85 @@ class TokyuInvestmentParser(InvestmentParser):
         return None
 
     def _parsePropertyDetailPage(self, item, response):
-        # Override to support Next.js JSON data extraction
-        # Must be sync
-        
+        # Override to support Next.js JSON data extraction with fallback
         next_data = self._getNextJsData(response)
-        if not next_data:
-            # Fallback to base implementation if no Next.js data
-            return super()._parsePropertyDetailPage(item, response)
+        if next_data:
+            item.propertyName = self._parsePropertyName(response) or self.selectors.get('property_name_clean') and response.select_one(self.selectors.get('property_name_clean')) and response.select_one(self.selectors.get('property_name_clean')).get_text(strip=True)
+            if not item.propertyName:
+                h1 = response.find("h1")
+                item.propertyName = h1.get_text(strip=True) if h1 else ""
 
-        item.propertyName = self._parsePropertyName(response)
-        item.price = self._parsePrice(response)
-        item.yield_rate = self._parseYield(response)
-        item.address = self._parseAddress(response)
-        item.transport1 = self._parseAccess(response)
-        item.monthlyRent = self._parseMonthlyRent(response)
-        
-        if hasattr(item, 'tochiMensekiStr'):
-            item.tochiMensekiStr = self._parseDetailString(response, '土地面積')
-        if hasattr(item, 'tochiMenseki'):
-            item.tochiMenseki = self._parseMenseki(response, '土地面積')
-        
-        if hasattr(item, 'tatemonoMensekiStr'):
-            item.tatemonoMensekiStr = self._parseDetailString(response, '建物面積')
-        if hasattr(item, 'tatemonoMenseki'):
-            item.tatemonoMenseki = self._parseMenseki(response, '建物面積')
-        
-        if hasattr(item, 'madori'):
-            item.madori = self._parseDetailString(response, '間取り')
-        if hasattr(item, 'soukosuStr'):
-            item.soukosuStr = self._parseDetailString(response, '総戸数')
-        if hasattr(item, 'chikunengetsuStr'):
-            item.chikunengetsuStr = self._parseDetailString(response, '築年月')
-        
-        if hasattr(item, 'kenpei'):
-            item.kenpei = self._parseKenpeiYouseki(response, '建ぺい率')
-        if hasattr(item, 'youseki'):
-            item.youseki = self._parseKenpeiYouseki(response, '容積率')
-        
-        if hasattr(item, 'youtoChiiki'):
-            item.youtoChiiki = self._parseDetailString(response, '用途地域等')
-        
-        setsudou_val = self._parseDetailString(response, '接道状況') + " " + self._parseDetailString(response, '接道方向／幅員')
-        if hasattr(item, 'setsudou'):
-            item.setsudou = setsudou_val
-        elif hasattr(item, 'startRoad'):
-            item.startRoad = setsudou_val
+            item.price = self._parsePrice(response)
+            if not item.price:
+                item.price = converter.parse_price(self._get_text_value(self._get_item_data(response, '価格')) or self._parsePriceStr(response))
+
+            item.yield_rate = self._parseYield(response)
+            item.address = self._parseAddress(response) or self._parseAddress(response)
+            if not item.address:
+                specs = self._scrape_specs(response)
+                item.address = specs.get("所在地", "")
+                
+            item.transport1 = self._parseAccess(response)
+            item.monthlyRent = self._parseMonthlyRent(response)
             
-        if hasattr(item, 'chimoku'):
-            item.chimoku = self._parseDetailString(response, '地目')
-        if hasattr(item, 'genkyo'):
-            item.genkyo = self._parseDetailString(response, '現況')
-        if hasattr(item, 'hikiwatashi'):
-            item.hikiwatashi = self._parseDetailString(response, '引渡可能年月')
-        if hasattr(item, 'torihiki'):
-            item.torihiki = self._parseDetailString(response, '取引態様')
-        if hasattr(item, 'biko'):
-            item.biko = self._parseDetailString(response, '備考')
-        if hasattr(item, 'tochikenri'):
-            item.tochikenri = self._parseDetailString(response, '土地権利')
-        if hasattr(item, 'kanriKeitai'):
-            item.kanriKeitai = self._parseDetailString(response, '管理形態')
+            if hasattr(item, 'tochiMensekiStr'):
+                item.tochiMensekiStr = self._parseDetailString(response, '土地面積')
+            if hasattr(item, 'tochiMenseki'):
+                item.tochiMenseki = self._parseMenseki(response, '土地面積')
+            
+            if hasattr(item, 'tatemonoMensekiStr'):
+                item.tatemonoMensekiStr = self._parseDetailString(response, '建物面積')
+            if hasattr(item, 'tatemonoMenseki'):
+                item.tatemonoMenseki = self._parseMenseki(response, '建物面積')
+            
+            if hasattr(item, 'madori'):
+                item.madori = self._parseDetailString(response, '間取り')
+            if hasattr(item, 'soukosuStr'):
+                item.soukosuStr = self._parseDetailString(response, '総戸数')
+            if hasattr(item, 'chikunengetsuStr'):
+                item.chikunengetsuStr = self._parseDetailString(response, '築年月')
+            
+            if hasattr(item, 'kenpei'):
+                item.kenpei = self._parseKenpeiYouseki(response, '建ぺい率')
+            if hasattr(item, 'youseki'):
+                item.youseki = self._parseKenpeiYouseki(response, '容積率')
+            if hasattr(item, 'kenpeiStr'):
+                item.kenpeiStr = self._parseDetailString(response, '建ぺい率')
+            if hasattr(item, 'yousekiStr'):
+                item.yousekiStr = self._parseDetailString(response, '容積率')
+            
+            if hasattr(item, 'youtoChiiki'):
+                item.youtoChiiki = self._parseDetailString(response, '用途地域等')
+            
+            setsudou_val = self._parseDetailString(response, '接道状況') + " " + self._parseDetailString(response, '接道方向／幅員')
+            if hasattr(item, 'setsudou'):
+                item.setsudou = setsudou_val
+            elif hasattr(item, 'startRoad'):
+                item.startRoad = setsudou_val
+                
+            if hasattr(item, 'chimoku'):
+                item.chimoku = self._parseDetailString(response, '地目')
+            if hasattr(item, 'genkyo'):
+                item.genkyo = self._parseDetailString(response, '現況')
+            if hasattr(item, 'hikiwatashi'):
+                item.hikiwatashi = self._parseDetailString(response, '引渡可能年月')
+            if hasattr(item, 'torihiki'):
+                item.torihiki = self._parseDetailString(response, '取引態様')
+            if hasattr(item, 'biko'):
+                item.biko = self._parseDetailString(response, '備考')
+            if hasattr(item, 'tochikenri'):
+                item.tochikenri = self._parseDetailString(response, '土地権利')
+            if hasattr(item, 'kanriKeitai'):
+                item.kanriKeitai = self._parseDetailString(response, '管理形態')
 
-        return item
+            if hasattr(item, 'transport1') and item.transport1:
+                self._populateTraffic(item, item.transport1)
+            elif hasattr(item, 'traffic') and getattr(item, 'traffic', None):
+                self._populateTraffic(item, item.traffic)
+                
+            return item
 
-    async def parseNextPage(self, response):
-        next_page_text = self.selectors.get('next_page', u"次へ")
-        next_link = response.find('a', string=re.compile(next_page_text))
-        if next_link and next_link.get('href'):
-            return self.BASE_URL + next_link.get('href')
-        return ""
-
-    def getCharset(self): return "utf-8"
-
-    def _parsePropertyDetailPage(self, item: models.Model, response: BeautifulSoup) -> models.Model:
+        # Fallback to HTML Scraping
         item.propertyName = self._parsePropertyName(response)
         item.priceStr = self._parsePriceStr(response)
         item.price = self._parsePrice(response)
@@ -987,11 +1025,16 @@ class TokyuInvestmentParser(InvestmentParser):
         if hasattr(item, 'annualRent'): item.annualRent = self._parseAnnualRent(response) or 0
         if hasattr(item, 'currentStatus'): item.currentStatus = self._parseCurrentStatus(response)
         if hasattr(item, 'soukosu'): item.soukosu = self._parseSoukosu(response)
-        if hasattr(item, 'kenpeiStr'): item.kenpeiStr = self._parseKenpeiStr(response)
-        if hasattr(item, 'yousekiStr'): item.yousekiStr = self._parseYousekiStr(response)
+        
+        if hasattr(item, 'kenpeiStr'):
+            item.kenpeiStr = self._parseKenpeiStr(response)
+            item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        if hasattr(item, 'yousekiStr'):
+            item.yousekiStr = self._parseYousekiStr(response)
+            item.youseki = converter.parse_ratio(item.yousekiStr)
+            
         if hasattr(item, 'youtoChiiki'): item.youtoChiiki = self._parseYoutoChiiki(response)
         
-        # 統一土地評価フィールドのパース ＆ 代入
         try:
             specs = self._scrape_specs(response)
             item.setsudou = specs.get(u"接道状況", specs.get(u"接道", ""))
@@ -1027,6 +1070,13 @@ class TokyuInvestmentParser(InvestmentParser):
             
         return item
 
+    async def parseNextPage(self, response):
+        next_page_text = self.selectors.get('next_page', u"次へ")
+        next_link = response.find('a', string=re.compile(next_page_text))
+        if next_link and next_link.get('href'):
+            return self.BASE_URL + next_link.get('href')
+        return ""
+
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
         for dl in response.select('#propertySummarySection dl, div.m-status-table__wrapper, dl'):
@@ -1039,7 +1089,7 @@ class TokyuInvestmentParser(InvestmentParser):
         specs = self._scrape_specs(response)
         return specs.get(u"価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup) -> int:
+    def _parsePrice(self, response: BeautifulSoup) -> int | None:
         return converter.parse_price(self._parsePriceStr(response))
 
     def _parseAddress(self, response: BeautifulSoup) -> str:
@@ -1070,9 +1120,9 @@ class TokyuInvestmentParser(InvestmentParser):
         specs = self._scrape_specs(response)
         val_str = specs.get(u"利回り", "") or specs.get(u"表面利回り", "")
         match = re.search(r'(\d+(\.\d+)?)', val_str)
-        return Decimal(match.group(1)) if match else 0
+        return Decimal(match.group(1)) if match else Decimal("0")
 
-    def _parseAnnualRent(self, response: BeautifulSoup) -> int:
+    def _parseAnnualRent(self, response: BeautifulSoup) -> int | None:
         specs = self._scrape_specs(response)
         return converter.parse_price(specs.get(u"年間予定賃料収入", ""))
 
@@ -1080,7 +1130,7 @@ class TokyuInvestmentParser(InvestmentParser):
         specs = self._scrape_specs(response)
         return specs.get(u"現況", "")
 
-    def _parseSoukosu(self, response: BeautifulSoup) -> int:
+    def _parseSoukosu(self, response: BeautifulSoup) -> int | None:
         specs = self._scrape_specs(response)
         return converter.parse_numeric(specs.get(u"総戸数", ""))
 

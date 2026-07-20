@@ -5,7 +5,7 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
-async def send_slack_message(message: str, channel: str = None) -> bool:
+async def send_slack_message(message: str, channel: str | None = None) -> bool:
     """
     非同期でSlackの指定チャンネルにメッセージを投稿します。
     引数 channel が指定されていない場合は、環境変数 SLACK_CHANNEL_ID を使用します。
@@ -13,6 +13,7 @@ async def send_slack_message(message: str, channel: str = None) -> bool:
     token = os.getenv("SLACK_BOT_TOKEN")
     if not channel:
         channel = os.getenv("SLACK_CHANNEL_ID")
+
 
     if not token or not channel:
         logger.warning("Slack notification skipped: SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set in environment.")
@@ -29,7 +30,8 @@ async def send_slack_message(message: str, channel: str = None) -> bool:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=headers, json=payload) as response:
                 if response.status != 200:
                     logger.error(f"Slack API request failed with status code: {response.status}")
@@ -37,14 +39,61 @@ async def send_slack_message(message: str, channel: str = None) -> bool:
                 
                 resp_json = await response.json()
                 if not resp_json.get("ok"):
-                    logger.error(f"Slack API returned error: {resp_json.get('error')}")
+                    err_code = resp_json.get("error")
+                    logger.error(f"Slack API returned error: {err_code}")
+                    fallback_channel = os.getenv("SLACK_CHANNEL_ID")
+                    if err_code == "channel_not_found" and fallback_channel and channel != fallback_channel:
+                        # フォールバックチャンネルへ警告メッセージを送信して通知不達を自己報告する
+                        warning_msg = (
+                            f"⚠️ 【システム警告: 通知不達】\n"
+                            f"送信先チャンネル 『{channel}』 が見つからないか、Bot（@property）が参加していません。\n"
+                            f"Slack上で該当のチャンネルを開き、 `/invite @property` コマンドを実行してBotを招待してください。\n\n"
+                            f"**未達メッセージプレビュー**:\n{message[:300]}..."
+                        )
+                        payload_fallback = {
+                            "channel": fallback_channel,
+                            "text": warning_msg
+                        }
+                        await session.post(url, headers=headers, json=payload_fallback)
+                    record_failed_message(channel, err_code, message)
                     return False
                 
                 logger.info("Successfully posted property alert message to Slack.")
                 return True
     except Exception as e:
         logger.error(f"Failed to send Slack notification: {e}")
+        record_failed_message(channel, str(e), message)
         return False
+
+
+def record_failed_message(channel: str, error: str, message: str):
+    import json
+    from datetime import datetime
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
+    file_path = os.path.join(project_root, "logs", "slack_failed_messages.json")
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        data = []
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                pass
+                
+        data.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "channel": channel,
+            "error": error,
+            "message_preview": message[:200]
+        })
+        
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as ex:
+        logger.error(f"Failed to write failed Slack message record: {ex}")
 
 
 async def verify_url_active(url: str) -> bool:
@@ -99,3 +148,12 @@ async def verify_url_active(url: str) -> bool:
     except Exception as e:
         logger.warning(f"URL verification failed with exception: {e} for {url}")
         return False
+
+
+async def send_crawling_summary_alert(summary_message: str) -> bool:
+    """
+    クローリング実行結果のサマリーを property_alert チャンネル（SLACK_ALERT_PROPERTY_ALERT、デフォルトは property_alert）に送信します。
+    """
+    channel = os.getenv("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
+    return await send_slack_message(summary_message, channel)
+

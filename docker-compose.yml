@@ -10,7 +10,7 @@ services:
       - "13306:3306"
     volumes:
       - db_data:/var/lib/mysql
-    command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=100
+    command: mysqld --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --max-connections=1000
     restart: always
 
   app:
@@ -25,7 +25,7 @@ services:
       - DB_USER=sumifu
       - DB_PASSWORD=mayumimayumi0413
       - DB_PORT=3306
-      - CRAWLER_LIMIT=100
+      - CRAWLER_LIMIT=0
       - STORAGE_ENDPOINT=http://minio:9000
       - STORAGE_ACCESS_KEY=minioadmin
       - STORAGE_SECRET_KEY=minioadmin
@@ -36,10 +36,7 @@ services:
       # クラウド環境設定用フラグ（必要な場合）
       # - IS_CLOUD=true
     volumes:
-      - ./src:/app/src
-      - ./Temp:/app/Temp
-      - ./config:/app/config
-      - ./docs:/app/docs
+      - .:/app
     depends_on:
       - db
       - minio
@@ -55,9 +52,9 @@ services:
       - DB_USER=sumifu
       - DB_PASSWORD=mayumimayumi0413
       - DB_PORT=3306
-      - CRAWLER_LIMIT=${CRAWLER_LIMIT:-100}
+      - CRAWLER_LIMIT=${CRAWLER_LIMIT:-0}
       - CRAWL_COOLDOWN_SEC=${CRAWL_COOLDOWN_SEC:-180}
-      - CRAWL_TIMEOUT_SEC=${CRAWL_TIMEOUT_SEC:-1800}
+      - CRAWL_TIMEOUT_SEC=${CRAWL_TIMEOUT_SEC:-0}
       - STORAGE_ENDPOINT=http://minio:9000
       - STORAGE_ACCESS_KEY=minioadmin
       - STORAGE_SECRET_KEY=minioadmin
@@ -66,16 +63,12 @@ services:
       - 8.8.8.8
       - 8.8.4.4
     volumes:
-      - ./src:/app/src
-      - ./Temp:/app/Temp
-      - ./config:/app/config
-      - ./docs:/app/docs
-      - ./logs:/app/logs
+      - .:/app
     depends_on:
       - db
       - app
       - minio
-    entrypoint: ["sh", "-c", "echo '0 2 * * * cd /app && /usr/local/bin/python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
+    entrypoint: ["sh", "-c", "python /app/src/crawler/scripts/write_env.py && echo '0 16 * * * . /app/.cron_env && cd /app && /usr/local/bin/python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
     restart: always
 
   minio:
