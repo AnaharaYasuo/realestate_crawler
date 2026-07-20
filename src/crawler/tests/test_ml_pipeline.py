@@ -8,7 +8,9 @@ import joblib
 def test_ml_pipeline():
     # 1. テスト用の極小ダミーデータでモデルを簡易学習・保存する
     print("Testing ML model training with tiny dummy data...")
-    model_dir = "/app/src/crawler/package/ml/models"
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+    model_dir = os.path.join(project_root, "src", "crawler", "package", "ml", "models")
     os.makedirs(model_dir, exist_ok=True)
     
     # ダミーデータを生成してモデル保存

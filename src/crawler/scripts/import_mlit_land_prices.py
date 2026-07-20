@@ -118,7 +118,9 @@ if __name__ == "__main__":
     
     csv_file = args.csv
     if not csv_file:
-        csv_file = "/app/src/crawler/package/ml/data/mlit_land_prices_kanto.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        csv_file = os.path.join(project_root, "src", "crawler", "package", "ml", "data", "mlit_land_prices_kanto.csv")
         
     try:
         import_land_prices(csv_file)

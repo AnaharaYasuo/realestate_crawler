@@ -201,6 +201,70 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     tatemono_area = float(tatemono_menseki) if tatemono_menseki else 0.0
     tochi_area = float(tochi_menseki) if tochi_menseki else 0.0
     
+    # セットバック（後退）相当面積の算出および土地有効面積への調整
+    import re
+    setback_area_temp = 0.0
+    
+    # (A) 実際のテキスト（setback / setsudou / remarks / tochiMensekiStr / note）からセットバック面積を探す
+    search_texts = []
+    setback_field = get_attr(property_obj, 'setback', None)
+    if setback_field:
+        search_texts.append(str(setback_field))
+    for attr in ['setsudou', 'remarks', 'tochiMensekiStr', 'note']:
+        val = get_attr(property_obj, attr, None)
+        if val:
+            search_texts.append(str(val))
+            
+    for text in search_texts:
+        patterns = [
+            r'(?:セットバック|後退)(?:面積)?(?:約)?\s*([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)',
+            r'([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)\s*(?:のセットバック|の後退|セットバック要)',
+        ]
+        found = False
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    area_val = float(match.group(1))
+                    if area_val > 0:
+                        setback_area_temp = area_val
+                        found = True
+                        break
+                except:
+                    pass
+        if found:
+            break
+            
+    # (B) テキストから見つからない場合は、間口と道路幅員から机上計算
+    if setback_area_temp <= 0.0:
+        maguchi_temp = get_attr(property_obj, 'maguchi', None)
+        road_width_temp = get_attr(property_obj, 'roadWidth', None) or get_attr(property_obj, 'douroHaba', None)
+        raw_setsudou_temp = get_attr(property_obj, 'setsudou', '') or ''
+        
+        if not road_width_temp and raw_setsudou_temp:
+            m_width = re.search(r'([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
+            if m_width:
+                road_width_temp = float(m_width.group(1))
+                
+        if not maguchi_temp and raw_setsudou_temp:
+            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
+            if m_maguchi:
+                maguchi_temp = float(m_maguchi.group(1))
+                
+        maguchi_val_temp = safe_float(maguchi_temp, 6.0)
+        road_width_val_temp = safe_float(road_width_temp, 4.0)
+        
+        if road_width_val_temp < 4.0:
+            setback_width_temp = (4.0 - road_width_val_temp) / 2.0
+            setback_area_temp = maguchi_val_temp * setback_width_temp
+
+    setback_ratio_temp = 0.0
+    if setback_area_temp > 0.0 and tochi_area > 0.0:
+        setback_ratio_temp = min(1.0, setback_area_temp / tochi_area)
+        
+    # セットバック相当分を除いた土地面積を以降の価格推定計算に利用
+    tochi_area = tochi_area * (1.0 - setback_ratio_temp)
+    
     # グローバルキャッシュの初期化
     _init_global_caches()
     
@@ -529,12 +593,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         maguchi_val = safe_float(maguchi, 6.0)
         road_width_val = safe_float(road_width, 4.0)
         
-        # ① セットバック（後退）面積比率
-        if road_width_val < 4.0:
-            setback_width = (4.0 - road_width_val) / 2.0
-            setback_area = maguchi_val * setback_width
-            if tochi_area > 0:
-                setback_ratio = min(1.0, setback_area / tochi_area)
+        # ① セットバック（後退）面積比率 (既に上部で計算済みの値を利用)
+        setback_ratio = setback_ratio_temp
                 
         # ② 実質上限容積率制限 (幅員制限)
         youto = get_attr(property_obj, 'youtoChiiki', '') or ''
@@ -563,8 +623,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         elif maguchi_val < 4.0:
             frontage_penalty_factor = 0.90
             
-        # ⑥ 土地残余法比準地価
-        residual_land_value = tochi_area * (average_land_price / 10000.0) * volume_digest_factor * road_condition_factor * frontage_penalty_factor * (1.0 - setback_ratio)
+        # ⑥ 土地残余法比準地価 (tochi_areaは既にセットバック分控除済みのため、setback_ratioによる二重控除は行わない)
+        residual_land_value = tochi_area * (average_land_price / 10000.0) * volume_digest_factor * road_condition_factor * frontage_penalty_factor
 
     # ⑦ 最大建築面積、最大延床面積 (前面道路幅員制限考慮)
     max_building_area = 0.0

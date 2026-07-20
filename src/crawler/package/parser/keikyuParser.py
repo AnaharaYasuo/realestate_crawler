@@ -17,6 +17,7 @@ class KeikyuParser(ParserBase):
     property_type = ""
 
     def __init__(self, params=None):
+        super().__init__()
         self.selectors = SelectorLoader.load('keikyu', self.property_type or 'mansion')
 
     def getCharset(self):
@@ -102,10 +103,25 @@ class KeikyuParser(ParserBase):
                 key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("：", "")
                 val = dd.get_text().strip()
                 val = re.sub(r'\s+', ' ', val)
-                if key == "面積" and "専有面積" not in specs:
-                    specs["専有面積"] = val
-                else:
-                    specs[key] = val
+                specs[key] = val
+
+        # キーの表記揺れ標準化マッピングを追加
+        fallback_mappings = {
+            "面積": ["専有面積", "建物面積", "建物延面積", "土地面積"],
+            "管理費": ["管理費等", "管理費/月"],
+            "修繕積立金": ["修繕積立金等", "修繕積立金/月", "積立金"],
+            "交通": ["最寄り駅", "最寄駅", "アクセス"],
+            "現現況": ["現況", "現状", "入居状況"],
+            "建物構造": ["構造", "構造・規模"],
+            "引渡": ["引渡時期", "引渡/入居時期"]
+        }
+        for std_key, alt_keys in fallback_mappings.items():
+            for alt in alt_keys:
+                if alt in specs and std_key not in specs:
+                    specs[std_key] = specs[alt]
+                # 反対方向の補完
+                if std_key in specs and alt not in specs:
+                    specs[alt] = specs[std_key]
         return specs
 
     def _split_address(self, address):
@@ -160,17 +176,22 @@ class KeikyuMansionParser(KeikyuParser):
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
         # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")
+        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("構造・規模", "")
         if item.kaisuStr:
+            # 所在階の抽出 (例: 3階 / 地上10階)
             m = re.search(r'(\d+)階', item.kaisuStr)
             if m:
                 item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
+            # 地上階建の抽出
+            m_chijo = re.search(r'(?:地上|造)(\d+)階建', item.kaisuStr) or re.search(r'地上(\d+)階', item.kaisuStr)
+            if m_chijo:
+                item.floorType_chijo = int(m_chijo.group(1))
+            # 地下階建の抽出
+            m_chika = re.search(r'地下(\d+)階建', item.kaisuStr) or re.search(r'地下(\d+)階', item.kaisuStr)
+            if m_chika:
+                item.floorType_chika = int(m_chika.group(1))
+            else:
+                item.floorType_chika = 0
 
         # 築年月
         item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")

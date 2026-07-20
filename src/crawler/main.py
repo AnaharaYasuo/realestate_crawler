@@ -23,6 +23,7 @@ from routes.misawa_routes import misawa_bp
 from routes.misawa_investment_routes import misawa_investment_bp
 from routes.athome_routes import athome_bp
 from routes.homes_routes import homes_bp
+from routes.evaluation_routes import evaluation_bp
 
 # Import specific functions needed for allMansionStart if they are exposed in the modules
 # Since mitsuiMansionStart etc are decorated as routes, they can still be imported if we need to call them directly
@@ -86,6 +87,7 @@ app.register_blueprint(keikyu_bp)
 app.register_blueprint(sotetsu_bp)
 app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
+app.register_blueprint(evaluation_bp)
 
 # cloud functionsとComputeEngineはサーバーレスVPCで接続
 

@@ -116,3 +116,41 @@ class TestMitsuiParser:
         print(f"Investment Kodate: {result.propertyName}")
         assert result.propertyName
         assert result.grossYield is not None
+
+    def test_bracketless_traffic_and_luxury_name(self):
+        """テスト: 括弧なしの交通情報（高級テンプレートなど）および高級物件名のパース確認"""
+        parser = MitsuiMansionParser(None)
+        
+        html_content = """
+        <html>
+        <head><title>九段北の中古マンション一覧</title></head>
+        <body>
+            <ol class="breadcrumb-list">
+                <li class="breadcrumb-list-item"><a class="link" href="/buy/mansion/tokyo/"><span>千代田区の中古マンション一覧</span></a></li>
+                <li class="breadcrumb-list-item"><a class="link" href="/buy/mansion/area/"><span>九段北の中古マンション一覧</span></a></li>
+                <li class="breadcrumb-list-item"><span>東京ガーデンテラス紀尾井町 紀尾井レジデンス</span></li>
+            </ol>
+            <h1 class="property-detail-carousel-luxury__building-name">東京ガーデンテラス紀尾井町 紀尾井レジデンス</h1>
+            <table>
+                <tr>
+                    <th>最寄り駅</th>
+                    <td>
+                        <p>
+                            <span class="break-line">東京メトロ半蔵門線 </span>
+                            <span class="break-line"><a class="link-text" href="...">半蔵門駅</a></span>
+                            <span class="break-line"> 徒歩7分</span>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+        soup = BeautifulSoup(html_content, 'html.parser')
+        item = parser.createEntity()
+        result = parser._parsePropertyDetailPage(item, soup)
+        
+        assert result.propertyName == "東京ガーデンテラス紀尾井町 紀尾井レジデンス"
+        assert result.railway1 == "東京メトロ半蔵門線"
+        assert result.station1 == "半蔵門"
+        assert result.railwayWalkMinute1 == 7

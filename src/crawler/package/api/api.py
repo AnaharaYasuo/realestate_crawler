@@ -1305,7 +1305,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                             alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
 
                                         # Slack送信を実行し、成否を明示的に判定・ログ記録する
-                                        success = await send_slack_message(msg, channel=alert_channel)
+                                        if alert_channel:
+                                            success = await send_slack_message(msg, channel=alert_channel)
+                                        else:
+                                            success = False
+                                            logging.error("Slack alert_channel is not defined.")
                                         if success:
                                             eval_record.is_slack_notified = True
                                             await sync_to_async(eval_record.save)()

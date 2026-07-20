@@ -1,0 +1,23 @@
+{
+  "name": "Real Estate Crawler Dev Container",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/app",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "upgradePackages": true
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "snyk-security.snyk-vulnerability-scanner"
+      ]
+    }
+  },
+  "remoteUser": "root"
+}

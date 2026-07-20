@@ -58,6 +58,34 @@ class ParserBase(metaclass=ABCMeta):
     @abstractmethod
     def _parsePropertyDetailPage(self, item:models.Model, response:BeautifulSoup)->models.Model:
         return item
+
+    def clean_parsed_item(self, item: models.Model) -> models.Model:
+        """
+        スクレイピングした物件データの全文字列フィールドに対して：
+        1. 前後の余分な空白・改行コードの除去
+        2. 全て文字中の複数スペース（二重空白、タブ、改行等含む）を単一スペースに置換
+        3. 文字列としての "None" や "none" などの無効値を空文字または None に変換
+        """
+        import re
+        for field in item._meta.fields:
+            val = getattr(item, field.name, None)
+            if val is None:
+                continue
+                
+            if isinstance(field, (models.CharField, models.TextField)):
+                val_str = str(val).strip()
+                
+                if val_str.lower() in ["none", ""]:
+                    if field.null:
+                        setattr(item, field.name, None)
+                    else:
+                        setattr(item, field.name, "")
+                    continue
+                
+                val_cleaned = re.sub(r'\s+', ' ', val_str)
+                setattr(item, field.name, val_cleaned)
+                
+        return item
     
     def save_error_html(self, url, content, reason="Parsing failed"):
         import os
@@ -139,6 +167,7 @@ class ParserBase(metaclass=ABCMeta):
                     raise ServerBusyException()
 
             item = self._parsePropertyDetailPage(item, soup)
+            item = self.clean_parsed_item(item)
             item._soup = soup
             
             # Centralized validation for "Strict Extraction"
@@ -632,6 +661,9 @@ class ParserBase(metaclass=ABCMeta):
         import re
         # 1. サイト個別のカスタムセレクタや汎用クレンジング要素があれば最優先
         custom_selectors = [
+            'h1.property-detail-carousel-luxury__building-name',
+            'ol.breadcrumb-list li.breadcrumb-list-item:last-child span',
+            'ol.breadcrumb-list li:last-child span',
             self.selectors.get('property_name_clean'),
             '#property_name',
             '.property-name-clean',

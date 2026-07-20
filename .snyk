@@ -1,0 +1,8 @@
+version: v1.25.0
+exclude:
+  - Temp
+  - logs
+  - .agent
+  - .agents
+  - .codegraph
+  - .gemini

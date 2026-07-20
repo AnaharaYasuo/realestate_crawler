@@ -98,7 +98,10 @@ def scan_anomalies_and_generate_instructions():
     if not heal_targets:
         logging.info("No scraping anomalies found for AI healing.")
         # 指示書ファイルがあれば削除する
-        inst_path = "/app/Temp/auto_heal_instruction.json"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        temp_dir = os.path.join(project_root, "Temp")
+        inst_path = os.path.join(temp_dir, "auto_heal_instruction.json")
         if os.path.exists(inst_path):
             os.remove(inst_path)
             logging.info("Removed stale auto_heal_instruction.json")
@@ -111,8 +114,8 @@ def scan_anomalies_and_generate_instructions():
         "action_required": "Please inspect the target URLs, analyze why their data parsed incorrectly (e.g. price/area too small or frontage 0m despite setsudou exists), fix the corresponding parser inside package/parser/, run verification tests, and commit/push/merge changes to master."
     }
     
-    os.makedirs("/app/Temp", exist_ok=True)
-    inst_path = "/app/Temp/auto_heal_instruction.json"
+    os.makedirs(temp_dir, exist_ok=True)
+    inst_path = os.path.join(temp_dir, "auto_heal_instruction.json")
     with open(inst_path, "w", encoding="utf-8") as f:
         json.dump(instruction, f, ensure_ascii=False, indent=2)
         

@@ -145,7 +145,9 @@ def validate_data():
         
         # 本日の日付のJSONファイルを読み込む
         today_str = datetime.date.today().strftime("%Y%m%d")
-        report_path = f"/app/logs/error_report_{today_str}.json"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        report_path = os.path.join(project_root, "logs", f"error_report_{today_str}.json")
         if os.path.exists(report_path):
             with open(report_path, "r", encoding="utf-8") as f:
                 rep = json.load(f)
@@ -154,40 +156,84 @@ def validate_data():
     except Exception as e:
         logging.error(f"Failed to integrate monitor_error_pages: {e}")
         
-    # Slack通知のメッセージ作成
-    if anomalies or html_errors_count > 0:
-        msg = "⚠️ 【不動産クローラー 定期データ監視アラート】\n"
+    # チャンネルごとのメッセージバッファ
+    buffers = {
+        "mansion": [],
+        "kodate": [],
+        "tochi": [],
+        "apartment": [],
+        "invest_kodate": [],
+        "general": []
+    }
+    
+    # 1. HTMLパースエラーの振り分け
+    for err in html_errors_list:
+        comp_type = err.get("company_type", "")
+        ptype = "general"
+        if "mansion" in comp_type:
+            ptype = "mansion"
+        elif "kodate" in comp_type:
+            if "investment" in comp_type or "invest" in comp_type:
+                ptype = "invest_kodate"
+            else:
+                ptype = "kodate"
+        elif "tochi" in comp_type:
+            ptype = "tochi"
+        elif "apartment" in comp_type:
+            ptype = "apartment"
+            
+        buffers[ptype].append(f"  - 🚨 [HTML Error] [{err['company_type']}] Reason: {err['reason']} | URL: {err['url']}")
         
-        if html_errors_count > 0:
-            msg += f"\n🚨 **直近24時間のHTML取得・パースエラー: {html_errors_count} 件**\n"
-            for err in html_errors_list[:5]: # 最大5件を表示
-                msg += f"  - [{err['company_type']}] Reason: {err['reason']} | URL: {err['url']}\n"
-            if html_errors_count > 5:
-                msg += f"  - (他 {html_errors_count - 5} 件のエラーが発生しています。)\n"
-                
-        critical_anomalies = [a for a in anomalies if a["is_critical"]]
-        warning_anomalies = [a for a in anomalies if not a["is_critical"]]
+    # 2. データアノマリーの振り分け
+    for a in anomalies:
+        ptype = a["property_type"]
+        if ptype in ["invest_apartment", "apartment"]:
+            key = "apartment"
+        elif ptype == "invest_kodate":
+            key = "invest_kodate"
+        elif ptype in ["mansion", "kodate", "tochi"]:
+            key = ptype
+        else:
+            key = "general"
+            
+        severity = "❌ [Critical]" if a["is_critical"] else "💡 [Warning]"
+        reasons_list = a["reasons"]
+        reasons_str = ", ".join(reasons_list) if isinstance(reasons_list, list) else str(reasons_list)
+        buffers[key].append(f"  - {severity} [{a['company']}/{ptype}] {reasons_str} | {a['name']} | URL: {a['url']}")
         
-        if critical_anomalies:
-            msg += f"\n❌ **スクレイピング不整合（自動クレンジング対象）: {len(critical_anomalies)} 件**\n"
-            for a in critical_anomalies[:5]:
-                msg += f"  - [{a['company']}/{a['property_type']}] {', '.join(a['reasons'])} | {a['name']}\n    URL: {a['url']}\n"
-            if len(critical_anomalies) > 5:
-                msg += f"  - (他 {len(critical_anomalies) - 5} 件の異常データが除外されました。)\n"
-                
-        if warning_anomalies:
-            msg += f"\n💡 **間口0m等の警告（無道路地ペナルティ適用疑い）: {len(warning_anomalies)} 件**\n"
-            for a in warning_anomalies[:5]:
-                msg += f"  - [{a['company']}/{a['property_type']}] {a['name']}\n    URL: {a['url']}\n"
-            if len(warning_anomalies) > 5:
-                msg += f"  - (他 {len(warning_anomalies) - 5} 件の警告があります。)\n"
-                
-        msg += "\n※ 異常データはモデルの学習およびSlackリコメンドから自動的に除外（クレンジング）されました。"
+    # 各バッファを対応するアラートチャンネルに送信
+    sent_any = False
+    for key, items in buffers.items():
+        if not items:
+            continue
+            
+        msg = f"⚠️ 【不動産クローラー データ監視アラート - {key.upper()}】\n\n"
+        msg += f"🚨 **検出された異常/エラー: {len(items)} 件**\n"
+        for item_str in items[:10]: # 最大10件を表示
+            msg += item_str + "\n"
+        if len(items) > 10:
+            msg += f"  - (他 {len(items) - 10} 件のエラーがあります。)\n"
+            
+        msg += "\n※ 異常データは自動クレンジングまたはスキップ処理が適用されました。"
         
-        logging.info("Sending database scraping validation anomalies to Slack channel 'property_alart'...")
+        # 投稿先アラートチャンネルの決定
         alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID", "property_alart")
+        if key == "mansion":
+            alert_channel = os.getenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU") # alerts-mansion
+        elif key == "kodate":
+            alert_channel = os.getenv("SLACK_ALERT_KODATE", "C0BHZA5ASDT") # alerts-kodate
+        elif key == "tochi":
+            alert_channel = os.getenv("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS") # alerts-tochi
+        elif key == "apartment":
+            alert_channel = os.getenv("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0") # alerts-invest-apartment
+        elif key == "invest_kodate":
+            alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
+            
+        logging.info(f"Sending {key} alert report to channel: {alert_channel}")
         async_to_sync(send_slack_message)(msg, channel=alert_channel)
-    else:
+        sent_any = True
+        
+    if not sent_any:
         logging.info("No scraping anomalies or HTML errors detected. Data integrity is clean.")
 
 if __name__ == "__main__":

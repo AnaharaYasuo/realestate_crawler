@@ -104,7 +104,9 @@ if __name__ == "__main__":
     
     if not csv_file:
         # 引数なしの場合はTempディレクトリにサンプルCSVを作ってそれを読み込む
-        csv_file = "/app/src/crawler/scripts/temp_mlit_stations_sample.csv"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+        csv_file = os.path.join(project_root, "src", "crawler", "scripts", "temp_mlit_stations_sample.csv")
         generate_sample_mlit_csv(csv_file)
         is_temp = True
         

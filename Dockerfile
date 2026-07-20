@@ -18,6 +18,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     default-libmysqlclient-dev \
     build-essential \
     curl \
+    wget \
+    git \
+    procps \
     cron \
     libgomp1 \
     && pip install --no-cache-dir --upgrade pip \
@@ -30,6 +33,9 @@ COPY src/ /app/src/
 
 # Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
 RUN playwright install --with-deps chromium
+
+# デフォルトのシェルをdashからbashへ変更（disownコマンド等のサポートのため）
+RUN ln -sf bash /bin/sh
 
 # ポートの公開
 EXPOSE 8000

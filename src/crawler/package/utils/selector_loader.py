@@ -74,8 +74,6 @@ class SelectorLoader:
             # Candidate paths
             candidate_paths = [
                 project_root / "config" / "selectors",
-                Path("/app/config/selectors"),  # Docker default
-                Path("C:/Users/weare/Documents/realestate_crawler/config/selectors") # Windows absolute fallback
             ]
 
             for path in candidate_paths:

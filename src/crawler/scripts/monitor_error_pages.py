@@ -8,11 +8,13 @@ import sys
 import subprocess
 
 # ロギング設定
-log_dir = "/app/logs"
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(_current_dir)))
+log_dir = os.path.join(_project_root, "logs")
 os.makedirs(log_dir, exist_ok=True)
 
 ERROR_DIRS = [
-    "/app/docs/error_pages"
+    os.path.join(_project_root, "docs", "error_pages")
 ]
 
 def parse_meta_file(meta_path):

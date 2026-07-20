@@ -1,0 +1,324 @@
+openapi: 3.0.0
+info:
+  title: Realestate Price Estimation API
+  description: 不動産の基本情報および画像スコアをベースに、機械学習アンサンブルモデルを用いた推定理論価格（一次予測および二次予測）を算出するAPI。
+  version: 1.0.0
+paths:
+  /api/evaluation/predict/mansion:
+    post:
+      summary: マンション推定価格予測を実行
+      description: 送信されたマンションデータをもとに価格推定を行います。周辺地価や地域統計情報は自動補完されます。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - property_data
+              properties:
+                property_data:
+                  $ref: '#/components/schemas/MansionPropertyData'
+                interior_score:
+                  $ref: '#/components/schemas/InteriorScore'
+                layout_score:
+                  $ref: '#/components/schemas/LayoutScore'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/evaluation/predict/kodate:
+    post:
+      summary: 戸建推定価格予測を実行
+      description: 送信された戸建データをもとに価格推定を行います。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - property_data
+              properties:
+                property_data:
+                  $ref: '#/components/schemas/KodatePropertyData'
+                interior_score:
+                  $ref: '#/components/schemas/InteriorScore'
+                layout_score:
+                  $ref: '#/components/schemas/LayoutScore'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/evaluation/predict/apartment:
+    post:
+      summary: 一棟アパート（投資用）推定価格予測を実行
+      description: 送信されたアパートデータをもとに価格推定を行います。収益還元用の年間賃料や利回りを含めることができます。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - property_data
+              properties:
+                property_data:
+                  $ref: '#/components/schemas/ApartmentPropertyData'
+                interior_score:
+                  $ref: '#/components/schemas/InteriorScore'
+                layout_score:
+                  $ref: '#/components/schemas/LayoutScore'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+  /api/evaluation/predict/tochi:
+    post:
+      summary: 土地推定価格予測を実行
+      description: 送信された土地データをもとに価格推定を行います。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - property_data
+              properties:
+                property_data:
+                  $ref: '#/components/schemas/TochiPropertyData'
+                interior_score:
+                  $ref: '#/components/schemas/InteriorScore'
+                layout_score:
+                  $ref: '#/components/schemas/LayoutScore'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+
+components:
+  schemas:
+    InteriorScore:
+      type: number
+      description: 内装評価スコア (1.0〜5.0)。二次予測で使用。
+      default: 3.0
+      example: 4.2
+    LayoutScore:
+      type: number
+      description: 間取り評価スコア (1.0〜5.0)。二次予測で使用。
+      default: 3.0
+      example: 3.8
+
+    CommonPropertyData:
+      type: object
+      required:
+        - price
+        - address
+      properties:
+        price:
+          type: integer
+          description: 販売価格（円）
+          example: 45000000
+        address:
+          type: string
+          description: 物件の住所（市区町村地価・所得・ハザードマスタ引き当て用）
+          example: "東京都世田谷区桜丘1-1"
+        station1:
+          type: string
+          description: 最寄り駅名（駅ポテンシャルマスタ引き当て用）
+          example: "経堂"
+        chikunengetsuStr:
+          type: string
+          description: 築年月（和暦・西暦どちらも可）
+          example: "平成15年10月"
+        railwayWalkMinute1:
+          type: integer
+          description: 最寄り駅からの徒歩分数（分）。デフォルト 15 分
+          example: 8
+        kouzou:
+          type: string
+          description: 建物の構造
+          example: "RC"
+        yousekiStr:
+          type: string
+          description: 指定容積率 (例: 200%)
+          example: "200%"
+        kenpeiStr:
+          type: string
+          description: 指定建ぺい率 (例: 60%)
+          example: "60%"
+        tochikenri:
+          type: string
+          description: 土地権利形態（借地権の割引率 rights_ratio の自動補正用）
+          example: "所有権"
+        biko:
+          type: string
+          description: 備考（再建築不可や市街化調整区域などの制限判定用）
+          example: "市街化調整区域"
+
+    MansionPropertyData:
+      allOf:
+        - $ref: '#/components/schemas/CommonPropertyData'
+        - type: object
+          required:
+            - senyuMenseki
+          properties:
+            senyuMenseki:
+              type: number
+              description: 専有面積 (㎡)
+              example: 72.5
+            kanrihi:
+              type: integer
+              description: 月額管理費（円）
+              example: 12000
+            syuzenTsumitate:
+              type: integer
+              description: 月額修繕積立金（円）
+              example: 15000
+
+    KodatePropertyData:
+      allOf:
+        - $ref: '#/components/schemas/CommonPropertyData'
+        - type: object
+          required:
+            - tatemonoMenseki
+            - tochiMenseki
+          properties:
+            tatemonoMenseki:
+              type: number
+              description: 建物面積 (㎡)
+              example: 95.0
+            tochiMenseki:
+              type: number
+              description: 土地有効面積 (㎡)
+              example: 120.0
+            maguchi:
+              type: number
+              description: 接道間口 (m)
+              example: 7.2
+            roadWidth:
+              type: number
+              description: 前面道路幅員 (m)
+              example: 4.5
+            setsudou:
+              type: string
+              description: 接道状況詳細テキスト (例: "南側道路 幅員4m 公道")
+              example: "南側道路 幅員4m 公道"
+
+    ApartmentPropertyData:
+      allOf:
+        - $ref: '#/components/schemas/CommonPropertyData'
+        - type: object
+          required:
+            - tatemonoMenseki
+            - tochiMenseki
+            - grossYield
+            - annualRent
+          properties:
+            tatemonoMenseki:
+              type: number
+              description: 建物延床面積 (㎡)
+              example: 220.0
+            tochiMenseki:
+              type: number
+              description: 土地面積 (㎡)
+              example: 180.0
+            maguchi:
+              type: number
+              description: 接道間口 (m)
+              example: 12.0
+            roadWidth:
+              type: number
+              description: 前面道路幅員 (m)
+              example: 5.0
+            setsudou:
+              type: string
+              description: 接道状況詳細テキスト
+              example: "東側幅員5m公道"
+            grossYield:
+              type: number
+              description: 表面利回り (%) ※収益価格特徴量
+              example: 6.8
+            annualRent:
+              type: integer
+              description: 年間想定賃料（円） ※収益価格特徴量
+              example: 8160000
+
+    TochiPropertyData:
+      allOf:
+        - $ref: '#/components/schemas/CommonPropertyData'
+        - type: object
+          required:
+            - tochiMenseki
+          properties:
+            tochiMenseki:
+              type: number
+              description: 土地面積 (㎡)
+              example: 100.0
+            maguchi:
+              type: number
+              description: 接道間口 (m)
+              example: 6.5
+            roadWidth:
+              type: number
+              description: 前面道路幅員 (m)
+              example: 4.0
+            setsudou:
+              type: string
+              description: 接道状況詳細テキスト
+              example: "北側道路4m公道"
+
+  responses:
+    SuccessResponse:
+      description: 推定成功
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: true
+              property_type:
+                type: string
+                example: mansion
+              first_stage_predicted_price:
+                type: integer
+                description: 一次推定理論価格（万円）
+                example: 4420
+              second_stage_predicted_price:
+                type: integer
+                description: 二次推定精密理論価格（万円）
+                example: 4580
+              message:
+                type: string
+                example: "Estimation completed successfully"
+    ErrorResponse:
+      description: エラー発生
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              message:
+                type: string
+                example: "Missing or invalid JSON request body"

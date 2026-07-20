@@ -151,3 +151,70 @@ def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
 ## 6. 通信エンジン
 
 `aiohttp` を使用した非同期 HTTP 通信を採用しています。ブラウザレンダリング（Playwright 等）を介さないため、リソース消費が極めて少なく、高速なクロールが可能です。
+
+## 7. 価格推定 API (Price Estimation API)
+
+機械学習モデル（物件種別ごとに個別学習されたアンサンブルモデル）を用いて、一次予測（画像なし理論価格）および二次予測（画像スコア込み精密理論価格）の推定価格（万円）を返却するAPIです。
+
+物件種別ごとにエンドポイントおよびリクエストパラメータが分かれており、詳細仕様は [OpenAPI仕様書（Swagger）](docs/api/openapi.yaml) に定義されています。
+
+### 7.1 エンドポイント一覧
+- **マンション価格推定**: `POST /api/evaluation/predict/mansion`
+- **戸建価格推定**: `POST /api/evaluation/predict/kodate`
+- **一棟アパート（投資用）価格推定**: `POST /api/evaluation/predict/apartment`
+- **土地価格推定**: `POST /api/evaluation/predict/tochi`
+
+### 7.2 リクエストパラメータ概要
+
+各エンドポイントの `property_data` に送信する基本パラメータは以下の通り分類されます。
+
+#### 共通パラメータ
+- `price` (必須): 販売価格（円）
+- `address` (必須): 物件の住所（市区町村地価・所得・ハザードマスタ引き当てキー）
+- `station1` (任意): 最寄り駅名（駅乗降客数マスタ引き当てキー）
+- `chikunengetsuStr` (任意): 築年月 (例: "平成15年10月", "2010-04-01")
+- `railwayWalkMinute1` (任意): 徒歩分数 (分)
+- `kouzou` (任意): 建物構造 (例: "RC", "木造")
+- `yousekiStr` (任意): 指定容積率 (例: "200%")
+- `kenpeiStr` (任意): 指定建ぺい率 (例: "60%")
+- `tochikenri` (任意): 土地権利形態 (例: "所有権", "借地権") - 権利割引率 `rights_ratio` の判定キー
+- `biko` (任意): 備考（再建築不可や市街化調整区域などの判定用）
+
+#### 各物件種別の固有パラメータ
+- **mansion**:
+  - `senyuMenseki` (必須): 専有面積 (㎡)
+  - `kanrihi` (任意): 月額管理費 (円)
+  - `syuzenTsumitate` (任意): 月額修繕積立金 (円)
+- **kodate**:
+  - `tatemonoMenseki` (必須): 建物面積 (㎡)
+  - `tochiMenseki` (必須): 土地有効面積 (㎡)
+  - `maguchi` (任意): 接道間口 (m)
+  - `roadWidth` (任意): 前面道路幅員 (m)
+  - `setsudou` (任意): 接道状況テキスト
+- **apartment**:
+  - `tatemonoMenseki` (必須): 建物延床面積 (㎡)
+  - `tochiMenseki` (必須): 土地面積 (㎡)
+  - `maguchi` (任意): 接道間口 (m)
+  - `roadWidth` (任意): 前面道路幅員 (m)
+  - `setsudou` (任意): 接道状況テキスト
+  - `grossYield` (必須): 表面利回り (%) - 収益還元想定に使用
+  - `annualRent` (必須): 年間想定賃料 (円) - 収益還元想定に使用
+- **tochi**:
+  - `tochiMenseki` (必須): 土地面積 (㎡)
+  - `maguchi` (任意): 接道間口 (m)
+  - `roadWidth` (任意): 前面道路幅員 (m)
+  - `setsudou` (任意): 接道状況テキスト
+
+> [!NOTE]
+> **地域ポテンシャル情報の自動補完**
+> 「固定資産税評価額」「相続税評価額（路線価）」「周辺地価」「自治体人口・所得統計（納税額）」「駅乗降客数」「ハザードマップリスク」などの地域統計メタ特徴量は、クライアントから送信された住所 (`address`) および最寄り駅 (`station1`) をもとに、API内部で自動引き当て・補完されるため、クライアントが手動で調べる必要はありません。
+
+### 7.3 レスポンスパラメータ (JSON)
+
+| フィールド名 | 型 | 説明 |
+| :--- | :--- | :--- |
+| `success` | Boolean | 処理成否 |
+| `property_type` | String | 指定された物件種別 (`mansion`, `kodate`, `apartment`, `tochi`) |
+| `first_stage_predicted_price` | Integer | 一次推定理論価格（万円）。画像なしの特徴量による理論価格。 |
+| `second_stage_predicted_price` | Integer | 二次推定精密理論価格（万円）。画像スコアを統合した精密理論価格。 |
+| `message` | String | メッセージ |
