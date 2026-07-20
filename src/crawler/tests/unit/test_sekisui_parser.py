@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.sekisuiParser import SekisuiMansionParser, SekisuiKodateParser, SekisuiTochiParser
-from package.models.sekisui import SekisuiMansion, SekisuiKodate, SekisuiTochi
+from package.parser.sekisuiParser import SekisuiMansionParser, SekisuiKodateParser
+from package.models.sekisui import SekisuiMansion, SekisuiKodate
 
 def test_sekisui_mansion_parser():
     parser = SekisuiMansionParser()

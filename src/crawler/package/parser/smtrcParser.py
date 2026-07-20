@@ -4,11 +4,7 @@ from package.parser.baseParser import ParserBase
 from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi, SmtrcInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import logging
 import re
-from decimal import Decimal
-import datetime
-import unicodedata
 
 class SmtrcParser(ParserBase):
     BASE_URL = 'https://smtrc.jp'

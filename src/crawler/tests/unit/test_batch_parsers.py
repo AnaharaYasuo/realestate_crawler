@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.odakyuParser import OdakyuMansionParser, OdakyuKodateParser, OdakyuInvestmentParser
-from package.parser.totateParser import TotateMansionParser, TotateKodateParser
-from package.parser.daiwaParser import DaiwaMansionParser, DaiwaKodateParser
+from package.parser.odakyuParser import OdakyuMansionParser, OdakyuInvestmentParser
+from package.parser.totateParser import TotateMansionParser
+from package.parser.daiwaParser import DaiwaMansionParser
 from package.parser.smtrcParser import SmtrcInvestmentParser
 from package.parser.sumai1Parser import Sumai1InvestmentParser
 from package.parser.mizuhoParser import MizuhoInvestmentParser
-from package.models.odakyu import OdakyuMansion, OdakyuKodate, OdakyuInvestment
-from package.models.totate import TotateMansion, TotateKodate
-from package.models.daiwa import DaiwaMansion, DaiwaKodate
+from package.models.odakyu import OdakyuMansion, OdakyuInvestment
+from package.models.totate import TotateMansion
+from package.models.daiwa import DaiwaMansion
 from package.models.smtrc import SmtrcInvestment
 from package.models.sumai1 import Sumai1Investment
 from package.models.mizuho import MizuhoInvestment

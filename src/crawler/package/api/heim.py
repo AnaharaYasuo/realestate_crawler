@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
     API_KEY_HEIM_MANSION_START, API_KEY_HEIM_MANSION_DETAIL,
     API_KEY_HEIM_KODATE_START, API_KEY_HEIM_KODATE_DETAIL,

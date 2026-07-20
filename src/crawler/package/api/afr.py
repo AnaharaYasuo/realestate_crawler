@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
     API_KEY_AFR_MANSION_START, API_KEY_AFR_MANSION_DETAIL,
     API_KEY_AFR_KODATE_START, API_KEY_AFR_KODATE_DETAIL,

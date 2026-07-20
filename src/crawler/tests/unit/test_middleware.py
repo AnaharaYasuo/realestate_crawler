@@ -1,7 +1,5 @@
 import pytest
-import asyncio
 from package.api.middleware import RateLimitMiddleware, LoggingMiddleware
-from typing import Dict, Any
 
 @pytest.mark.asyncio
 async def test_rate_limit_middleware():

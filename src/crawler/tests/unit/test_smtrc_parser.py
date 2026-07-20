@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import pytest
 from bs4 import BeautifulSoup
-from package.parser.smtrcParser import SmtrcMansionParser, SmtrcKodateParser, SmtrcTochiParser
-from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi
+from package.parser.smtrcParser import SmtrcMansionParser, SmtrcKodateParser
+from package.models.smtrc import SmtrcMansion, SmtrcKodate
 
 def test_smtrc_mansion_parser():
     parser = SmtrcMansionParser()

@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentApartment, MisawaInvestmentKodate
-from package.parser.baseParser import ParserBase, ReadPropertyNameException
+from package.parser.baseParser import ParserBase
 import re
 import datetime
 import logging

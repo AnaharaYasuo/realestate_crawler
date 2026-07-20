@@ -1,8 +1,6 @@
 import pytest
 import os
 import sys
-import datetime
-from decimal import Decimal
 from bs4 import BeautifulSoup
 
 # Ensure package is in path

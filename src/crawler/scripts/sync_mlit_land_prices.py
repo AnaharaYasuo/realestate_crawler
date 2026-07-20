@@ -97,7 +97,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
                 key = (pref_name, city, land_use)
                 stats[key][0] += unit_price
                 stats[key][1] += 1
-            except Exception as e:
+            except Exception:
                 # パースエラーは無視して続行
                 continue
                 

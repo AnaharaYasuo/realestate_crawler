@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-import sys
 import re
 import logging
 import urllib.parse
 import asyncio
 from bs4 import BeautifulSoup
-from django.db import models
 
 from package.models.daikyo import DaikyoMansion, DaikyoKodate, DaikyoTochi
 from package.parser.baseParser import ParserBase

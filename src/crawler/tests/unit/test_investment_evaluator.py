@@ -4,7 +4,6 @@ from package.ml.investment_evaluator import (
     detect_structure_type,
     parse_chikunen,
     calculate_loan_term,
-    calculate_sekisan_price,
     evaluate_investment_property
 )
 from package.models.evaluation import PropertyEvaluation, LandPricePotential

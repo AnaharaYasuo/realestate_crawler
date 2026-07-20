@@ -158,3 +158,37 @@ def test_investment_evaluator():
     assert res_eval.dscr > 0
     assert res_eval.total_investment_score > 0
     print("Investment Evaluator Test Passed!")
+
+
+@pytest.mark.django_db
+def test_address_normalization():
+    from package.ml.features import build_features
+    # 1. address2 has extra town info
+    prop1 = {
+        "propertyName": "テスト物件1",
+        "pageUrl": "http://example.com/test-addr-1",
+        "address1": "東京都",
+        "address2": "港区赤坂9丁目",
+    }
+    # 2. Kyoto address with street name in address2
+    prop2 = {
+        "propertyName": "テスト物件2",
+        "pageUrl": "http://example.com/test-addr-2",
+        "address1": "京都府",
+        "address2": "京都市中京区烏丸通下る",
+    }
+    # 3. Kyoto address with street name in full address
+    prop3 = {
+        "propertyName": "テスト物件3",
+        "pageUrl": "http://example.com/test-addr-3",
+        "address": "京都府京都市中京区烏丸通下る",
+    }
+
+    features1 = build_features(prop1, 'mansion')
+    features2 = build_features(prop2, 'mansion')
+    features3 = build_features(prop3, 'mansion')
+
+    assert features1 is not None
+    assert features2 is not None
+    assert features3 is not None
+

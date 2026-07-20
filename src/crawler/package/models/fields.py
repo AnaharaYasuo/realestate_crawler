@@ -5,7 +5,7 @@ This module provides descriptors that automatically manage both string and
 numeric representations of data fields, preventing data inconsistencies.
 """
 
-from typing import Callable, Optional, Any
+from typing import Callable, Any
 import logging
 
 logger = logging.getLogger(__name__)

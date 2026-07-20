@@ -1,8 +1,6 @@
 import os
 import re
-import sys
 from bs4 import BeautifulSoup
-import argparse
 
 # Configuration
 DOCS_DIR = os.environ.get("DOCS_DIR", "docs")
@@ -121,7 +119,7 @@ def verify_selectors_against_samples():
                 else:
                     failed += 1
                     print(f"  FAIL: {sel} -> No elements found")
-            except Exception as e:
+            except Exception:
                 # Selection failed (invalid syntax or not a selector)
                 # print(f"  SKIP: {sel} (Invalid syntax)")
                 pass

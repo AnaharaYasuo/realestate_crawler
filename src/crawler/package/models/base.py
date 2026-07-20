@@ -8,7 +8,6 @@ type-specific fields.
 """
 
 from django.db import models
-from decimal import Decimal
 
 
 class PropertyBaseModel(models.Model):

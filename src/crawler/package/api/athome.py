@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
     API_KEY_ATHOME_INVEST_APARTMENT_START, API_KEY_ATHOME_INVEST_APARTMENT_DETAIL,
     API_KEY_ATHOME_MANSION_START, API_KEY_ATHOME_MANSION_DETAIL,

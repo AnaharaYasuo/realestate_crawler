@@ -1,24 +1,18 @@
 # -*- coding: utf-8 -*-
-from abc import abstractmethod
 import sys
-import unicodedata
 
 
 from bs4 import BeautifulSoup
-from package.models.sumifu import SumifuMansion, SumifuModel, SumifuTochi, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
+from package.models.sumifu import SumifuMansion, SumifuTochi, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
 from package.parser.investmentParser import InvestmentParser
 from django.db import models
 import importlib
 importlib.reload(sys)
 from decimal import Decimal
 import datetime
-import traceback
 import re
-from builtins import IndexError
 from package.utils import converter
-from concurrent.futures._base import TimeoutError
-from package.parser.baseParser import ParserBase, LoadPropertyPageException, \
-    ReadPropertyNameException, SkipPropertyException
+from package.parser.baseParser import ParserBase
 import logging
 from package.utils.selector_loader import SelectorLoader
 import lxml.html

@@ -8,7 +8,7 @@ import requests
 from django.utils import timezone
 from PIL import Image
 import google.generativeai as genai
-from package.models.evaluation import PropertyEvaluation, PropertyImage
+from package.models.evaluation import PropertyEvaluation
 
 # 1日のGemini API上限数
 MAX_DAILY_IMAGE_ANALYSIS = 200

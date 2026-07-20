@@ -6,9 +6,6 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 import logging
 import re
-from decimal import Decimal
-import datetime
-import urllib.parse
 
 class AfrParser(ParserBase):
     BASE_URL = 'https://www.hebel-haus.com'
@@ -122,7 +119,7 @@ class AfrParser(ParserBase):
             src = img.get("src")
             if src and "/photo/356px/" in src:
                 full_url = self.getRootDestUrl(src)
-                alt = img.get("alt", "")
+                img.get("alt", "")
                 if full_url not in images:
                     images.append(full_url)
         return images

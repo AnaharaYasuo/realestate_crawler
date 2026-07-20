@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 import re
 import logging
-import datetime
 from typing import Optional
 from difflib import SequenceMatcher
-from django.utils import timezone
 from package.models.evaluation import PropertyEvaluation
 
 logger = logging.getLogger(__name__)

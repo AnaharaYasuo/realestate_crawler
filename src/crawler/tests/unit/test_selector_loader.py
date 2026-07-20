@@ -5,7 +5,6 @@ Note: These tests are simplified to avoid file system dependencies in Docker.
 Full integration tests should be run separately.
 """
 
-import pytest
 from pathlib import Path
 from package.utils.selector_loader import SelectorLoader
 

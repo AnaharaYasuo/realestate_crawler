@@ -4,11 +4,7 @@ from package.parser.baseParser import ParserBase
 from package.models.sekisui import SekisuiMansion, SekisuiKodate, SekisuiTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import logging
 import re
-from decimal import Decimal
-import datetime
-import unicodedata
 
 class SekisuiParser(ParserBase):
     BASE_URL = 'https://sumusite.sekisuihouse.co.jp'

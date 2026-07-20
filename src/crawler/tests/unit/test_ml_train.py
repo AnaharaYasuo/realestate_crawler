@@ -9,7 +9,6 @@ from package.ml.train import (
     clean_training_data
 )
 import pandas as pd
-import numpy as np
 
 class MockProperty:
     def __init__(self, **kwargs):

@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 from package.parser.baseParser import ParserBase
 from package.models.sumirin import SumirinMansion, SumirinKodate, SumirinTochi, SumirinInvestment
 from package.utils import converter
-import logging
 import re
 import urllib.parse
 

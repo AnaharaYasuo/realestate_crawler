@@ -1,6 +1,3 @@
-import os
-import sys
-import django
 from django.core.management import call_command
 import realestateSettings
 

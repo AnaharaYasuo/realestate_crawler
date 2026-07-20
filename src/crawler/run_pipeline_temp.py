@@ -4,7 +4,6 @@ import sys
 import subprocess
 import time
 import logging
-import datetime
 
 # ロギング設定
 log_dir = "/app/logs"

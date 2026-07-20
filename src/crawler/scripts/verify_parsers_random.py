@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 import sys
 import os
-import django
 import asyncio
 import aiohttp
 import random
 import logging
-from bs4 import BeautifulSoup
 
 # Setup Django environment
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))

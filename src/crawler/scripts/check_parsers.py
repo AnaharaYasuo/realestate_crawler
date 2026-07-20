@@ -1,5 +1,4 @@
 import os
-import re
 
 parser_dir = "/app/src/crawler/package/parser"
 files = [f for f in os.listdir(parser_dir) if f.endswith(".py") and f != "__init__.py" and f != "baseParser.py"]

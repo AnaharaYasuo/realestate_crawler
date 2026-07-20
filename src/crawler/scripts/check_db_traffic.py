@@ -5,8 +5,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import realestateSettings
 realestateSettings.configure()
 
-from package.models.homes import HomesTochi, HomesMansion, HomesKodate
-from package.models.athome import AthomeKodate, AthomeMansion, AthomeTochi
+from package.models.homes import HomesTochi
+from package.models.athome import AthomeKodate
 
 print("=== HomesTochi Traffic samples ===")
 for x in HomesTochi.objects.filter(railwayWalkMinute1__isnull=True)[:5]:

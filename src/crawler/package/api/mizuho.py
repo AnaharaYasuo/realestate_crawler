@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 from package.api.api import (
-    API_KEY_AFR_MANSION_START, # ここにみずほのキーを入れる
     ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 )
 # api.py からキーを読み込む

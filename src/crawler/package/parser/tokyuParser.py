@@ -4,18 +4,13 @@ import sys
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuMansion, TokyuTochi, TokyuKodate
 from package.parser.investmentParser import InvestmentParser
-from django.db import models
 import re
 from package.utils import converter
 import importlib
 importlib.reload(sys)
 from decimal import Decimal
 import datetime
-import traceback
-from concurrent.futures._base import TimeoutError
-from package.parser.baseParser import LoadPropertyPageException, \
-    ReadPropertyNameException, ParserBase
-from bs4.element import NavigableString, Tag
+from package.parser.baseParser import ParserBase
 import logging
 from package.utils.selector_loader import SelectorLoader
 
@@ -728,32 +723,6 @@ class TokyuInvestmentParser(InvestmentParser):
             href = link.get('href')
             if href:
                 yield self.BASE_URL + href
-
-    async def parsePropertyListPage(self, response):
-        # Try Next.js data first
-        script = response.find('script', id='__NEXT_DATA__')
-        if script:
-            try:
-                import json
-                data = json.loads(script.string)
-                pageProps = data.get('props', {}).get('pageProps', {})
-                propertyList = pageProps.get('propertyList', [])
-                if propertyList:
-                    for item in propertyList:
-                        detailUrl = item.get('detailUrl')
-                        if detailUrl:
-                            yield self.BASE_URL + detailUrl
-                    return
-            except Exception as e:
-                logging.error(f"Error parsing __NEXT_DATA__: {e}")
-
-        # Fallback to selectors
-        selector = self.selectors.get('property_links')
-        for link in response.select(selector):
-            href = link.get('href')
-            if href:
-                yield self.BASE_URL + href
-
     def _getNextJsData(self, response):
         if hasattr(response, '_next_data_json'):
             return response._next_data_json

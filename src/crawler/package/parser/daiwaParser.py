@@ -4,10 +4,7 @@ from package.parser.baseParser import ParserBase
 from package.models.daiwa import DaiwaMansion, DaiwaKodate, DaiwaTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import logging
 import re
-from decimal import Decimal
-import datetime
 import urllib.parse
 
 class DaiwaParser(ParserBase):

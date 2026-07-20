@@ -1,6 +1,5 @@
 import os
 import signal
-import sys
 
 def stop_crawler():
     print("Creating stop.flag to signal crawler shutdown...")

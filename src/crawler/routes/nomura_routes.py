@@ -2,13 +2,13 @@
 from flask import Blueprint, request
 from package.api.api import \
     API_KEY_NOMURA_MANSION_START, API_KEY_NOMURA_MANSION_REGION, API_KEY_NOMURA_MANSION_AREA, API_KEY_NOMURA_MANSION_LIST, API_KEY_NOMURA_MANSION_DETAIL, \
-    API_KEY_NOMURA_KODATE_START, API_KEY_NOMURA_KODATE_REGION, API_KEY_NOMURA_KODATE_AREA, API_KEY_NOMURA_KODATE_LIST, API_KEY_NOMURA_KODATE_DETAIL, \
-    API_KEY_NOMURA_TOCHI_START, API_KEY_NOMURA_TOCHI_REGION, API_KEY_NOMURA_TOCHI_AREA, API_KEY_NOMURA_TOCHI_LIST, API_KEY_NOMURA_TOCHI_DETAIL
+    API_KEY_NOMURA_KODATE_START, API_KEY_NOMURA_KODATE_LIST, API_KEY_NOMURA_KODATE_DETAIL, \
+    API_KEY_NOMURA_TOCHI_START, API_KEY_NOMURA_TOCHI_LIST, API_KEY_NOMURA_TOCHI_DETAIL
 
 from package.api.nomura import \
     ParseNomuraMansionStartAsync, ParseNomuraMansionRegionFuncAsync, ParseNomuraMansionAreaFuncAsync, ParseNomuraMansionListFuncAsync, ParseNomuraMansionDetailFuncAsync, \
-    ParseNomuraKodateStartAsync, ParseNomuraKodateRegionFuncAsync, ParseNomuraKodateAreaFuncAsync, ParseNomuraKodateListFuncAsync, ParseNomuraKodateDetailFuncAsync, \
-    ParseNomuraTochiStartAsync, ParseNomuraTochiRegionFuncAsync, ParseNomuraTochiAreaFuncAsync, ParseNomuraTochiListFuncAsync, ParseNomuraTochiDetailFuncAsync
+    ParseNomuraKodateStartAsync, ParseNomuraKodateListFuncAsync, ParseNomuraKodateDetailFuncAsync, \
+    ParseNomuraTochiStartAsync, ParseNomuraTochiListFuncAsync, ParseNomuraTochiDetailFuncAsync
 
 nomura_bp = Blueprint('nomura', __name__)
 

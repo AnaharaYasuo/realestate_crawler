@@ -7,8 +7,8 @@ from datetime import datetime, date
 # Ensure package is in path
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../'))
 
-from package.models.sumifu import SumifuInvestmentKodate, SumifuInvestmentApartment
-from package.models.mitsui import MitsuiInvestmentKodate, MitsuiInvestmentApartment
+from package.models.sumifu import SumifuInvestmentKodate
+from package.models.mitsui import MitsuiInvestmentKodate
 from django.core.exceptions import ValidationError
 
 class TestStrictValidation:
@@ -126,7 +126,7 @@ class TestStrictValidation:
         
         # バリデーションが成功することを確認（例外が発生しないこと）
         item.full_clean()
-        print(f"✅ 完全データのバリデーション成功")
+        print("✅ 完全データのバリデーション成功")
         print(f"   物件名: {item.propertyName}")
         print(f"   価格: {item.price:,}円")
         print(f"   土地面積: {item.landArea}㎡")

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import datetime
-import logging
-import os
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -136,7 +134,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     """
     共通特徴量エンジニアリング関数 (Djangoモデルオブジェクトまたは辞書に対応)
     """
-    from package.models.evaluation import MunicipalPotential, StationPotential, LandPricePotential, HazardMapPotential, UrbanPlanningZonePotential
     
     def get_attr(obj, name, default=None):
         if isinstance(obj, dict):
@@ -147,9 +144,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     address1 = get_attr(property_obj, 'address1', '') or ''
     address2 = get_attr(property_obj, 'address2', '') or ''
     
+    import re
+    if address2:
+        m_clean = re.match(r'^([^区市町村]+[区市町村])', address2)
+        if m_clean:
+            address2 = m_clean.group(1)
+            
     if not address1 or not address2:
         full_address = get_attr(property_obj, 'address', '') or ''
-        import re
         m = re.match(r'^(東京都|大阪府|京都府|北海道|[^県]+県)([^区市町]+[区市町])', full_address)
         if m:
             if not address1:

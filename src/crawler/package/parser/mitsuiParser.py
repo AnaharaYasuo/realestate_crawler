@@ -304,7 +304,6 @@ class MitsuiParser(ParserBase):
         }
         if not setsudou: return details
         
-        target_setsudou = setsudou
         max_haba = -1.0
         
         for wkStr in setsudou.split(u"、"):
@@ -314,7 +313,6 @@ class MitsuiParser(ParserBase):
                     haba = float(douroHabaObj.group())
                     if haba > max_haba:
                         max_haba = haba
-                        target_setsudou = wkStr
                         
                         details['douroHaba'] = Decimal(str(haba))
                         details['douroKubun'] = wkStr.split(u"ｍ")[1].replace(u"(","").replace(u")","").strip()
@@ -1250,7 +1248,7 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser):
         return ""
 
     def _parseSoukosu(self, response):
-        specs = self._get_specs(response)
+        self._get_specs(response)
         soukosu = 0
         total_units = self._parseSoukosuStr(response)
         if total_units:

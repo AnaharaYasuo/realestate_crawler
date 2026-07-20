@@ -1,14 +1,10 @@
 from bs4 import BeautifulSoup
 from abc import abstractmethod
-from django.db import models
-import logging
 import re
 from package.parser.investmentParser import InvestmentParser
 from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, NomuraInvestmentKodate, NomuraInvestmentApartment
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
-from package.parser.baseParser import ReadPropertyNameException
-import traceback
 from decimal import Decimal
 
 class NomuraParser(InvestmentParser):
