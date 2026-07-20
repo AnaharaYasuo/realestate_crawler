@@ -13,7 +13,7 @@ COPY src/crawler/requirements.txt /app/
 
 # システム依存関係のインストール, Pythonパッケージインストール, ビルドツールの削除を一括で実行
 # ※ LightGBMの実行に必要な libgomp1 を明示的にインストールし保持します
-RUN apt-get update && apt-get upgrade -y && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     default-libmysqlclient-dev \
     build-essential \
@@ -23,7 +23,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     procps \
     cron \
     libgomp1 \
-    libexpat1 \
+    && apt-get upgrade -y \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --default-timeout=1000 --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential pkg-config \
