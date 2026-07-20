@@ -75,3 +75,4 @@ brotli>=1.1.0
 html2text>=2024.2.26
 ruff>=0.15.22
 minify-html>=0.15.0
+django-db-connection-pool>=1.2.6

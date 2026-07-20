@@ -32,13 +32,18 @@ def configure():
             settings.configure(
                 DATABASES={
                     'default': {
-                        'ENGINE': 'django.db.backends.mysql',
+                        'ENGINE': 'dj_db_conn_pool.backends.mysql',
                         'NAME': os.getenv('DB_NAME', 'real_estate'),
                         'USER': os.getenv('DB_USER', 'sumifu'),
                         'PASSWORD': os.getenv('DB_PASSWORD'),
                         'HOST': os.getenv('DB_HOST', '10.128.0.17'),
                         'PORT': os.getenv('DB_PORT', '13306'),
                         'OPTIONS': {'charset': 'utf8mb4'},
+                        'POOL_OPTIONS': {
+                            'POOL_SIZE': int(os.getenv('DB_POOL_SIZE', 10)),
+                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', 5)),
+                            'RECYCLE': int(os.getenv('DB_POOL_RECYCLE', 1800)),
+                        }
                     }
                 }
                 , INSTALLED_APPS=[
@@ -49,13 +54,18 @@ def configure():
             settings.configure(
                 DATABASES={
                     'default': {
-                        'ENGINE': 'django.db.backends.mysql',
+                        'ENGINE': 'dj_db_conn_pool.backends.mysql',
                         'NAME': os.getenv('DB_NAME', 'real_estate'),
                         'USER': os.getenv('DB_USER', 'sumifu'),
                         'PASSWORD': os.getenv('DB_PASSWORD'),
                         'HOST': os.getenv('DB_HOST', '34.122.252.162'),
                         'PORT': os.getenv('DB_PORT', '13306'),
                         'OPTIONS': {'charset': 'utf8mb4'},
+                        'POOL_OPTIONS': {
+                            'POOL_SIZE': int(os.getenv('DB_POOL_SIZE', 10)),
+                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', 5)),
+                            'RECYCLE': int(os.getenv('DB_POOL_RECYCLE', 1800)),
+                        }
                     }
                 }
                 , INSTALLED_APPS=[
