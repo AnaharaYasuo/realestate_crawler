@@ -217,7 +217,7 @@ def validate_data():
         msg += "\n※ 異常データは自動クレンジングまたはスキップ処理が適用されました。"
         
         # 投稿先アラートチャンネルの決定
-        alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID", "property_alart")
+        alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID", "property_alert")
         if key == "mansion":
             alert_channel = os.getenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU") # alerts-mansion
         elif key == "kodate":
