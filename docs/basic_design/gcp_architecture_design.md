@@ -64,6 +64,8 @@ flowchart TB
 | **送信元IP固定** | Serverless VPC Access + Cloud NAT | e2-micro コネクタ (2~10台), 手動静的外部IP 1本 | クロール先ポータルからのBot検知・IPブロックを回避。 |
 | **シークレット管理** | Secret Manager | レプリケーション: 自動 | DBパスワード、Slack Bot Token、Slack App Token を安全に注入。 |
 | **実行権限** | IAM Service Account | クローラー専用 SA | Cloud SQL クライアント、Storage オブジェクト管理者、Secret アクセサーを付与。 |
+| **予算・請求アラート** | Cloud Billing Budget + Cloud Monitoring | しきい値: 50%, 80%, 100%, 120%(予測) | メール及びPub/Sub通知により、リソース暴走や過大請求を即時防止。 |
+
 
 ---
 

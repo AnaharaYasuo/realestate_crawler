@@ -32,3 +32,9 @@ output "cloud_run_service_url" {
   description = "Cloud Run Slack Agent Service URL"
   value       = google_cloud_run_v2_service.slack_agent_service.uri
 }
+
+output "budget_pubsub_topic" {
+  description = "Pub/Sub Topic for Budget Alerts (Slack integration)"
+  value       = google_pubsub_topic.budget_alert_topic.id
+}
+

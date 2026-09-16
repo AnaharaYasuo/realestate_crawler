@@ -16,3 +16,10 @@ crawler_timeout = "86400s"
 
 # Schedule (0 16 * * * is JST 01:00)
 schedule_cron = "0 16 * * *"
+
+# Budget Alert Configuration (予算アラート設定)
+billing_account_id    = "012345-6789AB-CDEF01" # ご自身の GCP 請求先アカウントID
+monthly_budget_amount = 10000                  # 月額予算 (円)
+budget_currency       = "JPY"
+alert_email           = "wearemusiclover@gmail.com" # アラート送信先メールアドレス
+

@@ -18,8 +18,10 @@ terraform/
 ├── iam.tf                     # 実行用 Service Account, IAM Role バインディング
 ├── cloud_run_job.tf           # Cloud Run Jobs (クローラーバッチ定義, リソース割当, tmpfs)
 ├── cloud_run_service.tf       # Cloud Run Service (Slack Agent 常時受付)
-└── scheduler.tf               # Cloud Scheduler (日次定期キック)
+├── scheduler.tf               # Cloud Scheduler (日次定期キック)
+└── budget.tf                  # Cloud Billing 予算アラート (50%, 80%, 100%, 120%予測)
 ```
+
 
 ---
 

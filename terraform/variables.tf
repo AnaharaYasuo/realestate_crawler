@@ -63,3 +63,29 @@ variable "schedule_cron" {
   description = "Cron schedule expression in UTC (0 16 * * * is JST 01:00)"
   default     = "0 16 * * *"
 }
+
+# Budget Alert Variables
+variable "billing_account_id" {
+  type        = string
+  description = "GCP Billing Account ID (e.g. 012345-6789AB-CDEF01)"
+  default     = ""
+}
+
+variable "monthly_budget_amount" {
+  type        = number
+  description = "Monthly target budget amount"
+  default     = 10000
+}
+
+variable "budget_currency" {
+  type        = string
+  description = "Currency for monthly budget (e.g. JPY, USD)"
+  default     = "JPY"
+}
+
+variable "alert_email" {
+  type        = string
+  description = "Email address for budget alerts"
+  default     = "wearemusiclover@gmail.com"
+}
+
