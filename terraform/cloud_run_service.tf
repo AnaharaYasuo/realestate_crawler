@@ -24,9 +24,7 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
     }
 
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.crawler_repo.name}/crawler:latest"
-
-      command = ["python", "src/crawler/scripts/ops/run_slack_agent.py"]
+      image = "us-docker.pkg.dev/cloudrun/container/hello"
 
       resources {
         limits = {
@@ -86,5 +84,12 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
   traffic {
     type    = "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST"
     percent = 100
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+      template[0].containers[0].command
+    ]
   }
 }

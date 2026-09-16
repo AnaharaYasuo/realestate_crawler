@@ -82,17 +82,19 @@ jobs:
           context: .
           push: true
           tags: |
-            asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler/crawler:latest
-            asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler/crawler:${{ github.sha }}
+            asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:latest
+            asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }}
 
       - name: Update Cloud Run Job Image
         run: |
           gcloud run jobs update realestate-crawler-pipeline-prod \
-            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler/crawler:${{ github.sha }} \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/scripts/ops/run_pipeline.py \
             --region=asia-northeast1
 
       - name: Update Cloud Run Service Image
         run: |
           gcloud run services update realestate-slack-agent-prod \
-            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler/crawler:${{ github.sha }} \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/scripts/ops/run_slack_agent.py \
             --region=asia-northeast1

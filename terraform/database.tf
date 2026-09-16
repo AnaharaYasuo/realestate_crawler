@@ -41,7 +41,7 @@ resource "google_sql_database_instance" "mysql_instance" {
       ipv4_enabled                                  = false # パブリックIP露出を排除
       private_network                               = google_compute_network.vpc_network.id
       enable_private_path_for_google_cloud_services = true
-      require_ssl                                   = true  # 通信の暗号化強制
+      ssl_mode                                      = "ENCRYPTED_ONLY" # 通信の暗号化強制
     }
 
     backup_configuration {
