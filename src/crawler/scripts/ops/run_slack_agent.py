@@ -8,13 +8,12 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # プロジェクトルートパスのセットアップ
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(os.path.dirname(CURRENT_DIR))
-SRC_DIR = os.path.join(PROJECT_ROOT, "src")
+SCRIPTS_DIR = os.path.dirname(CURRENT_DIR)
+CRAWLER_DIR = os.path.dirname(SCRIPTS_DIR)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(CRAWLER_DIR))
 
-CRAWLER_DIR = os.path.join(SRC_DIR, "crawler")
 if CRAWLER_DIR not in sys.path:
     sys.path.insert(0, CRAWLER_DIR)
-
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
