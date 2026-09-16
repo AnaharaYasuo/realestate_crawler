@@ -84,7 +84,7 @@ tasks:
   trivy:
     desc: Run Trivy IaC & misconfiguration security scan locally using Docker (Free / No token needed)
     cmds:
-      - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy config terraform/ --severity HIGH,CRITICAL
+      - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy config terraform/ --severity HIGH,CRITICAL --ignorefile .trivyignore
 
   sonar:
     desc: Run SonarCloud scan locally using Docker
