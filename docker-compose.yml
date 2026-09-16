@@ -2,10 +2,10 @@ services:
   db:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: real_estate
-      MYSQL_USER: sumifu
-      MYSQL_PASSWORD: mayumimayumi0413
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-real_estate}
+      MYSQL_USER: ${DB_USER:-sumifu}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-mayumimayumi0413}
     ports:
       - "13306:3306"
     volumes:
@@ -22,8 +22,8 @@ services:
     environment:
       - DB_HOST=db
       - DB_NAME=real_estate
-      - DB_USER=sumifu
-      - DB_PASSWORD=mayumimayumi0413
+      - DB_USER=${DB_USER:-sumifu}
+      - DB_PASSWORD=${DB_PASSWORD:-mayumimayumi0413}
       - DB_PORT=3306
       - CRAWLER_LIMIT=0
       - STORAGE_ENDPOINT=http://minio:9000
@@ -49,8 +49,8 @@ services:
     environment:
       - DB_HOST=db
       - DB_NAME=real_estate
-      - DB_USER=sumifu
-      - DB_PASSWORD=mayumimayumi0413
+      - DB_USER=${DB_USER:-sumifu}
+      - DB_PASSWORD=${DB_PASSWORD:-mayumimayumi0413}
       - DB_PORT=3306
       - CRAWLER_LIMIT=${CRAWLER_LIMIT:-0}
       - CRAWL_COOLDOWN_SEC=${CRAWL_COOLDOWN_SEC:-180}
@@ -91,8 +91,8 @@ services:
     environment:
       - DB_HOST=db
       - DB_NAME=real_estate
-      - DB_USER=sumifu
-      - DB_PASSWORD=mayumimayumi0413
+      - DB_USER=${DB_USER:-sumifu}
+      - DB_PASSWORD=${DB_PASSWORD:-mayumimayumi0413}
       - DB_PORT=3306
       - STORAGE_ENDPOINT=http://minio:9000
     dns:

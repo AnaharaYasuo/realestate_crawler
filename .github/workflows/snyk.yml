@@ -49,3 +49,23 @@ jobs:
         run: snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high --exclude-base-image-vulns
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Run Snyk IaC (Terraform Infrastructure Misconfigurations)
+        run: snyk iac test terraform/ --severity-threshold=high
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  trivy-iac:
+    name: Trivy IaC Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Run Trivy vulnerability scanner in IaC mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'terraform/'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'

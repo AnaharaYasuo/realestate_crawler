@@ -76,6 +76,16 @@ tasks:
       - docker build -t realestate-crawler:test .
       - docker run --rm --env-file .env -v /var/run/docker.sock:/var/run/docker.sock -v .:/app -w /app snyk/snyk:docker snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high
 
+  snyk-iac:
+    desc: Run Snyk IaC scan (Terraform misconfigurations) locally using Docker
+    cmds:
+      - docker run --rm --env-file .env -v .:/app -w /app snyk/snyk:cli snyk iac test terraform/ --severity-threshold=high
+
+  trivy:
+    desc: Run Trivy IaC & misconfiguration security scan locally using Docker (Free / No token needed)
+    cmds:
+      - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy config terraform/ --severity HIGH,CRITICAL
+
   sonar:
     desc: Run SonarCloud scan locally using Docker
     cmds:

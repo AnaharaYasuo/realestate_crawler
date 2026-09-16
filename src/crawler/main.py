@@ -117,11 +117,15 @@ def allMansionStart():
 
 @app.route(API_KEY_KILL, methods=['OPTIONS', 'POST', 'GET'])
 def seriouslykill():
+    # セキュリティ保護: リモートからの不正シャットダウン（DoS）を防止
+    if os.getenv("ALLOW_REMOTE_SHUTDOWN", "false").lower() != "true":
+        return ("Forbidden: Remote shutdown is disabled.", 403)
     func = request.environ.get('werkzeug.server.shutdown')
     if func is None:
         raise RuntimeError('Not running with the Werkzeug Server')
     func()
     return "Shutting down..."
+
 
 
 if __name__ == "__main__":

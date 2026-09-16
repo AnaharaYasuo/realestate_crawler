@@ -2,6 +2,7 @@
 resource "google_cloud_run_v2_service" "slack_agent_service" {
   name     = "realestate-slack-agent-${var.environment}"
   location = var.region
+  ingress  = "INGRESS_TRAFFIC_INTERNAL_ONLY" # Socket Mode (WSSアウトバウンド) のため外部インバウンド直接公開を完全遮断
 
   depends_on = [
     google_project_service.enabled_services,

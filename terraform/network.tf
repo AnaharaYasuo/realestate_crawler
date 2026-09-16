@@ -7,10 +7,11 @@ resource "google_compute_network" "vpc_network" {
 
 # Subnet for general resources
 resource "google_compute_subnetwork" "subnet" {
-  name          = "realestate-subnet-${var.environment}"
-  ip_cidr_range = "10.0.0.0/24"
-  region        = var.region
-  network       = google_compute_network.vpc_network.id
+  name                     = "realestate-subnet-${var.environment}"
+  ip_cidr_range            = "10.0.0.0/24"
+  region                   = var.region
+  network                  = google_compute_network.vpc_network.id
+  private_ip_google_access = true
 }
 
 # Serverless VPC Access Connector (Cloud Run -> VPC)

@@ -30,10 +30,10 @@ class SlackAgent:
             self.allowed_users = set()
 
     def is_user_allowed(self, user_id: str) -> bool:
-        """指定されたユーザーが実行許可リストに含まれているか検証"""
+        """指定されたユーザーが実行許可リストに含まれているか検証（未設定時は安全のため全員拒否）"""
         if not self.allowed_users:
-            logger.warning("SLACK_ALLOWED_USERS is not set. Allowing all requests.")
-            return True
+            logger.error("SLACK_ALLOWED_USERS is not configured. Rejecting request by default for security.")
+            return False
         return user_id in self.allowed_users
 
     def start_bot(self):
@@ -51,17 +51,27 @@ class SlackAgent:
             if not user_id or event.get("bot_id"):
                 return
 
+            thread_ts = event.get("thread_ts") or event.get("ts")
+
+            # 認可チェック: 許可リストにないユーザーからの実行は遮断
+            if not self.is_user_allowed(user_id):
+                logger.warning(f"Unauthorized access attempt blocked from Slack user: {user_id}")
+                say(
+                    text=f"⛔ **アクセス拒否**: ユーザー `{user_id}` にはエージェントの実行権限がありません。\n実行を許可するには環境変数 `SLACK_ALLOWED_USERS` にユーザーIDを追加してください。",
+                    thread_ts=thread_ts
+                )
+                return
+
             text = event.get("text", "")
             if not text:
                 return
-
-            thread_ts = event.get("thread_ts") or event.get("ts")
             
             # 初期レスポンス投稿
             resp = say(
                 text="🚀 **Antigravity Agent 本体を起動中...**\n\n```\n[タスク準備中...]\n```",
                 thread_ts=thread_ts
             )
+
 
             channel_id = resp["channel"]
             message_ts = resp["ts"]

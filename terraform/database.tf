@@ -41,6 +41,7 @@ resource "google_sql_database_instance" "mysql_instance" {
       ipv4_enabled                                  = false # パブリックIP露出を排除
       private_network                               = google_compute_network.vpc_network.id
       enable_private_path_for_google_cloud_services = true
+      require_ssl                                   = true  # 通信の暗号化強制
     }
 
     backup_configuration {
@@ -63,7 +64,7 @@ resource "google_sql_database_instance" "mysql_instance" {
     }
   }
 
-  deletion_protection = false # 開発・検証用。本番固定時は true を推奨
+  deletion_protection = true # 誤削除防止 (セキュリティ強化)
 }
 
 # Database

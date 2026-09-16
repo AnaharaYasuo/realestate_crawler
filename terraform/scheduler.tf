@@ -19,6 +19,6 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
   depends_on = [
     google_project_service.enabled_services,
     google_cloud_run_v2_job.crawler_pipeline_job,
-    google_project_iam_member.run_invoker
+    google_cloud_run_v2_job_iam_member.run_invoker
   ]
 }

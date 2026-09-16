@@ -5,9 +5,20 @@ resource "google_storage_bucket" "property_images" {
   storage_class = "STANDARD"
 
   uniform_bucket_level_access = true
+  public_access_prevention    = "enforced" # 意図しないパブリック公開を完全遮断
 
   versioning {
-    enabled = false
+    enabled = true
+  }
+
+  # 非現行バージョン（過去履歴）は30日で自動消去しストレージ無駄課金を抑止
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+    }
+    action {
+      type = "Delete"
+    }
   }
 
   lifecycle_rule {
