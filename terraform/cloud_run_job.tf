@@ -6,7 +6,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_vpc_access_connector.vpc_connector
+    google_vpc_access_connector.vpc_connector,
+    google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_version.slack_bot_token_version,
+    google_secret_manager_secret_iam_member.secret_accessor
   ]
 
   template {
