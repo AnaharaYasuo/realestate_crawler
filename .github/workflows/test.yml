@@ -2,9 +2,9 @@ name: Parser Tests
 
 on:
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, production ]
   push:
-    branches: [ main, master ]
+    branches: [ main, master, production ]
 
 jobs:
   test:
