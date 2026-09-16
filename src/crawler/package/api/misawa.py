@@ -9,7 +9,7 @@ from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMid
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARARELL_LIMIT = 1
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 # ==========================================
 # Mansion (Type 1 -> Misawa Type 3)

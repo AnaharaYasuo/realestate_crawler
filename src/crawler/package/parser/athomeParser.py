@@ -1,15 +1,35 @@
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
+from decimal import Decimal
 import logging
 import re
 
 logger = logging.getLogger(__name__)
 
 class AthomeParser(ParserBase):
+
+    def _parseCurrentStatus(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    def _parseRights(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
+    def _parseKouzou(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or specs.get("建物構造", "")
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
     BASE_URL = 'https://www.athome.co.jp'
     property_type = ''  # Default for type checker
 
@@ -54,62 +74,59 @@ class AthomeParser(ParserBase):
 
     async def _getContent(self, session, url):
         import asyncio
-        import random
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.5)
         try:
             from playwright.async_api import async_playwright
-            logging.info(f"Playwright: fetching URL with Bezier-stealth: {url}...")
+
+            logging.info(f"Playwright: fetching URL with stealth: {url}...")
             async with async_playwright() as p:
                 browser = await p.chromium.launch(
                     headless=True,
                     args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--no-sandbox",
-                        "--disable-infobars"
+                        '--disable-blink-features=AutomationControlled',
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-infobars',
+                        '--window-position=0,0',
+                        '--ignore-certificate-errors',
+                        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
                     ]
                 )
                 context = await browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    viewport={'width': 1280, 'height': 800}
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='ja-JP',
+                    timezone_id='Asia/Tokyo'
                 )
                 await context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined
-                    });
-                    window.chrome = {
-                        runtime: {}
-                    };
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['ja', 'en-US', 'en']
-                    });
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5]
-                    });
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                    window.chrome = { runtime: {} };
                 """)
                 page = await context.new_page()
-                await page.goto(url, timeout=40000, wait_until="load")
-                
-                # Human behavior simulation using randomized Bezier curves
-                current_x = random.randint(100, 500)
-                current_y = random.randint(100, 400)
-                await page.mouse.move(current_x, current_y)
-                
-                for _ in range(random.randint(3, 6)):
-                    next_x = random.randint(100, 1100)
-                    next_y = random.randint(100, 700)
-                    await self._humanMouseMove(page, current_x, current_y, next_x, next_y)
-                    current_x, current_y = next_x, next_y
-                    await page.wait_for_timeout(random.randint(300, 800))
-                
-                for _ in range(random.randint(2, 4)):
-                    scroll_y = random.randint(200, 600)
-                    await page.evaluate(f"window.scrollBy(0, {scroll_y})")
-                    await page.wait_for_timeout(random.randint(500, 1000))
-                
-                await page.evaluate("window.scrollBy(0, -300)")
-                await page.wait_for_timeout(1000)
+                try:
+                    resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.wait_for_timeout(2000)
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                    await page.wait_for_timeout(2000)
+                    try:
+                        await page.wait_for_selector("a[href*='bklist'], a[href*='bkdetail'], a[href*='tokyo'], .item-list, .building-list", timeout=5000)
+                    except Exception:
+                        pass
+                except Exception as goto_err:
+                    logging.warning(f"Playwright goto warning for {url}: {goto_err}")
                 
                 content_str = await page.content()
+                if "認証にご協力ください" in content_str or "認証中" in content_str or "Just a moment..." in content_str:
+                    logging.info(f"Retrying page load for challenge screen at {url}...")
+                    try:
+                        await page.reload(wait_until="domcontentloaded", timeout=20000)
+                        await page.wait_for_timeout(3000)
+                        content_str = await page.content()
+                    except Exception as reload_err:
+                        logging.warning(f"Playwright reload warning for {url}: {reload_err}")
+
                 await browser.close()
                 content_bytes = content_str.encode('utf-8')
                 logging.info(f"Playwright stealth fetch success: {len(content_bytes)} bytes for URL: {url}")
@@ -118,10 +135,15 @@ class AthomeParser(ParserBase):
             logging.error(f"Playwright stealth fetch failed for {url}: {e}")
             return await super()._getContent(session, url)
 
-    def getRootDestUrl(self, linkUrl):
+    def getRootDestUrl(self, linkUrl, base_domain=None):
+        if not linkUrl:
+            return ""
         if linkUrl.startswith('http'):
             return linkUrl
-        return self.BASE_URL + linkUrl
+        if not linkUrl.startswith('/'):
+            linkUrl = '/' + linkUrl
+        base = base_domain or getattr(self, 'current_base_domain', None) or self.BASE_URL
+        return base + linkUrl
 
     async def parseNextPage(self, response):
         """
@@ -153,7 +175,7 @@ class AthomeParser(ParserBase):
 
     async def parseRootPage(self, response):
         """
-        検索結果一覧ページ（BeautifulSoup）から詳細物件ページのURLを抽出する
+        検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
         """
         from bs4 import BeautifulSoup
         if not isinstance(response, BeautifulSoup):
@@ -164,43 +186,87 @@ class AthomeParser(ParserBase):
         import urllib.parse
         import re
         detail_links = set()
+        list_links = set()
         
-        # 物件詳細URLの抽出 (例: /mansion/6988014156/ や /kodate/12345/ や /toushi/6982464731/)
         for a in response.select("a[href]"):
             href = a.get("href")
             if not href:
                 continue
                 
-            # クエリパラメータを削除してパス部分のみでマッチさせる
-            path = urllib.parse.urlparse(href).path
+            parsed_url = urllib.parse.urlparse(href)
+            path = parsed_url.path
+            netloc = parsed_url.netloc or "www.athome.co.jp"
+            base = f"{parsed_url.scheme or 'https'}://{netloc}"
             
-            # /mansion/数字/ , /kodate/数字/ , /toushi/数字/ のパターンを検出
-            if re.match(r'^/(mansion|kodate|toushi|tochi)/\d+/?$', path):
-                full_url = self.getRootDestUrl(path)
+            is_list_or_nav = any(nav in path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
+            
+            # 1. 物件詳細URLの検出 (/buy_other/6991481322/ 等の数字6桁以上IDを含む個別詳細ページ)
+            if not is_list_or_nav and ("bkdetail" in href or re.search(r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?', path)):
+                full_url = self.getRootDestUrl(href, base_domain=base)
                 parsed = urllib.parse.urlparse(full_url)
                 normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                if parsed.query:
+                    normalized += f"?{parsed.query}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
                     yield normalized
+            # 2. 一覧・市区町村ページURLの検出 (例: /bklist?ITEM=... , /sitemaplist/ , /tokyo/ , /buy_other/tokyo/chiyoda-city/list/)
+            elif is_list_or_nav or "bklist" in href or "sitemaplist" in path or any(kw in path for kw in ["tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other"]):
+                full_url = self.getRootDestUrl(href, base_domain=base)
+                parsed = urllib.parse.urlparse(full_url)
+                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                if parsed.query:
+                    normalized += f"?{parsed.query}"
+                if normalized not in list_links and normalized != "https://toushi-athome.jp/":
+                    list_links.add(normalized)
+
+        # 個別詳細が見つからず市区町村リストが見つかった場合は各リストページを取得して本物の詳細物件URLを抽出・yieldする
+        if not detail_links and list_links:
+            for l_url in list_links:
+                try:
+                    list_html = await self._getContent(None, l_url)
+                    if list_html:
+                        sub_soup = BeautifulSoup(list_html, "html.parser")
+                        for a in sub_soup.select("a[href]"):
+                            sub_href = a.get("href")
+                            if not sub_href:
+                                continue
+                            sub_path = urllib.parse.urlparse(sub_href).path
+                            sub_is_nav = any(nav in sub_path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
+                            if not sub_is_nav and ("bkdetail" in sub_href or re.search(r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?', sub_path)):
+                                full_url = self.getRootDestUrl(sub_href, base_domain=l_url)
+                                parsed = urllib.parse.urlparse(full_url)
+                                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                                if parsed.query:
+                                    normalized += f"?{parsed.query}"
+                                if normalized not in detail_links:
+                                    detail_links.add(normalized)
+                                    yield normalized
+                except Exception as e:
+                    logging.warning(f"Error expanding list_link {l_url}: {e}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 共通の親メソッド呼び出し
         item = super()._parsePropertyDetailPage(item, response)
         
-        # タイトル・物件名
-        title_tag = response.select_one("#detailTitleArea h2 em")
-        if not title_tag:
-            title_tag = response.select_one(".bukken-name")
-        if not title_tag:
-            title_tag = response.select_one("h1")
-            
+        # 1. タイトル・物件名
+        title_tag = response.select_one("#detailTitleArea h2 em") or response.select_one(".bukken-name") or response.select_one("h1")
         p_name = title_tag.get_text().strip() if title_tag else ""
+        if not p_name and response.title:
+            title_text = response.title.get_text().strip()
+            title_text = re.sub(r'^【アットホーム】', '', title_text).strip()
+            title_text = re.sub(r'｜.*$', '', title_text).strip()
+            p_name = title_text
+            
         if p_name:
             p_name = p_name.split('\n')[0].strip()
         item.propertyName = p_name
         
-        # 1. 住所
+        # 2. 住所
         item.address = self._parseAddress(response)
+        if item.address:
+            item.address1, item.address2, item.address3 = self._split_address(item.address)
+
         
         # 2. 価格
         item.priceStr = self._parsePriceStr(response)
@@ -214,7 +280,7 @@ class AthomeParser(ParserBase):
         specs = self._get_specs_table(response)
         
         # 4. 共通情報
-        item.kouzou = specs.get("建物構造", "")
+        item.kouzou = self._parseKouzou(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
@@ -264,7 +330,76 @@ class AthomeParser(ParserBase):
                 return th.find_next_sibling("td").get_text().strip()
         return ""
 
-class AthomeMansionParser(AthomeParser):
+class AthomeMansionParser(AthomeParser, MansionParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseSenyuMenseki(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return super()._parseSenyuMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseFloor(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+
+    def _parseSouKosu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("総戸数", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return super()._parseSouKosu(response, specs)
+
+    def _parseManagementFee(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+
+    def _parseReserveFund(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
     property_type = 'mansion'
 
     def createEntity(self):
@@ -274,7 +409,7 @@ class AthomeMansionParser(AthomeParser):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
         
-        item.madori = specs.get("間取り", "")
+        item.madori = self._parseMadori(response, specs)
         item.senyuMensekiStr = specs.get("専有面積", "")
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
@@ -292,7 +427,57 @@ class AthomeMansionParser(AthomeParser):
         return item
 
 
-class AthomeKodateParser(AthomeParser):
+class AthomeKodateParser(AthomeParser, KodateParserBase):
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'kodate'
 
     def createEntity(self):
@@ -312,13 +497,13 @@ class AthomeKodateParser(AthomeParser):
             
         item.kaisuStr = specs.get("階建 / 階", "")
         item.tyusyajo = specs.get("駐車場", "")
-        item.chimoku = specs.get("地目", "")
+        item.chimoku = self._parseChimoku(response, specs)
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
         item.youseki = converter.parse_ratio(item.yousekiStr)
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.setsudou = specs.get("接道状況", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
         
         # 土地スペックパラメータ抽出（間口、道路幅、方位、私道公道など）
         road_info = specs.get("前面道路", "")
@@ -402,7 +587,56 @@ class AthomeKodateParser(AthomeParser):
         return item
 
 
-class AthomeInvestmentApartmentParser(AthomeParser):
+class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseMonthlyRent(self, response, specs=None):
+        return super()._parseMonthlyRent(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseChimoku(self, response, specs=None):
+        return super()._parseChimoku(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseGrossYield(self, response, specs=None):
+        return super()._parseGrossYield(response, specs)
+
+    def _parseAnnualRent(self, response, specs=None):
+        return super()._parseAnnualRent(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        return super()._parseKouzou(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
     property_type = 'investmentapartment'
 
     def createEntity(self):
@@ -440,7 +674,8 @@ class AthomeInvestmentApartmentParser(AthomeParser):
         rent_str = specs.get("想定賃料", "")
         item.annualRent = converter.parse_price(rent_str)
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
-        item.currentStatus = specs.get("現況", "")
+        item.genkyo = self._parseCurrentStatus(response, specs)
+        item.currentStatus = item.genkyo
         
         # 面積・構造
         item.tochiMensekiStr = specs.get("土地面積", "")
@@ -460,15 +695,58 @@ class AthomeInvestmentApartmentParser(AthomeParser):
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
         item.youseki = converter.parse_ratio(item.yousekiStr)
-        item.setsudou = specs.get("接道状況", "")
-        item.chimoku = specs.get("地目", "")
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.tochikenri = specs.get("土地権利", "")
+        item.setsudou = self._parseSetsudou(response, specs)
+        item.chimoku = self._parseChimoku(response, specs)
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
         
         return item
 
 
-class AthomeTochiParser(AthomeParser):
+class AthomeTochiParser(AthomeParser, TochiParserBase):
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseMaguchi(self, response, specs=None):
+        return super()._parseMaguchi(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseChimoku(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "") or super()._parseChimoku(response, specs)
+
+    def _parseSetsudou(self, response, specs=None) -> str:
+        return super()._parseSetsudou(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'tochi'
 
     def createEntity(self):
@@ -484,14 +762,14 @@ class AthomeTochiParser(AthomeParser):
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
             
         # 用途地域・建容
-        item.youtoChiiki = specs.get("用途地域", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
         item.youseki = converter.parse_ratio(item.yousekiStr)
         
-        item.chimoku = specs.get("地目", "")
-        item.setsudou = specs.get("接道状況", "")
+        item.chimoku = self._parseChimoku(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
         
         # 土地スペックパラメータ抽出（間口、道路幅、方位、私道公道など）
         road_info = specs.get("前面道路", "")
@@ -550,4 +828,3 @@ class AthomeTochiParser(AthomeParser):
         item.roadStructure = structure_match.group(1) if structure_match else "中間地"
         
         return item
-

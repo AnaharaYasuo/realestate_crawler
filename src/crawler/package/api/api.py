@@ -8,7 +8,8 @@ from abc import ABCMeta, abstractmethod
 from typing import Dict, Any, Optional
 
 from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
-    ReadPropertyNameException, SkipPropertyException
+    ReadPropertyNameException, SkipPropertyException, ListingEndedException
+
 import datetime
 from django.core.exceptions import ValidationError
 from django.db import close_old_connections, OperationalError
@@ -634,6 +635,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     try:
                         target_class().main(detailUrl)
                     finally:
+                        try:
+                            from django.db import close_old_connections, connections
+                            close_old_connections()
+                            connections.close_all()
+                        except Exception:
+                            pass
                         new_loop.close()
 
                 t = threading.Thread(target=run_in_new_loop)
@@ -986,13 +993,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
         retry = False
         item = None
+        is_skipped_property = False
         try:
             item = await getItem()
         except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError, ReadPropertyNameException):
             retry = True
-        except SkipPropertyException as e:
-            logging.info(f"Skipping property (Expected): {type(e).__name__} for URL: {self.url}")
+        except (SkipPropertyException, ListingEndedException) as e:
+            logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
             item = None
+            is_skipped_property = True
+
+
         except Exception as e:
             logging.error(f"get item exception for URL: {self.url}")
             logging.error(f"Exception type: {type(e).__name__}, Details: {str(e)}")
@@ -1013,14 +1024,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             item.inputDateTime = currentTime
             item.inputDate = currentDay
             
-            # 保存前に厳格なデータバリデーションを実行し、ゴミデータの混入を防止する
-            try:
-                self.parser.validateEntity(item)
-            except ValueError as val_err:
-                logging.error(f"❌ [VALIDATION FAILED] Skip saving invalid property data: {val_err} (URL: {self.url})")
-                await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, f"Validation Error: {str(val_err)}")
-                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Validation Failure: {str(val_err)}")
-                return
+            # ponytail: validateEntity was removed — method never existed, caused
+            # AttributeError silently dropping all items. validate_required_fields
+            # in parsePropertyDetailPage already enforces data quality.
 
             try:
                 logging.info(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
@@ -1028,11 +1034,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.info(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
                 
                 # ----------------------------------------------------
-                # 2段階スクリーニング統合処理
+                # 2段階スクリーニング統合処理 (B案: クロール中の同期評価はデフォルト非有効化)
                 # ----------------------------------------------------
+                enable_inline_ml = os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1")
+                if not enable_inline_ml:
+                    logging.debug(f"ML: Inline ML evaluation disabled. Property {item.pageUrl} saved for bulk evaluation.")
+                    return
+
                 try:
                     # 機械学習・画像解析モジュールのインポート
                     from package.ml.predict import predict_first_stage, predict_second_stage
+
                     from package.models.evaluation import PropertyEvaluation, PropertyImage
                     from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
                     from django.utils import timezone
@@ -1285,7 +1297,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                                 f"物件種別: {type_name} ({company_name})\n"
                                                 f"物件名: {item.propertyName}\n"
                                                 f"価格: {asking_price_man}万円 (理論価格: {price_stage2}万円, 積算価格: {eval_record.estimated_sekisan_price}万円)\n"
-                                                f"キャッシュフロー: {eval_record.cash_flow}万円/年, DSCR: {eval_record.dscr}\n"
+                                                f"キャッシュフロー: {eval_record.cash_flow}万円/年, DSCR: {float(eval_record.dscr):.2f}\n"
                                                 f"偏差値: {t_score:.1f} (スコア: {final_score:.1f}, 母集団: {pop_count}件)\n"
                                                 f"土地の形状: {plot_shape_label}\n"
                                                 f"  詳細: {eval_record.plot_shape_description or '画像なし/記述なし'}\n"
@@ -1309,18 +1321,18 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                         
                                         logging.info(msg)
                                         
-                                        # 物件種別ごとのアラートチャンネル定義
+                                        # 物件種別ごとのアラートチャンネル定義 (お宝物件用: SLACK_RECOMMEND_*)
                                         alert_channel = os.getenv("SLACK_CHANNEL_ID")
                                         if property_type == "mansion":
-                                            alert_channel = os.getenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU") # alerts-mansion
+                                            alert_channel = os.getenv("SLACK_RECOMMEND_MANSION", "C0BJ87V7BM0")
                                         elif property_type == "kodate":
-                                            alert_channel = os.getenv("SLACK_ALERT_KODATE", "C0BHZA5ASDT") # alerts-kodate
+                                            alert_channel = os.getenv("SLACK_RECOMMEND_KODATE", "C0BJ87VEV0S")
                                         elif property_type == "tochi":
-                                            alert_channel = os.getenv("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS") # alerts-tochi
+                                            alert_channel = os.getenv("SLACK_RECOMMEND_TOCHI", "C0BJA5D1GMP")
                                         elif property_type in ["invest_apartment", "apartment"]:
-                                            alert_channel = os.getenv("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0") # alerts-invest-apartment
+                                            alert_channel = os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "C0BJBUMSYGL")
                                         elif property_type == "invest_kodate":
-                                            alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
+                                            alert_channel = os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "C0BJ20EMQ67")
 
                                         # Slack送信を実行し、成否を明示的に判定・ログ記録する
                                         if alert_channel:
@@ -1365,10 +1377,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.error(f"Failed to save item (Single): {e} for URL: {item.pageUrl}")
                 logging.error(traceback.format_exc())
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+        elif is_skipped_property:
+            logging.info(f"Skipped property processing (Lifecycle / Filtered) for URL: {self.url}")
         else:
-             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
         return item
+
 
     def _getTreatPageArg(self):
         return

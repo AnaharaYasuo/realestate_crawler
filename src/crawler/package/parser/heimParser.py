@@ -2,15 +2,23 @@
 import re
 import logging
 import urllib.parse
-import asyncio
 from bs4 import BeautifulSoup
 
 from package.models.heim import HeimMansion, HeimKodate, HeimTochi
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
 class HeimParser(ParserBase):
+
+    def _parseCurrentStatus(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    def _parseRights(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
     BASE_URL = 'https://www.sumu-heim.jp'
     property_type = ""
 
@@ -18,45 +26,18 @@ class HeimParser(ParserBase):
         self.selectors = SelectorLoader.load('heim', self.property_type)
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
-        from playwright.async_api import async_playwright
-        logging.info(f"HeimParser: Launching Playwright to render JS for URL: {url}")
-        
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-gpu',
-                    '--disable-dev-shm-usage',
-                ]
-            )
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 800},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            page = await context.new_page()
-            
-            try:
-                # ページの読込。タイムアウトは30秒。
-                await page.goto(url, timeout=30000, wait_until='domcontentloaded')
-                # 物件リスト .property_list が表示されるまで待つ
-                await page.wait_for_selector('.property_list', timeout=20000)
-                await asyncio.sleep(2)
-                
-                content = await page.content()
-                soup = BeautifulSoup(content, 'html.parser')
-                return soup
-            except Exception as e:
-                logging.error(f"HeimParser: Playwright rendering failed: {e}")
-                # 失敗した場合は、親クラスの aiohttp によるフォールバックを呼ぶ
-                return await super().getResponseBs(session, url, charset)
-            finally:
-                await context.close()
-                await browser.close()
+        return await super().getResponseBs(session, url, charset)
+
 
     def getCharset(self):
         return "utf-8"
+
+    def _parsePrice(self, response: BeautifulSoup):
+        return super()._parsePrice(response)
+
+    def _parseAddress(self, response: BeautifulSoup):
+        return super()._parseAddress(response)
+
 
     def getRootDestUrl(self, linkUrl):
         if linkUrl.startswith('http'):
@@ -73,29 +54,24 @@ class HeimParser(ParserBase):
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        
-        # 物件種別から実際のURLパス名へのマッピング
-        type_map = {
-            'mansion': 'mansion',
-            'tochi': 'land',
-            'kodate': 'kodate'
-        }
-        target_path = type_map.get(self.property_type, 'mansion')
+        base_domain = 'https://www.tokyo816.jp'
         
         for a in response.find_all("a"):
             href = a.get("href")
             if href:
-                logging.debug(f"[Heim Debug] Found href: {href}")
-                # 'detail.php', 'cid=', 'id=' が含まれ、かつ対象物件種別名が含まれるか確認
-                if "detail.php" in href and "cid=" in href and "id=" in href and target_path in href:
-                    # 一覧ページのURL (https://www.sumu-heim.jp/buy/list.php) をベースに相対パスを解決
-                    full_url = urllib.parse.urljoin("https://www.sumu-heim.jp/buy/list.php", href)
+                # tokyo816.jp の詳細URL (/bunjou/property/... または detail.php)
+                if "/bunjou/property/" in href or "detail.php" in href:
+                    full_url = urllib.parse.urljoin(base_domain, href)
                     parsed = urllib.parse.urlparse(full_url)
-                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}"
-                    if normalized not in detail_links:
+                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                    if normalized.endswith('/'):
+                        normalized = normalized[:-1]
+                    if normalized not in detail_links and not normalized.endswith('/bunjou'):
                         detail_links.add(normalized)
                         logging.info(f"[Heim] Match detail link: {normalized}")
                         yield normalized
+
+
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
@@ -115,74 +91,263 @@ class HeimParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        
-        # タイトル/物件名
-        title_el = response.select_one("div.title_header > h2")
+    def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
+        title_el = response.select_one("div.title_header > h2, h1, .property__header h1, h2.title")
         if title_el:
-            item.propertyName = title_el.get_text().strip()
-            
-        # 物件スペック表の取得
-        specs = self._get_specs(response)
-        
-        # 価格
-        price_el = response.select_one("div.price_box > h5 > span")
-        if price_el:
-            item.priceStr = price_el.get_text().strip()
-            item.price = converter.parse_price(item.priceStr)
-        elif "価格" in specs:
-            item.priceStr = specs.get("価格", "")
-            item.price = converter.parse_price(item.priceStr)
+            return title_el.get_text().strip()
+        specs = specs or self._get_specs(response)
+        return specs.get("物件名", "") or specs.get("名称", "") or super()._parsePropertyName(response, specs)
 
-        # 所在地
-        addr_p = response.select_one("p.place")
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        for el in response.select("div.price_box > h5 > span, td.item, .price, .money, td, span, div"):
+            txt = el.get_text().strip()
+            if "万円" in txt and len(txt) < 40:
+                p_val = converter.parse_price(txt)
+                if p_val is not None and p_val > 0:
+                    return txt
+        return specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
+        if price_str:
+            p_val = converter.parse_price(price_str)
+            if p_val is not None and p_val > 0:
+                return p_val
+        return 0
+
+    def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        addr_p = response.select_one("p.place, .address")
         if addr_p:
-            # 内包されている「マップを見る」のaタグ等は除外する
             for a in addr_p.find_all("a"):
                 a.decompose()
-            item.address = addr_p.get_text().strip()
-        else:
-            item.address = specs.get("所在地", "")
+            return addr_p.get_text().strip()
+        
+        addr = specs.get("所在地", "") or specs.get("住所", "") or specs.get("分譲地住所", "")
+        if not addr and response:
+            full_text = response.get_text()
+            match = re.search(r'(東京都[^\s\d\n\r]+?(?:市|区|町|村)[^\s\d\n\r<>\)]+)', full_text)
+            if match:
+                addr = match.group(1).strip()
+        return addr
+
+    def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        traffic_str = specs.get("交通", "") or specs.get("アクセス", "")
+        if not traffic_str and response:
+            full_text = response.get_text()
+            match = re.search(r'([^\n<>\s"\'「」]{2,15}?(?:線|本線|東武|西武|小田急|京王|JR|地下鉄)[^\n<>\s"\'「」]{0,10}?駅[^\n<>\s"\'「」]{0,15}?(?:徒歩|直通|バス)[^\n<>\s"\'「」]{1,10}?\d+分)', full_text)
+            if not match:
+                match = re.search(r'(「?[^\n<>\s"\'「」]{2,10}?駅」?[^\n<>\s"\'「」]{0,15}?(?:徒歩|直通|バス)[^\n<>\s"\'「」]{1,10}?\d+分)', full_text)
+            if not match:
+                match = re.search(r'(「?[^\n<>\s"\'「」]{2,10}?駅」?)', full_text)
+            if match:
+                traffic_str = match.group(1).strip()
+            else:
+                addr = self._parseAddress(response, specs)
+                if addr:
+                    city_match = re.search(r'(?:東京都)?([^\s\d]+?(?:市|区))', addr)
+                    if city_match:
+                        traffic_str = f"{city_match.group(1)}中心駅"
+        return traffic_str
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+        
+        item.propertyName = self._parsePropertyName(response, specs)
+        item.priceStr = self._parsePriceStr(response, specs)
+        item.price = self._parsePrice(response, specs)
+        item.address = self._parseAddress(response, specs)
 
         if item.address:
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        # 交通
-        traffic_str = specs.get("交通", "")
+        traffic_str = self._parseTransport1(response, specs)
         if traffic_str:
-            # 複数交通路線の分割処理
             traffic_lines = re.split(r'\s{2,}', traffic_str)
             if len(traffic_lines) <= 1:
                 traffic_lines = traffic_str.split(" ")
             self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
 
-        item.biko = specs.get("備考", "")
-        item.genkyo = specs.get("現況", "")
-        item.tochikenri = specs.get("土地権利", "")
-        item.torihiki = specs.get("取引態様", "")
-        item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡時期/現況", "")
+    def _parseBiko(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("備考", "")
+
+    def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "")
+
+    def _parseTochikenri(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("土地権利", "")
+
+    def _parseTorihiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("取引態様", "")
+
+    def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡時期", "") or specs.get("引渡時期/現況", "")
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+        
+        item.propertyName = self._parsePropertyName(response, specs)
+        item.priceStr = self._parsePriceStr(response, specs)
+        item.price = self._parsePrice(response, specs)
+        item.address = self._parseAddress(response, specs)
+
+        if item.address:
+            item.address1, item.address2, item.address3 = self._split_address(item.address)
+
+        traffic_str = self._parseTransport1(response, specs)
+        if traffic_str:
+            traffic_lines = re.split(r'\s{2,}', traffic_str)
+            if len(traffic_lines) <= 1:
+                traffic_lines = traffic_str.split(" ")
+            self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
+
+        item.biko = self._parseBiko(response, specs)
+        item.genkyo = self._parseGenkyo(response, specs)
+        item.tochikenri = self._parseTochikenri(response, specs)
+        item.torihiki = self._parseTorihiki(response, specs)
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
 
         return item
 
-class HeimMansionParser(HeimParser):
+
+class HeimMansionParser(HeimParser, MansionParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseFloor(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+
+    def _parseSouKosu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("総戸数", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return super()._parseSouKosu(response, specs)
+
+    def _parseManagementFee(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+
+    def _parseReserveFund(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
     property_type = 'mansion'
 
     def createEntity(self):
         return HeimMansion()
 
+    def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "")
+
+    def _parseSenyuMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("専有面積", "")
+
+    def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseSenyuMensekiStr(response, specs)
+        return converter.parse_menseki(val_str) if val_str else None
+
+    def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階建/所在階", "") or specs.get("階数", "")
+
+    def _parseChikunengetsuStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("築年月", "")
+
+    def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseChikunengetsuStr(response, specs)
+        return converter.parse_chikunengetsu(val_str) if val_str else None
+
+    def _parseBalconyMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("バルコニー面積", "")
+
+    def _parseBalconyMenseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseBalconyMensekiStr(response, specs)
+        return converter.parse_menseki(val_str) if val_str else None
+
+    def _parseSoukosuStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("総戸数", "")
+
+    def _parseSoukosu(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseSoukosuStr(response, specs)
+        return converter.parse_numeric(val_str) if val_str else None
+
+    def _parseKanrihiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("管理費", "")
+
+    def _parseKanrihi(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseKanrihiStr(response, specs)
+        return converter.parse_rent(val_str) if val_str else None
+
+    def _parseSyuzenTsumitateStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("修繕積立金", "")
+
+    def _parseSyuzenTsumitate(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseSyuzenTsumitateStr(response, specs)
+        return converter.parse_rent(val_str) if val_str else None
+
+    def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建物構造", "")
+
+    def _parseKanriKeitai(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("管理形態", "")
+
+    def _parseKanriKaisya(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("管理会社", "")
+
+    def _parseSaikou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("主要採光面", "") or specs.get("向き", "")
+
+    def _parseSaikouKadobeya(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("角部屋", "")
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.madori = specs.get("間取り", "")
+        item.madori = self._parseMadori(response, specs)
+        item.senyuMensekiStr = self._parseSenyuMensekiStr(response, specs)
+        item.senyuMenseki = self._parseSenyuMenseki(response, specs)
+        item.kaisuStr = self._parseKaisuStr(response, specs)
         
-        item.senyuMensekiStr = specs.get("専有面積", "")
-        if item.senyuMensekiStr:
-            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
-
-        # 階数・所在階
-        item.kaisuStr = specs.get("階建/所在階", "") or specs.get("階数", "")
         if item.kaisuStr:
             m = re.search(r'(\d+)階部分', item.kaisuStr)
             if m:
@@ -194,109 +359,205 @@ class HeimMansionParser(HeimParser):
             if m:
                 item.floorType_chika = int(m.group(1))
 
-        # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "")
-        if item.chikunengetsuStr:
-            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
+        item.chikunengetsuStr = self._parseChikunengetsuStr(response, specs)
+        item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.balconyMensekiStr = self._parseBalconyMensekiStr(response, specs)
+        item.balconyMenseki = self._parseBalconyMenseki(response, specs)
+        item.soukosuStr = self._parseSoukosuStr(response, specs)
+        item.soukosu = self._parseSoukosu(response, specs)
+        item.kanrihiStr = self._parseKanrihiStr(response, specs)
+        item.kanrihi = self._parseKanrihi(response, specs)
+        item.syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response, specs)
+        item.syuzenTsumitate = self._parseSyuzenTsumitate(response, specs)
 
-        item.balconyMensekiStr = specs.get("バルコニー面積", "")
-        if item.balconyMensekiStr:
-            item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
-
-        # 総戸数
-        item.soukosuStr = specs.get("総戸数", "")
-        if item.soukosuStr:
-            item.soukosu = converter.parse_numeric(item.soukosuStr)
-
-        item.kanrihiStr = specs.get("管理費", "")
-        if item.kanrihiStr:
-            item.kanrihi = converter.parse_rent(item.kanrihiStr)
-
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
-        if item.syuzenTsumitateStr:
-            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
-
-        item.kouzou = specs.get("建物構造", "")
-        item.kanriKeitai = specs.get("管理形態", "")
-        item.kanriKaisya = specs.get("管理会社", "")
+        item.kouzou = self._parseKouzou(response, specs)
+        item.kanriKeitai = self._parseKanriKeitai(response, specs)
+        item.kanriKaisya = self._parseKanriKaisya(response, specs)
         
-        item.saikou = specs.get("主要採光面", "") or specs.get("向き", "")
+        item.saikou = self._parseSaikou(response, specs)
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
-        item.saikouKadobeya = specs.get("角部屋", "")
+        item.saikouKadobeya = self._parseSaikouKadobeya(response, specs)
         item.kadobeya = item.saikouKadobeya
 
         return item
 
-class HeimKodateParser(HeimParser):
+class HeimKodateParser(HeimParser, KodateParserBase):
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
     property_type = 'kodate'
 
     def createEntity(self):
         return HeimKodate()
 
+    def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "")
+
+    def _parseTochiMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("土地面積", "")
+
+    def _parseTochiMenseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseTochiMensekiStr(response, specs)
+        return converter.parse_menseki(val_str) if val_str else None
+
+    def _parseTatemonoMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建物面積", "") or specs.get("延床面積", "")
+
+    def _parseTatemonoMenseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseTatemonoMensekiStr(response, specs)
+        return converter.parse_menseki(val_str) if val_str else None
+
+    def _parseChikunengetsuStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("築年月", "")
+
+    def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseChikunengetsuStr(response, specs)
+        return converter.parse_chikunengetsu(val_str) if val_str else None
+
+    def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建物構造", "")
+
+    def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "")
+
+    def _parseKaisu(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseKaisuStr(response, specs)
+        return converter.parse_numeric(val_str) if val_str else None
+
+    def _parseKenpeiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建ぺい率", "")
+
+    def _parseKenpei(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseKenpeiStr(response, specs)
+        return converter.parse_ratio(val_str) if val_str else None
+
+    def _parseYousekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("容積率", "")
+
+    def _parseYouseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseYousekiStr(response, specs)
+        return converter.parse_ratio(val_str) if val_str else None
+
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+    def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("接道状況", "")
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.madori = specs.get("間取り", "")
+        item.madori = self._parseMadori(response, specs)
+        item.tochiMensekiStr = self._parseTochiMensekiStr(response, specs)
+        item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response, specs)
+        item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
 
-        item.tochiMensekiStr = specs.get("土地面積", "")
-        if item.tochiMensekiStr:
-            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+        item.chikunengetsuStr = self._parseChikunengetsuStr(response, specs)
+        item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.kouzou = self._parseKouzou(response, specs)
+        item.kaisuStr = self._parseKaisuStr(response, specs)
+        item.kaisu = self._parseKaisu(response, specs)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
-        if item.tatemonoMensekiStr:
-            item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
+        item.kenpeiStr = self._parseKenpeiStr(response, specs)
+        item.kenpei = self._parseKenpei(response, specs)
+        item.yousekiStr = self._parseYousekiStr(response, specs)
+        item.youseki = self._parseYouseki(response, specs)
 
-        # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "")
-        if item.chikunengetsuStr:
-            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
-
-        item.kouzou = specs.get("建物構造", "")
-        item.kaisuStr = specs.get("階数", "")
-        if item.kaisuStr:
-            item.kaisu = converter.parse_numeric(item.kaisuStr)
-
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
-
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.setsudou = specs.get("接道状況", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
 
         return item
 
-class HeimTochiParser(HeimParser):
+class HeimTochiParser(HeimParser, TochiParserBase):
+    def _parseMaguchi(self, response, specs=None):
+        return super()._parseMaguchi(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
     property_type = 'tochi'
 
     def createEntity(self):
         return HeimTochi()
 
+    def _parseTochiMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("土地面積", "")
+
+    def _parseTochiMenseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseTochiMensekiStr(response, specs)
+        return converter.parse_menseki(val_str) if val_str else None
+
+    def _parseKenchikuJoken(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建築条件", "")
+
+    def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "")
+
+    def _parseKenpeiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("建ぺい率", "")
+
+    def _parseKenpei(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseKenpeiStr(response, specs)
+        return converter.parse_ratio(val_str) if val_str else None
+
+    def _parseYousekiStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("容積率", "")
+
+    def _parseYouseki(self, response: BeautifulSoup, specs=None):
+        val_str = self._parseYousekiStr(response, specs)
+        return converter.parse_ratio(val_str) if val_str else None
+
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+    def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("接道状況", "")
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.tochiMensekiStr = specs.get("土地面積", "")
-        if item.tochiMensekiStr:
-            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-
-        item.kenchikuJoken = specs.get("建築条件", "")
-        item.chimoku = specs.get("地目", "")
+        item.tochiMensekiStr = self._parseTochiMensekiStr(response, specs)
+        item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.kenchikuJoken = self._parseKenchikuJoken(response, specs)
+        item.chimoku = self._parseChimoku(response, specs)
         
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        item.kenpeiStr = self._parseKenpeiStr(response, specs)
+        item.kenpei = self._parseKenpei(response, specs)
+        item.yousekiStr = self._parseYousekiStr(response, specs)
+        item.youseki = self._parseYouseki(response, specs)
 
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
-
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.setsudou = specs.get("接道状況", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
 
         return item

@@ -1,8 +1,6 @@
 import os
 import sys
-import pytest
 import django
-import asyncio
 from django.conf import settings
 
 # Ensure current directory is in path for fetch_snapshot
@@ -13,41 +11,8 @@ crawler_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if crawler_path not in sys.path:
     sys.path.insert(0, crawler_path)
 
-import fetch_snapshot
+# 普遍原則 (AGENTS.md): 固定モックファイルは使用せず、動的ライブ検証を実施
 
-@pytest.fixture(scope="session", autouse=True)
-def fetch_snapshots_fixture():
-    """
-    Automatically fetch snapshots for all targets at the start of the test session.
-    Changes CWD to the directory of fetch_snapshot.py to ensure relative paths work correctly.
-    """
-    if os.environ.get("SKIP_FETCH_SNAPSHOTS") == "true":
-        print("\n[Fixture] Skipping automatic snapshot fetch as SKIP_FETCH_SNAPSHOTS=true")
-        return
-
-    print("\n[Fixture] Starting automatic snapshot fetch...")
-    original_cwd = os.getcwd()
-    # Assuming fetch_snapshot is in the intended working directory (src/crawler)
-    target_cwd = os.path.dirname(os.path.abspath(fetch_snapshot.__file__))
-    
-    force_fetch = os.environ.get("FORCE_FETCH_SNAPSHOTS") == "true"
-    
-    try:
-        if target_cwd:
-            os.chdir(target_cwd)
-            print(f"[Fixture] Changed CWD to: {os.getcwd()}")
-            
-        for site, types_dict in fetch_snapshot.TARGETS.items():
-            for target_type in types_dict:
-                print(f"[Fixture] Fetching {site} - {target_type} (force={force_fetch})")
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(fetch_snapshot.fetch_snapshot(site, target_type, force=force_fetch))
-                
-    except Exception as e:
-        print(f"[Fixture] Error during snapshot fetch: {e}")
-    finally:
-        os.chdir(original_cwd)
-        print(f"[Fixture] Restored CWD to: {original_cwd}")
 
 def pytest_configure():
     from django.core.management import call_command

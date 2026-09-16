@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import pytest
 from unittest.mock import MagicMock
+from package.ml.features import safe_float
 from package.ml.train import (
     _load_company_properties,
     _extract_unit_price_record,
@@ -9,6 +10,12 @@ from package.ml.train import (
     clean_training_data
 )
 import pandas as pd
+
+def test_safe_float_invalid_numeric_strings():
+    assert safe_float(".12.4", 0.0) == 0.0
+    assert safe_float("12.4", 0.0) == 12.4
+    assert safe_float(None, 4.0) == 4.0
+    assert safe_float("invalid", 6.0) == 6.0
 
 class MockProperty:
     def __init__(self, **kwargs):

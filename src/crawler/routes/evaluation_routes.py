@@ -30,17 +30,25 @@ def _predict_price_internal(property_type, data):
     interior_score = float(data.get("interior_score", 3.0))
     layout_score = float(data.get("layout_score", 3.0))
     
-    # 価格推定の実行
-    first_stage_pred = predict_first_stage_local(property_data)
-    second_stage_pred = predict_second_stage_local(property_data, interior_score, layout_score)
-    
-    return jsonify({
-        "success": True,
-        "property_type": property_type,
-        "first_stage_predicted_price": first_stage_pred,
-        "second_stage_predicted_price": second_stage_pred,
-        "message": "Estimation completed successfully"
-    }), 200
+    from django.db import connections, reset_queries
+    try:
+        # 価格推定の実行
+        first_stage_pred = predict_first_stage_local(property_data)
+        second_stage_pred = predict_second_stage_local(property_data, interior_score, layout_score)
+        
+        return jsonify({
+            "success": True,
+            "property_type": property_type,
+            "first_stage_predicted_price": first_stage_pred,
+            "second_stage_predicted_price": second_stage_pred,
+            "message": "Estimation completed successfully"
+        }), 200
+    finally:
+        try:
+            connections.close_all()
+            reset_queries()
+        except Exception:
+            pass
 
 @evaluation_bp.route('/api/evaluation/predict/mansion', methods=['POST'])
 def predict_mansion():

@@ -7,7 +7,7 @@ from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMid
 
 from package.api.registry import ApiRegistry
 
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 DEFAULT_PARARELL_LIMIT = 1
 
 # ==========================================
@@ -148,12 +148,18 @@ class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
         return API_KEY_MISAWA_INVEST_KODATE_LIST
 
 
+# Import missing constants
+from package.api.api import API_KEY_MISAWA_INVEST_KODATE_START, API_KEY_MISAWA_INVEST_APARTMENT_START
+
 # ==========================================
 # Registry
 # ==========================================
 
 ApiRegistry.register(API_KEY_MISAWA_INVEST_START, ParseMisawaInvestmentStartAsync)
+ApiRegistry.register(API_KEY_MISAWA_INVEST_KODATE_START, ParseMisawaInvestmentKodateStartAsync)
+ApiRegistry.register(API_KEY_MISAWA_INVEST_APARTMENT_START, ParseMisawaInvestmentApartmentStartAsync)
 ApiRegistry.register(API_KEY_MISAWA_INVEST_APARTMENT_LIST, ParseMisawaInvestmentApartmentListFuncAsync)
 ApiRegistry.register(API_KEY_MISAWA_INVEST_APARTMENT_DETAIL, ParseMisawaInvestmentApartmentDetailFuncAsync)
 ApiRegistry.register(API_KEY_MISAWA_INVEST_KODATE_LIST, ParseMisawaInvestmentKodateListFuncAsync)
 ApiRegistry.register(API_KEY_MISAWA_INVEST_KODATE_DETAIL, ParseMisawaInvestmentKodateDetailFuncAsync)
+

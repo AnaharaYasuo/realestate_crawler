@@ -16,3 +16,40 @@ catboost_info/
 **/catboost_info/
 **/*.joblib
 src/crawler/package/ml/models/
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Environment & local credentials
+.cron_env
+*.env.*
+.env*
+!.env.example
+
+# Temporary files & outputs
+*out.txt
+**/*out.txt
+*.tmp
+*.temp
+*_temp.py
+**/temp_*.py
+
+# Caches & coverage
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated plots & images
+*.png
+*.jpg
+*.jpeg
+
+# Mock HTML files (replaced by dynamic active verification)
+docs/requirements/site_samples/*.html
+src/crawler/tests/data/*.html
+src/crawler/tests/data/*.png
+**/*_mock.html

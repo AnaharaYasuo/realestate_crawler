@@ -1,16 +1,34 @@
+from decimal import Decimal
 # -*- coding: utf-8 -*-
 import re
 import logging
 import urllib.parse
-import asyncio
 from bs4 import BeautifulSoup
 
 from package.models.keio import KeioMansion, KeioKodate, KeioTochi
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
 class KeioParser(ParserBase):
+
+    def _parseCurrentStatus(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    def _parseRights(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parsePriceStr(self, response, specs=None):
+        return super()._parsePriceStr(response, specs)
+
     BASE_URL = 'https://chukai.keiofudosan.co.jp'
     property_type = ""
 
@@ -19,6 +37,15 @@ class KeioParser(ParserBase):
 
     def getCharset(self):
         return "utf-8"
+
+    def _parsePrice(self, response: BeautifulSoup):
+        return super()._parsePrice(response)
+
+    def _parseAddress(self, response: BeautifulSoup):
+        return super()._parseAddress(response)
+
+
+
 
     def getRootDestUrl(self, linkUrl):
         if linkUrl.startswith('http'):
@@ -41,47 +68,8 @@ class KeioParser(ParserBase):
         return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, parsed.fragment))
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
-        from playwright.async_api import async_playwright
-        logging.info(f"KeioParser: Launching Playwright to render JS for URL: {url}")
-        
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-gpu',
-                    '--disable-dev-shm-usage',
-                ]
-            )
-            context = await browser.new_context(
-                viewport={'width': 1280, 'height': 800},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            )
-            page = await context.new_page()
-            
-            try:
-                # ページの読込（タイムアウト30秒）
-                await page.goto(url, timeout=30000, wait_until='domcontentloaded')
-                
-                # 一覧ページの場合は article.data、詳細ページの場合は table.spec_table_default の出現を待つ
-                if "/sale/" in url and url.split("/sale/")[-1].strip("/").isdigit():
-                    await page.wait_for_selector('table.spec_table_default', timeout=20000)
-                else:
-                    await page.wait_for_selector('article.data', timeout=20000)
-                    
-                await asyncio.sleep(2)
-                
-                content = await page.content()
-                soup = BeautifulSoup(content, 'html.parser')
-                return soup
-            except Exception as e:
-                logging.error(f"KeioParser: Playwright rendering failed: {e}")
-                # 失敗した場合はフォールバック
-                return await super().getResponseBs(session, url, charset)
-            finally:
-                await context.close()
-                await browser.close()
+        return await super().getResponseBs(session, url, charset)
+
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーション内の a.pager.current (アクティブなページ) の次のリンクを探す
@@ -122,8 +110,8 @@ class KeioParser(ParserBase):
                         yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
-        specs = {}
-        for table in response.select("table.spec_table_default"):
+        specs = super()._get_specs(response)
+        for table in response.select("table.spec_table_default, table"):
             for tr in table.select("tr"):
                 ths = tr.find_all("th")
                 tds = tr.find_all("td")
@@ -165,14 +153,86 @@ class KeioParser(ParserBase):
             self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
 
         item.biko = specs.get("備考", "")
-        item.genkyo = specs.get("現況", "")
-        item.tochikenri = specs.get("土地権利", "") or specs.get("権利", "")
+        item.genkyo = self._parseCurrentStatus(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
         item.torihiki = specs.get("取引態様", "")
         item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "")
 
         return item
 
-class KeioMansionParser(KeioParser):
+class KeioMansionParser(KeioParser, MansionParserBase):
+    def _parsePriceStr(self, response, specs=None):
+        return super()._parsePriceStr(response, specs)
+
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseSenyuMenseki(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return super()._parseSenyuMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseFloor(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+
+    def _parseSouKosu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("総戸数", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return super()._parseSouKosu(response, specs)
+
+    def _parseManagementFee(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+
+    def _parseReserveFund(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
     property_type = 'mansion'
 
     def createEntity(self):
@@ -182,7 +242,7 @@ class KeioMansionParser(KeioParser):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.madori = specs.get("間取り", "")
+        item.madori = self._parseMadori(response, specs)
         
         item.senyuMensekiStr = specs.get("専有面積", "")
         if item.senyuMensekiStr:
@@ -223,7 +283,7 @@ class KeioMansionParser(KeioParser):
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 
-        item.kouzou = specs.get("建物構造", "") or specs.get("構造", "")
+        item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         
@@ -235,7 +295,60 @@ class KeioMansionParser(KeioParser):
 
         return item
 
-class KeioKodateParser(KeioParser):
+class KeioKodateParser(KeioParser, KodateParserBase):
+    def _parsePriceStr(self, response, specs=None):
+        return super()._parsePriceStr(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'kodate'
 
     def createEntity(self):
@@ -245,7 +358,7 @@ class KeioKodateParser(KeioParser):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.madori = specs.get("間取り", "")
+        item.madori = self._parseMadori(response, specs)
 
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
@@ -260,7 +373,7 @@ class KeioKodateParser(KeioParser):
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.kouzou = specs.get("建物構造", "") or specs.get("構造", "")
+        item.kouzou = self._parseKouzou(response, specs)
         item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
@@ -273,12 +386,58 @@ class KeioKodateParser(KeioParser):
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
 
         return item
 
-class KeioTochiParser(KeioParser):
+class KeioTochiParser(KeioParser, TochiParserBase):
+    def _parsePriceStr(self, response, specs=None):
+        return super()._parsePriceStr(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseMaguchi(self, response, specs=None):
+        return super()._parseMaguchi(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseChimoku(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "") or super()._parseChimoku(response, specs)
+
+    def _parseSetsudou(self, response, specs=None) -> str:
+        return super()._parseSetsudou(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'tochi'
 
     def createEntity(self):
@@ -293,7 +452,7 @@ class KeioTochiParser(KeioParser):
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
         item.kenchikuJoken = specs.get("建築条件", "")
-        item.chimoku = specs.get("地目", "")
+        item.chimoku = self._parseChimoku(response, specs)
         
         item.kenpeiStr = specs.get("建ぺい率", "")
         if item.kenpeiStr:
@@ -303,7 +462,7 @@ class KeioTochiParser(KeioParser):
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
-        item.youtoChiiki = specs.get("用途地域", "")
-        item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
 
         return item

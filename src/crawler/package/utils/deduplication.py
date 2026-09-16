@@ -46,7 +46,7 @@ def normalize_address(address: str) -> str:
     
     return address
 
-def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEvaluation) -> float:
+def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEvaluation, prop_a=None, prop_b=None) -> float:
     """
     2つの PropertyEvaluation レコード（および紐づく実データ）の類似度を計算する。
     戻り値: 0.0 (全く異なる) 〜 1.0 (完全に同一) の類似度スコア
@@ -93,15 +93,17 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
             logger.debug(f"Failed to load real property data for evaluation {eval_rec.id}: {e}")
             return None
 
-    prop_a = get_real_property(eval_a)
-    prop_b = get_real_property(eval_b)
+    if prop_a is None:
+        prop_a = get_real_property(eval_a)
+    if prop_b is None:
+        prop_b = get_real_property(eval_b)
     
     if not prop_a or not prop_b:
         return 0.0
 
     # 1. 住所類似度 (最大 0.5)
-    addr_a = normalize_address(prop_a.address)
-    addr_b = normalize_address(prop_b.address)
+    addr_a = normalize_address(getattr(prop_a, "address", ""))
+    addr_b = normalize_address(getattr(prop_b, "address", ""))
     if addr_a and addr_b:
         if addr_a == addr_b:
             score += 0.50
@@ -154,16 +156,18 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
 
     return score
 
-def find_duplicate_property(new_eval: PropertyEvaluation) -> Optional[PropertyEvaluation]:
+def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> Optional[PropertyEvaluation]:
     """
     新しく登録された PropertyEvaluation に対して、DB内に同一とみなせる類似物件レコードが存在するか検索する。
-    - 直近に作成された最大1000件のレコードを対象
+    - 直近に作成された同種別の最大50件のレコードを対象に高速走査
     - 類似度スコアが 0.85 以上のものを重複と判定
     """
-    candidates = PropertyEvaluation.objects.exclude(id=new_eval.id).order_by('-id')[:1000]
+    candidates = PropertyEvaluation.objects.filter(
+        property_type=new_eval.property_type
+    ).exclude(id=new_eval.id).order_by('-id')[:50]
     
     for cand in candidates:
-        similarity = calculate_property_similarity(new_eval, cand)
+        similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)
         if similarity >= 0.85:
             logger.info(f"Duplicate property detected: {new_eval.property_url} is duplicate of {cand.property_url} (Similarity: {similarity:.2f})")
             return cand

@@ -118,17 +118,37 @@ task logs
 
 **対処:** [データベース関連の問題](#データベース関連の問題) を参照
 
-##### D. `TimeoutError` が出力されている場合
+##### E. `Zero-Count Failure` (0件取得失敗) が出力されている場合
 
-**原因:** サイトの応答が遅い（Fire-and-Forgetパターンでは正常）
+**原因:** サイトのHTML構造変更、IP制限、または一覧ページURLの形式変更により、取得件数が0件になった
 
 **対処:**
-- Fire-and-Forgetパターンでは、タイムアウトは成功とみなされる
-- ログに `TimeoutError` が出力されていても、処理は継続される
-- データが保存されているか確認:
-  ```bash
-  docker compose exec mysql mysql -u root -proot realestate_crawler -e "SELECT COUNT(*) FROM crawler_mitsumansion;"
-  ```
+1. 0件取得原因診断ツールの実行:
+   ```bash
+   docker compose exec -T app python src/crawler/scripts/debug_tools/diagnose_zero_models.py
+   ```
+2. パーサーのセレクターおよび一覧ページ抽出ロジックを修正
+3. スモークテストで動的取得を検証
+
+### Slack通知が届かない (`channel_not_found` 等)
+
+**症状:**
+クローリング完了時やアラート発生時に Slack へ通知が送られない、またはログに `channel_not_found` が出力される
+
+**原因と対処:**
+
+1. **チャンネル未招待 / チャンネル名不一致**
+   - Slack のボットアカウントが通知先チャンネルに招待されていない
+   - チャンネル名が変更された（例: `property_alart` ➔ `property_alert`）
+
+2. **Slack 疎通自己チェックツールの実行**
+   クローリングおよび通知処理の実行前に、以下のコマンドで全チャンネルへの疎通と権限を自律チェックしてください:
+   ```bash
+   docker compose exec -T app python src/crawler/scripts/debug_tools/check_slack_connection.py
+   ```
+   すべての対象チャンネルで `OK` が返ることを確認してください。
+
+---
 
 ### クローラーが途中で停止する
 

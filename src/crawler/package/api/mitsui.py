@@ -7,7 +7,7 @@ from package.api.api import ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiTochiParser, MitsuiKodateParser
 
 DEFAULT_PARARELL_LIMIT = 1
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 

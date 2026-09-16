@@ -12,7 +12,7 @@ from package.parser.nomuraParser import NomuraMansionParser, NomuraKodateParser,
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARARELL_LIMIT = 1
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 def _get_combined_parser(self):
     async def combined_parser(response):

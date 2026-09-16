@@ -11,7 +11,7 @@ API_KEY_SUMIFU_KODATE_DETAIL_GCP, API_KEY_SUMIFU_KODATE_REGION_GCP, API_KEY_SUMI
 from package.parser.sumifuParser import SumifuMansionParser,SumifuTochiParser,SumifuKodateParser
 
 DEFAULT_PARARELL_LIMIT = 1
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 

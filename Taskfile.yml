@@ -38,11 +38,17 @@ tasks:
       - curl "http://127.0.0.1:8000/api/{{.COMPANY}}/{{.TYPE}}/start"
 
   test:
-    desc: Run all tests in the test suite
+    desc: Run all tests in the test suite (unit + live integration)
     cmds:
       - docker compose exec -T app pytest src/crawler/tests
 
+  test-live:
+    desc: Run live reachability and full-field parsing integration tests
+    cmds:
+      - docker compose exec -T app pytest src/crawler/tests/integration/test_live_reachability.py -v -s
+
   test-slack:
+
     desc: Run Slack utility unit tests
     cmds:
       - docker compose exec -T app pytest src/crawler/tests/unit/test_slack.py -v

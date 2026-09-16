@@ -6,7 +6,7 @@ from package.api.api import API_KEY_TOKYU_KODATE_START, API_KEY_TOKYU_KODATE_ARE
 from package.parser.tokyuParser import TokyuMansionParser, TokyuTochiParser, TokyuKodateParser
 
 DEFAULT_PARARELL_LIMIT = 1
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 class ParseTokyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 

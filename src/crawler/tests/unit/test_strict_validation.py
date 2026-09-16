@@ -163,6 +163,16 @@ class TestStrictValidation:
                 return SumifuInvestmentKodate()
             def _parsePropertyDetailPage(self, item, response):
                 return item
+            def _parseAddress(self, response, specs=None):
+                return ""
+            def _parsePrice(self, response, specs=None):
+                return None
+            def _parsePriceStr(self, response, specs=None):
+                return ""
+            def _parsePropertyName(self, response, specs=None):
+                return ""
+            def _parseTransport1(self, response, specs=None):
+                return ""
                 
         parser = DummyParser()
         item = SumifuInvestmentKodate()

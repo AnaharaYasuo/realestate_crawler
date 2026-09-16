@@ -5,7 +5,7 @@
 mansion:
   # Basic selectors
   title: "h1.headline1"
-  price: ".price-value"
+  price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/mansion/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/mansion/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
@@ -32,7 +32,7 @@ mansion:
 kodate:
   # Basic selectors
   title: "h1.headline1"
-  price: ".price-value"
+  price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/kodate/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/kodate/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
@@ -56,7 +56,7 @@ kodate:
 tochi:
   # Basic selectors
   title: "h1.headline1"
-  price: ".price-value"
+  price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
   root_xpath: "//li/a[contains(@href,'/buy/tochi/prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/tochi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
@@ -79,7 +79,7 @@ tochi:
 investment:
   # Basic selectors
   title: "h1.headline1"
-  price: ".price-value"
+  price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths - Corrected to /buy/tohshi/ as per user instruction
   root_xpath: "//a[starts-with(@href,'prefecture/')]/@href"
   area_xpath: "//a[contains(@href,'/buy/tohshi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"

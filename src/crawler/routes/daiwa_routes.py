@@ -15,8 +15,8 @@ from package.api.daiwa import (
 daiwa_bp = Blueprint('daiwa', __name__)
 
 def get_start_url(property_type='2'):
-    # 東京都 (prefecture_code=13) をデフォルトのスタートとする
-    return f"https://www.dh-realestate.co.jp/buy/search/alist?prefecture_code=13&property_type[]={property_type}"
+    # 全国対象の検索一覧スタートURL
+    return f"https://www.dh-realestate.co.jp/buy/search/alist?property_type[]={property_type}"
 
 @daiwa_bp.route(API_KEY_DAIWA_MANSION_START, methods=['POST', 'GET'])
 def daiwaMansionStart():

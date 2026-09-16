@@ -21,6 +21,141 @@ LIFESPAN = {
     'default': 30
 }
 
+FEATURE_SETS = {
+    "mansion": {
+        "first": [
+            "area", "chikunen", "walk_min", "kanrihi", "syuzen",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
+            "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ],
+        "second": [
+            "area", "chikunen", "walk_min", "kanrihi", "syuzen",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
+            "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "interior_score", "layout_score",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ]
+    },
+    "kodate": {
+        "first": [
+            "area", "tochi_menseki", "chikunen", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ],
+        "second": [
+            "area", "tochi_menseki", "chikunen", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "interior_score", "layout_score",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ]
+    },
+    "apartment": {
+        "first": [
+            "area", "tochi_menseki", "chikunen", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
+            "gross_yield", "annual_rent",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ],
+        "second": [
+            "area", "tochi_menseki", "chikunen", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
+            "gross_yield", "annual_rent",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "interior_score", "layout_score",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ]
+    },
+    "tochi": {
+        "first": [
+            "area", "tochi_menseki", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ],
+        "second": [
+            "area", "tochi_menseki", "walk_min",
+            "pop_growth", "income", "passenger_volume", "average_land_price",
+            "estimated_rosenka_price", "estimated_fixed_asset_price",
+            "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+            "flood_risk_level", "landslide_risk_level",
+            "max_youseki", "max_kenpei",
+            "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+            "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
+            "max_building_area", "max_floor_area", "kagechi_ratio",
+            "total_population", "income_growth_rate", "land_price_growth_rate",
+            "effective_walk_min", "population_density",
+            "interior_score", "layout_score",
+            "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
+            "potential_floor_area", "scale_discount"
+        ]
+    }
+}
+
 def parse_kouzou(kouzou_str):
     """構造文字列から構造カテゴリを分類"""
     if not kouzou_str:
@@ -87,6 +222,113 @@ def calculate_chikunen(chikunengetsu, base_date=None):
         return (base_date - chikunengetsu).days / 365.25
     return 20.0
 
+from decimal import Decimal
+import re
+
+def safe_float(val, default_val):
+    if val is None:
+        return default_val
+    if isinstance(val, (int, float, Decimal)):
+        f_val = float(val)
+        if f_val <= 0 and default_val is not None:
+            return default_val
+        return f_val
+    if isinstance(val, str):
+        val_str = val.strip()
+        if val_str.count('.') > 1:
+            return default_val
+        m_val = re.search(r'(\d+(?:\.\d+)?)', val_str)
+        if m_val:
+            try:
+                f_val = float(m_val.group(1))
+                if f_val <= 0 and default_val is not None:
+                    return default_val
+                return f_val
+            except (ValueError, TypeError):
+                pass
+    return default_val
+
+# 全国47都道府県の標準的基準地価（住宅地/商業地, 円/㎡）
+PREFECTURE_BASE_LAND_PRICES = {
+    "東京都": (500000, 2500000),
+    "神奈川県": (210000, 650000),
+    "大阪府": (230000, 1300000),
+    "愛知県": (150000, 600000),
+    "京都府": (220000, 850000),
+    "埼玉県": (140000, 420000),
+    "兵庫県": (150000, 520000),
+    "千葉県": (120000, 320000),
+    "福岡県": (140000, 750000),
+    "宮城県": (100000, 450000),
+    "広島県": (100000, 380000),
+    "静岡県": (70000, 180000),
+    "滋賀県": (75000, 180000),
+    "北海道": (50000, 220000),
+    "奈良県": (80000, 200000),
+    "岡山県": (65000, 180000),
+    "熊本県": (65000, 220000),
+    "沖縄県": (110000, 300000),
+    "茨城県": (50000, 130000),
+    "栃木県": (50000, 130000),
+    "群馬県": (45000, 120000),
+    "長野県": (40000, 95000),
+    "岐阜県": (45000, 110000),
+    "三重県": (45000, 110000),
+    "新潟県": (35000, 80000),
+    "富山県": (40000, 90000),
+    "石川県": (55000, 160000),
+    "福井県": (40000, 90000),
+    "山梨県": (35000, 80000),
+    "福島県": (40000, 95000),
+    "山形県": (35000, 80000),
+    "岩手県": (35000, 85000),
+    "秋田県": (30000, 75000),
+    "青森県": (30000, 75000),
+    "鳥取県": (35000, 80000),
+    "島根県": (30000, 75000),
+    "山口県": (40000, 90000),
+    "徳島県": (45000, 100000),
+    "香川県": (55000, 140000),
+    "愛媛県": (50000, 130000),
+    "高知県": (45000, 110000),
+    "佐賀県": (40000, 90000),
+    "長崎県": (50000, 120000),
+    "大分県": (45000, 110000),
+    "宮崎県": (40000, 95000),
+    "鹿児島県": (40000, 110000),
+}
+
+def _get_nationwide_base_land_price(prefecture: str, city: str = "") -> Tuple[int, int]:
+    """
+    全国47都道府県および市区町村別の基準地価（住宅地/商業地, 円/㎡）を動的算出
+    """
+    pref_clean = (prefecture or "").strip()
+    city_clean = (city or "").strip()
+    
+    base_res, base_comm = 80000, 200000
+    for p, vals in PREFECTURE_BASE_LAND_PRICES.items():
+        if p in pref_clean or pref_clean in p:
+            base_res, base_comm = vals
+            break
+            
+    if any(k in city_clean for k in ["千代田区", "中央区", "港区"]):
+        return 2000000, 6500000
+    if any(k in city_clean for k in ["渋谷区", "新宿区", "文京区", "目黒区"]):
+        return 1300000, 3800000
+    if any(k in city_clean for k in ["品川区", "世田谷区", "大田区", "杉並区", "中野区", "豊島区"]):
+        return 800000, 2200000
+    if "区" in city_clean and ("東京" in pref_clean or pref_clean == "東京都"):
+        return 550000, 1400000
+        
+    if any(k in city_clean for k in ["北区", "中央区", "中区", "博多区", "東山区", "下京区", "西区"]):
+        if any(p in pref_clean for p in ["大阪府", "京都府", "愛知県", "福岡県", "神奈川県", "兵庫県"]):
+            return max(base_res * 2, 450000), max(base_comm * 2, 1800000)
+            
+    if any(k in city_clean for k in ["郡", "町", "村"]):
+        return int(base_res * 0.45), int(base_comm * 0.45)
+        
+    return base_res, base_comm
+
 # グローバルキャッシュ変数
 _muni_cache: Dict[Tuple[str, str], Any] = {}
 _muni_pref_cache: Dict[str, list] = {}
@@ -130,6 +372,12 @@ def _init_global_caches():
         for z in UrbanPlanningZonePotential.objects.all():
             _zone_cache[z.zone_name] = z
 
+    from django.db import connections
+    try:
+        connections.close_all()
+    except Exception:
+        pass
+
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
     """
     共通特徴量エンジニアリング関数 (Djangoモデルオブジェクトまたは辞書に対応)
@@ -161,21 +409,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                 
     station1 = get_attr(property_obj, 'station1', '') or ''
     company = get_attr(property_obj, 'company', 'unknown') or 'unknown'
-    
-    from decimal import Decimal
-    def safe_float(val, default_val):
-        if val is None:
-            return default_val
-        if isinstance(val, (int, float, Decimal)):
-            return float(val)
-        if isinstance(val, str):
-            m_val = re.search(r'([0-9\.]+)', val)
-            if m_val:
-                try:
-                    return float(m_val.group(1))
-                except:
-                    pass
-        return default_val
 
     # 基準日の設定
     if not base_date:
@@ -185,13 +418,48 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         else:
             base_date = datetime.date.today()
             
-    chikunengetsu = get_attr(property_obj, 'chikunengetsu', None)
+    chikunengetsu = (
+        get_attr(property_obj, 'chikunengetsu', None)
+        or get_attr(property_obj, 'builtYear', None)
+        or get_attr(property_obj, 'buildDate', None)
+        or get_attr(property_obj, 'chikunengetsuStr', None)
+        or get_attr(property_obj, 'kenchikuNengetsu', None)
+        or get_attr(property_obj, 'chikunen', None)
+    )
     if not chikunengetsu:
-        chikunengetsu = get_attr(property_obj, 'chikunengetsuStr', None)
-    chikunen = calculate_chikunen(chikunengetsu, base_date)
+        kouzou_raw = str(get_attr(property_obj, 'kouzou', '') or get_attr(property_obj, 'structure', ''))
+        if "木" in kouzou_raw or property_type == 'kodate':
+            chikunen = 38.0
+        else:
+            chikunen = 30.0
+    else:
+        chikunen = calculate_chikunen(chikunengetsu, base_date)
     
     walk_min = get_attr(property_obj, 'railwayWalkMinute1', None)
-    if walk_min is None: walk_min = 15
+    raw_traffic = str(get_attr(property_obj, 'traffic', '') or get_attr(property_obj, 'koutsu', '') or '')
+    bus_use = get_attr(property_obj, 'busUse1', 0)
+    
+    # バス乗車分数の抽出 (例: "【バス】28分", "バス20分", "バス乗車15分")
+    bus_min = 0.0
+    m_bus = re.search(r'(?:【バス】|バス|乗車)\s*([0-9]+)\s*分', raw_traffic)
+    if m_bus:
+        bus_min = safe_float(m_bus.group(1), 0.0)
+        bus_use = 1
+        
+    bus_walk = get_attr(property_obj, 'busWalkMinute1', None)
+    if bus_walk is None:
+        m_bwalk = re.search(r'(?:停歩|停 徒歩|バス停徒歩)\s*([0-9]+)\s*分', raw_traffic)
+        bus_walk = safe_float(m_bwalk.group(1), 0.0) if m_bwalk else 0.0
+    else:
+        bus_walk = safe_float(bus_walk, 0.0)
+
+    if walk_min is None:
+        # traffic / koutsu テキストからの徒歩分数抽出
+        m_walk = re.search(r'(?:徒歩|歩)\s*([0-9]+)\s*分', raw_traffic)
+        if m_walk:
+            walk_min = safe_float(m_walk.group(1), 15)
+        else:
+            walk_min = 15
     walk_min = int(walk_min)
     
     # 各種面積
@@ -202,6 +470,10 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     area = float(senyu_menseki) if senyu_menseki else 0.0
     tatemono_area = float(tatemono_menseki) if tatemono_menseki else 0.0
     tochi_area = float(tochi_menseki) if tochi_menseki else 0.0
+    
+    # マンションの面積異常サニタイズ（価格等の混入による500㎡超の異常値を防御）
+    if property_type == 'mansion' and area > 500.0:
+        area = 70.0
     
     # セットバック（後退）相当面積の算出および土地有効面積への調整
     import re
@@ -246,12 +518,12 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         if not road_width_temp and raw_setsudou_temp:
             m_width = re.search(r'([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
             if m_width:
-                road_width_temp = float(m_width.group(1))
+                road_width_temp = safe_float(m_width.group(1), 0.0)
                 
         if not maguchi_temp and raw_setsudou_temp:
             m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
             if m_maguchi:
-                maguchi_temp = float(m_maguchi.group(1))
+                maguchi_temp = safe_float(m_maguchi.group(1), 0.0)
                 
         maguchi_val_temp = safe_float(maguchi_temp, 6.0)
         road_width_val_temp = safe_float(road_width_temp, 4.0)
@@ -309,33 +581,68 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             pop_density = sum(float(x.population_density) for x in muni_pref_vals if x.population_density is not None) / len(muni_pref_vals) if any(x.population_density is not None for x in muni_pref_vals) else 4000.0
 
     walk_min_penalty_scale = max(0.4, min(1.0, 0.4 + 0.6 * (pop_density / 4000.0)))
-    effective_walk_min = float(walk_min) * walk_min_penalty_scale
+    if bus_use or bus_min > 0:
+        raw_access_min = float(bus_min * 1.5 + bus_walk)
+        if raw_access_min < walk_min and bus_min > 0:
+            raw_access_min = float(bus_min * 1.5 + walk_min)
+        if raw_access_min <= 0:
+            raw_access_min = float(walk_min)
+    else:
+        raw_access_min = float(walk_min)
+        
+    effective_walk_min = raw_access_min * walk_min_penalty_scale
 
     # 4. 用途地域規制（上限容積率・建ぺい率）の正規表現抽出とマスタ引き当て
     import re
     
-    def extract_limit(text):
+    def extract_limit(text, is_youseki=False):
         if not text:
             return None
-        text = str(text)
-        match = re.search(r'(\d+(?:\.\d+)?)\s*%', text)
+        text_str = str(text)
+        # "80% / 600%" や "80/600" など建ぺい・容積がスラッシュで併記されている場合
+        if '/' in text_str:
+            parts = re.findall(r'(\d+(?:\.\d+)?)\s*%?', text_str)
+            if len(parts) >= 2:
+                try:
+                    return float(parts[1]) if is_youseki else float(parts[0])
+                except (ValueError, TypeError):
+                    pass
+        if is_youseki:
+            m_yo = re.search(r'容積率?[^\d]*(\d+(?:\.\d+)?)\s*%', text_str)
+            if m_yo:
+                return float(m_yo.group(1))
+        else:
+            m_ke = re.search(r'建[ぺペ]い率?[^\d]*(\d+(?:\.\d+)?)\s*%', text_str)
+            if m_ke:
+                return float(m_ke.group(1))
+        match = re.search(r'(\d+(?:\.\d+)?)\s*%', text_str)
         if match:
             return float(match.group(1))
-        match = re.search(r'(\d+(?:\.\d+)?)', text)
+        match = re.search(r'(\d+(?:\.\d+)?)', text_str)
         if match:
             val = float(match.group(1))
-            if 10.0 <= val <= 1000.0:
+            if 10.0 <= val <= 1500.0:
                 return val
         return None
 
     max_youseki = None
     max_kenpei = None
     
-    youseki_raw = get_attr(property_obj, 'yousekiStr', None) or get_attr(property_obj, 'youseki', None)
-    kenpei_raw = get_attr(property_obj, 'kenpeiStr', None) or get_attr(property_obj, 'kenpei', None)
+    youseki_raw = (
+        get_attr(property_obj, 'youseki', None)
+        or get_attr(property_obj, 'yousekiStr', None)
+        or get_attr(property_obj, 'kenpeiYousekiStr', None)
+        or get_attr(property_obj, 'yousekiRitsu', None)
+    )
+    kenpei_raw = (
+        get_attr(property_obj, 'kenpei', None)
+        or get_attr(property_obj, 'kenpeiStr', None)
+        or get_attr(property_obj, 'kenpeiYousekiStr', None)
+        or get_attr(property_obj, 'kenpeiRitsu', None)
+    )
     
-    max_youseki = extract_limit(youseki_raw)
-    max_kenpei = extract_limit(kenpei_raw)
+    max_youseki = extract_limit(youseki_raw, is_youseki=True)
+    max_kenpei = extract_limit(kenpei_raw, is_youseki=False)
     
     if max_youseki is None or max_kenpei is None:
         zone_keyword = None
@@ -447,7 +754,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
 
     land_price_growth_rate = blend_float_value(res_growth, comm_growth, 0.0)
 
-    average_land_price = blend_value(res_price, comm_price, 350000)
+    def_res, def_comm = _get_nationwide_base_land_price(address1, address2)
+    def_blend = blend_value(def_res, def_comm, 80000)
+    average_land_price = blend_value(res_price, comm_price, def_blend)
     estimated_rosenka_price = blend_value(res_rosenka, comm_rosenka, int(average_land_price * 0.8))
     estimated_fixed_asset_price = blend_value(res_fixed, comm_fixed, int(average_land_price * 0.7))
 
@@ -463,6 +772,17 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             non_conforming_flag = 1
 
     # 6. 不動産鑑定メタ特徴量
+    # 規模減退率 (Scale Discount) の算出 (1,000㎡超の大規模土地・山林の平米単価非線形減退)
+    scale_discount = 1.0
+    if tochi_area > 1000.0:
+        scale_discount = max(0.05, float((1000.0 / tochi_area) ** 0.35))
+
+    # 潜在延床面積 (Potential Floor Area) の算出
+    if property_type == 'mansion':
+        potential_floor_area = area
+    else:
+        potential_floor_area = tochi_area * (max_youseki / 100.0)
+
     # (a) 積算想定価格 (Cost Approach Value)
     kouzou_str = get_attr(property_obj, 'kouzou', '') or ''
     kouzou_cat = parse_kouzou(kouzou_str)
@@ -475,7 +795,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         building_value = area * cost_unit * remaining_rate
         cost_approach_value = land_value + building_value
     else:
-        land_value = tochi_area * (average_land_price / 10000.0)
+        land_value = tochi_area * (average_land_price / 10000.0) * scale_discount
         building_value = tatemono_area * cost_unit * remaining_rate
         cost_approach_value = land_value + building_value
 
@@ -499,26 +819,40 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     else:
         mkt_comparison_value = eval_area * (average_land_price / 10000.0)
 
-    # (c) 収益想定価格 (Income Approach Value)
+    # (c) 収益想定価格 (Income Approach Value - 経済的価値創出還元価値)
     gross_yield = get_attr(property_obj, 'grossYield', None)
     annual_rent = get_attr(property_obj, 'annualRent', None)
     
-    if annual_rent is not None:
-        rent = float(annual_rent)
-    else:
-        rent = eval_area * (average_land_price / 10000.0) * 0.05
-        
-    if gross_yield is not None:
+    if gross_yield is not None and float(gross_yield) > 0:
         cap_rate = float(gross_yield) / 100.0
-        if cap_rate <= 0: cap_rate = 0.06
     else:
         cap_rate = 0.06
-        if income > 600:
-            cap_rate = 0.055
-        if income > 900:
-            cap_rate = 0.045
-            
-    income_approach_value = rent / cap_rate
+        if income > 4500:
+            cap_rate = 0.050
+        if income > 7000:
+            cap_rate = 0.040
+
+    if annual_rent is not None and float(annual_rent) > 0:
+        raw_rent = float(annual_rent)
+        rent_man = (raw_rent / 10000.0) if raw_rent > 100000.0 else raw_rent
+        noi_man = rent_man * 0.85
+        income_approach_value = noi_man / cap_rate
+    else:
+        # 推定平米月額賃料 (土地価格水準・所得水準・立地ポテンシャルから算出)
+        unit_rent_yen_monthly = max(1200.0, min(8000.0, average_land_price * 0.0018))
+        if property_type == 'tochi':
+            # 土地の収益還元 (潜在延床面積に基づく開発想定残余価格)
+            dev_floor_area = potential_floor_area * 0.80
+            ann_rent_man = (dev_floor_area * unit_rent_yen_monthly * 12.0) / 10000.0
+            noi_man = ann_rent_man * 0.85
+            dev_cost = dev_floor_area * 22.0  # 新築建築コスト (22万円/㎡)
+            income_approach_value = max(0.0, (noi_man / cap_rate) - dev_cost) * scale_discount
+            if income_approach_value <= 0:
+                income_approach_value = tochi_area * (average_land_price / 10000.0) * scale_discount * 0.7
+        else:
+            ann_rent_man = (eval_area * unit_rent_yen_monthly * 12.0) / 10000.0
+            noi_man = ann_rent_man * 0.85
+            income_approach_value = (noi_man / cap_rate) * scale_discount
 
     # 7. 耐震基準フラグ (新旧耐震の判定: 1981年6月1日以降が新耐震)
     is_shin_taishin = 1  # デフォルト新耐震
@@ -571,14 +905,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         raw_setsudou = get_attr(property_obj, 'setsudou', '') or ''
         
         if not road_width and raw_setsudou:
-            m_width = re.search(r'([0-9\.]+)\s*[mｍ]', raw_setsudou)
+            m_width = re.search(r'(\d+(?:\.\d+)?)\s*[mｍ]', raw_setsudou)
             if m_width:
-                road_width = float(m_width.group(1))
+                road_width = safe_float(m_width.group(1), None)
                 
         if not maguchi and raw_setsudou:
-            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*([0-9\.]+)\s*[mｍ]', raw_setsudou)
+            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*(\d+(?:\.\d+)?)\s*[mｍ]', raw_setsudou)
             if m_maguchi:
-                maguchi = float(m_maguchi.group(1))
+                maguchi = safe_float(m_maguchi.group(1), None)
                 
         if not road_direction_str and raw_setsudou:
             for direction in ["北東", "北西", "南東", "南西", "東", "西", "南", "北"]:
@@ -667,8 +1001,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "tochi_menseki": tochi_area,
         "chikunen": chikunen,
         "walk_min": walk_min,
-        "kanrihi": int(get_attr(property_obj, 'kanrihi', 0) or 0),
-        "syuzen": int(get_attr(property_obj, 'syuzenTsumitate', 0) or 0),
+        "kanrihi": int(min(float(get_attr(property_obj, 'kanrihi', 0) or 0) / 10000.0, 30000.0) if float(get_attr(property_obj, 'kanrihi', 0) or 0) > 200000.0 else float(get_attr(property_obj, 'kanrihi', 0) or 0)),
+        "syuzen": int(min(float(get_attr(property_obj, 'syuzenTsumitate', 0) or 0) / 10000.0, 30000.0) if float(get_attr(property_obj, 'syuzenTsumitate', 0) or 0) > 200000.0 else float(get_attr(property_obj, 'syuzenTsumitate', 0) or 0)),
         "pop_growth": pop_growth,
         "income": income,
         "passenger_volume": passenger_volume,
@@ -704,7 +1038,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "income_growth_rate": income_growth_rate,
         "land_price_growth_rate": land_price_growth_rate,
         "effective_walk_min": effective_walk_min,
-        "population_density": pop_density
+        "population_density": pop_density,
+        "potential_floor_area": potential_floor_area,
+        "scale_discount": scale_discount
     }
     
     # カテゴリカル（文字列）
@@ -718,30 +1054,62 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["road_type"] = road_type_str
     feats["road_structure"] = road_structure_str
     feats["chimoku"] = chimoku_str
-    # ⑨ 権利関係・制限フラグの抽出 (事後ディスカウントからMLへの移行)
+    # ⑨ 権利関係・制限フラグの抽出 (生のHTML全体および全記載テキスト包含検索)
+    raw_html_content = get_attr(property_obj, 'raw_html', '') or get_attr(property_obj, 'rawHtml', '') or get_attr(property_obj, 'detail_html', '') or get_attr(property_obj, 'page_html', '') or ''
+    
     tochikenri = get_attr(property_obj, 'tochikenri', '') or ''
     biko_val = get_attr(property_obj, 'biko', '') or ''
     kuiki = get_attr(property_obj, 'kuiki', '') or ''
     youto = get_attr(property_obj, 'youtoChiiki', '') or ''
+    prop_name = get_attr(property_obj, 'propertyName', '') or ''
+    setsudou_text = get_attr(property_obj, 'setsudou', '') or get_attr(property_obj, 'roadStructure', '') or ''
+    notes_val = get_attr(property_obj, 'notes', '') or get_attr(property_obj, 'bikou', '') or ''
+
+    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val]
+    combined_text = " ".join([str(x) for x in all_text_list if x])
+    combined_text_lower = combined_text.lower()
     
-    is_shigaika_chousei = 1.0 if any("調整区域" in str(x) for x in [kuiki, youto, biko_val]) else 0.0
-    is_saikenchiku_fuka = 1.0 if any("再建築不可" in str(x) for x in [tochikenri, biko_val]) else 0.0
+    is_shigaika_chousei = 1.0 if ("調整区域" in combined_text or "市街化調整" in combined_text) else 0.0
+    is_saikenchiku_fuka = 1.0 if ("再建築不可" in combined_text) else 0.0
     
-    text_rights = tochikenri.lower()
     rights_ratio = 1.0
-    if "底地" in text_rights or "貸地" in text_rights:
+    if "底地" in combined_text_lower or "貸地" in combined_text_lower:
         rights_ratio = 0.20
-    elif "定期" in text_rights or "定借" in text_rights:
+    elif "定期" in combined_text_lower or "定借" in combined_text_lower:
         if chikunen > 0:
             remaining_ratio = max(0.20, (50 - chikunen) / 50.0)
         else:
             remaining_ratio = 0.50
         rights_ratio = 0.70 * remaining_ratio
-    elif "借地" in text_rights or "賃借" in text_rights:
+    elif "借地" in combined_text_lower or "賃借" in combined_text_lower:
         rights_ratio = 0.65
 
     feats["is_shigaika_chousei"] = is_shigaika_chousei
     feats["is_saikenchiku_fuka"] = is_saikenchiku_fuka
     feats["rights_ratio"] = rights_ratio
     
+    # ⑩ 構造耐用年数消化比率 (Wood: 22年急減価, RC: 47年緩減価の相互作用)
+    kouzou_cat = parse_kouzou(kouzou_str)
+    lifespan_val = LIFESPAN.get(kouzou_cat, 30)
+    feats["kouzou_lifespan_ratio"] = min(2.5, float(chikunen) / float(lifespan_val)) if lifespan_val > 0 else 1.0
+
     return feats
+
+
+def build_features_batch(properties_list, property_type, base_date=None, mkt_comparison_master=None):
+    """
+    複数物件リストに対して一括で特徴量辞書リストを生成する高パフォーマンスヘルパー
+    """
+    _init_global_caches()
+    results = []
+    for prop in properties_list:
+        try:
+            feats = build_features(prop, property_type, base_date=base_date, mkt_comparison_master=mkt_comparison_master)
+            results.append(feats)
+        except Exception:
+            # 万一の個別パース例外時は空辞書でなくデフォルト値でフォールバック
+            fallback = {col: 0.0 for col in FEATURE_SETS.get(property_type, {}).get("first", [])}
+            fallback["area"] = 50.0
+            results.append(fallback)
+    return results
+

@@ -1,12 +1,27 @@
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import ParserBase, MansionParserBase, KodateParserBase, TochiParserBase, InvestmentParserBase
 from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi, SmtrcInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 import re
 
 class SmtrcParser(ParserBase):
+
+    def _parseCurrentStatus(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    def _parseRights(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
     BASE_URL = 'https://smtrc.jp'
     property_type = ''
 
@@ -113,7 +128,58 @@ class SmtrcParser(ParserBase):
                 lines.append(l)
         return lines
 
-class SmtrcMansionParser(SmtrcMansionParser if False else SmtrcParser):
+class SmtrcMansionParser(SmtrcParser, MansionParserBase):
+    def _parseFloor(self, response, specs=None):
+        return super()._parseFloor(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseSouKosu(self, response, specs=None):
+        return super()._parseSouKosu(response, specs)
+
+    def _parseSenyuMenseki(self, response, specs=None):
+        return super()._parseSenyuMenseki(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseManagementFee(self, response, specs=None):
+        return super()._parseManagementFee(response, specs)
+
+    def _parseMadori(self, response, specs=None):
+        return super()._parseMadori(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseKouzou(self, response, specs=None):
+        return super()._parseKouzou(response, specs)
+
+    def _parseReserveFund(self, response, specs=None):
+        return super()._parseReserveFund(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
     property_type = 'mansion'
 
     def createEntity(self):
@@ -158,7 +224,52 @@ class SmtrcMansionParser(SmtrcMansionParser if False else SmtrcParser):
         return item
 
 
-class SmtrcKodateParser(SmtrcParser):
+class SmtrcKodateParser(SmtrcParser, KodateParserBase):
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseMadori(self, response, specs=None):
+        return super()._parseMadori(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseKouzou(self, response, specs=None):
+        return super()._parseKouzou(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
     property_type = 'kodate'
 
     def createEntity(self):
@@ -198,7 +309,46 @@ class SmtrcKodateParser(SmtrcParser):
         return item
 
 
-class SmtrcTochiParser(SmtrcParser):
+class SmtrcTochiParser(SmtrcParser, TochiParserBase):
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseMaguchi(self, response, specs=None):
+        return super()._parseMaguchi(response, specs)
+
+    def _parseChimoku(self, response, specs=None):
+        return super()._parseChimoku(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
     property_type = 'tochi'
 
     def createEntity(self):
@@ -231,7 +381,55 @@ class SmtrcTochiParser(SmtrcParser):
         return item
 
 
-class SmtrcInvestmentParser(SmtrcParser):
+class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseMonthlyRent(self, response, specs=None):
+        return super()._parseMonthlyRent(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseGrossYield(self, response, specs=None):
+        return super()._parseGrossYield(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseChimoku(self, response, specs=None):
+        return super()._parseChimoku(response, specs)
+
+    def _parseAnnualRent(self, response, specs=None):
+        return super()._parseAnnualRent(response, specs)
+
+    def _parseKouzou(self, response, specs=None):
+        return super()._parseKouzou(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
     property_type = 'investment'
 
     def createEntity(self):
@@ -299,4 +497,3 @@ class SmtrcInvestmentParser(SmtrcParser):
             item.propertyType = "Apartment" # fallback
 
         return item
-

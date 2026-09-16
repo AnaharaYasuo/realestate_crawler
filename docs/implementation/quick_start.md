@@ -330,11 +330,11 @@ Docker Desktopを起動してから再実行
 ### システムの理解
 - **[README.md](../README.md)**: システム全体の概要とアーキテクチャ
 - **[クローラー仕様書](../basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング
-- **[データベース定義書](../detailed_design/database_schema.md)**: 17モデルの構造、Dual Storageパターン
+- **[データベース定義書](../internal_design/database_schema.md)**: 17モデルの構造、Dual Storageパターン
 
 ### 開発を始める
 - **[開発者ガイド](developer_guide_master.md)**: 環境構築、デバッグ方法、新規パーサー追加
-- **[API構造](../detailed_design/api_structure.md)**: APIエンドポイント構造、ルーティング
+- **[API構造](../internal_design/api_structure.md)**: APIエンドポイント構造、ルーティング
 
 ### トラブル対応
 - **[トラブルシューティング](../operation/troubleshooting.md)**: よくある問題と解決方法

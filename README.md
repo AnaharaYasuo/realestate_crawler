@@ -2,7 +2,7 @@
 
 [![DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2FAnaharaYasuo%2Frealestate_crawler)](https://deepwiki.com/AnaharaYasuo/realestate_crawler)
 
-このプロジェクトは、5社の主要な不動産サイトから不動産物件情報を自動的に収集（スクレイピング）し、データベースに保存するためのツールです。
+このプロジェクトは、主要不動産会社・ポータルサイト計22社以上から不動産物件情報を自動的に収集（スクレイピング）し、データベースに保存するためのツールです。
 
 ## 概要
 
@@ -10,7 +10,7 @@
 
 本システムは以下の3つの主要目的を持ちます：
 
-1. **データ収集**: 5社の不動産サイトから非同期HTTPリクエストとHTML解析により物件情報を自動取得
+1. **データ収集**: 22社以上の不動産サイトから非同期HTTPリクエストとHTML解析により物件情報を自動取得
 2. **データ永続化**: 正規化されたデータベーススキーマ（16-17テーブル）に変換・保存
 3. **投資評価・スクリーニング**: 周辺統計（地価・所得・駅力）、機械学習による理論価格予測、Geminiによる画像評価、および**「積算価格評価」「収支・キャッシュフロー・DSCR/CoCローンシミュレーション」**を行い、総合投資スコアとして可視化し、基準値を超える優良物件をSlackチャンネルへ自動でアラート通知します。
 
@@ -38,6 +38,8 @@
 | 相鉄不動産販売 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
 | 京成不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
 | 大京穴吹不動産 | マンション・戸建て・土地 | N/A | 居住用3種別を収集 |
+| LIFULL HOME'S | マンション・戸建て・土地 | 一棟アパート | ポータルサイト |
+| アットホーム | マンション・戸建て・土地 | 一棟アパート | ポータルサイト |
 
 **収集対象**: 主要不動産会社各社の居住用3種別（マンション・戸建て・土地）＋投資用物件
 
@@ -163,6 +165,8 @@ task crawl COMPANY=mitsui TYPE=mansion
     *   `sotetsu`: 相鉄不動産販売
     *   `keisei`: 京成不動産 (京成土地建物)
     *   `daikyo`: 大京穴吹不動産 (オリックス)
+    *   `homes`: LIFULL HOME'S (ポータル)
+    *   `athome`: アットホーム (ポータル)
 *   **TYPE**:
     *   `mansion`: 中古マンション
     *   `tochi`: 土地
@@ -194,6 +198,8 @@ task crawl COMPANY=mitsui TYPE=mansion
 | `sotetsu` | `mansion`, `tochi`, `kodate` |
 | `keisei` | `mansion`, `tochi`, `kodate` |
 | `daikyo` | `mansion`, `tochi`, `kodate` |
+| `homes` | `mansion`, `tochi`, `kodate`, `invest_apartment` |
+| `athome` | `mansion`, `tochi`, `kodate`, `invest_apartment` |
 
 ---
 
@@ -363,12 +369,19 @@ Antigravityエージェントのクオータ制限を回避し、バックグラ
 
 **対処:**
 ```bash
+# 全テスト実行（単体テスト＋ライブ到達・全フィールド動的統合テスト）
+task test
+
+# ライブ到達・全フィールドパース統合テストのみ実行
+task test-live
+
 # 特定のパーサーのみテスト
 docker compose exec -T app pytest src/crawler/tests/unit/test_mitsui_parser.py -v
 
 # 詳細なログ出力
-docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
+docker compose exec -T app pytest src/crawler/tests/ -v -s
 ```
+
 
 ---
 
@@ -378,9 +391,11 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 
 *   **[外部設計書 (Basic Design)](docs/basic_design/basic_design_master.md)**
     *   クローラー仕様 (Fire-and-Forget, エラーハンドリング)
+    *   障害耐性・クローラー優先順位制御 (Smallest-Site-First, サーキットブレイカー, 0件取得失敗判定)
     *   URL構造・パラメータ定義
-*   **[内部設計書 (Detailed Design)](docs/detailed_design/detailed_design_master.md)**
+*   **[内部設計書 (Detailed Design)](docs/internal_design/detailed_design_master.md)**
     *   データベーススキーマ定義 (全17モデル)
+    *   アーキテクチャ原則 (階層型Baseパーサー, モニタリング, Slack疎通検証)
     *   APIエンドポイント構造
     *   クラス図・シーケンス図
 
@@ -426,13 +441,16 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 - **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャ、投資用物件取得戦略、および価格推定APIの詳細
 - **[価格推定API OpenAPI仕様書](docs/api/openapi.yaml)** - Swaggerで閲覧可能な価格推定API仕様書（OpenAPI 3.0）
 - **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
+- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)** - 機械学習モデル・学習プロセス仕様書（2段階スクリーニング・特徴量・フォールバック設計）
+- **[ML自己改善サイクル設計書](docs/internal_design/ml_self_improvement_cycle.md)** - 予測モデルの自己改善サイクル＆不動産鑑定特徴量設計
 - **[投資用物件の種別定義](docs/domain/property_types.md)** - 不動産投資における戸建・アパートの定義と判定ロジック
-- **[パーサー設計ガイドライン](docs/parser_design_guidelines.md)** - 一項目一関数（One-Item-One-Method）の設計思想と実装規約
+- **[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md)** - 一項目一メソッド（Template Method パターン）、基底クラス `@abstractmethod` 抽象設計規約、および関数名漢字利用禁止規約
 
 
-### 🛠️ 4. 実装・開発 (Implementation)
-`docs/implementation/`
-開発者向けの環境構築・実装ガイド。
+
+### 🛠️ 4. 実装・開発・運用 (Implementation & Operation)
+`docs/implementation/` & `docs/operation/`
+開発者向けの環境構築・実装・常駐運用ガイド。
 *   **[developer_guide_master.md](docs/implementation/developer_guide_master.md)**
     *   開発者向けガイド (環境構築、デバッグ)
     *   クイックスタート
@@ -445,6 +463,7 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
     *   **[parser_implementation_procedure.md](docs/implementation/parser_implementation_procedure.md)**: パーサー実装手順ガイドライン
     *   **[parser_design_guidelines.md](docs/implementation/parser_design_guidelines.md)**: パーサー設計ガイドライン
     *   **[ai_developer_guide.md](docs/implementation/ai_developer_guide.md)**: AI駆動開発ガイドライン (AIエージェント向け)
+    *   **[slack_agent_guidelines.md](docs/operation/slack_agent_guidelines.md)**: Slack 24/7 常駐型自動応答エージェント仕様書（先頭識別子無帰還判定・動的段階的通知間隔）
 
 
 ### 🔧 5. 運用・保守 (Operation)
@@ -457,6 +476,8 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
     **詳細ドキュメント:**
     *   **[troubleshooting.md](docs/operation/troubleshooting.md)**: トラブルシューティング
     *   **[documentation_guidelines.md](docs/operation/documentation_guidelines.md)**: ドキュメント管理ガイドライン
+    *   **[slack_agent_setup.md](docs/operation/slack_agent_setup.md)**: Slack 開発 Agent ボット設定手順
+
 
 
 ---
@@ -479,22 +500,25 @@ docker compose exec -T app pytest src/crawler/tests/unit/ -v -s
 
 ### 1. 動作概要
 * **実行スケジュール**: 毎日深夜 `02:00` に自動起動します。
-* **順次実行**: 5社 × 最大6物件種別の計25ジョブを順次実行します。
+* **順次実行**: 22社 × 最大5物件種別の計89ジョブを並列実行します。
 * **負荷軽減**: ジョブ間に `180秒`（3分）のクールダウンを挟み、対象サイトへのアクセス集中を避けます。
-* **エラー監視**: 実行完了後、`scripts/monitor_error_pages.py` が自動起動し、過去24時間以内に `error_pages/` に退避されたパースエラーを集計・分析して `logs/error_report_YYYYMMDD.json` に出力します。
+* **エラー監視**: 実行完了後、`scripts/ops/monitor_error_pages.py` が自動起動し、過去24時間以内に `error_pages/` に退避されたパースエラーを集計・分析して `logs/error_report_YYYYMMDD.json` に出力します。
+
 
 ### 2. 手動での全社実行・テスト
 定期バッチ処理を手動で直接実行したり、動作確認を行うことができます。
 
 ```bash
-# クローラーの一括順次実行（手動トリガー）
-docker compose exec -T scheduler python src/crawler/scripts/run_all_crawlers.py
+# 一括パイプライン実行
+docker compose exec -T app python src/crawler/scripts/ops/run_pipeline.py
+(Slack疎通チェック ➔ 全件クローリング ➔ データ検証 ➔ MLバルク評価 ➔ お宝物件通知)
 
-# ジョブのリスト確認（シミュレーション）
-docker compose exec -T scheduler python src/crawler/scripts/run_all_crawlers.py --dry-run
+# ドライラン（疎通確認のみ）
+docker compose exec -T app python src/crawler/scripts/ops/run_all_crawlers.py --dry-run
+
 
 # エラーページ監視レポートの単体実行
-docker compose exec -T scheduler python src/crawler/scripts/monitor_error_pages.py
+docker compose exec -T app python src/crawler/scripts/ops/monitor_error_pages.py
 ```
 
 ### 3. 環境変数カスタマイズ
@@ -536,8 +560,10 @@ task logs
 初めてのユーザーが次に学ぶべき内容：
 
 ### 1. システムの理解を深める
-- **[外部設計書](docs/basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング
-- **[内部設計書](docs/detailed_design/detailed_design_master.md)**: データベーススキーマ、Dual Storageパターン
+- **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（FR-015〜FR-017 バルク推論・価格推定最適化）
+- **[基本設計書](docs/basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング、バルク推論アーキテクチャ
+- **[内部設計書](docs/internal_design/detailed_design_master.md)**: データベーススキーマ、Dual Storageパターン
+- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造

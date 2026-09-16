@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import logging
+import asyncio
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
                     return False
                 
                 logger.info("Successfully posted property alert message to Slack.")
+                await asyncio.sleep(1.0)
                 return True
     except Exception as e:
         logger.error(f"Failed to send Slack notification: {e}")

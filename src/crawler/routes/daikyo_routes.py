@@ -28,7 +28,7 @@ def daikyoMansionDetail():
 @daikyo_bp.route(API_KEY_DAIKYO_KODATE_START, methods=['POST', 'GET'])
 def daikyoKodateStart():
     # 東京都の中古戸建（エリア別一覧）
-    return ParseDaikyoKodateStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/kodate/p13/")
+    return ParseDaikyoKodateStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/house/p13/")
 
 @daikyo_bp.route(API_KEY_DAIKYO_KODATE_DETAIL, methods=['POST', 'GET'])
 def daikyoKodateDetail():
@@ -39,7 +39,8 @@ def daikyoKodateDetail():
 @daikyo_bp.route(API_KEY_DAIKYO_TOCHI_START, methods=['POST', 'GET'])
 def daikyoTochiStart():
     # 東京都の土地（エリア別一覧）
-    return ParseDaikyoTochiStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/tochi/p13/")
+    return ParseDaikyoTochiStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/land/p13/")
+
 
 @daikyo_bp.route(API_KEY_DAIKYO_TOCHI_DETAIL, methods=['POST', 'GET'])
 def daikyoTochiDetail():

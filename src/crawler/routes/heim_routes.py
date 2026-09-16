@@ -16,8 +16,8 @@ heim_bp = Blueprint('heim', __name__)
 
 @heim_bp.route(API_KEY_HEIM_MANSION_START, methods=['POST', 'GET'])
 def heimMansionStart():
-    # 東京都全体の中古マンション
-    return ParseHeimMansionStartAsync().main("https://www.sumu-heim.jp/buy/list.php?pref=13&area=2&type=2")
+    # 東京都全体の中古マンション・分譲住宅
+    return ParseHeimMansionStartAsync().main("https://www.tokyo816.jp/bunjou/search_area?all_pref=1&pref_check%5B%5D=13")
 
 @heim_bp.route(API_KEY_HEIM_MANSION_DETAIL, methods=['POST', 'GET'])
 def heimMansionDetail():
@@ -27,8 +27,8 @@ def heimMansionDetail():
 
 @heim_bp.route(API_KEY_HEIM_KODATE_START, methods=['POST', 'GET'])
 def heimKodateStart():
-    # 東京都全体の中古戸建て
-    return ParseHeimKodateStartAsync().main("https://www.sumu-heim.jp/buy/list.php?pref=13&area=2&type=1")
+    # 東京都全体の中古戸建て・分譲住宅
+    return ParseHeimKodateStartAsync().main("https://www.tokyo816.jp/bunjou/search_area?all_pref=1&pref_check%5B%5D=13")
 
 @heim_bp.route(API_KEY_HEIM_KODATE_DETAIL, methods=['POST', 'GET'])
 def heimKodateDetail():
@@ -39,7 +39,8 @@ def heimKodateDetail():
 @heim_bp.route(API_KEY_HEIM_TOCHI_START, methods=['POST', 'GET'])
 def heimTochiStart():
     # 東京都全体の土地
-    return ParseHeimTochiStartAsync().main("https://www.sumu-heim.jp/buy/list.php?pref=13&area=2&type=3")
+    return ParseHeimTochiStartAsync().main("https://www.tokyo816.jp/bunjou/search_area?all_pref=1&pref_check%5B%5D=13")
+
 
 @heim_bp.route(API_KEY_HEIM_TOCHI_DETAIL, methods=['POST', 'GET'])
 def heimTochiDetail():

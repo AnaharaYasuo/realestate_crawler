@@ -22,7 +22,7 @@ tokyu_bp = Blueprint('tokyu', __name__)
 def tokyuMansionStart():
     logging.info("Start tokyuMansionStart")
     obj = ParseTokyuMansionStartAsync()
-    url = "https://www.livable.co.jp/kounyu/chuko-mansion/select-area/"
+    url = "https://www.livable.co.jp/mansion/"
     try:
         result = obj.main(url)
     except:
@@ -111,7 +111,7 @@ def tokyuMansionPropertyDetailTest():
 def tokyuTochiStart():
     logging.info("Start tokyuTochiStart")
     obj = ParseTokyuTochiStartAsync()
-    url = "https://www.livable.co.jp/kounyu/tochi/select-area/"
+    url = "https://www.livable.co.jp/tochi/"
     try:
         result = obj.main(url)
     except:
@@ -183,7 +183,7 @@ def tokyuTochiPropertyDetail(request):
 def tokyuKodateStart():
     logging.info("Start tokyuKodateStart")
     obj = ParseTokyuKodateStartAsync()
-    url = "https://www.livable.co.jp/kounyu/kodate/select-area/"
+    url = "https://www.livable.co.jp/kodate/"
     try:
         result = obj.main(url)
     except:

@@ -26,7 +26,7 @@ def parseMitsuiStartMansionAsyncPubSub(event, context):
 def mitsuiMansionStart():
     logging.info("Start mitsuiMansionStart")
     obj = ParseMitsuiMansionStartAsync()
-    url = "https://www.rehouse.co.jp/sitemap/"
+    url = "https://www.rehouse.co.jp/buy/mansion/"
     try:
         result = obj.main(url)
     except:
@@ -115,7 +115,7 @@ def mitsuiMansionPropertyDetailTest():
 def mitsuiTochiStart():
     logging.info("Start mitsuiTochiStart")
     obj = ParseMitsuiTochiStartAsync()
-    url = "https://www.rehouse.co.jp/sitemap/"
+    url = "https://www.rehouse.co.jp/buy/tochi/"
     try:
         result = obj.main(url)
     except:
@@ -204,7 +204,7 @@ def mitsuiTochiPropertyDetailTest():
 def mitsuiKodateStart():
     logging.info("Start mitsuiKodateStart")
     obj = ParseMitsuiKodateStartAsync()
-    url = "https://www.rehouse.co.jp/sitemap/"
+    url = "https://www.rehouse.co.jp/buy/kodate/"
     try:
         result = obj.main(url)
     except:

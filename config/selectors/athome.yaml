@@ -11,7 +11,7 @@ kodate:
 investmentapartment:
   title: "#detailTitleArea h2 em"
   price: "td:contains('価格')"
-  root_xpath: "//a[contains(@href, '/toushi/')]/@href"
+  root_xpath: "//a[contains(@href, '/buy_other/') or contains(@href, '/toushi/') or contains(@href, '/bldg/')]/@href"
 
 tochi:
   title: "#detailTitleArea h2 em"

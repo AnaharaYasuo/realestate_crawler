@@ -95,9 +95,8 @@ def calculate_loan_term(structure_type, age):
     lifespan = STRUCTURE_PARAMS.get(structure_type, STRUCTURE_PARAMS["W"])["lifespan"]
     remaining = lifespan - age
     
-    # 融資期間シミュレーション（残存耐用年数が短くても最低20年、最長35年）
-    loan_term = max(20, min(35, remaining))
-    return int(loan_term)
+    loan_term = max(20, min(35, int(remaining)))
+    return loan_term
 
 def get_average_land_price(prefecture, city):
     """
@@ -137,8 +136,18 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     chikunen_date = getattr(property_obj, "chikunengetsu", None)
     
     # 1. 土地評価額
+    # 区分所有（専有面積に対して敷地全体面積が登録されている場合）の敷地権割合ガード
+    if struct_type in ["RC", "SRC"] and tochi_menseki > tatemono_menseki * 3.0:
+        tochi_effective = tatemono_menseki * 0.20
+    else:
+        tochi_effective = tochi_menseki
+
+    scale_discount = 1.0
+    if tochi_effective > 1000.0:
+        scale_discount = max(0.05, float((1000.0 / tochi_effective) ** 0.35))
+
     land_price_per_m2 = get_average_land_price(prefecture, city)
-    land_value = tochi_menseki * land_price_per_m2 / 10000.0  # 万円単位
+    land_value = tochi_effective * land_price_per_m2 / 10000.0 * scale_discount  # 万円単位
     
     # 2. 建物評価額
     struct_type = detect_structure_type(kouzou_str)
@@ -221,16 +230,25 @@ def evaluate_investment_property(property_obj, evaluation_record):
 
     noi = annual_rent_man * (1.0 - DEFAULT_OPEX_RATIO)
 
+    # 物件の全テキスト属性を結合
+    text_attrs = [
+        getattr(property_obj, "tochikenri", "") or "",
+        getattr(property_obj, "biko", "") or "",
+        getattr(property_obj, "propertyName", "") or "",
+        getattr(property_obj, "setsudou", "") or "",
+        getattr(property_obj, "notes", "") or ""
+    ]
+    combined_str = " ".join(str(x) for x in text_attrs if x)
+    combined_str_lower = combined_str.lower()
+
     # 借地権の場合、支払地代をNOIから差し引く (更地想定価格の 1.0% / 年 と仮定)
-    tochikenri = getattr(property_obj, "tochikenri", "") or ""
-    if tochikenri and any(x in tochikenri.lower() for x in ["借地", "賃借", "定期"]):
+    if any(x in combined_str_lower for x in ["借地", "賃借", "定期", "定借"]):
         base_price = sekisan_price if sekisan_price > 0 else price_man
         land_rent_annual_man = base_price * 0.010
         noi = max(0.0, noi - land_rent_annual_man)
 
     # 4. ローン返済シミュレーション (再建築不可の場合は融資不可のため頭金100%)
-    biko = getattr(property_obj, "biko", "") or ""
-    is_saikenchiku_fuka = any("再建築不可" in str(x) for x in [tochikenri, biko])
+    is_saikenchiku_fuka = "再建築不可" in combined_str
     
     if is_saikenchiku_fuka:
         down_payment = price_man
@@ -248,7 +266,7 @@ def evaluate_investment_property(property_obj, evaluation_record):
 
     # 5. キャッシュフロー & 指標計算
     cf = noi - annual_repayment
-    dscr = (noi / annual_repayment) if annual_repayment > 0 else 9.99
+    dscr = round(float(noi / annual_repayment), 3) if annual_repayment > 0 else 9.99
     coc = (cf / down_payment * 100.0) if down_payment > 0 else 0.0
 
     # --- スコア化ロジック ---
@@ -260,7 +278,7 @@ def evaluate_investment_property(property_obj, evaluation_record):
     cashflow_score = (coc_score + cf_yield_score) / 2.0
 
     sekisan_score = min(100.0, max(0.0, (sekisan_ratio - 50.0) / 50.0 * 100.0))
-    dscr_score_val = min(100.0, max(0.0, (float(dscr) - 1.0) / 0.3 * 100.0))
+    dscr_score_val = min(100.0, max(0.0, (dscr - 1.0) / 0.3 * 100.0))
     
     finance_score = (sekisan_score * 0.7) + (dscr_score_val * 0.3)
 
@@ -281,7 +299,7 @@ def evaluate_investment_property(property_obj, evaluation_record):
             return Decimal(0.0)
 
     # --- PropertyEvaluationレコードの更新 ---
-    evaluation_record.estimated_sekisan_price = int(sekisan_price)
+    evaluation_record.estimated_sekisan_price = sekisan_price
     evaluation_record.net_operating_income = int(noi)
     evaluation_record.debt_service = int(annual_repayment)
     evaluation_record.cash_flow = int(cf)
@@ -294,6 +312,6 @@ def evaluate_investment_property(property_obj, evaluation_record):
     
     evaluation_record.investment_score = float(f"{total_investment_score:.2f}")
     
-    logger.info(f"Investment Eval Result for {property_obj.pageUrl}: Price={price_man:.1f}万, Sekisan={sekisan_price}万 ({sekisan_ratio:.1f}%), NOI={noi:.1f}万, Repayment={annual_repayment:.1f}万, CF={cf:.1f}万, DSCR={dscr:.2f}, CoC={coc:.2f}%, TotalScore={total_investment_score:.1f}")
+    logger.info(f"Investment Eval Result for {getattr(property_obj, 'pageUrl', '')}: Price={price_man:.1f}万, Sekisan={sekisan_price}万 ({sekisan_ratio:.1f}%), NOI={noi:.1f}万, Repayment={annual_repayment:.1f}万, CF={cf:.1f}万, DSCR={dscr:.2f}, CoC={coc:.2f}%, TotalScore={total_investment_score:.1f}")
     
     return evaluation_record

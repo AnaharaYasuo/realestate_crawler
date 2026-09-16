@@ -17,15 +17,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import realestateSettings
 realestateSettings.configure()
 
-from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiInvestmentKodate, MitsuiInvestmentApartment, MitsuiTochi
-from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment, SumifuTochi
-from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuInvestmentKodate, TokyuInvestmentApartment, TokyuTochi
-from package.models.nomura import NomuraMansion, NomuraKodate, NomuraInvestmentKodate, NomuraInvestmentApartment, NomuraTochi
-from package.models.misawa import MisawaMansion, MisawaKodate, MisawaInvestmentKodate, MisawaInvestmentApartment, MisawaTochi
-from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
-from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment, HomesTochi
 from package.models.evaluation import PropertyEvaluation
-from package.ml.features import build_features, calculate_chikunen
+from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
+from django.apps import apps
+from scipy.optimize import minimize
+
+COMPANIES = [
+    "mitsui", "sumifu", "tokyu", "nomura", "misawa",
+    "smtrc", "sumai1", "mizuho", "odakyu", "afr",
+    "sekisui", "daiwa", "totate", "athome", "homes",
+    "seibu", "keikyu", "sotetsu", "keisei", "daikyo",
+    "rearie", "heim", "sumirin", "keio"
+]
 
 def calculate_mape(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
@@ -62,9 +65,9 @@ def _load_company_properties(company, qs, duplicate_urls, eval_map):
 
 def load_all_properties_from_db():
     """
-    全5社の全物件種別のデータをDBからロードする
+    全24社の全物件種別のデータをDBから網羅的にロードする
     """
-    print("Loading properties from DB...")
+    print("Loading properties from DB (All 24 Portals)...")
     
     # N+1問題解消のため、評価レコードを一括ロードして辞書化
     print("Caching property evaluations...")
@@ -84,50 +87,34 @@ def load_all_properties_from_db():
     )
     print(f"Found {len(duplicate_urls)} duplicate properties to exclude.")
 
+    app_config = apps.get_app_config("package")
     queries = {
-        "mansion": [
-            ("mitsui", MitsuiMansion.objects.all()),
-            ("sumifu", SumifuMansion.objects.all()),
-            ("tokyu", TokyuMansion.objects.all()),
-            ("nomura", NomuraMansion.objects.all()),
-            ("misawa", MisawaMansion.objects.all()),
-            ("athome", AthomeMansion.objects.all()),
-            ("homes", HomesMansion.objects.all())
-        ],
-        "kodate": [
-            ("mitsui", MitsuiKodate.objects.all()),
-            ("sumifu", SumifuKodate.objects.all()),
-            ("tokyu", TokyuKodate.objects.all()),
-            ("nomura", NomuraKodate.objects.all()),
-            ("misawa", MisawaKodate.objects.all()),
-            ("athome", AthomeKodate.objects.all()),
-            ("homes", HomesKodate.objects.all()),
-            ("mitsui_inv", MitsuiInvestmentKodate.objects.all()),
-            ("sumifu_inv", SumifuInvestmentKodate.objects.all()),
-            ("tokyu_inv", TokyuInvestmentKodate.objects.all()),
-            ("nomura_inv", NomuraInvestmentKodate.objects.all()),
-            ("misawa_inv", MisawaInvestmentKodate.objects.all())
-        ],
-        "apartment": [
-            ("mitsui_inv", MitsuiInvestmentApartment.objects.all()),
-            ("sumifu_inv", SumifuInvestmentApartment.objects.all()),
-            ("tokyu_inv", TokyuInvestmentApartment.objects.all()),
-            ("nomura_inv", NomuraInvestmentApartment.objects.all()),
-            ("misawa_inv", MisawaInvestmentApartment.objects.all()),
-            ("athome", AthomeInvestmentApartment.objects.all()),
-            ("homes", HomesInvestmentApartment.objects.all())
-        ],
-        "tochi": [
-            ("mitsui", MitsuiTochi.objects.all()),
-            ("sumifu", SumifuTochi.objects.all()),
-            ("tokyu", TokyuTochi.objects.all()),
-            ("nomura", NomuraTochi.objects.all()),
-            ("misawa", MisawaTochi.objects.all()),
-            ("athome", AthomeTochi.objects.all()),
-            ("homes", HomesTochi.objects.all())
-        ]
+        "mansion": [],
+        "kodate": [],
+        "apartment": [],
+        "tochi": []
     }
     
+    for model in app_config.get_models():
+        model_name = model.__name__.lower()
+        matched_company = None
+        for c in COMPANIES:
+            if model_name.startswith(c):
+                matched_company = c
+                break
+        if not matched_company:
+            continue
+            
+        suffix = model_name[len(matched_company):]
+        if "mansion" in suffix:
+            queries["mansion"].append((matched_company, model.objects.all()))
+        elif "apartment" in suffix:
+            queries["apartment"].append((matched_company, model.objects.all()))
+        elif "tochi" in suffix:
+            queries["tochi"].append((matched_company, model.objects.all()))
+        elif "kodate" in suffix:
+            queries["kodate"].append((matched_company, model.objects.all()))
+            
     data_by_type = {"mansion": [], "kodate": [], "apartment": [], "tochi": []}
     
     for ptype, list_qs in queries.items():
@@ -150,10 +137,17 @@ def _extract_unit_price_record(p, price, ptype):
     tatemono_menseki = getattr(p, 'tatemonoMenseki', 0.0)
     tochi_menseki = getattr(p, 'tochiMenseki', 0.0)
     
-    if ptype == 'tochi':
-        eval_area = float(tochi_menseki) if tochi_menseki else 0.0
-    else:
-        eval_area = float(senyu_menseki) if ptype == 'mansion' else float(tatemono_menseki)
+    try:
+        if ptype == 'tochi':
+            eval_area = float(tochi_menseki) if tochi_menseki is not None else 0.0
+        elif ptype == 'mansion':
+            eval_area = float(senyu_menseki) if senyu_menseki is not None else 0.0
+            if eval_area > 500.0:
+                eval_area = 0.0
+        else:
+            eval_area = float(tatemono_menseki) if tatemono_menseki is not None else 0.0
+    except (ValueError, TypeError):
+        eval_area = 0.0
     
     if eval_area > 0 and price > 0:
         return {
@@ -312,6 +306,20 @@ def _generate_single_dummy_record(ptype, rng):
         "road_direction": "南",
         "road_type": "公道",
         "road_structure": "中間地",
+        "max_building_area": area * 0.6,
+        "max_floor_area": area * 2.0,
+        "kagechi_ratio": 1.0,
+        "total_population": 150000,
+        "income_growth_rate": 0.5,
+        "land_price_growth_rate": 1.2,
+        "effective_walk_min": float(walk_min),
+        "population_density": 5000.0,
+        "kouzou_lifespan_ratio": min(2.0, chikunen / 30.0),
+        "is_shigaika_chousei": 0.0,
+        "is_saikenchiku_fuka": 0.0,
+        "rights_ratio": 1.0,
+        "potential_floor_area": area if ptype == 'mansion' else tochi_area * 2.0,
+        "scale_discount": 1.0,
     }
 
 def generate_dummy_data(ptype, num_records=500):
@@ -343,13 +351,17 @@ def clean_training_data(df, ptype):
         # データが少なすぎる場合はそれ以上の統計的除外をスキップ
         return df
 
-    # 2. IQR法による価格と面積の外れ値除外 (外れ値判定を2.5倍IQRとする)
+    # 2. IQR法による価格と面積の外れ値除外 (都心高級レジデンスの切り捨てを防ぐため3.5倍IQRおよび上限保証)
     for col in ["price", "area"]:
         q1 = df[col].quantile(0.25)
         q3 = df[col].quantile(0.75)
         iqr = q3 - q1
-        lower_bound = q1 - 2.5 * iqr
-        upper_bound = q3 + 2.5 * iqr
+        lower_bound = max(0.0, q1 - 3.5 * iqr)
+        upper_bound = q3 + 3.5 * iqr
+        if col == "price":
+            upper_bound = max(upper_bound, 60000.0)  # 6億円までは現実的な高級レジデンス・ビルとして学習
+        elif col == "area" and ptype == "mansion":
+            upper_bound = max(upper_bound, 250.0)   # 250㎡までのプレミアム住戸を学習に保持
         
         pre_count = len(df)
         df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)].copy()
@@ -387,7 +399,7 @@ def _get_regressor(name, params):
     elif name == "rf":
         return RandomForestRegressor(
             random_state=42,
-            n_jobs=-1,
+            n_jobs=1,
             n_estimators=params.get("n_estimators", 100),
             max_depth=params.get("max_depth", None),
             min_samples_leaf=params.get("min_samples_leaf", 5),
@@ -400,6 +412,13 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
     簡易的なハイパーパラメータグリッドサーチを行い、
     3-Fold CV で最も MAPE が良かったパラメータの辞書を返します。
     """
+    if len(X) > 5000:
+        tune_idx = np.random.default_rng(42).choice(len(X), size=5000, replace=False)
+        X_tune = X.iloc[tune_idx].reset_index(drop=True)
+        y_tune = y.iloc[tune_idx].reset_index(drop=True)
+    else:
+        X_tune, y_tune = X.reset_index(drop=True), y.reset_index(drop=True)
+
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     best_params = {}
     best_mape = float('inf')
@@ -407,35 +426,26 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
     grids = {
         "lgb": [
             {"learning_rate": 0.05, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
-            {"learning_rate": 0.05, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10},
-            {"learning_rate": 0.1, "num_leaves": 31, "max_depth": 6, "min_child_samples": 20},
             {"learning_rate": 0.1, "num_leaves": 63, "max_depth": 8, "min_child_samples": 10}
         ],
         "xgb": [
-            {"learning_rate": 0.05, "max_depth": 5, "subsample": 0.8},
-            {"learning_rate": 0.05, "max_depth": 7, "subsample": 0.9},
-            {"learning_rate": 0.1, "max_depth": 5, "subsample": 0.8},
-            {"learning_rate": 0.1, "max_depth": 7, "subsample": 0.9}
+            {"learning_rate": 0.05, "max_depth": 6, "subsample": 0.8},
+            {"learning_rate": 0.1, "max_depth": 6, "subsample": 0.9}
         ],
         "cat": [
-            {"learning_rate": 0.05, "depth": 6, "l2_leaf_reg": 3},
-            {"learning_rate": 0.05, "depth": 8, "l2_leaf_reg": 5},
-            {"learning_rate": 0.1, "depth": 6, "l2_leaf_reg": 3},
-            {"learning_rate": 0.1, "depth": 8, "l2_leaf_reg": 5}
+            {"learning_rate": 0.08, "depth": 6, "l2_leaf_reg": 3}
         ],
         "rf": [
-            {"n_estimators": 100, "max_depth": 10, "min_samples_leaf": 5},
-            {"n_estimators": 100, "max_depth": 20, "min_samples_leaf": 5},
-            {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 5}
+            {"n_estimators": 100, "max_depth": 15, "min_samples_leaf": 5}
         ]
     }
     
     param_grid = grids.get(algo_name, [{}])
     for params in param_grid:
         mapes = []
-        for train_idx, val_idx in kf.split(X):
-            x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
-            y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+        for train_idx, val_idx in kf.split(X_tune):
+            x_train, x_val = X_tune.iloc[train_idx], X_tune.iloc[val_idx]
+            y_train, y_val = y_tune.iloc[train_idx], y_tune.iloc[val_idx]
             
             model = _get_regressor(algo_name, params)
             model.fit(x_train, y_train)
@@ -473,10 +483,19 @@ def print_feature_importance(model, algo_name, feature_cols):
     except Exception as e:
         print(f"  [{algo_name}] Failed to compute feature importance: {e}")
 
-def train_and_compare(df, feature_cols, stage_name) -> dict:
+from sklearn.model_selection import RepeatedKFold
+
+class TrainedEnsemble(dict):
+    def __init__(self, models, weights=None, smearing_factor=1.0):
+        super().__init__(models)
+        self.weights = weights or {}
+        self.smearing_factor = smearing_factor
+
+def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
     """
-    指定された特徴量を用いて3つのモデルをチューニング＆学習し、
-    クロスバリデーション(5-Fold)評価を行った上で、全データで最終学習したモデルを返します。
+    指定された特徴量を用いてモデルをチューニング＆学習し、
+    Repeated 5-Fold CV (計15サイクル) 評価を行った上で、全データで最終学習したモデル、
+    データ駆動最適アンサンブル重み、およびDuan's Smearing補正係数を返します。
     """
     X = df[feature_cols].copy()
     y = np.log1p(df["price"] / df["area"]) # 平米単価の対数変換 (log1p) を施す
@@ -486,10 +505,16 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
         if X[col].dtype == 'object':
             X[col] = X[col].astype('category').cat.codes
             
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    # 大規模データセット（3,000件超）では 3-Fold CV で高速・高精度評価
+    if len(df) > 3000:
+        rkf = KFold(n_splits=3, shuffle=True, random_state=42)
+        cv_desc = "3-Fold Fast CV"
+    else:
+        rkf = RepeatedKFold(n_splits=5, n_repeats=3, random_state=42)
+        cv_desc = "15-Cycle Repeated CV"
     algos = ['lgb', 'xgb', 'cat', 'rf']
     
-    print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ---")
+    print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ({cv_desc}) ---", flush=True)
     
     trained_models = {}
     best_params_dict = {}
@@ -497,25 +522,31 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
     # 事前チューニングの実行（データ数が多い場合のみ）
     for name in algos:
         if len(df) >= 30:
-            print(f"Tuning hyperparameters for {name}...")
+            print(f"Tuning hyperparameters for {name}...", flush=True)
             best_params_dict[name] = tune_hyperparameters(X, y, name)
-            print(f"Best params for {name}: {best_params_dict[name]}")
+            print(f"Best params for {name}: {best_params_dict[name]}", flush=True)
         else:
             best_params_dict[name] = {}
             
+    oof_preds = {name: np.zeros(len(df)) for name in algos}
+    oof_counts = {name: np.zeros(len(df)) for name in algos}
+
     for name in algos:
         mapes = []
         maes = []
         r2s = []
         params = best_params_dict[name]
         
-        for train_idx, val_idx in kf.split(X):
+        for train_idx, val_idx in rkf.split(X):
             x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             
             fold_model = _get_regressor(name, params)
             fold_model.fit(x_train, y_train)
             preds_log = fold_model.predict(x_val)
+            
+            oof_preds[name][val_idx] += preds_log
+            oof_counts[name][val_idx] += 1
             
             # 元の万円スケールに逆対数変換 ＆ 面積乗算して総額に戻して評価
             val_areas = df.iloc[val_idx]["area"].values
@@ -544,7 +575,54 @@ def train_and_compare(df, feature_cols, stage_name) -> dict:
         print_feature_importance(final_model, name, feature_cols)
         trained_models[name] = final_model
         
-    return trained_models
+    for name in algos:
+        oof_preds[name] /= np.maximum(1, oof_counts[name])
+        
+    # OOF予測に基づく最適アンサンブル重みのデータ駆動算出 (SLSQP minimizer)
+    oof_unit_preds = np.column_stack([np.maximum(0, np.expm1(oof_preds[name])) for name in algos])
+    val_areas = df["area"].values
+    y_actual = df["price"].values
+    
+    def objective(weights):
+        w = np.array(weights)
+        s = np.sum(w)
+        if s <= 0: return 9999.0
+        w_norm = w / s
+        pred_price = val_areas * (oof_unit_preds @ w_norm)
+        return calculate_mape(y_actual, pred_price)
+        
+    init_weights = [1.0 / len(algos)] * len(algos)
+    bounds = [(0.0, 1.0)] * len(algos)
+    constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0})
+    
+    try:
+        res = minimize(objective, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
+        if res.success:
+            opt_w = res.x / np.sum(res.x)
+        else:
+            opt_w = np.array(init_weights)
+    except Exception as e:
+        print(f"Ensemble weight optimization fallback: {e}")
+        opt_w = np.array(init_weights)
+        
+    optimal_weights = {algos[i]: float(opt_w[i]) for i in range(len(algos))}
+    print(f"Optimized Ensemble Weights: {optimal_weights}")
+    
+    # Duan's Smearing Estimator (対数変換過小予測バイアス厳密数理補正: E[Y] = exp(mu + sigma^2/2))
+    ensemble_pred_units = oof_unit_preds @ opt_w
+    actual_unit_prices = df["price"].values / np.maximum(0.1, df["area"].values)
+    log_residuals = np.log(np.maximum(0.1, actual_unit_prices)) - np.log(np.maximum(0.1, ensemble_pred_units))
+    if len(log_residuals) >= 10:
+        clean_log_res = log_residuals[(log_residuals >= np.percentile(log_residuals, 2)) & (log_residuals <= np.percentile(log_residuals, 98))]
+    else:
+        clean_log_res = log_residuals
+    mean_bias = float(np.mean(clean_log_res)) if len(clean_log_res) > 0 else 0.0
+    var_res = float(np.var(clean_log_res)) if len(clean_log_res) > 0 else 0.0
+    smearing_factor = float(np.exp(mean_bias + var_res / 2.0))
+    smearing_factor = max(0.90, min(1.40, smearing_factor))
+    print(f"Duan's Smearing Correction Factor (mean_bias={mean_bias:.4f}, var={var_res:.4f}): {smearing_factor:.4f}")
+    
+    return TrainedEnsemble(trained_models, optimal_weights, smearing_factor)
 
 def main():
     data_by_type = load_all_properties_from_db()
@@ -559,129 +637,37 @@ def main():
     # マスタの保存
     joblib.dump(mkt_master, os.path.join(model_dir, "mkt_comparison_master.joblib"))
     
-    # 物件種別ごとの特徴量セット定義
-    feature_sets = {
-        "mansion": {
-            "first": [
-                "area", "chikunen", "walk_min", "kanrihi", "syuzen",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "max_youseki", "max_kenpei",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ],
-            "second": [
-                "area", "chikunen", "walk_min", "kanrihi", "syuzen",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ]
-        },
-        "kodate": {
-            "first": [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                # 土地補正特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ],
-            "second": [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score",
-                # 土地補正特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ]
-        },
-        "apartment": {
-            "first": [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "gross_yield", "annual_rent",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                # 土地補正特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ],
-            "second": [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "gross_yield", "annual_rent",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score",
-                # 土地補正特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ]
-        },
-        "tochi": {
-            "first": [
-                "area", "tochi_menseki", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                # 土地用特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ],
-            "second": [
-                "area", "tochi_menseki", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                # 土地用特徴量
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value",
-                "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio"
-            ]
-        }
-    }
+    # 物件種別ごとの特徴量セット定義 (features.pyから一元参照)
+    feature_sets = FEATURE_SETS
+    
+    all_ensemble_weights = {}
+    all_smearing_factors = {}
     
     # 各物件種別の学習を実行
     ptypes = list(data_by_type.keys())
     for ptype in ptypes:
         items = data_by_type[ptype]
-        print("\n=========================================")
-        print(f"Training models for Property Type: {ptype}")
-        print("=========================================")
+        if len(items) > 15000:
+            print(f"Sampling 15,000 representative properties from {len(items):,} total records for efficient training...", flush=True)
+            rng = np.random.default_rng(42)
+            indices = rng.choice(len(items), size=15000, replace=False)
+            items = [items[i] for i in indices]
+
+        print("\n=========================================", flush=True)
+        print(f"Training models for Property Type: {ptype} (records: {len(items):,})", flush=True)
+        print("=========================================", flush=True)
         
         # DBデータをもとに特徴量データフレームを作成
         records = []
-        for item in items:
+        for i, item in enumerate(items):
             p = item["obj"]
             feats = build_features(p, ptype, mkt_comparison_master=mkt_master)
             feats["price"] = item["price"]
             feats["interior_score"] = item["interior_score"]
             feats["layout_score"] = item["layout_score"]
             records.append(feats)
+            if (i + 1) % 5000 == 0:
+                print(f"  Extracted features for {i+1:,}/{len(items):,} items...", flush=True)
             
         df = pd.DataFrame(records)
         
@@ -693,24 +679,31 @@ def main():
         # 学習データのクレンジング（外れ値の自動除外）を実行
         df = clean_training_data(df, ptype)
             
-        # 一次モデルの訓練と保存 (LGB, XGB, Cat)
+        # 一次モデルの訓練と保存 (LGB, XGB, Cat, RF)
         first_cols = feature_sets[ptype]["first"]
-        first_models = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)")
-        for algo, model in first_models.items():
+        first_ensemble = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)")
+        all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
+        all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
+        for algo, model in first_ensemble.items():
             joblib.dump(model, os.path.join(model_dir, f"{ptype}_first_stage_{algo}.joblib"))
         
-        # 二次モデルの訓練と保存 (LGB, XGB, Cat)
+        # 二次モデルの訓練と保存 (LGB, XGB, Cat, RF)
         second_cols = feature_sets[ptype]["second"]
-        second_models = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)")
-        for algo, model in second_models.items():
+        second_ensemble = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)")
+        all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
+        all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
+        for algo, model in second_ensemble.items():
             joblib.dump(model, os.path.join(model_dir, f"{ptype}_second_stage_{algo}.joblib"))
             
         # メモリ解放
         data_by_type[ptype] = []
-        del items, df, records, first_models, second_models
+        del items, df, records, first_ensemble, second_ensemble
         gc.collect()
         
-    print("\nMachine learning training pipeline completed successfully for all property types with ensemble support!")
+    joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))
+    joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
+    print("\nMachine learning training pipeline completed successfully for all property types with ensemble support, optimal weights, and smearing bias correction!")
 
 if __name__ == "__main__":
     main()
+

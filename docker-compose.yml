@@ -68,7 +68,7 @@ services:
       - db
       - app
       - minio
-    entrypoint: ["sh", "-c", "python /app/src/crawler/scripts/write_env.py && echo '0 16 * * * . /app/.cron_env && cd /app && /usr/local/bin/python src/crawler/scripts/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
+    entrypoint: ["sh", "-c", "python /app/src/crawler/scripts/maintenance/write_env.py && echo '0 16 * * * . /app/.cron_env && cd /app && /usr/local/bin/python src/crawler/scripts/ops/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
     restart: always
 
   minio:
@@ -83,6 +83,31 @@ services:
       - minio_data:/data
     command: server /data --console-address ":9001"
     restart: always
+
+  slack-agent:
+    build: .
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+      - DB_NAME=real_estate
+      - DB_USER=sumifu
+      - DB_PASSWORD=mayumimayumi0413
+      - DB_PORT=3306
+      - STORAGE_ENDPOINT=http://minio:9000
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - app
+      - minio
+    entrypoint: ["python", "src/crawler/scripts/ops/run_slack_agent.py"]
+
+    restart: always
+
 
 volumes:
   db_data:

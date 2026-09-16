@@ -1,8 +1,69 @@
 import re
 import logging
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import InvestmentParserBase
 
-class InvestmentParser(ParserBase):
+class InvestmentParser(InvestmentParserBase):
+    def _parseAddress(self, response, specs=None):
+        return super()._parseAddress(response, specs)
+
+    def _parseChimoku(self, response, specs=None):
+        return super()._parseChimoku(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseMonthlyRent(self, response, specs=None):
+        return super()._parseMonthlyRent(response, specs)
+
+    def _parsePrice(self, response, specs=None):
+        return super()._parsePrice(response, specs)
+
+    def _parsePriceStr(self, response, specs=None):
+        return super()._parsePriceStr(response, specs)
+
+    def _parsePropertyDetailPage(self, response, specs=None):
+        return super()._parsePropertyDetailPage(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseTransport1(self, response, specs=None):
+        return super()._parseTransport1(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+
+    def _parseGrossYield(self, response, specs=None):
+        return super()._parseGrossYield(response, specs)
+
+    def _parseAnnualRent(self, response, specs=None):
+        return super()._parseAnnualRent(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        return super()._parseKouzou(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
     
     def getCharset(self):
         return "utf-8"

@@ -1,15 +1,16 @@
 import chardet
 import aiohttp
-import traceback
-import lxml.html
 from bs4 import BeautifulSoup
 import logging
 import re
 
 from abc import ABCMeta, abstractmethod
+from decimal import Decimal
 from builtins import Exception
+
 import asyncio
 from django.db import models
+from package.utils import converter
 
 
 class ReadPropertyNameException(Exception):
@@ -41,120 +42,391 @@ class ServerBusyException(SkipPropertyException):
     pass
 
 
+class ServerDownException(Exception):
+    """Raised when target server is down or timing out repeatedly."""
+    pass
+
+
 class ParserBase(metaclass=ABCMeta):
 
     def __init__(self):
         self._specs_cache = {}
+        self.selectors = {}
+        self.consecutive_timeouts = 0
+        self.MAX_CONSECUTIVE_TIMEOUTS = 3
+        self.MAX_PAGES_PER_JOB = 30
+        self.MAX_PROPERTIES_PER_JOB = 600
 
     @abstractmethod
     def getCharset(self):
         pass
 
     @abstractmethod
-    def createEntity(self)->models.Model:
+    def createEntity(self) -> models.Model:
         return None
-        
+
+    # ==============================================================================
+    # 1. 全物件種別 共通基本抽出メソッド (全種別共通項目・アブストラクト宣言)
+    # ==============================================================================
     @abstractmethod
-    def _parsePropertyDetailPage(self, item:models.Model, response:BeautifulSoup)->models.Model:
+    def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+        """価格(数値)の抽出"""
+        specs = specs or self._get_specs(response)
+        price_str = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if not price_str and response:
+            tag = self._getValueByLabel(response, "価格") or self._getValueByLabel(response, "販売価格")
+            if tag:
+                price_str = tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
+        if not price_str and response:
+            el = response.select_one(".price, .mod-price, span.priceNum, td.price, .priceText")
+            if el:
+                price_str = el.get_text(strip=True)
+        return converter.parse_price(price_str)
+
+    @abstractmethod
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        """価格(文字列)の抽出"""
+        specs = specs or self._get_specs(response)
+        price_str = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if not price_str and response:
+            el = response.select_one(".price, .mod-price, span.priceNum, td.price")
+            if el:
+                price_str = el.get_text(strip=True)
+        return price_str
+
+    @abstractmethod
+    def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
+        """所在地(住所)の抽出"""
+        specs = specs or self._get_specs(response)
+        addr = specs.get("所在地", "") or specs.get("住所", "")
+        if not addr and response:
+            tag = self._getValueByLabel(response, "所在地") or self._getValueByLabel(response, "住所")
+            if tag:
+                addr = tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
+        if not addr and response:
+            el = response.select_one(".address, .mod-address, td.address")
+            if el:
+                addr = el.get_text(strip=True)
+        return addr
+
+    @abstractmethod
+    def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
+        """物件名の抽出"""
+        specs = specs or self._get_specs(response)
+        name = specs.get("物件名", "") or specs.get("名称", "") or specs.get("物件名称", "")
+        if not name and response:
+            title_el = response.find(["h1", "h2"])
+            if title_el:
+                name = title_el.get_text(strip=True)
+        return name
+
+    @abstractmethod
+    def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
+        """最寄り駅・交通アクセスの抽出"""
+        specs = specs or self._get_specs(response)
+        return specs.get("交通", "") or specs.get("最寄り駅", "") or specs.get("沿線・駅", "")
+
+    @abstractmethod
+    def _parsePropertyDetailPage(self, item: models.Model, response: BeautifulSoup) -> models.Model:
         return item
 
+    async def parsePropertyListPage(self, response):
+        return
+        yield
+
+    def _get_specs(self, response: BeautifulSoup) -> dict:
+        """HTML内のth/td, dt/dd, .table-rowテーブルを標準解析し辞書として取得"""
+        if not response:
+            return {}
+        specs = {}
+        for tr in response.find_all("tr"):
+            th = tr.find("th")
+            td = tr.find("td")
+            if th and td:
+                k = th.get_text(strip=True)
+                v = td.get_text(strip=True)
+                if k:
+                    specs[k] = v
+        for dl in response.find_all("dl"):
+            dts = dl.find_all("dt")
+            dds = dl.find_all("dd")
+            for dt, dd in zip(dts, dds):
+                k = dt.get_text(strip=True)
+                v = dd.get_text(strip=True)
+                if k:
+                    specs[k] = v
+        for row in response.select(".table-row, div.row, tr.table-row"):
+            lbl = row.select_one(".label, .table-header, th, dt")
+            val = row.select_one(".content, .table-data, td, dd")
+            if lbl and val:
+                k = lbl.get_text(strip=True)
+                v = val.get_text(strip=True)
+                if k and k not in specs:
+                    specs[k] = v
+        return specs
+
+    def _scrape_specs(self, response: BeautifulSoup) -> dict:
+        return self._get_specs(response)
+
+    def _scrape_to_dict(self, response: BeautifulSoup) -> dict:
+        return self._get_specs(response)
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        """Default base detail page parse returning the item entity."""
+        return item
+
+    async def _parsePageCore(self, response: BeautifulSoup, xpath_fn=None, dest_url_fn=None):
+        if not dest_url_fn:
+            return
+        xpath_pattern = xpath_fn() if callable(xpath_fn) else ""
+        for link in response.find_all("a"):
+            href = link.get("href")
+            if not href:
+                continue
+            # If target pattern expects property details, filter out non-detail URLs and wrong categories (e.g. /rent/)
+            if xpath_pattern and ("bkdetail" in str(xpath_pattern) or "detail" in str(xpath_pattern)):
+                if "bkdetail" not in href and "detail" not in href and "room" not in href and "building" not in href:
+                    continue
+                if "/buy/" in str(xpath_pattern) and "/buy/" not in href:
+                    continue
+            try:
+                dest_url = dest_url_fn(href) if callable(dest_url_fn) else href
+            except Exception:
+                dest_url = None
+            if dest_url and isinstance(dest_url, str) and dest_url.startswith("http"):
+                yield dest_url
+
+    def _split_address(self, address_str: str):
+        """都道府県・市区町村・町名の自動分割ユーティリティ (市川市・市原市・町田市・武蔵村山市等対応)"""
+        if not address_str:
+            return "", "", ""
+        pref_match = re.match(r'^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)', address_str)
+        pref = pref_match.group(1) if pref_match else ""
+        rest = address_str[len(pref):] if pref else address_str
+        
+        # 1. 郡+町村 / 政令指定都市 (市+区) / 特殊包含市名 / 東京23区 (特別区) / 一般市区町村
+        city_match = re.match(
+            r'^('
+            r'.+?郡.+?[町村]|'  # 郡+町村 (例: 余市郡余市町)
+            r'[^市区町村]+市[^市区町村]+区|'  # 政令指定都市区 (例: 川崎市中原区, 横浜市港北区)
+            r'(?:市川|市原|八日市|四日市|今市|武蔵村山|東村山|村山|羽村|大村|村上|十日町|大町|町田)市|'  # 特殊文字包含市名プレフィックス
+            r'(?:千代田|中央|港|新宿|文京|台東|墨田|江東|品川|目黒|大田|世田谷|渋谷|中野|杉並|豊島|北|荒川|板橋|練馬|足立|葛飾|江戸川)区|'  # 東京23特別区
+            r'[^市区町村]+[市区町村]|'  # 一般市区町村
+            r'[市区町村][^市区町村]+[市区町村]'  # 市/町/村で始まる市区町村 (市原市, 町田市等)
+            r')', rest
+        )
+        city = city_match.group(1) if city_match else ""
+        town = rest[len(city):] if city else rest
+
+        # 都道府県名が含まれていない場合の主要市町村自動補完
+        if not pref and city:
+            CITY_PREF_MAP = {
+                "伊勢原市": "神奈川県",
+                "市原市": "千葉県",
+                "市川市": "千葉県",
+                "世田谷区": "東京都",
+                "町田市": "東京都",
+                "武蔵村山市": "東京都",
+                "東村山市": "東京都",
+                "羽村市": "東京都",
+                "荒川区": "東京都",
+                "横浜市中区": "神奈川県",
+            }
+            pref = CITY_PREF_MAP.get(city, "")
+
+        return pref, city, town
+
+    def _populateTraffic(self, item: models.Model, traffic_str: str | list) -> models.Model:
+        """交通アクセスの自動パース・モデルフィールド設定ユーティリティ"""
+        if not traffic_str:
+            return item
+        if isinstance(traffic_str, list):
+            traffic_text = "\n".join([str(x) for x in traffic_str if x])
+        else:
+            traffic_text = traffic_str
+        item.transport1 = traffic_text
+        
+        # 1. ブラケット形式: 沿線名「駅名」徒歩分 (例: 東京メトロ有楽町線「麹町」駅 徒歩3分)
+        m = re.search(r'([^\s「」]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線)?)\s*「([^「」]+?)」\s*(?:駅|停留所|バス停)?\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?', traffic_text)
+        if m:
+            railway = m.group(1).strip()
+            station = m.group(2).strip("『』「」 ").strip()
+            if station.endswith('駅'):
+                station = station[:-1].strip()
+            walk_min = m.group(3)
+            
+            if hasattr(item, 'railway1') and not getattr(item, 'railway1', None) and railway:
+                item.railway1 = railway
+            if hasattr(item, 'station1') and not getattr(item, 'station1', None):
+                item.station1 = station
+            if hasattr(item, 'walkMinutes1') and walk_min:
+                try:
+                    item.walkMinutes1 = int(walk_min)
+                except Exception:
+                    pass
+            if hasattr(item, 'railwayWalkMinute1') and walk_min:
+                try:
+                    item.railwayWalkMinute1 = int(walk_min)
+                except Exception:
+                    pass
+            return item
+
+        # 2. スペース区切り形式: 沿線名 駅名 徒歩分 (例: JR山手線 新宿駅 徒歩5分)
+        m = re.search(r'([^\s「」\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\s+([^\s「」\/]+?駅)\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?', traffic_text)
+        if m:
+            railway = m.group(1).strip()
+            station = m.group(2).strip("『』「」 ").strip()
+            if station.endswith('駅'):
+                station = station[:-1].strip()
+            walk_min = m.group(3)
+            
+            if hasattr(item, 'railway1') and not getattr(item, 'railway1', None):
+                item.railway1 = railway
+            if hasattr(item, 'station1') and not getattr(item, 'station1', None):
+                item.station1 = station
+            if hasattr(item, 'walkMinutes1') and walk_min:
+                try:
+                    item.walkMinutes1 = int(walk_min)
+                except Exception:
+                    pass
+            if hasattr(item, 'railwayWalkMinute1') and walk_min:
+                try:
+                    item.railwayWalkMinute1 = int(walk_min)
+                except Exception:
+                    pass
+            return item
+
+        # 3. フォールバック: 駅名 徒歩分 (例: 新宿駅 徒歩5分)
+        m = re.search(r'([^\s「」]+?(?:駅|停留所|バス停))\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?', traffic_text)
+        if m:
+            station = m.group(1).strip()
+            walk_min = m.group(2)
+            if hasattr(item, 'station1') and not getattr(item, 'station1', None):
+                item.station1 = station
+            if hasattr(item, 'walkMinutes1') and walk_min and getattr(item, 'walkMinutes1', None) is None:
+                try:
+                    item.walkMinutes1 = int(walk_min)
+                except Exception:
+                    pass
+            return item
+
+        return item
+
+    async def getResponseBs(self, session, url: str, charset: str | None = None) -> BeautifulSoup:
+        """指定URLのコンテンツを取得し BeautifulSoup (lxml/html.parser) として返す"""
+        content = await self._getContent(session, url)
+        encoding = charset or self.getCharset() or chardet.detect(content[:4096])["encoding"] or "utf-8"
+        try:
+            return BeautifulSoup(content, "lxml", from_encoding=encoding)
+        except Exception:
+            return BeautifulSoup(content, "html.parser", from_encoding=encoding)
+
+    async def getResponse(self, session, url: str, charset: str | None = None) -> BeautifulSoup:
+        return await self.getResponseBs(session, url, charset=charset)
+
+    async def parseNextPage(self, response):
+        return ""
+
+    def _getValueByLabel(self, soup: BeautifulSoup, label: str):
+        if not soup:
+            return None
+        for tag in soup.find_all(["th", "dt", "span", "td", "div"]):
+            txt = tag.get_text(strip=True)
+            if label in txt:
+                nxt = tag.find_next_sibling(["td", "dd", "span", "div"])
+                if nxt:
+                    return nxt
+        return None
+
     def clean_parsed_item(self, item: models.Model) -> models.Model:
-        """
-        スクレイピングした物件データの全文字列フィールドに対して：
-        1. 前後の余分な空白・改行コードの除去
-        2. 全て文字中の複数スペース（二重空白、タブ、改行等含む）を単一スペースに置換
-        3. 文字列としての "None" や "none" などの無効値を空文字または None に変換
-        """
-        import re
         for field in item._meta.fields:
             val = getattr(item, field.name, None)
             if val is None:
                 continue
-                
             if isinstance(field, (models.CharField, models.TextField)):
                 val_str = str(val).strip()
-                
                 if val_str.lower() in ["none", ""]:
                     if field.null:
                         setattr(item, field.name, None)
                     else:
                         setattr(item, field.name, "")
                     continue
-                
                 val_cleaned = re.sub(r'\s+', ' ', val_str)
                 setattr(item, field.name, val_cleaned)
-                
+
+        # station1, station2, station3 の表記統一 (『成城学園前』駅 -> 成城学園前, 勝どき駅 -> 勝どき)
+        for st_field in ['station1', 'station2', 'station3']:
+            if hasattr(item, st_field):
+                st_val = getattr(item, st_field, None)
+                if st_val and isinstance(st_val, str):
+                    cleaned_st = st_val.strip("『』「」 ").strip()
+                    if cleaned_st.endswith('駅'):
+                        cleaned_st = cleaned_st[:-1].strip()
+                    setattr(item, st_field, cleaned_st)
+
+        # genkyo / currentStatus の自動相互同期
+        genkyo_val = getattr(item, 'genkyo', None) if hasattr(item, 'genkyo') else None
+        curr_val = getattr(item, 'currentStatus', None) if hasattr(item, 'currentStatus') else None
+        if genkyo_val and hasattr(item, 'currentStatus') and not curr_val:
+            setattr(item, 'currentStatus', genkyo_val)
+        elif curr_val and hasattr(item, 'genkyo') and not genkyo_val:
+            setattr(item, 'genkyo', curr_val)
+
         return item
-    
-    def save_error_html(self, url, content, reason="Parsing failed"):
+
+    def validate_required_fields(self, item: models.Model):
+        errors = []
+        if hasattr(item, 'price') and item.price is None:
+            errors.append("price is None")
+        if hasattr(item, 'address') and not getattr(item, 'address', ''):
+            errors.append("address is empty")
+
+        if errors:
+            err_msg = f"StrictExtractionFailed: {', '.join(errors)} for URL: {getattr(item, 'pageUrl', 'unknown')}"
+            logging.warning(err_msg)
+            raise LoadPropertyPageException(err_msg)
+
+    def save_error_html(self, url: str, content: bytes, reason: str = "Parsing failed"):
+        """エラー発生時の生HTMLおよびメタデータをdocs/error_pages/配下に自動保存"""
         import hashlib
-        import re
         from pathlib import Path
         import datetime
         try:
             error_dir = Path("docs/error_pages")
-            
-            # Use model name for directory
             try:
                 model_name = self.createEntity().__class__.__name__
                 company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
                 company_dir = error_dir / company_type
-            except:
+            except Exception:
                 company_dir = error_dir / "unknown"
-                
             company_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Create filename from URL hash
             base_filename = hashlib.sha256(url.encode('utf-8')).hexdigest()
             html_filepath = company_dir / (base_filename + ".html")
             meta_filepath = company_dir / (base_filename + "_meta.txt")
-            
             with open(html_filepath, "wb") as f:
                 f.write(content)
-                
             with open(meta_filepath, "w", encoding="utf-8") as f:
-                f.write(f"URL: {url}\n")
-                f.write(f"Reason: {reason}\n")
-                f.write(f"Timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                
-            logging.info(f"Saved error HTML and meta to {company_dir}/{base_filename}")
+                f.write(f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            logging.info(f"Saved error HTML to {company_dir}/{base_filename}")
         except Exception:
-            logging.exception("Failed to save error HTML and meta")
+            logging.exception("Failed to save error HTML")
 
-    async def parsePropertyDetailPage(self, session, url)->models.Model:
-        item:models.Model = self.createEntity()
+    async def parsePropertyDetailPage(self, session, url) -> models.Model:
+        item: models.Model = self.createEntity()
         content = None
         try:
             item.pageUrl = url
-            # We need content for saving error page, so let's get response first
-            # But getResponseBs calls _getContent which reads content.
-            # To get raw content, we might need to adjust getResponseBs or retrieve it separately?
-            # getResponseBs calls _getContent.
-            # We can modify getResponseBs to attach content to response object or just call _getContent here?
-            # But getResponseBs does encoding detection which is nice.
-            # Let's just catch exception inside getResponseBs? No, exception happens in _parsePropertyDetailPage usually.
-            
-            # Ideally we want the content that was parsed.
-            # Let's allow getResponseBs to return content too or just read it again? No reading stream twice is bad.
-            # ParserBase structure is a bit rigid.
-            # Let's peek at _getContent... it reads content.
-            # lxml/BS parsed it. 
-            # If we want to save the EXACT HTML that caused the error, we should probably access it from the response object if possible?
-            # BS object doesn't hold raw bytes usually?
-            # Actually, `getResponseBs` does `lxml.html.fromstring` or `BeautifulSoup`.
-            
-            # Refactor: Let's fetch content here first, then parse.
             content = await self._getContent(session, url)
-            
             charset = self.getCharset()
             if charset is None:
-                encoding = chardet.detect(content)["encoding"]
+                encoding = chardet.detect(content[:4096])["encoding"] or "utf-8"
             else:
                 encoding = charset
-                
-            soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
-            
-            # Check for special pages
+            try:
+                soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
+            except Exception:
+                soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
+
             title = soup.title.string if soup.title else ""
             if title:
                 if "掲載終了物件" in title:
@@ -167,701 +439,407 @@ class ParserBase(metaclass=ABCMeta):
             item = self._parsePropertyDetailPage(item, soup)
             item = self.clean_parsed_item(item)
             item._soup = soup
-            
-            # Centralized validation for "Strict Extraction"
             self.validate_required_fields(item)
-            
         except SkipPropertyException as e:
             raise e
         except (LoadPropertyPageException, TimeoutError) as e:
             logging.error(f'Failure loading page: {url} - Reason: {str(e)}')
             raise e
-        except (ReadPropertyNameException) as e:
-            logging.error(f'Validation or parsing failure for mandatory fields: {url} - Reason: {str(e)}')
-            if content: self.save_error_html(url, content, reason=str(e))
-            raise e
         except Exception as e:
-            logging.error(f'Detail parse error: {url}')
-            logging.error(f'Exception type: {type(e).__name__}')
-            logging.error(f'Exception message: {str(e)}')
-            logging.error('Full traceback:')
-            logging.error(traceback.format_exc())
-            if content: self.save_error_html(url, content, reason=str(e))
-            raise e
+            msg = f"Can not read property page: {url} - Reason: {str(e)}"
+            logging.error(msg)
+            if content:
+                self.save_error_html(url, content, reason=str(e))
+            raise LoadPropertyPageException(msg)
         return item
 
-    async def _parsePageCore(self, response, getXpath , getDestUrl):
-        xpath_str = getXpath()
-        linklist = response.xpath(xpath_str)
-        logging.info(f"XPath: {xpath_str} found {len(linklist) if linklist else 0} elements")
-        for linkUrl in linklist:
-            destUrl = getDestUrl(linkUrl)
-            logging.debug(destUrl)
-            yield destUrl
-
-    async def parsePage(self, session, url, getXpath , getDestUrl):
-        response = await self.getResponse(session, url, self.getCharset())        
-        async for destUrl in self._parsePageCore(response, getXpath, getDestUrl):
-            yield destUrl
-
-    async def parsePageBs(self, session, url, getXpath , getDestUrl):
-        response = await self.getResponseBs(session, url, self.getCharset())
-        # Use CSS selector if it looks like one, otherwise fallback to finding elements
-        selector = getXpath()
-        if selector.startswith("/") or selector.startswith("("): # Likely XPath
-             # BeautifulSoup doesn't naturally support Xpath. 
-             # We assume here that if parsePageBs is used, the parser provides CSS selectors.
-             # Or we fallback to the lxml-based parsePage.
-             pass 
-        
-        # Standard implementation for BS:
-        for link in response.select(selector):
-            href = link.get("href")
-            if href:
-                destUrl = getDestUrl(href)
-                yield destUrl
-
-    async def _get(self, session, url):
-        max_retries = 3
-        retry_count = 0
-        
-        # 動的ヘッダー（Referer等）の設定
-        headers = {}
-        if "athome.co.jp" in url:
-            headers['Referer'] = 'https://www.google.com/'
-            # WAFの負荷制限対策としてクロール前に短い遅延（1秒）を設定
-            await asyncio.sleep(1.0)
-        elif "homes.co.jp" in url:
-            headers['Referer'] = 'https://toushi.homes.co.jp/'
-            
-        while retry_count <= max_retries:
+    async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
+        for attempt in range(max_timeouts):
             try:
-                if headers:
-                    return await session.get(url, headers=headers)
-                return await session.get(url)
-            except (asyncio.TimeoutError, TimeoutError, 
-                    aiohttp.client_exceptions.ClientConnectorError, 
-                    aiohttp.client_exceptions.ServerDisconnectedError) as e:
-                retry_count += 1
-                if retry_count > max_retries:
-                    logging.error(f"Max retries ({max_retries}) exceeded for {url}")
-                    raise e
-                
-                wait_time = 2 ** retry_count
-                logging.warning(f"Connection error for {url}, retry {retry_count}/{max_retries} after {wait_time}s: {e}")
-                await asyncio.sleep(wait_time)
-            except Exception as e:
-                logging.error(f"Unexpected error in _get for {url}: {e}")
-                raise e
-            
-    async def _getContent(self, session, url):
-        # アットホームは厳格なWAF規制のため、urllibと本物ブラウザヘッダの組み合わせで接続を偽装して回避
-        if "athome.co.jp" in url:
-            import urllib.request
-            import ssl
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-                'Referer': 'https://www.google.com/',
-                'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"'
-            }
-            
-            # WAF負荷保護対策としてリクエスト前に短いディレイを置く
-            await asyncio.sleep(1.0)
-            
-            req = urllib.request.Request(url, headers=headers)
-            loop = asyncio.get_event_loop()
-            
-            def run_urllib():
-                with urllib.request.urlopen(req, context=ctx, timeout=15) as resp:
-                    return resp.read()
-            try:
-                content = await loop.run_in_executor(None, run_urllib)
-                logging.info(f"urllib fetch success: {len(content)} bytes for URL: {url}")
-                return content
-            except Exception as e:
-                logging.error(f"urllib fetch failed for {url}: {e}")
-                raise e
-
-        try:
-            r = await self._get(session, url)
-            if r is None:
-                raise Exception(f"Failed to fetch content from {url} (response is None)")
-            logging.info(f"Response status: {r.status} for URL: {url}")
-            # r = await session.get(url)
-            content = await r.content.read()
-            return  content
-        except aiohttp.ClientError as e:
-            logging.error(traceback.format_exc())
-            raise e
-        except (Exception) as e:
-            logging.error(traceback.format_exc())
-            raise e
-            
-    async def getResponse(self, session, url, charset=None):
-
-        async def getDocument():
-            content = await self._getContent(session, url)
-            if (charset is None):
-                encoding = self.getCharset()
-                if(encoding is None):
-                    encoding = chardet.detect(content)["encoding"]
-            else:
-                encoding = charset
-            
-            html_text = content[:1000].decode(encoding, errors='ignore')
-            logging.info(f"Response snippet for {url}: {html_text}")
-
-            return  lxml.html.fromstring(html=content, parser=lxml.html.HTMLParser(encoding=encoding))
-
-        try:
-            return await getDocument()
-        except(TypeError):
-            return await getDocument()
-
-    async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
-
-        async def getDocument():
-            content = await self._getContent(session, url)
-            if (charset is None):
-                encoding = self.getCharset()
-                if(encoding is None):
-                    encoding = chardet.detect(content)["encoding"]
-            else:
-                encoding = charset
-            
-            soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
-            
-            # Check for special pages to skip
-            title = soup.title.string if soup.title else ""
-            if title:
-                if "掲載終了物件" in title:
-                    logging.info(f"Listing ended for URL: {url}")
-                    raise ListingEndedException()
-                if "サーバーが混み合っています" in title:
-                    logging.info(f"Server busy for URL: {url}")
-                    raise ServerBusyException()
-
-            return soup
-
-        try:
-            return await getDocument()
-        except(TypeError):
-            return await getDocument()
-
-    def _getValueFromTable(self, response: BeautifulSoup, title: str, partial_match: bool = False):
-        """
-        Common extraction logic: Find 'th' containing title, return next 'td'.
-        Useful for standard key-value tables in property pages.
-        Handles <br> tags in headers by using get_text().
-        Also handles tables that use 'td' tags as label headers (e.g., td.table-header or td.label).
-        """
-        if not response: return None
-        
-        # First try exact string match (faster)
-        target = response.find("th", string=re.compile(title))
-        if target:
-            return target.find_next_sibling("td")
-        
-        # Fallback: search all th elements and check text content
-        # This handles cases where <br> tags are present
-        for th in response.find_all("th"):
-            th_text = th.get_text()
-            if title in th_text:
-                return th.find_next_sibling("td")
-                
-        # Additional Fallback: Search all td elements acting as labels
-        for td in response.find_all("td"):
-            td_text = td.get_text(strip=True)
-            if title == td_text or (partial_match and title in td_text):
-                sib = td.find_next_sibling("td")
-                if sib:
-                    return sib
-        
-        return None
-
-    def _getValueFromDl(self, soup: BeautifulSoup, label: str):
-        """
-        Search for values in dl/dt/dd structures.
-        Useful for 'Point' sections or properties using display lists.
-        """
-        if not soup: return None
-        # Search all dt elements
-        dts = soup.select('dt')
-        for dt in dts:
-            if label in dt.get_text():
-                return dt.find_next_sibling('dd')
-        return None
-
-    def _getValueByLabel(self, soup: BeautifulSoup, label: str):
-        """
-        Robustly find a value associated with a label, regardless of structure.
-        Checks: th/td, dt/dd, and same-tag mixed content.
-        """
-        if not soup: return None
-        
-        # 1. Search in tables (th/td)
-        res = self._getValueFromTable(soup, label)
-        if res: return res
-        
-        # 2. Search in definition lists (dt/dd)
-        res = self._getValueFromDl(soup, label)
-        if res: return res
-        
-        # 3. Search for tags containing the label (e.g. span, p, div)
-        # This handles summary bars where labels and values are just listed together.
-        # We look for the tag itself or its immediate parent/sibling.
-        regex = re.compile(re.escape(label))
-        tags = soup.find_all(string=regex)
-        for tag_str in tags:
-            parent = tag_str.parent
-            if parent:
-                # If label is "専有面積" and text is "専有面積87.32m2", return the parent or string itself
-                # But usually we want to return a BeautifulSoup Tag to keep compatibility with .get_text()
-                # If the string contains more than just the label, it might be the value too.
-                full_text = parent.get_text(strip=True)
-                if len(full_text) > len(label) + 1: # Value likely included
-                     return parent
-                
-                # Try next sibling if parent text only contained the label
-                sibling = parent.find_next_sibling()
-                if sibling:
-                    return sibling
-                    
-        return None
-
-    def _scrape_to_dict(self, soup: BeautifulSoup):
-        """
-        Scrape all standard table (th/td) and definition list (dt/dd) data into a dictionary.
-        Keys are labels, values are Tag/NavigableString or text.
-        Also handles Mitsui's Vue.js structure: td.table-header + td.table-data
-        """
-        data = {}
-        if not soup: return data
-
-        # 1. th/td (standard) - Handles multiple pairs per row
-        for tr in soup.find_all("tr"):
-            # Get all th and td children
-            cells = tr.find_all(['th', 'td'], recursive=False)
-            if not cells:
-                continue
-                
-            # Iterate through cells to find th -> td pairs
-            for i in range(len(cells) - 1):
-                if cells[i].name == 'th' and cells[i+1].name == 'td':
-                    key = cells[i].get_text(strip=True)
-                    if key and key not in data:
-                        data[key] = cells[i+1]
-        
-        # 2. Mitsui Vue.js structure: td.table-header/label + td.table-data/content
-        for tr in soup.find_all("tr"):
-            tds = tr.find_all("td", recursive=False)
-            for i in range(len(tds) - 1):
-                t1 = tds[i]
-                t2 = tds[i+1]
-                t1_class = t1.get("class", [])
-                t2_class = t2.get("class", [])
-                # クラスリストを平滑化して判定
-                t1_class_str = " ".join(t1_class) if isinstance(t1_class, list) else str(t1_class)
-                t2_class_str = " ".join(t2_class) if isinstance(t2_class, list) else str(t2_class)
-                
-                t1_is_header = "table-header" in t1_class_str or "label" in t1_class_str
-                t2_is_data = "table-data" in t2_class_str or "content" in t2_class_str
-                
-                if t1_is_header and t2_is_data:
-                    key = t1.get_text(strip=True)
-                    if key and key not in data:
-                        data[key] = t2
-        
-        # 3. dt/dd (more robust: finds pairs even if not wrapped in dl)
-        # Search for all dt tags and their immediate dd siblings
-        for dt in soup.find_all("dt"):
-            dd = dt.find_next_sibling("dd")
-            if dd:
-                key = dt.get_text(strip=True)
-                if key and key not in data:
-                    data[key] = dd
-        
-        return data
-
-    def validate_required_fields(self, item: models.Model):
-        """
-        Validate that mandatory fields (Universal Fields) are correctly extracted.
-        Raises ReadPropertyNameException if validation fails.
-        """
-        issues = []
-        
-        # 1. Property Name
-        name = getattr(item, 'propertyName', None)
-        if not name or not str(name).strip():
-            issues.append("propertyName")
-            
-        # 2. Price
-        # price can be 0 or None, but for Strict Extraction, missing price is an error.
-        # Check if price is set (usually int or Decimal)
-        price = getattr(item, 'price', None)
-        if price is None or price == 0:
-            # Check if priceStr exists as a fallback check
-            price_str = getattr(item, 'priceStr', None)
-            if not price_str or not str(price_str).strip():
-                issues.append("price")
-                
-        # 3. Address
-        address = getattr(item, 'address', None)
-        if not address or not str(address).strip() or address == "-":
-            issues.append("address")
-            
-        if issues:
-            logging.error(f"Validation failed for mandatory fields: {', '.join(issues)}")
-            raise ReadPropertyNameException()
-    def _get_specs(self, response: BeautifulSoup):
-        """
-        Retrieve and cache specifications from the response.
-        Uses _scrape_to_dict internally.
-        """
-        resp_id = id(response)
-        if resp_id not in self._specs_cache:
-            specs_tags = self._scrape_to_dict(response)
-            # Remove trailing colon from keys for consistency
-            self._specs_cache[resp_id] = {k.rstrip("："): v.get_text(strip=True) for k, v in specs_tags.items()}
-        return self._specs_cache[resp_id]
-
-    def _populateTraffic(self, item, traffic_str_or_list):
-        if not traffic_str_or_list:
-            return
-        if isinstance(traffic_str_or_list, list):
-            traffic_str = "  ".join(str(x) for x in traffic_str_or_list if x)
-        else:
-            traffic_str = str(traffic_str_or_list)
-            
-        import re
-        # 改行、スラッシュ、全角スペースなどのあらゆるセパレータを整理
-        s = re.sub(r'[\r\n]+', '  ', traffic_str)
-        s = re.sub(r'\s*/\s*', '  ', s)
-        s = re.sub(r'\s*／\s*', '  ', s)
-        s = re.sub(r'\s*、\s*', '  ', s)
-        s = re.sub(r'　', '  ', s)
-        # 徒歩/停歩/分/バス乗車等の直後にスペースを強制挿入
-        s = re.sub(r'((?:徒歩|停歩|分)\d+分)\s*(?=\S)', r'\1  ', s)
-        
-        raw_lines = [p.strip() for p in re.split(r'\s{2,}', s) if p.strip()]
-        
-        # 引き裂かれた要素 (路線名, 駅名, 徒歩分数がばらばらに分割されたもの) をスマートに再結合する
-        lines = []
-        temp_line = ""
-        for p in raw_lines:
-            if not temp_line:
-                temp_line = p
-            else:
-                has_walk_temp = any(x in temp_line for x in ["徒歩", "分", "停歩", "バス"])
-                is_walk_p = any(x in p for x in ["徒歩", "分", "停歩", "バス"])
-                has_station_temp = any(x in temp_line for x in ["駅", "」", "』"])
-                is_station_p = any(x in p for x in ["駅", "」", "』"])
-                
-                # 駅名や徒歩分数が前の要素にまだ含まれていない場合、それは同じ系統の断片であるとみなし結合する
-                if (not has_station_temp and is_station_p) or (not has_walk_temp and is_walk_p):
-                    temp_line = temp_line + " " + p
-                else:
-                    lines.append(temp_line)
-                    temp_line = p
-        if temp_line:
-            lines.append(temp_line)
-            
-        for idx in range(1, 6):
-            if idx > len(lines):
-                break
-            line = lines[idx-1].strip()
-            if not line:
-                continue
-                
-            railway = ""
-            station = ""
-            walk_min = None
-            walk_min_str = ""
-            bus_min = None
-            bus_use = 0
-            bus_station = ""
-            
-            # 徒歩分数・バス情報
-            if "バス" in line:
-                bus_use = 1
-                m_bus = re.search(r'バス\s*(\d+)\s*分', line)
-                if m_bus:
-                    bus_min = int(m_bus.group(1))
-                    str(bus_min)
-                m_bus_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
-                if m_bus_walk:
-                    walk_min = int(m_bus_walk.group(1))
-                    walk_min_str = str(walk_min)
-                bus_station = f"バス乗車{bus_min}分" if bus_min else ""
-                
-                setattr(item, f"railwayWalkMinute{idx}", None)
-                setattr(item, f"railwayWalkMinute{idx}Str", "")
-                setattr(item, f"busWalkMinute{idx}", walk_min)
-                setattr(item, f"busWalkMinute{idx}Str", walk_min_str)
-            else:
-                m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
-                if m_walk:
-                    walk_min = int(m_walk.group(1))
-                    walk_min_str = str(walk_min)
-                
-                setattr(item, f"railwayWalkMinute{idx}", walk_min)
-                setattr(item, f"railwayWalkMinute{idx}Str", walk_min_str)
-                setattr(item, f"busWalkMinute{idx}", None)
-                setattr(item, f"busWalkMinute{idx}Str", "")
-                
-            # 沿線名と駅名
-            m_bracket = re.search(r'^(.*?)\s*[「『（\(]([^」』）\)]+)[」』）\)]', line)
-            if m_bracket:
-                railway = m_bracket.group(1).strip()
-                station = m_bracket.group(2).strip()
-            else:
-                m_station = re.search(r'^(.*?)\s+(\S+?)駅', line)
-                if m_station:
-                    railway = m_station.group(1).strip()
-                    station = m_station.group(2).strip()
-                else:
-                    clean_line = re.sub(r'(?:徒歩|停歩|バス).*$', '', line).strip()
-                    if "・" in clean_line and "駅" in clean_line:
-                        parts = clean_line.split("・")
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status == 200:
+                        self.consecutive_timeouts = 0
+                        return await response.read()
+                    elif response.status in (404, 410):
+                        raise ListingEndedException(f"Property page returned HTTP status {response.status}: {url}")
+                    elif response.status in (500, 502, 503, 504):
+                        raise ServerBusyException(f"Property page returned HTTP status {response.status}: {url}")
                     else:
-                        parts = re.split(r'\s+', clean_line)
-                        
-                    if len(parts) >= 2:
-                        railway = parts[0].strip()
-                        station = parts[1].strip()
-                    elif len(parts) == 1:
-                        station = parts[0].strip()
-
-            if station.endswith("駅"):
-                station = station[:-1]
-                
-            setattr(item, f"railway{idx}", railway)
-            setattr(item, f"station{idx}", station)
-            setattr(item, f"busUse{idx}", bus_use)
-            setattr(item, f"busStation{idx}", bus_station)
-            setattr(item, f"transfer{idx}", line)
-
-    def _parsePropertyName(self, response: BeautifulSoup) -> str:
-        """
-        物件名（propertyName）を構造的・根本的に取得する共通メソッド。
-        各サイトの余計なSEO定型文言（「不動産購入、」「マンション（居住用）」など）が混入するのを防ぐため、
-        スペックテーブルやパンくずリストなどの構造化された部分から優先的に抽出します。
-        """
-        # 1. サイト個別のカスタムセレクタや汎用クレンジング要素があれば最優先
-        custom_selectors = [
-            'h1.property-detail-carousel-luxury__building-name',
-            'ol.breadcrumb-list li.breadcrumb-list-item:last-child span',
-            'ol.breadcrumb-list li:last-child span',
-            self.selectors.get('property_name_clean'),
-            '#property_name',
-            '.property-name-clean',
-            '.property-title-clean'
-        ]
-        for sel in custom_selectors:
-            if sel:
-                el = response.select_one(sel)
-                if el:
-                    name = el.get_text(strip=True)
-                    if name: return name
-
-        # 2. スペックテーブル (specs) の中のキーから優先取得
-        try:
-            specs = self._get_specs(response)
-        except Exception:
-            specs = {}
-            
-        if specs:
-            for key in ["物件名", "名称", "マンション名", "建物名", "アパート名"]:
-                if key in specs and specs[key]:
-                    val = specs[key].strip()
-                    if val and val != "-":
-                        return val
-
-        # 3. パンくずリスト (Breadcrumbs) の末尾から2番目（建物名ページへのリンク）または末尾から取得
-        breadcrumb_selectors = [
-            'ol.breadcrumb-list a[href*="/building/"] span',
-            'ol.breadcrumb-list li:nth-last-child(2) span[itemprop="name"]',
-            'div.breadcrumb ul li:last-child',
-            'ol.breadcrumb li:last-child a',
-            'ol.breadcrumb li:last-child span',
-            '.breadcrumb a:last-child',
-            '.breadcrumb span:last-child'
-        ]
-        for sel in breadcrumb_selectors:
-            el = response.select_one(sel)
-            if el:
-                val = el.get_text(strip=True)
-                if val and val not in ["TOP", "ホーム", "詳細", "物件詳細", "物件概要", "不動産購入"]:
-                    if len(val) < 40:
-                        return val
-
-        # 4. フォールバック: 各サイトの YAML に定義された title セレクタ、または <h1>
-        title_selector = self.selectors.get('title')
-        if title_selector:
-            el = response.select_one(title_selector)
-            if el:
-                val = el.get_text(strip=True)
-                if val: return val
-                
-        h1 = response.find("h1")
-        if h1:
-            return h1.get_text(strip=True)
-            
-        raise ReadPropertyNameException("Could not find property name through common structures")
-
-    def validateEntity(self, item):
-        """
-        パース完了後の物件データに対して厳格なバリデーションを実行する。
-        スクレイピング誤りやバグによるゴミデータのDB混入を防ぐ防衛機構。
-        """
-        model_name = item.__class__.__name__
-        is_tochi = "tochi" in model_name.lower()
-        is_mansion = "mansion" in model_name.lower()
-        is_kodate = "kodate" in model_name.lower() or "investment" in model_name.lower()
-        
-        # 1. 物件名 (propertyName) の検証
-        if not item.propertyName:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 物件名 (propertyName) が空です。")
-        
-        # 定型SEO文言の混入検知
-        seo_keywords = ["不動産購入、", "の中古マンション", "マンション（居住用）", "の物件情報", "の中古一戸建て"]
-        for kw in seo_keywords:
-            if kw in item.propertyName:
-                raise ValueError(f"[{model_name}] バリデーションエラー: 物件名に定型SEO文言が混入しています: '{item.propertyName}'")
-                
-        if len(item.propertyName) < 2:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 物件名が極端に短いです: '{item.propertyName}'")
-
-        # 2. 価格 (price) の検証
-        if not item.price or item.price <= 0:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 価格 (price) が空、または0以下です。")
-        
-        # 万円単位スケールバグの検知 (価格が100万円未満)
-        if item.price < 1000000:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 価格が100万円未満と異常に低いです (万円スケールバグの疑い): {item.price}円")
-
-        # 3. 住所 (address) の検証
-        if not item.address:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 所在地 (address) が空です。")
-            
-        if not getattr(item, "address1", "") or not getattr(item, "address2", ""):
-            raise ValueError(f"[{model_name}] バリデーションエラー: 都道府県名 (address1) または市区町村名 (address2) が分割パースされていません。")
-
-        # 4. 交通情報 (railway1 / station1) の検証
-        # 交通情報が全くない場合は警告・エラー
-        if not getattr(item, "railway1", "") or not getattr(item, "station1", ""):
-            raise ValueError(f"[{model_name}] バリデーションエラー: 第1交通（路線名/駅名）が空です。")
-            
-        # 路線名への余計な文字混入の検知
-        r1 = getattr(item, "railway1", "")
-        if "徒歩" in r1 or "停歩" in r1 or "駅" in r1 or re.search(r"\d+分", r1) or re.search(r"[０-９]+分", r1):
-            raise ValueError(f"[{model_name}] バリデーションエラー: 路線名に『徒歩/分/停歩/駅』などの不要なテキストが混入しています: '{r1}'")
-            
-        # 駅名への記号・カッコ混入の検知
-        s1 = getattr(item, "station1", "")
-        if "」" in s1 or "』" in s1 or "）" in s1 or "「" in s1 or "『" in s1:
-            raise ValueError(f"[{model_name}] バリデーションエラー: 駅名に『」/』/）/「/『』などのカッコ記号が混入しています: '{s1}'")
-
-        # 路線/駅が空なのに徒歩分数だけある不整合
-        if (not r1 or not s1) and getattr(item, "railwayWalkMinute1", None) is not None:
-             raise ValueError(f"[{model_name}] バリデーションエラー: 路線名または駅名が空なのに、徒歩分数が入っています。")
-
-        # 5. 面積・専有面積の検証
-        if is_mansion:
-            menseki = getattr(item, "senyuMenseki", 0)
-            if not menseki or float(menseki) <= 0:
-                raise ValueError(f"[{model_name}] バリデーションエラー: 専有面積 (senyuMenseki) が空、または0以下です。")
-        elif is_tochi or is_kodate:
-            menseki = getattr(item, "tochiMenseki", 0)
-            if not menseki or float(menseki) <= 0:
-                raise ValueError(f"[{model_name}] バリデーションエラー: 土地面積 (tochiMenseki) が空、または0以下です。")
-
-        # 6. 築年月 (chikunengetsuStr) の検証 (土地以外)
-        if not is_tochi:
-            chikunen_str = getattr(item, "chikunengetsuStr", "")
-            if not chikunen_str:
-                raise ValueError(f"[{model_name}] バリデーションエラー: 築年月 (chikunengetsuStr) が空です。")
-            if "昭和年" in chikunen_str or "平成年" in chikunen_str or "令和年" in chikunen_str:
-                raise ValueError(f"[{model_name}] バリデーションエラー: 築年月テキストが不完全です: '{chikunen_str}'")
-
-    def _split_address(self, address: str) -> tuple[str, str, str]:
-        """
-        住所を都道府県名、市区町村名、町名以降に堅牢に分割する。
-        「市原市」「町田市」などの「市」「町」等で始まる地名に対応。
-        都道府県名がない場合は、主要市区町村名から都道府県名を自動補完する。
-        """
-        if not address:
-            return "", "", ""
-            
-        # 1. 都道府県名 (pref) の切り出し
-        pref_match = re.match(r'^([^都道府県]+[都道府県])(.*)$', address)
-        if not pref_match:
-            pref = ""
-            rest = address
-        else:
-            pref = pref_match.group(1)
-            rest = pref_match.group(2)
-            
-        # 2. 政令指定都市の「〇〇市〇〇区」の優先判定 (非貪欲マッチを使用)
-        ordinance_match = re.match(r'^(.+?市.+?区)(.*)$', rest)
-        if ordinance_match:
-            city = ordinance_match.group(1)
-            town = ordinance_match.group(2)
-        else:
-            # 3. 一般市区町村の判定
-            city_match = re.match(r'^(.+?(?:市|区|郡[^市区]*?[町村]|町|村))(.*)$', rest)
-            if city_match:
-                city = city_match.group(1)
-                town = city_match.group(2)
-            else:
-                city = ""
-                town = rest
-                
-        # 4. 都道府県名がない場合の自動補完 (関東一都三県マッピング)
-        if not pref and city:
-            # 神奈川県の市区町村
-            kanagawa_cities = {
-                "横浜市", "川崎市", "相模原市", "横須賀市", "平塚市", "鎌倉市", "藤沢市", "小田原市", 
-                "茅ヶ崎市", "逗子市", "三浦市", "秦野市", "厚木市", "大和市", "伊勢原市", "海老名市", 
-                "座間市", "南足柄市", "綾瀬市", "三浦郡", "高座郡", "中郡", "足柄上郡", "足柄下郡", "愛甲郡"
-            }
-            # 千葉県の市区町村
-            chiba_cities = {
-                "千葉市", "銚子市", "市川市", "船橋市", "館山市", "木更津市", "松戸市", "野田市", 
-                "茂原市", "成田市", "佐倉市", "東金市", "旭市", "習志野市", "柏市", "勝浦市", 
-                "市原市", "流山市", "八千代市", "我孫子市", "鴨川市", "鎌ケ谷市", "君津市", "富津市", 
-                "浦安市", "四街道市", "袖ケ浦市", "八街市", "印西市", "白井市", "富里市", "南房総市", 
-                "匝瑳市", "香取市", "山武市", "いすみ市", "大網白里市", "印旛郡", "香取郡", "山武郡", 
-                "長生郡", "夷隅郡", "安房郡"
-            }
-            # 埼玉県の市区町村
-            saitama_cities = {
-                "さいたま市", "川越市", "熊谷市", "川口市", "行田市", "秩父市", "所沢市", "飯能市", 
-                "加須市", "本庄市", "東松山市", "春日部市", "狭山市", "羽生市", "鴻巣市", "深谷市", 
-                "上尾市", "草加市", "越谷市", "蕨市", "戸田市", "入間市", "朝霞市", "志木市", 
-                "和光市", "新座市", "桶川市", "久喜市", "北本市", "八潮市", "富士見市", "三郷市", 
-                "蓮田市", "坂戸市", "幸手市", "鶴ヶ島市", "日高市", "吉川市", "ふじみ野市", "白岡市", 
-                "北足立郡", "入間郡", "比企郡", "秩父郡", "児玉郡", "大里郡", "南埼玉郡", "北葛飾郡"
-            }
-            
-            if any(city.startswith(c) for c in kanagawa_cities):
-                pref = "神奈川県"
-            elif any(city.startswith(c) for c in chiba_cities):
-                pref = "千葉県"
-            elif any(city.startswith(c) for c in saitama_cities):
-                pref = "埼玉県"
-            else:
-                # デフォルトで東京都 (23区、および多摩地域など)
-                pref = "東京都"
-                
-        return pref, city, town
+                        raise LoadPropertyPageException(f"HTTP Status {response.status}: {url}")
+            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
+                self.consecutive_timeouts = cur_timeouts
+                if cur_timeouts >= max_timeouts:
+                    raise ServerDownException(f"Target server is down or timing out repeatedly ({cur_timeouts} times)") from e
+                if attempt == self.MAX_CONSECUTIVE_TIMEOUTS - 1:
+                    raise LoadPropertyPageException(f"Timeout after {attempt + 1} attempts for URL: {url}") from e
+                await asyncio.sleep(1 * (attempt + 1))
+        return b""
 
 
+# ==============================================================================
+# 物件種別別 Base パーサークラス (Property-Type Base Parsers)
+# ==============================================================================
+
+class MansionParserBase(ParserBase):
+    """
+    マンション用基底パーサークラス
+    """
+    @abstractmethod
+    def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "")
+
+    @abstractmethod
+    def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
+        s = specs.get("築年月", "") or specs.get("完成時期", "")
+        return converter.parse_chikunengetsu(s) if s else None
+
+    @abstractmethod
+    def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or specs.get("建物構造", "")
+
+    @abstractmethod
+    def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "") or specs.get("所在階", "")
+
+    @abstractmethod
+    def _parseSouKosu(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("総戸数", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseManagementFee(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("管理費", "")
+        return converter.parse_price(val) if val else None
+
+    @abstractmethod
+    def _parseReserveFund(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("修繕積立金", "")
+        return converter.parse_price(val) if val else None
+
+    @abstractmethod
+    def _parseKenpei(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseYouseki(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("容積率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引き渡し", "")
+
+    @abstractmethod
+    def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    @abstractmethod
+    def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
+        return self._parseGenkyo(response, specs)
+
+    @abstractmethod
+    def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("借地権種類", "")
+
+    @abstractmethod
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+
+class KodateParserBase(ParserBase):
+    """
+    戸建て用基底パーサークラス
+    """
+    @abstractmethod
+    def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseTatemonoMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("建物面積", "") or specs.get("延床面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
+        s = specs.get("築年月", "") or specs.get("完成時期", "")
+        return converter.parse_chikunengetsu(s) if s else None
+
+    @abstractmethod
+    def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "")
+
+    @abstractmethod
+    def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or specs.get("建物構造", "")
+
+    @abstractmethod
+    def _parseKenpei(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseYouseki(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("容積率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("借地権種類", "")
+
+    @abstractmethod
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+    @abstractmethod
+    def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("接道状況", "") or specs.get("接道", "")
+
+    @abstractmethod
+    def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引き渡し", "")
+
+    @abstractmethod
+    def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    @abstractmethod
+    def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
+        return self._parseGenkyo(response, specs)
+
+    def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "")
+
+
+class TochiParserBase(ParserBase):
+    """
+    土地用基底パーサークラス
+    """
+    @abstractmethod
+    def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseKenpei(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseYouseki(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("容積率", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "")
+
+    @abstractmethod
+    def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("接道状況", "") or specs.get("接道", "")
+
+    @abstractmethod
+    def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
+    @abstractmethod
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+    @abstractmethod
+    def _parseMaguchi(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("間口", "") or specs.get("接道状況", "") or specs.get("接道", "")
+        if not val and response:
+            tag = self._getValueByLabel(response, "間口") or self._getValueByLabel(response, "接道")
+            if tag:
+                val = tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
+        if val:
+            match = re.search(r'(?:間口|約|幅員|道路)?\s*(\d+(?:\.\d+)?)\s*[mｍ]', val)
+            if match:
+                try:
+                    return Decimal(match.group(1))
+                except Exception:
+                    pass
+        return None
+
+    @abstractmethod
+    def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引き渡し", "")
+
+    @abstractmethod
+    def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    @abstractmethod
+    def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
+        return self._parseGenkyo(response, specs)
+
+
+class InvestmentParserBase(ParserBase):
+    """
+    投資用物件用基底パーサークラス
+    """
+    @abstractmethod
+    def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("表面利回り", "") or specs.get("利回り", "") or specs.get("想定利回り", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseAnnualRent(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("年間予定収入", "") or specs.get("満室時想定年収", "") or specs.get("年間収入", "") or specs.get("年収", "")
+        return converter.parse_price(val) if val else None
+
+    @abstractmethod
+    def _parseMonthlyRent(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("月額収入", "") or specs.get("家賃", "")
+        return converter.parse_price(val) if val else None
+
+    @abstractmethod
+    def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("稼働状況", "") or specs.get("入居状況", "") or specs.get("現況", "")
+
+    @abstractmethod
+    def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
+        return self._parseGenkyo(response, specs)
+
+    @abstractmethod
+    def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
+        s = specs.get("築年月", "") or specs.get("完成時期", "")
+        return converter.parse_chikunengetsu(s) if s else None
+
+    @abstractmethod
+    def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or specs.get("建物構造", "")
+
+    @abstractmethod
+    def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseTatemonoMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("建物面積", "") or specs.get("延床面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return None
+
+    @abstractmethod
+    def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引き渡し", "")
+
+    @abstractmethod
+    def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("接道状況", "") or specs.get("接道", "")
+
+    @abstractmethod
+    def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "")
+
+    @abstractmethod
+    def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "")
+
+    @abstractmethod
+    def _parseRights(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")

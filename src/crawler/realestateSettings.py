@@ -51,15 +51,22 @@ def configure():
                 ]
             )
         else:
+            db_engine = 'django.db.backends.mysql'
+            try:
+                import dj_db_conn_pool
+                db_engine = 'dj_db_conn_pool.backends.mysql'
+            except ImportError:
+                pass
+
             settings.configure(
                 DATABASES={
                     'default': {
-                        'ENGINE': 'dj_db_conn_pool.backends.mysql',
+                        'ENGINE': db_engine,
                         'NAME': os.getenv('DB_NAME', 'real_estate'),
                         'USER': os.getenv('DB_USER', 'sumifu'),
                         'PASSWORD': os.getenv('DB_PASSWORD'),
-                        'HOST': os.getenv('DB_HOST', '34.122.252.162'),
-                        'PORT': os.getenv('DB_PORT', '13306'),
+                        'HOST': os.getenv('DB_HOST', 'db'),
+                        'PORT': os.getenv('DB_PORT', '3306'),
                         'OPTIONS': {'charset': 'utf8mb4'},
                         'POOL_OPTIONS': {
                             'POOL_SIZE': int(os.getenv('DB_POOL_SIZE', 10)),

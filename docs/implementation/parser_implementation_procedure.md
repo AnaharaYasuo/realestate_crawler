@@ -26,8 +26,18 @@ class SiteMansionParser(SiteParser):
 `_parsePropertyDetailPage` メソッドを実装し、各項目の抽出メソッドを呼び出します。
 
 ### ルール
-- **代入形式の統一**: `item.field = self._parseField(response)` の形式で記述します。
-- **一項目一関数**: 複数の項目を一つのメソッドで抽出することは禁止です。
+- **一項目一メソッド設計 (Template Method パターン)**: 1項目につき1つの専用抽出メソッド（`_parsePrice`, `_parseAddress` 等）を定義します。
+- **【厳格ルール】関数名・メソッド名への漢字利用禁止規約**:
+  関数名およびメソッド名に漢字（日本語文字）を使用することは固く禁止します。すべてのパースメソッド・ヘルパー関数は英字 (CamelCase / snake_case) で命名します。（例: `_parseSenyuMenseki`, `_parseMadori`, `_parseYearBuilt`）。
+- **基底クラス抽象化・統一インターフェース (Template Method パターン)**:
+  基底クラス (`ParserBase`) および物件種別ごとに統一された標準パース抽出メソッド群を完備します。
+  - **全種別共通**: `_parsePrice`, `_parsePriceStr`, `_parseAddress`, `_parsePropertyName`, `_parseTransport1`, `_parseKenpei`, `_parseYouseki`, `_parseSetsudou`
+  - **マンション固有**: `_parseBuildingArea`, `_parseMadori`, `_parseYearBuilt`, `_parseKouzou`, `_parseFloor`, `_parseSouKosu`, `_parseManagementFee`, `_parseReserveFund`
+  - **戸建/土地固有**: `_parseLandArea`, `_parseBuildingArea`, `_parseRights`, `_parseYoutoChiiki`, `_parseChimoku`
+  - **投資用固有**: `_parseGrossYield`, `_parseAnnualRent`
+
+
+
 
 ```python
 def _parsePropertyDetailPage(self, item, response):
@@ -64,6 +74,13 @@ def _parseSenyuMenseki(self, response):
     return converter.parse_menseki(menseki_str)
 ```
 
+## パーサー実装原則と継承構造
+1. **基底クラス `ParserBase` の必須継承**:
+   - `package/parser/` 配下のすべての不動産パーサークラスは、例外なく `ParserBase`（またはその直系派生クラス）を継承しなければならない。
+   - `ParserBase` を継承していない独立した孤立パーサークラスの作成はアーキテクチャ違反として厳禁。
+2. **自動継承検証テスト (`test_all_parsers_inherit_from_parser_base`) の常駐**:
+   - `test_parser_abstract_methods.py` にて `pkgutil` / `inspect` により全パーサークラスを動的探索し、`issubclass(cls, ParserBase)` を自動検証する単体テストを維持・実行すること。
+
 ## 5. 開発・検証プロセス（イテレーション）
 パーサーの開発・修正は、以下のリサーチと実機検証のサイクルを繰り返すことで品質を担保します。
 
@@ -78,3 +95,16 @@ def _parseSenyuMenseki(self, response):
 全件エラーが解消されたら、以下のスクリプトで最終確認を行います。
 - `verify_parsers.py`: 全サンプルのパース確認。
 - `verify_db_persistence.py`: DBへの正常保存確認。
+
+## 7. 普遍開発ルール：TDD ＆ 動的二段階検証原則
+今後行われるパーサー開発・修正・最速化リファクタリング等のいかなるコード変更においても、以下を普遍の確認ルールとして適用・徹底すること：
+
+1. **TDD（テスト駆動開発）の徹底**:
+   - コード変更前に事前検証テスト/確認スクリプトを作成・実行し、動作の安全と結果の正当性を保持しながら開発を反復（Micro-Diff）する。
+2. **動的アクティブ物件検証**:
+   - 古いローカルの固定ファイルには依存せず、テスト実行時に動的に「現在公開中の最新アクティブ物件生HTML」を直接取得して検証する。
+3. **動的二段階件数制御（3件 ➔ 追加17件＝計20件/サイト×種別）**:
+   - 全サイト×全種別に対し、まず**先頭3件**でスモーク検証（Phase 1）を実行し、問題なければ**追加17件（合計20件/サイト×種別）**へ自動拡張（Phase 2）して深層網羅性を検証する。
+4. **純処理時間アサーション（1,000ms以内/件）**:
+   - ネットワークHTTP通信待ち時間を完全に除外した「純粋なDOM/パース・データ処理時間」を計測し、**1件あたり1,000ms（1秒）を超過した場合はパフォーマンス劣化バグとしてテスト失敗 (FAIL)** と判定する。
+

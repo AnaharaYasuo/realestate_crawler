@@ -18,7 +18,7 @@ athome_bp = Blueprint('athome', __name__)
 
 @athome_bp.route(API_KEY_ATHOME_MANSION_START, methods=['POST', 'GET'])
 def athomeMansionStart():
-    return ParseAthomeMansionStartAsync().main("https://www.athome.co.jp/mansion/")
+    return ParseAthomeMansionStartAsync().main("https://www.athome.co.jp/mansion/chuko/tokyo/city/")
 
 @athome_bp.route(API_KEY_ATHOME_MANSION_DETAIL, methods=['POST', 'GET'])
 def athomeMansionDetail():
@@ -28,7 +28,7 @@ def athomeMansionDetail():
 
 @athome_bp.route(API_KEY_ATHOME_KODATE_START, methods=['POST', 'GET'])
 def athomeKodateStart():
-    return ParseAthomeKodateStartAsync().main("https://www.athome.co.jp/kodate/")
+    return ParseAthomeKodateStartAsync().main("https://www.athome.co.jp/kodate/chuko/tokyo/city/")
 
 @athome_bp.route(API_KEY_ATHOME_KODATE_DETAIL, methods=['POST', 'GET'])
 def athomeKodateDetail():
@@ -38,7 +38,7 @@ def athomeKodateDetail():
 
 @athome_bp.route(API_KEY_ATHOME_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def athomeInvestApartmentStart():
-    return ParseAthomeInvestApartmentStartAsync().main("https://www.athome.co.jp/toushi/")
+    return ParseAthomeInvestApartmentStartAsync().main("https://www.athome.co.jp/buy_other/tokyo/city/")
 
 @athome_bp.route(API_KEY_ATHOME_INVEST_APARTMENT_DETAIL, methods=['POST', 'GET'])
 def athomeInvestApartmentDetail():
@@ -48,11 +48,12 @@ def athomeInvestApartmentDetail():
 
 @athome_bp.route(API_KEY_ATHOME_TOCHI_START, methods=['POST', 'GET'])
 def athomeTochiStart():
-    return ParseAthomeTochiStartAsync().main("https://www.athome.co.jp/tochi/")
+    return ParseAthomeTochiStartAsync().main("https://www.athome.co.jp/tochi/tokyo/city/")
 
 @athome_bp.route(API_KEY_ATHOME_TOCHI_DETAIL, methods=['POST', 'GET'])
 def athomeTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     return ParseAthomeTochiDetailFuncAsync().main(url)
+
 

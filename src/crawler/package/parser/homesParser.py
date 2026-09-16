@@ -1,6 +1,7 @@
+from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import ParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment, HomesTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -10,6 +11,18 @@ import re
 logger = logging.getLogger(__name__)
 
 class HomesParser(ParserBase):
+
+    def _parseCurrentStatus(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("現況", "") or specs.get("現況状況", "")
+
+    def _parseRights(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "")
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
     BASE_URL = 'https://toushi.homes.co.jp'
     property_type = ''  # Default for type checker
 
@@ -20,16 +33,67 @@ class HomesParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        price_str = specs.get("価格", "") or specs.get("販売価格", "")
+        if not price_str and response:
+            el = response.select_one(".price, .mod-price, span.priceNum")
+            if el:
+                price_str = el.get_text(strip=True)
+        return price_str
+
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
+        return converter.parse_price(price_str)
+
+    def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        addr = specs.get("所在地", "") or specs.get("住所", "")
+        if not addr and response:
+            el = response.select_one(".address, .mod-address")
+            if el:
+                addr = el.get_text(strip=True)
+        return addr
+
+    def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("交通", "") or specs.get("最寄り駅", "")
+
+
+
     def getRootDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
         if linkUrl.startswith('http'):
             return linkUrl
+        if not linkUrl.startswith('/'):
+            linkUrl = '/' + linkUrl
         return self.BASE_URL + linkUrl
+
 
     async def parseNextPage(self, response: BeautifulSoup):
         """
         一覧ページから「次へ」のページリンクを抽出し、絶対URLとして返す
-        (Vue.jsによる動的レンダリングを回避するため、canonical URLをベースにページ番号をプログラム側でインクリメントする)
         """
+        if not isinstance(response, BeautifulSoup):
+            import lxml.etree
+            html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
+            response = BeautifulSoup(html_str, "html.parser")
+
+        # 1. ページ内の「次へ」アンカータグを検索
+        next_tag = response.select_one("a.next") or response.select_one(".page-next a") or response.select_one("a[rel='next']")
+        if not next_tag:
+            for a in response.find_all("a", href=True):
+                text = a.get_text().strip()
+                if "次" in text or text == ">" or text == "»":
+                    next_tag = a
+                    break
+        if next_tag:
+            href = next_tag.get("href")
+            if href:
+                return self.getRootDestUrl(href)
+
+        # 2. フォールバック: canonical URLをベースに page パラメータをインクリメント
         canonical = response.find("link", rel="canonical")
         if not canonical:
             return ""
@@ -41,7 +105,6 @@ class HomesParser(ParserBase):
         parsed = urllib.parse.urlparse(current_url)
         query = urllib.parse.parse_qs(parsed.query)
         
-        # pageパラメータの抽出とインクリメント
         page_list = query.get("page", [])
         if page_list:
             try:
@@ -54,7 +117,6 @@ class HomesParser(ParserBase):
         next_page = current_page + 1
         query["page"] = [str(next_page)]
         
-        # クエリパラメータを再構成
         new_query = urllib.parse.urlencode(query, doseq=True)
         next_url = urllib.parse.urlunparse((
             parsed.scheme,
@@ -65,6 +127,7 @@ class HomesParser(ParserBase):
             parsed.fragment
         ))
         return next_url
+
 
     async def parseRootPage(self, response):
         """
@@ -130,6 +193,9 @@ class HomesParser(ParserBase):
         # 1. 住所（「地図を見る」等を除去し、最初の行のみ取得）
         addr_tag = response.select_one("td.prg-addressTableItem") or self._find_by_table_header(response, ["住所", "所在地"])
         item.address = self._clean_text(addr_tag, first_line_only=True)
+        if item.address:
+            item.address1, item.address2, item.address3 = self._split_address(item.address)
+
         
         # 2. 価格（「積算価格を試算する」等を除去）
         price_tag = response.select_one("td.prg-priceTableItem") or self._find_by_table_header(response, ["価格", "販売価格"])
@@ -154,7 +220,73 @@ class HomesParser(ParserBase):
         return item
 
 
-class HomesMansionParser(HomesParser):
+class HomesMansionParser(HomesParser, MansionParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseSenyuMenseki(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if val:
+            m = re.search(r'([\d\.]+)', val)
+            return Decimal(m.group(1)) if m else None
+        return super()._parseSenyuMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseFloor(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+
+    def _parseSouKosu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("総戸数", "")
+        if val:
+            m = re.search(r'(\d+)', val)
+            return int(m.group(1)) if m else None
+        return super()._parseSouKosu(response, specs)
+
+    def _parseManagementFee(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+
+    def _parseReserveFund(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
     property_type = 'mansion'
 
     def createEntity(self):
@@ -181,7 +313,54 @@ class HomesMansionParser(HomesParser):
         return item
 
 
-class HomesKodateParser(HomesParser):
+class HomesKodateParser(HomesParser, KodateParserBase):
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
+    def _parseMadori(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'kodate'
 
     def createEntity(self):
@@ -268,7 +447,53 @@ class HomesKodateParser(HomesParser):
         return item
 
 
-class HomesInvestmentApartmentParser(HomesParser):
+class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
+    def _parseRights(self, response, specs=None):
+        return super()._parseRights(response, specs)
+
+    def _parseMonthlyRent(self, response, specs=None):
+        return super()._parseMonthlyRent(response, specs)
+
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseChimoku(self, response, specs=None):
+        return super()._parseChimoku(response, specs)
+
+    def _parseSetsudou(self, response, specs=None):
+        return super()._parseSetsudou(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None):
+        return super()._parseYoutoChiiki(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseGrossYield(self, response, specs=None):
+        return super()._parseGrossYield(response, specs)
+
+    def _parseAnnualRent(self, response, specs=None):
+        return super()._parseAnnualRent(response, specs)
+
+    def _parseChikunengetsu(self, response, specs=None):
+        return super()._parseChikunengetsu(response, specs)
+
+    def _parseKouzou(self, response, specs=None) -> str:
+        return super()._parseKouzou(response, specs)
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseTatemonoMenseki(self, response, specs=None):
+        return super()._parseTatemonoMenseki(response, specs)
+
     property_type = 'investmentapartment'
 
     def createEntity(self):
@@ -332,7 +557,47 @@ class HomesInvestmentApartmentParser(HomesParser):
         return item
 
 
-class HomesTochiParser(HomesParser):
+class HomesTochiParser(HomesParser, TochiParserBase):
+    def _parseHikiwatashi(self, response, specs=None):
+        return super()._parseHikiwatashi(response, specs)
+
+    def _parseGenkyo(self, response, specs=None):
+        return super()._parseGenkyo(response, specs)
+
+    def _parsePropertyName(self, response, specs=None):
+        return super()._parsePropertyName(response, specs)
+
+    def _parseMaguchi(self, response, specs=None):
+        return super()._parseMaguchi(response, specs)
+
+    def _parseCurrentStatus(self, response, specs=None):
+        return super()._parseCurrentStatus(response, specs)
+
+
+    def _parseTochiMenseki(self, response, specs=None):
+        return super()._parseTochiMenseki(response, specs)
+
+    def _parseKenpei(self, response, specs=None):
+        return super()._parseKenpei(response, specs)
+
+    def _parseYouseki(self, response, specs=None):
+        return super()._parseYouseki(response, specs)
+
+    def _parseChimoku(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("地目", "") or super()._parseChimoku(response, specs)
+
+    def _parseSetsudou(self, response, specs=None) -> str:
+        return super()._parseSetsudou(response, specs)
+
+    def _parseRights(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+
+    def _parseYoutoChiiki(self, response, specs=None) -> str:
+        specs = specs or self._get_specs(response)
+        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+
     property_type = 'tochi'
 
     def createEntity(self):
@@ -418,4 +683,3 @@ class HomesTochiParser(HomesParser):
             item.roadStructure = structure_match.group(1) if structure_match else "中間地"
             
         return item
-

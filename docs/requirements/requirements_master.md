@@ -4,7 +4,7 @@
 
 ### 1.1 目的
 
-本システムは、日本の主要不動産会社5社のWebサイトから不動産物件情報を自動収集し、構造化されたデータベースに保存することを目的とする。
+本システムは、日本の主要不動産会社およびポータルサイト22社以上のWebサイトから不動産物件情報を自動収集し、構造化されたデータベースに保存することを目的とする。
 
 ### 1.2 背景
 
@@ -13,7 +13,7 @@
 ### 1.3 スコープ
 
 **対象範囲:**
-- 5社の不動産会社サイトからの物件情報収集
+- 22社以上の不動産会社・ポータルサイトからの物件情報収集
 - 4種類の物件タイプ（投資用、マンション、戸建て、土地）
 - データの正規化とデータベース保存
 - ローカル環境での実行
@@ -31,15 +31,34 @@
 ### 2.1 データ収集機能
 
 #### FR-001: 対象サイト
-システムは以下の5社のWebサイトから物件情報を収集できること。
+システムは以下の22社以上のWebサイトから物件情報を収集できること。
 
-| 会社名 | 対象サイト |
-|--------|-----------|
-| 三井のリハウス | https://www.rehouse.co.jp/ |
-| 住友不動産販売 | https://www.stepon.co.jp/ |
-| 東急リバブル | https://www.livable.co.jp/ |
-| 野村の仲介+ | https://www.nomu.com/ |
-| ミサワホーム不動産 | https://realestate.misawa.co.jp/ |
+| 会社名 | 対象サイト | キー |
+|--------|-----------|-----|
+| 三井のリハウス | https://www.rehouse.co.jp/ | `mitsui` |
+| 住友不動産販売 | https://www.stepon.co.jp/ | `sumifu` |
+| 東急リバブル | https://www.livable.co.jp/ | `tokyu` |
+| 野村の仲介+ | https://www.nomu.com/ | `nomura` |
+| ミサワホーム不動産 | https://realestate.misawa.co.jp/ | `misawa` |
+| 三井住友トラスト不動産 | https://smtrc.jp/ | `smtrc` |
+| 三菱UFJ不動産販売 | https://www.sumai1.com/ | `sumai1` |
+| みずほ不動産販売 | https://www.mizuho-re.co.jp/ | `mizuho` |
+| 小田急不動産 | https://www.odakyu-chukai.com/ | `odakyu` |
+| 東京建物不動産販売 | https://sumikae.ttfuhan.co.jp/ | `totate` |
+| 大和ハウスリアルエステート | https://www.dh-realestate.co.jp/ | `daiwa` |
+| 住友林業ホームサービス | https://www.sumirin-hs.co.jp/ | `sumirin` |
+| 積水ハウス不動産 | https://www.sekisuihouse-fd.com/ | `sekisui` |
+| 旭化成不動産レジデンス | https://www.afr-web.co.jp/ | `afr` |
+| セキスイハイム不動産 | https://www.816heim.jp/ | `heim` |
+| パナソニックホームズ不動産 | https://homes.panasonic.com/rearie/ | `rearie` |
+| 京王不動産 | https://www.keio-fudosan.co.jp/ | `keio` |
+| 西武不動産 | https://www.seibu-real.co.jp/ | `seibu` |
+| 京急不動産 | https://www.keikyu-sumai.com/ | `keikyu` |
+| 相鉄不動産販売 | https://www.sotetsu-re.co.jp/ | `sotetsu` |
+| 京成不動産 | https://www.keisei-fudosan.co.jp/ | `keisei` |
+| 大京穴吹不動産 | https://www.daikyo-anabuki.co.jp/ | `daikyo` |
+| LIFULL HOME'S | https://www.homes.co.jp/ | `homes` |
+| アットホーム | https://www.athome.co.jp/ | `athome` |
 
 #### FR-002: 物件種別
 システムは以下の4種類の物件タイプを収集できること。
@@ -233,9 +252,35 @@
 - **Tochi**: `tochiMenseki`, `kenpei`, `youseki`
 - **Investment**: `landArea`, `buildingArea`
 
-### 2.3 実行制御機能
+### 2.3 テスト・品質保証機能
 
-#### FR-008: コマンドライン実行
+#### FR-008: ライブサイト到達・動的パース検証統合テスト
+- 各サイトのスタート/一覧URLから実サイトの物件詳細URLを動的に抽出し、先頭1〜3件の実詳細ページにアクセスして各パーサーを実行すること
+- 単なる必須項目（物件名・価格・住所等）だけでなく、そのサイト/モデルで定義されている全取得対象フィールド（価格・住所・面積・間取り・構造・築年・交通・土地面積・建蔽率・容積率・用途地域等）において、適切な値が漏れなく取得できていることを全件網羅検証すること
+- `pytest` による自動テストスイートの一部として常時実行可能であること
+- オフライン環境用に `@pytest.mark.live` によるマーカー制御を提供すること
+
+### 2.4 クローリング制御・障害耐性・アラート要件
+
+#### FR-009: クローラー優先順位制御 (Smallest-Site-First)
+- クロールジョブ実行時、物件件数の多い大手ポータル（Homes, Athome）や大手仲介（三井, 住友, 東急, 野村）を後回しにし、高速に処理が完了する小規模サイト・ハウスメーカー系・電鉄系サイトから優先的にクロールを実行すること。
+- 大規模サイトの遅延によって他サイトのクロールが未実施になる事態を防止すること。
+
+#### FR-010: 連続タイムアウト Fast-Fail & サーキットブレイカー
+- 相手サーバーが無応答・タイムアウトを繰り返す場合（連続3回以上）、無制限なリトライを避け「接続失敗」と判定してジョブを即時中断 (Abort) し、パイプライン全体のハングアップを防止すること。
+
+#### FR-011: 0件取得の失敗分類 (Zero-Count Failure)
+- クローリング処理が正常終了（Exit Code 0）した場合であっても、取得件数が0件である場合は正常とみなさず「0件取得失敗 (Zero-Count Failure)」としてエラーアラートを発報し、失敗ジョブとして記録すること。
+
+#### FR-012: 物件公開終了（404 / 掲載終了）のアラート除外
+- 物件の公開終了（HTTP 404, Page Not Found, 掲載終了）による取得不可は正常なライフサイクルであるため、Slack エラーアラートチャンネルへの通知対象から除外（スキップ）すること。
+
+#### FR-013: Slack疎通事前自己チェック (Step 0)
+- クローリングおよびパイプラインの起動前（Step 0）に必ず `check_slack_connection.py` を実行し、Slackチャンネル名の変更やBot未招待による通知不達（`channel_not_found` 等）を事前検証すること。
+
+### 2.5 実行制御機能
+
+#### FR-014: コマンドライン実行
 Taskコマンドにより以下の操作が可能であること。
 
 ```bash
@@ -262,6 +307,34 @@ task stop
 - Region/List API: 並列数2
 - Detail API: 並列数6
 - TCP接続プール: 上限100
+
+### 2.6 機械学習・価格推定機能
+
+#### FR-015: ベクトル化バルク推論 (Vectorized Bulk Inference)
+- クロール後のバルク評価バッチにおいて、1件ずつのHTTP通信や個別モデル推論を行わず、オンメモリ常駐モデルによるバッチ（500〜1,000件単位）ベクトル化推論を実行すること。
+- DBアクセスは未評価物件の一括抽出（プリフェッチ）および一括保存（`bulk_create`/`bulk_update`）によりN+1クエリを排除すること。
+
+#### FR-016: 全社網羅学習と特徴量整合性
+- 機械学習モデルの再学習時は、登録されている全24社ポータルの実クロールデータを網羅的に学習データセットへ投入し、十分な学習母数を確保すること。
+- 学習時（`train.py`）と推論時（`predict.py`）の特徴量定義（`FEATURE_SETS`）を完全に一元化し、未学習特徴量の推論時ゼロ埋めや列ズレを根絶すること。
+
+#### FR-017: 対数変換バイアス補正および動的最適アンサンブル
+- 平米単価の対数変換回帰におけるイェンセンの不等式による過小評価を防ぐため、残差スミアリング補正（Duan's Smearing Estimator）を適用すること。
+- LightGBM、XGBoost、CatBoost、RandomForest のアンサンブル予測比率は、交差検証時のOut-Of-Fold予測誤差（MAPE）を最小化する最適重みを自動算出し動的に適用すること。
+
+### 2.7 経済的価値創出評価・外れ値除去要件（Economic Value Capacity & Anomaly Elimination）
+
+#### FR-018: 経済的価値創出アンカー（Imputed Economic Rent Capitalization）
+- 単なる売出価格の模倣ではなく、「物件が生み出す経済的価値（年間想定純賃料 ÷ 期待利回り）」を理論的アンカー（`income_approach_value`）としてすべての物件種別（マンション・戸建て・土地・アパート）で算出し、中心値からの差分が「純粋な価格と価値の歪み（真の割安・割高）」を表す状態を確立すること。
+
+#### FR-019: 潜在容積延床面積・規模非線形補正（Potential Volume Floor Area & Scale Factor）
+- 土地および建物の価値評価において、容積率（FAR）から導出される「法的に建設可能な最大延床面積（`potential_floor_area = tochi_area * FAR`）」を主要指標とし、超都心商業地の収益創出力を正当に評価すること。また、1,000㎡超の大規模原野・山林に対しては平米単価の非線形規模減退（`scale_discount`）を適用すること。
+
+#### FR-020: 権利制約・再建築不可減価（Economic Rights & Rebuild Restriction Penalties）
+- 借地権・地上権（権利比率0.55〜0.65）、再建築不可（0.45）、心理的瑕疵・告知事項（0.70）など、将来キャッシュフローや再有効使用を著しく阻害する法的・経済的制約を明示的な減価係数として反映すること。
+
+#### FR-021: 誤分類・パース外れ値防御（Data Anomaly & Misclassification Guards）
+- 敷地権のない1K投資用区分所有が戸建てテーブルに混入した場合、自動的に区分マンション評価へリルートすること。また、価格値が面積カラムへ混入するパース異常（マンション面積500㎡超等）を上限キャップし、築年数欠損（`builtYear=None`）に対して適正な築年数をインピュートすること。
 
 ---
 
@@ -411,8 +484,8 @@ task stop
 - [投資用不動産 種別調査](investment_property_types.md): 各サイトの投資用物件種別に関する詳細調査
 - [Sumifuクローリング報告書](sumifu_crawling_report.md): 住友不動産販売のクローリング状況レポート
 - [クローラー仕様書](../basic_design/basic_design_master.md): アーキテクチャ、処理フロー詳細
-- [データベース定義書](../detailed_design/detailed_design_master.md): テーブル・カラム定義
-- [API構造](../detailed_design/detailed_design_master.md): エンドポイント構造、Fire-and-Forget実装
+- [データベース定義書](../internal_design/detailed_design_master.md): テーブル・カラム定義
+- [API構造](../internal_design/api_structure.md): エンドポイント構造、Fire-and-Forget実装
 - [開発者ガイド](../implementation/developer_guide_master.md): 環境構築、デバッグ方法
 - [サイト構造ドキュメント](site_structures/): 各社のサイト構造詳細
 

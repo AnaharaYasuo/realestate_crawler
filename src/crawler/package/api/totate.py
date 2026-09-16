@@ -10,7 +10,7 @@ from package.parser.totateParser import (
 )
 from package.api.registry import ApiRegistry
 
-DETAIL_PARARELL_LIMIT = 1
+DETAIL_PARARELL_LIMIT = 3
 
 # Mansion
 class ParseTotateMansionDetailFuncAsync(ParseDetailPageAsyncBase):
