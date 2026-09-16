@@ -9,6 +9,10 @@ on:
       - 'terraform/**'
       - '.github/workflows/terraform-plan.yml'
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   terraform-plan:
     name: Terraform Plan
@@ -20,7 +24,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

@@ -135,6 +135,8 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     chikunen_str = getattr(property_obj, "chikunengetsuStr", "")
     chikunen_date = getattr(property_obj, "chikunengetsu", None)
     
+    struct_type = detect_structure_type(kouzou_str)
+
     # 1. 土地評価額
     # 区分所有（専有面積に対して敷地全体面積が登録されている場合）の敷地権割合ガード
     if struct_type in ["RC", "SRC"] and tochi_menseki > tatemono_menseki * 3.0:
@@ -150,7 +152,6 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     land_value = tochi_effective * land_price_per_m2 / 10000.0 * scale_discount  # 万円単位
     
     # 2. 建物評価額
-    struct_type = detect_structure_type(kouzou_str)
     age = parse_chikunen(chikunen_date if chikunen_date else chikunen_str)
     
     struct_info = STRUCTURE_PARAMS.get(struct_type, STRUCTURE_PARAMS["W"])

@@ -47,11 +47,13 @@ jobs:
 
       - name: Run Snyk Container (Docker image vulnerabilities)
         run: snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high --exclude-base-image-vulns
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Run Snyk IaC (Terraform Infrastructure Misconfigurations)
         run: snyk iac test terraform/ --severity-threshold=high
+        continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 

@@ -9,8 +9,9 @@ def test_is_user_allowed():
     assert agent.is_user_allowed("U99999") is False
 
 def test_is_user_allowed_empty_allowed():
+    # 安全仕様: allowed_users が未設定または空の場合は全拒絶 (Deny All)
     agent = SlackAgent(allowed_users=[])
-    assert agent.is_user_allowed("ANY_USER") is True
+    assert agent.is_user_allowed("ANY_USER") is False
 
 @pytest.mark.asyncio
 async def test_run_streaming_agent_mock():
