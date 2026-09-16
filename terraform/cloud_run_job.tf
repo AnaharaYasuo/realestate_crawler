@@ -1,0 +1,92 @@
+# Cloud Run Job for Real Estate Crawler & ML Pipeline (案A: 単一Job実行, 案C: タスクアレイ拡張対応)
+resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
+  name     = "realestate-crawler-pipeline-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_sql_database_instance.mysql_instance,
+    google_vpc_access_connector.vpc_connector
+  ]
+
+  template {
+    # 案C（分散並列実行）へ拡張する際は、以下を task_count = 20, parallelism = 5 等へ変更するだけでスケール可能
+    task_count  = 1
+    parallelism = 1
+
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = var.crawler_timeout
+      max_retries     = 1
+
+      vpc_access {
+        connector = google_vpc_access_connector.vpc_connector.id
+        egress    = "ALL_TRAFFIC" # 全外部通信をVPC経由にし、Cloud NAT(固定IP)から送信
+      }
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.crawler_repo.name}/crawler:latest"
+
+        command = ["python", "src/crawler/scripts/ops/run_pipeline.py"]
+
+        resources {
+          limits = {
+            cpu    = var.crawler_cpu
+            memory = var.crawler_memory
+          }
+        }
+
+        # データベース接続設定 (Private IP経由)
+        env {
+          name  = "DB_HOST"
+          value = google_sql_database_instance.mysql_instance.private_ip_address
+        }
+        env {
+          name  = "DB_NAME"
+          value = var.db_name
+        }
+        env {
+          name  = "DB_USER"
+          value = var.db_user
+        }
+        env {
+          name  = "DB_PORT"
+          value = "3306"
+        }
+        env {
+          name = "DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_password_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        # ストレージ設定 (GCS)
+        env {
+          name  = "STORAGE_BACKEND"
+          value = "gcs"
+        }
+        env {
+          name  = "STORAGE_BUCKET"
+          value = google_storage_bucket.property_images.name
+        }
+
+        # Slack トークン設定
+        env {
+          name = "SLACK_BOT_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        # Playwright は --disable-dev-shm-usage フラグで /tmp を利用するため shm の個別マウント不要
+      }
+    }
+  }
+}
+

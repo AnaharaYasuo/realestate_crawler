@@ -561,12 +561,16 @@ task logs
 
 ### 1. システムの理解を深める
 - **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（FR-015〜FR-017 バルク推論・価格推定最適化）
+- **[GCPインフラ要件定義書](docs/requirements/gcp_infrastructure_requirements.md)**: クラウド移行要件・非機能要件
 - **[基本設計書](docs/basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング、バルク推論アーキテクチャ
+- **[GCPアーキテクチャ基本設計書](docs/basic_design/gcp_architecture_design.md)**: Cloud Run Jobs / Cloud SQL / GCS サーバーレス構成
 - **[内部設計書](docs/internal_design/detailed_design_master.md)**: データベーススキーマ、Dual Storageパターン
+- **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
+- **[Terraformデプロイガイド](terraform/README.md)**: GCPインフラ一括プロビジョニング手順
 
 
 ---
@@ -577,3 +581,4 @@ task logs
     *   `main.py`: エントリーポイント
     *   `package/`: クローラーロジック
     *   `tests/`: テストコード
+*   `terraform/`: GCP インフラストラクチャ定義 (IaC)

@@ -1,0 +1,39 @@
+# Service Account for Cloud Run Jobs & Services
+resource "google_service_account" "crawler_runner" {
+  account_id   = "crawler-runner-${var.environment}"
+  display_name = "Real Estate Crawler Runner Service Account"
+}
+
+# Grant Cloud SQL Client Role
+resource "google_project_iam_member" "cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+# Grant Storage Object Admin on Image Bucket
+resource "google_storage_bucket_iam_member" "storage_admin" {
+  bucket = google_storage_bucket.property_images.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+# Grant Secret Manager Secret Accessor
+resource "google_project_iam_member" "secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+# Service Account for Cloud Scheduler
+resource "google_service_account" "scheduler_invoker" {
+  account_id   = "scheduler-invoker-${var.environment}"
+  display_name = "Cloud Scheduler Invoker for Cloud Run Jobs"
+}
+
+# Grant Cloud Run Invoker to Scheduler Service Account
+resource "google_project_iam_member" "run_invoker" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}

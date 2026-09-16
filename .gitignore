@@ -53,3 +53,18 @@ docs/requirements/site_samples/*.html
 src/crawler/tests/data/*.html
 src/crawler/tests/data/*.png
 **/*_mock.html
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+terraform.tfvars
+!terraform.tfvars.example
