@@ -58,7 +58,7 @@ class SumifuParser(ParserBase):
             if response is not None:
                 # Check for signs of bad parsing (e.g. extremely short content for a full page)
                 # Area pages are usually large. 458 bytes (from debug) is suspicious.
-                content_len = len(lxml.html.tostring(response))
+                content_len = len(str(response))
                 if content_len < 1000: # Threshold for suspicion
                     logging.warning(f"Suspiciously small content ({content_len} bytes) for {url}. Retrying with UTF-8.")
                     # Force UTF-8
@@ -98,7 +98,9 @@ class SumifuParser(ParserBase):
         logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
-    def getPropertyListDestUrl(self,linkUrl):
+    def getPropertyListDestUrl(self, linkUrl):
+        if linkUrl and not linkUrl.startswith("http"):
+            return self.BASE_URL + linkUrl
         return linkUrl
 
     async def parsePropertyListPage(self, response):
@@ -108,7 +110,7 @@ class SumifuParser(ParserBase):
     async def getPropertyListNextPageUrl(self, response):
         logging.info("getPropertyListNextPageUrl")
         next_page_selector = self.selectors.get('next_page')
-        next_link = response.select_one(next_page_selector)
+        next_link = response.select_one(next_page_selector) if next_page_selector else None
         # Or simpler search for text "次へ"
         if not next_link:
              # Try finding by text "次へ"
@@ -351,7 +353,9 @@ class SumifuParser(ParserBase):
         Handles labels with <br>, spaces, or extra characters.
         """
         def normalize(s):
-            return s.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "").rstrip("：").rstrip(":")
+            if not s:
+                return ""
+            return str(s).replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "").rstrip("：").rstrip(":")
 
         specs_tags = self._get_specs(response)
         target_norm = normalize(title)
@@ -478,7 +482,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         property_links_selector = self.selectors.get('property_links')
-        links = response.select(property_links_selector)
+        links = response.select(property_links_selector) if property_links_selector else []
         if not links:
              # Fallback
              fallback_selector = self.selectors.get('property_links_fallback')
@@ -906,25 +910,31 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         item.biko = self._parseBiko(response)
         
         # Mansion specific assignments to ensure they are set
-        item.saikouKadobeya = self._parseSaikou(response) + " / " + self._parseKadobeya(response)
-        item.kanriKeitaiKaisya = self._parseKanriKeitaiKaisya(response).replace("\n", " / ")
+        item.saikouKadobeya = f"{self._parseSaikou(response) or ''} / {self._parseKadobeya(response) or ''}"
+        item.kanriKeitaiKaisya = (self._parseKanriKeitaiKaisya(response) or "").replace("\n", " / ")
 
         return item
 
     def _parseMadori(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("間取り", "")
-        if not val:
-             m_tag = response.select_one(self.selectors.get('madori'))
-             if m_tag: val = m_tag.get_text(strip=True)
+        if not val and self.selectors:
+            sel = self.selectors.get('madori')
+            if sel:
+                m_tag = response.select_one(sel)
+                if m_tag:
+                    val = m_tag.get_text(strip=True)
         return val
 
     def _parseSenyuMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("専有面積", "")
-        if not val:
-             s_tag = response.select_one(self.selectors.get('senyuMenseki'))
-             if s_tag: val = s_tag.get_text(strip=True)
+        if not val and self.selectors:
+            sel = self.selectors.get('senyuMenseki')
+            if sel:
+                s_tag = response.select_one(sel)
+                if s_tag:
+                    val = s_tag.get_text(strip=True)
         return val
 
     def _parseSenyuMenseki(self, response, specs=None):
