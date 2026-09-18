@@ -35,6 +35,8 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
           cpu    = "1"
           memory = "1Gi"
         }
+      }
+
       env {
         name  = "IS_CLOUD"
         value = "true"
