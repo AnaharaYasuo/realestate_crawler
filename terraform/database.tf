@@ -74,6 +74,10 @@ resource "google_sql_database_instance" "mysql_instance" {
       name  = "skip_show_database"
       value = "on"
     }
+    database_flags {
+      name  = "default_authentication_plugin"
+      value = "mysql_native_password"
+    }
   }
 
   deletion_protection = true # 誤削除防止 (セキュリティ強化)
