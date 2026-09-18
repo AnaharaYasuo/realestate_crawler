@@ -7,6 +7,9 @@ WORKDIR /app
 # 環境変数の設定
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV PYTHONIOENCODING "utf-8"
+ENV LANG "C.UTF-8"
+ENV LC_ALL "C.UTF-8"
 
 # 依存ファイルのみコピー
 COPY src/crawler/requirements.txt /app/
@@ -29,7 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# ソースコードのコピー
+# 設定ファイルおよびソースコードのコピー
+COPY config/ /app/config/
 COPY src/ /app/src/
 
 # Playwrightとその依存関係（Chromium用OSライブラリ）のインストール

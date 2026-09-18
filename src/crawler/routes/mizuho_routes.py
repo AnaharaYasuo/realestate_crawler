@@ -28,7 +28,8 @@ def mizuhoMansionStart():
 def mizuhoMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMizuhoMansionDetailFuncAsync().main(url)
+    ParseMizuhoMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @mizuho_bp.route(API_KEY_MIZUHO_KODATE_START, methods=['POST', 'GET'])
 def mizuhoKodateStart():
@@ -38,7 +39,8 @@ def mizuhoKodateStart():
 def mizuhoKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMizuhoKodateDetailFuncAsync().main(url)
+    ParseMizuhoKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @mizuho_bp.route(API_KEY_MIZUHO_TOCHI_START, methods=['POST', 'GET'])
 def mizuhoTochiStart():
@@ -48,7 +50,8 @@ def mizuhoTochiStart():
 def mizuhoTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMizuhoTochiDetailFuncAsync().main(url)
+    ParseMizuhoTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 @mizuho_bp.route(API_KEY_MIZUHO_INVESTMENT_START, methods=['POST', 'GET'])
 def mizuhoInvestmentStart():
@@ -58,5 +61,6 @@ def mizuhoInvestmentStart():
 def mizuhoInvestmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMizuhoInvestmentDetailFuncAsync().main(url)
+    ParseMizuhoInvestmentDetailFuncAsync().main(url)
+    return "finish", 200
 

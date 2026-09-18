@@ -25,19 +25,22 @@ def mitsuiInvestKodateStart():
 def mitsuiInvestKodateArea():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestKodateAreaFuncAsync().main(url)
+    ParseMitsuiInvestKodateAreaFuncAsync().main(url)
+    return "finish", 200
 
 @mitsui_investment_bp.route(API_KEY_MITSUI_INVEST_KODATE_LIST, methods=['POST', 'GET'])
 def mitsuiInvestKodateList():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestKodateListFuncAsync().main(url)
+    ParseMitsuiInvestKodateListFuncAsync().main(url)
+    return "finish", 200
 
 @mitsui_investment_bp.route(API_KEY_MITSUI_INVEST_KODATE_DETAIL, methods=['POST', 'GET'])
 def mitsuiInvestKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestKodateDetailFuncAsync().main(url)
+    ParseMitsuiInvestKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 # ==============================================================================
 #  APARTMENT ROUTES
@@ -51,16 +54,19 @@ def mitsuiInvestApartmentStart():
 def mitsuiInvestApartmentArea():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestApartmentAreaFuncAsync().main(url)
+    ParseMitsuiInvestApartmentAreaFuncAsync().main(url)
+    return "finish", 200
 
 @mitsui_investment_bp.route(API_KEY_MITSUI_INVEST_APARTMENT_LIST, methods=['POST', 'GET'])
 def mitsuiInvestApartmentList():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestApartmentListFuncAsync().main(url)
+    ParseMitsuiInvestApartmentListFuncAsync().main(url)
+    return "finish", 200
 
 @mitsui_investment_bp.route(API_KEY_MITSUI_INVEST_APARTMENT_DETAIL, methods=['POST', 'GET'])
 def mitsuiInvestApartmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseMitsuiInvestApartmentDetailFuncAsync().main(url)
+    ParseMitsuiInvestApartmentDetailFuncAsync().main(url)
+    return "finish", 200

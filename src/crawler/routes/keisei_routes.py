@@ -23,7 +23,8 @@ def keiseiMansionStart():
 def keiseiMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeiseiMansionDetailFuncAsync().main(url)
+    ParseKeiseiMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keisei_bp.route(API_KEY_KEISEI_KODATE_START, methods=['POST', 'GET'])
 def keiseiKodateStart():
@@ -34,7 +35,8 @@ def keiseiKodateStart():
 def keiseiKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeiseiKodateDetailFuncAsync().main(url)
+    ParseKeiseiKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keisei_bp.route(API_KEY_KEISEI_TOCHI_START, methods=['POST', 'GET'])
 def keiseiTochiStart():
@@ -45,4 +47,5 @@ def keiseiTochiStart():
 def keiseiTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeiseiTochiDetailFuncAsync().main(url)
+    ParseKeiseiTochiDetailFuncAsync().main(url)
+    return "finish", 200

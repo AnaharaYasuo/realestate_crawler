@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from decimal import Decimal
 import logging
 import re
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -139,11 +140,10 @@ class AthomeParser(ParserBase):
         if not linkUrl:
             return ""
         if linkUrl.startswith('http'):
-            return linkUrl
-        if not linkUrl.startswith('/'):
-            linkUrl = '/' + linkUrl
+            return re.sub(r'(?<!:)//+', '/', linkUrl)
         base = base_domain or getattr(self, 'current_base_domain', None) or self.BASE_URL
-        return base + linkUrl
+        joined = urllib.parse.urljoin(base, linkUrl)
+        return re.sub(r'(?<!:)//+', '/', joined)
 
     async def parseNextPage(self, response):
         """
@@ -234,7 +234,7 @@ class AthomeParser(ParserBase):
                             sub_path = urllib.parse.urlparse(sub_href).path
                             sub_is_nav = any(nav in sub_path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
                             if not sub_is_nav and ("bkdetail" in sub_href or re.search(r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?', sub_path)):
-                                full_url = self.getRootDestUrl(sub_href, base_domain=l_url)
+                                full_url = self.getRootDestUrl(sub_href, base_domain=base)
                                 parsed = urllib.parse.urlparse(full_url)
                                 normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                                 if parsed.query:
@@ -246,6 +246,12 @@ class AthomeParser(ParserBase):
                     logging.warning(f"Error expanding list_link {l_url}: {e}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 0. 掲載終了・物件不在の早期検知
+        title_text = response.title.get_text().strip() if response.title else ""
+        body_text = response.body.get_text() if response.body else ""
+        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]) or response.select_one(".mod-message-end, .not-found"):
+            raise ListingEndedException("Athome listing ended or not found")
+
         # 共通の親メソッド呼び出し
         item = super()._parsePropertyDetailPage(item, response)
         

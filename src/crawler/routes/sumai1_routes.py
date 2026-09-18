@@ -24,7 +24,8 @@ def sumai1MansionStart():
 def sumai1MansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumai1MansionDetailFuncAsync().main(url)
+    ParseSumai1MansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumai1_bp.route(API_KEY_SUMAI1_KODATE_START, methods=['POST', 'GET'])
 def sumai1KodateStart():
@@ -34,7 +35,8 @@ def sumai1KodateStart():
 def sumai1KodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumai1KodateDetailFuncAsync().main(url)
+    ParseSumai1KodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumai1_bp.route(API_KEY_SUMAI1_TOCHI_START, methods=['POST', 'GET'])
 def sumai1TochiStart():
@@ -44,7 +46,8 @@ def sumai1TochiStart():
 def sumai1TochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumai1TochiDetailFuncAsync().main(url)
+    ParseSumai1TochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumai1_bp.route(API_KEY_SUMAI1_INVESTMENT_START, methods=['POST', 'GET'])
 def sumai1InvestmentStart():
@@ -54,5 +57,6 @@ def sumai1InvestmentStart():
 def sumai1InvestmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumai1InvestmentDetailFuncAsync().main(url)
+    ParseSumai1InvestmentDetailFuncAsync().main(url)
+    return "finish", 200
 

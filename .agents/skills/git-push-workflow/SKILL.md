@@ -31,5 +31,13 @@ description: 開発作業が完了した後に、新しいブランチを作成�
    - 作成したブランチをリモートリポジトリにプッシュする。
    - `git push origin <branch-name>`
 
-6. **事後確認**
-   - （必要に応じて）PR（Pull Request）の作成や、チームへの共有を行う。
+6. **二段階PRマージの実施（Production Gate 遵守）**
+   - 本リポジトリでは `production` への直接 push および作業ブランチからの直接 PR は GitHub Actions (`production-gate.yml`) でブロックされる。
+   - **Step 1: 作業ブランチ ➔ `master` への PR & マージ**
+     - `gh pr create --base master --head <branch-name> --title "..." --body "..."`
+     - CI チェック通過後、`master` にマージ (`gh pr merge <PR_NUMBER> --squash --delete-branch`)。
+   - **Step 2: `master` ➔ `production` への リリース PR & マージ**
+     - ローカルの `master` を最新化: `git checkout master && git pull origin master`
+     - `gh pr create --base production --head master --title "release: ..." --body "..."`
+     - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。
+

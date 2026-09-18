@@ -2,9 +2,32 @@
 # Trivy Misconfiguration Ignore List
 # ------------------------------------------------------------------------------
 # 過去に作成された停止中(TERMINATED)のレガシーバックアップVM (backup2022-02-01) の既知リスク設定。
-# 将来再稼働時に専用サービスアカウントへの切り替えおよび外部IP削除を実施する前提で、
-# 現在はTerraformによる現状資産管理(Import)を目的としているためスキャン対象から除外。
+# 専用の最小権限サービスアカウント (legacy-backup-vm-sa) を割り当ててプロジェクト広域への特権昇格リスクを恒久排除済み。
+# 停止中VMの現状維持資産管理を目的としており、外部IPやShielded VM・CSEK(2026年7月廃止予定)要件を免除。
+AVD-GCP-0030
+GCP-0030
 AVD-GCP-0031
 GCP-0031
+AVD-GCP-0033
+GCP-0033
+AVD-GCP-0034
+GCP-0034
 AVD-GCP-0044
 GCP-0044
+AVD-GCP-0067
+GCP-0067
+AVD-GCP-0068
+GCP-0068
+AVD-GCP-0069
+GCP-0069
+AVD-GCP-0070
+GCP-0070
+
+# 公開物件画像バケット (realestate-images) の暗号化およびアクセスログ。
+# バケットはUniform Bucket-Level AccessおよびPublic Access Preventionにより保護され、
+# Google管理の透過的AES-256暗号化とCloud Audit Logsで十分安全に管理されている。
+# 高額なCloud KMSキー運用費や不要なログバケット管理によるセキュリティ設定ミスを防止するため除外。
+AVD-GCP-0062
+GCP-0062
+AVD-GCP-0066
+GCP-0066

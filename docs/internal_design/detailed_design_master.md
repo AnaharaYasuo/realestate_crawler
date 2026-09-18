@@ -224,6 +224,33 @@ graph TD
 - ジョブ起動前段階で `src/crawler/scripts/debug_tools/check_slack_connection.py` を事前実行し、設定中の全 Slack チャンネルへの API 送信権限およびチャンネル存在有無をテストする。
 - 疎通失敗時はメインパイプラインの起動前に即座に失敗ログを出力して停止する。
 
+### 6.11 本番コンテナイメージのアセット同梱設計原則 (Dockerfile Packaging)
+- クローラー実行に必要な静的セレクター設定ファイル（`config/selectors/*.yaml`）は、本番 Docker イメージのビルド時に `/app/config/` 配下へ漏れなく COPY 同梱する。
+- ローカル環境のボリュームマウント（ホストパス直結）への暗黙依存を排除し、Cloud Run 等のサーバーレス環境でもパーサーが `FileNotFoundError` を起こさず自己完結して動作可能であることを保証する。
+
+### 6.12 リストページリンク抽出の物件種別・賃貸フィルタリングおよびパース安全性設計原則
+- **種別外・賃貸リンクの厳格除外**: `baseParser.py` の `_parsePageCore` において、一覧ページから抽出されるリンクについて、`/chintai/`, `/rent/` などの賃貸物件URLおよび他種別へのクロスリンクを自動除外する。
+- **セレクターパスプレフィックス照合**: `xpath_pattern` で `contains(@href, '...')` が指定されている場合、一覧解析時にその必須パス文字列（例: `/tochi/detail_`, `/mansion/detail_` 等）を抽出し、一致しない関連リンク（マンションおすすめリンク等）を `yield` 対象から排除する。
+- **文字列操作およびシリアライズのNoneガード**: 各パーサー（`sumifuParser.py` 等）において、属性値の取得や文字列正規化（`normalize` 等）を行う際は `NoneType` に対する `.replace()` 呼び出しや、`lxml.html.tostring` への BeautifulSoup オブジェクト直接渡しを排除し、型安全かつ例外フリーなパース処理を保証する。
+
+### 6.13 DB保存時文字列フィールドNoneサニタイズ原則および完全修飾URL結合ガード
+- **CharField/TextField の None サニタイズ**: `baseParser.py` の `clean_parsed_item` において、`models.CharField` および `models.TextField` を対象に、値が `None` でかつ `not field.null`（DB側でNOT NULL制約）の場合は、一律空文字 `""` にサニタイズする。これにより、パース処理で `None` が代入された場合でも `IntegrityError: (1048, "Column '...' cannot be null")` の発生を完全に防ぐ。
+- **URL結合における urljoin 適用原則**: 各パーサー（`sumifuParser.py` 等）において、リンク先URLを組み立てる際は文字列単純結合（`self.BASE_URL + linkUrl`）を廃止し、すべて `urllib.parse.urljoin` を適用する。これにより、取得したリンクが既に完全修飾URL（`https://...`）である場合に二重ホスト名（`www.stepon.co.jphttps:443` 等）が発生し DNS 解決不能となるバグを根絶する。
+
+### 6.14 GCP Cloud Logging 構造化ロギングおよびログレベル適正化設計原則
+- **GCP Cloud Logging 標準フォーマット準拠**:
+  - `src/crawler/package/utils/logging_config.py` に Google Cloud Logging 準拠のカスタムプロセッサを実装。
+  - 出力フィールド: `severity` (DEBUG/INFO/WARNING/ERROR/CRITICAL), `message`, `timestamp` (ISO 8601 UTC), `logger`, `logging.googleapis.com/sourceLocation` (`file`, `line`, `function`)。
+  - 標準ライブラリ `logging` の出力を `structlog.stdlib.ProcessorFormatter` でブリッジし、プロジェクト内のすべての `logging.getLogger(__name__)` を自動で構造化。
+- **環境自動判定と文字コードUTF-8強制**:
+  - `K_SERVICE`, `CLOUD_RUN_JOB`, `GOOGLE_CLOUD_PROJECT`, `IS_CLOUD="true"`, または `LOG_FORMAT="json"` が存在する場合は JSON 構造化モード、それ以外はローカルコンソールモードで動作。
+  - `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` および `sys.stderr.reconfigure(encoding="utf-8", errors="replace")` を初期化時に実行し、GCP/Windows/Docker環境での日本語文字化け（`?` 置換）を根絶。
+- **ログレベルの適正化**:
+  - 毎物件発生する `Local routing: ...`, `Middleware Request/Response: ...`, `start/finished afterRunProc`, `Attempting/Successfully saved item (Single): ...` はすべて `DEBUG` レベルへ適正化。
+  - 例外発生時は多重ログ出力を廃止し、単一の `logger.error(..., exc_info=True)` に集約して完全なスタックトレースを単一のJSONペイロード内に格納する。
+- **掲載終了（404/掲載終了文言）の正常スキップ**:
+  - 各パーサー（`athomeParser.py` 等）において、物件ページに「掲載を終了しました」「お探しの物件は見つかりませんでした」等のシグナルがある場合は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップ（Slackアラート除外）。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -233,6 +260,8 @@ graph TD
 
 ---
 
-**最終更新**: 2026年7月25日  
-**バージョン**: 1.2 (システム設計方針追記)
+**最終更新**: 2026年9月19日  
+**バージョン**: 1.6 (GCP Cloud Logging構造化・ログレベル適正化・文字コードUTF-8保証追記)
+
+
 

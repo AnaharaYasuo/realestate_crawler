@@ -16,6 +16,7 @@ from package.parser.baseParser import InvestmentParserBase, KodateParserBase, Ma
 import logging
 from package.utils.selector_loader import SelectorLoader
 import lxml.html
+import urllib.parse
 
 
 class SumifuParser(ParserBase):
@@ -58,7 +59,7 @@ class SumifuParser(ParserBase):
             if response is not None:
                 # Check for signs of bad parsing (e.g. extremely short content for a full page)
                 # Area pages are usually large. 458 bytes (from debug) is suspicious.
-                content_len = len(lxml.html.tostring(response))
+                content_len = len(str(response))
                 if content_len < 1000: # Threshold for suspicion
                     logging.warning(f"Suspiciously small content ({content_len} bytes) for {url}. Retrying with UTF-8.")
                     # Force UTF-8
@@ -75,19 +76,26 @@ class SumifuParser(ParserBase):
     def getRegionXpath(self):
         return u''
 
-    def getRegionDestUrl(self,linkUrl):
-        return self.BASE_URL + linkUrl
+    def getRegionDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
 
     async def parseRegionPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
-            print(destUrl)
             yield destUrl
 
     def getAreaXpath(self):
         return u''
 
-    def getAreaDestUrl(self,linkUrl):
-        return self.BASE_URL + linkUrl + "?limit=1000&mode=2"
+    def getAreaDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        full_url = urllib.parse.urljoin(self.BASE_URL, linkUrl)
+        sep = "&" if "?" in full_url else "?"
+        if "limit=1000" not in full_url:
+            full_url += f"{sep}limit=1000&mode=2"
+        return full_url
 
     async def parseAreaPage(self, response):       
         async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
@@ -98,8 +106,10 @@ class SumifuParser(ParserBase):
         logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
-    def getPropertyListDestUrl(self,linkUrl):
-        return linkUrl
+    def getPropertyListDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
 
     async def parsePropertyListPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
@@ -108,7 +118,7 @@ class SumifuParser(ParserBase):
     async def getPropertyListNextPageUrl(self, response):
         logging.info("getPropertyListNextPageUrl")
         next_page_selector = self.selectors.get('next_page')
-        next_link = response.select_one(next_page_selector)
+        next_link = response.select_one(next_page_selector) if next_page_selector else None
         # Or simpler search for text "次へ"
         if not next_link:
              # Try finding by text "次へ"
@@ -117,7 +127,10 @@ class SumifuParser(ParserBase):
         if not next_link:
             return None
             
-        nextPageUrl = self.BASE_URL + next_link.get("href")
+        href = next_link.get("href", "")
+        if not href or href == "#":
+            return None
+        nextPageUrl = urllib.parse.urljoin(self.BASE_URL, href)
         logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
@@ -351,7 +364,9 @@ class SumifuParser(ParserBase):
         Handles labels with <br>, spaces, or extra characters.
         """
         def normalize(s):
-            return s.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "").rstrip("：").rstrip(":")
+            if not s:
+                return ""
+            return str(s).replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "").rstrip("：").rstrip(":")
 
         specs_tags = self._get_specs(response)
         target_norm = normalize(title)
@@ -478,7 +493,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         property_links_selector = self.selectors.get('property_links')
-        links = response.select(property_links_selector)
+        links = response.select(property_links_selector) if property_links_selector else []
         if not links:
              # Fallback
              fallback_selector = self.selectors.get('property_links_fallback')
@@ -487,9 +502,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
              
         for link in links:
             href = link.get("href")
-            if href.startswith("/"):
-                href = "https://www.stepon.co.jp" + href
-            yield href
+            if href:
+                yield urllib.parse.urljoin(self.BASE_URL, href)
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -510,9 +524,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
             if href and href != "#":
-                if href.startswith("/"):
-                    return "https://www.stepon.co.jp" + href
-                return href
+                return urllib.parse.urljoin(self.BASE_URL, href)
         return ""
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
@@ -906,25 +918,31 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         item.biko = self._parseBiko(response)
         
         # Mansion specific assignments to ensure they are set
-        item.saikouKadobeya = self._parseSaikou(response) + " / " + self._parseKadobeya(response)
-        item.kanriKeitaiKaisya = self._parseKanriKeitaiKaisya(response).replace("\n", " / ")
+        item.saikouKadobeya = f"{self._parseSaikou(response) or ''} / {self._parseKadobeya(response) or ''}"
+        item.kanriKeitaiKaisya = (self._parseKanriKeitaiKaisya(response) or "").replace("\n", " / ")
 
         return item
 
     def _parseMadori(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("間取り", "")
-        if not val:
-             m_tag = response.select_one(self.selectors.get('madori'))
-             if m_tag: val = m_tag.get_text(strip=True)
+        if not val and self.selectors:
+            sel = self.selectors.get('madori')
+            if sel:
+                m_tag = response.select_one(sel)
+                if m_tag:
+                    val = m_tag.get_text(strip=True)
         return val
 
     def _parseSenyuMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("専有面積", "")
-        if not val:
-             s_tag = response.select_one(self.selectors.get('senyuMenseki'))
-             if s_tag: val = s_tag.get_text(strip=True)
+        if not val and self.selectors:
+            sel = self.selectors.get('senyuMenseki')
+            if sel:
+                s_tag = response.select_one(sel)
+                if s_tag:
+                    val = s_tag.get_text(strip=True)
         return val
 
     def _parseSenyuMenseki(self, response, specs=None):

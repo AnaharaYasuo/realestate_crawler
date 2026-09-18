@@ -24,7 +24,8 @@ def sumirinMansionStart():
 def sumirinMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumirinMansionDetailFuncAsync().main(url)
+    ParseSumirinMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumirin_bp.route(API_KEY_SUMIRIN_KODATE_START, methods=['POST', 'GET'])
 def sumirinKodateStart():
@@ -34,7 +35,8 @@ def sumirinKodateStart():
 def sumirinKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumirinKodateDetailFuncAsync().main(url)
+    ParseSumirinKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumirin_bp.route(API_KEY_SUMIRIN_TOCHI_START, methods=['POST', 'GET'])
 def sumirinTochiStart():
@@ -44,7 +46,8 @@ def sumirinTochiStart():
 def sumirinTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumirinTochiDetailFuncAsync().main(url)
+    ParseSumirinTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sumirin_bp.route(API_KEY_SUMIRIN_INVESTMENT_START, methods=['POST', 'GET'])
 def sumirinInvestmentStart():
@@ -54,4 +57,5 @@ def sumirinInvestmentStart():
 def sumirinInvestmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSumirinInvestmentDetailFuncAsync().main(url)
+    ParseSumirinInvestmentDetailFuncAsync().main(url)
+    return "finish", 200

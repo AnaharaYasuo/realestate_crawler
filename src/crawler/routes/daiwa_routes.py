@@ -26,7 +26,8 @@ def daiwaMansionStart():
 def daiwaMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaiwaMansionDetailFuncAsync().main(url)
+    ParseDaiwaMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @daiwa_bp.route(API_KEY_DAIWA_KODATE_START, methods=['POST', 'GET'])
 def daiwaKodateStart():
@@ -36,7 +37,8 @@ def daiwaKodateStart():
 def daiwaKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaiwaKodateDetailFuncAsync().main(url)
+    ParseDaiwaKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @daiwa_bp.route(API_KEY_DAIWA_TOCHI_START, methods=['POST', 'GET'])
 def daiwaTochiStart():
@@ -46,4 +48,5 @@ def daiwaTochiStart():
 def daiwaTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaiwaTochiDetailFuncAsync().main(url)
+    ParseDaiwaTochiDetailFuncAsync().main(url)
+    return "finish", 200

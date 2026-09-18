@@ -115,6 +115,24 @@
 - **返信内容・形式の自己検証義務**: Slack へメッセージ投稿や返信を行った後は、どのように返信されたか（メッセージフォーマット、スレッド構造、可読性、エラーの有無）を必ず自ら API やログで取得・確認し、正常に意図通りの表示が行われていることを客観的事実としてチェック・裏付けなければならない。
 
 
+## 【プロジェクト普遍ルール】ブランチ運用および二段階マージゲートウェイルール (Branching & Merge Rules)
+- **ブランチの役割定義**:
+  - `production`: 本番環境（GCP Cloud Run 等のデプロイ対象）。直接のコードプッシュおよび作業ブランチからの直接 PR は厳禁。
+  - `master`: 統合・検証ブランチ（開発の主幹）。すべての機能追加・バグ修正はまず `master` に集約される。
+  - `fix/<topic>` または `feature/<topic>`: 作業ブランチ。すべての開発・修正作業は `master` から分岐した作業ブランチで実施する。
+- **マージゲートウェイ原則（Production PR Gate）**:
+  - `production` ブランチへの Pull Request は **`master` ブランチからのみ** 許可されている（`.github/workflows/production-gate.yml` により自動検証。他ブランチからの直接 PR は即時クローズされる）。
+- **完全二段階マージパイプライン (Two-Stage Release Flow)**:
+  1. **Step 1 (作業ブランチ ➔ `master`)**:
+     - 作業ブランチをリモートにプッシュ: `git push -u origin <branch-name>`
+     - `master` 宛てに PR 作成: `gh pr create --base master --head <branch-name> --title "..." --body "..."`
+     - CI チェック通過後、`master` にマージ。
+  2. **Step 2 (`master` ➔ `production`)**:
+     - ローカルの `master` を最新化: `git checkout master && git pull origin master`
+     - `production` 宛てにリリース PR を作成: `gh pr create --base production --head master --title "release: ..." --body "..."`
+     - CI（Production Gate & Terraform Plan）確認後、`production` にマージ。マージ完了により本番デプロイパイプライン（`deploy-production.yml`）が自動起動する。
+
+
 
 
 

@@ -18,7 +18,8 @@ while True:
         break
     _cur = _parent
 
-from django.db import transaction
+from django.db import models, transaction
+from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message
@@ -67,8 +68,12 @@ def send_recommendations():
     logging.info("Scanning for new hot recommendation properties to send via Slack...")
     
     # 直近48時間以内に評価・クロールされた Slack 未送信の物件のみに対象を絞る
-    threshold_48h = datetime.datetime.now() - datetime.timedelta(hours=48)
-    candidates = PropertyEvaluation.objects.filter(is_slack_notified=False, evaluated_at__gte=threshold_48h)
+    threshold_48h = timezone.now() - datetime.timedelta(hours=48)
+    candidates = PropertyEvaluation.objects.filter(
+        is_slack_notified=False
+    ).filter(
+        models.Q(analyzed_at__gte=threshold_48h) | models.Q(analyzed_at__isnull=True)
+    )
     if not candidates.exists():
         candidates = PropertyEvaluation.objects.filter(is_slack_notified=False).order_by('-id')[:200]
     

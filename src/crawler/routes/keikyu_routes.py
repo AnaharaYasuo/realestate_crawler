@@ -23,7 +23,8 @@ def keikyuMansionStart():
 def keikyuMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeikyuMansionDetailFuncAsync().main(url)
+    ParseKeikyuMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keikyu_bp.route(API_KEY_KEIKYU_KODATE_START, methods=['POST', 'GET'])
 def keikyuKodateStart():
@@ -34,7 +35,8 @@ def keikyuKodateStart():
 def keikyuKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeikyuKodateDetailFuncAsync().main(url)
+    ParseKeikyuKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keikyu_bp.route(API_KEY_KEIKYU_TOCHI_START, methods=['POST', 'GET'])
 def keikyuTochiStart():
@@ -45,4 +47,5 @@ def keikyuTochiStart():
 def keikyuTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeikyuTochiDetailFuncAsync().main(url)
+    ParseKeikyuTochiDetailFuncAsync().main(url)
+    return "finish", 200

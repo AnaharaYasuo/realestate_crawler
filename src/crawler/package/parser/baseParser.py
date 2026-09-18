@@ -183,11 +183,21 @@ class ParserBase(metaclass=ABCMeta):
             href = link.get("href")
             if not href:
                 continue
-            # If target pattern expects property details, filter out non-detail URLs and wrong categories (e.g. /rent/)
-            if xpath_pattern and ("bkdetail" in str(xpath_pattern) or "detail" in str(xpath_pattern)):
-                if "bkdetail" not in href and "detail" not in href and "room" not in href and "building" not in href:
-                    continue
-                if "/buy/" in str(xpath_pattern) and "/buy/" not in href:
+            # If target pattern expects property details, filter out non-detail URLs and wrong categories (e.g. /rent/, /chintai/)
+            if xpath_pattern:
+                str_xpath = str(xpath_pattern)
+                # Filter out rental links for buy/sale crawlers
+                if "/chintai/" not in str_xpath and "/rent/" not in str_xpath:
+                    if "/chintai/" in href or "/rent/" in href or "/chintai_" in href:
+                        continue
+                if "bkdetail" in str_xpath or "detail" in str_xpath:
+                    if "bkdetail" not in href and "detail" not in href and "room" not in href and "building" not in href:
+                        continue
+                    if "/buy/" in str_xpath and "/buy/" not in href:
+                        continue
+                # Extract required substrings from xpath contains(@href, '...')
+                required_subs = re.findall(r'contains\s*\(\s*@href\s*,\s*["\']([^"\']+)["\']\s*\)', str_xpath)
+                if required_subs and not all(sub in href for sub in required_subs):
                     continue
             try:
                 dest_url = dest_url_fn(href) if callable(dest_url_fn) else href
@@ -316,8 +326,13 @@ class ParserBase(metaclass=ABCMeta):
         """指定URLのコンテンツを取得し BeautifulSoup (lxml/html.parser) として返す"""
         content = await self._getContent(session, url)
         encoding = charset or self.getCharset() or chardet.detect(content[:4096])["encoding"] or "utf-8"
+        if encoding and str(encoding).lower() in ("shift_jis", "sjis", "shift-jis", "windows-31j"):
+            encoding = "cp932"
         try:
-            return BeautifulSoup(content, "lxml", from_encoding=encoding)
+            soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
+            if not soup.find() or len(str(soup)) < 100:
+                soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
+            return soup
         except Exception:
             return BeautifulSoup(content, "html.parser", from_encoding=encoding)
 
@@ -341,9 +356,11 @@ class ParserBase(metaclass=ABCMeta):
     def clean_parsed_item(self, item: models.Model) -> models.Model:
         for field in item._meta.fields:
             val = getattr(item, field.name, None)
-            if val is None:
-                continue
             if isinstance(field, (models.CharField, models.TextField)):
+                if val is None:
+                    if not field.null:
+                        setattr(item, field.name, "")
+                    continue
                 val_str = str(val).strip()
                 if val_str.lower() in ["none", ""]:
                     if field.null:
@@ -422,8 +439,12 @@ class ParserBase(metaclass=ABCMeta):
                 encoding = chardet.detect(content[:4096])["encoding"] or "utf-8"
             else:
                 encoding = charset
+            if encoding and str(encoding).lower() in ("shift_jis", "sjis", "shift-jis", "windows-31j"):
+                encoding = "cp932"
             try:
                 soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
+                if not soup.find() or len(str(soup)) < 100:
+                    soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
             except Exception:
                 soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
 
