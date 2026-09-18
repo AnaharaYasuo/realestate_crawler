@@ -356,9 +356,11 @@ class ParserBase(metaclass=ABCMeta):
     def clean_parsed_item(self, item: models.Model) -> models.Model:
         for field in item._meta.fields:
             val = getattr(item, field.name, None)
-            if val is None:
-                continue
             if isinstance(field, (models.CharField, models.TextField)):
+                if val is None:
+                    if not field.null:
+                        setattr(item, field.name, "")
+                    continue
                 val_str = str(val).strip()
                 if val_str.lower() in ["none", ""]:
                     if field.null:
