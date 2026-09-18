@@ -87,6 +87,40 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           }
         }
 
+        # Slack チャンネル設定
+        env {
+          name  = "SLACK_CHANNEL_ID"
+          value = "C0BGJF4E737"
+        }
+        env {
+          name  = "SLACK_DEV_CHANNEL"
+          value = "C0BKBHWD26T"
+        }
+        env {
+          name  = "SLACK_ALERT_PROPERTY_ALERT"
+          value = "property_alert"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_MANSION"
+          value = "C0BJ87V7BM0"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_KODATE"
+          value = "C0BJ87VEV0S"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_TOCHI"
+          value = "C0BJA5D1GMP"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_INVEST_APARTMENT"
+          value = "C0BJBUMSYGL"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_INVEST_KODATE"
+          value = "C0BJ20EMQ67"
+        }
+
         # Playwright は --disable-dev-shm-usage フラグで /tmp を利用するため shm の個別マウント不要
       }
     }
