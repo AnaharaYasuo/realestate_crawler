@@ -23,7 +23,8 @@ def seibuMansionStart():
 def seibuMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSeibuMansionDetailFuncAsync().main(url)
+    ParseSeibuMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @seibu_bp.route(API_KEY_SEIBU_KODATE_START, methods=['POST', 'GET'])
 def seibuKodateStart():
@@ -34,7 +35,8 @@ def seibuKodateStart():
 def seibuKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSeibuKodateDetailFuncAsync().main(url)
+    ParseSeibuKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @seibu_bp.route(API_KEY_SEIBU_TOCHI_START, methods=['POST', 'GET'])
 def seibuTochiStart():
@@ -45,4 +47,5 @@ def seibuTochiStart():
 def seibuTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSeibuTochiDetailFuncAsync().main(url)
+    ParseSeibuTochiDetailFuncAsync().main(url)
+    return "finish", 200

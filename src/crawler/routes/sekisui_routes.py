@@ -22,7 +22,8 @@ def sekisuiMansionStart():
 def sekisuiMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSekisuiMansionDetailFuncAsync().main(url)
+    ParseSekisuiMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sekisui_bp.route(API_KEY_SEKISUI_KODATE_START, methods=['POST', 'GET'])
 def sekisuiKodateStart():
@@ -32,7 +33,8 @@ def sekisuiKodateStart():
 def sekisuiKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSekisuiKodateDetailFuncAsync().main(url)
+    ParseSekisuiKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sekisui_bp.route(API_KEY_SEKISUI_TOCHI_START, methods=['POST', 'GET'])
 def sekisuiTochiStart():
@@ -42,4 +44,5 @@ def sekisuiTochiStart():
 def sekisuiTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSekisuiTochiDetailFuncAsync().main(url)
+    ParseSekisuiTochiDetailFuncAsync().main(url)
+    return "finish", 200

@@ -7,6 +7,9 @@ WORKDIR /app
 # 環境変数の設定
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV PYTHONIOENCODING "utf-8"
+ENV LANG "C.UTF-8"
+ENV LC_ALL "C.UTF-8"
 
 # 依存ファイルのみコピー
 COPY src/crawler/requirements.txt /app/

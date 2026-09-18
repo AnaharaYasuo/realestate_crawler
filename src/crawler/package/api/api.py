@@ -626,7 +626,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             target_class = ApiRegistry.get(path)
             
             if target_class:
-                logging.info(f"Local routing: {path} -> {target_class.__name__}")
+                logging.debug(f"Local routing: {path} -> {target_class.__name__}")
                 import threading
                 
                 def run_in_new_loop():
@@ -1005,16 +1005,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
 
         except Exception as e:
-            logging.error(f"get item exception for URL: {self.url}")
-            logging.error(f"Exception type: {type(e).__name__}, Details: {str(e)}")
-            logging.error(traceback.format_exc())
+            logging.error(f"get item exception for URL: {self.url}", exc_info=e)
         if retry:
-            logging.info("get item retry")
+            logging.debug("get item retry")
             try:
                 item = await getItem()
             except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError, ReadPropertyNameException) as e:
-                logging.error(f"get item exception (retry failed) for URL: {self.url}")
-                logging.error(f"Exception type: {type(e).__name__}")
+                logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {str(e)}")
 
@@ -1029,9 +1026,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             # in parsePropertyDetailPage already enforces data quality.
 
             try:
-                logging.info(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
+                logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
                 await sync_to_async(item.save)()
-                logging.info(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
+                logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
                 
                 # ----------------------------------------------------
                 # 2段階スクリーニング統合処理 (B案: クロール中の同期評価はデフォルト非有効化)
@@ -1502,7 +1499,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 _save_error_html(item)
                 # Do not re-raise, just skip this item
 
-        logging.info("start afterRunProc")
+        logging.debug("start afterRunProc")
         try:
             for item in runResult:
                 if item is not None:
@@ -1521,15 +1518,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 from time import sleep
                                 sleep(5)
                             else:
-                                logging.error(f"Max retries reached. Failed to save {getattr(item, 'pageUrl', 'UNKNOWN')}")
-                                logging.error(traceback.format_exc())
+                                logging.error(f"Max retries reached. Failed to save {getattr(item, 'pageUrl', 'UNKNOWN')}", exc_info=True)
                                 raise e
                         except Exception as e:
-                            logging.error("save error " +
-                                          getattr(item, 'propertyName', 'UNKNOWN') + ":" + getattr(item, 'pageUrl', 'UNKNOWN_URL'))
-                            logging.error(traceback.format_exc())
+                            logging.error(f"save error {getattr(item, 'propertyName', 'UNKNOWN')}:{getattr(item, 'pageUrl', 'UNKNOWN_URL')}", exc_info=True)
                             raise e
         finally:
             # Final cleanup of stale connections
             close_old_connections()
-            logging.info("finished afterRunProc")
+            logging.debug("finished afterRunProc")

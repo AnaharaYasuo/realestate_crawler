@@ -24,7 +24,8 @@ def smtrcMansionStart():
 def smtrcMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSmtrcMansionDetailFuncAsync().main(url)
+    ParseSmtrcMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @smtrc_bp.route(API_KEY_SMTRC_KODATE_START, methods=['POST', 'GET'])
 def smtrcKodateStart():
@@ -34,7 +35,8 @@ def smtrcKodateStart():
 def smtrcKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSmtrcKodateDetailFuncAsync().main(url)
+    ParseSmtrcKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @smtrc_bp.route(API_KEY_SMTRC_TOCHI_START, methods=['POST', 'GET'])
 def smtrcTochiStart():
@@ -44,7 +46,8 @@ def smtrcTochiStart():
 def smtrcTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSmtrcTochiDetailFuncAsync().main(url)
+    ParseSmtrcTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 @smtrc_bp.route(API_KEY_SMTRC_INVESTMENT_START, methods=['POST', 'GET'])
 def smtrcInvestmentStart():
@@ -54,5 +57,6 @@ def smtrcInvestmentStart():
 def smtrcInvestmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSmtrcInvestmentDetailFuncAsync().main(url)
+    ParseSmtrcInvestmentDetailFuncAsync().main(url)
+    return "finish", 200
 

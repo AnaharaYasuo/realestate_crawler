@@ -38,6 +38,19 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
       }
 
       env {
+        name  = "IS_CLOUD"
+        value = "true"
+      }
+      env {
+        name  = "LOG_FORMAT"
+        value = "json"
+      }
+      env {
+        name  = "PYTHONIOENCODING"
+        value = "utf-8"
+      }
+
+      env {
         name  = "DB_HOST"
         value = google_sql_database_instance.mysql_instance.private_ip_address
       }

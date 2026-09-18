@@ -83,7 +83,6 @@ class SumifuParser(ParserBase):
 
     async def parseRegionPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
-            print(destUrl)
             yield destUrl
 
     def getAreaXpath(self):

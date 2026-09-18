@@ -23,7 +23,8 @@ def rearieMansionStart():
 def rearieMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseRearieMansionDetailFuncAsync().main(url)
+    ParseRearieMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @rearie_bp.route(API_KEY_REARIE_KODATE_START, methods=['POST', 'GET'])
 def rearieKodateStart():
@@ -34,7 +35,8 @@ def rearieKodateStart():
 def rearieKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseRearieKodateDetailFuncAsync().main(url)
+    ParseRearieKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @rearie_bp.route(API_KEY_REARIE_TOCHI_START, methods=['POST', 'GET'])
 def rearieTochiStart():
@@ -45,4 +47,5 @@ def rearieTochiStart():
 def rearieTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseRearieTochiDetailFuncAsync().main(url)
+    ParseRearieTochiDetailFuncAsync().main(url)
+    return "finish", 200

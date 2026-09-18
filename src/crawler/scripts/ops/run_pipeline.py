@@ -5,20 +5,20 @@ import subprocess
 import time
 import logging
 
-# ロギング設定
-_current_dir = os.path.dirname(os.path.abspath(__file__))
-_project_root = os.path.dirname(os.path.dirname(os.path.dirname(_current_dir)))
-log_dir = os.path.join(_project_root, "logs")
-os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(log_dir, "pipeline.log"), encoding="utf-8")
-    ]
-)
+_cur = os.path.abspath(__file__)
+while True:
+    _parent = os.path.dirname(_cur)
+    if _parent == _cur:
+        break
+    if os.path.exists(os.path.join(_parent, "setup_env.py")):
+        if _parent not in sys.path:
+            sys.path.insert(0, _parent)
+        import setup_env
+        break
+    _cur = _parent
+
+from package.utils.logging_config import configure_logging, get_logger
+configure_logging()
 
 def run_command(cmd, desc):
     logging.info(f"=== [START] {desc} ===")
@@ -30,6 +30,8 @@ def run_command(cmd, desc):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1
     )
     

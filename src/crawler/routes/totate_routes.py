@@ -26,7 +26,8 @@ def totateMansionStart():
 def totateMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseTotateMansionDetailFuncAsync().main(url)
+    ParseTotateMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @totate_bp.route(API_KEY_TOTATE_KODATE_START, methods=['POST', 'GET'])
 def totateKodateStart():
@@ -36,7 +37,8 @@ def totateKodateStart():
 def totateKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseTotateKodateDetailFuncAsync().main(url)
+    ParseTotateKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @totate_bp.route(API_KEY_TOTATE_TOCHI_START, methods=['POST', 'GET'])
 def totateTochiStart():
@@ -46,4 +48,5 @@ def totateTochiStart():
 def totateTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseTotateTochiDetailFuncAsync().main(url)
+    ParseTotateTochiDetailFuncAsync().main(url)
+    return "finish", 200

@@ -23,7 +23,8 @@ def keioMansionStart():
 def keioMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeioMansionDetailFuncAsync().main(url)
+    ParseKeioMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keio_bp.route(API_KEY_KEIO_KODATE_START, methods=['POST', 'GET'])
 def keioKodateStart():
@@ -34,7 +35,8 @@ def keioKodateStart():
 def keioKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeioKodateDetailFuncAsync().main(url)
+    ParseKeioKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @keio_bp.route(API_KEY_KEIO_TOCHI_START, methods=['POST', 'GET'])
 def keioTochiStart():
@@ -45,4 +47,5 @@ def keioTochiStart():
 def keioTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseKeioTochiDetailFuncAsync().main(url)
+    ParseKeioTochiDetailFuncAsync().main(url)
+    return "finish", 200

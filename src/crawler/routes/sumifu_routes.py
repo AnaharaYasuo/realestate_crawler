@@ -40,7 +40,8 @@ def sumifuMansionStart():
 
 @sumifu_bp.route(API_KEY_SUMIFU_MANSION_REGION, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuMansionRegionLocal():
-    return sumifuMansionRegion(request)
+    sumifuMansionRegion(request)
+    return "finish", 200
 
 
 def sumifuMansionRegion(request):
@@ -51,18 +52,19 @@ def sumifuMansionRegion(request):
     url = request_json['url']
     obj = ParseSumifuMansionRegionFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuMansionRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuMansionRegion")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuMansionAreaLocal():
-    return sumifuMansionArea(request)
+    sumifuMansionArea(request)
+    return "finish", 200
 
 
 def sumifuMansionArea(request):
@@ -73,18 +75,19 @@ def sumifuMansionArea(request):
     url = request_json['url']
     obj = ParseSumifuMansionAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuMansionArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuMansionArea")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuMansionPropertyListLocal():
-    return sumifuMansionPropertyList(request)
+    sumifuMansionPropertyList(request)
+    return "finish", 200
 
 
 def sumifuMansionPropertyList(request):
@@ -95,18 +98,19 @@ def sumifuMansionPropertyList(request):
     url = request_json['url']
     obj = ParseSumifuMansionListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuMansionPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuMansionPropertyList")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuMansionPropertyDetailLocal():
-    return sumifuMansionPropertyDetail(request)
+    sumifuMansionPropertyDetail(request)
+    return "finish", 200
 
 
 def sumifuMansionPropertyDetail(request):
@@ -117,13 +121,13 @@ def sumifuMansionPropertyDetail(request):
     url = request_json['url']
     obj = ParseSumifuMansionDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuMansionPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuMansionPropertyDetail")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
@@ -156,7 +160,8 @@ def sumifuTochiStart():
 
 @sumifu_bp.route(API_KEY_SUMIFU_TOCHI_REGION, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuTochiRegionLocal():
-    return sumifuTochiRegion(request)
+    sumifuTochiRegion(request)
+    return "finish", 200
 
 
 def sumifuTochiRegion(request):
@@ -167,18 +172,19 @@ def sumifuTochiRegion(request):
     url = request_json['url']
     obj = ParseSumifuTochiRegionFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuTochiRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuTochiRegion")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_TOCHI_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuTochiAreaLocal():
-    return sumifuTochiArea(request)
+    sumifuTochiArea(request)
+    return "finish", 200
 
 
 def sumifuTochiArea(request):
@@ -189,18 +195,19 @@ def sumifuTochiArea(request):
     url = request_json['url']
     obj = ParseSumifuTochiAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuTochiArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuTochiArea")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuTochiPropertyListLocal():
-    return sumifuTochiPropertyList(request)
+    sumifuTochiPropertyList(request)
+    return "finish", 200
 
 
 def sumifuTochiPropertyList(request):
@@ -211,18 +218,19 @@ def sumifuTochiPropertyList(request):
     url = request_json['url']
     obj = ParseSumifuTochiListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuTochiPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuTochiPropertyList")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuTochiPropertyDetailLocal():
-    return sumifuTochiPropertyDetail(request)
+    sumifuTochiPropertyDetail(request)
+    return "finish", 200
 
 
 def sumifuTochiPropertyDetail(request):
@@ -233,13 +241,13 @@ def sumifuTochiPropertyDetail(request):
     url = request_json['url']
     obj = ParseSumifuTochiDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuTochiPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuTochiPropertyDetail")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
@@ -272,7 +280,8 @@ def sumifuKodateStart():
 
 @sumifu_bp.route(API_KEY_SUMIFU_KODATE_REGION, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuKodateRegionLocal():
-    return sumifuKodateRegion(request)
+    sumifuKodateRegion(request)
+    return "finish", 200
 
 
 def sumifuKodateRegion(request):
@@ -283,18 +292,19 @@ def sumifuKodateRegion(request):
     url = request_json['url']
     obj = ParseSumifuKodateRegionFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuKodateRegion")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuKodateRegion")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_KODATE_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuKodateAreaLocal():
-    return sumifuKodateArea(request)
+    sumifuKodateArea(request)
+    return "finish", 200
 
 
 def sumifuKodateArea(request):
@@ -305,18 +315,19 @@ def sumifuKodateArea(request):
     url = request_json['url']
     obj = ParseSumifuKodateAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuKodateArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuKodateArea")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuKodatePropertyListLocal():
-    return sumifuKodatePropertyList(request)
+    sumifuKodatePropertyList(request)
+    return "finish", 200
 
 
 def sumifuKodatePropertyList(request):
@@ -327,18 +338,19 @@ def sumifuKodatePropertyList(request):
     url = request_json['url']
     obj = ParseSumifuKodateListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuKodatePropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuKodatePropertyList")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def sumifuKodatePropertyDetailLocal():
-    return sumifuKodatePropertyDetail(request)
+    sumifuKodatePropertyDetail(request)
+    return "finish", 200
 
 
 def sumifuKodatePropertyDetail(request):
@@ -349,13 +361,13 @@ def sumifuKodatePropertyDetail(request):
     url = request_json['url']
     obj = ParseSumifuKodateDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except Exception:
         logging.error("Failed sumifuKodatePropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success sumifuKodatePropertyDetail")
-    return result
+    return "finish", 200
 
 
 @sumifu_bp.route(API_KEY_SUMIFU_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
