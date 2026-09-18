@@ -97,5 +97,6 @@ resource "random_password" "db_password" {
 resource "google_sql_user" "db_user" {
   name     = var.db_user
   instance = google_sql_database_instance.mysql_instance.name
+  host     = "%"
   password = random_password.db_password.result
 }
