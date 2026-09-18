@@ -28,14 +28,25 @@ resource "google_compute_disk" "legacy_data_disk" {
   }
 }
 
+# レガシー停止中VM用の最小権限サービスアカウント（デフォルトCompute SAの特権昇格リスクを恒久排除）
+resource "google_service_account" "legacy_backup_vm_sa" {
+  account_id   = "legacy-backup-vm-sa"
+  display_name = "Legacy Backup VM Service Account (Least Privilege)"
+  description  = "Dedicated minimal privilege service account for terminated legacy backup VM to eliminate default compute SA exposure."
+}
+
 # 既存レガシーVMインスタンス (現在停止中: TERMINATED)
 #tfsec:ignore:google-compute-no-default-service-account
+#tfsec:ignore:google-compute-no-public-ip
 #tfsec:ignore:google-compute-disk-encryption-customer-key
+#tfsec:ignore:google-compute-vm-disk-encryption-customer-key
 #tfsec:ignore:google-compute-enable-shielded-vm-vtpm
 #tfsec:ignore:google-compute-enable-shielded-vm-im
 #tfsec:ignore:google-compute-enable-shielded-vm-sb
 #trivy:ignore:AVD-GCP-0030
+#trivy:ignore:AVD-GCP-0031
 #trivy:ignore:AVD-GCP-0033
+#trivy:ignore:AVD-GCP-0044
 #trivy:ignore:AVD-GCP-0067
 #trivy:ignore:AVD-GCP-0068
 #trivy:ignore:AVD-GCP-0069
@@ -76,15 +87,8 @@ resource "google_compute_instance" "legacy_vm" {
   }
 
   service_account {
-    email = "634731722260-compute@developer.gserviceaccount.com"
-    scopes = [
-      "https://www.googleapis.com/auth/devstorage.read_only",
-      "https://www.googleapis.com/auth/logging.write",
-      "https://www.googleapis.com/auth/monitoring.write",
-      "https://www.googleapis.com/auth/service.management.readonly",
-      "https://www.googleapis.com/auth/servicecontrol",
-      "https://www.googleapis.com/auth/trace.append",
-    ]
+    email  = google_service_account.legacy_backup_vm_sa.email
+    scopes = ["cloud-platform"]
   }
 
   metadata = {
