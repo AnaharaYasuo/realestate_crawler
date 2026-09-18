@@ -39,7 +39,8 @@ def mitsuiMansionStart():
 
 @mitsui_bp.route(API_KEY_MITSUI_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiMansionAreaLocal():
-    return mitsuiMansionArea(request)
+    mitsuiMansionArea(request)
+    return "finish", 200
 
 
 def mitsuiMansionArea(request):
@@ -48,18 +49,19 @@ def mitsuiMansionArea(request):
     url = request_json['url']
     obj = ParseMitsuiMansionAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiMansionArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiMansionArea")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiMansionPropertyListLocal():
-    return mitsuiMansionPropertyList(request)
+    mitsuiMansionPropertyList(request)
+    return "finish", 200
 
 
 def mitsuiMansionPropertyList(request):
@@ -68,18 +70,19 @@ def mitsuiMansionPropertyList(request):
     url = request_json['url']
     obj = ParseMitsuiMansionListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiMansionPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiMansionPropertyList")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiMansionPropertyDetailLocal():
-    return mitsuiMansionPropertyDetail(request)
+    mitsuiMansionPropertyDetail(request)
+    return "finish", 200
 
 
 def mitsuiMansionPropertyDetail(request):
@@ -88,13 +91,13 @@ def mitsuiMansionPropertyDetail(request):
     url = request_json['url']
     obj = ParseMitsuiMansionDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiMansionPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiMansionPropertyDetail")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
@@ -128,7 +131,8 @@ def mitsuiTochiStart():
 
 @mitsui_bp.route(API_KEY_MITSUI_TOCHI_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiTochiAreaLocal():
-    return mitsuiTochiArea(request)
+    mitsuiTochiArea(request)
+    return "finish", 200
 
 
 def mitsuiTochiArea(request):
@@ -137,18 +141,19 @@ def mitsuiTochiArea(request):
     url = request_json['url']
     obj = ParseMitsuiTochiAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiTochiArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiTochiArea")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiTochiPropertyListLocal():
-    return mitsuiTochiPropertyList(request)
+    mitsuiTochiPropertyList(request)
+    return "finish", 200
 
 
 def mitsuiTochiPropertyList(request):
@@ -157,18 +162,19 @@ def mitsuiTochiPropertyList(request):
     url = request_json['url']
     obj = ParseMitsuiTochiListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiTochiPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiTochiPropertyList")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiTochiPropertyDetailLocal():
-    return mitsuiTochiPropertyDetail(request)
+    mitsuiTochiPropertyDetail(request)
+    return "finish", 200
 
 
 def mitsuiTochiPropertyDetail(request):
@@ -177,13 +183,13 @@ def mitsuiTochiPropertyDetail(request):
     url = request_json['url']
     obj = ParseMitsuiTochiDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiTochiPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiTochiPropertyDetail")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
@@ -217,7 +223,8 @@ def mitsuiKodateStart():
 
 @mitsui_bp.route(API_KEY_MITSUI_KODATE_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiKodateAreaLocal():
-    return mitsuiKodateArea(request)
+    mitsuiKodateArea(request)
+    return "finish", 200
 
 
 def mitsuiKodateArea(request):
@@ -226,18 +233,19 @@ def mitsuiKodateArea(request):
     url = request_json['url']
     obj = ParseMitsuiKodateAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiKodateArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiKodateArea")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiKodatePropertyListLocal():
-    return mitsuiKodatePropertyList(request)
+    mitsuiKodatePropertyList(request)
+    return "finish", 200
 
 
 def mitsuiKodatePropertyList(request):
@@ -246,18 +254,19 @@ def mitsuiKodatePropertyList(request):
     url = request_json['url']
     obj = ParseMitsuiKodateListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiKodatePropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiKodatePropertyList")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def mitsuiKodatePropertyDetailLocal():
-    return mitsuiKodatePropertyDetail(request)
+    mitsuiKodatePropertyDetail(request)
+    return "finish", 200
 
 
 def mitsuiKodatePropertyDetail(request):
@@ -266,13 +275,13 @@ def mitsuiKodatePropertyDetail(request):
     url = request_json['url']
     obj = ParseMitsuiKodateDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed mitsuiKodatePropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success mitsuiKodatePropertyDetail")
-    return result
+    return "finish", 200
 
 
 @mitsui_bp.route(API_KEY_MITSUI_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])

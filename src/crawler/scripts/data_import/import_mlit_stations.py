@@ -99,24 +99,26 @@ if __name__ == "__main__":
     parser.add_argument("--csv", help="Path to the MLIT station passenger volume CSV file.")
     args = parser.parse_args()
     
-    csv_file = args.csv
-    is_temp = False
+    csv_file = os.path.abspath(os.path.normpath(args.csv)) if args.csv else None
+    temp_file = None
     
     if not csv_file:
         # 引数なしの場合はTempディレクトリにサンプルCSVを作ってそれを読み込む
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-        csv_file = os.path.join(project_root, "src", "crawler", "scripts", "temp_mlit_stations_sample.csv")
-        generate_sample_mlit_csv(csv_file)
-        is_temp = True
+        temp_file = os.path.join(project_root, "src", "crawler", "scripts", "temp_mlit_stations_sample.csv")
+        generate_sample_mlit_csv(temp_file)
+        target_csv = temp_file
+    else:
+        target_csv = csv_file
         
     try:
-        import_mlit_stations(csv_file)
+        import_mlit_stations(target_csv)
     finally:
         # 一時生成したサンプルファイルを削除
-        if is_temp and os.path.exists(csv_file):
+        if temp_file and os.path.exists(temp_file):
             try:
-                os.remove(csv_file)
-                logging.info(f"Cleaned up temporary sample CSV: {csv_file}")
+                os.remove(temp_file)
+                logging.info(f"Cleaned up temporary sample CSV: {temp_file}")
             except Exception as e:
-                logging.warning(f"Failed to delete temp file {csv_file}: {e}")
+                logging.warning(f"Failed to delete temp file {temp_file}: {e}")

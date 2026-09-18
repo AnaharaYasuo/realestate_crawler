@@ -23,7 +23,23 @@ def init_environment():
             break
         cur = parent
 
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     if crawler_dir:
+        try:
+            from package.utils.logging_config import configure_logging
+            configure_logging()
+        except Exception:
+            pass
         import realestateSettings
         realestateSettings.configure()
     return crawler_dir

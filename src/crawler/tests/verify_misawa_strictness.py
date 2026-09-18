@@ -15,10 +15,10 @@ except Exception:
 from bs4 import BeautifulSoup
 from package.parser.misawaParser import MisawaParser, MisawaInvestmentApartmentParser
 
-DOCS_DIR = os.environ.get('DOCS_DIR', '/app/Temp/docs')
+DOCS_DIR = os.path.abspath(os.path.normpath(os.environ.get('DOCS_DIR', '/app/Temp/docs')))
 
 def read_mock(filename):
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples', filename)
+    path = os.path.abspath(os.path.join(DOCS_DIR, 'requirements/site_samples', os.path.basename(filename)))
     print(f"Reading {path}")
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()

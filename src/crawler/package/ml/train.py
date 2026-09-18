@@ -17,6 +17,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import realestateSettings
 realestateSettings.configure()
 
+import logging
+from package.utils.logging_config import configure_logging
+configure_logging()
+logger = logging.getLogger(__name__)
+
+def print(*args, **kwargs):
+    kwargs.pop("flush", None)
+    kwargs.pop("end", None)
+    msg = " ".join(str(a) for a in args)
+    logger.info(msg)
+
 from package.models.evaluation import PropertyEvaluation
 from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
 from django.apps import apps

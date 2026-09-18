@@ -52,17 +52,11 @@ if _crawler_dir not in sys.path:
     sys.path.insert(0, _crawler_dir)
 main_py_path = os.path.join(_crawler_dir, "main.py")
 
-log_dir = os.path.join(_project_root, "logs")
+from package.utils.logging_config import configure_logging
+configure_logging()
+
+log_dir = os.path.join(_crawler_dir, "logs")
 os.makedirs(log_dir, exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(log_dir, "scheduler.log"), encoding="utf-8")
-    ]
-)
 
 
 # 定義済みの全クロールジョブリスト

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import json
 import requests
 import logging
 from collections import defaultdict
@@ -22,9 +23,9 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
     trade_list = []
     try:
         if json_path:
-            import json
-            logging.info(f"Loading real estate trade data from local JSON file: {json_path}...")
-            with open(json_path, 'r', encoding='utf-8') as f:
+            clean_path = os.path.abspath(os.path.normpath(json_path))
+            logging.info(f"Loading real estate trade data from local JSON file: {clean_path}...")
+            with open(clean_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 trade_list = data.get("data", [])
         else:

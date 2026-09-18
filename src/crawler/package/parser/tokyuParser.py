@@ -1234,7 +1234,6 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
                 item.okuyuki = round(Decimal(item.tochiMenseki) / item.maguchi, 2)
                 item.okuyukiStr = f"{item.okuyuki}m"
         except Exception as e:
-            import logging
             logging.error(f"Error parsing setsudou fields: {e}")
             
         return item

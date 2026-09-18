@@ -41,7 +41,8 @@ def afrMansionStart():
 def afrMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAfrMansionDetailFuncAsync().main(url)
+    ParseAfrMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @afr_bp.route(API_KEY_AFR_KODATE_START, methods=['POST', 'GET'])
 def afrKodateStart():
@@ -51,7 +52,8 @@ def afrKodateStart():
 def afrKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAfrKodateDetailFuncAsync().main(url)
+    ParseAfrKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @afr_bp.route(API_KEY_AFR_TOCHI_START, methods=['POST', 'GET'])
 def afrTochiStart():
@@ -61,4 +63,5 @@ def afrTochiStart():
 def afrTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAfrTochiDetailFuncAsync().main(url)
+    ParseAfrTochiDetailFuncAsync().main(url)
+    return "finish", 200
