@@ -62,6 +62,18 @@ resource "google_sql_database_instance" "mysql_instance" {
       name  = "max_connections"
       value = "1000"
     }
+    database_flags {
+      name  = "cloudsql_iam_authentication"
+      value = "on"
+    }
+    database_flags {
+      name  = "local_infile"
+      value = "off"
+    }
+    database_flags {
+      name  = "skip_show_database"
+      value = "on"
+    }
   }
 
   deletion_protection = true # 誤削除防止 (セキュリティ強化)

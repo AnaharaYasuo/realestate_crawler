@@ -3,7 +3,10 @@
 # ==============================================================================
 
 # 既存ブートディスク (CentOS 7, 30GB)
+#tfsec:ignore:google-compute-disk-encryption-customer-key
+#trivy:ignore:AVD-GCP-0034
 resource "google_compute_disk" "legacy_boot_disk" {
+  # checkov:skip=CKV_GCP_37: "Customer-supplied encryption keys deprecated by Google"
   name = "backup2022-02-01"
   type = "pd-standard"
   zone = "us-central1-a"
@@ -11,7 +14,10 @@ resource "google_compute_disk" "legacy_boot_disk" {
 }
 
 # 既存追加ディスク (MySQLデータ領域, 50GB SSD)
+#tfsec:ignore:google-compute-disk-encryption-customer-key
+#trivy:ignore:AVD-GCP-0034
 resource "google_compute_disk" "legacy_data_disk" {
+  # checkov:skip=CKV_GCP_37: "Customer-supplied encryption keys deprecated by Google"
   name = "disk-3"
   type = "pd-ssd"
   zone = "us-central1-a"
@@ -23,7 +29,13 @@ resource "google_compute_disk" "legacy_data_disk" {
 }
 
 # 既存レガシーVMインスタンス (現在停止中: TERMINATED)
+#tfsec:ignore:google-compute-no-default-service-account
+#tfsec:ignore:google-compute-disk-encryption-customer-key
+#trivy:ignore:AVD-GCP-0030
+#trivy:ignore:AVD-GCP-0033
 resource "google_compute_instance" "legacy_vm" {
+  # checkov:skip=CKV_GCP_41: "Legacy stopped backup VM imported from 2022"
+  # checkov:skip=CKV_GCP_38: "Customer-supplied encryption keys deprecated by Google"
   name         = "backup2022-02-01"
   machine_type = "e2-micro"
   zone         = "us-central1-a"
@@ -31,7 +43,13 @@ resource "google_compute_instance" "legacy_vm" {
   # 停止状態を維持（勝手に起動させない）
   desired_status = "TERMINATED"
 
-  deletion_protection = false
+  deletion_protection = true
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
 
   boot_disk {
     auto_delete = true
@@ -67,7 +85,9 @@ resource "google_compute_instance" "legacy_vm" {
   }
 
   metadata = {
-    enable-osconfig = "TRUE"
+    enable-osconfig        = "TRUE"
+    enable-oslogin         = "TRUE"
+    block-project-ssh-keys = "TRUE"
   }
 
   scheduling {
