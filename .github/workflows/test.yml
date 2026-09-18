@@ -22,7 +22,14 @@ jobs:
           touch .env
           docker compose up -d --build app db
           # Wait for MySQL to be ready
-          sleep 15
+          for i in $(seq 1 30); do
+            if docker compose exec -T db mysqladmin ping -h localhost -u root -prootpassword --silent; then
+              echo "MySQL is ready!"
+              break
+            fi
+            echo "Waiting for MySQL... ($i/30)"
+            sleep 2
+          done
           docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Run Parser Tests
