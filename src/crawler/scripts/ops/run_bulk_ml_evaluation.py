@@ -19,6 +19,8 @@ realestateSettings.configure()
 
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from django.db import close_old_connections
 from package.models.evaluation import PropertyEvaluation
 from package.ml.predict import bulk_predict_first_stage
 from package.ml.investment_evaluator import evaluate_investment_property
@@ -52,21 +54,21 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
         )
     }
     
-    models = get_all_property_models(skip_portals=skip_portals)
+def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, batch_size=500):
+    """単一モデルの物件群を評価（スレッドセーフ）"""
+    close_old_connections()
+    model_name = model.__name__
+    company = "unknown"
+    for c in COMPANIES:
+        if model_name.lower().startswith(c):
+            company = c
+            break
+    property_type = model_name.lower().replace(company, "")
+    
     evaluated_count = 0
     skipped_count = 0
-    BATCH_SIZE = 500
     
-    for model in models:
-        model_name = model.__name__
-        company = "unknown"
-        for c in COMPANIES:
-            if model_name.lower().startswith(c):
-                company = c
-                break
-        property_type = model_name.lower().replace(company, "")
-        
-        # 未評価または未完了物件を収集
+    try:
         unprocessed_items = []
         for item in model.objects.all():
             page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
@@ -82,18 +84,14 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 break
             
         if not unprocessed_items:
-            continue
+            return evaluated_count, skipped_count
             
-        # チャンクごとにバッチ推論 & 一括永続化
-        for chunk_idx in range(0, len(unprocessed_items), BATCH_SIZE):
-            chunk = unprocessed_items[chunk_idx:chunk_idx + BATCH_SIZE]
-            
-            # ベクトル化一括推論 (HTTP API不要・メモリ直接推論)
+        for chunk_idx in range(0, len(unprocessed_items), batch_size):
+            chunk = unprocessed_items[chunk_idx:chunk_idx + batch_size]
             predicted_prices = bulk_predict_first_stage(chunk)
             
             records_to_create = []
             records_to_update = []
-            chunk_records = []
             
             for item, price_stage1 in zip(chunk, predicted_prices):
                 page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
@@ -140,10 +138,9 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                         rec = evaluate_investment_property(item, rec)
                         
                     records_to_create.append(rec)
-                    existing_eval_map[page_url] = rec
                     
             if records_to_create:
-                PropertyEvaluation.objects.bulk_create(records_to_create, batch_size=500)
+                PropertyEvaluation.objects.bulk_create(records_to_create, batch_size=batch_size)
                         
             valid_updates = []
             seen_pks = set()
@@ -165,14 +162,52 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 PropertyEvaluation.objects.bulk_update(
                     valid_updates,
                     fields=update_fields,
-                    batch_size=500
+                    batch_size=batch_size
                 )
                     
             evaluated_count += len(chunk)
-            logging.info(f"Evaluated {evaluated_count} properties so far ({model_name})...")
+            logging.info(f"Evaluated {evaluated_count} properties for {model_name}...")
             sys.stdout.flush()
+    finally:
+        close_old_connections()
+        
+    return evaluated_count, skipped_count
+
+
+def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
+    concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", "4"))
+    logging.info(f"🚀 Starting Bulk ML Evaluation Batch (Parallel Threads={concurrency}, force={force}, limit={limit_per_model}, skip_portals={skip_portals})...")
+    
+    # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
+    existing_eval_map = {
+        e.property_url: e
+        for e in PropertyEvaluation.objects.all().only(
+            "id", "property_url", "first_stage_predicted_price", "second_stage_predicted_price", "is_first_stage_passed"
+        )
+    }
+    
+    models = get_all_property_models(skip_portals=skip_portals)
+    evaluated_count = 0
+    skipped_count = 0
+    BATCH_SIZE = 500
+    
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        future_to_model = {
+            executor.submit(_evaluate_single_model, model, existing_eval_map, force, limit_per_model, BATCH_SIZE): model
+            for model in models
+        }
+        for future in as_completed(future_to_model):
+            m = future_to_model[future]
+            try:
+                cnt, skp = future.result()
+                evaluated_count += cnt
+                skipped_count += skp
+            except Exception as exc:
+                logging.error(f"Failed evaluating {m.__name__}: {exc}", exc_info=True)
 
     logging.info(f"✅ Bulk ML Evaluation Finished! Evaluated: {evaluated_count}, Skipped (Already done): {skipped_count}")
+    sys.stdout.flush()
+
     sys.stdout.flush()
 
 if __name__ == "__main__":

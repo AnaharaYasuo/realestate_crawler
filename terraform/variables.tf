@@ -58,6 +58,18 @@ variable "crawler_timeout" {
   default     = "86400s"
 }
 
+variable "crawler_task_count" {
+  type        = number
+  description = "Total number of tasks for Cloud Run Job task array"
+  default     = 8
+}
+
+variable "crawler_parallelism" {
+  type        = number
+  description = "Number of tasks executing simultaneously in Cloud Run Job"
+  default     = 4
+}
+
 variable "schedule_cron" {
   type        = string
   description = "Cron schedule expression in UTC (0 16 * * * is JST 01:00)"

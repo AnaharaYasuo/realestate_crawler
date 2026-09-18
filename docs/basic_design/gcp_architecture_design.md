@@ -69,7 +69,23 @@ flowchart TB
 
 ---
 
-## 3. 案Aから案Cへの拡張設計（スケーラビリティ）
-- **Cloud Run Jobs のタスクアレイ**:
-  - Cloud Run Jobs の定義において、`tasks`（タスク数）および `parallelism`（並列実行数）を設定可能。
-  - ジョブ起動時の環境変数 `CLOUD_RUN_TASK_INDEX` を参照し、`run_all_crawlers.py` 内でサイトを分割処理することで、インフラ構造を変更することなく 20 サイトの同時並列実行（案C）へ拡張できる。
+## 3. 分散並列実行アーキテクチャ（Cloud Run Jobs タスクアレイ ＆ Coordinator パターン）
+
+### 3.1 タスクアレイによるクローラー分散並列化
+Cloud Run Jobs のタスクアレイ機能（`task_count = 8`, `parallelism = 4` 等）を利用し、全 45 以上の巡回ジョブ（サイト×種別）を複数コンテナで分散実行する。
+
+- **タスク割り当てアルゴリズム**:
+  - 各コンテナインスタンスに GCP から注入される環境変数 `CLOUD_RUN_TASK_INDEX`（0〜N-1）および `CLOUD_RUN_TASK_COUNT`（N）を参照。
+  - `target_jobs` を Smallest-Site-First 順でソート後、Modulo 演算 (`index % task_count == task_index`) により重いポータル（Homes, Athome）や Playwright タスクを均等分散。
+- **DBバリア同期 (Coordinator パターン)**:
+  - **Task 0**: パイプライン開始時に DB マイグレーション (`manage.py migrate`) を先行実行後、自タスク担当ジョブをクロール。他タスクの完了を DB テーブル（`crawler_task_execution`）でポーリング待機し、全タスク完了後に「データ検証 ➔ MLモデル再学習 ➔ バルク推論 ➔ Slack通知」を一括統括実行。
+  - **Task 1〜N-1**: DB 準備完了を待機後、自タスク担当ジョブをクロール。終了時に DB テーブルへステータス（COMPLETED / FAILED）を書き込み、正常終了 (Exit 0)。
+
+### 3.2 MLモデル学習・バルク推論の並列最適化
+- **MLモデル学習 (`train.py`)**:
+  - LightGBM, XGBoost, CatBoost, RandomForest の学習時に `n_jobs=-1`（または利用可能CPUコア数）を指定し、マルチコア並列化。
+- **バルク推論 (`run_bulk_ml_evaluation.py`)**:
+  - `ThreadPoolExecutor`（4〜8並行）により、物件モデル群を並行して一括推論＆DB永続化。直列ループによる処理ボトルネックを解消。
+- **サイト内詳細取得並行度 (`_getCloudPararellLimit`)**:
+  - 環境変数 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 5）により、GCP帯域に最適化された並行リクエスト数を安全に設定可能。
+
