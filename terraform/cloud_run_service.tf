@@ -82,6 +82,16 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
           }
         }
       }
+
+      env {
+        name  = "SLACK_CHANNEL_ID"
+        value = "C0BGJF4E737"
+      }
+
+      env {
+        name  = "SLACK_DEV_CHANNEL"
+        value = "C0BKBHWD26T"
+      }
     }
   }
 

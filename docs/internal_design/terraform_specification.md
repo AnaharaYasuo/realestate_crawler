@@ -47,7 +47,7 @@ terraform/
 
 ### 3.1 ネットワーク & NAT (`network.tf`)
 - `google_compute_network`: カスタムサブネット型 VPC
-- `google_compute_subnetwork`: VPC コネクタ用およびリソース用サブネット
+- `google_compute_subnetwork`: VPC コネクタ用およびリソース用サブネット（VPC Flow Logs 有効化済）
 - `google_vpc_access_connector`: Cloud Run から VPC への接続インターフェース（`e2-micro`, min: 2, max: 3）
 - `google_compute_router`: Cloud NAT 制御用ルーター
 - `google_compute_address`: 送信元固定用の静的外部 IP アドレス
@@ -60,6 +60,7 @@ terraform/
   - データベースバージョン: `MYSQL_8_0`
   - プライベート IP 有効 (`private_network = google_compute_network.id`)
   - パラメータ: `character_set_server = utf8mb4`, `collation_server = utf8mb4_unicode_ci`, `max_connections = 1000`
+  - セキュリティフラグ: `cloudsql_iam_authentication = on`, `local_infile = off`, `skip_show_database = on`
   - バックアップ設定: 有効（毎日自動バックアップ）
 
 ### 3.3 コンピュート (`cloud_run_job.tf`, `cloud_run_service.tf`)
@@ -68,7 +69,7 @@ terraform/
   - 実行引数: `["python", "src/crawler/scripts/ops/run_pipeline.py"]`
   - 共有メモリ設定: in-memory `emptyDir` ボリュームを `/dev/shm` にマウント（Playwright クラッシュ防止）
   - VPC コネクタ接続: `vpc_access.egress = ALL_TRAFFIC` (全外部通信を Cloud NAT 経由にして固定IP化)
-  - 環境変数: Secret Manager からシークレット参照（`value_source`）
+  - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
 
 ---
 

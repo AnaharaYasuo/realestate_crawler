@@ -85,6 +85,20 @@ def main():
             os.path.join(debug_tools_dir, "check_slack_connection.py")
         ], "Step 0/5: Slack Connection Pre-flight Check")
 
+        # Step 0.4: Database Readiness Pre-flight Check
+        run_command([
+            sys.executable,
+            os.path.join(debug_tools_dir, "wait_for_db.py")
+        ], "Step 0.4/5: Database Readiness Pre-flight Check")
+
+        # Step 0.5: Database Schema Migration (テーブル未初期化・マイグレーション自動反映)
+        run_command([
+            sys.executable,
+            os.path.join(crawler_dir, "manage.py"),
+            "migrate",
+            "--noinput"
+        ], "Step 0.5/5: Database Schema Migration")
+
         # Step 1: クローリング（並列実行）
         crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
         if args.skip_portals:
