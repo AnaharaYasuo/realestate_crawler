@@ -28,7 +28,8 @@ def odakyuMansionStart():
 def odakyuMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseOdakyuMansionDetailFuncAsync().main(url)
+    ParseOdakyuMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @odakyu_bp.route(API_KEY_ODAKYU_KODATE_START, methods=['POST', 'GET'])
 def odakyuKodateStart():
@@ -38,7 +39,8 @@ def odakyuKodateStart():
 def odakyuKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseOdakyuKodateDetailFuncAsync().main(url)
+    ParseOdakyuKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @odakyu_bp.route(API_KEY_ODAKYU_TOCHI_START, methods=['POST', 'GET'])
 def odakyuTochiStart():
@@ -48,7 +50,8 @@ def odakyuTochiStart():
 def odakyuTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseOdakyuTochiDetailFuncAsync().main(url)
+    ParseOdakyuTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_START, methods=['POST', 'GET'])
 def odakyuInvestmentStart():
@@ -58,5 +61,6 @@ def odakyuInvestmentStart():
 def odakyuInvestmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseOdakyuInvestmentDetailFuncAsync().main(url)
+    ParseOdakyuInvestmentDetailFuncAsync().main(url)
+    return "finish", 200
 

@@ -57,9 +57,9 @@ class LoggingMiddleware(CrawlerMiddleware):
     """ログ記録ミドルウェア"""
     
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
-        logger.info(f"Middleware Request: {request_context.get('method')} {request_context.get('url')}")
+        logger.debug(f"Middleware Request: {request_context.get('method')} {request_context.get('url')}")
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
-        logger.info(f"Middleware Response: {response_context.get('status')} {response_context.get('url')}")
+        logger.debug(f"Middleware Response: {response_context.get('status')} {response_context.get('url')}")
         return response_context

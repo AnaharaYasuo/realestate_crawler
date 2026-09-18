@@ -23,7 +23,8 @@ def heimMansionStart():
 def heimMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHeimMansionDetailFuncAsync().main(url)
+    ParseHeimMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @heim_bp.route(API_KEY_HEIM_KODATE_START, methods=['POST', 'GET'])
 def heimKodateStart():
@@ -34,7 +35,8 @@ def heimKodateStart():
 def heimKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHeimKodateDetailFuncAsync().main(url)
+    ParseHeimKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @heim_bp.route(API_KEY_HEIM_TOCHI_START, methods=['POST', 'GET'])
 def heimTochiStart():
@@ -46,4 +48,5 @@ def heimTochiStart():
 def heimTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHeimTochiDetailFuncAsync().main(url)
+    ParseHeimTochiDetailFuncAsync().main(url)
+    return "finish", 200

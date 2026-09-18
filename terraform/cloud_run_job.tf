@@ -37,6 +37,18 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
             cpu    = var.crawler_cpu
             memory = var.crawler_memory
           }
+        # 実行環境 & ロギング設定
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "LOG_FORMAT"
+          value = "json"
+        }
+        env {
+          name  = "PYTHONIOENCODING"
+          value = "utf-8"
         }
 
         # データベース接続設定 (Private IP経由)

@@ -18,18 +18,22 @@ except Exception as e:
 from bs4 import BeautifulSoup
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser, MitsuiInvestmentKodateParser, MitsuiInvestmentApartmentParser
 
-DOCS_DIR = os.environ.get('DOCS_DIR', '/app/Temp/docs')
+DOCS_DIR = os.path.abspath(os.path.normpath(os.environ.get('DOCS_DIR', '/app/Temp/docs')))
 
-def test_mansion():
-    print("\n[Testing Mitsui Mansion]")
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples/mitsui_mansion_mock.html')
+def read_mock(filename):
+    path = os.path.abspath(os.path.join(DOCS_DIR, 'requirements/site_samples', os.path.basename(filename)))
     print(f"Reading {path}")
     if not os.path.exists(path):
         print("Skipping: File not found")
-        return
-
+        return None
     with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
+        return f.read()
+
+def test_mansion():
+    print("\n[Testing Mitsui Mansion]")
+    html = read_mock('mitsui_mansion_mock.html')
+    if not html:
+        return
     
     parser = MitsuiMansionParser()
     item = parser.createEntity()
@@ -47,14 +51,9 @@ def test_mansion():
 
 def test_kodate():
     print("\n[Testing Mitsui Kodate]")
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples/mitsui_kodate_mock.html')
-    print(f"Reading {path}")
-    if not os.path.exists(path):
-        print("Skipping: File not found")
+    html = read_mock('mitsui_kodate_mock.html')
+    if not html:
         return
-
-    with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
     
     parser = MitsuiKodateParser()
     item = parser.createEntity()
@@ -66,19 +65,15 @@ def test_kodate():
     print(f"TatemonoMenseki: {item.tatemonoMenseki}")
     
     assert item.propertyName
+    assert item.price > 0
     assert item.tochiMenseki is not None, "TochiMenseki strictly required"
     assert item.tatemonoMenseki is not None, "TatemonoMenseki strictly required"
 
 def test_tochi():
     print("\n[Testing Mitsui Tochi]")
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples/mitsui_tochi_mock.html')
-    print(f"Reading {path}")
-    if not os.path.exists(path):
-        print("Skipping: File not found")
+    html = read_mock('mitsui_tochi_mock.html')
+    if not html:
         return
-
-    with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
     
     parser = MitsuiTochiParser()
     item = parser.createEntity()
@@ -95,14 +90,9 @@ def test_tochi():
 
 def test_investment_kodate():
     print("\n[Testing Mitsui Investment Kodate]")
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples/mitsui_investment_kodate_mock.html')
-    print(f"Reading {path}")
-    if not os.path.exists(path):
-        print("Skipping: File not found")
+    html = read_mock('mitsui_investment_kodate_mock.html')
+    if not html:
         return
-
-    with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
     
     parser = MitsuiInvestmentKodateParser()
     item = parser.createEntity()
@@ -120,14 +110,9 @@ def test_investment_kodate():
 
 def test_investment_apartment():
     print("\n[Testing Mitsui Investment Apartment]")
-    path = os.path.join(DOCS_DIR, 'requirements/site_samples/mitsui_investment_apartment_mock.html')
-    print(f"Reading {path}")
-    if not os.path.exists(path):
-        print("Skipping: File not found")
+    html = read_mock('mitsui_investment_apartment_mock.html')
+    if not html:
         return
-
-    with open(path, 'r', encoding='utf-8') as f:
-        html = f.read()
     
     # MitsuiInvestmentApartmentParser
     parser = MitsuiInvestmentApartmentParser() 

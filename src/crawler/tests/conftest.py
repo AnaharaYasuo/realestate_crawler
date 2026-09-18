@@ -1,5 +1,6 @@
 import os
 import sys
+import secrets
 import django
 from django.conf import settings
 
@@ -19,7 +20,7 @@ def pytest_configure():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
     if not settings.configured:
         settings.configure(
-            SECRET_KEY='test_secret_key',
+            SECRET_KEY=os.getenv('SECRET_KEY', secrets.token_hex(32)),
             INSTALLED_APPS=[
                 'package',
             ],

@@ -24,7 +24,8 @@ def athomeMansionStart():
 def athomeMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAthomeMansionDetailFuncAsync().main(url)
+    ParseAthomeMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @athome_bp.route(API_KEY_ATHOME_KODATE_START, methods=['POST', 'GET'])
 def athomeKodateStart():
@@ -34,7 +35,8 @@ def athomeKodateStart():
 def athomeKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAthomeKodateDetailFuncAsync().main(url)
+    ParseAthomeKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @athome_bp.route(API_KEY_ATHOME_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def athomeInvestApartmentStart():
@@ -44,7 +46,8 @@ def athomeInvestApartmentStart():
 def athomeInvestApartmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAthomeInvestApartmentDetailFuncAsync().main(url)
+    ParseAthomeInvestApartmentDetailFuncAsync().main(url)
+    return "finish", 200
 
 @athome_bp.route(API_KEY_ATHOME_TOCHI_START, methods=['POST', 'GET'])
 def athomeTochiStart():
@@ -54,6 +57,7 @@ def athomeTochiStart():
 def athomeTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseAthomeTochiDetailFuncAsync().main(url)
+    ParseAthomeTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 

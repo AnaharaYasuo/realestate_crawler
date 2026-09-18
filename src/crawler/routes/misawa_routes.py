@@ -43,13 +43,13 @@ def misawaMansionList():
     url = request_json['url']
     obj = ParseMisawaMansionListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaMansionList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaMansionList")
-    return result
+    return "finish", 200
 
 @misawa_bp.route(API_KEY_MISAWA_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def misawaMansionDetail():
@@ -60,13 +60,13 @@ def misawaMansionDetail():
     url = request_json['url']
     obj = ParseMisawaMansionDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaMansionDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaMansionDetail")
-    return result
+    return "finish", 200
 
 # ==========================================
 # Kodate
@@ -95,13 +95,13 @@ def misawaKodateList():
     url = request_json['url']
     obj = ParseMisawaKodateListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaKodateList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaKodateList")
-    return result
+    return "finish", 200
 
 @misawa_bp.route(API_KEY_MISAWA_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def misawaKodateDetail():
@@ -112,13 +112,13 @@ def misawaKodateDetail():
     url = request_json['url']
     obj = ParseMisawaKodateDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaKodateDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaKodateDetail")
-    return result
+    return "finish", 200
 
 # ==========================================
 # Tochi
@@ -147,13 +147,13 @@ def misawaTochiList():
     url = request_json['url']
     obj = ParseMisawaTochiListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaTochiList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaTochiList")
-    return result
+    return "finish", 200
 
 @misawa_bp.route(API_KEY_MISAWA_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def misawaTochiDetail():
@@ -164,10 +164,10 @@ def misawaTochiDetail():
     url = request_json['url']
     obj = ParseMisawaTochiDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed misawaTochiDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success misawaTochiDetail")
-    return result
+    return "finish", 200

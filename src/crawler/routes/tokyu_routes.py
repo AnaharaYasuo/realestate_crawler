@@ -35,7 +35,8 @@ def tokyuMansionStart():
 
 @tokyu_bp.route(API_KEY_TOKYU_MANSION_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuMansionAreaLocal():
-    return tokyuMansionArea(request)
+    tokyuMansionArea(request)
+    return "finish", 200
 
 
 def tokyuMansionArea(request):
@@ -44,18 +45,19 @@ def tokyuMansionArea(request):
     url = request_json['url']
     obj = ParseTokyuMansionAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuMansionArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuMansionArea")
-    return result
+    return "finish", 200
 
 
 @tokyu_bp.route(API_KEY_TOKYU_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuMansionPropertyListLocal():
-    return tokyuMansionPropertyList(request)
+    tokyuMansionPropertyList(request)
+    return "finish", 200
 
 
 def tokyuMansionPropertyList(request):
@@ -64,18 +66,19 @@ def tokyuMansionPropertyList(request):
     url = request_json['url']
     obj = ParseTokyuMansionListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuMansionPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuMansionPropertyList")
-    return result
+    return "finish", 200
 
 
 @tokyu_bp.route(API_KEY_TOKYU_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuMansionPropertyDetailLocal():
-    return tokyuMansionPropertyDetail(request)
+    tokyuMansionPropertyDetail(request)
+    return "finish", 200
 
 
 def tokyuMansionPropertyDetail(request):
@@ -84,13 +87,13 @@ def tokyuMansionPropertyDetail(request):
     url = request_json['url']
     obj = ParseTokyuMansionDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuMansionPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuMansionPropertyDetail")
-    return result
+    return "finish", 200
 
 
 @tokyu_bp.route(API_KEY_TOKYU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
@@ -123,7 +126,8 @@ def tokyuTochiStart():
 
 @tokyu_bp.route(API_KEY_TOKYU_TOCHI_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuTochiAreaLocal():
-    return tokyuTochiArea(request)
+    tokyuTochiArea(request)
+    return "finish", 200
 
 def tokyuTochiArea(request):
     logging.info("Start tokyuTochiArea")
@@ -131,17 +135,18 @@ def tokyuTochiArea(request):
     url = request_json['url']
     obj = ParseTokyuTochiAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuTochiArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuTochiArea")
-    return result
+    return "finish", 200
 
 @tokyu_bp.route(API_KEY_TOKYU_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuTochiPropertyListLocal():
-    return tokyuTochiPropertyList(request)
+    tokyuTochiPropertyList(request)
+    return "finish", 200
 
 def tokyuTochiPropertyList(request):
     logging.info("Start tokyuTochiPropertyList")
@@ -149,17 +154,18 @@ def tokyuTochiPropertyList(request):
     url = request_json['url']
     obj = ParseTokyuTochiListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuTochiPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuTochiPropertyList")
-    return result
+    return "finish", 200
 
 @tokyu_bp.route(API_KEY_TOKYU_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuTochiPropertyDetailLocal():
-    return tokyuTochiPropertyDetail(request)
+    tokyuTochiPropertyDetail(request)
+    return "finish", 200
 
 def tokyuTochiPropertyDetail(request):
     logging.info("Start tokyuTochiPropertyDetail")
@@ -167,13 +173,13 @@ def tokyuTochiPropertyDetail(request):
     url = request_json['url']
     obj = ParseTokyuTochiDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuTochiPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuTochiPropertyDetail")
-    return result
+    return "finish", 200
 
 
 ###################################################
@@ -195,7 +201,8 @@ def tokyuKodateStart():
 
 @tokyu_bp.route(API_KEY_TOKYU_KODATE_AREA, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuKodateAreaLocal():
-    return tokyuKodateArea(request)
+    tokyuKodateArea(request)
+    return "finish", 200
 
 def tokyuKodateArea(request):
     logging.info("Start tokyuKodateArea")
@@ -203,17 +210,18 @@ def tokyuKodateArea(request):
     url = request_json['url']
     obj = ParseTokyuKodateAreaFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuKodateArea")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuKodateArea")
-    return result
+    return "finish", 200
 
 @tokyu_bp.route(API_KEY_TOKYU_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuKodatePropertyListLocal():
-    return tokyuKodatePropertyList(request)
+    tokyuKodatePropertyList(request)
+    return "finish", 200
 
 def tokyuKodatePropertyList(request):
     logging.info("Start tokyuKodatePropertyList")
@@ -221,17 +229,18 @@ def tokyuKodatePropertyList(request):
     url = request_json['url']
     obj = ParseTokyuKodateListFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuKodatePropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuKodatePropertyList")
-    return result
+    return "finish", 200
 
 @tokyu_bp.route(API_KEY_TOKYU_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
 def tokyuKodatePropertyDetailLocal():
-    return tokyuKodatePropertyDetail(request)
+    tokyuKodatePropertyDetail(request)
+    return "finish", 200
 
 def tokyuKodatePropertyDetail(request):
     logging.info("Start tokyuKodatePropertyDetail")
@@ -239,10 +248,10 @@ def tokyuKodatePropertyDetail(request):
     url = request_json['url']
     obj = ParseTokyuKodateDetailFuncAsync()
     try:
-        result = obj.main(url)
+        obj.main(url)
     except:
         logging.error("Failed tokyuKodatePropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
     logging.info("Success tokyuKodatePropertyDetail")
-    return result
+    return "finish", 200

@@ -24,7 +24,8 @@ def homesMansionStart():
 def homesMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHomesMansionDetailFuncAsync().main(url)
+    ParseHomesMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @homes_bp.route(API_KEY_HOMES_KODATE_START, methods=['POST', 'GET'])
 def homesKodateStart():
@@ -34,7 +35,8 @@ def homesKodateStart():
 def homesKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHomesKodateDetailFuncAsync().main(url)
+    ParseHomesKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @homes_bp.route(API_KEY_HOMES_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def homesInvestApartmentStart():
@@ -44,7 +46,8 @@ def homesInvestApartmentStart():
 def homesInvestApartmentDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHomesInvestApartmentDetailFuncAsync().main(url)
+    ParseHomesInvestApartmentDetailFuncAsync().main(url)
+    return "finish", 200
 
 @homes_bp.route(API_KEY_HOMES_TOCHI_START, methods=['POST', 'GET'])
 def homesTochiStart():
@@ -54,6 +57,7 @@ def homesTochiStart():
 def homesTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseHomesTochiDetailFuncAsync().main(url)
+    ParseHomesTochiDetailFuncAsync().main(url)
+    return "finish", 200
 
 

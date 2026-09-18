@@ -2,10 +2,13 @@ import os
 import logging
 import sys
 import signal
+import traceback
 from flask import Flask, request
 
 import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
+from package.utils.logging_config import configure_logging
+configure_logging()
 
 # Import keys for remaining routes (if any) or shared usage
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
@@ -129,12 +132,7 @@ def seriouslykill():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        stream=sys.stdout
-    )
+    configure_logging()
 
     # CLI support for direct crawl execution
     args = sys.argv[1:]
@@ -302,7 +300,6 @@ if __name__ == "__main__":
                     func()
             except Exception as e:
                 logging.error(f"Error during crawl execution: {e}")
-                import traceback
                 logging.error(traceback.format_exc())
             logging.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
@@ -312,4 +309,5 @@ if __name__ == "__main__":
             sys.exit(1)
 
     if not os.getenv('IS_CLOUD', ''):
-        app.run(host='0.0.0.0', port=8000, debug=True)
+        flask_debug = os.getenv('FLASK_DEBUG', 'false').lower() in ('true', '1')
+        app.run(host='0.0.0.0', port=8000, debug=flask_debug)

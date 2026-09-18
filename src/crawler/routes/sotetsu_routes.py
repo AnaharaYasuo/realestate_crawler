@@ -23,7 +23,8 @@ def sotetsuMansionStart():
 def sotetsuMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSotetsuMansionDetailFuncAsync().main(url)
+    ParseSotetsuMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sotetsu_bp.route(API_KEY_SOTETSU_KODATE_START, methods=['POST', 'GET'])
 def sotetsuKodateStart():
@@ -34,7 +35,8 @@ def sotetsuKodateStart():
 def sotetsuKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSotetsuKodateDetailFuncAsync().main(url)
+    ParseSotetsuKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @sotetsu_bp.route(API_KEY_SOTETSU_TOCHI_START, methods=['POST', 'GET'])
 def sotetsuTochiStart():
@@ -45,4 +47,5 @@ def sotetsuTochiStart():
 def sotetsuTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseSotetsuTochiDetailFuncAsync().main(url)
+    ParseSotetsuTochiDetailFuncAsync().main(url)
+    return "finish", 200

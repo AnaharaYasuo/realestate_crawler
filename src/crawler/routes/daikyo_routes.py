@@ -23,7 +23,8 @@ def daikyoMansionStart():
 def daikyoMansionDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaikyoMansionDetailFuncAsync().main(url)
+    ParseDaikyoMansionDetailFuncAsync().main(url)
+    return "finish", 200
 
 @daikyo_bp.route(API_KEY_DAIKYO_KODATE_START, methods=['POST', 'GET'])
 def daikyoKodateStart():
@@ -34,7 +35,8 @@ def daikyoKodateStart():
 def daikyoKodateDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaikyoKodateDetailFuncAsync().main(url)
+    ParseDaikyoKodateDetailFuncAsync().main(url)
+    return "finish", 200
 
 @daikyo_bp.route(API_KEY_DAIKYO_TOCHI_START, methods=['POST', 'GET'])
 def daikyoTochiStart():
@@ -46,4 +48,5 @@ def daikyoTochiStart():
 def daikyoTochiDetail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
-    return ParseDaikyoTochiDetailFuncAsync().main(url)
+    ParseDaikyoTochiDetailFuncAsync().main(url)
+    return "finish", 200

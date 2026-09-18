@@ -513,3 +513,51 @@ graph TD
 5. **種別誤認・データ異常防御（Misclassification & Anomaly Defense）**:
    - 敷地権なし区分所有の戸建て混入時の自動マンションリルート、面積数値汚染（500㎡超）のサニタイズ、築年数欠損補正。
 
+---
+
+## 10. 構造化ロギング＆可観測性アーキテクチャ (Structured Logging & Observability)
+
+GCP（Cloud Run Jobs / Services）およびローカル開発環境における可観測性・障害追跡を支える統一ログ設計。
+
+### 10.1 ログ設計概要
+```mermaid
+graph TD
+    A[標準 logging / structlog] --> B[ProcessorFormatter]
+    B --> C{実行環境判定<br/>K_SERVICE / CLOUD_RUN_JOB / LOG_FORMAT}
+    C -- GCP / Docker (JSON) --> D[GCP LogEntry JSON Renderer]
+    C -- Local (Console) --> E[Colored Console Renderer]
+    D --> F[stdout / stderr<br/>UTF-8 Reconfigured]
+    F --> G[Google Cloud Logging<br/>severity / jsonPayload 自動解析]
+```
+
+### 10.2 GCP LogEntry JSON フォーマット仕様
+GCP実行時は標準出力の1行ごとに以下のJSON構造を出力する：
+
+```json
+{
+  "severity": "INFO",
+  "message": "Mitsui Mansion crawl completed successfully. Total items: 45",
+  "timestamp": "2026-09-19T07:45:00.123456Z",
+  "logger": "package.api.api",
+  "logging.googleapis.com/sourceLocation": {
+    "file": "src/crawler/package/api/api.py",
+    "line": 1050,
+    "function": "allMansionStart"
+  },
+  "company": "mitsui",
+  "property_type": "mansion",
+  "duration_ms": 12450.5,
+  "count": 45
+}
+```
+
+### 10.3 ログレベル運用標準
+| レベル | 用途 | 出力対象例 |
+| :--- | :--- | :--- |
+| `DEBUG` | 単一リクエスト・単一物件の低レイヤー追跡 | ローカルルーティング、ミドルウェア通過、1件ごとのDB保存試行・成功 |
+| `INFO` | システムライフサイクル・バッチ進捗サマリー | パイプラインステップ開始/完了、クロール完了サマリー、Slack通知完了 |
+| `WARNING` | 復旧可能な軽微障害・リトライ動作 | HTTP 429レートリミット、DB一時接続待機、リトライ試行 |
+| `ERROR` | パース失敗・データ保存失敗（単一ログ・スタックトレース内包） | `LoadPropertyPageException`、DB制約エラー、予期せぬ例外 |
+| `CRITICAL` | パイプライン停止を招く致命的障害 | DB完全接続タイムアウト、Slack通知不達、設定パラメータ欠落 |
+
+
