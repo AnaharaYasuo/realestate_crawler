@@ -31,11 +31,20 @@ resource "google_compute_disk" "legacy_data_disk" {
 # 既存レガシーVMインスタンス (現在停止中: TERMINATED)
 #tfsec:ignore:google-compute-no-default-service-account
 #tfsec:ignore:google-compute-disk-encryption-customer-key
+#tfsec:ignore:google-compute-enable-shielded-vm-vtpm
+#tfsec:ignore:google-compute-enable-shielded-vm-im
+#tfsec:ignore:google-compute-enable-shielded-vm-sb
 #trivy:ignore:AVD-GCP-0030
 #trivy:ignore:AVD-GCP-0033
+#trivy:ignore:AVD-GCP-0067
+#trivy:ignore:AVD-GCP-0068
+#trivy:ignore:AVD-GCP-0069
+#trivy:ignore:AVD-GCP-0070
 resource "google_compute_instance" "legacy_vm" {
   # checkov:skip=CKV_GCP_41: "Legacy stopped backup VM imported from 2022"
   # checkov:skip=CKV_GCP_38: "Customer-supplied encryption keys deprecated by Google"
+  # checkov:skip=CKV_GCP_39: "Legacy CentOS 7 VM is not UEFI-enabled and does not support Shielded VM"
+  # checkov:skip=CKV_GCP_40: "Legacy CentOS 7 VM is not UEFI-enabled and does not support Shielded VM"
   name         = "backup2022-02-01"
   machine_type = "e2-micro"
   zone         = "us-central1-a"
@@ -44,12 +53,6 @@ resource "google_compute_instance" "legacy_vm" {
   desired_status = "TERMINATED"
 
   deletion_protection = true
-
-  shielded_instance_config {
-    enable_secure_boot          = true
-    enable_vtpm                 = true
-    enable_integrity_monitoring = true
-  }
 
   boot_disk {
     auto_delete = true
