@@ -7,6 +7,7 @@ from package.utils import converter
 from decimal import Decimal
 import logging
 import re
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -140,10 +141,8 @@ class AthomeParser(ParserBase):
             return ""
         if linkUrl.startswith('http'):
             return linkUrl
-        if not linkUrl.startswith('/'):
-            linkUrl = '/' + linkUrl
         base = base_domain or getattr(self, 'current_base_domain', None) or self.BASE_URL
-        return base + linkUrl
+        return urllib.parse.urljoin(base, linkUrl)
 
     async def parseNextPage(self, response):
         """

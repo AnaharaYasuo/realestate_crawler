@@ -20,3 +20,12 @@ def test_athome_investment_apartment_parser():
     parser = AthomeInvestmentApartmentParser()
     item = parser.createEntity()
     assert isinstance(item, AthomeInvestmentApartment)
+
+def test_athome_url_resolution():
+    parser = AthomeKodateParser()
+    base = "https://www.athome.co.jp/kodate/chuko/tokyo/tokyo_fuchu-city/list/"
+    rel_url = "/kodate/1012790620/?DOWN=1&BKLISTID=001LPC"
+    resolved = parser.getRootDestUrl(rel_url, base_domain=base)
+    assert resolved == "https://www.athome.co.jp/kodate/1012790620/?DOWN=1&BKLISTID=001LPC"
+    assert "//kodate" not in resolved
+    assert "/list//kodate" not in resolved
