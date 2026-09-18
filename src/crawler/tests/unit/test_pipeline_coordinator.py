@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
-"""
-Pipeline Coordinator バリア同期の単体テスト
-"""
-import pytest
+"""Pipeline Coordinator バリア同期の単体テスト."""
 from unittest.mock import MagicMock
-from package.utils.pipeline_coordinator import check_all_tasks_completed, wait_for_all_tasks
+from package.utils.pipeline_coordinator import check_all_tasks_completed
 
 
 def test_check_all_tasks_completed_success():

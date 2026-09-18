@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # -*- coding: utf-8 -*-
 """
 バルクML評価バッチスクリプト (Option B)
@@ -43,17 +44,7 @@ def get_all_property_models(skip_portals=False):
             property_models.append(model)
     return property_models
 
-def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
-    logging.info(f"🚀 Starting Bulk ML Evaluation Batch (Vectorized & Bulk-Optimized, force={force}, limit={limit_per_model}, skip_portals={skip_portals})...")
-    
-    # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
-    existing_eval_map = {
-        e.property_url: e
-        for e in PropertyEvaluation.objects.all().only(
-            "id", "property_url", "first_stage_predicted_price", "second_stage_predicted_price", "is_first_stage_passed"
-        )
-    }
-    
+
 def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, batch_size=500):
     """単一モデルの物件群を評価（スレッドセーフ）"""
     close_old_connections()

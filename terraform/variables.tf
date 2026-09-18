@@ -101,3 +101,17 @@ variable "alert_email" {
   default     = "wearemusiclover@gmail.com"
 }
 
+# Cloud Tasks Queue Configuration
+variable "crawler_queue_max_dispatches_per_second" {
+  type        = number
+  description = "Maximum task dispatches per second for crawler queue"
+  default     = 5.0
+}
+
+variable "crawler_queue_max_concurrent_dispatches" {
+  type        = number
+  description = "Maximum concurrent task dispatches for crawler queue"
+  default     = 10
+}
+
+

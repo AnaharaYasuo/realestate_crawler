@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
-"""
-バルクML評価の並行処理の単体テスト
-"""
-import pytest
-from unittest.mock import MagicMock, patch
+"""バルクML評価の並行処理の単体テスト."""
+import os
 from scripts.ops.run_bulk_ml_evaluation import get_all_property_models
 
 
@@ -18,6 +15,5 @@ def test_get_all_property_models():
 
 
 def test_bulk_eval_concurrency_env(monkeypatch):
-    import os
     monkeypatch.setenv("BULK_EVAL_CONCURRENCY", "6")
     assert int(os.getenv("BULK_EVAL_CONCURRENCY", "4")) == 6

@@ -1,3 +1,4 @@
+# ruff: noqa: E402, F401
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -18,7 +19,7 @@ while True:
     _cur = _parent
 
 import datetime
-from package.utils.logging_config import configure_logging, get_logger
+from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
@@ -76,7 +77,6 @@ def main():
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)              # .../scripts
     crawler_dir = os.path.dirname(scripts_dir)              # .../crawler
-    project_root = os.path.dirname(os.path.dirname(crawler_dir)) # root
     
     debug_tools_dir = os.path.join(scripts_dir, "debug_tools")
     maintenance_dir = os.path.join(scripts_dir, "maintenance")

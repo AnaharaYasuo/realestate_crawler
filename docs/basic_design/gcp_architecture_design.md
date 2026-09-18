@@ -69,17 +69,18 @@ flowchart TB
 
 ---
 
-## 3. 分散並列実行アーキテクチャ（Cloud Run Jobs タスクアレイ ＆ Coordinator パターン）
+## 3. 分散並列実行アーキテクチャ（Cloud Tasks + Cloud Run ワーカー ＆ レートリミット制御）
 
-### 3.1 タスクアレイによるクローラー分散並列化
-Cloud Run Jobs のタスクアレイ機能（`task_count = 8`, `parallelism = 4` 等）を利用し、全 45 以上の巡回ジョブ（サイト×種別）を複数コンテナで分散実行する。
+### 3.1 Cloud Tasks によるクローラー分散並列化 & 流量制御
+Cloud Tasks のキューイングおよび流量制御機能（`max_dispatches_per_second = 5`, `max_concurrent_dispatches = 10` 等）を活用し、全 45 以上の巡回ジョブ（サイト×種別）を Cloud Run サービスへディスパッチして同時分散実行する。
 
-- **タスク割り当てアルゴリズム**:
-  - 各コンテナインスタンスに GCP から注入される環境変数 `CLOUD_RUN_TASK_INDEX`（0〜N-1）および `CLOUD_RUN_TASK_COUNT`（N）を参照。
-  - `target_jobs` を Smallest-Site-First 順でソート後、Modulo 演算 (`index % task_count == task_index`) により重いポータル（Homes, Athome）や Playwright タスクを均等分散。
-- **DBバリア同期 (Coordinator パターン)**:
-  - **Task 0**: パイプライン開始時に DB マイグレーション (`manage.py migrate`) を先行実行後、自タスク担当ジョブをクロール。他タスクの完了を DB テーブル（`crawler_task_execution`）でポーリング待機し、全タスク完了後に「データ検証 ➔ MLモデル再学習 ➔ バルク推論 ➔ Slack通知」を一括統括実行。
-  - **Task 1〜N-1**: DB 準備完了を待機後、自タスク担当ジョブをクロール。終了時に DB テーブルへステータス（COMPLETED / FAILED）を書き込み、正常終了 (Exit 0)。
+- **レート制御 & BAN防止**:
+  - 同一ドメインへの過度な同時リクエストをキューのレートリミット（1〜2 req/sec）で抑制し、IP BAN を確実に防止しながら、異ドメイン間（三井・住友・東急・ポータル等）は最大 10〜20 並列で同時クローリング。
+- **タスクディスパッチ (`dispatch_cloud_tasks.py`)**:
+  - スケジューラー起動時に Smallest-Site-First 順でタスクをエンキュー。OIDC 認証付きで Cloud Run のエンドポイント（`/api/crawl/task`）を呼び出し。
+- **完了検知 & 後続パイプライン連携**:
+  - 各 Cloud Run ワーカーは担当ジョブ完了時に DB（`crawler_task_execution`）へステータスを更新。
+  - ディスパッチャーまたは Coordinator が全ジョブの完了を検知後、後続ステップ（バリデーション ➔ ML再学習 ➔ バルク推論 ➔ Slack通知）を一括実行。
 
 ### 3.2 MLモデル学習・バルク推論の並列最適化
 - **MLモデル学習 (`train.py`)**:
@@ -88,4 +89,5 @@ Cloud Run Jobs のタスクアレイ機能（`task_count = 8`, `parallelism = 4`
   - `ThreadPoolExecutor`（4〜8並行）により、物件モデル群を並行して一括推論＆DB永続化。直列ループによる処理ボトルネックを解消。
 - **サイト内詳細取得並行度 (`_getCloudPararellLimit`)**:
   - 環境変数 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 5）により、GCP帯域に最適化された並行リクエスト数を安全に設定可能。
+
 

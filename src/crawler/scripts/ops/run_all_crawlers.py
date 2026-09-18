@@ -1,3 +1,4 @@
+# ruff: noqa: E402, F401
 # -*- coding: utf-8 -*-
 import os
 import sys
