@@ -19,8 +19,10 @@ resource "random_id" "db_suffix" {
   byte_length = 4
 }
 
-# Cloud SQL for MySQL 8.0 Instance
+#tfsec:ignore:google-sql-encrypt-in-transit
+#trivy:ignore:AVD-GCP-0015
 resource "google_sql_database_instance" "mysql_instance" {
+  # checkov:skip=CKV_GCP_60: "VPC internal private IP only; unencrypted connections allowed inside VPC"
   name             = "realestate-mysql-${var.environment}-${random_id.db_suffix.hex}"
   database_version = "MYSQL_8_0"
   region           = var.region
@@ -41,9 +43,6 @@ resource "google_sql_database_instance" "mysql_instance" {
       ipv4_enabled                                  = false # パブリックIP露出を排除
       private_network                               = google_compute_network.vpc_network.id
       enable_private_path_for_google_cloud_services = true
-      # checkov:skip=CKV_GCP_60: "VPC internal private IP only; unencrypted connections allowed inside VPC"
-      # trivy:ignore:AVD-GCP-0015
-      # tfsec:ignore:google-sql-encrypt-in-transit
       ssl_mode                                      = "ALLOW_UNENCRYPTED_AND_ENCRYPTED" # VPCプライベート接続のため暗号化任意設定
     }
 
