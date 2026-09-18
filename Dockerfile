@@ -29,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# ソースコードのコピー
+# 設定ファイルおよびソースコードのコピー
+COPY config/ /app/config/
 COPY src/ /app/src/
 
 # Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
