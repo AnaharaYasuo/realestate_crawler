@@ -16,6 +16,7 @@ from package.parser.baseParser import InvestmentParserBase, KodateParserBase, Ma
 import logging
 from package.utils.selector_loader import SelectorLoader
 import lxml.html
+import urllib.parse
 
 
 class SumifuParser(ParserBase):
@@ -75,8 +76,10 @@ class SumifuParser(ParserBase):
     def getRegionXpath(self):
         return u''
 
-    def getRegionDestUrl(self,linkUrl):
-        return self.BASE_URL + linkUrl
+    def getRegionDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
 
     async def parseRegionPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
@@ -86,8 +89,14 @@ class SumifuParser(ParserBase):
     def getAreaXpath(self):
         return u''
 
-    def getAreaDestUrl(self,linkUrl):
-        return self.BASE_URL + linkUrl + "?limit=1000&mode=2"
+    def getAreaDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        full_url = urllib.parse.urljoin(self.BASE_URL, linkUrl)
+        sep = "&" if "?" in full_url else "?"
+        if "limit=1000" not in full_url:
+            full_url += f"{sep}limit=1000&mode=2"
+        return full_url
 
     async def parseAreaPage(self, response):       
         async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
@@ -99,9 +108,9 @@ class SumifuParser(ParserBase):
         return xpath
 
     def getPropertyListDestUrl(self, linkUrl):
-        if linkUrl and not linkUrl.startswith("http"):
-            return self.BASE_URL + linkUrl
-        return linkUrl
+        if not linkUrl:
+            return ""
+        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
 
     async def parsePropertyListPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
@@ -119,7 +128,10 @@ class SumifuParser(ParserBase):
         if not next_link:
             return None
             
-        nextPageUrl = self.BASE_URL + next_link.get("href")
+        href = next_link.get("href", "")
+        if not href or href == "#":
+            return None
+        nextPageUrl = urllib.parse.urljoin(self.BASE_URL, href)
         logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
@@ -491,9 +503,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
              
         for link in links:
             href = link.get("href")
-            if href.startswith("/"):
-                href = "https://www.stepon.co.jp" + href
-            yield href
+            if href:
+                yield urllib.parse.urljoin(self.BASE_URL, href)
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -514,9 +525,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
             if href and href != "#":
-                if href.startswith("/"):
-                    return "https://www.stepon.co.jp" + href
-                return href
+                return urllib.parse.urljoin(self.BASE_URL, href)
         return ""
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
