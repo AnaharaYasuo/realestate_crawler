@@ -559,5 +559,50 @@ GCP実行時は標準出力の1行ごとに以下のJSON構造を出力する：
 | `WARNING` | 復旧可能な軽微障害・リトライ動作 | HTTP 429レートリミット、DB一時接続待機、リトライ試行 |
 | `ERROR` | パース失敗・データ保存失敗（単一ログ・スタックトレース内包） | `LoadPropertyPageException`、DB制約エラー、予期せぬ例外 |
 | `CRITICAL` | パイプライン停止を招く致命的障害 | DB完全接続タイムアウト、Slack通知不達、設定パラメータ欠落 |
+ 
+---
+ 
+## 11. 継続的依存関係更新＆自律修復マージアーキテクチャ (Dependabot Auto-Merge & Self-Healing Architecture)
+ 
+依存パッケージの脆弱性解消およびバージョン追従を自動化し、コンフリクトやCI失敗も自律的に修復してマージを完了させる設計。
+ 
+### 11.1 処理フロー
+```mermaid
+flowchart TD
+    A[Schedule 定時起動<br/>毎日 09:00 JST / workflow_dispatch] --> B[dependabot_automerge 実行]
+    B --> C[gh pr list でオープンな Dependabot PR 走査]
+    C --> D{PR 存在?}
+    D -- No --> E[処理完了 ログ記録]
+    D -- Yes --> F[各 PR の CI 状態・マージ可能性を検査]
+    
+    F --> G{PR 状態判定}
+    
+    G -- 全 CI SUCCESS & MERGEABLE --> H[gh pr merge --squash --delete-branch]
+    H --> M[マージ成功記録]
+    
+    G -- コンフリクト / master遅延 --> I[自律リベース・最新化]
+    I --> I1[gh pr update-branch 試行]
+    I1 -- 失敗 / CONFLICTING --> I2[PRへ @dependabot rebase コメント自動投稿<br/>Dependabotに最新masterベースで再計算させる]
+    I2 --> N[リベース要求記録]
+    
+    G -- CI テスト失敗 --> J[自律修復 Auto-Heal 連携]
+    J --> J1[gh run view --log-failed ログ解析]
+    J1 --> J2[依存整合・互換性パッチ適用 & PRブランチへプッシュ]
+    J2 --> O[修復プッシュ記録 & CI再走査待機]
+    
+    M --> P[GitHub Actions Summary 出力]
+    N --> P
+    O --> P
+```
+ 
+### 11.2 コンポーネント構成
+1. **GitHub Actions ワークフロー (`.github/workflows/dependabot-automerge.yml`)**:
+   - スケジュールトリガー（毎日 UTC 00:00 / JST 09:00）および手動起動（`workflow_dispatch`）。
+   - GitHub CLI (`gh`) または Python スクリプトを実行し、マージ・リベース・修復を実行。
+2. **運用スクリプト (`src/crawler/scripts/ops/dependabot_automerge.py`)**:
+   - ローカル開発環境および CI 環境の両方で実行可能な Python スクリプト。
+   - `--dry-run` モードでマージせずに状態確認が可能。
+   - `--auto-rebase` でコンフリクト・遅延PRに対する再構築コマンド発行。
+   - CI チェックのステータス解析、マージ判定、実行ログ出力をカプセル化。
 
 

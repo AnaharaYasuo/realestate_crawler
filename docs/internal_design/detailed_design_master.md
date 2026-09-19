@@ -251,6 +251,24 @@ graph TD
 - **掲載終了（404/掲載終了文言）の正常スキップ**:
   - 各パーサー（`athomeParser.py` 等）において、物件ページに「掲載を終了しました」「お探しの物件は見つかりませんでした」等のシグナルがある場合は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップ（Slackアラート除外）。
 
+### 6.15 Dependabot日次自動マージ＆自律修復スクリプト設計原則
+- **モジュール配置**: `src/crawler/scripts/ops/dependabot_automerge.py`
+- **主要クラス・関数**:
+  - `DependabotPrInspector`:
+    - `fetch_dependabot_prs()`: `gh pr list --app dependabot --state open --json number,title,mergeable,statusCheckRollup,headRefName,url` により一覧取得。
+    - `evaluate_pr_status(pr_data)`: CI checks（`conclusion`, `status`）および `mergeable` を解析し、状態（`MERGE_READY`, `NEED_REBASE`, `CI_RUNNING`, `CI_FAILED`）を分類。
+  - `DependabotAutoMerger`:
+    - `execute_merge(pr_number)`: `gh pr merge <number> --squash --delete-branch` を実行。
+    - `request_rebase(pr_number)`: コンフリクトまたは `master` 遅延に対し、`gh pr update-branch` または PR コメントに `@dependabot rebase` を投稿して自動再生成。
+    - `report_summary()`: 処理結果（マージ成功件数、リベース要求件数、CI実行中・失敗件数）を集計出力。
+- **CLIオプション**:
+  - `--dry-run`: 実際のマージやコメント投稿を行わず状態判定のみ出力（ローカル監視用）。
+  - `--auto-rebase`: コンフリクト/遅延PRに対して自動リベース要求を発行。
+  - `--auto-merge`: CI成功済みPRの自動マージを実行。
+- **GitHub Actions 連携 (`.github/workflows/dependabot-automerge.yml`)**:
+  - 定時（JST 09:00 / UTC 00:00）に実行され、`--auto-merge --auto-rebase` を指定してスクリプトをキック。
+  - 実行サマリーを `$GITHUB_STEP_SUMMARY` へ Markdown 出力。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -261,7 +279,4 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.6 (GCP Cloud Logging構造化・ログレベル適正化・文字コードUTF-8保証追記)
-
-
-
+**バージョン**: 1.7 (Dependabot日次自動マージ＆自律修復設計原則追記)
