@@ -711,4 +711,31 @@ graph TD
 2. **Production PR 完全並行化**:
    - `master` ➔ `production` へのリリースPRでは、ブランチ検証（`Verify Source Branch is master`）、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
 
+---
+
+## 12. Slack アラート通知 ＆ 構造化エラーログ同期アーキテクチャ (Slack Alert & Structured Error Log Sync Architecture)
+
+クローラー異常・パース障害・データバリデーション異常が Slack アラートチャンネルに送信された際、Cloud Logging などの外部監視機構でも確実に検知できるようにするための設計です。
+
+```mermaid
+flowchart TD
+    A[クローラー / バリデーション / API 障害発生] --> B[send_slack_message / send_crawling_summary_alert]
+    B --> C{送信先がアラートチャンネルか？<br/>(is_alert_channel)}
+    C -->|YES: alerts-* / property_alert / SLACK_ALERT_*| D[logger.error でメッセージ全文を出力]
+    D --> E[GCP Cloud Logging / 構造化JSON<br/>severity: ERROR]
+    C -->|NO: recommend-* / dev| F[通常送信処理]
+    D --> G[Slack API postMessage]
+    F --> G
+    E --> H[24時間定期監視クエリ<br/>severity>=ERROR で自動捕捉]
+```
+
+### 12.1 判定対象のアラートチャンネル
+- **チャンネル名プレフィックス**: `alerts-` で始まるすべてのチャンネル（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#alerts-invest` 等）
+- **代表アラートチャンネル**: `#property_alert`（`SLACK_ALERT_PROPERTY_ALERT`）
+- **環境変数定義チャンネル**: `SLACK_ALERT_*` に設定されたすべてのチャンネルID・チャンネル名
+
+### 12.2 エラーレベル同期 (Error Mirroring)
+- `send_slack_message` 呼び出し時、送信先チャンネルが上記アラートチャンネルに該当する場合は、Slack API 送信の成否に関わらず、必ず `logger.error` によりメッセージ全文をエラーログとして出力。
+- これにより、Slack への送信が成功していても（HTTP 200）、アプリケーションログ側で `severity: ERROR` として記録され、ログ監視システム（GCP Cloud Logging）で確実に集約・検知される。
+
 
