@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import json
+import logging
+import importlib
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
@@ -251,6 +253,58 @@ def test_predict_by_url_unsupported_candidate_recorded(client):
         assert data["success"] is False
         assert data["error_code"] == "UNSUPPORTED_SITE_CANDIDATE_RECORDED"
         assert mock_c_create.called
+
+
+def test_predict_by_url_unsupported_candidate_logs_error(client, caplog):
+    """パーサー未対応サイトの場合、新規パーサー開発対象として [PARSER_UNAVAILABLE] の ERROR ログが出力されること"""
+    test_url = "https://unsupported-realtor.com/bukken/detail/8888"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_p_filter, \
+         patch('package.utils.url_security.UrlSecurityValidator.check_property_content_and_reachability') as mock_check, \
+         patch('package.models.candidate.CandidatePropertyUrl.objects.filter') as mock_c_filter, \
+         patch('package.models.candidate.CandidatePropertyUrl.objects.create'), \
+         caplog.at_level(logging.ERROR):
+
+        mock_p_filter.return_value.first.return_value = None
+        mock_check.return_value = (True, "テスト新着物件", ["価格", "所在地", "間取り"])
+        mock_c_filter.return_value.first.return_value = None
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 400
+        assert any("[PARSER_UNAVAILABLE]" in record.message and "unsupported-realtor.com" in record.message for record in caplog.records)
+
+
+def test_predict_by_url_parser_loading_failure_logs_error(client, caplog):
+    """パーサーモジュール/クラスの読込に失敗した場合、[PARSER_NOT_FOUND] の ERROR ログが出力されること"""
+    test_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/LOADFAIL/"
+
+    real_import = importlib.import_module
+    def selective_import(name, *args, **kwargs):
+        if "parser" in name:
+            raise ImportError("Mocked parser missing")
+        return real_import(name, *args, **kwargs)
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_p_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_m_filter, \
+         patch('importlib.import_module', side_effect=selective_import), \
+         caplog.at_level(logging.ERROR):
+
+        mock_p_filter.return_value.first.return_value = None
+        mock_m_filter.return_value.first.return_value = None
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 500
+        data = res.get_json()
+        assert data["error_code"] == "PARSER_NOT_FOUND"
+        assert any("[PARSER_NOT_FOUND]" in record.message for record in caplog.records)
 
 
 def test_lockout_manager():

@@ -283,3 +283,24 @@ class UrlMatcher:
             Q(**{f"{field_name}__startswith": norm_no_slash + "?"})
         )
 ```
+
+---
+
+## 9. パーサー未対応エラーログ設計
+
+パーサー未対応物件のログフォーマット:
+```python
+logging.error(
+    f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}' "
+    f"(URL: {clean_url}, Title: '{page_title}', Keywords: {matched_kws}). "
+    f"Target registered to CandidatePropertyUrl backlog (count={req_count})."
+)
+```
+
+パーサークラス読込失敗時のログフォーマット:
+```python
+logging.error(
+    f"[PARSER_NOT_FOUND] Parser class '{parser_cls_name}' could not be loaded for URL: {url}: {e}",
+    exc_info=True
+)
+```

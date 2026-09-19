@@ -762,18 +762,28 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
         is_prop, page_title, matched_kws = await UrlSecurityValidator.check_property_content_and_reachability(url)
         if is_prop:
             parsed_domain = urllib.parse.urlparse(url).netloc
+            clean_url = UrlMatcher.normalize(url)
             cand = CandidatePropertyUrl.objects.filter(UrlMatcher.build_db_filter("url", url)).first()
             if cand:
                 cand.request_count += 1
                 cand.save(update_fields=["request_count", "updated_at"])
+                req_count = cand.request_count
             else:
                 CandidatePropertyUrl.objects.create(
-                    url=UrlMatcher.normalize(url),
+                    url=clean_url,
                     domain=parsed_domain,
                     title=str(page_title or "")[:300],
                     matched_keywords=matched_kws,
                     request_count=1
                 )
+                req_count = 1
+
+            # パーサー未対応サイトとして明示的に ERROR ログを出力（監視・新規パーサー開発対象）
+            logging.error(
+                f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}' "
+                f"(URL: {clean_url}, Title: '{page_title}', Keywords: {matched_kws}). "
+                f"Target registered to CandidatePropertyUrl backlog (count={req_count})."
+            )
 
             return {
                 "success": False,
@@ -784,7 +794,8 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 "details": {
                     "domain": parsed_domain,
                     "title": page_title,
-                    "matched_keywords": matched_kws
+                    "matched_keywords": matched_kws,
+                    "candidate_request_count": req_count
                 }
             }, 400
         else:
@@ -815,9 +826,22 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
     # Tier 3: 存在しない（または force_refresh）の場合はリアルタイム取得
     # -------------------------------------------------------------
     if target_item is None:
-        parser_mod = importlib.import_module(route["parser_module"])
-        parser_cls = getattr(parser_mod, route["parser_cls"])
-        parser = parser_cls()
+        try:
+            parser_mod = importlib.import_module(route["parser_module"])
+            parser_cls = getattr(parser_mod, route["parser_cls"])
+            parser = parser_cls()
+        except Exception as e:
+            logging.error(
+                f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {url}: {e}",
+                exc_info=True
+            )
+            return {
+                "success": False,
+                "url": url,
+                "data_source": None,
+                "error_code": "PARSER_NOT_FOUND",
+                "message": f"パーサーの実装が見つかりません: {str(e)}"
+            }, 500
 
         try:
             connector = aiohttp.TCPConnector(ssl=False)
