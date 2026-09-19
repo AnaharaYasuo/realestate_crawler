@@ -21,17 +21,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
+      - name: Build and cache Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: realestate_crawler-app:latest
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
       - name: Start containers and setup DB
         run: |
           touch .env
-          docker compose up -d --build app db
+          docker compose up -d app db
           # Wait for MySQL connection from within app container
           docker compose exec -T app python src/crawler/scripts/debug_tools/wait_for_db.py
           docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Run Tests with Coverage
         run: |
-          docker compose exec -T app pytest src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
+          docker compose exec -T app pytest -n auto src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
 
       - name: Copy Coverage and Test Reports
         run: |
