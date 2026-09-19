@@ -182,6 +182,18 @@ class UrlRouter:
             "model_cls": "HomesInvestmentApartment",
         },
 
+        # 健美家 (Kenbiya)
+        {
+            "pattern": re.compile(r"kenbiya\.com/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "apartment",
+            "parser_module": "package.parser.kenbiyaParser",
+            "parser_cls": "KenbiyaInvestmentApartmentParser",
+            "model_module": "package.models.kenbiya",
+            "model_cls": "KenbiyaInvestmentApartment",
+        },
+
+
         # ミサワホーム (Misawa)
         {
             "pattern": re.compile(r"realestate\.misawa\.co\.jp/.*bukken_type%5B%5D=9|realestate\.misawa\.co\.jp/.*bukken_type=9"),

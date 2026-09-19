@@ -241,3 +241,18 @@
      - **1物件1回制限**: 同一物件（URL/タイトル/スペック）に対するAI呼び出しは最大1回に制限し、インメモリキャッシュにより同一物件への重複API呼び出しを完全防止すること。
      - AI出力結果は必ず事後ガードレールにより検証・サニタイズ（利回り表記の強制オーバーライド等）を実施する。
      - API未設定時・オフライン時・タイムアウト（1.5秒）時は安全に静的デフォルトへフォールバックし、バッチやパイプラインを停止させないこと。
+
+### 3.10 健美家 (Kenbiya) 投資用一棟アパートパーサー要件 (FR-KENBIYA-PARSER)
+- **背景・目的**:
+  - `CandidatePropertyUrl` に蓄積された未対応物件URLのうち、健美家（`kenbiya.com`）の一棟収益アパート案件を正式サポート対象に昇格し、Tier 3 リアルタイムスクレイピング＆推論を可能にする。
+- **要件**:
+  1. **対象URLパターン**:
+     - `https://www.kenbiya.com/pp2/s/.../re_[0-9a-zA-Z]+/` 等の健美家物件詳細URLに対応。
+  2. **物件種別Base継承**:
+     - `InvestmentParserBase` を継承し、全抽象メソッド（`_parseGrossYield`, `_parseAnnualRent`, `_parseMonthlyRent`, `_parseChikunengetsu`, `_parseKouzou`, `_parseTochiMenseki`, `_parseTatemonoMenseki`, `_parsePrice`, `_parseAddress`, `_parsePropertyName`, `_parseRights`, `_parseSetsudou`, `_parseYoutoChiiki`, `_parseCurrentStatus`, `_parseGenkyo`, `_parseHikiwatashi`, `_parseChimoku` 等）を完全実装すること。
+  3. **ブラウザヘッダ要件 (429回避)**:
+     - 健美家のBot保護を回避するため、リクエスト時にブラウザ標準の `Accept-Language: ja,en-US;q=0.9,en;q=0.8` および `Accept` ヘッダーを送信すること。
+  4. **データ抽出仕様**:
+     - 定義リスト（`<dl><dt>...<dd>...`）およびページ上部サマリーから、価格、利回り、満室時年収/月収、所在地、物件名、築年月、建物構造、土地面積、建物面積、建ぺい/容積率、接道状況、用途地域、土地権利、現況、交通を精緻に抽出・正規化すること。
+  5. **候補URLステータス連動**:
+     - 開発完了に伴い、`CandidatePropertyUrl` 内の健美家URLの `status` を `implemented` へ更新可能とすること。

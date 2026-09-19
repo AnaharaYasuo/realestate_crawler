@@ -222,3 +222,18 @@ sequenceDiagram
      - AI出力結果に対しても第1層ガードレールを再適用し、ハルシネーションによる誤分類を100%遮断。
 4. **全プロジェクト共通化 (SSOT)**:
    - ML推論パイプライン (`predict.py`)、APIレイヤー (`api.py`)、および各社投資パーサー (`smtrc`, `mizuho`, `odakyu`, `sumai1`, `sumirin`) の物件種別判定を `PropertyTypeDetector` に一元化。
+
+---
+
+## 8. 健美家 (Kenbiya) 投資用パーサー連携仕様
+1. **ルーティング仕様 (`UrlRouter`)**:
+   - パターン: `r"kenbiya\.com/.*re_[0-9a-zA-Z]+"`
+   - サイト名: `kenbiya`
+   - 物件種別: `apartment`
+   - パーサークラス: `KenbiyaInvestmentApartmentParser` (`package.parser.kenbiyaParser`)
+   - モデルクラス: `KenbiyaInvestmentApartment` (`package.models.kenbiya`)
+2. **ライフサイクルと処理フロー**:
+   - `predict-by-url` 受信時、健美家URLを検知して `KenbiyaInvestmentApartmentParser` をインスタンス化。
+   - ブラウザ標準ヘッダー（`Accept-Language: ja,en-US;q=0.9,en;q=0.8`）を付与してHTMLを取得し、`<dl><dt>...<dd>` からスペックを抽出。
+   - `KenbiyaInvestmentApartment` モデルインスタンスを生成してDBへ保存後、投資用MLモデルによる価格推定を実行。
+

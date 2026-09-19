@@ -398,3 +398,43 @@ class PropertyTypeDetector:
    - `_detect_property_type` を `PropertyTypeDetector.detect_from_object` に一本化。
 5. **各社投資パーサー**:
    - `PropertyTypeDetector.detect_investment_type` でサブ種別判定を一元化。
+
+---
+
+## 12. 健美家 (Kenbiya) 投資用一棟アパートパーサー内部設計
+
+### 12.1 モデル設計 (`KenbiyaInvestmentApartment`)
+- **モジュール**: `package.models.kenbiya`
+- **テーブル名**: `kenbiya_investment_apartment`
+- **基底クラス**: `PropertyBaseModel`, `TransportationMixin`
+- **主要フィールド**:
+  - `grossYield`: 表面利回り (DecimalField max_digits=5, decimal_places=2)
+  - `annualRent`: 想定年間賃料 (IntegerField, 満室時年収)
+  - `monthlyRent`: 想定月額賃料 (IntegerField)
+  - `currentStatus`: 入居現況 (TextField)
+  - `kouzou`: 建物構造 (TextField, 例: 木造2階建)
+  - `soukosu`: 総戸数 (IntegerField)
+  - `tochiMenseki`: 土地面積 (DecimalField)
+  - `tatemonoMenseki`: 建物延床面積 (DecimalField)
+  - `kenpei` / `youseki`: 建ぺい率・容積率 (DecimalField)
+  - `setsudou`: 接道状況 (TextField)
+  - `youtoChiiki`: 用途地域 (TextField)
+  - `tochikenri`: 土地権利 (TextField)
+  - `propertyType`: 'Apartment'
+
+### 12.2 パーサー設計 (`KenbiyaInvestmentApartmentParser`)
+- **モジュール**: `package.parser.kenbiyaParser`
+- **基底クラス**: `InvestmentParserBase`
+- **リクエストヘッダー**:
+  - `Accept-Language: ja,en-US;q=0.9,en;q=0.8` (健美家 429 Bot検知回避)
+  - `Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8`
+- **DOM解析ロジック**:
+  - 定義リスト（`dl > dt` と `dd`）からスペック辞書を生成
+  - 価格: `価格` ➔ `5,980万円` ➔ `59800000`
+  - 利回り: `満室時利回り` ➔ `5.67％...` ➔ `5.67`
+  - 賃料: `満室時年収/月収` ➔ `339.6万円 / 28.3万円` ➔ annual: `3396000`, monthly: `283000`
+  - 住所: `住所` ➔ 末尾の「地図」等のリンクテキストを除去
+  - 築年月: `築年月` ➔ `1990年6月（築36年）` ➔ `1990-06-01`
+  - 構造・戸数: `建物構造` ➔ `木造2階建 総戸数4戸` ➔ 構造: `木造2階建`, 総戸数: `4`
+  - 交通: `交通` ➔ 各沿線・駅・徒歩分数を抽出して `station1`, `railway1`, `walkMinutes1` 等に設定
+
