@@ -11,6 +11,93 @@ servers:
 security:
 - ApiKeyAuth: []
 paths:
+  /api/evaluation/predict-by-url:
+    post:
+      summary: 物件詳細URLから推定価格予測を実行
+      description: 不動産物件詳細URLを受け取り、3段階キャッシュおよびオンデマンドクローリングによって理論価格を推定します。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - url
+              properties:
+                url:
+                  type: string
+                  description: 物件詳細ページURL
+                  example: "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/"
+                force_refresh:
+                  type: boolean
+                  description: キャッシュを無視して再スクレイピング・再推論を強制するか
+                  default: false
+                interior_score:
+                  $ref: '#/components/schemas/InteriorScore'
+                layout_score:
+                  $ref: '#/components/schemas/LayoutScore'
+      responses:
+        '200':
+          description: 推定成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  url:
+                    type: string
+                    example: "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/"
+                  data_source:
+                    type: string
+                    enum: [evaluation_cache, db_property, live_crawl]
+                    example: evaluation_cache
+                  site:
+                    type: string
+                    example: mitsui
+                  property_type:
+                    type: string
+                    example: mansion
+                  property_info:
+                    type: object
+                  prediction:
+                    type: object
+                    properties:
+                      first_stage_predicted_price:
+                        type: integer
+                        example: 4850
+                      second_stage_predicted_price:
+                        type: integer
+                        example: 4920
+                      price_gap:
+                        type: integer
+                        example: 350
+                      divergence_ratio:
+                        type: number
+                        example: 1.078
+                      is_bargain:
+                        type: boolean
+                        example: false
+                  investment:
+                    type: object
+                    nullable: true
+                  message:
+                    type: string
+                    example: "Estimation completed successfully"
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '410':
+          $ref: '#/components/responses/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/ErrorResponse'
+        '504':
+          $ref: '#/components/responses/ErrorResponse'
   /api/evaluation/predict/mansion:
     post:
       summary: マンション推定価格予測を実行

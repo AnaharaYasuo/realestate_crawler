@@ -1,0 +1,300 @@
+# -*- coding: utf-8 -*-
+import json
+import pytest
+import asyncio
+from unittest.mock import patch, MagicMock
+from main import app
+
+from package.utils.url_security import UrlSecurityValidator
+from package.utils.url_router import UrlRouter
+from package.utils.singleflight import SingleflightGroup
+from package.utils.rate_limiter import SlidingWindowRateLimiter
+
+
+@pytest.fixture
+def client():
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        yield client
+
+
+# ==============================================================================
+# 1. URL Security & SSRF Defense Unit Tests
+# ==============================================================================
+def test_url_security_valid_public_url():
+    is_safe, reason = UrlSecurityValidator.validate_url_security("https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/")
+    assert is_safe is True
+    assert reason == ""
+
+
+def test_url_security_invalid_scheme():
+    is_safe, reason = UrlSecurityValidator.validate_url_security("ftp://example.com/property/1")
+    assert is_safe is False
+    assert "Invalid scheme" in reason
+
+
+def test_url_security_blocked_loopback_and_private_ips():
+    dangerous_urls = [
+        "http://127.0.0.1/admin",
+        "http://localhost:8000/internal",
+        "http://192.168.1.10/status",
+        "http://10.0.0.1/secret",
+        "http://172.16.0.1/api",
+        "http://169.254.169.254/computeMetadata/v1/",  # Cloud metadata SSRF
+    ]
+    for url in dangerous_urls:
+        is_safe, reason = UrlSecurityValidator.validate_url_security(url)
+        assert is_safe is False, f"URL should be blocked: {url}"
+        assert "Blocked" in reason or "SSRF" in reason or "private" in reason.lower() or "loopback" in reason.lower()
+
+
+def test_url_security_blocked_ports():
+    is_safe, reason = UrlSecurityValidator.validate_url_security("http://example.com:22/test")
+    assert is_safe is False
+    assert "port" in reason.lower()
+
+
+# ==============================================================================
+# 2. URL Router Unit Tests
+# ==============================================================================
+def test_url_router_resolution():
+    router = UrlRouter()
+    
+    # 三井のリハウス (マンション)
+    route = router.resolve("https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/")
+    assert route is not None
+    assert route["site"] == "mitsui"
+    assert route["property_type"] == "mansion"
+
+    # 東急リバブル (戸建て)
+    route = router.resolve("https://www.livable.co.jp/kounyu/kodate/tokyo/a13101/C12345/")
+    assert route is not None
+    assert route["site"] == "tokyu"
+    assert route["property_type"] == "kodate"
+
+    # 未対応ドメイン
+    route = router.resolve("https://unknown-broker.co.jp/bukken/detail/123")
+    assert route is None
+
+
+# ==============================================================================
+# 3. Singleflight Concurrency Control Unit Tests
+# ==============================================================================
+@pytest.mark.asyncio
+async def test_singleflight_coalescing():
+    group = SingleflightGroup()
+    call_count = 0
+
+    async def expensive_crawl(url: str):
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.05)
+        return f"result_for_{url}"
+
+    target_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/"
+    
+    # 5つの並行リクエストを実行
+    tasks = [group.do(target_url, expensive_crawl, target_url) for _ in range(5)]
+    results = await asyncio.gather(*tasks)
+
+    # 5回呼ばれても実処理は1回だけ
+    assert call_count == 1
+    assert all(r == f"result_for_{target_url}" for r in results)
+
+
+# ==============================================================================
+# 4. Rate Limiter Unit Tests
+# ==============================================================================
+def test_rate_limiter():
+    limiter = SlidingWindowRateLimiter(limit_per_minute=5, burst_per_second=3)
+    client_id = "test_client_ip"
+
+    # 3回までは通る (burst_per_second=3)
+    assert limiter.is_allowed(client_id)[0] is True
+    assert limiter.is_allowed(client_id)[0] is True
+    assert limiter.is_allowed(client_id)[0] is True
+
+    # 4回目は同一秒内でバースト制限にかかる
+    allowed, retry_after = limiter.is_allowed(client_id)
+    assert allowed is False
+    assert retry_after >= 1
+
+
+# ==============================================================================
+# 5. API End-to-End & Tier Caching Tests
+# ==============================================================================
+def test_predict_by_url_tier1_evaluation_cache(client):
+    """Tier 1: PropertyEvaluation に推論結果が存在する場合、キャッシュから即返却"""
+    test_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/TIER1TEST/"
+    
+    # モックデータ
+    mock_eval = MagicMock()
+    mock_eval.first_stage_predicted_price = 52000000
+    mock_eval.second_stage_predicted_price = 53500000
+    mock_eval.company = "mitsui"
+    mock_eval.property_type = "mansion"
+    mock_eval.property_id = 999
+
+    mock_mansion = MagicMock()
+    mock_mansion.propertyName = "テストマンション1"
+    mock_mansion.price = 50000000
+    mock_mansion.address = "東京都世田谷区桜丘1-1"
+    mock_mansion.station1 = "経堂"
+    mock_mansion.railwayWalkMinute1 = 5
+    mock_mansion.senyuMenseki = 65.0
+    mock_mansion.chikunengetsuStr = "2015-04-01"
+    mock_mansion.kouzou = "RC"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_m_filter:
+        mock_filter.return_value.first.return_value = mock_eval
+        mock_m_filter.return_value.first.return_value = mock_mansion
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["data_source"] == "evaluation_cache"
+        assert data["prediction"]["first_stage_predicted_price"] == 52000000
+        assert data["prediction"]["price_gap"] == 2000000
+
+
+def test_predict_by_url_tier2_db_property(client):
+    """Tier 2: PropertyEvaluation に未存在だが、物件テーブルにデータがある場合オンデマンド推論"""
+    test_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/TIER2TEST/"
+
+    mock_mansion = MagicMock()
+    mock_mansion.propertyName = "テストマンション2"
+    mock_mansion.price = 40000000
+    mock_mansion.address = "東京都世田谷区桜丘2-2"
+    mock_mansion.station1 = "経堂"
+    mock_mansion.railwayWalkMinute1 = 7
+    mock_mansion.senyuMenseki = 58.0
+    mock_mansion.chikunengetsuStr = "2012-08-01"
+    mock_mansion.kouzou = "RC"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_m_filter, \
+         patch('routes.evaluation_routes.predict_first_stage_local', return_value=43000000), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=44000000), \
+         patch('package.models.evaluation.PropertyEvaluation.objects.update_or_create') as mock_upsert:
+        
+        # PropertyEvaluation は存在しない
+        mock_filter.return_value.first.return_value = None
+        # 物件テーブルには存在する
+        mock_m_filter.return_value.first.return_value = mock_mansion
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["data_source"] == "db_property"
+        assert data["prediction"]["first_stage_predicted_price"] == 43000000
+        assert mock_upsert.called
+
+
+def test_predict_by_url_unsupported_candidate_recorded(client):
+    """未対応サイトの場合、安全性・物件キーワード判定を経て候補DBに記録し 400 を返却"""
+    test_url = "https://unsupported-realtor.com/bukken/detail/9999"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_p_filter, \
+         patch('package.utils.url_security.UrlSecurityValidator.check_property_content_and_reachability') as mock_check, \
+         patch('package.models.candidate.CandidatePropertyUrl.objects.filter') as mock_c_filter, \
+         patch('package.models.candidate.CandidatePropertyUrl.objects.create') as mock_c_create:
+        
+        mock_p_filter.return_value.first.return_value = None
+        # 物件判定合格
+        mock_check.return_value = (True, "未対応物件ページ", ["価格", "専有面積", "間取り"])
+        mock_c_filter.return_value.first.return_value = None  # 新規
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 400
+        data = res.get_json()
+        assert data["success"] is False
+        assert data["error_code"] == "UNSUPPORTED_SITE_CANDIDATE_RECORDED"
+        assert mock_c_create.called
+
+
+def test_lockout_manager():
+    from package.utils.rate_limiter import LockoutManager
+    manager = LockoutManager(lockout_seconds=60, strike_threshold=2)
+    bad_ip = "192.0.2.1"
+
+    # 初期状態はロックアウトされていない
+    is_locked, remaining = manager.is_locked_out(bad_ip)
+    assert is_locked is False
+
+    # 1回目のストライク
+    banned, _ = manager.record_strike(bad_ip)
+    assert banned is False
+
+    # 2回目のストライク ➔ 閾値到達でBAN
+    banned, ban_duration = manager.record_strike(bad_ip)
+    assert banned is True
+    assert ban_duration == 60
+
+    # BAN判定の確認
+    is_locked, remaining = manager.is_locked_out(bad_ip)
+    assert is_locked is True
+    assert remaining > 0
+
+    # 即時BAN (SSRF等) の確認
+    another_bad_ip = "192.0.2.2"
+    banned, _ = manager.record_strike(another_bad_ip, instant_ban=True)
+    assert banned is True
+    assert manager.is_locked_out(another_bad_ip)[0] is True
+
+
+def test_predict_by_url_locked_out_client(client):
+    """ロックアウトされた外部IPからのリクエストは403 Forbiddenで即遮断される"""
+    with patch('routes.evaluation_routes.is_internal_client', return_value=False), \
+         patch('routes.evaluation_routes.lockout_manager.is_locked_out', return_value=(True, 450)):
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/TEST/"}),
+            headers={"X-Forwarded-For": "203.0.113.50"},
+            content_type='application/json'
+        )
+        assert res.status_code == 403
+        data = res.get_json()
+        assert data["success"] is False
+        assert data["error_code"] == "IP_LOCKED_OUT"
+        assert "450" in str(data["retry_after_seconds"])
+
+
+def test_predict_by_url_internal_bypasses_rate_limit(client):
+    """自作内部システムからの接続は、レートリミット上限を超えていても429にならず処理される"""
+    with patch('routes.evaluation_routes.is_internal_client', return_value=True), \
+         patch('routes.evaluation_routes.rate_limiter.is_allowed', return_value=(False, 60)), \
+         patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter:
+        
+        mock_eval = MagicMock()
+        mock_eval.first_stage_predicted_price = 45000000
+        mock_eval.second_stage_predicted_price = 46000000
+        mock_eval.company = "mitsui"
+        mock_eval.property_type = "mansion"
+        mock_filter.return_value.first.return_value = mock_eval
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/INTERNALTEST/"}),
+            headers={"X-INTERNAL-REQUEST": "true"},
+            content_type='application/json'
+        )
+        # 429 ではなく 200 OK で正常処理されること
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+
