@@ -804,6 +804,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getPararellLimit(self):
         pararellLimit = self._getLocalPararellLimit()
         if os.getenv('IS_CLOUD', ''):
+            custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')
+            if custom_cloud_limit and custom_cloud_limit.isdigit():
+                return int(custom_cloud_limit)
             pararellLimit = self._getCloudPararellLimit()
         return pararellLimit
 

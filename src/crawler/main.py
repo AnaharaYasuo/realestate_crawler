@@ -1,9 +1,15 @@
+# ruff: noqa: E402
 import os
 import logging
 import sys
 import signal
 import traceback
+import time
+import inspect
+import asyncio
+import datetime
 from flask import Flask, request
+from django.apps import apps
 
 import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
@@ -12,6 +18,8 @@ configure_logging()
 
 # Import keys for remaining routes (if any) or shared usage
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
+from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.selector_loader import SelectorLoader
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -28,17 +36,19 @@ from routes.athome_routes import athome_bp
 from routes.homes_routes import homes_bp
 from routes.evaluation_routes import evaluation_bp
 
-# Import specific functions needed for allMansionStart if they are exposed in the modules
-# Since mitsuiMansionStart etc are decorated as routes, they can still be imported if we need to call them directly
-# However, the split files had them as regular functions inside too?
-# Looking at my split code:
-# mitsuiMansionStart is decorated with @mitsui_bp.route(...).
-# It can be imported from routes.mitsui_routes
+# Import specific functions needed for dispatch and allMansionStart
 from routes.mitsui_routes import mitsuiMansionStart, mitsuiKodateStart, mitsuiTochiStart
 from routes.sumifu_routes import sumifuMansionStart, sumifuKodateStart, sumifuTochiStart
 from routes.tokyu_routes import tokyuMansionStart, tokyuKodateStart, tokyuTochiStart
 from routes.nomura_routes import nomuraMansionStart, nomuraKodateStart, nomuraTochiStart
 from routes.misawa_routes import misawaMansionStart, misawaKodateStart, misawaTochiStart
+from routes.mitsui_investment_routes import mitsuiInvestKodateStart, mitsuiInvestApartmentStart
+from routes.sumifu_investment_routes import sumifuInvestKodateStart, sumifuInvestApartmentStart
+from routes.tokyu_investment_routes import tokyuInvestKodateStart, tokyuInvestApartmentStart
+from routes.nomura_investment_routes import nomuraInvestKodateStart, nomuraInvestApartmentStart
+from routes.misawa_investment_routes import misawaInvestStart, misawaInvestKodateStart, misawaInvestApartmentStart
+from routes.athome_routes import athomeMansionStart, athomeKodateStart, athomeInvestApartmentStart, athomeTochiStart
+from routes.homes_routes import homesMansionStart, homesKodateStart, homesInvestApartmentStart, homesTochiStart
 from routes.smtrc_routes import smtrcMansionStart, smtrcKodateStart, smtrcTochiStart, smtrcInvestmentStart, smtrc_bp
 from routes.sumai1_routes import sumai1MansionStart, sumai1KodateStart, sumai1TochiStart, sumai1InvestmentStart, sumai1_bp
 from routes.sekisui_routes import sekisuiMansionStart, sekisuiKodateStart, sekisuiTochiStart, sekisui_bp
@@ -131,6 +141,184 @@ def seriouslykill():
 
 
 
+def get_dispatch_map():
+    SelectorLoader.clear_cache()
+
+    return {
+        ("sumifu", "mansion"): sumifuMansionStart,
+        ("sumifu", "kodate"): sumifuKodateStart,
+        ("sumifu", "tochi"): sumifuTochiStart,
+        ("sumifu", "investment"): sumifuInvestKodateStart,
+        ("sumifu", "invest_kodate"): sumifuInvestKodateStart,
+        ("sumifu", "invest_apartment"): sumifuInvestApartmentStart,
+        ("mitsui", "mansion"): mitsuiMansionStart,
+        ("mitsui", "kodate"): mitsuiKodateStart,
+        ("mitsui", "tochi"): mitsuiTochiStart,
+        ("mitsui", "investment"): mitsuiInvestKodateStart,
+        ("mitsui", "invest_kodate"): mitsuiInvestKodateStart,
+        ("mitsui", "invest_apartment"): mitsuiInvestApartmentStart,
+        ("tokyu", "mansion"): tokyuMansionStart,
+        ("tokyu", "kodate"): tokyuKodateStart,
+        ("tokyu", "tochi"): tokyuTochiStart,
+        ("tokyu", "investment"): tokyuInvestKodateStart,
+        ("tokyu", "invest_kodate"): tokyuInvestKodateStart,
+        ("tokyu", "invest_apartment"): tokyuInvestApartmentStart,
+        ("nomura", "mansion"): nomuraMansionStart,
+        ("nomura", "kodate"): nomuraKodateStart,
+        ("nomura", "tochi"): nomuraTochiStart,
+        ("nomura", "investment"): nomuraInvestKodateStart,
+        ("nomura", "invest_kodate"): nomuraInvestKodateStart,
+        ("nomura", "invest_apartment"): nomuraInvestApartmentStart,
+        ("misawa", "mansion"): misawaMansionStart,
+        ("misawa", "kodate"): misawaKodateStart,
+        ("misawa", "tochi"): misawaTochiStart,
+        ("misawa", "investment"): misawaInvestStart,
+        ("misawa", "invest_kodate"): misawaInvestKodateStart,
+        ("misawa", "invest_apartment"): misawaInvestApartmentStart,
+        ("athome", "mansion"): athomeMansionStart,
+        ("athome", "kodate"): athomeKodateStart,
+        ("athome", "tochi"): athomeTochiStart,
+        ("athome", "invest_apartment"): athomeInvestApartmentStart,
+        ("athome", "investment"): athomeInvestApartmentStart,
+        ("homes", "mansion"): homesMansionStart,
+        ("homes", "kodate"): homesKodateStart,
+        ("homes", "tochi"): homesTochiStart,
+        ("homes", "invest_apartment"): homesInvestApartmentStart,
+        ("homes", "investment"): homesInvestApartmentStart,
+        ("smtrc", "mansion"): smtrcMansionStart,
+        ("smtrc", "kodate"): smtrcKodateStart,
+        ("smtrc", "tochi"): smtrcTochiStart,
+        ("smtrc", "investment"): smtrcInvestmentStart,
+        ("smtrc", "invest_apartment"): smtrcInvestmentStart,
+        ("sumai1", "mansion"): sumai1MansionStart,
+        ("sumai1", "kodate"): sumai1KodateStart,
+        ("sumai1", "tochi"): sumai1TochiStart,
+        ("sumai1", "investment"): sumai1InvestmentStart,
+        ("sumai1", "invest_apartment"): sumai1InvestmentStart,
+        ("sekisui", "mansion"): sekisuiMansionStart,
+        ("sekisui", "kodate"): sekisuiKodateStart,
+        ("sekisui", "tochi"): sekisuiTochiStart,
+        ("afr", "mansion"): afrMansionStart,
+        ("afr", "kodate"): afrKodateStart,
+        ("afr", "tochi"): afrTochiStart,
+        ("mizuho", "mansion"): mizuhoMansionStart,
+        ("mizuho", "kodate"): mizuhoKodateStart,
+        ("mizuho", "tochi"): mizuhoTochiStart,
+        ("mizuho", "investment"): mizuhoInvestmentStart,
+        ("mizuho", "invest_apartment"): mizuhoInvestmentStart,
+        ("odakyu", "mansion"): odakyuMansionStart,
+        ("odakyu", "kodate"): odakyuKodateStart,
+        ("odakyu", "tochi"): odakyuTochiStart,
+        ("odakyu", "investment"): odakyuInvestmentStart,
+        ("odakyu", "invest_apartment"): odakyuInvestmentStart,
+        ("totate", "mansion"): totateMansionStart,
+        ("totate", "kodate"): totateKodateStart,
+        ("totate", "tochi"): totateTochiStart,
+        ("daiwa", "mansion"): daiwaMansionStart,
+        ("daiwa", "kodate"): daiwaKodateStart,
+        ("daiwa", "tochi"): daiwaTochiStart,
+        ("sumirin", "mansion"): sumirinMansionStart,
+        ("sumirin", "kodate"): sumirinKodateStart,
+        ("sumirin", "tochi"): sumirinTochiStart,
+        ("sumirin", "investment"): sumirinInvestmentStart,
+        ("heim", "mansion"): heimMansionStart,
+        ("heim", "kodate"): heimKodateStart,
+        ("heim", "tochi"): heimTochiStart,
+        ("rearie", "mansion"): rearieMansionStart,
+        ("rearie", "kodate"): rearieKodateStart,
+        ("rearie", "tochi"): rearieTochiStart,
+        ("keio", "mansion"): keioMansionStart,
+        ("keio", "kodate"): keioKodateStart,
+        ("keio", "tochi"): keioTochiStart,
+        ("seibu", "mansion"): seibuMansionStart,
+        ("seibu", "kodate"): seibuKodateStart,
+        ("seibu", "tochi"): seibuTochiStart,
+        ("keikyu", "mansion"): keikyuMansionStart,
+        ("keikyu", "kodate"): keikyuKodateStart,
+        ("keikyu", "tochi"): keikyuTochiStart,
+        ("sotetsu", "mansion"): sotetsuMansionStart,
+        ("sotetsu", "kodate"): sotetsuKodateStart,
+        ("sotetsu", "tochi"): sotetsuTochiStart,
+        ("keisei", "mansion"): keiseiMansionStart,
+        ("keisei", "kodate"): keiseiKodateStart,
+        ("keisei", "tochi"): keiseiTochiStart,
+        ("daikyo", "mansion"): daikyoMansionStart,
+        ("daikyo", "kodate"): daikyoKodateStart,
+        ("daikyo", "tochi"): daikyoTochiStart,
+    }
+
+
+def execute_crawl_task(company: str, prop_type: str, execution_date: str = None):
+    dispatch = get_dispatch_map()
+    func = dispatch.get((company.lower(), prop_type.lower()))
+    if not func:
+        return False, 0, 0
+
+    start_t = time.time()
+    start_dt = datetime.datetime.now()
+    exec_dt = datetime.datetime.strptime(execution_date, "%Y-%m-%d").date() if execution_date else datetime.date.today()
+
+    task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
+        execution_date=exec_dt,
+        task_index=abs(hash(f"{company}_{prop_type}")) % 1000,
+        defaults={"task_count": 1, "status": "RUNNING", "jobs_assigned": 1}
+    )
+
+    success = False
+    try:
+        if inspect.iscoroutinefunction(func):
+            asyncio.run(func())
+        else:
+            func()
+        success = True
+    except Exception as e:
+        logging.error(f"Error during crawl task for {company} - {prop_type}: {e}", exc_info=True)
+        success = False
+
+    elapsed = int(time.time() - start_t)
+    scraped_count = 0
+    if apps:
+        try:
+            target = prop_type.lower().replace("_", "")
+            for model in apps.get_models():
+                m_name = model.__name__.lower()
+                if m_name.startswith(company.lower()):
+                    rest = m_name[len(company):]
+                    if rest == target or rest == target.replace("invest", "investment"):
+                        scraped_count = model.objects.filter(inputDateTime__gte=start_dt).count()
+        except Exception as ce:
+            logging.error(f"Failed to count scraped items: {ce}")
+
+    if task_rec:
+        task_rec.status = "COMPLETED" if success else "FAILED"
+        task_rec.jobs_success = 1 if success else 0
+        task_rec.jobs_failed = 0 if success else 1
+        task_rec.save()
+
+    return success, scraped_count, elapsed
+
+
+@app.route('/api/crawl/task', methods=['POST'])
+def handle_crawl_task():
+    data = request.get_json(silent=True) or {}
+    company = data.get("company", "").lower()
+    prop_type = (data.get("property_type") or data.get("type") or "").lower()
+    execution_date = data.get("execution_date")
+
+    if not company or not prop_type:
+        return {"error": "Missing company or property_type"}, 400
+
+    dispatch = get_dispatch_map()
+    if (company, prop_type) not in dispatch:
+        return {"error": f"Unknown job: {company} - {prop_type}"}, 404
+
+    success, count, elapsed = execute_crawl_task(company, prop_type, execution_date)
+    if success:
+        return {"status": "success", "company": company, "property_type": prop_type, "scraped_count": count, "elapsed_seconds": elapsed}, 200
+    else:
+        return {"status": "failed", "company": company, "property_type": prop_type, "error": "Crawl execution failed"}, 500
+
+
 if __name__ == "__main__":
     configure_logging()
 
@@ -140,129 +328,16 @@ if __name__ == "__main__":
         company = ""
         prop_type = ""
         for arg in args:
-            if arg.startswith("--company="): company = arg.split("=")[1].lower()
-            elif arg.startswith("--type="): prop_type = arg.split("=")[1].lower()
-            elif arg.startswith("COMPANY="): company = arg.split("=")[1].lower()
-            elif arg.startswith("TYPE="): prop_type = arg.split("=")[1].lower()
-        
-        # Import all start functions for CLI dispatch
-        from package.utils.selector_loader import SelectorLoader
-        SelectorLoader.clear_cache()
-        
-        from routes.mitsui_investment_routes import mitsuiInvestKodateStart, mitsuiInvestApartmentStart
-        from routes.sumifu_investment_routes import sumifuInvestKodateStart, sumifuInvestApartmentStart
-        from routes.tokyu_investment_routes import tokyuInvestKodateStart, tokyuInvestApartmentStart
-        from routes.nomura_investment_routes import nomuraInvestKodateStart, nomuraInvestApartmentStart
-        from routes.misawa_investment_routes import misawaInvestStart, misawaInvestKodateStart, misawaInvestApartmentStart
-        from routes.athome_routes import athomeMansionStart, athomeKodateStart, athomeInvestApartmentStart, athomeTochiStart
-        from routes.homes_routes import homesMansionStart, homesKodateStart, homesInvestApartmentStart, homesTochiStart
+            if arg.startswith("--company="):
+                company = arg.split("=")[1].lower()
+            elif arg.startswith("--type="):
+                prop_type = arg.split("=")[1].lower()
+            elif arg.startswith("COMPANY="):
+                company = arg.split("=")[1].lower()
+            elif arg.startswith("TYPE="):
+                prop_type = arg.split("=")[1].lower()
 
-        dispatch = {
-            ("sumifu", "mansion"): sumifuMansionStart,
-            ("sumifu", "kodate"): sumifuKodateStart,
-            ("sumifu", "tochi"): sumifuTochiStart,
-            ("sumifu", "investment"): sumifuInvestKodateStart, # Default to kodate
-            ("sumifu", "invest_kodate"): sumifuInvestKodateStart,
-            ("sumifu", "invest_apartment"): sumifuInvestApartmentStart,
-            ("mitsui", "mansion"): mitsuiMansionStart,
-            ("mitsui", "kodate"): mitsuiKodateStart,
-            ("mitsui", "tochi"): mitsuiTochiStart,
-            ("mitsui", "investment"): mitsuiInvestKodateStart, # Default to kodate
-            ("mitsui", "invest_kodate"): mitsuiInvestKodateStart,
-            ("mitsui", "invest_apartment"): mitsuiInvestApartmentStart,
-            
-            ("tokyu", "mansion"): tokyuMansionStart,
-            ("tokyu", "kodate"): tokyuKodateStart,
-            ("tokyu", "tochi"): tokyuTochiStart,
-            ("tokyu", "investment"): tokyuInvestKodateStart, # Default to kodate
-            ("tokyu", "invest_kodate"): tokyuInvestKodateStart,
-            ("tokyu", "invest_apartment"): tokyuInvestApartmentStart,
-            
-            ("nomura", "mansion"): nomuraMansionStart,
-            ("nomura", "kodate"): nomuraKodateStart,
-            ("nomura", "tochi"): nomuraTochiStart,
-            ("nomura", "investment"): nomuraInvestKodateStart, # Default to kodate
-            ("nomura", "invest_kodate"): nomuraInvestKodateStart,
-            ("nomura", "invest_apartment"): nomuraInvestApartmentStart,
-            
-            ("misawa", "mansion"): misawaMansionStart,
-            ("misawa", "kodate"): misawaKodateStart,
-            ("misawa", "tochi"): misawaTochiStart,
-            ("misawa", "investment"): misawaInvestStart, # All investment
-            ("misawa", "invest_kodate"): misawaInvestKodateStart,
-            ("misawa", "invest_apartment"): misawaInvestApartmentStart,
-
-            ("athome", "mansion"): athomeMansionStart,
-            ("athome", "kodate"): athomeKodateStart,
-            ("athome", "tochi"): athomeTochiStart,
-            ("athome", "invest_apartment"): athomeInvestApartmentStart,
-            ("athome", "investment"): athomeInvestApartmentStart,
-            ("homes", "mansion"): homesMansionStart,
-            ("homes", "kodate"): homesKodateStart,
-            ("homes", "tochi"): homesTochiStart,
-            ("homes", "invest_apartment"): homesInvestApartmentStart,
-            ("homes", "investment"): homesInvestApartmentStart,
-            ("smtrc", "mansion"): smtrcMansionStart,
-            ("smtrc", "kodate"): smtrcKodateStart,
-            ("smtrc", "tochi"): smtrcTochiStart,
-            ("smtrc", "investment"): smtrcInvestmentStart,
-            ("smtrc", "invest_apartment"): smtrcInvestmentStart,
-            ("sumai1", "mansion"): sumai1MansionStart,
-            ("sumai1", "kodate"): sumai1KodateStart,
-            ("sumai1", "tochi"): sumai1TochiStart,
-            ("sumai1", "investment"): sumai1InvestmentStart,
-            ("sumai1", "invest_apartment"): sumai1InvestmentStart,
-            ("sekisui", "mansion"): sekisuiMansionStart,
-            ("sekisui", "kodate"): sekisuiKodateStart,
-            ("sekisui", "tochi"): sekisuiTochiStart,
-            ("afr", "mansion"): afrMansionStart,
-            ("afr", "kodate"): afrKodateStart,
-            ("afr", "tochi"): afrTochiStart,
-            ("mizuho", "mansion"): mizuhoMansionStart,
-            ("mizuho", "kodate"): mizuhoKodateStart,
-            ("mizuho", "tochi"): mizuhoTochiStart,
-            ("mizuho", "investment"): mizuhoInvestmentStart,
-            ("mizuho", "invest_apartment"): mizuhoInvestmentStart,
-            ("odakyu", "mansion"): odakyuMansionStart,
-            ("odakyu", "kodate"): odakyuKodateStart,
-            ("odakyu", "tochi"): odakyuTochiStart,
-            ("odakyu", "investment"): odakyuInvestmentStart,
-            ("odakyu", "invest_apartment"): odakyuInvestmentStart,
-            ("totate", "mansion"): totateMansionStart,
-            ("totate", "kodate"): totateKodateStart,
-            ("totate", "tochi"): totateTochiStart,
-            ("daiwa", "mansion"): daiwaMansionStart,
-            ("daiwa", "kodate"): daiwaKodateStart,
-            ("daiwa", "tochi"): daiwaTochiStart,
-            ("sumirin", "mansion"): sumirinMansionStart,
-            ("sumirin", "kodate"): sumirinKodateStart,
-            ("sumirin", "tochi"): sumirinTochiStart,
-            ("sumirin", "investment"): sumirinInvestmentStart,
-            ("heim", "mansion"): heimMansionStart,
-            ("heim", "kodate"): heimKodateStart,
-            ("heim", "tochi"): heimTochiStart,
-            ("rearie", "mansion"): rearieMansionStart,
-            ("rearie", "kodate"): rearieKodateStart,
-            ("rearie", "tochi"): rearieTochiStart,
-            ("keio", "mansion"): keioMansionStart,
-            ("keio", "kodate"): keioKodateStart,
-            ("keio", "tochi"): keioTochiStart,
-            ("seibu", "mansion"): seibuMansionStart,
-            ("seibu", "kodate"): seibuKodateStart,
-            ("seibu", "tochi"): seibuTochiStart,
-            ("keikyu", "mansion"): keikyuMansionStart,
-            ("keikyu", "kodate"): keikyuKodateStart,
-            ("keikyu", "tochi"): keikyuTochiStart,
-            ("sotetsu", "mansion"): sotetsuMansionStart,
-            ("sotetsu", "kodate"): sotetsuKodateStart,
-            ("sotetsu", "tochi"): sotetsuTochiStart,
-            ("keisei", "mansion"): keiseiMansionStart,
-            ("keisei", "kodate"): keiseiKodateStart,
-            ("keisei", "tochi"): keiseiTochiStart,
-            ("daikyo", "mansion"): daikyoMansionStart,
-            ("daikyo", "kodate"): daikyoKodateStart,
-            ("daikyo", "tochi"): daikyoTochiStart,
-        }
+        dispatch = get_dispatch_map()
 
         func = dispatch.get((company, prop_type))
 
@@ -271,7 +346,7 @@ if __name__ == "__main__":
             if os.path.exists("stop.flag"):
                 try:
                     os.remove("stop.flag")
-                except:
+                except Exception:
                     pass
 
             # Set up signal handling globally before execution
@@ -290,8 +365,6 @@ if __name__ == "__main__":
             signal.signal(signal.SIGINT, handle_sigterm)
 
             logging.info(f"Starting {company} {prop_type} crawl via CLI...")
-            import asyncio
-            import inspect
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):

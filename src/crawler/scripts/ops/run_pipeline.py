@@ -1,3 +1,4 @@
+# ruff: noqa: E402, F401
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -17,7 +18,11 @@ while True:
         break
     _cur = _parent
 
-from package.utils.logging_config import configure_logging, get_logger
+import datetime
+from package.utils.logging_config import configure_logging
+from package.utils.task_distribution import get_task_config
+from package.utils.pipeline_coordinator import wait_for_all_tasks
+from package.models.crawler_task_execution import CrawlerTaskExecution
 configure_logging()
 
 def run_command(cmd, desc):
@@ -59,14 +64,19 @@ def main():
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
     args = parser.parse_args()
 
+    task_index, task_count = get_task_config()
+    is_task_array = task_count > 1 and task_index is not None
+    is_coordinator = not is_task_array or task_index == 0
+
     logging.info("=============================================================")
     logging.info(f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})")
+    if is_task_array:
+        logging.info(f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'})")
     logging.info("=============================================================")
     
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)              # .../scripts
     crawler_dir = os.path.dirname(scripts_dir)              # .../crawler
-    project_root = os.path.dirname(os.path.dirname(crawler_dir)) # root
     
     debug_tools_dir = os.path.join(scripts_dir, "debug_tools")
     maintenance_dir = os.path.join(scripts_dir, "maintenance")
@@ -94,18 +104,41 @@ def main():
         ], "Step 0.4/5: Database Readiness Pre-flight Check")
 
         # Step 0.5: Database Schema Migration (テーブル未初期化・マイグレーション自動反映)
-        run_command([
-            sys.executable,
-            os.path.join(crawler_dir, "manage.py"),
-            "migrate",
-            "--noinput"
-        ], "Step 0.5/5: Database Schema Migration")
+        if is_coordinator:
+            run_command([
+                sys.executable,
+                os.path.join(crawler_dir, "manage.py"),
+                "migrate",
+                "--noinput"
+            ], "Step 0.5/5: Database Schema Migration (Coordinator)")
+        else:
+            logging.info("⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)...")
+            time.sleep(10)
 
-        # Step 1: クローリング（並列実行）
+        # Step 1: クローリング（並列実行 / タスク分散）
         crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
         if args.skip_portals:
             crawl_cmd.append("--skip-portals")
-        run_command(crawl_cmd, f"Step 1/5: Parallel Crawling{' [Skip Portals]' if args.skip_portals else ''}")
+        step1_title = f"Step 1/5: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if args.skip_portals else ''}"
+        run_command(crawl_cmd, step1_title)
+
+        # Worker タスクはクローリング完了で正常終了 (後続処理は Coordinator が一括担当)
+        if is_task_array and not is_coordinator:
+            logging.info(f"✔ [Worker] Task {task_index}/{task_count} のクローリングが完了しました。コンテナを終了します。")
+            return
+
+        # Coordinator (または単一タスク) の場合: 他全タスクの完了を待機
+        if is_task_array and is_coordinator:
+            logging.info(f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)...")
+            all_ok, failed_tasks = wait_for_all_tasks(
+                model=CrawlerTaskExecution,
+                execution_date=datetime.date.today(),
+                task_count=task_count,
+                timeout_sec=10800,
+                interval_sec=15
+            )
+            if not all_ok:
+                logging.warning(f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。")
         
         # Step 1.5 (2/5): 不正データ自動検証 & クレンジング & HTMLエラー監視
         run_command([

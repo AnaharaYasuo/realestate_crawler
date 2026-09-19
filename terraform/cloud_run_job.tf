@@ -13,9 +13,9 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
   ]
 
   template {
-    # 案C（分散並列実行）へ拡張する際は、以下を task_count = 20, parallelism = 5 等へ変更するだけでスケール可能
-    task_count  = 1
-    parallelism = 1
+    # 案C: Cloud Run Jobs タスクアレイ並列分散実行
+    task_count  = var.crawler_task_count
+    parallelism = var.crawler_parallelism
 
     template {
       service_account = google_service_account.crawler_runner.email
@@ -51,6 +51,18 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
         env {
           name  = "PYTHONIOENCODING"
           value = "utf-8"
+        }
+        env {
+          name  = "CLOUD_DETAIL_CONCURRENCY"
+          value = "5"
+        }
+        env {
+          name  = "ML_NUM_THREADS"
+          value = "-1"
+        }
+        env {
+          name  = "BULK_EVAL_CONCURRENCY"
+          value = "4"
         }
 
         # データベース接続設定 (Private IP経由)

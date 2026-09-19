@@ -401,16 +401,17 @@ def clean_training_data(df, ptype):
     return df
 
 def _get_regressor(name, params):
+    ml_threads = int(os.getenv("ML_NUM_THREADS", "-1"))
     if name == "lgb":
-        return lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=1, n_estimators=100, **params)
+        return lgb.LGBMRegressor(random_state=42, verbose=-1, n_jobs=ml_threads, n_estimators=100, **params)
     elif name == "xgb":
-        return xgb.XGBRegressor(random_state=42, n_jobs=1, n_estimators=100, **params)
+        return xgb.XGBRegressor(random_state=42, n_jobs=ml_threads, n_estimators=100, **params)
     elif name == "cat":
-        return CatBoostRegressor(random_state=42, verbose=0, thread_count=1, iterations=200, **params)
+        return CatBoostRegressor(random_state=42, verbose=0, thread_count=ml_threads, iterations=200, **params)
     elif name == "rf":
         return RandomForestRegressor(
             random_state=42,
-            n_jobs=1,
+            n_jobs=ml_threads,
             n_estimators=params.get("n_estimators", 100),
             max_depth=params.get("max_depth", None),
             min_samples_leaf=params.get("min_samples_leaf", 5),

@@ -58,6 +58,18 @@ variable "crawler_timeout" {
   default     = "86400s"
 }
 
+variable "crawler_task_count" {
+  type        = number
+  description = "Total number of tasks for Cloud Run Job task array"
+  default     = 8
+}
+
+variable "crawler_parallelism" {
+  type        = number
+  description = "Number of tasks executing simultaneously in Cloud Run Job"
+  default     = 4
+}
+
 variable "schedule_cron" {
   type        = string
   description = "Cron schedule expression in UTC (0 16 * * * is JST 01:00)"
@@ -88,4 +100,18 @@ variable "alert_email" {
   description = "Email address for budget alerts"
   default     = "wearemusiclover@gmail.com"
 }
+
+# Cloud Tasks Queue Configuration
+variable "crawler_queue_max_dispatches_per_second" {
+  type        = number
+  description = "Maximum task dispatches per second for crawler queue"
+  default     = 5.0
+}
+
+variable "crawler_queue_max_concurrent_dispatches" {
+  type        = number
+  description = "Maximum concurrent task dispatches for crawler queue"
+  default     = 10
+}
+
 

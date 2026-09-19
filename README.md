@@ -565,6 +565,7 @@ task logs
 - **[基本設計書](docs/basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング、バルク推論アーキテクチャ
 - **[GCPアーキテクチャ基本設計書](docs/basic_design/gcp_architecture_design.md)**: Cloud Run Jobs / Cloud SQL / GCS サーバーレス構成
 - **[内部設計書](docs/internal_design/detailed_design_master.md)**: データベーススキーマ、Dual Storageパターン
+- **[GCP並列分散実行内部設計書](docs/internal_design/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
 - **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
 

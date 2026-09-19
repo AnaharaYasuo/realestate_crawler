@@ -30,28 +30,31 @@ jobs:
         uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
 
       - name: Run Snyk Open Source (Python dependencies)
+        if: env.SNYK_TOKEN != ''
         run: snyk test --file=src/crawler/requirements.txt --skip-unresolved
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Run Snyk Code (SAST)
+        if: env.SNYK_TOKEN != ''
         run: snyk code test
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-
-
       - name: Build Docker image for analysis
+        if: env.SNYK_TOKEN != ''
         run: docker build -t realestate-crawler:test .
 
       - name: Run Snyk Container (Docker image vulnerabilities)
+        if: env.SNYK_TOKEN != ''
         run: snyk container test realestate-crawler:test --file=Dockerfile --severity-threshold=high --exclude-base-image-vulns
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Run Snyk IaC (Terraform Infrastructure Misconfigurations)
+        if: env.SNYK_TOKEN != ''
         run: snyk iac test terraform/ --severity-threshold=high
         continue-on-error: true
         env:
