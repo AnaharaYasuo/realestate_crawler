@@ -7,6 +7,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
+    google_compute_forwarding_rule.proxysql_forwarding_rule,
     google_vpc_access_connector.vpc_connector,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.estimation_api_key_version,
@@ -51,7 +52,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
 
       env {
         name  = "DB_HOST"
-        value = google_sql_database_instance.mysql_instance.private_ip_address
+        value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
       }
       env {
         name  = "DB_NAME"
@@ -63,7 +64,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
       }
       env {
         name  = "DB_PORT"
-        value = "3306"
+        value = "6033"
       }
       env {
         name = "DB_PASSWORD"

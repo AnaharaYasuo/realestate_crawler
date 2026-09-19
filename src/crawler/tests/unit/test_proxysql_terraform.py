@@ -103,3 +103,58 @@ def test_proxysql_variables_defined():
         "variables.tf must include proxysql_min_replicas variable."
     assert 'variable "proxysql_max_replicas"' in content, \
         "variables.tf must include proxysql_max_replicas variable."
+
+
+def test_cloud_run_connects_to_proxysql():
+    """Cloud Run Job/Service が直接 Cloud SQL ではなく ProxySQL ILB (ポート 6033) に接続していることを検証"""
+    job_tf = os.path.join(TERRAFORM_DIR, "cloud_run_job.tf")
+    service_tf = os.path.join(TERRAFORM_DIR, "cloud_run_service.tf")
+    api_tf = os.path.join(TERRAFORM_DIR, "cloud_run_api_service.tf")
+
+    # 1. Crawler Pipeline Job
+    with open(job_tf, "r", encoding="utf-8") as f:
+        job_content = f.read()
+
+    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in job_content, \
+        "Crawler Job DB_HOST must route through ProxySQL ILB forwarding rule."
+    assert 'name  = "DB_PORT"\n          value = "6033"' in job_content or 'name  = "DB_PORT"\r\n          value = "6033"' in job_content, \
+        "Crawler Job DB_PORT must be 6033 (ProxySQL traffic port)."
+
+    # 2. Slack Agent Service
+    with open(service_tf, "r", encoding="utf-8") as f:
+        service_content = f.read()
+
+    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in service_content, \
+        "Slack Service DB_HOST must route through ProxySQL ILB forwarding rule."
+    assert '6033' in service_content, \
+        "Slack Service DB_PORT must be 6033."
+
+    # 3. Valuation API Service
+    with open(api_tf, "r", encoding="utf-8") as f:
+        api_content = f.read()
+
+    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in api_content, \
+        "Valuation API DB_HOST must route through ProxySQL ILB forwarding rule."
+    assert '6033' in api_content, \
+        "Valuation API DB_PORT must be 6033."
+
+
+def test_proxysql_user_authentication():
+    """ProxySQL がバックエンド認証用のパスワードを保持していることを検証"""
+    proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
+    with open(proxysql_tf, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert 'password="${random_password.db_password.result}"' in content or 'password = "${random_password.db_password.result}"' in content, \
+        "ProxySQL mysql_users must configure the real database password for authentication."
+
+
+def test_app_connection_pool_unrestricted():
+    """ProxySQL がプーリング・多重化を担うため、アプリ側の MAX_OVERFLOW が -1 (制限なし) に設定されていることを検証"""
+    settings_py = os.path.join(os.path.dirname(TERRAFORM_DIR), "src", "crawler", "realestateSettings.py")
+    with open(settings_py, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', -1))" in content, \
+        "App side MAX_OVERFLOW must default to -1 (unlimited overflow) to delegate connection management to ProxySQL."
+

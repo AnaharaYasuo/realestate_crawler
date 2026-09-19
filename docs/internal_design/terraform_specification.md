@@ -64,13 +64,18 @@ terraform/
   - セキュリティフラグ: `cloudsql_iam_authentication = on`, `local_infile = off`, `skip_show_database = on`
   - バックアップ設定: 有効（毎日自動バックアップ）
 
-### 3.3 コンピュート (`cloud_run_job.tf`, `cloud_run_service.tf`)
-- `google_cloud_run_v2_job`:
+### 3.3 コンピュート (`cloud_run_job.tf`, `cloud_run_service.tf`, `cloud_run_api_service.tf`)
+- `google_cloud_run_v2_job` (クローラーバッチ `crawler_pipeline_job`):
   - 実行イメージ: `${region}-docker.pkg.dev/${project_id}/realestate-crawler/crawler:latest`
   - 実行引数: `["python", "src/crawler/scripts/ops/run_pipeline.py"]`
   - 共有メモリ設定: in-memory `emptyDir` ボリュームを `/dev/shm` にマウント（Playwright クラッシュ防止）
   - VPC コネクタ接続: `vpc_access.egress = ALL_TRAFFIC` (全外部通信を Cloud NAT 経由にして固定IP化)
+  - データベース接続: ProxySQL ILB (`google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address:6033`) へルーティング。環境変数 `DB_POOL_SIZE = "2"`, `DB_MAX_OVERFLOW = "1"` により各ワーカーのアイドル接続を抑制
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
+- `google_cloud_run_v2_job` (DBマイグレーション `migrate_job`):
+  - DDL スキーマ更新のため、直接 Cloud SQL (`google_sql_database_instance.mysql_instance.private_ip_address:3306`) に接続
+- `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`):
+  - データベース接続: ProxySQL ILB (`google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address:6033`) へルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定
 
 ### 3.4 コネクションプーリング層 (`proxysql.tf`)
 - `google_service_account`: ProxySQL インスタンス専用の最小権限サービスアカウント (`proxysql-sa-${var.environment}`)
