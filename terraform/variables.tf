@@ -114,4 +114,29 @@ variable "crawler_queue_max_concurrent_dispatches" {
   default     = 10
 }
 
+# ProxySQL Connection Pooling Variables
+variable "proxysql_machine_type" {
+  type        = string
+  description = "Machine type for ProxySQL MIG instances"
+  default     = "e2-micro"
+}
+
+variable "proxysql_min_replicas" {
+  type        = number
+  description = "Minimum instance count for ProxySQL autoscaler (cost optimization at idle)"
+  default     = 1
+}
+
+variable "proxysql_max_replicas" {
+  type        = number
+  description = "Maximum instance count for ProxySQL autoscaler (high load capacity limit)"
+  default     = 2
+}
+
+variable "proxysql_backend_max_connections" {
+  type        = number
+  description = "Maximum database connections per ProxySQL instance to maintain backend database capacity saturation without overloading (Cloud SQL limit guard)"
+  default     = 50
+}
+
 

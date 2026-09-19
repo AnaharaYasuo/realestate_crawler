@@ -29,12 +29,13 @@ from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert
 from package.utils.task_distribution import get_task_config, distribute_jobs
+from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 
 
-# # CLI 引数のパース
-default_parallel = 6
-default_playwright_parallel = 2
+# # CLI 引数のパース (全社一斉並行スタートのためデフォルト上限を35に拡大)
+default_parallel = 35
+default_playwright_parallel = 3
 parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
 parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
 parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
@@ -302,26 +303,26 @@ def main():
                 post_slack(f"❌ 【タイムアウト】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 制限時間 {timeout_sec}秒超過")
                 del active_processes[idx]
         
-        # 2. 新規ジョブの投入 (Playwright / Standard それぞれ独立した並列上限で制御)
-        if job_queue:
+        # 2. 新規ジョブの投入 (取扱物件数に応じた階層的並行度 & Playwright/Standard 上限で制御)
+        if job_queue and len(active_processes) < args.parallel:
             active_playwright_cnt = sum(1 for _, c, _, _, _ in active_processes.values() if c.lower() in PLAYWRIGHT_COMPANIES)
-            active_standard_cnt = len(active_processes) - active_playwright_cnt
 
-            target_job = None
-            target_idx_in_queue = -1
+            # 現在実行中の会社別アクティブプロセス数を集計
+            active_company_counts = {}
+            for _, c, _, _, _ in active_processes.values():
+                c_low = c.lower()
+                active_company_counts[c_low] = active_company_counts.get(c_low, 0) + 1
 
-            for i, (company, ptype) in enumerate(job_queue):
-                is_pw = company.lower() in PLAYWRIGHT_COMPANIES
-                if is_pw and active_playwright_cnt < args.playwright_parallel:
-                    target_job = (company, ptype)
-                    target_idx_in_queue = i
-                    break
-                elif not is_pw and active_standard_cnt < args.parallel:
-                    target_job = (company, ptype)
-                    target_idx_in_queue = i
-                    break
+            job_select_res = select_next_job(
+                job_queue=job_queue,
+                active_company_counts=active_company_counts,
+                max_playwright_parallel=args.playwright_parallel,
+                current_playwright_count=active_playwright_cnt,
+                playwright_companies=PLAYWRIGHT_COMPANIES,
+            )
 
-            if target_job is not None:
+            if job_select_res is not None:
+                target_idx_in_queue, target_job = job_select_res
                 company, ptype = job_queue.pop(target_idx_in_queue)
                 idx = next_job_index
                 next_job_index += 1

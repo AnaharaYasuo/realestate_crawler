@@ -38,3 +38,13 @@ output "budget_pubsub_topic" {
   value       = google_pubsub_topic.budget_alert_topic.id
 }
 
+output "proxysql_ilb_ip" {
+  description = "Internal Load Balancer Private IP for ProxySQL Connection Pool"
+  value       = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+}
+
+output "proxysql_port" {
+  description = "MySQL Traffic Port for ProxySQL Connection Pool"
+  value       = 6033
+}
+
