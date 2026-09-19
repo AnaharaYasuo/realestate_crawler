@@ -8,11 +8,12 @@
 terraform/
 ├── main.tf                    # プロバイダー定義 (google, google-beta), バージョン固定, backend設定
 ├── variables.tf               # 入力変数定義 (型, デフォルト値, 説明)
-├── outputs.tf                 # 出力値 (Job名, DB Private IP, GCSバケット名, NAT固定IP)
+├── outputs.tf                 # 出力値 (Job名, DB Private IP, GCSバケット名, NAT固定IP, ProxySQL ILB IP)
 ├── terraform.tfvars.example   # 設定パラメータの雛形
 ├── network.tf                 # VPC, サブネット, Serverless VPC Access, Cloud Router, Cloud NAT
 ├── storage.tf                 # Cloud Storage (物件画像・エビデンス)
 ├── database.tf                # Cloud SQL for MySQL 8.0, ユーザー, データベース
+├── proxysql.tf                # ProxySQL コネクションプーリング (MIG e2-micro x 2, ILB, Health Check, FW)
 ├── secrets.tf                 # Secret Manager (DB接続情報, Slackトークン)
 ├── artifact_registry.tf       # Artifact Registry Docker リポジトリ
 ├── iam.tf                     # 実行用 Service Account, IAM Role バインディング
@@ -70,6 +71,39 @@ terraform/
   - 共有メモリ設定: in-memory `emptyDir` ボリュームを `/dev/shm` にマウント（Playwright クラッシュ防止）
   - VPC コネクタ接続: `vpc_access.egress = ALL_TRAFFIC` (全外部通信を Cloud NAT 経由にして固定IP化)
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
+
+### 3.4 コネクションプーリング層 (`proxysql.tf`)
+- `google_service_account`: ProxySQL インスタンス専用の最小権限サービスアカウント (`proxysql-sa-${var.environment}`)
+- `google_compute_instance_template`:
+  - マシンタイプ: `e2-micro`
+  - OSイメージ: `debian-cloud/debian-12`
+  - ネットワーク: `google_compute_subnetwork.subnet.id` (外部IPなし、プライベートIPのみ)
+  - タグ: `["proxysql", "allow-health-check"]`
+  - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、耐用上限ギリギリ（デフォルト 50 コネクション/台 = 2台で計100）のコネクション多重化設定、ポート 6033/6032 のリスニング開始
+- `google_compute_region_instance_group_manager`:
+  - リージョン配置 MIG (2ゾーン分散: `asia-northeast1-a`, `asia-northeast1-c`)
+  - インスタンス管理は `google_compute_region_autoscaler` に委譲
+  - 自動復旧ポリシー: `google_compute_region_health_check` と連携し、異常インスタンスを自動再作成
+- `google_compute_region_autoscaler`:
+  - リージョン MIG オートスケーラー (`proxysql-autoscaler-${var.environment}`)
+  - 最小インスタンス数: 1 (`min_replicas = 1`)
+  - 最大インスタンス数: 2 (`max_replicas = 2`)
+  - スケーリングポリシー: CPU 使用率 70% (`cpu_utilization.target = 0.7`)
+- `google_compute_region_health_check`:
+  - プロトコル: TCP (ポート 6033)
+  - チェック間隔: 10秒, タイムアウト: 5秒, 正常判定: 2回, 異常判定: 3回
+- `google_compute_region_backend_service`:
+  - 内部TCPロードバランサー (ILB) 用バックエンドサービス (`load_balancing_scheme = "INTERNAL"`, `protocol = "TCP"`)
+  - バックエンド: `google_compute_region_instance_group_manager.proxysql_mig.instance_group`
+  - ヘルスチェック紐付け: `google_compute_region_health_check.proxysql_health_check.id`
+  - コネクションドレイン: `connection_draining_timeout_sec = 300` (スケールイン時のクエリ切断防止)
+- `google_compute_forwarding_rule`:
+  - ILB 転送ルール (`load_balancing_scheme = "INTERNAL"`, `ip_protocol = "TCP"`, `ports = ["6033"]`)
+  - サブネット: `google_compute_subnetwork.subnet.id`
+  - `allow_global_access = true`
+- `google_compute_firewall`:
+  - `allow-proxysql-health-check`: GCP ヘルスチェック IP (`35.191.0.0/16`, `130.211.0.0/22`) からのポート 6032, 6033 アクセス許可
+  - `allow-proxysql-internal`: VPC 内部および VPC Connector (`10.0.0.0/24`, `10.8.0.0/28`) からのポート 6033 アクセス許可
 
 ---
 
