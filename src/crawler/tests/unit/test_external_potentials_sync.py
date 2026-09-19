@@ -58,6 +58,8 @@ def test_build_features_with_hazard_and_urban_potentials():
         zone_name="第一種住居地域",
         defaults={"max_kenpei": 60, "max_youseki": 200}
     )
+    # 既存データをクリアしてテストデータを投入
+    LandPricePotential.objects.filter(prefecture="東京都").delete()
     LandPricePotential.objects.update_or_create(
         prefecture="東京都", city="江東区", land_use="residential",
         defaults={"average_land_price": 650000, "land_price_growth_rate": 4.5}
@@ -66,9 +68,13 @@ def test_build_features_with_hazard_and_urban_potentials():
     # キャッシュをリフレッシュ
     import package.ml.features as feat_mod
     feat_mod._muni_cache = {}
+    feat_mod._muni_pref_cache = {}
+    feat_mod._station_cache = {}
     feat_mod._hazard_cache = {}
     feat_mod._zone_cache = {}
     feat_mod._lp_cache = {}
+    feat_mod._lp_pref_res_cache = {}
+    feat_mod._lp_pref_comm_cache = {}
 
     prop = {
         "address1": "東京都",
@@ -96,7 +102,7 @@ def test_build_features_with_hazard_and_urban_potentials():
     assert features["zone_max_youseki"] == 200
 
     assert "land_price_growth_rate" in features
-    assert features["land_price_growth_rate"] == pytest.approx(3.75, abs=1e-2)
+    assert features["land_price_growth_rate"] == pytest.approx(4.5, abs=1e-2)
 
     assert "plot_shadow_ratio" in features
     assert features["plot_shadow_ratio"] == pytest.approx(0.0, abs=1e-2)
