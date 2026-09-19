@@ -315,6 +315,23 @@ graph TD
 - **GCP Cloud Logging / 外部監視との連携**: アプリケーションログに `severity: ERROR` で出力されることにより、GCP Cloud Logging のログスキャン（`severity>=ERROR`）や 24時間監視バッチで Slack アラート発報の事実・内容が漏れなく集約されることを保証する。
 - **データバリデーションスクリプト (`validate_data.py`) のログレベル適正化**: 異常データ検出時のチャンネル通知ログを従来の `logging.info` から `logging.error` に改め、アラート内容全文をエラーログとして確実に残す。
 
+### 6.22 APIリクエスト・レスポンスのペイロード構造化ログ出力原則
+- **Flask APIサーバー (`main.py`) のフック**:
+  - `before_request` フック (`log_api_request`):
+    - `flask.g.request_start_time` によるリクエスト開始時刻の保持。
+    - クエリパラメータ (`request.args`)、リクエストボディ（JSONの場合は `request.get_json(silent=True)`、Formの場合は `request.form.to_dict()`、Rawテキストの場合は先頭2000文字）を抽出。
+    - 機密情報サニタイズ: ヘッダー (`X-API-KEY`, `Authorization`) やボディ内のキー（`password`, `token`, `secret`, `key` 等）を `***` に自動マスキング。
+    - 出力形式: `logging.info(f"[API Request] {request.method} {request.path} | Params: {params} | Body: {body}")`
+  - `after_request` フック (`log_api_response`):
+    - 処理所要時間 (`duration_ms`) のミリ秒計算。
+    - レスポンスボディの取得（JSONまたはテキスト）。2000文字を超える場合は自動クランプ。
+    - ステータスコードに基づくログレベル決定: 2xx/3xx ➔ `INFO`, 4xx ➔ `WARNING`, 5xx ➔ `ERROR`。
+    - 出力形式: `logging.log(level, f"[API Response] {request.method} {request.path} | Status: {response.status_code} | Duration: {duration_ms}ms | Body: {body}")`
+  - 静的アセット・ヘルスチェック（`/health`, `/docs` 等）の除外: ログ容量圧迫を防ぐためペイロード出力対象から除外。
+- **クローラー非同期通信ミドルウェア (`package/api/middleware.py`)**:
+  - `LoggingMiddleware.process_request`: メソッド・URLに加えてリクエストペイロード（URL, 引数パラメータ）を `INFO` レベルで出力。
+  - `LoggingMiddleware.process_response`: ステータス・URLに加えてレスポンスデータプレビューを `INFO` レベルで出力。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -325,6 +342,6 @@ graph TD
 ---
 
 **最終更新**: 2026年9月20日  
-**バージョン**: 2.2 (Slackアラートチャンネル通知内容のERRORレベルログ同期原則追記)
+**バージョン**: 2.3 (APIリクエスト・レスポンスのペイロード構造化ログ出力原則追記)
 
 

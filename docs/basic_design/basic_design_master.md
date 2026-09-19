@@ -738,4 +738,36 @@ flowchart TD
 - `send_slack_message` 呼び出し時、送信先チャンネルが上記アラートチャンネルに該当する場合は、Slack API 送信の成否に関わらず、必ず `logger.error` によりメッセージ全文をエラーログとして出力。
 - これにより、Slack への送信が成功していても（HTTP 200）、アプリケーションログ側で `severity: ERROR` として記録され、ログ監視システム（GCP Cloud Logging）で確実に集約・検知される。
 
+---
+
+## 13. APIリクエスト・レスポンス構造化ログ出力アーキテクチャ (API Request & Response Structured Logging Architecture)
+
+APIの挙動追跡、デバッグ迅速化、および Cloud Logging でのインシデント解析のため、HTTP API サーバーおよび非同期通信クライアント双方で送受信ペイロードを記録します。
+
+```mermaid
+sequenceDiagram
+    participant Client as External Client / Browser
+    participant Flask as Flask Server (main.py)
+    participant Handler as Route Handler (e.g. evaluation_bp)
+
+    Client->>Flask: HTTP Request (Method, Path, Body)
+    Note over Flask: before_request:<br/>1. 計測開始 (start_time)<br/>2. 機密ヘッダ/キーマスキング<br/>3. [API Request] ログ出力
+    Flask->>Handler: Dispatch Request
+    Handler-->>Flask: Return Response (Status, Body)
+    Note over Flask: after_request:<br/>1. 処理時間算出 (duration_ms)<br/>2. ボディ要約・クランプ<br/>3. [API Response] ログ出力 (ステータス別レベル)
+    Flask-->>Client: HTTP Response
+```
+
+### 13.1 記録対象とマスキング原則
+1. **リクエストログ (`[API Request]`)**:
+   - メソッド、リクエストパス、クエリパラメータ、ボディ（JSONまたはForm）。
+   - `X-API-KEY`, `Authorization`, `token`, `password`, `secret` 等の機密情報は `***` で自動置換。
+2. **レスポンスログ (`[API Response]`)**:
+   - メソッド、パス、HTTPステータスコード、処理所要時間（ms）、レスポンスボディ。
+   - 長大なレスポンス（>2000文字）は先頭2000文字に自動クランプしログ肥大化を抑止。
+3. **ログレベルの動的適用**:
+   - `2xx / 3xx`: `INFO`
+   - `4xx`: `WARNING`（不正リクエスト・バリデーションエラー）
+   - `5xx`: `ERROR`（サーバー内部障害）
+
 

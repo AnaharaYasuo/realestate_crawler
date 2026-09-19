@@ -16,14 +16,29 @@ async def test_rate_limit_middleware():
 
 @pytest.mark.asyncio
 async def test_logging_middleware_request():
+    from unittest.mock import patch
     mw = LoggingMiddleware()
-    context = {"method": "GET", "url": "http://test.com"}
-    result = await mw.process_request(context)
-    assert result is None
+    context = {"method": "POST", "url": "http://test.com", "payload": {"key": "value"}}
+    with patch("package.api.middleware.logger.info") as mock_log:
+        result = await mw.process_request(context)
+        assert result is None
+        mock_log.assert_called_once()
+        log_str = mock_log.call_args[0][0]
+        assert "POST" in log_str
+        assert "http://test.com" in log_str
+        assert "key" in log_str
+
 
 @pytest.mark.asyncio
 async def test_logging_middleware_response():
+    from unittest.mock import patch
     mw = LoggingMiddleware()
-    context = {"status": 200, "url": "http://test.com"}
-    result = await mw.process_response(context)
-    assert result["status"] == 200
+    context = {"status": 200, "url": "http://test.com", "data": "<html>success</html>"}
+    with patch("package.api.middleware.logger.info") as mock_log:
+        result = await mw.process_response(context)
+        assert result["status"] == 200
+        mock_log.assert_called_once()
+        log_str = mock_log.call_args[0][0]
+        assert "200" in log_str
+        assert "http://test.com" in log_str
+        assert "success" in log_str
