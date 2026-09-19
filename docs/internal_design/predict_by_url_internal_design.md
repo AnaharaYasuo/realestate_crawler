@@ -67,10 +67,10 @@ URL_ROUTES = [
     (r"livable\.co\.jp/toushi/.*\/C[A-Z0-9]+", "tokyu", "apartment", "TokyuInvestApartmentParser"),
 
     # 住友不動産ステップ (Sumifu)
-    (r"stepon\.co\.jp/mansion/detail/", "sumifu", "mansion", "SumifuMansionParser"),
-    (r"stepon\.co\.jp/kodate/detail/", "sumifu", "kodate", "SumifuKodateParser"),
-    (r"stepon\.co\.jp/tochi/detail/", "sumifu", "tochi", "SumifuTochiParser"),
-    (r"stepon\.co\.jp/pro/.*detail/", "sumifu", "apartment", "SumifuInvestApartmentParser"),
+    (r"stepon\.co\.jp/mansion/detail[_/]", "sumifu", "mansion", "SumifuMansionParser"),
+    (r"stepon\.co\.jp/kodate/detail[_/]", "sumifu", "kodate", "SumifuKodateParser"),
+    (r"stepon\.co\.jp/tochi/detail[_/]", "sumifu", "tochi", "SumifuTochiParser"),
+    (r"stepon\.co\.jp/pro/detail_", "sumifu", "apartment", "SumifuInvestmentApartmentParser"),
 
     # アットホーム (Athome)
     (r"athome\.co\.jp/mansion/chuko/\d+/", "athome", "mansion", "AthomeMansionParser"),

@@ -92,7 +92,7 @@ class UrlRouter:
 
         # 住友不動産ステップ (Sumifu)
         {
-            "pattern": re.compile(r"stepon\.co\.jp/mansion/detail/"),
+            "pattern": re.compile(r"stepon\.co\.jp/mansion/detail[_/]"),
             "site": "sumifu",
             "property_type": "mansion",
             "parser_module": "package.parser.sumifuParser",
@@ -101,7 +101,7 @@ class UrlRouter:
             "model_cls": "SumifuMansion",
         },
         {
-            "pattern": re.compile(r"stepon\.co\.jp/kodate/detail/"),
+            "pattern": re.compile(r"stepon\.co\.jp/kodate/detail[_/]"),
             "site": "sumifu",
             "property_type": "kodate",
             "parser_module": "package.parser.sumifuParser",
@@ -110,13 +110,22 @@ class UrlRouter:
             "model_cls": "SumifuKodate",
         },
         {
-            "pattern": re.compile(r"stepon\.co\.jp/tochi/detail/"),
+            "pattern": re.compile(r"stepon\.co\.jp/tochi/detail[_/]"),
             "site": "sumifu",
             "property_type": "tochi",
             "parser_module": "package.parser.sumifuParser",
             "parser_cls": "SumifuTochiParser",
             "model_module": "package.models.sumifu",
             "model_cls": "SumifuTochi",
+        },
+        {
+            "pattern": re.compile(r"stepon\.co\.jp/pro/detail_"),
+            "site": "sumifu",
+            "property_type": "apartment",
+            "parser_module": "package.parser.sumifuParser",
+            "parser_cls": "SumifuInvestmentApartmentParser",
+            "model_module": "package.models.sumifu",
+            "model_cls": "SumifuInvestmentApartment",
         },
 
         # アットホーム (Athome)

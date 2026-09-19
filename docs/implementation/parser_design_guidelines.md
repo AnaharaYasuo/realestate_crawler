@@ -35,3 +35,12 @@ def _parsePrice(self, response):
 
 
 ```
+
+## URL分離と非物件リンクの除外原則
+
+1. **種別分離（Property Type Isolation）**:
+   - 一覧ページパーサー（`parsePropertyListPage`）は、自パーサーの物件種別（`self.property_type`）に厳密に合致するURLのみを yield すること。他種別（マンション一覧内の戸建て・土地等）や賃貸（`/chintai/`, `/rent/`）のリンクは除外する。
+2. **非物件・案内リンクの即時スキップ（Non-Property Fast Skip）**:
+   - 宣伝・案内・会員特典・問い合わせリンク（`/shiritai/`, `/360/building/`, `/inquiry/`, `/benefit/` 等）をパース対象から除外し、`SkipPropertyException` を送出してリトライ・エラーログ・エラーHTML保存を防止する。
+3. **価格セレクターの完全性保証（Safe Price Extraction）**:
+   - 価格のCSSセレクターに `.num` 単体などの数値のみを抽出するセレクターを使用してはならない（例: `5億9,900万円` の先頭数値 `5` のみを誤取得し、5万円の異常値アラートとなることを防止）。親要素（`.price`, `.item_price`）またはテーブルスペック（`specs.get("価格")`）から単位を含めて抽出すること。

@@ -588,7 +588,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):
         await self.semaphore.acquire()
         try:
-            async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
+            async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
                 try:
                     return await self._fetch(_session, detailUrl, apiUrl, loop, retryTimes=0)
                 finally:
@@ -734,7 +734,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
         urlList = []
         try:
-            async with aiohttp.ClientSession(headers=header,loop=_loop, connector=_connector, timeout=_timeout) as session:
+            async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
                 try:
                     urlList = await self._treatPage(session, self._getTreatPageArg())
                 except Exception as e:
@@ -759,14 +759,16 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         try:
             try:
                 loop = self._getActiveEventLoop()
-                futures = asyncio.gather(*[self._run(url)])
-                runResult = loop.run_until_complete(futures)
+                task = loop.create_task(self._run(url))
+                res = loop.run_until_complete(task)
+                runResult = res if isinstance(res, list) else [res]
             except asyncio.exceptions.TimeoutError:
                 if loop and loop.is_running():
                     loop.stop()
                 if loop:
-                    futures = asyncio.gather(*[self._run(url)])
-                    runResult = loop.run_until_complete(futures)
+                    task = loop.create_task(self._run(url))
+                    res = loop.run_until_complete(task)
+                    runResult = res if isinstance(res, list) else [res]
         except Exception as e:
             raise e
         finally:
@@ -890,7 +892,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             if parserNextFunc is not None:
                 nextPageUrl = await parserNextFunc(response)
                 if len(nextPageUrl) > 0:
-                    async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
+                    async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
                         try:
                             task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
                             ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retryTimes=0))  # fire and forget
@@ -970,11 +972,19 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _run(self, _url):
         # Update parser dynamically based on current URL
-        self.parser = self._generateParser()
+        try:
+            from package.utils.url_router import UrlRouter
+            resolved = UrlRouter.resolve(_url)
+            if resolved and resolved.parser_class:
+                self.parser = resolved.parser_class()
+            else:
+                self.parser = self._generateParser()
+        except Exception:
+            self.parser = self._generateParser()
         _loop = self._getActiveEventLoop()
         _timeout:int = self._generateTimeout()
         _connector = self._generateConnector(_loop)
-        async with aiohttp.ClientSession(headers=header,loop=_loop, connector=_connector, timeout=_timeout) as session:
+        async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
             try:
                 item = await self._treatPage(session, self._getTreatPageArg())
             except Exception as e:
@@ -1026,7 +1036,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             await self.semaphore.acquire()
             try:
                 # with await self.semaphore:
-                async with aiohttp.ClientSession(headers=header,loop=self._getActiveEventLoop(), connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtlSession:
+                async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtlSession:
                     try:
                         item = await self.parser.parsePropertyDetailPage(session=dtlSession, url=self.url)
 

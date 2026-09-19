@@ -195,7 +195,7 @@ class ParserBase(metaclass=ABCMeta):
                 continue
             if href.startswith("javascript:") or href.startswith("mailto:") or href.startswith("tel:"):
                 continue
-            if "/inquiry" in href or "/contact" in href:
+            if "/inquiry" in href or "/contact" in href or "/shiritai/" in href or "/360/" in href or "/benefit/" in href:
                 continue
             # If target pattern expects property details, filter out non-detail URLs and wrong categories (e.g. /rent/, /chintai/)
             if xpath_pattern:
@@ -205,7 +205,7 @@ class ParserBase(metaclass=ABCMeta):
                     if "/chintai/" in href or "/rent/" in href or "/chintai_" in href:
                         continue
                 if "bkdetail" in str_xpath or "detail" in str_xpath:
-                    if "bkdetail" not in href and "detail" not in href and "room" not in href and "building" not in href:
+                    if "bkdetail" not in href and "detail" not in href and "room" not in href:
                         continue
                     if "/buy/" in str_xpath and "/buy/" not in href:
                         continue
@@ -474,6 +474,12 @@ class ParserBase(metaclass=ABCMeta):
             logging.exception("Failed to save error HTML")
 
     async def parsePropertyDetailPage(self, session, url) -> models.Model:
+        if url:
+            u_lower = str(url).lower()
+            if any(p in u_lower for p in ["/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/"]):
+                logging.info(f"Fast-skipping non-property/rental URL: {url}")
+                raise SkipPropertyException(f"Non-property URL skipped: {url}")
+
         item: models.Model = self.createEntity()
         content = None
         try:
