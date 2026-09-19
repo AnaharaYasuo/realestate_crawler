@@ -21,12 +21,10 @@ resource "google_cloud_tasks_queue" "crawler_tasks_queue" {
 }
 
 # Grant Cloud Tasks Enqueuer role to crawler runner service account
-resource "google_cloud_tasks_queue_iam_member" "crawler_runner_enqueuer" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_tasks_queue.crawler_tasks_queue.name
-  role     = "roles/cloudtasks.enqueuer"
-  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+resource "google_project_iam_member" "crawler_runner_tasks_enqueuer" {
+  project = var.project_id
+  role    = "roles/cloudtasks.enqueuer"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
 # Grant Cloud Run Invoker role to crawler runner service account for task dispatch
