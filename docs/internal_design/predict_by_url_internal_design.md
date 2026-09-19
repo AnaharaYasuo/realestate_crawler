@@ -398,3 +398,49 @@ class PropertyTypeDetector:
    - `_detect_property_type` を `PropertyTypeDetector.detect_from_object` に一本化。
 5. **各社投資パーサー**:
    - `PropertyTypeDetector.detect_investment_type` でサブ種別判定を一元化。
+
+---
+
+## 12. 健美家 (Kenbiya) 各種物件モデル＆パーサー内部設計
+
+### 12.1 モデル設計 (`package.models.kenbiya`)
+- **基底クラス**: `KenbiyaModel(PropertyBaseModel, TransportationMixin)`
+- **各物件種別モデル**:
+  1. `KenbiyaMansion`:
+     - **テーブル名**: `kenbiya_mansion`
+     - **主要フィールド**: `madori`, `senyuMenseki`, `balconyMenseki`, `chikunengetsu`, `chikunengetsuStr`, `kouzou`, `floor`, `floorStr`, `totalFloor`, `totalFloorStr`, `soukosu`, `direction`, `kanrihi`, `shuzenTsumitate`, `grossYield`, `annualRent`, `monthlyRent`, `currentStatus`, `propertyType = 'Mansion'`
+  2. `KenbiyaInvestmentApartment`:
+     - **テーブル名**: `kenbiya_investment_apartment`
+     - **主要フィールド**: `grossYield`, `annualRent`, `monthlyRent`, `currentStatus`, `kouzou`, `soukosu`, `tochiMenseki`, `tatemonoMenseki`, `kenpei`, `youseki`, `setsudou`, `youtoChiiki`, `tochikenri`, `propertyType = 'Apartment'`
+  3. `KenbiyaInvestmentBuilding`:
+     - **テーブル名**: `kenbiya_investment_building`
+     - **主要フィールド**: `grossYield`, `annualRent`, `monthlyRent`, `currentStatus`, `kouzou`, `soukosu`, `tochiMenseki`, `tatemonoMenseki`, `kenpei`, `youseki`, `setsudou`, `youtoChiiki`, `tochikenri`, `propertyType = 'Building'`
+  4. `KenbiyaKodate`:
+     - **テーブル名**: `kenbiya_kodate`
+     - **主要フィールド**: `madori`, `tochiMenseki`, `tatemonoMenseki`, `chikunengetsu`, `kouzou`, `kenpei`, `youseki`, `setsudou`, `youtoChiiki`, `chimoku`, `grossYield`, `annualRent`, `propertyType = 'Kodate'`
+  5. `KenbiyaTochi`:
+     - **テーブル名**: `kenbiya_tochi`
+     - **主要フィールド**: `tochiMenseki`, `kenpei`, `youseki`, `setsudou`, `youtoChiiki`, `chimoku`, `tochikenri`, `grossYield`, `propertyType = 'Tochi'`
+
+### 12.2 パーサー階層設計 (`package.parser.kenbiyaParser`)
+- **共通基底**: `KenbiyaParserBase(ParserBase)`
+  - `_getContent`: ブラウザヘッダ（`Accept-Language`等）および429指数バックオフ処理
+  - `_get_specs`: `<dl><dt>...<dd>` からスペック辞書をパース
+  - 共通項目抽出: `_parsePropertyName`, `_parsePrice`, `_parsePriceStr`, `_parseAddress`, `_parseTransport1`, `_parseRights`, `_parseYoutoChiiki`, `_parseSetsudou`, `_parseHikiwatashi`, `_parseGenkyo`
+- **物件種別パーサー**:
+  1. `KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase)`
+  2. `KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase)`
+  3. `KenbiyaInvestmentBuildingParser(KenbiyaParserBase, InvestmentParserBase)`
+  4. `KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase)`
+  5. `KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase)`
+
+- **DOM解析ロジック**:
+  - 定義リスト（`dl > dt` と `dd`）からスペック辞書を生成
+  - 価格: `価格` ➔ `5,980万円` ➔ `59800000`
+  - 利回り: `満室時利回り` ➔ `5.67％...` ➔ `5.67`
+  - 賃料: `満室時年収/月収` ➔ `339.6万円 / 28.3万円` ➔ annual: `3396000`, monthly: `283000`
+  - 住所: `住所` ➔ 末尾の「地図」等のリンクテキストを除去
+  - 築年月: `築年月` ➔ `1990年6月（築36年）` ➔ `1990-06-01`
+  - 構造・戸数: `建物構造` ➔ `木造2階建 総戸数4戸` ➔ 構造: `木造2階建`, 総戸数: `4`
+  - 交通: `交通` ➔ 各沿線・駅・徒歩分数を抽出して `station1`, `railway1`, `walkMinutes1` 等に設定
+
