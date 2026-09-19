@@ -35,8 +35,8 @@ def test_ml_pipeline():
         }
     }
     
-    # 50件のダミーデータで学習
-    df_mansion = generate_dummy_data('mansion', num_records=50)
+    # 20件のダミーデータで学習（テスト用高速検証）
+    df_mansion = generate_dummy_data('mansion', num_records=20)
     
     trained_first = train_and_compare(df_mansion, feature_sets["mansion"]["first"], "mansion - First Stage")
     trained_second = train_and_compare(df_mansion, feature_sets["mansion"]["second"], "mansion - Second Stage")
@@ -46,9 +46,9 @@ def test_ml_pipeline():
         joblib.dump(trained_first[algo], os.path.join(model_dir, f"mansion_first_stage_{algo}.joblib"))
         joblib.dump(trained_second[algo], os.path.join(model_dir, f"mansion_second_stage_{algo}.joblib"))
         
-    # 他の物件種別（kodate, apartment）もダミー学習させておく（predictで利用するため）
-    for ptype in ['kodate', 'apartment']:
-        df_ptype = generate_dummy_data(ptype, num_records=50)
+    # 他の物件種別（kodate, apartment, tochi）もダミー学習させておく（predictで利用するため）
+    for ptype in ['kodate', 'apartment', 'tochi']:
+        df_ptype = generate_dummy_data(ptype, num_records=20)
         if ptype == 'apartment':
             feats_first = [
                 "area", "tochi_menseki", "chikunen", "walk_min",
@@ -58,6 +58,17 @@ def test_ml_pipeline():
                 "gross_yield", "annual_rent",
                 "cost_approach_value", "mkt_comparison_value", "income_approach_value",
                 "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
+                "max_youseki", "max_kenpei",
+                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
+                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
+            ]
+        elif ptype == 'tochi':
+            feats_first = [
+                "area", "tochi_menseki", "walk_min",
+                "pop_growth", "income", "passenger_volume", "average_land_price",
+                "estimated_rosenka_price", "estimated_fixed_asset_price",
+                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
+                "flood_risk_level", "landslide_risk_level",
                 "max_youseki", "max_kenpei",
                 "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
                 "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
@@ -85,12 +96,13 @@ def test_ml_pipeline():
             joblib.dump(trained_s[algo], os.path.join(model_dir, f"{ptype}_second_stage_{algo}.joblib"))
 
     # マーケット比較マスタも保存
-    mkt_master = {"mansion": {}, "kodate": {}, "apartment": {}}
+    mkt_master = {"mansion": {}, "kodate": {}, "apartment": {}, "tochi": {}}
     joblib.dump(mkt_master, os.path.join(model_dir, "mkt_comparison_master.joblib"))
 
     # モデルファイルの存在チェック
     assert os.path.exists(os.path.join(model_dir, "mansion_first_stage_lgb.joblib")) is True
     assert os.path.exists(os.path.join(model_dir, "mansion_second_stage_lgb.joblib")) is True
+    assert os.path.exists(os.path.join(model_dir, "tochi_first_stage_lgb.joblib")) is True
 
     # 2. ダミーの物件データを用いた推論の実行テスト
     dummy_property = {
@@ -120,6 +132,26 @@ def test_ml_pipeline():
     assert isinstance(price_stage2, int)
     assert price_stage2 > 0
     print(f"Predicted Stage 2 Price: {price_stage2}万円")
+
+    # 土地の一次理論価格の予測実行
+    dummy_tochi = {
+        "propertyName": "テスト土地",
+        "propertyType": "tochi",
+        "pageUrl": "http://example.com/test-tochi-1",
+        "price": 3000,
+        "address1": "東京都",
+        "address2": "世田谷区",
+        "station1": "世田谷駅",
+        "tochiMenseki": 100.0,
+        "railwayWalkMinute1": 8,
+        "maguchi": 5.0,
+        "roadWidth": 4.5
+    }
+    print("Testing Tochi Stage 1 prediction...")
+    price_tochi = predict_first_stage(dummy_tochi)
+    assert isinstance(price_tochi, int)
+    assert price_tochi > 0
+    print(f"Predicted Tochi Stage 1 Price: {price_tochi}万円")
 
 
 @pytest.mark.django_db

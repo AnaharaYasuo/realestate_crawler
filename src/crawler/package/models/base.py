@@ -26,7 +26,7 @@ class PropertyBaseModel(models.Model):
     inputDate = models.DateField(auto_now_add=True, verbose_name="登録日")
     inputDateTime = models.DateTimeField(auto_now_add=True, verbose_name="登録日時")
     priceStr = models.TextField(verbose_name="価格（文字列）")
-    price = models.IntegerField(verbose_name="価格（数値）")
+    price = models.BigIntegerField(verbose_name="価格（数値）")
     address = models.TextField(verbose_name="住所")
     traffic = models.TextField(blank=True, null=True, verbose_name="交通")
 

@@ -128,9 +128,11 @@ class SumifuParser(ParserBase):
             return None
             
         href = next_link.get("href", "")
-        if not href or href == "#":
+        if not href or href == "#" or href.startswith("javascript:"):
             return None
         nextPageUrl = urllib.parse.urljoin(self.BASE_URL, href)
+        if "javascript:" in nextPageUrl or "void(0)" in nextPageUrl:
+            return None
         logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
@@ -480,7 +482,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         super().__init__(params)
         
     def getCharset(self):
-        return "utf-8"
+        return "cp932"
 
     def getRegionXpath(self):
         return self.selectors.get('region_xpath')
@@ -503,7 +505,12 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         for link in links:
             href = link.get("href")
             if href:
-                yield urllib.parse.urljoin(self.BASE_URL, href)
+                if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
+                    continue
+                if "/pro/detail_" in href or "/detail_" in href:
+                    joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+                    if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                        yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -523,9 +530,12 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             href = getattr(next_link, "get", lambda k: None)("href")
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
-            if href and href != "#":
-                return urllib.parse.urljoin(self.BASE_URL, href)
+            if href and href != "#" and not href.startswith("javascript:"):
+                joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+                if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                    return joined_url
         return ""
+
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 1. Scraping basic labels
@@ -600,23 +610,39 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
     def _parseKouzou(self, response, specs=None):
         specs = self._get_specs(response)
         kouzou = specs.get("構造", "")
-        if kouzou: return kouzou
+        if kouzou:
+            return kouzou
         
         # Compatibility with old specialized extraction
         specs_tags = self._get_specs(response)
         combined_tag = specs_tags.get("所在階構造", specs_tags.get("所在階\n構造", specs_tags.get("階数構造", specs_tags.get("階数\n構造"))))
         if combined_tag:
-            spans = combined_tag.find_all("span")
-            if len(spans) >= 2: return spans[1].get_text(strip=True)
-            elif len(spans) == 1:
-                text = spans[0].get_text(strip=True)
-                m = re.search(r'建て(.+)$', text)
-                if m: return m.group(1).strip()
+            if hasattr(combined_tag, "find_all"):
+                spans = combined_tag.find_all("span")
+                if len(spans) >= 2:
+                    return spans[1].get_text(strip=True)
+                elif len(spans) == 1:
+                    text = spans[0].get_text(strip=True)
+                    m = re.search(r'建て(.+)$', text)
+                    if m:
+                        return m.group(1).strip()
+                else:
+                    combined = combined_tag.get_text(separator='\n', strip=True)
+                    lines = combined.split('\n')
+                    if len(lines) >= 2:
+                        return lines[1].strip()
             else:
-                combined = combined_tag.get_text(separator='\n', strip=True)
-                lines = combined.split('\n')
-                if len(lines) >= 2: return lines[1].strip()
+                text = str(combined_tag).strip()
+                m = re.search(r'建て(.+)$', text)
+                if m:
+                    return m.group(1).strip()
+                lines = [line.strip() for line in text.split() if line.strip()]
+                if len(lines) >= 2:
+                    return lines[1]
+                return text
         return "-"
+
+
 
     def _parseChikunengetsuStr(self, response, specs=None):
         specs = self._get_specs(response)

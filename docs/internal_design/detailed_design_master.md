@@ -295,6 +295,18 @@ graph TD
   - `docker/setup-buildx-action` と BuildKit cache (`type=gha,scope=app`) を利用し、Dockerレイヤーキャッシュ（OS依存・Python依存パッケージ・Playwrightブラウザ）をGitHub Actions Cache上に永続化。
   - キャッシュヒット時はイメージの再ビルドをスキップし、起動オーバーヘッドを4分半から20秒未満に圧縮する。
 
+### 6.18 不動産価格 (price) BigIntegerField 拡張および 32-bit オーバーフロー防止ガード設計原則
+- **BigIntegerField へのモデル拡張**: `PropertyBaseModel.price` を `models.IntegerField`（符号付き 32-bit INT、上限 2,147,483,647円＝約21.4億円）から `models.BigIntegerField`（符号付き 64-bit BIGINT、上限 約922京円）へ変更する。これにより、一棟売りビル、投資用大規模マンション、都心高級レジデンス等の21.4億円超（24億円、30億円、50億円等）の高額物件において発生する `django.db.utils.DataError: (1264, "Out of range value for column 'price' at row 1")` を根絶する。
+- **保存前サニタイズ (クランプ安全ガード)**: `baseParser.py` の `clean_parsed_item` において、`price` 値が数値型として正しくパースされているかを保証し、未マイグレーション環境等における MySQL `INT` カラムへの適合性を担保するフェイルセーフ機構を配置する。
+
+### 6.19 住友不動産ステップ投資物件 Shift_JIS(CP932) エンコーディング適正化原則
+- **Shift_JIS(CP932) レスポンスの正確なデコード**: 住友不動産ステップの投資用物件詳細ページ（`/pro/detail_...`）はサーバーから Shift_JIS (CP932) で配信される。`SumifuInvestmentParserBase.getCharset()` の戻り値を `"cp932"` に明示指定し、従来の UTF-8 強制デコードによる全日本語文字（`所在地`, `価格` 等）の化け（`\ufffd` への置換）およびそれに伴う `StrictExtractionFailed: address is empty` 例外（48時間で109件発生）を根絶する。
+
+### 6.20 非物件リンク・JavaScript URL 厳格除外および数値カラム NOT NULL/オーバーフローガード原則
+- **非物件リンク・JavaScript 擬似リンクの除外**: `baseParser.py` の `_parsePageCore` および各社パーサーの `parsePropertyListPage` / `parseNextPage` において、`javascript:`, `mailto:`, `tel:`, `#`, および問い合わせページ（`/inquiry`, `/contact`）のリンクを完全除外する。これにより `urljoin` による `https://...javascript:void(0);` 結合異常（`InvalidUrlClientError`）および問い合わせページの誤パースによる `'NoneType' object has no attribute 'replace'` を根絶する。
+- **数値フィールドの NOT NULL ガードおよび 32-bit INT クランプ**: `clean_parsed_item` において、`annualRent`, `monthlyRent`, `soukosu`, `chikunen` 等の数値カラムが `None` でかつ DB 側 `NOT NULL` 制約の場合は自動で `0` を代入し `IntegrityError (1048)` を防止する。また `IntegerField` に対し 21.4億円超の値が代入された際は 32-bit 最大値（`2147483647`）へ自動クランプし `DataError (1264)` の発生を完全に抑止する。
+- **grossYield (DecimalField) の NOT NULL ガード**: `grossYield` が `None` で `NOT NULL` 制約の場合は `Decimal('0.0')` を代入する。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -305,5 +317,6 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.9 (野村不動産スペックパース修復・Dependabot自律運用・CI並列分散ワークフロー・差分スキップ追記)
+**バージョン**: 2.1 (価格BigInteger拡張・住友不動産投資CP932・非物件リンク除外・数値カラム整合性ガード・野村スペック修復追記)
+
 
