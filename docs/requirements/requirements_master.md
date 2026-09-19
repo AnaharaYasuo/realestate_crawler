@@ -327,6 +327,10 @@
 #### FR-013: Slack疎通事前自己チェック (Step 0)
 - クローリングおよびパイプラインの起動前（Step 0）に必ず `check_slack_connection.py` を実行し、Slackチャンネル名の変更やBot未招待による通知不達（`channel_not_found` 等）を事前検証すること。
 
+#### FR-015: アラートチャンネル通知内容のERRORレベルログ出力 (Alert Channel Mirroring to Error Log)
+- Slackのアラートチャンネル（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#property_alert` 等、または `SLACK_ALERT_*` で指定された宛先）へ送信されるすべてのアラートメッセージ本文および異常内容は、Slack送信の成否に関わらず、必ずアプリケーションログへ `ERROR` レベル（`logger.error`）として同期出力・記録すること。
+- これにより、GCP Cloud Logging 等の外部ログ監視システム（`severity>=ERROR` フィルター）において、Slackに発報されたシステム異常やパース障害が取りこぼされることなく網羅的に検知・集約されることを保証すること。
+
 ### 2.5 実行制御機能
 
 #### FR-014: コマンドライン実行

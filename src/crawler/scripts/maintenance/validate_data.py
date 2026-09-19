@@ -1,23 +1,15 @@
 # -*- coding: utf-8 -*-
+import setup_env  # noqa: F401
 import os
 import sys
 import logging
 import datetime
 import json
+import subprocess
 from asgiref.sync import async_to_sync
-
-# Django設定のロード
-_scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_crawler_dir = os.path.dirname(_scripts_dir)
-sys.path.insert(0, _crawler_dir)
-import realestateSettings
-realestateSettings.configure()
-
 from django.db import transaction
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message
-
-# 各社モデルのインポート
 from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi, MitsuiInvestmentKodate, MitsuiInvestmentApartment
 from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi, SumifuInvestmentKodate, SumifuInvestmentApartment
 from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuTochi, TokyuInvestmentKodate, TokyuInvestmentApartment
@@ -25,8 +17,6 @@ from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, Nomu
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentKodate, MisawaInvestmentApartment
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeTochi, AthomeInvestmentApartment
 from package.models.homes import HomesMansion, HomesKodate, HomesTochi, HomesInvestmentApartment
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
 def get_all_models_flat():
     """全物件種別のモデルクラスとその判定タグのリストを返す"""
@@ -80,11 +70,6 @@ def validate_data():
             elif hasattr(item, "tochiMenseki") and item.tochiMenseki is not None:
                 area = float(item.tochiMenseki)
                 
-            # 間口の抽出
-            maguchi = float(getattr(item, "maguchi", 1.0) or 1.0) # デフォルトで1.0（エラー対象にしない）
-            if ptype in ["tochi", "kodate", "invest_kodate"]:
-                maguchi = float(getattr(item, "maguchi", 0.0) or 0.0)
-            
             # 不正データ判定
             has_error = False
             reasons = []
@@ -140,14 +125,16 @@ def validate_data():
     logging.info(f"Scan finished. Found {len(anomalies)} anomalies. Auto-cleaned: {cleaned_count} evaluations.")
     
     # 2. HTMLパースエラー（monitor_error_pages.py）のレポート読み込み
-    html_errors_count = 0
     html_errors_list = []
     
     try:
-        import subprocess
         logging.info("Running monitor_error_pages.py as a subprocess...")
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_error_pages.py")
-        subprocess.run([sys.executable, script_path], check=True)
+        crawler_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script_path = os.path.join(crawler_dir, "scripts", "ops", "monitor_error_pages.py")
+        if not os.path.exists(script_path):
+            script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitor_error_pages.py")
+        if os.path.exists(script_path):
+            subprocess.run([sys.executable, script_path], check=True)
         
         # 本日の日付のJSONファイルを読み込む
         today_str = datetime.date.today().strftime("%Y%m%d")
@@ -157,7 +144,6 @@ def validate_data():
         if os.path.exists(report_path):
             with open(report_path, "r", encoding="utf-8") as f:
                 rep = json.load(f)
-                html_errors_count = rep.get("recent_errors_24h", 0)
                 html_errors_list = rep.get("recent_details", [])
     except Exception as e:
         logging.error(f"Failed to integrate monitor_error_pages: {e}")
@@ -235,7 +221,7 @@ def validate_data():
         elif key == "invest_kodate":
             alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
             
-        logging.info(f"Sending {key} alert report to channel: {alert_channel}")
+        logging.error(f"Sending {key} alert report to channel: {alert_channel}\n{msg}")
         async_to_sync(send_slack_message)(msg, channel=alert_channel)
         sent_any = True
         

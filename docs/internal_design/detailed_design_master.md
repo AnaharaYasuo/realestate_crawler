@@ -305,7 +305,15 @@ graph TD
 ### 6.20 非物件リンク・JavaScript URL 厳格除外および数値カラム NOT NULL/オーバーフローガード原則
 - **非物件リンク・JavaScript 擬似リンクの除外**: `baseParser.py` の `_parsePageCore` および各社パーサーの `parsePropertyListPage` / `parseNextPage` において、`javascript:`, `mailto:`, `tel:`, `#`, および問い合わせページ（`/inquiry`, `/contact`）のリンクを完全除外する。これにより `urljoin` による `https://...javascript:void(0);` 結合異常（`InvalidUrlClientError`）および問い合わせページの誤パースによる `'NoneType' object has no attribute 'replace'` を根絶する。
 - **数値フィールドの NOT NULL ガードおよび 32-bit INT クランプ**: `clean_parsed_item` において、`annualRent`, `monthlyRent`, `soukosu`, `chikunen` 等の数値カラムが `None` でかつ DB 側 `NOT NULL` 制約の場合は自動で `0` を代入し `IntegrityError (1048)` を防止する。また `IntegerField` に対し 21.4億円超の値が代入された際は 32-bit 最大値（`2147483647`）へ自動クランプし `DataError (1264)` の発生を完全に抑止する。
-- **grossYield (DecimalField) の NOT NULL ガード**: `grossYield` が `None` で `NOT NULL` 制約の場合は `Decimal('0.0')` を代入する。
+### 6.21 Slack アラートチャンネル通知内容のERRORレベルログ同期原則
+- **アラート送信時のERRORログ出力強制**: `package.utils.slack.send_slack_message` において、送信先がアラートチャンネル（`is_alert_channel(channel) == True`）である場合、Slack API の成否に関わらず、必ず `logger.error(f"[SLACK ALERT -> {channel}]:\n{message}")` を同期出力する。
+- **アラートチャンネル判定ロジック (`is_alert_channel`)**:
+  - チャンネル名が `alerts-` で始まる場合（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#alerts-invest` 等）
+  - チャンネル名が `property_alert` の場合
+  - 環境変数 `SLACK_ALERT_*`（`SLACK_ALERT_PROPERTY_ALERT`, `SLACK_ALERT_MANSION`, `SLACK_ALERT_KODATE`, `SLACK_ALERT_TOCHI`, `SLACK_ALERT_INVEST_APARTMENT`, `SLACK_ALERT_INVEST_KODATE`, `SLACK_ALERT_CHANNEL_ID` 等）で設定されたIDまたは名称と一致する場合
+  - 既知のアラートチャンネルID（`C0BJWUCTRNU`, `C0BHZA5ASDT`, `C0BJ2JVGCLS`, `C0BJ6B4R3E0`, `C0BJ0KSJEDC` 等）に一致する場合
+- **GCP Cloud Logging / 外部監視との連携**: アプリケーションログに `severity: ERROR` で出力されることにより、GCP Cloud Logging のログスキャン（`severity>=ERROR`）や 24時間監視バッチで Slack アラート発報の事実・内容が漏れなく集約されることを保証する。
+- **データバリデーションスクリプト (`validate_data.py`) のログレベル適正化**: 異常データ検出時のチャンネル通知ログを従来の `logging.info` から `logging.error` に改め、アラート内容全文をエラーログとして確実に残す。
 
 ---
 
@@ -316,7 +324,7 @@ graph TD
 
 ---
 
-**最終更新**: 2026年9月19日  
-**バージョン**: 2.1 (価格BigInteger拡張・住友不動産投資CP932・非物件リンク除外・数値カラム整合性ガード・野村スペック修復追記)
+**最終更新**: 2026年9月20日  
+**バージョン**: 2.2 (Slackアラートチャンネル通知内容のERRORレベルログ同期原則追記)
 
 

@@ -139,3 +139,107 @@ async def test_verify_url_active_inactive_content():
         assert result is False
 
 
+@pytest.mark.asyncio
+async def test_is_alert_channel(monkeypatch):
+    """is_alert_channel がアラートチャンネル名・ID・環境変数を正しく判定することをテスト"""
+    from package.utils.slack import is_alert_channel
+    
+    assert is_alert_channel("alerts-mansion") is True
+    assert is_alert_channel("alerts-kodate") is True
+    assert is_alert_channel("alerts-tochi") is True
+    assert is_alert_channel("alerts-invest-apartment") is True
+    assert is_alert_channel("alerts-invest-kodate") is True
+    assert is_alert_channel("property_alert") is True
+    assert is_alert_channel("C0BJWUCTRNU") is True  # alerts-mansion ID
+    assert is_alert_channel("c0bj6b4r3e0") is True  # alerts-invest-apartment (case-insensitive)
+    
+    # 非アラートチャンネル
+    assert is_alert_channel("recommend-mansion") is False
+    assert is_alert_channel("dev-channel") is False
+    assert is_alert_channel("C0BJ87V7BM0") is False  # recommend-mansion ID
+    assert is_alert_channel(None) is False
+    assert is_alert_channel("") is False
+    
+    # 環境変数での動的設定
+    monkeypatch.setenv("SLACK_ALERT_CUSTOM", "C_CUSTOM_ALERT")
+    assert is_alert_channel("C_CUSTOM_ALERT") is True
+
+
+@pytest.mark.asyncio
+async def test_send_slack_message_alert_channel_logs_error(monkeypatch):
+    """アラートチャンネル宛ての送信時に logger.error でメッセージ全文が出力されることをテスト"""
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("SLACK_CHANNEL_ID", "fake-channel")
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={"ok": True})
+
+    mock_post = MagicMock()
+    mock_post.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_post.__aexit__ = AsyncMock()
+
+    with patch("aiohttp.ClientSession.post", return_value=mock_post), \
+         patch("package.utils.slack.logger.error") as mock_logger_error:
+        alert_text = "🚨 【パースエラー】 10件の異常が発生しました"
+        result = await send_slack_message(alert_text, channel="alerts-mansion")
+        assert result is True
+        
+        # logger.error がアラートメッセージを含んで呼ばれたことを検証
+        mock_logger_error.assert_called_once()
+        logged_msg = mock_logger_error.call_args[0][0]
+        assert "alerts-mansion" in logged_msg
+        assert alert_text in logged_msg
+
+
+@pytest.mark.asyncio
+async def test_send_slack_message_non_alert_channel_no_error_log(monkeypatch):
+    """通常チャンネル（recommend 等）宛て送信時は logger.error が呼ばれないことをテスト"""
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "fake-token")
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={"ok": True})
+
+    mock_post = MagicMock()
+    mock_post.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_post.__aexit__ = AsyncMock()
+
+    with patch("aiohttp.ClientSession.post", return_value=mock_post), \
+         patch("package.utils.slack.logger.error") as mock_logger_error:
+        normal_text = "✨ お宝物件を検出しました"
+        result = await send_slack_message(normal_text, channel="recommend-mansion")
+        assert result is True
+        
+        # logger.error は呼ばれないこと
+        mock_logger_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_crawling_summary_alert_logs_error(monkeypatch):
+    """send_crawling_summary_alert 実行時にも logger.error でエラーログ出力されることをテスト"""
+    from package.utils.slack import send_crawling_summary_alert
+    
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
+
+    mock_resp = AsyncMock()
+    mock_resp.status = 200
+    mock_resp.json = AsyncMock(return_value={"ok": True})
+
+    mock_post = MagicMock()
+    mock_post.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_post.__aexit__ = AsyncMock()
+
+    with patch("aiohttp.ClientSession.post", return_value=mock_post), \
+         patch("package.utils.slack.logger.error") as mock_logger_error:
+        summary_text = "📢 【クローリング実行状況レポート】 失敗: 1"
+        result = await send_crawling_summary_alert(summary_text)
+        assert result is True
+        
+        mock_logger_error.assert_called_once()
+        logged_msg = mock_logger_error.call_args[0][0]
+        assert "property_alert" in logged_msg
+        assert summary_text in logged_msg
+
+
