@@ -21,6 +21,7 @@ configure_logging()
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
+from package.utils.api_logger import setup_api_logging
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -105,6 +106,9 @@ app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
+
+# リクエスト・レスポンスの送受信ペイロード構造化ログ出力設定
+setup_api_logging(app)
 
 @app.before_request
 def enforce_api_authentication():
