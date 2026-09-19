@@ -43,6 +43,32 @@ class StationPotential(models.Model):
         return f"{self.railway_line} {self.station_name}駅 (乗降客数: {self.passenger_volume}人/日)"
 
 
+class MacroEconomicIndex(models.Model):
+    """
+    マクロ経済・時系列統計マスタ
+    物件掲載年月（YYYY-MM）に連動して相場環境指標を供給する
+    """
+    year_month = models.CharField(max_length=7, unique=True, db_index=True, verbose_name="対象年月 (YYYY-MM)")
+    repi_mansion = models.FloatField(null=True, blank=True, verbose_name="国交省 不動産価格指数(マンション)")
+    repi_kodate = models.FloatField(null=True, blank=True, verbose_name="国交省 不動産価格指数(戸建)")
+    repi_tochi = models.FloatField(null=True, blank=True, verbose_name="国交省 不動産価格指数(住宅地)")
+    jgb_10y_yield = models.FloatField(null=True, blank=True, verbose_name="新発10年物国債利回り (%)")
+    mortgage_fixed_rate = models.FloatField(null=True, blank=True, verbose_name="フラット35等固定金利基準 (%)")
+    nikkei_225 = models.FloatField(null=True, blank=True, verbose_name="日経平均株価月末終値 (円)")
+    tse_reit_index = models.FloatField(null=True, blank=True, verbose_name="東証REIT指数月末終値 (pt)")
+    construction_cost_index = models.FloatField(null=True, blank=True, verbose_name="建設物価指数(RC/住宅)")
+    cpi_core = models.FloatField(null=True, blank=True, verbose_name="消費者物価指数コア(2020年=100)")
+
+    class Meta:
+        db_table = 'macro_economic_index'
+        verbose_name = "マクロ経済指標マスタ"
+        verbose_name_plural = "マクロ経済指標マスタ"
+
+    def __str__(self):
+        return f"MacroEconomicIndex({self.year_month}: マンション指数={self.repi_mansion}, 10年国債={self.jgb_10y_yield}%, 日経={self.nikkei_225})"
+
+
+
 class PropertyEvaluation(models.Model):
     """
     物件共通評価モデル

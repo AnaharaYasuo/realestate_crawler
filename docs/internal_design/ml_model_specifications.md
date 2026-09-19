@@ -57,8 +57,20 @@ graph TD
 | `income` | 自治体の平均所得 | Yes | Yes |
 | `passenger_volume` | 最寄り駅の乗降客数 | Yes | Yes |
 | `average_land_price` | 周辺の平均地価 (円/㎡) | Yes | Yes |
+| `time_diff_months` | 基準日（現在）からの経過月数 | Yes | Yes |
+| `macro_repi` | 物件種別連動 国交省不動産価格指数 | Yes | Yes |
+| `macro_jgb_10y` | 新発10年物国債利回り (%) | Yes | Yes |
+| `macro_nikkei` | 日経平均株価月末終値 (円) | Yes | Yes |
+| `macro_reit` | 東証REIT指数月末終値 (pt) | Yes | Yes |
+| `macro_construction_cost` | 建設物価指数（RC/住宅） | Yes | Yes |
+| `is_legacy_data` | 2024年以前の過去収集データフラグ | Yes | Yes |
 | `interior_score` | Gemini API による内装評価スコア (1.0〜5.0) | - | **Yes** |
 | `layout_score` | Gemini API による間取り評価スコア (1.0〜5.0) | - | **Yes** |
+
+#### マクロ経済・時系列特徴量および時間減衰学習重み (Time-Decay Sample Weight)
+- **マクロ指標結合**: 物件の掲載年月 (`inputDate` の YYYY-MM) に基づき、`MacroEconomicIndex` から当時の不動産価格指数、長期金利、株価、REIT指数、建設物価指数を自動マージ。
+- **時間減衰重み付け**: 掲載日からの経過日数 $\Delta t$ に応じて $w = \exp(-0.0005 \times \Delta t)$（半減期約3.8年、下限0.20）を算出し、最新の価格水準を重視しつつ過去データの構造関係を安定学習。
+- **旧データ欠損値防御**: 過去データに存在しない新設属性（`kaisuKouzou`、`traffic`、一部設備フラグ等）はデフォルト値・NaNで安全にフォールバックし、モデルが例外なく処理できるように保証。
 
 #### 特殊フラグ・権利関係の生のHTML全テキスト抽出仕様
 - `is_saikenchiku_fuka`: 物件の生のHTML全体（または全抽出テキスト）から「再建築不可」の文字列が存在するかを直接判定。

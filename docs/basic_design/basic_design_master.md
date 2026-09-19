@@ -70,6 +70,18 @@ railwayWalkMinute1Str = "5分"
 railwayWalkMinute1 = 5
 ```
 
+### Macroeconomic & Temporal Feature Architecture
+
+過去年度（2019〜2024）から最新（2026年）に至る市場環境の変化（インフレ、不動産価格高騰、金利変動等）を価格推定モデルで説明可能にする設計。
+
+**主要要素:**
+1. **時系列マクロ統計マスタ (`MacroEconomicIndex`)**:
+   - 物件掲載年月 (`inputDate` の YYYY-MM) をキーとして国交省不動産価格指数、新発10年国債利回り、日経平均株価、東証REIT指数、建設物価指数を自動結合。
+2. **時間減衰学習重み (Time-Decay Sample Weight)**:
+   - 経過日数に基づく指数減衰重みを学習時に適用し、最新の相場感（価格水準）を優先しつつ過去データの豊富な属性関係（立地・間取り・築年数の係数）を最大限活用。
+3. **欠損値防御 (Defensive Imputation & Missing Indicators)**:
+   - 過去データに存在しない新設属性（構造詳細・設備等）の NULL / 空文字を安全にフォールバックし、欠損インジケータとしてモデルに学習させる。
+
 ### Computed and Derived Fields
 
 パース時に計算される派生フィールド。
