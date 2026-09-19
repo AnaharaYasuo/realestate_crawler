@@ -248,8 +248,10 @@ graph TD
 - **ログレベルの適正化**:
   - 毎物件発生する `Local routing: ...`, `Middleware Request/Response: ...`, `start/finished afterRunProc`, `Attempting/Successfully saved item (Single): ...` はすべて `DEBUG` レベルへ適正化。
   - 例外発生時は多重ログ出力を廃止し、単一の `logger.error(..., exc_info=True)` に集約して完全なスタックトレースを単一のJSONペイロード内に格納する。
-- **掲載終了（404/掲載終了文言）の正常スキップ**:
-  - 各パーサー（`athomeParser.py` 等）において、物件ページに「掲載を終了しました」「お探しの物件は見つかりませんでした」等のシグナルがある場合は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップ（Slackアラート除外）。
+### 6.15 野村不動産スペックテーブルのモーダル用語集除外およびツールチップ/ヘルプ除去原則
+- **モーダル用語集テーブルの除外**: 野村不動産の詳細ページに配置されている `div.fullModal` などのモーダルダイアログ内の用語解説用テーブルは、物件スペックではなく用語説明であるため、スペック抽出（`_scrape_specs`）対象から完全に除外する。
+- **th/dt/status からのヘルプ・ツールチップ要素除去**: `th`、`dt`、`item_status_title` のテキスト抽出前に、`.item_help`, `.icon_help`, `.tooltip`, `.help` 等の要素を `decompose()` してキー名に混入するのを防止し、正規化キー（`専有面積`, `間取り` 等）を正確に保持する。
+- **ハイライトカードからの専有面積フォールバック**: `_parseSenyuMenseki` において、`specs` からの取得に加え、ページ内サマリーブロック（`td > div.inner` や `div.inner > div.heading: 専有面積` ➔ `p`）からの直接抽出フォールバックを実装し、NOT NULL 制約カラムの `IntegrityError` 発生を完全に抑止する。
 
 ---
 
@@ -261,7 +263,7 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.6 (GCP Cloud Logging構造化・ログレベル適正化・文字コードUTF-8保証追記)
+**バージョン**: 1.7 (野村不動産スペックパースのモーダル用語集除外・ツールチップ除去・専有面積フォールバック追記)
 
 
 

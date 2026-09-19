@@ -23,21 +23,48 @@ class NomuraParser(InvestmentParser):
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
+
+        def is_inside_modal(el):
+            p = getattr(el, "parent", None)
+            while p and getattr(p, "name", None) != '[document]':
+                classes = p.get("class") or []
+                if isinstance(classes, str):
+                    classes = [classes]
+                p_id = p.get("id") or ""
+                if isinstance(p_id, list):
+                    p_id = " ".join(p_id)
+                if any("modal" in str(c).lower() for c in classes) or "fullModal" in classes or "modal" in str(p_id).lower():
+                    return True
+                p = getattr(p, "parent", None)
+            return False
+
+        def clean_key_text(el, tag_name="th"):
+            temp = BeautifulSoup(str(el), "html.parser").find(tag_name)
+            if not temp:
+                return ""
+            for h in temp.select(".item_help, .icon_help, .tooltip, .help, [class*='help'], [class*='tooltip']"):
+                h.decompose()
+            return temp.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+
         # 1. Handle .item_status (Traditional/Mansion structure)
         item_statuses = response.select(".item_status")
         for status in item_statuses:
+            if is_inside_modal(status):
+                continue
             title_el = status.select_one(".item_status_title")
             content_el = status.select_one(".item_status_content")
             if title_el and content_el:
-                key = title_el.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+                key = clean_key_text(title_el, "span") or clean_key_text(title_el, "div") or title_el.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
                 specs[key] = content_el.get_text(strip=True).replace("\xa0", " ")
                 
         # 2. Handle dl/dt/dd (Detail tables)
         for dl in response.select("dl"):
+            if is_inside_modal(dl):
+                continue
             current_key = None
             for child in dl.find_all(["dt", "dd"], recursive=False):
                 if child.name == "dt":
-                    current_key = child.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+                    current_key = clean_key_text(child, "dt")
                 elif child.name == "dd" and current_key:
                     val = child.get_text(strip=True).replace("\xa0", " ")
                     if len(val) < 300:  # Exclude long explanation footnotes
@@ -45,37 +72,39 @@ class NomuraParser(InvestmentParser):
                     current_key = None
 
         # 3. Handle table/tr/th/td
-        # Helper to parse a single table
         def parse_table_element(table, force=False):
+            if is_inside_modal(table):
+                return
             for tr in table.select("tr"):
                 ths = tr.select("th")
                 tds = tr.select("td")
                 for th, td in zip(ths, tds):
-                    # Copy th to avoid breaking original soup if reused, but here it's fine
-                    th_temp = BeautifulSoup(str(th), "html.parser").find("th")
-                    help_el = th_temp.select_one(".item_help")
-                    if help_el: help_el.decompose()
-                    key = th_temp.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+                    key = clean_key_text(th, "th")
                     val = td.get_text(strip=True).replace("\xa0", " ")
                     if key:
-                        # Special check for kouzou - ignore hashtags
                         if key == "構造" and val.startswith("#"):
                             continue
-                            
-                        # If force is True (c_table_spec), overwrite.
-                        # If force is False, use length heuristic.
                         if force:
                             specs[key] = val
                         elif key not in specs or len(val) > len(specs.get(key, "")):
                             specs[key] = val
 
+            # Also parse card cells: td > div.inner > div.heading + p
+            for inner in table.select("td > div.inner"):
+                h_el = inner.select_one(".heading")
+                p_el = inner.select_one("p")
+                if h_el and p_el:
+                    k = clean_key_text(h_el, "div")
+                    v = p_el.get_text(strip=True).replace("\xa0", " ")
+                    if k and (k not in specs or force):
+                        specs[k] = v
+
         # First pass: All tables (generic)
         for table in response.select("table"):
             parse_table_element(table, force=False)
             
-        # Second pass: c_table_spec (canonical details) - Force overwrite
-        # This ensures we get specific technical details even if shorter than hashtags
-        for table in response.select("table.c_table_spec"):
+        # Second pass: c_table_spec and col4 (canonical details) - Force overwrite
+        for table in response.select("table.c_table_spec, table.col4"):
             parse_table_element(table, force=True)
             
         return specs
@@ -404,7 +433,17 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
         val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
         if val:
             m = re.search(r'([\d\.]+)', val)
-            return Decimal(m.group(1)) if m else None
+            if m:
+                return Decimal(m.group(1))
+        # Fallback: scan highlight summary blocks
+        for inner in response.select(".inner"):
+            h = inner.select_one(".heading")
+            if h and ("専有面積" in h.get_text() or "壁芯面積" in h.get_text()):
+                p = inner.select_one("p")
+                if p:
+                    m = re.search(r'([\d\.]+)', p.get_text())
+                    if m:
+                        return Decimal(m.group(1))
         return super()._parseSenyuMenseki(response, specs)
 
     def _parseMadori(self, response, specs=None) -> str:
