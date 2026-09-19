@@ -52,6 +52,8 @@ class PlotShapeMetrics:
     reflex_angle_count: int = 0
     interior_angles: Optional[List[float]] = None
     shape_grade: str = "A"
+    shape_grade_num: int = 5
+    shape_score_100: float = 100.0
 
 
 
@@ -536,7 +538,9 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
             vertex_penalty=0.0,
             shape_penalty_score=1.0,
             shape_type="unknown",
-            shape_grade="A"
+            shape_grade="A",
+            shape_grade_num=5,
+            shape_score_100=100.0
         )
 
     # 1. 基本幾何量
@@ -656,7 +660,7 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
     else:
         shape_type = "regular"
 
-    # 11. 鑑定格付けグレード判定 (A〜E)
+    # 11. 鑑定格付けグレード判定 (A〜E) および連続数値スコア化 (MLモデル用)
     if shape_penalty_score >= 0.95:
         shape_grade = "A"
     elif shape_penalty_score >= 0.85:
@@ -667,6 +671,10 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
         shape_grade = "D"
     else:
         shape_grade = "E"
+
+    grade_num_map = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1}
+    shape_grade_num = grade_num_map.get(shape_grade, 5)
+    shape_score_100 = round(shape_penalty_score * 100.0, 1)
 
     return PlotShapeMetrics(
         plot_area=round(plot_area, 2),
@@ -701,6 +709,8 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
         acute_angle_count=acute_count,
         reflex_angle_count=reflex_count,
         interior_angles=interior_angles,
-        shape_grade=shape_grade
+        shape_grade=shape_grade,
+        shape_grade_num=shape_grade_num,
+        shape_score_100=shape_score_100
     )
 

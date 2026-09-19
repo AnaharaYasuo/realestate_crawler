@@ -150,3 +150,53 @@ def test_cloud_environment_enforces_api_key_configuration(client, monkeypatch):
     assert resp.status_code == 500
     assert resp.get_json()["success"] is False
 
+
+def test_global_api_auth_enforced_on_all_api_endpoints(client, monkeypatch):
+    """ESTIMATION_API_KEY設定時、すべての /api/ エンドポイントで認証が強制されること"""
+    monkeypatch.setenv("ESTIMATION_API_KEY", "secret-token-xyz")
+
+    # 1. /api/crawl/task にキーなしでリクエスト -> 401
+    resp_no_key = client.post("/api/crawl/task", json={"company": "mitsui", "property_type": "mansion"})
+    assert resp_no_key.status_code == 401
+
+    # 2. 正しいキーを付与 -> 通過 (main.execute_crawl_taskのモックで200)
+    with patch("main.execute_crawl_task", return_value=(True, 2, 5)):
+        resp_with_key = client.post(
+            "/api/crawl/task",
+            json={"company": "mitsui", "property_type": "mansion"},
+            headers={"X-API-KEY": "secret-token-xyz"}
+        )
+        assert resp_with_key.status_code == 200
+
+
+def test_youseki_kenpei_without_percent_symbol(client):
+    """容積率・建ぺい率を % なしの数値(200, 60)や文字列("200", "60")で送信しても正常動作すること"""
+    payload_num = {
+        "property_data": {
+            "price": 40000000,
+            "address": "東京都世田谷区桜丘1-1",
+            "station1": "経堂",
+            "senyuMenseki": 65.0,
+            "youseki": 200,
+            "kenpei": 60,
+            "yousekiStr": "200",
+            "kenpeiStr": "60"
+        }
+    }
+    resp = client.post(
+        "/api/evaluation/predict/mansion",
+        data=json.dumps(payload_num),
+        content_type="application/json"
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["first_stage_predicted_price"] > 0
+
+
+def test_generate_swagger_spec_script():
+    """Swagger自動生成スクリプトが正常に動作し、openapi.yamlと完全一致すること"""
+    from scripts.generate_swagger_spec import generate_yaml
+    is_synced = generate_yaml(check_only=True)
+    assert is_synced is True
+

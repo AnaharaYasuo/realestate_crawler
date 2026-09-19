@@ -182,22 +182,29 @@ def test_flagpole_decomposition():
 
 def test_yoshino_formula_and_shape_grades():
     """吉野金次式（想定整形地）および総合鑑定格付けグレード (A〜E) テスト"""
-    # 正方形: 特選整形地 Grade A
+    # 正方形: 特選整形地 Grade A (数値評価: 5, スコア: 95.0〜100.0)
     square = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
     metrics_sq = analyze_plot_shape(square)
     assert metrics_sq.shape_grade == "A"
+    assert metrics_sq.shape_grade_num == 5
+    assert metrics_sq.shape_score_100 >= 95.0
     assert metrics_sq.yoshino_shadow_ratio == pytest.approx(0.0, abs=0.05)
     assert metrics_sq.yoshino_coefficient == pytest.approx(1.0, abs=0.05)
 
-    # 旗竿地: 不整形・旗竿地 Grade D または E
+    # 旗竿地: 不整形・旗竿地 Grade D または E (数値評価: 1 または 2, スコア: 75.0未満)
     flagpole = [(0.0, 0.0), (2.0, 0.0), (2.0, 8.0), (10.0, 8.0), (10.0, 18.0), (0.0, 18.0)]
     metrics_fp = analyze_plot_shape(flagpole)
     assert metrics_fp.shape_grade in ["D", "E"]
+    assert metrics_fp.shape_grade_num in [1, 2]
+    assert metrics_fp.shape_score_100 < 75.0
     assert metrics_fp.nta_composite_discount < 0.90
     assert metrics_fp.yoshino_shadow_ratio > 0.25
 
-    # 極端なうなぎの寝床 (1:5): 難地 Grade E または D
+    # 極端なうなぎの寝床 (1:5): 難地 Grade E または D (数値評価: 1 または 2)
     unagi = [(0.0, 0.0), (2.0, 0.0), (2.0, 10.0), (0.0, 10.0)]
     metrics_unagi = analyze_plot_shape(unagi)
     assert metrics_unagi.shape_grade in ["D", "E"]
+    assert metrics_unagi.shape_grade_num in [1, 2]
+    assert metrics_unagi.shape_score_100 <= 74.0
+
 

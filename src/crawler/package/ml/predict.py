@@ -415,6 +415,14 @@ def _serialize_property(item, ptype):
             return item.get(name, default)
         return getattr(item, name, default)
 
+    def _to_float(v):
+        if v is None:
+            return None
+        try:
+            return float(v)
+        except Exception:
+            return None
+
     address = _val("address", "")
     if not address:
         addr1 = _val("address1", "") or ""
@@ -427,8 +435,10 @@ def _serialize_property(item, ptype):
         "station1": _val("station1", ""),
         "railwayWalkMinute1": _val("railwayWalkMinute1", None),
         "kouzou": _val("kouzou", ""),
-        "yousekiStr": _val("yousekiStr", "") or str(_val("youseki", "")) or "",
-        "kenpeiStr": _val("kenpeiStr", "") or str(_val("kenpei", "")) or "",
+        "youseki": _to_float(_val("youseki")),
+        "kenpei": _to_float(_val("kenpei")),
+        "yousekiStr": str(_val("yousekiStr", "") or _val("youseki", "") or ""),
+        "kenpeiStr": str(_val("kenpeiStr", "") or _val("kenpei", "") or ""),
         "tochikenri": _val("tochikenri", ""),
         "biko": _val("biko", "")
     }
@@ -442,14 +452,6 @@ def _serialize_property(item, ptype):
             data["chikunengetsuStr"] = str(chikunengetsu)
     else:
         data["chikunengetsuStr"] = _val("chikunengetsuStr", "")
-        
-    def _to_float(v):
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except Exception:
-            return None
 
     # 物件種別ごとの固有フィールド
     if ptype == "mansion":

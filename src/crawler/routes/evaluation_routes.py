@@ -148,12 +148,12 @@ def predict_mansion():
                   example: 15000
                 yousekiStr:
                   type: string
-                  description: 指定容積率 (例: 200%)
-                  example: "200%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "200"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率 (例: 60%)
-                  example: "60%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "60"
                 tochikenri:
                   type: string
                   description: 土地権利形態
@@ -266,12 +266,12 @@ def predict_kodate():
                   example: "木造"
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "150%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "150"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "50%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "50"
                 maguchi:
                   type: number
                   description: 接道間口 (m)
@@ -394,12 +394,12 @@ def predict_apartment():
                   example: "軽量鉄骨造"
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "200%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "200"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "60%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "60"
                 maguchi:
                   type: number
                   description: 接道間口 (m)
@@ -513,12 +513,12 @@ def predict_tochi():
                   example: 9
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "150%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "150"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "55%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "55"
                 maguchi:
                   type: number
                   description: 接道間口 (m)

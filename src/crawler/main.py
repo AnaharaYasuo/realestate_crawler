@@ -105,6 +105,40 @@ app.register_blueprint(daikyo_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
 
+@app.before_request
+def enforce_api_authentication():
+    # OPTIONS は CORS プリフライトのため無条件で許可
+    if request.method == 'OPTIONS':
+        return "", 200
+
+    # ドキュメント（Swagger UI, OpenAPI spec）は公開アクセス許可
+    if request.path in ('/docs', '/api/openapi.yaml') or request.path.startswith('/docs/'):
+        return None
+
+    # ヘルスチェックエンドポイント
+    if request.path in ('/', '/health', '/api/health'):
+        return None
+
+    # すべての /api/ エンドポイントに API キー認証を適用
+    if request.path.startswith('/api/'):
+        api_key = os.getenv("ESTIMATION_API_KEY", "")
+        request_key = request.headers.get("X-API-KEY", "")
+
+        if os.getenv("IS_CLOUD") and not api_key:
+            return {
+                "success": False,
+                "message": "Server configuration error: ESTIMATION_API_KEY is not configured"
+            }, 500
+
+        if api_key and request_key != api_key:
+            return {
+                "success": False,
+                "message": "Unauthorized: Invalid or missing X-API-KEY header"
+            }, 401
+
+    return None
+
+
 @app.after_request
 def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
