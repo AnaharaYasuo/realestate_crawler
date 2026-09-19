@@ -4,13 +4,10 @@ import logging
 import sys
 import signal
 import traceback
-<<<<<<< HEAD
 import time
 import inspect
 import asyncio
 import datetime
-=======
->>>>>>> origin/master
 from flask import Flask, request
 from django.apps import apps
 
@@ -144,7 +141,6 @@ def seriouslykill():
 
 
 
-<<<<<<< HEAD
 def get_dispatch_map():
     SelectorLoader.clear_cache()
 
