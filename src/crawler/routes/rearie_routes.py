@@ -16,8 +16,8 @@ rearie_bp = Blueprint('rearie', __name__)
 
 @rearie_bp.route(API_KEY_REARIE_MANSION_START, methods=['POST', 'GET'])
 def rearieMansionStart():
-    # 東京都全体の中古マンション
-    return ParseRearieMansionStartAsync().main("https://homes.panasonic.com/rearie/buy/property/mansion/list.html?pref=13")
+    # 中古マンション (Repros REST API)
+    return ParseRearieMansionStartAsync().main("https://phfudousan.repros.jp/api/v2/kubunList/?key=32df8d8a-58fb-5d59-ab6a-6e6c09239add")
 
 @rearie_bp.route(API_KEY_REARIE_MANSION_DETAIL, methods=['POST', 'GET'])
 def rearieMansionDetail():
@@ -28,8 +28,8 @@ def rearieMansionDetail():
 
 @rearie_bp.route(API_KEY_REARIE_KODATE_START, methods=['POST', 'GET'])
 def rearieKodateStart():
-    # 東京都全体の中古戸建て
-    return ParseRearieKodateStartAsync().main("https://homes.panasonic.com/rearie/buy/property/house/list.html?pref=13")
+    # 中古戸建て (Repros REST API)
+    return ParseRearieKodateStartAsync().main("https://phfudousan.repros.jp/api/v2/kodateList/?key=32df8d8a-58fb-5d59-ab6a-6e6c09239add")
 
 @rearie_bp.route(API_KEY_REARIE_KODATE_DETAIL, methods=['POST', 'GET'])
 def rearieKodateDetail():
@@ -40,8 +40,8 @@ def rearieKodateDetail():
 
 @rearie_bp.route(API_KEY_REARIE_TOCHI_START, methods=['POST', 'GET'])
 def rearieTochiStart():
-    # 東京都全体の土地
-    return ParseRearieTochiStartAsync().main("https://homes.panasonic.com/rearie/buy/property/land/list.html?pref=13")
+    # 土地 (Repros REST API)
+    return ParseRearieTochiStartAsync().main("https://phfudousan.repros.jp/api/v2/tochiList/?key=32df8d8a-58fb-5d59-ab6a-6e6c09239add")
 
 @rearie_bp.route(API_KEY_REARIE_TOCHI_DETAIL, methods=['POST', 'GET'])
 def rearieTochiDetail():
