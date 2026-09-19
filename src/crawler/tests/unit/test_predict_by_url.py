@@ -598,3 +598,51 @@ def test_predict_by_url_scale_normalization_and_bargain_detection(client):
     assert gap is None and ratio is None and is_bargain is False
 
 
+def test_predict_by_url_kenbiya_support(client, monkeypatch):
+    """健美家URLが正常にルーティング・パース・推論されることを検証"""
+    import datetime
+    import json
+    from decimal import Decimal
+    from package.models.kenbiya import KenbiyaInvestmentApartment
+
+    async def mock_parse(self, session, url):
+        item = KenbiyaInvestmentApartment()
+        item.pageUrl = url
+        item.propertyName = "世田谷区桜2丁目アパート"
+        item.price = 59800000
+        item.priceStr = "5,980万円"
+        item.grossYield = Decimal("5.67")
+        item.annualRent = 3396000
+        item.monthlyRent = 283000
+        item.address = "東京都世田谷区桜2-7"
+        item.propertyType = "Apartment"
+        item.tochiMenseki = Decimal("91.56")
+        item.tatemonoMenseki = Decimal("99.02")
+        item.kouzou = "木造2階建"
+        item.chikunengetsu = datetime.date(1990, 6, 1)
+        return item
+
+    monkeypatch.setattr("package.parser.kenbiyaParser.KenbiyaInvestmentApartmentParser.parsePropertyDetailPage", mock_parse)
+
+    target_url = "https://www.kenbiya.com/pp2/s/tokyo/setagaya-ku/re_4721854dw3/"
+    with patch('routes.evaluation_routes.predict_first_stage_local', return_value=58000000), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=58500000):
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({
+                "url": target_url,
+                "force_refresh": True
+            }),
+            content_type='application/json'
+        )
+
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert data["site"] == "kenbiya"
+    assert data["property_type"] == "apartment"
+    assert data["property_info"]["price"] == 59800000
+    assert data["prediction"]["first_stage_predicted_price"] == 58000000
+
+
+

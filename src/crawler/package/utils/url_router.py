@@ -5,6 +5,10 @@ from typing import Optional, Dict, Any
 from package.utils.property_type_detector import PropertyTypeDetector
 
 
+KENBIYA_PARSER_MODULE = "package.parser.kenbiyaParser"
+KENBIYA_MODEL_MODULE = "package.models.kenbiya"
+
+
 class UrlRouter:
     """
     URL正規表現から対応サイト・物件種別・パーサーを解決するルーター
@@ -182,6 +186,7 @@ class UrlRouter:
             "model_cls": "HomesInvestmentApartment",
         },
 
+
         # ミサワホーム (Misawa)
         {
             "pattern": re.compile(r"realestate\.misawa\.co\.jp/.*bukken_type%5B%5D=9|realestate\.misawa\.co\.jp/.*bukken_type=9"),
@@ -267,6 +272,62 @@ class UrlRouter:
             "parser_cls": "NomuraTochiParser",
             "model_module": "package.models.nomura",
             "model_cls": "NomuraTochi",
+        },
+
+        # 健美家 (Kenbiya)
+        {
+            "pattern": re.compile(r"kenbiya\.com/pp1/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "mansion",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaMansionParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaMansion",
+        },
+        {
+            "pattern": re.compile(r"kenbiya\.com/pp2/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "apartment",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaInvestmentApartmentParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaInvestmentApartment",
+        },
+        {
+            "pattern": re.compile(r"kenbiya\.com/pp[34]/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "apartment",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaInvestmentBuildingParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaInvestmentBuilding",
+        },
+        {
+            "pattern": re.compile(r"kenbiya\.com/pp8/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "kodate",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaKodateParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaKodate",
+        },
+        {
+            "pattern": re.compile(r"kenbiya\.com/pp5/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "tochi",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaTochiParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaTochi",
+        },
+        {
+            "pattern": re.compile(r"kenbiya\.com/.*re_[0-9a-zA-Z]+"),
+            "site": "kenbiya",
+            "property_type": "apartment",
+            "parser_module": KENBIYA_PARSER_MODULE,
+            "parser_cls": "KenbiyaInvestmentApartmentParser",
+            "model_module": KENBIYA_MODEL_MODULE,
+            "model_cls": "KenbiyaInvestmentApartment",
         },
     ]
 

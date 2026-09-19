@@ -100,6 +100,7 @@ MANSION_PARSERS = [
     ("sotetsu", "package.parser.sotetsuParser", "SotetsuMansionParser"),
     ("sumirin", "package.parser.sumirinParser", "SumirinMansionParser"),
     ("totate", "package.parser.totateParser", "TotateMansionParser"),
+    ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaMansionParser"),
 ]
 
 KODATE_PARSERS = [
@@ -127,6 +128,7 @@ KODATE_PARSERS = [
     ("sotetsu", "package.parser.sotetsuParser", "SotetsuKodateParser"),
     ("sumirin", "package.parser.sumirinParser", "SumirinKodateParser"),
     ("totate", "package.parser.totateParser", "TotateKodateParser"),
+    ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaKodateParser"),
 ]
 
 TOCHI_PARSERS = [
@@ -154,6 +156,7 @@ TOCHI_PARSERS = [
     ("sotetsu", "package.parser.sotetsuParser", "SotetsuTochiParser"),
     ("sumirin", "package.parser.sumirinParser", "SumirinTochiParser"),
     ("totate", "package.parser.totateParser", "TotateTochiParser"),
+    ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaTochiParser"),
 ]
 
 INVESTMENT_PARSERS = [
@@ -164,7 +167,10 @@ INVESTMENT_PARSERS = [
     ("smtrc", "package.parser.smtrcParser", "SmtrcInvestmentParser"),
     ("athome", "package.parser.athomeParser", "AthomeInvestmentApartmentParser"),
     ("homes", "package.parser.homesParser", "HomesInvestmentApartmentParser"),
+    ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaInvestmentApartmentParser"),
+    ("kenbiya_building", "package.parser.kenbiyaParser", "KenbiyaInvestmentBuildingParser"),
 ]
+
 
 
 def is_dummy_method(method) -> bool:
