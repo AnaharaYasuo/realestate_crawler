@@ -79,27 +79,30 @@ class KenbiyaParserBase(ParserBase):
                 await asyncio.sleep(1)
         raise LoadPropertyPageException(f"Exceeded max retries for {url}")
 
-    def _get_specs(self, response: BeautifulSoup) -> dict:
-        """dl > dt / dd または table から key-value スペック辞書を構築"""
-        specs = {}
-        if not response:
-            return specs
+    def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):
-            dts = dl.find_all("dt")
-            dds = dl.find_all("dd")
-            for dt, dd in zip(dts, dds):
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
                 key = dt.get_text(strip=True)
                 val = dd.get_text(" ", strip=True)
                 if key and val:
                     specs[key] = val
+
+    def _parse_tr_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for tr in response.find_all("tr"):
-            th = tr.find("th")
-            td = tr.find("td")
+            th, td = tr.find("th"), tr.find("td")
             if th and td:
                 key = th.get_text(strip=True)
                 val = td.get_text(" ", strip=True)
                 if key and val:
                     specs[key] = val
+
+    def _get_specs(self, response: BeautifulSoup) -> dict:
+        """dl > dt / dd または table から key-value スペック辞書を構築"""
+        specs = {}
+        if not response:
+            return specs
+        self._parse_dl_specs(response, specs)
+        self._parse_tr_specs(response, specs)
         return specs
 
     # 共通パースメソッド群
