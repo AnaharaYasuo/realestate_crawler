@@ -9,19 +9,30 @@ evaluation_bp = Blueprint('evaluation', __name__)
 def _check_api_key():
     """
     外部アクセス用APIキー検証
-    ESTIMATION_API_KEY 環境変数が設定されている場合、X-API-KEY ヘッダーを検証する
+    - クラウド環境(IS_CLOUD=true)ではAPIキー認証を完全強制
+    - ローカル環境でも ESTIMATION_API_KEY が設定されている場合は検証
     """
+    is_cloud = os.getenv("IS_CLOUD", "").lower() in ("true", "1")
     required_key = os.getenv("ESTIMATION_API_KEY")
+    
+    if is_cloud and not required_key:
+        logging.error("ESTIMATION_API_KEY is not configured in cloud environment")
+        return jsonify({
+            "success": False,
+            "message": "Server configuration error: API key not configured"
+        }), 500
+
     if not required_key:
-        return None  # 未設定時はスキップ（オープンアクセス）
+        return None  # ローカル開発時のみ未設定スキップ
     
     provided_key = request.headers.get("X-API-KEY")
     if not provided_key or provided_key != required_key:
         return jsonify({
             "success": False,
-            "message": "Unauthorized: Invalid or missing API key"
+            "message": "Unauthorized: Invalid or missing X-API-KEY header"
         }), 401
     return None
+
 
 @evaluation_bp.before_request
 def check_evaluation_request():

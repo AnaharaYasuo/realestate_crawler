@@ -9,6 +9,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
     google_sql_database_instance.mysql_instance,
     google_vpc_access_connector.vpc_connector,
     google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_version.estimation_api_key_version,
     google_secret_manager_secret_iam_member.secret_accessor
   ]
 
@@ -69,6 +70,16 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.db_password_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "ESTIMATION_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.estimation_api_key_secret.secret_id
             version = "latest"
           }
         }

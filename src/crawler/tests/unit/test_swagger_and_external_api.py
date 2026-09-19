@@ -128,3 +128,25 @@ def test_api_key_auth_when_not_configured(client, monkeypatch):
     )
     assert response.status_code == 200
     assert response.get_json()["success"] is True
+
+def test_cloud_environment_enforces_api_key_configuration(client, monkeypatch):
+    """In cloud (IS_CLOUD=true), missing ESTIMATION_API_KEY causes 500 configuration error"""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.delenv("ESTIMATION_API_KEY", raising=False)
+
+    payload = {
+        "property_data": {
+            "price": 35000000,
+            "address": "東京都世田谷区桜丘1-1",
+            "station1": "経堂",
+            "senyuMenseki": 55.5
+        }
+    }
+    resp = client.post(
+        '/api/evaluation/predict/mansion',
+        data=json.dumps(payload),
+        content_type='application/json'
+    )
+    assert resp.status_code == 500
+    assert resp.get_json()["success"] is False
+
