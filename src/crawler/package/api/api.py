@@ -534,15 +534,28 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
-        self._getActiveEventLoop()
-        self.semaphore = asyncio.Semaphore(
-            value=self._getPararellLimit())
+        self._semaphore = None
+
+    @property
+    def semaphore(self):
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(value=self._getPararellLimit())
+        return self._semaphore
+
+    @semaphore.setter
+    def semaphore(self, value):
+        self._semaphore = value
 
     def _getActiveEventLoop(self):
-        if (self._loop is None or self._loop.is_closed()):
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
-        return self._loop
+        try:
+            loop = asyncio.get_running_loop()
+            self._loop = loop
+            return loop
+        except RuntimeError:
+            if (self._loop is None or self._loop.is_closed()):
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+            return self._loop
 
     def _generateConnector(self, _loop):
         # SSL Context with Legacy Support
@@ -553,7 +566,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             # OP_LEGACY_SERVER_CONNECT = 0x4
             ctx.options |= 0x4
             ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
-        except:
+        except Exception:
             pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
@@ -779,7 +792,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             
             # Try to extract an ID or use timestamp
             property_id = re.search(r'detail_([^/]+)', url)
-            if not property_id: property_id = re.search(r'bkdetail/([^/]+)', url)
+            if not property_id:
+                property_id = re.search(r'bkdetail/([^/]+)', url)
             
             p_id = property_id.group(1) if property_id else str(int(datetime.datetime.now().timestamp()))
             
@@ -1302,7 +1316,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                                 category=img["category"],
                                                 is_cleaned=True
                                             )
-                                        except:
+                                        except Exception:
                                             pass
                                     
                                 # 偏差値（T-score）ベースの上位1%判定
