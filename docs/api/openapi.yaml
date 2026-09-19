@@ -141,44 +141,84 @@ components:
       properties:
         price:
           type: integer
-          description: 販売価格（円）
+          description: 販売価格（円）。※必須
           example: 45000000
         address:
           type: string
-          description: 物件の住所（市区町村地価・所得・ハザードマスタ引き当て用）
+          description: 物件の住所（市区町村地価・所得・ハザードマスタ自動引き当て用）。※必須
           example: "東京都世田谷区桜丘1-1"
+        address1:
+          type: string
+          description: 都道府県名
+          example: "東京都"
+        address2:
+          type: string
+          description: 市区町村名
+          example: "世田谷区"
         station1:
           type: string
-          description: 最寄り駅名（駅ポテンシャルマスタ引き当て用）
+          description: 最寄り駅名（駅ポテンシャル・乗降客数引き当て用）
           example: "経堂"
-        chikunengetsuStr:
+        railway1:
           type: string
-          description: 築年月（和暦・西暦どちらも可）
-          example: "平成15年10月"
+          description: 最寄り沿線名
+          example: "小田急小田原線"
         railwayWalkMinute1:
           type: integer
           description: 最寄り駅からの徒歩分数（分）。デフォルト 15 分
           example: 8
+        traffic:
+          type: string
+          description: 交通テキスト（バス乗車分数や停歩が自動抽出されます）
+          example: "小田急線 経堂駅 徒歩8分"
+        busStation1:
+          type: string
+          description: 最寄りバス停名
+          example: "桜丘一丁目"
+        busWalkMinute1:
+          type: integer
+          description: バス停徒歩分数（分）
+          example: 2
+        chikunengetsuStr:
+          type: string
+          description: 築年月（和暦・西暦どちらも可）
+          example: "平成15年10月"
+        chikunen:
+          type: number
+          description: 築年数（年）。chikunengetsuStrの代わりに数値を直接渡すことも可能
+          example: 21.0
         kouzou:
           type: string
-          description: 建物の構造
+          description: 建物の構造（RC, SRC, 鉄骨造, 軽量鉄骨造, 木造など）
           example: "RC"
         yousekiStr:
           type: string
-          description: 指定容積率 (例: 200%)
+          description: '指定容積率（例: "200%" または数値）'
           example: "200%"
         kenpeiStr:
           type: string
-          description: 指定建ぺい率 (例: 60%)
+          description: '指定建ぺい率（例: "60%" または数値）'
           example: "60%"
+        youtoChiiki:
+          type: string
+          description: 用途地域（第一種住居地域、商業地域など）
+          example: "第一種低層住居専用地域"
+        kuiki:
+          type: string
+          description: 都市計画区域（市街化区域、市街化調整区域など）
+          example: "市街化区域"
         tochikenri:
           type: string
-          description: 土地権利形態（借地権の割引率 rights_ratio の自動補正用）
+          description: 土地権利形態（所有権、借地権、定期借地権、底地など。借地割合を自動補正）
           example: "所有権"
+        chimoku:
+          type: string
+          description: 地目（宅地、畑、山林など）
+          example: "宅地"
         biko:
           type: string
-          description: 備考（再建築不可や市街化調整区域などの制限判定用）
-          example: "市街化調整区域"
+          description: 備考（再建築不可、市街化調整区域、定期借地、旗竿地などの判定キー）
+          example: "閑静な住宅街、日当たり良好"
 
     MansionPropertyData:
       allOf:
@@ -189,8 +229,28 @@ components:
           properties:
             senyuMenseki:
               type: number
-              description: 専有面積 (㎡)
+              description: 専有面積 (㎡)。※必須
               example: 72.5
+            balconyMenseki:
+              type: number
+              description: バルコニー面積 (㎡)
+              example: 11.2
+            floorPlan:
+              type: string
+              description: 間取り（3LDK, 2LDK, 1Kなど）
+              example: "3LDK"
+            shozaikai:
+              type: integer
+              description: 所在階
+              example: 5
+            souKaisu:
+              type: integer
+              description: 総階数
+              example: 12
+            muki:
+              type: string
+              description: 主要採光方角（南, 南東, 東など）
+              example: "南"
             kanrihi:
               type: integer
               description: 月額管理費（円）
@@ -199,6 +259,10 @@ components:
               type: integer
               description: 月額修繕積立金（円）
               example: 15000
+            kanriKeitai:
+              type: string
+              description: 管理形態（全部委託、日勤など）
+              example: "全部委託"
 
     KodatePropertyData:
       allOf:
@@ -210,12 +274,16 @@ components:
           properties:
             tatemonoMenseki:
               type: number
-              description: 建物面積 (㎡)
+              description: 建物延床面積 (㎡)。※必須
               example: 95.0
             tochiMenseki:
               type: number
-              description: 土地有効面積 (㎡)
+              description: 土地有効面積 (㎡)。※必須
               example: 120.0
+            floorPlan:
+              type: string
+              description: 間取り（4LDK, 3LDKなど）
+              example: "4LDK"
             maguchi:
               type: number
               description: 接道間口 (m)
@@ -224,10 +292,26 @@ components:
               type: number
               description: 前面道路幅員 (m)
               example: 4.5
+            roadDirection:
+              type: string
+              description: 道路方角（南、北、東、西など）
+              example: "南"
+            roadType:
+              type: string
+              description: 道路種別（公道、私道）
+              example: "公道"
+            roadStructure:
+              type: string
+              description: 接道構造（角地、準角地、二方道路など）
+              example: "角地"
             setsudou:
               type: string
-              description: 接道状況詳細テキスト (例: "南側道路 幅員4m 公道")
-              example: "南側道路 幅員4m 公道"
+              description: '接道状況詳細テキスト (例: "南側道路 幅員4.5m 公道")'
+              example: "南側道路 幅員4.5m 公道"
+            setback:
+              type: string
+              description: 'セットバック情報（例: "要セットバック2.0㎡"）'
+              example: "無"
 
     ApartmentPropertyData:
       allOf:
@@ -241,12 +325,28 @@ components:
           properties:
             tatemonoMenseki:
               type: number
-              description: 建物延床面積 (㎡)
+              description: 建物延床面積 (㎡)。※必須
               example: 220.0
             tochiMenseki:
               type: number
-              description: 土地面積 (㎡)
+              description: 土地面積 (㎡)。※必須
               example: 180.0
+            grossYield:
+              type: number
+              description: 表面利回り (%) ※収益価格特徴量。※必須
+              example: 6.8
+            annualRent:
+              type: integer
+              description: 年間想定賃料（円） ※収益価格特徴量。※必須
+              example: 8160000
+            monthlyRent:
+              type: integer
+              description: 月額想定賃料（円）
+              example: 680000
+            genkyo:
+              type: string
+              description: 現況（満室賃貸中、一部空室など）
+              example: "満室賃貸中"
             maguchi:
               type: number
               description: 接道間口 (m)
@@ -259,14 +359,6 @@ components:
               type: string
               description: 接道状況詳細テキスト
               example: "東側幅員5m公道"
-            grossYield:
-              type: number
-              description: 表面利回り (%) ※収益価格特徴量
-              example: 6.8
-            annualRent:
-              type: integer
-              description: 年間想定賃料（円） ※収益価格特徴量
-              example: 8160000
 
     TochiPropertyData:
       allOf:
@@ -277,7 +369,7 @@ components:
           properties:
             tochiMenseki:
               type: number
-              description: 土地面積 (㎡)
+              description: 土地面積 (㎡)。※必須
               example: 100.0
             maguchi:
               type: number
@@ -287,10 +379,42 @@ components:
               type: number
               description: 前面道路幅員 (m)
               example: 4.0
+            roadDirection:
+              type: string
+              description: 道路方角（南、北、東、西など）
+              example: "北"
+            roadType:
+              type: string
+              description: 道路種別（公道、私道）
+              example: "公道"
+            roadStructure:
+              type: string
+              description: 接道構造（角地、一方道路など）
+              example: "一方"
             setsudou:
               type: string
               description: 接道状況詳細テキスト
               example: "北側道路4m公道"
+            setback:
+              type: string
+              description: 'セットバック情報（例: "要セットバック2.0㎡"）'
+              example: "無"
+            is_furuya:
+              type: number
+              description: '古家ありフラグ (1.0: あり, 0.0: なし)。未指定でも備考や現況から自動抽出'
+              example: 0.0
+            has_demolition_condition:
+              type: number
+              description: '更地渡し・解体条件フラグ (1.0: 売主解体更地渡し, 0.0: 買主負担解体)'
+              example: 0.0
+            furuya_bldg_area:
+              type: number
+              description: 古家建物延床面積 (㎡)
+              example: 80.0
+            kagechi_ratio:
+              type: number
+              description: かげ地割合 (0.0〜1.0)。旗竿地や不整形地ペナルティ計算用
+              example: 0.0
 
   responses:
     SuccessResponse:
