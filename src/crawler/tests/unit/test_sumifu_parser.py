@@ -48,6 +48,21 @@ class TestSumifuParser:
         entity = parser.createEntity()
         assert isinstance(entity, SumifuInvestmentKodate)
 
+    def test_investment_charset_is_cp932(self):
+        """住友不動産ステップ投資用物件はShift_JIS(CP932)のためgetCharset()がcp932を返すこと"""
+        apt_parser = SumifuInvestmentApartmentParser(None)
+        kodate_parser = SumifuInvestmentKodateParser(None)
+        assert apt_parser.getCharset() == "cp932"
+        assert kodate_parser.getCharset() == "cp932"
+
+    def test_investment_parse_kouzou_string_handling(self):
+        """スペック辞書の値が文字列の場合でも例外なく構造が抽出できること"""
+        parser = SumifuInvestmentApartmentParser(None)
+        soup = BeautifulSoup("<table><tr><th>階数構造</th><td>地上3階建て鉄骨造</td></tr></table>", "html.parser")
+        kouzou = parser._parseKouzou(soup)
+        assert kouzou == "鉄骨造"
+
+
     def test_parser_configuration(self):
         parser = SumifuMansionParser(None)
         assert parser.__class__.__name__ == 'SumifuMansionParser'

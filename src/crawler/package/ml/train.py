@@ -517,10 +517,13 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
         if X[col].dtype == 'object':
             X[col] = X[col].astype('category').cat.codes
             
-    # 大規模データセット（3,000件超）では 3-Fold CV で高速・高精度評価
+    # 大規模データセット（3,000件超）では 3-Fold CV で高速・高精度評価。極小テストデータ（50件未満）では 2-Fold で瞬時検証
     if len(df) > 3000:
         rkf = KFold(n_splits=3, shuffle=True, random_state=42)
         cv_desc = "3-Fold Fast CV"
+    elif len(df) < 50:
+        rkf = KFold(n_splits=2, shuffle=True, random_state=42)
+        cv_desc = "2-Fold Quick CV"
     else:
         rkf = RepeatedKFold(n_splits=5, n_repeats=3, random_state=42)
         cv_desc = "15-Cycle Repeated CV"
@@ -531,9 +534,9 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
     trained_models = {}
     best_params_dict = {}
     
-    # 事前チューニングの実行（データ数が多い場合のみ）
+    # 事前チューニングの実行（本番規模の十分なデータ数がある場合のみ）
     for name in algos:
-        if len(df) >= 30:
+        if len(df) >= 100:
             print(f"Tuning hyperparameters for {name}...", flush=True)
             best_params_dict[name] = tune_hyperparameters(X, y, name)
             print(f"Best params for {name}: {best_params_dict[name]}", flush=True)
