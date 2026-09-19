@@ -181,7 +181,11 @@ class ParserBase(metaclass=ABCMeta):
         xpath_pattern = xpath_fn() if callable(xpath_fn) else ""
         for link in response.find_all("a"):
             href = link.get("href")
-            if not href:
+            if not href or href == "#":
+                continue
+            if href.startswith("javascript:") or href.startswith("mailto:") or href.startswith("tel:"):
+                continue
+            if "/inquiry" in href or "/contact" in href:
                 continue
             # If target pattern expects property details, filter out non-detail URLs and wrong categories (e.g. /rent/, /chintai/)
             if xpath_pattern:
@@ -204,6 +208,8 @@ class ParserBase(metaclass=ABCMeta):
             except Exception:
                 dest_url = None
             if dest_url and isinstance(dest_url, str) and dest_url.startswith("http"):
+                if "javascript:" in dest_url or "void(0)" in dest_url or "/inquiry" in dest_url or "/contact" in dest_url:
+                    continue
                 yield dest_url
 
     def _split_address(self, address_str: str):
@@ -371,14 +377,34 @@ class ParserBase(metaclass=ABCMeta):
                 val_cleaned = re.sub(r'\s+', ' ', val_str)
                 setattr(item, field.name, val_cleaned)
 
-        # price フィールドの数値検証・型安全ガード
-        if hasattr(item, 'price'):
-            price_val = getattr(item, 'price', None)
-            if price_val is not None:
-                try:
-                    setattr(item, 'price', int(price_val))
-                except (ValueError, TypeError):
-                    setattr(item, 'price', None if item._meta.get_field('price').null else 0)
+        # 数値フィールドの数値検証・NOT NULL制約ガード・オーバーフロー防止
+        for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen']:
+            if hasattr(item, int_field_name):
+                f_obj = item._meta.get_field(int_field_name)
+                f_val = getattr(item, int_field_name, None)
+                if f_val is not None:
+                    try:
+                        val_int = int(f_val)
+                        # 32-bit IntegerField に対するオーバーフロー防止（BIGINT未適用のテーブル向け安全ガード）
+                        if isinstance(f_obj, models.IntegerField) and not isinstance(f_obj, models.BigIntegerField):
+                            if val_int > 2147483647:
+                                val_int = 2147483647
+                            elif val_int < -2147483648:
+                                val_int = -2147483648
+                        setattr(item, int_field_name, val_int)
+                    except (ValueError, TypeError):
+                        setattr(item, int_field_name, None if f_obj.null else 0)
+                elif not f_obj.null:
+                    setattr(item, int_field_name, 0)
+
+        # grossYield (DecimalField) の NOT NULL ガード
+        if hasattr(item, 'grossYield'):
+            f_obj = item._meta.get_field('grossYield')
+            gy_val = getattr(item, 'grossYield', None)
+            if gy_val is None and not f_obj.null:
+                from decimal import Decimal
+                setattr(item, 'grossYield', Decimal('0.0'))
+
 
         # station1, station2, station3 の表記統一 (『成城学園前』駅 -> 成城学園前, 勝どき駅 -> 勝どき)
         for st_field in ['station1', 'station2', 'station3']:

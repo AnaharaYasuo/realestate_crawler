@@ -128,9 +128,11 @@ class SumifuParser(ParserBase):
             return None
             
         href = next_link.get("href", "")
-        if not href or href == "#":
+        if not href or href == "#" or href.startswith("javascript:"):
             return None
         nextPageUrl = urllib.parse.urljoin(self.BASE_URL, href)
+        if "javascript:" in nextPageUrl or "void(0)" in nextPageUrl:
+            return None
         logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
         return nextPageUrl
 
@@ -503,7 +505,12 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         for link in links:
             href = link.get("href")
             if href:
-                yield urllib.parse.urljoin(self.BASE_URL, href)
+                if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
+                    continue
+                if "/pro/detail_" in href or "/detail_" in href:
+                    joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+                    if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                        yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -523,9 +530,12 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             href = getattr(next_link, "get", lambda k: None)("href")
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
-            if href and href != "#":
-                return urllib.parse.urljoin(self.BASE_URL, href)
+            if href and href != "#" and not href.startswith("javascript:"):
+                joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+                if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                    return joined_url
         return ""
+
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 1. Scraping basic labels

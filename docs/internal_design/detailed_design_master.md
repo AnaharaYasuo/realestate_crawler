@@ -300,6 +300,11 @@ graph TD
 ### 6.19 住友不動産ステップ投資物件 Shift_JIS(CP932) エンコーディング適正化原則
 - **Shift_JIS(CP932) レスポンスの正確なデコード**: 住友不動産ステップの投資用物件詳細ページ（`/pro/detail_...`）はサーバーから Shift_JIS (CP932) で配信される。`SumifuInvestmentParserBase.getCharset()` の戻り値を `"cp932"` に明示指定し、従来の UTF-8 強制デコードによる全日本語文字（`所在地`, `価格` 等）の化け（`\ufffd` への置換）およびそれに伴う `StrictExtractionFailed: address is empty` 例外（48時間で109件発生）を根絶する。
 
+### 6.20 非物件リンク・JavaScript URL 厳格除外および数値カラム NOT NULL/オーバーフローガード原則
+- **非物件リンク・JavaScript 擬似リンクの除外**: `baseParser.py` の `_parsePageCore` および各社パーサーの `parsePropertyListPage` / `parseNextPage` において、`javascript:`, `mailto:`, `tel:`, `#`, および問い合わせページ（`/inquiry`, `/contact`）のリンクを完全除外する。これにより `urljoin` による `https://...javascript:void(0);` 結合異常（`InvalidUrlClientError`）および問い合わせページの誤パースによる `'NoneType' object has no attribute 'replace'` を根絶する。
+- **数値フィールドの NOT NULL ガードおよび 32-bit INT クランプ**: `clean_parsed_item` において、`annualRent`, `monthlyRent`, `soukosu`, `chikunen` 等の数値カラムが `None` でかつ DB 側 `NOT NULL` 制約の場合は自動で `0` を代入し `IntegrityError (1048)` を防止する。また `IntegerField` に対し 21.4億円超の値が代入された際は 32-bit 最大値（`2147483647`）へ自動クランプし `DataError (1264)` の発生を完全に抑止する。
+- **grossYield (DecimalField) の NOT NULL ガード**: `grossYield` が `None` で `NOT NULL` 制約の場合は `Decimal('0.0')` を代入する。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -310,6 +315,7 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 2.0 (価格BigInteger拡張・住友不動産投資CP932適正化追記)
+**バージョン**: 2.1 (価格BigInteger拡張・住友不動産投資CP932・非物件リンク除外・数値カラム整合性ガード追記)
+
 
 
