@@ -18,11 +18,15 @@ from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi
 from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuTochi
 from package.models.misawa import MisawaMansion, MisawaKodate
 from package.models.smtrc import SmtrcMansion
+from package.models.keio import KeioMansion
+from package.models.rearie import RearieMansion
 
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser
 from package.parser.tokyuParser import TokyuMansionParser, TokyuKodateParser, TokyuTochiParser
 from package.parser.misawaParser import MisawaMansionParser, MisawaKodateParser
 from package.parser.smtrcParser import SmtrcMansionParser
+from package.parser.keioParser import KeioMansionParser
+from package.parser.rearieParser import RearieMansionParser, RearieParser
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -38,7 +42,7 @@ TARGET_SITES = [
         "site": "mitsui_mansion",
         "list_url": "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/",
         "base_url": "https://www.rehouse.co.jp",
-        "detail_pattern": r"/(bkdetail|detail)/",
+        "detail_pattern": r"/buy/mansion/bkdetail/",
         "parser_cls": MitsuiMansionParser,
         "model_cls": MitsuiMansion,
         "encoding": "utf-8",
@@ -47,7 +51,7 @@ TARGET_SITES = [
         "site": "mitsui_kodate",
         "list_url": "https://www.rehouse.co.jp/buy/kodate/prefecture/13/city/13101/",
         "base_url": "https://www.rehouse.co.jp",
-        "detail_pattern": r"/(bkdetail|detail)/",
+        "detail_pattern": r"/buy/kodate/bkdetail/",
         "parser_cls": MitsuiKodateParser,
         "model_cls": MitsuiKodate,
         "encoding": "utf-8",
@@ -56,7 +60,7 @@ TARGET_SITES = [
         "site": "mitsui_tochi",
         "list_url": "https://www.rehouse.co.jp/buy/tochi/prefecture/13/city/13101/",
         "base_url": "https://www.rehouse.co.jp",
-        "detail_pattern": r"/(bkdetail|detail)/",
+        "detail_pattern": r"/buy/tochi/bkdetail/",
         "parser_cls": MitsuiTochiParser,
         "model_cls": MitsuiTochi,
         "encoding": "utf-8",
@@ -120,6 +124,27 @@ TARGET_SITES = [
         "model_cls": SmtrcMansion,
         "encoding": "utf-8",
     },
+    # --- 京王不動産 (Keio) ---
+    {
+        "site": "keio_mansion",
+        "list_url": "https://chukai.keiofudosan.co.jp/wp-json/wp/v2/get_search_result_sale?rent_or_sale=sale&area_or_line=area&item_per_page=30&page_num=1&pref=13&boshu_kind_summary_code%5B%5D=1",
+        "base_url": "https://chukai.keiofudosan.co.jp",
+        "detail_pattern": r"/sale/\d+",
+        "parser_cls": KeioMansionParser,
+        "model_cls": KeioMansion,
+        "encoding": "utf-8",
+        "ssl_context": True,
+    },
+    # --- レアリエ (Rearie) ---
+    {
+        "site": "rearie_mansion",
+        "list_url": "https://phfudousan.repros.jp/api/v2/kubunList/?key=32df8d8a-58fb-5d59-ab6a-6e6c09239add",
+        "base_url": "https://phfudousan.repros.jp",
+        "detail_pattern": r"kubunDetail",
+        "parser_cls": RearieMansionParser,
+        "model_cls": RearieMansion,
+        "encoding": "utf-8",
+    },
 ]
 
 def assert_full_model_fields(item, model_cls, site_name: str):
@@ -168,7 +193,9 @@ async def run_single_site_test(target: dict):
     encoding = target.get("encoding", "utf-8")
 
     ssl_val = False
-    if target.get("ssl_fix"):
+    if target.get("ssl_context"):
+        ssl_val = ssl.create_default_context()
+    elif target.get("ssl_fix"):
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
@@ -179,20 +206,44 @@ async def run_single_site_test(target: dict):
     timeout = aiohttp.ClientTimeout(total=20)
 
     async with aiohttp.ClientSession(headers=HEADERS, connector=connector, timeout=timeout) as session:
-        print(f"\n[{site.upper()}] Fetching List URL: {list_url}")
-        async with session.get(list_url, ssl=ssl_val) as resp:
-            assert resp.status == 200, f"[{site}] Failed to access list URL: {list_url} (HTTP {resp.status})"
-            raw_bytes = await resp.read()
-            html = raw_bytes.decode(encoding, errors='replace')
+        req_headers = dict(HEADERS)
+        if "wp-json" in list_url:
+            req_headers['Accept'] = 'application/json, text/javascript, */*; q=0.01'
+            req_headers['X-Requested-With'] = 'XMLHttpRequest'
+            req_headers['Referer'] = 'https://chukai.keiofudosan.co.jp/sale/search/area/pref_13/'
+        elif "phfudousan.repros.jp" in list_url:
+            req_headers.update(RearieParser.REPROS_HEADERS)
 
-        soup = BeautifulSoup(html, "html.parser")
-        all_links = [a.get("href") for a in soup.find_all("a", href=True)]
-        
-        detail_links = []
-        for href in all_links:
-            full_url = urllib.parse.urljoin(base_url, href)
-            if re.search(pattern, full_url) and full_url not in detail_links:
-                detail_links.append(full_url)
+        async with session.get(list_url, headers=req_headers, ssl=ssl_val) as resp:
+            assert resp.status == 200, f"[{site}] Failed to access list URL: {list_url} (HTTP {resp.status})"
+            content_type = resp.headers.get("Content-Type", "")
+            if "phfudousan.repros.jp" in list_url:
+                res_json = await resp.json()
+                items = res_json.get("data", {}).get("list", [])
+                detail_links = [
+                    f"https://phfudousan.repros.jp/api/v1/kubunDetail/?id={itm['id']}&key={RearieParser.REPROS_KEY}"
+                    for itm in items if "id" in itm
+                ]
+            elif "json" in content_type or "wp-json" in list_url:
+                data = await resp.json()
+                html = data.get("html", "")
+                soup = BeautifulSoup(html, "html.parser")
+                all_links = [a.get("href") for a in soup.find_all("a", href=True)]
+                detail_links = []
+                for href in all_links:
+                    full_url = urllib.parse.urljoin(base_url, href)
+                    if re.search(pattern, full_url) and full_url not in detail_links:
+                        detail_links.append(full_url)
+            else:
+                raw_bytes = await resp.read()
+                html = raw_bytes.decode(encoding, errors='replace')
+                soup = BeautifulSoup(html, "html.parser")
+                all_links = [a.get("href") for a in soup.find_all("a", href=True)]
+                detail_links = []
+                for href in all_links:
+                    full_url = urllib.parse.urljoin(base_url, href)
+                    if re.search(pattern, full_url) and full_url not in detail_links:
+                        detail_links.append(full_url)
 
         print(f"[{site}] Extracted Detail Links: {len(detail_links)} links found.")
         assert len(detail_links) > 0, f"[{site}] ZERO DETAIL LINKS EXTRACTED from {list_url}! Selector/Route needs update."
@@ -204,23 +255,26 @@ async def run_single_site_test(target: dict):
 
         for idx, detail_url in enumerate(test_sample_urls, 1):
             print(f" [{site}] Fetching Detail #{idx}/{sample_count}: {detail_url}")
-            async with session.get(detail_url, ssl=ssl_val) as d_resp:
-                if d_resp.status in (403, 404):
-                    print(f" [{site}] Detail URL HTTP {d_resp.status} (Skipped expired page): {detail_url}")
-                    continue
-                assert d_resp.status == 200, f"[{site}] Detail page HTTP {d_resp.status}: {detail_url}"
-                d_bytes = await d_resp.read()
-                d_html = d_bytes.decode(encoding, errors='replace')
-
-            d_soup = BeautifulSoup(d_html, "html.parser")
-            item = parser.createEntity()
-
-            # 純パース時間計測 & SLA アサーション
             start_parse = time.perf_counter()
-            parsed_item = parser._parsePropertyDetailPage(item, d_soup)
-            cleaned_item = parser.clean_parsed_item(parsed_item)
-            parse_ms = (time.perf_counter() - start_parse) * 1000.0
+            if "phfudousan.repros.jp" in detail_url:
+                cleaned_item = await parser.parsePropertyDetailPage(session, detail_url)
+            else:
+                async with session.get(detail_url, ssl=ssl_val) as d_resp:
+                    if d_resp.status in (403, 404):
+                        print(f" [{site}] Detail URL HTTP {d_resp.status} (Skipped expired page): {detail_url}")
+                        continue
+                    assert d_resp.status == 200, f"[{site}] Detail page HTTP {d_resp.status}: {detail_url}"
+                    d_bytes = await d_resp.read()
+                    d_html = d_bytes.decode(encoding, errors='replace')
 
+                d_soup = BeautifulSoup(d_html, "html.parser")
+                item = parser.createEntity()
+
+                # 純パース時間計測 & SLA アサーション
+                parsed_item = parser._parsePropertyDetailPage(item, d_soup)
+                cleaned_item = parser.clean_parsed_item(parsed_item)
+
+            parse_ms = (time.perf_counter() - start_parse) * 1000.0
             print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")
             assert parse_ms < 10000.0, f"[{site}] Pure parse time exceeded 10,000ms SLA: {parse_ms:.2f}ms"
 

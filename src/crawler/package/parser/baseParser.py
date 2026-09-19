@@ -140,13 +140,20 @@ class ParserBase(metaclass=ABCMeta):
             return {}
         specs = {}
         for tr in response.find_all("tr"):
-            th = tr.find("th")
-            td = tr.find("td")
-            if th and td:
-                k = th.get_text(strip=True)
-                v = td.get_text(strip=True)
-                if k:
-                    specs[k] = v
+            ths = tr.find_all("th")
+            tds = tr.find_all("td")
+            if ths and tds:
+                if len(ths) == len(tds):
+                    for th, td in zip(ths, tds):
+                        k = th.get_text(strip=True)
+                        v = td.get_text(strip=True)
+                        if k:
+                            specs[k] = v
+                else:
+                    k = ths[0].get_text(strip=True)
+                    v = tds[0].get_text(strip=True)
+                    if k:
+                        specs[k] = v
         for dl in response.find_all("dl"):
             dts = dl.find_all("dt")
             dds = dl.find_all("dd")
@@ -157,8 +164,11 @@ class ParserBase(metaclass=ABCMeta):
                     specs[k] = v
         for row in response.select(".table-row, div.row, tr.table-row"):
             lbl = row.select_one(".label, .table-header, th, dt")
-            val = row.select_one(".content, .table-data, td, dd")
-            if lbl and val:
+            val = row.select_one(".content, .table-data")
+            if not val or val == lbl:
+                candidates = [el for el in row.find_all(["td", "dd"]) if el != lbl]
+                val = candidates[0] if candidates else None
+            if lbl and val and lbl != val:
                 k = lbl.get_text(strip=True)
                 v = val.get_text(strip=True)
                 if k and k not in specs:
