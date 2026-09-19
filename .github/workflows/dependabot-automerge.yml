@@ -1,0 +1,39 @@
+name: Dependabot Daily Auto-Merge & Self-Healing
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 09:00 JST / 00:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (do not merge or request rebase)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot-automerge:
+    name: Auto-Merge & Self-Healing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d # v5.1.0
+        with:
+          python-version: '3.11'
+
+      - name: Run Dependabot Auto-Merge & Self-Healing
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="--dry-run"
+          fi
+          python src/crawler/scripts/ops/dependabot_automerge.py $ARGS
