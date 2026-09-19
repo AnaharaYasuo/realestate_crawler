@@ -331,6 +331,11 @@
 - Slackのアラートチャンネル（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#property_alert` 等、または `SLACK_ALERT_*` で指定された宛先）へ送信されるすべてのアラートメッセージ本文および異常内容は、Slack送信の成否に関わらず、必ずアプリケーションログへ `ERROR` レベル（`logger.error`）として同期出力・記録すること。
 - これにより、GCP Cloud Logging 等の外部ログ監視システム（`severity>=ERROR` フィルター）において、Slackに発報されたシステム異常やパース障害が取りこぼされることなく網羅的に検知・集約されることを保証すること。
 
+#### FR-016: APIリクエスト・レスポンスの送受信ペイロード構造化ログ出力 (API Request & Response Payload Logging)
+- クローラーAPIサーバー（Flask）および非同期通信ミドルウェアにおいて、受信したリクエスト（HTTPメソッド、パス、クエリパラメータ、リクエストボディ/JSON/Form）および返却したレスポンス（HTTPステータスコード、処理時間ms、レスポンスボディ/JSON）をアプリケーションログに出力・記録すること。
+- セキュリティ保護要件として、認証キー（`X-API-KEY`, `Authorization`、トークン等）および機密パラメータは自動でマスキング処理を行うこと。
+- ログ肥大化防止として、極端に長大なレスポンスボディ（>2000文字）はプレビューに要約・クランプし、ステータスコードに応じた適切なログレベル（2xx/3xx: `INFO`, 4xx: `WARNING`, 5xx: `ERROR`）で記録すること。
+
 ### 2.5 実行制御機能
 
 #### FR-014: コマンドライン実行

@@ -54,12 +54,24 @@ class RetryMiddleware(CrawlerMiddleware):
         return response_context
 
 class LoggingMiddleware(CrawlerMiddleware):
-    """ログ記録ミドルウェア"""
+    """ログ記録ミドルウェア（リクエスト・レスポンスの送受信ペイロードを出力）"""
     
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
-        logger.debug(f"Middleware Request: {request_context.get('method')} {request_context.get('url')}")
+        method = request_context.get('method')
+        url = request_context.get('url')
+        payload = (
+            request_context.get('payload')
+            or request_context.get('data')
+            or request_context.get('params')
+            or request_context.get('detailUrl')
+        )
+        logger.info(f"Middleware Request: {method} {url} | Payload: {payload}")
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
-        logger.debug(f"Middleware Response: {response_context.get('status')} {response_context.get('url')}")
+        status = response_context.get('status')
+        url = response_context.get('url')
+        data = response_context.get('data') or response_context.get('text')
+        data_preview = str(data)[:1000] if data is not None else None
+        logger.info(f"Middleware Response: {status} {url} | Body: {data_preview}")
         return response_context
