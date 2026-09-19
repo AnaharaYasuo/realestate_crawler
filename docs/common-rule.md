@@ -31,8 +31,10 @@
    - 参照先: `.agents/skills/git-push-workflow/SKILL.md`
 
 7. **仕様駆動開発スキル** (`/spec-driven-development`)
-   - 仕様定義 ➔ テスト ➔ コード実装のトップダウン開発プロセスとドキュメント同期
-   - 参照先: `.agents/skills/spec-driven-development/SKILL.md`
+   - **GitHub Issue起票 ➔ 仕様定義 ➔ テスト ➔ コード実装** のトップダウン開発プロセス
+   - 今後修正・追加する内容はすべて Issue 単位で GitHub Issues に起票し、ユーザーストーリーおよび受入基準（アクセプタンスクライテリア）に合意の上で実装
+   - 仕様マークダウンの構図（要件 ➔ 設計）の維持と、README.md インデックスとの完全同期
+   - 参照先: `.agents/skills/spec-driven-development/SKILL.md` / `.agents/AGENTS.md`
 
 8. **自律バグ修復スキル** (`/auto-healing`)
    - クローリング監視やアラートから自動的にパースエラー等を調査・修復するワークフロー

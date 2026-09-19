@@ -4,6 +4,7 @@ import re
 from decimal import Decimal
 from typing import Dict, Tuple, Any
 from package.utils.plot_shape_analyzer import analyze_plot_shape
+from package.utils import converter
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -1796,6 +1797,29 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["is_corner_unit"] = 1.0 if re.search(r'角部屋|角住戸', combined_text) else 0.0
     feats["is_leasehold"] = 1.0 if re.search(r'借地権|地上権|賃借権', combined_text) else 0.0
     feats["has_psychological_defect"] = 1.0 if re.search(r'告知事項|心理的瑕疵', combined_text) else 0.0
+
+    # 借地地代・負債現在価値特徴量
+    raw_chidai = get_attr(property_obj, 'chidai', None)
+    if raw_chidai is None:
+        raw_chidai_str = get_attr(property_obj, 'chidaiStr', '')
+        if raw_chidai_str:
+            raw_chidai = converter.parse_chidai(raw_chidai_str)
+    if raw_chidai is None and feats["is_leasehold"] == 1.0:
+        rent_match = re.search(r'(?:地代|借地料)[^0-9\n]*?([0-9,]+(?:\.[0-9]+)?\s*万?円)', combined_text)
+        if rent_match:
+            raw_chidai = converter.parse_chidai(rent_match.group(1))
+
+    monthly_land_rent = (float(raw_chidai) / 10000.0) if raw_chidai and float(raw_chidai) > 0 else 0.0
+    annual_land_rent = monthly_land_rent * 12.0
+    land_rent_liability = annual_land_rent / 0.05 if annual_land_rent > 0 else 0.0
+    raw_p = get_attr(property_obj, 'price', 0)
+    price_man_val = (float(raw_p) / 10000.0) if raw_p and float(raw_p) > 100000 else float(raw_p or 0.0)
+    land_rent_ratio = (annual_land_rent / price_man_val) if price_man_val > 0 else 0.0
+
+    feats["monthly_land_rent"] = monthly_land_rent
+    feats["annual_land_rent"] = annual_land_rent
+    feats["land_rent_liability"] = land_rent_liability
+    feats["land_rent_ratio"] = land_rent_ratio
 
     # 画像補正調整率
     feats["visual_adjustment_percent"] = safe_float(get_attr(property_obj, 'visual_adjustment_percent', 0.0), 0.0)

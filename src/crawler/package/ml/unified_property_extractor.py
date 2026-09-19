@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
+from package.utils.converter import parse_chidai
+
 try:
     import google.generativeai as genai
 except ImportError:
@@ -300,8 +302,27 @@ class SingleUnifiedPropertyExtractor:
 
         # 借地権判定
         rights = "所有権"
-        if "借地権" in all_text:
-            rights = "定期借地権" if "定期" in all_text else "旧法借地権"
+        if any(term in all_text for term in ["借地権", "賃借権", "地上権", "借地"]):
+            if "定期" in all_text:
+                rights = "定期借地権"
+            elif "普通賃借" in all_text or "普通借地" in all_text:
+                rights = "普通借地権"
+            else:
+                rights = "旧法借地権"
+
+        # 地代（月額円）のルールベース抽出
+        ground_rent = None
+        specs_dict = prop_data.get("specs", {})
+        if isinstance(specs_dict, dict):
+            for k, v in specs_dict.items():
+                if any(term in k for term in ["地代", "借地料"]):
+                    ground_rent = parse_chidai(str(v))
+                    if ground_rent:
+                        break
+        if not ground_rent:
+            rent_match = re.search(r'(?:地代|借地料)[^0-9\n]*?([0-9,]+(?:\.[0-9]+)?\s*万?円)', all_text)
+            if rent_match:
+                ground_rent = parse_chidai(rent_match.group(1))
 
         return UnifiedPropertyAttributes(
             property_overview=PropertyOverview(
@@ -321,7 +342,8 @@ class SingleUnifiedPropertyExtractor:
             ),
             land_kodate_specs=LandKodateAttributes(),
             rights_economic_conditions=RightsEconomicAttributes(
-                land_rights_type=rights
+                land_rights_type=rights,
+                ground_rent_monthly_yen=ground_rent
             )
         )
 
@@ -393,7 +415,7 @@ class SingleUnifiedPropertyExtractor:
 
         rights = RightsEconomicAttributes(
             land_rights_type=rights_dict.get("land_rights_type", fallback.rights_economic_conditions.land_rights_type),
-            ground_rent_monthly_yen=rights_dict.get("ground_rent_monthly_yen"),
+            ground_rent_monthly_yen=rights_dict.get("ground_rent_monthly_yen") if rights_dict.get("ground_rent_monthly_yen") is not None else fallback.rights_economic_conditions.ground_rent_monthly_yen,
             lease_expiry_year_month=rights_dict.get("lease_expiry_year_month"),
             management_fee_monthly_yen=rights_dict.get("management_fee_monthly_yen"),
             repair_reserve_fund_monthly_yen=rights_dict.get("repair_reserve_fund_monthly_yen"),

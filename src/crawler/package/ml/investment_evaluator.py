@@ -242,8 +242,16 @@ def evaluate_investment_property(property_obj, evaluation_record):
     combined_str = " ".join(str(x) for x in text_attrs if x)
     combined_str_lower = combined_str.lower()
 
-    # 借地権の場合、支払地代をNOIから差し引く (更地想定価格の 1.0% / 年 と仮定)
-    if any(x in combined_str_lower for x in ["借地", "賃借", "定期", "定借"]):
+    # 借地権の場合、支払地代をNOIから差し引く (実額地代を最優先、未記載時は更地想定価格の 1.0% / 年 と仮定)
+    chidai_val = getattr(property_obj, "chidai", None)
+    is_leasehold = any(x in combined_str_lower for x in ["借地", "賃借", "定期", "定借"])
+
+    land_rent_annual_man = 0.0
+    if chidai_val and float(chidai_val) > 0:
+        # 実額月額地代（円） -> 年間地代（万円）
+        land_rent_annual_man = (float(chidai_val) * 12.0) / 10000.0
+        noi = max(0.0, noi - land_rent_annual_man)
+    elif is_leasehold:
         base_price = sekisan_price if sekisan_price > 0 else price_man
         land_rent_annual_man = base_price * 0.010
         noi = max(0.0, noi - land_rent_annual_man)
@@ -310,6 +318,14 @@ def evaluate_investment_property(property_obj, evaluation_record):
     evaluation_record.cashflow_score = float(f"{cashflow_score:.2f}")
     evaluation_record.finance_score = float(f"{finance_score:.2f}")
     evaluation_record.total_investment_score = float(f"{total_investment_score:.2f}")
+    
+    # 借地地代・負債現在価値の保存
+    if chidai_val and float(chidai_val) > 0:
+        evaluation_record.monthly_land_rent = int(chidai_val)
+        evaluation_record.land_rent_liability = Decimal(int(land_rent_annual_man / 0.05))
+    elif is_leasehold and land_rent_annual_man > 0:
+        evaluation_record.monthly_land_rent = int((land_rent_annual_man * 10000.0) / 12.0)
+        evaluation_record.land_rent_liability = Decimal(int(land_rent_annual_man / 0.05))
     
     evaluation_record.investment_score = float(f"{total_investment_score:.2f}")
     

@@ -130,6 +130,27 @@ class ParserBase(metaclass=ABCMeta):
     def _parsePropertyDetailPage(self, item: models.Model, response: BeautifulSoup) -> models.Model:
         return item
 
+    def _parseChidaiStr(self, response: BeautifulSoup, specs=None) -> str:
+        """地代（文字列）の抽出"""
+        specs = specs or self._get_specs(response)
+        # 優先キー
+        for key in ["借地期間・地代（月額）", "借地期間・地代", "地代（月額）", "地代等", "地代", "借地料（月額）", "借地料", "月額地代", "土地地代"]:
+            if key in specs and specs[key]:
+                return specs[key]
+        for k, v in specs.items():
+            if any(term in k for term in ["地代", "借地料"]):
+                return v
+        if response:
+            tag = self._getValueByLabel(response, "地代") or self._getValueByLabel(response, "借地料")
+            if tag:
+                return tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
+        return ""
+
+    def _parseChidai(self, response: BeautifulSoup, specs=None) -> int | None:
+        """地代（月額・数値円）の抽出"""
+        chidai_str = self._parseChidaiStr(response, specs)
+        return converter.parse_chidai(chidai_str)
+
     async def parsePropertyListPage(self, response):
         return
         yield
@@ -388,7 +409,7 @@ class ParserBase(metaclass=ABCMeta):
                 setattr(item, field.name, val_cleaned)
 
         # 数値フィールドの数値検証・NOT NULL制約ガード・オーバーフロー防止
-        for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen']:
+        for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen', 'chidai']:
             if hasattr(item, int_field_name):
                 f_obj = item._meta.get_field(int_field_name)
                 f_val = getattr(item, int_field_name, None)
@@ -406,6 +427,18 @@ class ParserBase(metaclass=ABCMeta):
                         setattr(item, int_field_name, None if f_obj.null else 0)
                 elif not f_obj.null:
                     setattr(item, int_field_name, 0)
+
+        # chidai / chidaiStr の自動補完（パーサー個別実装で未設定の場合、_soupから自動抽出）
+        soup = getattr(item, '_soup', None)
+        if soup is not None:
+            if hasattr(item, 'chidai') and getattr(item, 'chidai', None) is None:
+                c_val = self._parseChidai(soup)
+                if c_val is not None:
+                    setattr(item, 'chidai', c_val)
+            if hasattr(item, 'chidaiStr') and not getattr(item, 'chidaiStr', ''):
+                cs_val = self._parseChidaiStr(soup)
+                if cs_val:
+                    setattr(item, 'chidaiStr', cs_val)
 
         # grossYield (DecimalField) の NOT NULL ガード
         if hasattr(item, 'grossYield'):

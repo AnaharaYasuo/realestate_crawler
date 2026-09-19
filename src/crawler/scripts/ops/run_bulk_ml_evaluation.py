@@ -20,11 +20,13 @@ realestateSettings.configure()
 
 
 
+from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.db import close_old_connections
 from package.models.evaluation import PropertyEvaluation
 from package.ml.predict import bulk_predict_first_stage
 from package.ml.investment_evaluator import evaluate_investment_property
+from package.utils.converter import parse_chidai
 from package.utils.deduplication import find_duplicate_property
 from django.apps import apps
 
@@ -92,6 +94,12 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
                 if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
                     is_passed = True
                     
+                chidai_val = getattr(item, "chidai", None)
+                if chidai_val is None and getattr(item, "chidaiStr", None):
+                    chidai_val = parse_chidai(item.chidaiStr)
+                monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
+                liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+
                 existing = existing_eval_map.get(page_url)
                 if existing and existing.pk:
                     existing.company = company
@@ -100,6 +108,9 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
                     existing.first_stage_predicted_price = price_stage1
                     existing.is_first_stage_passed = is_passed
                     existing.analysis_status = "pending"
+                    if monthly_rent is not None:
+                        existing.monthly_land_rent = monthly_rent
+                        existing.land_rent_liability = liability
                     
                     if is_passed and not existing.duplicate_of:
                         dup = find_duplicate_property(existing, new_prop=item)
@@ -118,7 +129,9 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
                         property_id=item.id,
                         first_stage_predicted_price=price_stage1,
                         is_first_stage_passed=is_passed,
-                        analysis_status="pending"
+                        analysis_status="pending",
+                        monthly_land_rent=monthly_rent,
+                        land_rent_liability=liability
                     )
                     if is_passed:
                         dup = find_duplicate_property(rec, new_prop=item)
@@ -143,7 +156,8 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
             if valid_updates:
                 update_fields = [
                     "company", "property_type", "property_id", "first_stage_predicted_price",
-                    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified"
+                    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
+                    "monthly_land_rent", "land_rent_liability"
                 ]
                 if "investment" in property_type or "invest" in property_type:
                     update_fields.extend([

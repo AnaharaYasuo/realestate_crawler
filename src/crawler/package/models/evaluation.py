@@ -93,6 +93,12 @@ class PropertyEvaluation(models.Model):
     layout_score = models.FloatField(null=True, blank=True, verbose_name="間取り評価スコア (1.0-5.0)")
     investment_score = models.FloatField(null=True, blank=True, verbose_name="投資価値スコア (0-100)")
 
+    # 借地権・地代負債評価項目
+    monthly_land_rent = models.IntegerField(null=True, blank=True, verbose_name="月額地代 (数値・円)")
+    land_rent_liability = models.DecimalField(
+        max_digits=12, decimal_places=0, null=True, blank=True, verbose_name="地代負債現在価値 (万円)"
+    )
+
     # 融資・収支シミュレーション評価項目
     estimated_sekisan_price = models.DecimalField(
         max_digits=12, decimal_places=0, null=True, blank=True, verbose_name="推定積算価格"
