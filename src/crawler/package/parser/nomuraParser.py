@@ -110,16 +110,22 @@ class NomuraParser(InvestmentParser):
         return specs
 
     def _parsePriceStr(self, response, specs=None):
-        selector = self.selectors.get('price', ".item_price")
+        selector = self.selectors.get('price', ".price, .item_price")
         if selector:
             el = response.select_one(selector)
-            if el: return el.get_text(strip=True)
-        
-        fallback = self.selectors.get('price_fallback', ".num")
+            if el:
+                val = el.get_text(strip=True)
+                if val and ("万" in val or "億" in val or "円" in val):
+                    return val
+
+        fallback = self.selectors.get('price_fallback', ".c_price_wrap, .price")
         if fallback:
             el = response.select_one(fallback)
-            if el: return el.get_text(strip=True)
-            
+            if el:
+                val = el.get_text(strip=True)
+                if val and ("万" in val or "億" in val or "円" in val):
+                    return val
+
         specs = specs or self._get_specs(response)
         return specs.get("価格", "") or specs.get("販売価格", "") or super()._parsePriceStr(response, specs)
 
