@@ -258,3 +258,32 @@ def test_kenbiya_tochi_parser():
     assert parsed_item.tochikenri == "所有権"
     assert parsed_item.currentStatus == "更地"
 
+
+def test_kenbiya_parser_edge_cases():
+    from package.parser.kenbiyaParser import KenbiyaMansionParser, KenbiyaTochiParser
+
+    m_parser = KenbiyaMansionParser()
+    # Test _parseMadori variations
+    assert m_parser._parseMadori(None, {"間取り": ""}) == ""
+    assert m_parser._parseMadori(None, {"間取り": "ワンルーム 南向き"}) == "ワンルーム"
+    assert m_parser._parseMadori(None, {"間取り": "3LDK 南向き"}) == "3LDK"
+    assert m_parser._parseMadori(None, {"間取り": "その他詳細 2DK"}) == "2DK"
+    assert m_parser._parseMadori(None, {"間取り": "不明フォーマット"}) == "不明フォーマット"
+
+    # Test _parseFloor and _parseTotalFloor variations
+    assert m_parser._parseFloor(None, {"階数": "所在階 4階"}) == 4
+    assert m_parser._parseFloor(None, {}) is None
+    assert m_parser._parseTotalFloor(None, {"総階数": "地上10階"}) == 10
+    assert m_parser._parseTotalFloor(None, {}) is None
+
+    # Test _parseSenyuMenseki and _parseBalconyMenseki variations
+    assert m_parser._parseSenyuMenseki(None, {"専有面積": ""}) is None
+    assert m_parser._parseSenyuMenseki(None, {"専有面積": "55.4㎡"}) == Decimal("55.4")
+    assert m_parser._parseBalconyMenseki(None, {"専有面積": "55.4㎡"}) is None
+
+    # Test _parseMaguchi variations
+    t_parser = KenbiyaTochiParser()
+    assert t_parser._parseMaguchi(None, {"接道状況": "間口 8.5m 公道"}) == Decimal("8.5")
+    assert t_parser._parseMaguchi(None, {}) is None
+
+

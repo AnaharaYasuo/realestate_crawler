@@ -82,6 +82,8 @@ class KenbiyaParserBase(ParserBase):
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """dl > dt / dd または table から key-value スペック辞書を構築"""
         specs = {}
+        if not response:
+            return specs
         for dl in response.find_all("dl"):
             dts = dl.find_all("dt")
             dds = dl.find_all("dd")
@@ -356,13 +358,11 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
         val = specs.get("間取り", "")
         if not val:
             return ""
-        first_word = val.split()[0]
-        if first_word in ("ワンルーム", "1R") or any(first_word.endswith(suffix) for suffix in ("R", "K", "DK", "LDK", "SLDK", "SK")):
-            return first_word
-        m = re.search(r'(\d+[A-Za-z]+|ワンルーム)', val)
-        if m:
-            return m.group(1).strip()
-        return first_word
+        for token in val.split():
+            clean_tok = "".join(c for c in token if c.isalnum())
+            if clean_tok in ("ワンルーム", "1R") or any(clean_tok.endswith(suffix) for suffix in ("R", "K", "DK", "LDK", "SLDK", "SK")):
+                return clean_tok
+        return val.split()[0]
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
