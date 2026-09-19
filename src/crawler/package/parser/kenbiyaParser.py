@@ -26,6 +26,15 @@ from package.parser.baseParser import (
 )
 from package.utils import converter
 
+# SonarCloud S1192: Centralized string literal constants
+INFO_GUIDE = "情報の見方"
+INQUIRY_TEXT = "問い合わせる"
+STRUCTURE_FLOOR = "建物構造/階数"
+STRUCTURE_TEXT = "建物構造"
+KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
+KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
+SOUKOSU_REGEX = r'総戸数(\d+)戸'
+
 
 class KenbiyaParserBase(ParserBase):
     """
@@ -58,64 +67,69 @@ class KenbiyaParserBase(ParserBase):
                     elif response.status in (500, 502, 503, 504):
                         raise ServerBusyException(f"Property page returned HTTP status {response.status}: {url}")
                     elif response.status == 429:
-                        logging.warning(f"Kenbiya 429 rate limit hit for URL: {url}")
-                        await asyncio.sleep(2 * (attempt + 1))
+                        logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {attempt + 2}s")
+                        await asyncio.sleep(attempt + 2)
                         continue
                     else:
-                        raise LoadPropertyPageException(f"HTTP Status {response.status}: {url}")
+                        raise LoadPropertyPageException(f"Failed to fetch {url} with status {response.status}")
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
-                self.consecutive_timeouts = cur_timeouts
-                if cur_timeouts >= max_timeouts:
-                    raise ServerDownException(f"Target server is down or timing out repeatedly ({cur_timeouts} times)") from e
-                if attempt == self.MAX_CONSECUTIVE_TIMEOUTS - 1:
-                    raise LoadPropertyPageException(f"Timeout after {attempt + 1} attempts for URL: {url}") from e
-                await asyncio.sleep(1 * (attempt + 1))
-        return b""
+                self.consecutive_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
+                if self.consecutive_timeouts >= max_timeouts:
+                    raise ServerDownException(f"Kenbiya server unresponsive after {self.consecutive_timeouts} consecutive timeouts: {e}")
+                await asyncio.sleep(1)
+        raise LoadPropertyPageException(f"Exceeded max retries for {url}")
 
-    def _get_specs(self, response: BeautifulSoup):
-        """健美家物件ページの dl > dt / dd 定義リストからスペック辞書を構築"""
+    def _get_specs(self, response: BeautifulSoup) -> dict:
+        """dl > dt / dd または table から key-value スペック辞書を構築"""
         specs = {}
-        if not response:
-            return specs
         for dl in response.find_all("dl"):
-            for dt in dl.find_all("dt"):
-                dd = dt.find_next_sibling("dd")
-                if dd:
-                    key = dt.get_text(strip=True)
-                    val = dd.get_text(strip=True)
-                    if key and key not in specs:
-                        specs[key] = val
+            dts = dl.find_all("dt")
+            dds = dl.find_all("dd")
+            for dt, dd in zip(dts, dds):
+                key = dt.get_text(strip=True)
+                val = dd.get_text(" ", strip=True)
+                if key and val:
+                    specs[key] = val
+        for tr in response.find_all("tr"):
+            th = tr.find("th")
+            td = tr.find("td")
+            if th and td:
+                key = th.get_text(strip=True)
+                val = td.get_text(" ", strip=True)
+                if key and val:
+                    specs[key] = val
         return specs
 
-    def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
+    # 共通パースメソッド群
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        price_str = specs.get("価格", "")
-        return converter.parse_price(price_str)
+        raw = specs.get("価格", "")
+        return converter.parse_price(raw)
 
-    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        addr = specs.get("住所", "") or specs.get("所在地", "")
-        if addr.endswith("地図"):
-            addr = addr[:-2].strip()
-        return addr
+        raw = specs.get("住所", "") or specs.get("所在地", "")
+        for noise in ["地図", "周辺環境", "周辺地図"]:
+            raw = raw.replace(noise, "").strip()
+        return raw
 
-    def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
+    def _parsePropertyName(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        name = specs.get("物件名", "")
-        if not name and response:
-            h1 = response.find(["h1", "h2"])
-            if h1:
-                name = h1.get_text(strip=True)
+        name = specs.get("物件名", "") or specs.get("名称", "")
+        if not name:
+            title = response.find("title")
+            if title:
+                title_text = title.get_text(strip=True)
+                name = title_text.split("｜")[0].strip() if "｜" in title_text else title_text
         return name
 
-    def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
+    def _parseTransport1(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("交通", "") or specs.get("最寄り駅", "")
+        return specs.get("交通", "")
 
     def _parseRights(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -132,7 +146,7 @@ class KenbiyaParserBase(ParserBase):
     def _parseCurrentStatus(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         status = specs.get("現況", "") or specs.get("入居状況", "")
-        for noise in ["入居状況を問い合わせる", "情報の見方"]:
+        for noise in ["入居状況を問い合わせる", INFO_GUIDE]:
             status = status.replace(noise, "").strip()
         return status
 
@@ -150,7 +164,7 @@ class KenbiyaParserBase(ParserBase):
     def _parseGrossYield(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         raw = specs.get("満室時利回り", "") or specs.get("表面利回り", "") or specs.get("利回り", "")
-        for noise in ["利回りの詳細を問い合わせる", "情報の見方"]:
+        for noise in ["利回りの詳細を問い合わせる", INFO_GUIDE]:
             raw = raw.replace(noise, "").strip()
         return converter.parse_ratio(raw)
 
@@ -161,7 +175,7 @@ class KenbiyaParserBase(ParserBase):
             annual_part = rent_str.split("/")[0].strip()
         else:
             annual_part = rent_str
-        for noise in ["情報の見方", "問い合わせる"]:
+        for noise in [INFO_GUIDE, INQUIRY_TEXT]:
             annual_part = annual_part.replace(noise, "").strip()
         return converter.parse_price(annual_part)
 
@@ -170,7 +184,7 @@ class KenbiyaParserBase(ParserBase):
         rent_str = specs.get("満室時年収/月収", "")
         if "/" in rent_str:
             monthly_part = rent_str.split("/")[1].strip()
-            for noise in ["情報の見方", "問い合わせる"]:
+            for noise in [INFO_GUIDE, INQUIRY_TEXT]:
                 monthly_part = monthly_part.replace(noise, "").strip()
             val = converter.parse_price(monthly_part)
             if val:
@@ -185,9 +199,8 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        kouzou = specs.get("建物構造/階数", "") or specs.get("建物構造", "") or specs.get("構造", "")
-        m = re.match(r'^(.*?)(?:\s+総戸数\d+戸)?$', kouzou)
-        return m.group(1).strip() if m else kouzou
+        kouzou = specs.get(STRUCTURE_FLOOR, "") or specs.get(STRUCTURE_TEXT, "") or specs.get("構造", "")
+        return re.sub(r'\s*総戸数\d+戸$', '', kouzou).strip()
 
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -201,7 +214,7 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = specs.get("建ぺい/容積率", "") or specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率", "")
+        raw = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "") or specs.get("建ぺい率", "")
         if "/" in raw:
             parts = raw.split("/")
             return converter.parse_ratio(parts[0])
@@ -209,7 +222,7 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = specs.get("建ぺい/容積率", "") or specs.get("建ぺい率/容積率", "") or specs.get("容積率", "")
+        raw = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "") or specs.get("容積率", "")
         if "/" in raw:
             parts = raw.split("/")
             return converter.parse_ratio(parts[1])
@@ -243,19 +256,9 @@ class KenbiyaParserBase(ParserBase):
                 item.walkMinutes3 = walk
             idx += 1
 
-
-class KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase):
-    """
-    健美家 (Kenbiya) 投資用一棟アパート向けパーサー (/pp2/)
-    """
-    property_type = 'investmentapartment'
-
-    def createEntity(self) -> KenbiyaInvestmentApartment:
-        return KenbiyaInvestmentApartment()
-
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        specs = self._get_specs(response)
-
+    def _populate_common_fields(self, item, response: BeautifulSoup, specs=None):
+        """全種別共通プロパティの自動バインド（コード重複削減）"""
+        specs = specs or self._get_specs(response)
         item.price = self._parsePrice(response, specs)
         item.priceStr = self._parsePriceStr(response, specs)
         item.address = self._parseAddress(response, specs)
@@ -267,17 +270,24 @@ class KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase):
         item.genkyo = item.currentStatus
         item.hikiwatashi = self._parseHikiwatashi(response, specs)
         item.chimoku = self._parseChimoku(response, specs)
-
         item.grossYield = self._parseGrossYield(response, specs)
         item.annualRent = self._parseAnnualRent(response, specs)
-        item.monthlyRent = self._parseMonthlyRent(response, specs)
 
+        traffic_text = specs.get("交通", "")
+        if traffic_text:
+            item.traffic = traffic_text
+            self._parse_traffic(item, traffic_text)
+        return specs
+
+    def _populate_building_specs(self, item, response: BeautifulSoup, specs):
+        """一棟アパート・一棟ビル共通スペックのバインド"""
+        item.monthlyRent = self._parseMonthlyRent(response, specs)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
 
-        raw_kouzou = specs.get("建物構造", "")
+        raw_kouzou = specs.get(STRUCTURE_TEXT, "") or specs.get(STRUCTURE_FLOOR, "")
         item.kouzou = self._parseKouzou(response, specs)
-        soukosu_match = re.search(r'総戸数(\d+)戸', raw_kouzou)
+        soukosu_match = re.search(SOUKOSU_REGEX, raw_kouzou)
         if soukosu_match:
             item.soukosu = int(soukosu_match.group(1))
             item.soukosuStr = f"{item.soukosu}戸"
@@ -287,22 +297,30 @@ class KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase):
         item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
         item.tatemonoMensekiStr = specs.get("建物面積", "")
 
-        kenpei_youseki = specs.get("建ぺい/容積率", "") or specs.get("建ぺい率/容積率", "")
+        item.kenpei = self._parseKenpei(response, specs)
+        item.youseki = self._parseYouseki(response, specs)
+        kenpei_youseki = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "")
         if "/" in kenpei_youseki:
             parts = kenpei_youseki.split("/")
-            item.kenpei = converter.parse_ratio(parts[0])
             item.kenpeiStr = parts[0].strip()
-            item.youseki = converter.parse_ratio(parts[1])
             item.yousekiStr = parts[1].strip()
 
         item.madori = specs.get("間取り", "")
+
+
+class KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase):
+    """
+    健美家 (Kenbiya) 投資用一棟アパート向けパーサー (/pp2/)
+    """
+    property_type = 'investmentapartment'
+
+    def createEntity(self) -> KenbiyaInvestmentApartment:
+        return KenbiyaInvestmentApartment()
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._populate_common_fields(item, response)
+        self._populate_building_specs(item, response, specs)
         item.propertyType = "Apartment"
-
-        traffic_text = specs.get("交通", "")
-        if traffic_text:
-            item.traffic = traffic_text
-            self._parse_traffic(item, traffic_text)
-
         return item
 
 
@@ -316,55 +334,9 @@ class KenbiyaInvestmentBuildingParser(KenbiyaParserBase, InvestmentParserBase):
         return KenbiyaInvestmentBuilding()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        specs = self._get_specs(response)
-
-        item.price = self._parsePrice(response, specs)
-        item.priceStr = self._parsePriceStr(response, specs)
-        item.address = self._parseAddress(response, specs)
-        item.propertyName = self._parsePropertyName(response, specs)
-        item.tochikenri = self._parseRights(response, specs)
-        item.setsudou = self._parseSetsudou(response, specs)
-        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.currentStatus = self._parseCurrentStatus(response, specs)
-        item.genkyo = item.currentStatus
-        item.hikiwatashi = self._parseHikiwatashi(response, specs)
-        item.chimoku = self._parseChimoku(response, specs)
-
-        item.grossYield = self._parseGrossYield(response, specs)
-        item.annualRent = self._parseAnnualRent(response, specs)
-        item.monthlyRent = self._parseMonthlyRent(response, specs)
-
-        item.chikunengetsu = self._parseChikunengetsu(response, specs)
-        item.chikunengetsuStr = specs.get("築年月", "")
-
-        raw_kouzou = specs.get("建物構造", "") or specs.get("建物構造/階数", "")
-        item.kouzou = self._parseKouzou(response, specs)
-        soukosu_match = re.search(r'総戸数(\d+)戸', raw_kouzou)
-        if soukosu_match:
-            item.soukosu = int(soukosu_match.group(1))
-            item.soukosuStr = f"{item.soukosu}戸"
-
-        item.tochiMenseki = self._parseTochiMenseki(response, specs)
-        item.tochiMensekiStr = specs.get("土地面積", "")
-        item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
-        item.tatemonoMensekiStr = specs.get("建物面積", "")
-
-        kenpei_youseki = specs.get("建ぺい/容積率", "") or specs.get("建ぺい率/容積率", "")
-        if "/" in kenpei_youseki:
-            parts = kenpei_youseki.split("/")
-            item.kenpei = converter.parse_ratio(parts[0])
-            item.kenpeiStr = parts[0].strip()
-            item.youseki = converter.parse_ratio(parts[1])
-            item.yousekiStr = parts[1].strip()
-
-        item.madori = specs.get("間取り", "")
+        specs = self._populate_common_fields(item, response)
+        self._populate_building_specs(item, response, specs)
         item.propertyType = "Building"
-
-        traffic_text = specs.get("交通", "")
-        if traffic_text:
-            item.traffic = traffic_text
-            self._parse_traffic(item, traffic_text)
-
         return item
 
 
@@ -380,40 +352,40 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         val = specs.get("間取り", "")
-        m = re.search(r'([1-9][0-9]*[LDKSldks]+|1R|ワンルーム|1K|2K|3K)', val)
-        return m.group(1).strip() if m else val.split()[0] if val else ""
+        m = re.search(r'(\d+[LDKSldks]+|1R|ワンルーム|\d+K)', val)
+        if m:
+            return m.group(1).strip()
+        return val.split()[0] if val else ""
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "")
-        m = re.search(r'([\d\.]+)m²', val)
+        m = re.search(r'([0-9.]+)m²', val)
         return Decimal(m.group(1)) if m else converter.parse_menseki(val)
 
     def _parseBalconyMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "") or specs.get("バルコニー面積", "")
-        m = re.search(r'バルコニー\s*([\d\.]+)m²', val)
+        m = re.search(r'バルコニー\s*([0-9.]+)m²', val)
         return Decimal(m.group(1)) if m else None
 
     def _parseFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("建物構造/階数", "") or specs.get("階数", "") or specs.get("所在階", "")
-        m = re.search(r'(\d+)階/', val) or re.search(r'(\d+)階', val)
+        val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("所在階", "")
+        m = re.search(r'(\d+)階', val)
         return int(m.group(1)) if m else None
 
     def _parseTotalFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("建物構造/階数", "") or specs.get("階数", "") or specs.get("総階数", "")
+        val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("総階数", "")
         m = re.search(r'/(\d+)階建', val) or re.search(r'地上(\d+)階', val)
         return int(m.group(1)) if m else None
 
     def _parseSouKosu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("建物構造/階数", "") or specs.get("総戸数", "")
-        m = re.search(r'総戸数(\d+)戸', val)
+        val = specs.get(STRUCTURE_FLOOR, "") or specs.get("総戸数", "")
+        m = re.search(SOUKOSU_REGEX, val)
         return int(m.group(1)) if m else None
-
-    _parseSoukosu = _parseSouKosu
 
     def _parseDirection(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -443,21 +415,8 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
         return converter.parse_yen(val) if val else None
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        specs = self._get_specs(response)
-
-        item.price = self._parsePrice(response, specs)
-        item.priceStr = self._parsePriceStr(response, specs)
-        item.address = self._parseAddress(response, specs)
-        item.propertyName = self._parsePropertyName(response, specs)
-        item.tochikenri = self._parseRights(response, specs)
-        item.currentStatus = self._parseCurrentStatus(response, specs)
-        item.genkyo = item.currentStatus
-        item.hikiwatashi = self._parseHikiwatashi(response, specs)
-
-        item.grossYield = self._parseGrossYield(response, specs)
-        item.annualRent = self._parseAnnualRent(response, specs)
+        specs = self._populate_common_fields(item, response)
         item.monthlyRent = self._parseMonthlyRent(response, specs)
-
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
 
@@ -474,7 +433,7 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
         if item.totalFloor:
             item.totalFloorStr = f"{item.totalFloor}階建"
 
-        item.soukosu = self._parseSoukosu(response, specs)
+        item.soukosu = self._parseSouKosu(response, specs)
         if item.soukosu:
             item.soukosuStr = f"{item.soukosu}戸"
 
@@ -485,13 +444,7 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-
         item.propertyType = "Mansion"
-
-        traffic_text = specs.get("交通", "")
-        if traffic_text:
-            item.traffic = traffic_text
-            self._parse_traffic(item, traffic_text)
 
         return item
 
@@ -510,24 +463,8 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
         return specs.get("間取り", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        specs = self._get_specs(response)
-
-        item.price = self._parsePrice(response, specs)
-        item.priceStr = self._parsePriceStr(response, specs)
-        item.address = self._parseAddress(response, specs)
-        item.propertyName = self._parsePropertyName(response, specs)
-        item.tochikenri = self._parseRights(response, specs)
-        item.setsudou = self._parseSetsudou(response, specs)
-        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.currentStatus = self._parseCurrentStatus(response, specs)
-        item.genkyo = item.currentStatus
-        item.hikiwatashi = self._parseHikiwatashi(response, specs)
-        item.chimoku = self._parseChimoku(response, specs)
-
-        item.grossYield = self._parseGrossYield(response, specs)
-        item.annualRent = self._parseAnnualRent(response, specs)
+        specs = self._populate_common_fields(item, response)
         item.monthlyRent = self._parseMonthlyRent(response, specs)
-
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
 
@@ -540,13 +477,7 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
 
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
-
         item.propertyType = "Kodate"
-
-        traffic_text = specs.get("交通", "")
-        if traffic_text:
-            item.traffic = traffic_text
-            self._parse_traffic(item, traffic_text)
 
         return item
 
@@ -563,38 +494,16 @@ class KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase):
     def _parseMaguchi(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("間口", "") or specs.get("接道状況", "")
-        m = re.search(r'間口\s*([\d\.]+)m', val)
+        m = re.search(r'間口\s*([0-9.]+)m', val)
         return Decimal(m.group(1)) if m else None
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        specs = self._get_specs(response)
-
-        item.price = self._parsePrice(response, specs)
-        item.priceStr = self._parsePriceStr(response, specs)
-        item.address = self._parseAddress(response, specs)
-        item.propertyName = self._parsePropertyName(response, specs)
-        item.tochikenri = self._parseRights(response, specs)
-        item.setsudou = self._parseSetsudou(response, specs)
-        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.currentStatus = self._parseCurrentStatus(response, specs)
-        item.genkyo = item.currentStatus
-        item.hikiwatashi = self._parseHikiwatashi(response, specs)
-        item.chimoku = self._parseChimoku(response, specs)
-
-        item.grossYield = self._parseGrossYield(response, specs)
-        item.annualRent = self._parseAnnualRent(response, specs)
-
+        specs = self._populate_common_fields(item, response)
         item.tochiMenseki = self._parseTochiMenseki(response, specs)
         item.tochiMensekiStr = specs.get("土地面積", "")
 
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
-
         item.propertyType = "Tochi"
-
-        traffic_text = specs.get("交通", "")
-        if traffic_text:
-            item.traffic = traffic_text
-            self._parse_traffic(item, traffic_text)
 
         return item
