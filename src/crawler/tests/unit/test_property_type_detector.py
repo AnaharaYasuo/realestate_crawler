@@ -305,3 +305,48 @@ def test_ai_called_once_per_property(monkeypatch):
     # AI APIの呼び出し回数が厳密に1回であること
     assert call_counts["count"] == 1
 
+
+def test_edge_cases_and_error_paths(monkeypatch):
+    """エッジケースおよびエラーハンドリングの網羅検証"""
+    # 1. detect_from_object(None)
+    assert PropertyTypeDetector.detect_from_object(None) == "mansion"
+
+    # 2. detect_investment_type 非文字列・None
+    assert PropertyTypeDetector.detect_investment_type(None) == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type(12345) == "Apartment"
+
+    # 3. _get_field(None)
+    assert PropertyTypeDetector._get_field(None, "field") is None
+
+    # 4. _has_yield_signal_specs with numeric grossYield
+    assert PropertyTypeDetector.detect(specs={"grossYield": "8.5%"}) == "apartment"
+    assert PropertyTypeDetector.detect(specs={"grossYield": "invalid"}) is None
+
+    # 5. _detect_from_specs fallback values
+    assert PropertyTypeDetector.detect(specs={"その他備考": "区分マンションにつきオーナー募集"}) == "mansion"
+
+    # 6. _detect_from_url subdomains
+    assert PropertyTypeDetector.detect(url="https://toushi.homes.co.jp/detail/123") == "apartment"
+
+    # 7. detect_with_ai exception handling
+    class FailingMockModel:
+        def __init__(self, name):
+            pass
+
+        def generate_content(self, prompt):
+            raise RuntimeError("Gemini API timeout error")
+
+    class FailingGenAI:
+        def configure(self, api_key):
+            pass
+
+        def GenerativeModel(self, name):
+            return FailingMockModel(name)
+
+    PropertyTypeDetector.clear_ai_cache()
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-1234")
+    monkeypatch.setattr("package.utils.property_type_detector.genai", FailingGenAI())
+
+    res = PropertyTypeDetector.detect_with_ai(title="珍しい形状の住宅", default="mansion")
+    assert res == "mansion"
+

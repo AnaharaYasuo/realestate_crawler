@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import urllib.parse
 import logging
 from typing import Optional, Dict, Any
 
@@ -16,6 +17,9 @@ class PropertyTypeDetector:
     判定優先度: Yield Guard (最優先) > specs > title > html_text > url > AI Fallback
     標準化出力: 'apartment' | 'mansion' | 'kodate' | 'tochi' | None
     """
+
+    # 構造キーワード定数（SonarCloud S1192 重複排除）
+    RC_STRUCTURE_KEYWORDS = ("RC", "SRC", "鉄筋", "コンクリート", "鉄骨")
 
     # 投資用絶対判定キーワード（最優先ガードレール）
     INVESTMENT_STRONG_SIGNALS = [
@@ -44,6 +48,22 @@ class PropertyTypeDetector:
         "売土地", "売り土地", "建築条件付土地", "売地", "土地"
     ]
 
+    _ai_cache: Dict[str, str] = {}
+
+    @classmethod
+    def clear_ai_cache(cls) -> None:
+        """テストやジョブ間リセット用のAI判定キャッシュクリア"""
+        cls._ai_cache.clear()
+
+    @staticmethod
+    def _get_field(obj: Any, field_name: str, default: Any = None) -> Any:
+        """dict または モデルオブジェクトからフィールド値を安全に取得"""
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(field_name, default)
+        return getattr(obj, field_name, default)
+
     @classmethod
     def _has_yield_signal(cls, text: Optional[str]) -> bool:
         """テキスト内に利回り表記や投資用シグナルが存在するか判定（Yield Guard）"""
@@ -55,35 +75,54 @@ class PropertyTypeDetector:
         return False
 
     @classmethod
+    def _has_yield_signal_specs(cls, specs: Dict[str, Any]) -> bool:
+        """スペック辞書内に利回り表記やgrossYieldが存在するか判定"""
+        for k, v in specs.items():
+            if cls._has_yield_signal(str(k)) or cls._has_yield_signal(str(v)):
+                return True
+            if "grossYield" in str(k) or "利回り" in str(k):
+                try:
+                    val = float(re.sub(r"[^\d.]", "", str(v)))
+                    if val > 0:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+        return False
+
+    @classmethod
+    def _is_rc_zero_land(cls, obj: Any) -> bool:
+        """土地面積0かつRC/SRC構造等のマンション物理特徴を満たすか判定"""
+        if obj is None:
+            return False
+        tochi = cls._get_field(obj, "tochiMenseki")
+        try:
+            tochi_val = float(tochi) if tochi is not None else None
+        except (ValueError, TypeError):
+            tochi_val = None
+
+        if tochi_val is not None and tochi_val <= 0:
+            senyu = cls._get_field(obj, "senyuMenseki")
+            structure = str(cls._get_field(obj, "structure") or cls._get_field(obj, "kouzou") or "")
+            if senyu or any(x in structure for x in cls.RC_STRUCTURE_KEYWORDS):
+                return True
+        return False
+
+    @classmethod
     def _sanitize_output(cls, predicted_type: str, text: str = "", obj: Any = None) -> str:
         """AI出力や推定結果を事後サニタイズ（利回りガードおよび物理矛盾ガードの適用）"""
-        # 1. 利回り・収益シグナルの検知 -> 無条件で apartment
         if cls._has_yield_signal(text):
             return "apartment"
+
         if obj is not None:
-            gross = getattr(obj, "grossYield", None) if not isinstance(obj, dict) else obj.get("grossYield", None)
+            gross = cls._get_field(obj, "grossYield")
             try:
                 if gross is not None and float(gross) > 0:
                     return "apartment"
             except (ValueError, TypeError):
                 pass
 
-        # 2. 土地面積0 + RC構造 -> kodate禁止、mansion是正
-        if predicted_type == "kodate" and obj is not None:
-            tochi = getattr(obj, "tochiMenseki", None) if not isinstance(obj, dict) else obj.get("tochiMenseki", None)
-            senyu = getattr(obj, "senyuMenseki", None) if not isinstance(obj, dict) else obj.get("senyuMenseki", None)
-            structure = str(
-                (getattr(obj, "structure", "") or getattr(obj, "kouzou", ""))
-                if not isinstance(obj, dict)
-                else (obj.get("structure", "") or obj.get("kouzou", ""))
-            )
-            try:
-                tochi_val = float(tochi) if tochi is not None else None
-            except (ValueError, TypeError):
-                tochi_val = None
-            if tochi_val is not None and tochi_val <= 0:
-                if senyu or any(x in structure for x in ["RC", "SRC", "鉄筋", "コンクリート", "鉄骨"]):
-                    return "mansion"
+        if predicted_type == "kodate" and cls._is_rc_zero_land(obj):
+            return "mansion"
 
         return predicted_type
 
@@ -93,30 +132,59 @@ class PropertyTypeDetector:
         if not text or not isinstance(text, str):
             return None
 
-        # 0. 利回り・収益指標ガード (Yield Guard)
         if cls._has_yield_signal(text):
             return "apartment"
 
-        # 1. 一棟・アパート・投資用（「一棟マンション」を「マンション」より優先）
         for kw in cls.APARTMENT_KEYWORDS:
             if kw in text:
                 return "apartment"
 
-        # 2. 戸建
         for kw in cls.KODATE_KEYWORDS:
             if kw in text:
                 return "kodate"
 
-        # 3. 土地
         for kw in cls.TOCHI_KEYWORDS:
             if kw in text:
                 return "tochi"
 
-        # 4. マンション（区分・一般）
         for kw in cls.MANSION_KEYWORDS:
             if kw in text:
                 return "mansion"
 
+        return None
+
+    @classmethod
+    def _detect_from_specs(cls, specs: Dict[str, Any]) -> Optional[str]:
+        """スペック表の特定キーおよび値全体から種別判定"""
+        type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
+        for k in type_keys:
+            if k in specs:
+                ptype = cls._match_keywords(str(specs[k]))
+                if ptype:
+                    return ptype
+
+        for val in specs.values():
+            ptype = cls._match_keywords(str(val))
+            if ptype:
+                return ptype
+        return None
+
+    @classmethod
+    def _detect_from_url(cls, url: str) -> Optional[str]:
+        """URLのパス・クエリ・サブドメインから種別判定"""
+        parsed = urllib.parse.urlparse(url)
+        path_and_query = (parsed.path + "?" + parsed.query).lower()
+
+        if any(k in path_and_query for k in ("toushi", "apartment", "tohshi", "invest")):
+            return "apartment"
+        if "mansion" in path_and_query:
+            return "mansion"
+        if any(k in path_and_query for k in ("kodate", "house", "ikkodate")):
+            return "kodate"
+        if any(k in path_and_query for k in ("tochi", "land")):
+            return "tochi"
+        if "toushi" in parsed.netloc.lower():
+            return "apartment"
         return None
 
     @classmethod
@@ -132,81 +200,38 @@ class PropertyTypeDetector:
         """
         優先順位 (Yield Guard > specs > title > html_text > url > AI) に従って物件種別を判定
         """
-        # 0. Yield Guard (利回り表記の最優先検知)
-        if specs and isinstance(specs, dict):
-            for k, v in specs.items():
-                if cls._has_yield_signal(str(k)) or cls._has_yield_signal(str(v)):
-                    return "apartment"
-                if "grossYield" in str(k) or "利回り" in str(k):
-                    try:
-                        val = float(re.sub(r"[^\d.]", "", str(v)))
-                        if val > 0:
-                            return "apartment"
-                    except (ValueError, TypeError):
-                        pass
+        if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
+            return "apartment"
 
         if cls._has_yield_signal(title) or cls._has_yield_signal(html_text):
             return "apartment"
 
-        # 1. specs 辞書からの判定 (最優先)
         if specs and isinstance(specs, dict):
-            # 物件種別関連のキーを優先確認
-            type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
-            for k in type_keys:
-                if k in specs:
-                    ptype = cls._match_keywords(str(specs[k]))
-                    if ptype:
-                        return ptype
-            # specs 全体の値も確認
-            for val in specs.values():
-                ptype = cls._match_keywords(str(val))
-                if ptype:
-                    return ptype
+            ptype = cls._detect_from_specs(specs)
+            if ptype:
+                return ptype
 
-        # 2. ページタイトルからの判定
         if title:
             ptype = cls._match_keywords(title)
             if ptype:
                 return ptype
 
-        # 3. HTML 本文・パンくずテキストからの判定
         if html_text:
             ptype = cls._match_keywords(html_text)
             if ptype:
                 return ptype
 
-        # 4. URL パス・クエリからの判定
         if url:
-            import urllib.parse
-            parsed = urllib.parse.urlparse(url)
-            path_and_query = (parsed.path + "?" + parsed.query).lower()
-            if any(k in path_and_query for k in ("toushi", "apartment", "tohshi", "invest")):
-                return "apartment"
-            if "mansion" in path_and_query:
-                return "mansion"
-            if any(k in path_and_query for k in ("kodate", "house", "ikkodate")):
-                return "kodate"
-            if any(k in path_and_query for k in ("tochi", "land")):
-                return "tochi"
+            ptype = cls._detect_from_url(url)
+            if ptype:
+                return ptype
 
-            # サブドメインの特化判定 (例: toushi.homes.co.jp)
-            if "toushi" in parsed.netloc.lower():
-                return "apartment"
-
-        # 5. ルールで特定不能な場合の AI フォールバック
         if use_ai and (title or html_text or specs or url):
             return cls.detect_with_ai(
                 url=url, title=title, html_text=html_text, specs=specs, default=default or "mansion"
             )
 
         return default
-
-    _ai_cache: Dict[str, str] = {}
-
-    @classmethod
-    def clear_ai_cache(cls) -> None:
-        """テストやジョブ間リセット用のAI判定キャッシュクリア"""
-        cls._ai_cache.clear()
 
     @classmethod
     def detect_with_ai(
@@ -222,18 +247,19 @@ class PropertyTypeDetector:
         同一物件（URLまたはタイトル/スペック）に対するAI呼び出しは1回のみに制限（インメモリキャッシュ）。
         事後サニタイザー (_sanitize_output) により利回り・物理制約を再検証。
         """
-        # キャッシュキーの導出（URL優先、なければタイトルやスペック表ハッシュ）
-        cache_key = (
-            url.strip() if url
-            else (title.strip() if title else None)
-        ) or f"{str(specs)}_{str(html_text)[:100]}"
+        # キャッシュキーの導出（SonarCloud S3358 三項演算子のネスト解消）
+        if url and url.strip():
+            cache_key = url.strip()
+        elif title and title.strip():
+            cache_key = title.strip()
+        else:
+            cache_key = f"{str(specs)}_{str(html_text)[:100]}"
 
         if cache_key in cls._ai_cache:
             return cls._ai_cache[cache_key]
 
         combined_text = f"URL: {url or ''}\nTitle: {title or ''}\nSpecs: {str(specs or '')}\nText: {(html_text or '')[:500]}"
 
-        # 事前 Yield Guard
         if cls._has_yield_signal(combined_text):
             cls._ai_cache[cache_key] = "apartment"
             return "apartment"
@@ -264,7 +290,6 @@ class PropertyTypeDetector:
                     predicted = candidate
                     break
 
-            # 事後サニタイザー
             final_res = cls._sanitize_output(predicted, text=combined_text)
             cls._ai_cache[cache_key] = final_res
             return final_res
@@ -282,91 +307,44 @@ class PropertyTypeDetector:
         if property_obj is None:
             return "mansion"
 
-        if isinstance(property_obj, dict):
-            return cls._detect_from_dict(property_obj)
-        return cls._detect_from_django(property_obj)
-
-    @classmethod
-    def _detect_from_dict(cls, property_obj: Dict[str, Any]) -> str:
-        # 0. Yield Guard（最優先: grossYield > 0 または 物件名・備考の利回り表記）
-        gross_yield = property_obj.get("grossYield", None)
+        # 0. Yield Guard (最優先: grossYield > 0 または 物件名・備考の利回り表記)
+        gross_yield = cls._get_field(property_obj, "grossYield")
         try:
             if gross_yield is not None and float(gross_yield) > 0:
                 return "apartment"
         except (ValueError, TypeError):
             pass
 
-        prop_name = str(property_obj.get("propertyName", "") or "")
-        remarks = str(property_obj.get("remarks", "") or "")
+        prop_name = str(cls._get_field(property_obj, "propertyName") or "")
+        remarks = str(cls._get_field(property_obj, "remarks") or "")
         if cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks):
             return "apartment"
 
-        tochi = property_obj.get("tochiMenseki", None)
-        senyu = property_obj.get("senyuMenseki", None)
-        structure = str(property_obj.get("structure", "") or property_obj.get("kouzou", "") or "")
-        try:
-            tochi_val = float(tochi) if tochi is not None else None
-        except (ValueError, TypeError):
-            tochi_val = None
-        if tochi_val is not None and tochi_val <= 0:
-            if senyu or any(x in structure for x in ["RC", "SRC", "鉄筋", "コンクリート", "鉄骨"]):
-                return "mansion"
-
-        ptype = str(property_obj.get("propertyType", "")).lower()
-        if "mansion" in ptype:
+        # 1. 物理矛盾ガード: 土地面積0 + RC構造等は mansion
+        if cls._is_rc_zero_land(property_obj):
             return "mansion"
-        if "kodate" in ptype:
+
+        # 2. propertyType / クラス名による明示判定
+        type_str = str(
+            cls._get_field(property_obj, "propertyType") or property_obj.__class__.__name__
+        ).lower()
+        if "mansion" in type_str:
+            return "mansion"
+        if "kodate" in type_str:
             return "kodate"
-        if "apartment" in ptype or "invest" in ptype:
+        if "apartment" in type_str or "invest" in type_str:
             return "apartment"
-        if "tochi" in ptype:
+        if "tochi" in type_str:
             return "tochi"
 
-        if "senyuMenseki" in property_obj:
+        # 3. スペック項目によるフォールバック推定
+        if cls._get_field(property_obj, "senyuMenseki") is not None:
             return "mansion"
-        if "tatemonoMenseki" in property_obj:
-            if "grossYield" in property_obj:
-                return "apartment"
-            return "kodate"
-        if "tochiMenseki" in property_obj or "maguchi" in property_obj:
+        if cls._get_field(property_obj, "tatemonoMenseki") is not None:
+            return "apartment" if cls._get_field(property_obj, "grossYield") is not None else "kodate"
+        if cls._get_field(property_obj, "tochiMenseki") is not None or cls._get_field(property_obj, "maguchi") is not None:
             return "tochi"
-        return "mansion"
 
-    @classmethod
-    def _detect_from_django(cls, property_obj: Any) -> str:
-        # 0. Yield Guard（最優先: grossYield > 0 または 物件名・備考の利回り表記）
-        gross_yield = getattr(property_obj, "grossYield", None)
-        try:
-            if gross_yield is not None and float(gross_yield) > 0:
-                return "apartment"
-        except (ValueError, TypeError):
-            pass
-
-        prop_name = str(getattr(property_obj, "propertyName", "") or "")
-        remarks = str(getattr(property_obj, "remarks", "") or "")
-        if cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks):
-            return "apartment"
-
-        tochi = getattr(property_obj, "tochiMenseki", None)
-        senyu = getattr(property_obj, "senyuMenseki", None)
-        structure = str(getattr(property_obj, "structure", "") or getattr(property_obj, "kouzou", "") or "")
-        try:
-            tochi_val = float(tochi) if tochi is not None else None
-        except (ValueError, TypeError):
-            tochi_val = None
-        if tochi_val is not None and tochi_val <= 0:
-            if senyu or any(x in structure for x in ["RC", "SRC", "鉄筋", "コンクリート", "鉄骨"]):
-                return "mansion"
-
-        class_name = property_obj.__class__.__name__.lower()
-        if "mansion" in class_name:
-            return "mansion"
-        elif "kodate" in class_name:
-            return "kodate"
-        elif "apartment" in class_name or "invest" in class_name:
-            return "apartment"
-        elif "tochi" in class_name:
-            return "tochi"
         return "mansion"
 
     @classmethod
@@ -379,8 +357,8 @@ class PropertyTypeDetector:
             return default
         if "アパート" in text:
             return "Apartment"
-        elif "マンション" in text or "レジ" in text:
+        if "マンション" in text or "レジ" in text:
             return "Mansion"
-        elif any(k in text for k in ["ビル", "店舗", "事務所"]):
+        if any(k in text for k in ["ビル", "店舗", "事務所"]):
             return "Building"
         return default
