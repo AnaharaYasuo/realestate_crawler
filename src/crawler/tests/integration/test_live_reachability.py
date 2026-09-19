@@ -254,9 +254,8 @@ async def run_single_site_test(target: dict):
         parser = parser_cls()
 
         for idx, detail_url in enumerate(test_sample_urls, 1):
-            print(f" [{site}] Fetching Detail #{idx}/{sample_count}: {detail_url}")
-            start_parse = time.perf_counter()
             if "phfudousan.repros.jp" in detail_url:
+                start_parse = time.perf_counter()
                 cleaned_item = await parser.parsePropertyDetailPage(session, detail_url)
             else:
                 async with session.get(detail_url, ssl=ssl_val) as d_resp:
@@ -267,10 +266,11 @@ async def run_single_site_test(target: dict):
                     d_bytes = await d_resp.read()
                     d_html = d_bytes.decode(encoding, errors='replace')
 
+                # 純パース時間計測 & SLA アサーション (ネットワーク待機時間を除外)
+                start_parse = time.perf_counter()
                 d_soup = BeautifulSoup(d_html, "html.parser")
                 item = parser.createEntity()
 
-                # 純パース時間計測 & SLA アサーション
                 parsed_item = parser._parsePropertyDetailPage(item, d_soup)
                 cleaned_item = parser.clean_parsed_item(parsed_item)
 
