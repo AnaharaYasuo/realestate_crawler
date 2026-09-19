@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import urllib.parse
 import importlib
-from typing import Optional, Dict, Any
+from typing import Optional
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 

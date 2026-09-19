@@ -2,6 +2,8 @@
 import re
 from typing import Optional, Dict, Any
 
+from package.utils.property_type_detector import PropertyTypeDetector
+
 
 class UrlRouter:
     """
@@ -294,7 +296,6 @@ class UrlRouter:
         # 2. 目的の property_type の特定 (引数指定 > PropertyTypeDetector動的判定)
         target_ptype = property_type
         if not target_ptype and (title or html_text or specs):
-            from package.utils.property_type_detector import PropertyTypeDetector
             target_ptype = PropertyTypeDetector.detect(
                 url=url,
                 title=title,
