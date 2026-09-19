@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import gc
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, RepeatedKFold
 from sklearn.metrics import mean_absolute_error, r2_score
 from sklearn.ensemble import RandomForestRegressor
 import lightgbm as lgb
@@ -40,6 +40,41 @@ COMPANIES = [
     "seibu", "keikyu", "sotetsu", "keisei", "daikyo",
     "rearie", "heim", "sumirin", "keio"
 ]
+
+def calculate_time_decay_weights(dates, base_date=None, decay_rate=0.0005, min_weight=0.20):
+    """
+    物件の掲載日からの経過日数に応じた時間減衰重みを算出する。
+    半減期約3.8年 (decay_rate=0.0005)、最低重み 0.20 (過度な情報損失防止)。
+    w = max(min_weight, exp(-decay_rate * delta_days))
+    """
+    import datetime
+    if base_date is None:
+        base_date = datetime.date.today()
+    elif isinstance(base_date, datetime.datetime):
+        base_date = base_date.date()
+
+    weights = []
+    for d in dates:
+        if d is None:
+            weights.append(min_weight)
+            continue
+        if isinstance(d, datetime.datetime):
+            d = d.date()
+        elif isinstance(d, str):
+            try:
+                d = datetime.datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
+            except Exception:
+                weights.append(min_weight)
+                continue
+        elif not isinstance(d, datetime.date):
+            weights.append(min_weight)
+            continue
+
+        delta_days = max(0, (base_date - d).days)
+        w = max(min_weight, float(np.exp(-decay_rate * delta_days)))
+        weights.append(w)
+    return np.array(weights, dtype=np.float64)
+
 
 def calculate_mape(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
@@ -382,6 +417,15 @@ def _generate_single_dummy_record(ptype, rng):
         "zone_rank": float(rng.choice([2.0, 3.0, 3.5, 4.0, 4.5, 5.0])),
         "shape_type_code": float(rng.choice([1.0, 2.0, 3.0, 4.0])),
         "is_regular_shape": float(rng.choice([0.0, 1.0])),
+        "time_diff_months": float(rng.uniform(0.0, 24.0)),
+        "macro_repi": 180.0,
+        "macro_jgb_10y": 0.8,
+        "macro_nikkei": 38000.0,
+        "macro_reit": 1900.0,
+        "macro_construction_cost": 125.0,
+        "is_legacy_data": 0.0,
+        "interior_score": 3.0,
+        "layout_score": 3.0,
     }
 
 def generate_dummy_data(ptype, num_records=500):
@@ -470,7 +514,7 @@ def _get_regressor(name, params):
         )
     raise ValueError(f"Unknown algorithm: {name}")
 
-def tune_hyperparameters(X, y, algo_name) -> dict:
+def tune_hyperparameters(X, y, algo_name, sample_weight=None) -> dict:
     """
     簡易的なハイパーパラメータグリッドサーチを行い、
     3-Fold CV で最も MAPE が良かったパラメータの辞書を返します。
@@ -479,8 +523,10 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
         tune_idx = np.random.default_rng(42).choice(len(X), size=5000, replace=False)
         X_tune = X.iloc[tune_idx].reset_index(drop=True)
         y_tune = y.iloc[tune_idx].reset_index(drop=True)
+        sw_tune = sample_weight[tune_idx] if sample_weight is not None else None
     else:
         X_tune, y_tune = X.reset_index(drop=True), y.reset_index(drop=True)
+        sw_tune = sample_weight if sample_weight is not None else None
 
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
     best_params = {}
@@ -511,7 +557,11 @@ def tune_hyperparameters(X, y, algo_name) -> dict:
             y_train, y_val = y_tune.iloc[train_idx], y_tune.iloc[val_idx]
             
             model = _get_regressor(algo_name, params)
-            model.fit(x_train, y_train)
+            if sw_tune is not None:
+                sw_train = sw_tune[train_idx]
+                model.fit(x_train, y_train, sample_weight=sw_train)
+            else:
+                model.fit(x_train, y_train)
             preds_log = model.predict(x_val)
             val_areas = x_val["area"].values
             mapes.append(calculate_mape(np.expm1(y_val) * val_areas, np.expm1(preds_log) * val_areas))
@@ -546,20 +596,23 @@ def print_feature_importance(model, algo_name, feature_cols):
     except Exception as e:
         print(f"  [{algo_name}] Failed to compute feature importance: {e}")
 
-from sklearn.model_selection import RepeatedKFold
-
 class TrainedEnsemble(dict):
     def __init__(self, models, weights=None, smearing_factor=1.0):
         super().__init__(models)
         self.weights = weights or {}
         self.smearing_factor = smearing_factor
 
-def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
+def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> TrainedEnsemble:
     """
     指定された特徴量を用いてモデルをチューニング＆学習し、
     Repeated 5-Fold CV (計15サイクル) 評価を行った上で、全データで最終学習したモデル、
     データ駆動最適アンサンブル重み、およびDuan's Smearing補正係数を返します。
     """
+    # 欠損特徴量カラムのゼロ埋め（ダミーデータや過去データ等の互換性ガード）
+    for col in feature_cols:
+        if col not in df.columns:
+            df[col] = 0.0
+
     X = df[feature_cols].copy()
     y = np.log1p(df["price"] / df["area"]) # 平米単価の対数変換 (log1p) を施す
     
@@ -589,7 +642,7 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
     for name in algos:
         if len(df) >= 100:
             print(f"Tuning hyperparameters for {name}...", flush=True)
-            best_params_dict[name] = tune_hyperparameters(X, y, name)
+            best_params_dict[name] = tune_hyperparameters(X, y, name, sample_weight=sample_weight)
             print(f"Best params for {name}: {best_params_dict[name]}", flush=True)
         else:
             best_params_dict[name] = {}
@@ -608,7 +661,11 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             
             fold_model = _get_regressor(name, params)
-            fold_model.fit(x_train, y_train)
+            if sample_weight is not None:
+                sw_train = sample_weight[train_idx]
+                fold_model.fit(x_train, y_train, sample_weight=sw_train)
+            else:
+                fold_model.fit(x_train, y_train)
             preds_log = fold_model.predict(x_val)
             
             oof_preds[name][val_idx] += preds_log
@@ -637,7 +694,10 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
         # 全データで本番学習
         final_model = _get_regressor(name, params)
             
-        final_model.fit(X, y)
+        if sample_weight is not None:
+            final_model.fit(X, y, sample_weight=sample_weight)
+        else:
+            final_model.fit(X, y)
         print_feature_importance(final_model, name, feature_cols)
         trained_models[name] = final_model
         
@@ -652,7 +712,8 @@ def train_and_compare(df, feature_cols, stage_name) -> TrainedEnsemble:
     def objective(weights):
         w = np.array(weights)
         s = np.sum(w)
-        if s <= 0: return 9999.0
+        if s <= 0:
+            return 9999.0
         w_norm = w / s
         pred_price = val_areas * (oof_unit_preds @ w_norm)
         return calculate_mape(y_actual, pred_price)
@@ -731,6 +792,7 @@ def main():
             feats["price"] = item["price"]
             feats["interior_score"] = item["interior_score"]
             feats["layout_score"] = item["layout_score"]
+            feats["input_date"] = getattr(p, 'inputDate', None) or getattr(p, 'inputDateTime', None)
             records.append(feats)
             if (i + 1) % 5000 == 0:
                 print(f"  Extracted features for {i+1:,}/{len(items):,} items...", flush=True)
@@ -745,9 +807,13 @@ def main():
         # 学習データのクレンジング（外れ値の自動除外）を実行
         df = clean_training_data(df, ptype)
             
+        # 掲載日に基づく時間減衰サンプル重みを算出 (Time Decay Weights)
+        dates = df["input_date"].values if "input_date" in df.columns else [None] * len(df)
+        sample_weights = calculate_time_decay_weights(dates)
+
         # 一次モデルの訓練と保存 (LGB, XGB, Cat, RF)
         first_cols = feature_sets[ptype]["first"]
-        first_ensemble = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)")
+        first_ensemble = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)", sample_weight=sample_weights)
         all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
         all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
         for algo, model in first_ensemble.items():
@@ -755,7 +821,7 @@ def main():
         
         # 二次モデルの訓練と保存 (LGB, XGB, Cat, RF)
         second_cols = feature_sets[ptype]["second"]
-        second_ensemble = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)")
+        second_ensemble = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)", sample_weight=sample_weights)
         all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
         all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
         for algo, model in second_ensemble.items():
