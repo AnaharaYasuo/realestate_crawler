@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('package', '0050_kenbiyainvestmentbuilding_kenbiyakodate_and_more'),
+        ('package', '0048_candidatepropertyurl'),
     ]
 
     operations = [
