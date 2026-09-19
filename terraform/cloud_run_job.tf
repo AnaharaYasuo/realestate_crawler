@@ -162,3 +162,81 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
   }
 }
 
+# Cloud Run Job for DB Migration (デプロイ時の自動マイグレーション実行用)
+resource "google_cloud_run_v2_job" "db_migrate_job" {
+  name     = "realestate-migrate-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_sql_database_instance.mysql_instance,
+    google_vpc_access_connector.vpc_connector,
+    google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_iam_member.secret_accessor
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = "600s"
+      max_retries     = 1
+
+      vpc_access {
+        connector = google_vpc_access_connector.vpc_connector.id
+        egress    = "ALL_TRAFFIC"
+      }
+
+      containers {
+        image   = "python:3.11-slim"
+        command = ["python", "src/crawler/manage.py", "migrate", "--noinput"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "1Gi"
+          }
+        }
+
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "DB_HOST"
+          value = google_sql_database_instance.mysql_instance.private_ip_address
+        }
+        env {
+          name  = "DB_NAME"
+          value = var.db_name
+        }
+        env {
+          name  = "DB_USER"
+          value = var.db_user
+        }
+        env {
+          name  = "DB_PORT"
+          value = "3306"
+        }
+        env {
+          name = "DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_password_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image
+    ]
+  }
+}
+
+

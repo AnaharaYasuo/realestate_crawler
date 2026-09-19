@@ -566,4 +566,35 @@ def test_predict_by_url_tier2_ignores_query_params(client):
         assert data["success"] is True
         assert data["data_source"] == "db_property"
         assert data["prediction"]["first_stage_predicted_price"] == 4800
+        assert data["prediction"]["price_gap"] == 300
+        assert data["prediction"]["divergence_ratio"] == 1.067
+        assert data["prediction"]["is_bargain"] is False
+
+
+def test_predict_by_url_scale_normalization_and_bargain_detection(client):
+    """円単位(asking_price)と万円単位(predicted_price)のスケール自動正規化と割安判定の検証"""
+    from routes.evaluation_routes import _calculate_prediction_metrics
+
+    # 1. 万円推論 (4800万) vs 円売出 (4000万) -> 割安 (4800/4000 = 1.20 >= 1.15)
+    gap, ratio, is_bargain = _calculate_prediction_metrics(4800, 40000000)
+    assert gap == 800
+    assert ratio == 1.2
+    assert is_bargain is True
+
+    # 2. 円推論 (4800万) vs 円売出 (4000万) -> 双方が円単位
+    gap, ratio, is_bargain = _calculate_prediction_metrics(48000000, 40000000)
+    assert gap == 8000000
+    assert ratio == 1.2
+    assert is_bargain is True
+
+    # 3. 万円推論 (3500万) vs 円売出 (4000万) -> 割高 (3500/4000 = 0.875)
+    gap, ratio, is_bargain = _calculate_prediction_metrics(3500, 40000000)
+    assert gap == -500
+    assert ratio == 0.875
+    assert is_bargain is False
+
+    # 4. None / 0 入力耐性
+    gap, ratio, is_bargain = _calculate_prediction_metrics(None, 40000000)
+    assert gap is None and ratio is None and is_bargain is False
+
 

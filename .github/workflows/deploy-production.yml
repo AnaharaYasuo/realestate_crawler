@@ -85,6 +85,16 @@ jobs:
             asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:latest
             asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }}
 
+      - name: Run Database Migrations on Cloud SQL
+        run: |
+          gcloud run jobs update realestate-migrate-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/manage.py,migrate,--noinput \
+            --region=asia-northeast1
+          gcloud run jobs execute realestate-migrate-prod \
+            --region=asia-northeast1 \
+            --wait
+
       - name: Update Cloud Run Job Image
         run: |
           gcloud run jobs update realestate-crawler-pipeline-prod \
