@@ -1753,6 +1753,53 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["interior_score"] = safe_float(get_attr(property_obj, 'interior_score', 0.0), 0.0)
     feats["layout_score"] = safe_float(get_attr(property_obj, 'layout_score', 0.0), 0.0)
 
+    # ⑬ 建物マスタ (BuildingMaster) & 1物件1リクエスト抽出属性の特徴量統合
+    bm_obj = get_attr(property_obj, 'building_master', None)
+    if not bm_obj:
+        try:
+            from package.models.building_master import BuildingMaster
+            from package.utils.building_resolver import normalize_building_name, normalize_building_address
+            p_name = get_attr(property_obj, 'propertyName', '') or get_attr(property_obj, 'title', '') or ''
+            p_addr = get_attr(property_obj, 'address', '') or ''
+            n_name = normalize_building_name(p_name)
+            n_addr = normalize_building_address(p_addr)
+            if n_name and n_addr:
+                bm_obj = BuildingMaster.objects.filter(normalized_name=n_name, normalized_address=n_addr).first()
+        except Exception:
+            bm_obj = None
+
+    dev_tier = getattr(bm_obj, 'developer_tier', 'unknown') if bm_obj else 'unknown'
+    feats["bm_brand_tier_score"] = 1.0 if dev_tier == "major_reputable" else (0.5 if dev_tier == "standard" else 0.0)
+
+    contractor_tier = getattr(bm_obj, 'contractor_tier', 'unknown') if bm_obj else 'unknown'
+    feats["bm_contractor_tier_score"] = 1.0 if contractor_tier == "super_general" else (0.6 if contractor_tier == "major" else 0.0)
+
+    eq_res = getattr(bm_obj, 'earthquake_resistance', '') or ''
+    feats["bm_is_seismic_isolated"] = 1.0 if "免震" in str(eq_res) else (0.5 if "制震" in str(eq_res) else 0.0)
+
+    ev_avail = getattr(bm_obj, 'elevator_available', None) if bm_obj else None
+    if ev_avail is True:
+        feats["bm_has_elevator"] = 1.0
+    elif ev_avail is False:
+        feats["bm_has_elevator"] = -1.0
+    else:
+        feats["bm_has_elevator"] = 1.0 if re.search(r'エレベーター|EV', combined_text) else 0.0
+
+    hallway = getattr(bm_obj, 'hallway_type', '') or ''
+    feats["bm_is_indoor_hallway"] = 1.0 if "内廊下" in str(hallway) or "内廊下" in combined_text else 0.0
+
+    gb = getattr(bm_obj, 'garbage_disposal_24h', None) if bm_obj else None
+    feats["bm_has_24h_garbage"] = 1.0 if gb or "24時間ゴミ出し" in combined_text or "ゴミステーション" in combined_text else 0.0
+
+    # 専有部・土地固有スペック
+    feats["has_disposer"] = 1.0 if re.search(r'ディスポーザー', combined_text) else 0.0
+    feats["is_corner_unit"] = 1.0 if re.search(r'角部屋|角住戸', combined_text) else 0.0
+    feats["is_leasehold"] = 1.0 if re.search(r'借地権|地上権|賃借権', combined_text) else 0.0
+    feats["has_psychological_defect"] = 1.0 if re.search(r'告知事項|心理的瑕疵', combined_text) else 0.0
+
+    # 画像補正調整率
+    feats["visual_adjustment_percent"] = safe_float(get_attr(property_obj, 'visual_adjustment_percent', 0.0), 0.0)
+
     # ⑫ 時間概念およびマクロ経済指標特徴量 (Temporal & Macroeconomic Features)
     feats["time_diff_months"] = time_diff_months
     feats["macro_repi"] = macro_repi
@@ -1763,6 +1810,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["is_legacy_data"] = is_legacy
 
     return feats
+
 
 
 def build_features_batch(properties_list, property_type, base_date=None, mkt_comparison_master=None):

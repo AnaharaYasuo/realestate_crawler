@@ -185,9 +185,11 @@ def _log_prediction_error(property_obj, property_type, predicted_price, actual_p
     if not actual_price or float(actual_price) <= 0:
         return
         
-    # 単位の同調: actual_price, predicted_price を万円単位に統一して正確な乖離率を算出
-    actual_price_man = float(actual_price) / 10000.0 if float(actual_price) > 100000.0 else float(actual_price)
-    predicted_price_man = float(predicted_price) / 10000.0 if float(predicted_price) > 100000.0 else float(predicted_price)
+    # 単位の同調: predicted_priceはモデル出力であり常に万円単位。
+    # actual_price は 100,000 以上（10万円以上）の場合は円単位とみなし / 10000.0、それ未満は万円単位とみなす。
+    predicted_price_man = float(predicted_price)
+    actual_price_val = float(actual_price)
+    actual_price_man = (actual_price_val / 10000.0) if actual_price_val >= 100_000.0 else actual_price_val
     
     # 面積0などの不正データのログ記録を除外
     area_val = features.get("area", 0) or features.get("tochi_menseki", 0)

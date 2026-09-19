@@ -442,9 +442,11 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[価格推定API OpenAPI仕様書](docs/api/openapi.yaml)** - Swaggerで閲覧可能な価格推定API仕様書（OpenAPI 3.0）
 - **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)** - 機械学習モデル・学習プロセス仕様書（2段階スクリーニング・特徴量・フォールバック設計）
-- **[ML自己改善サイクル設計書](docs/internal_design/ml_self_improvement_cycle.md)** - 予測モデルの自己改善サイクル＆不動産鑑定特徴量設計
-- **[投資用物件の種別定義](docs/domain/property_types.md)** - 不動産投資における戸建・アパートの定義と判定ロジック
 - **[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md)** - 一項目一メソッド（Template Method パターン）、基底クラス `@abstractmethod` 抽象設計規約、および関数名漢字利用禁止規約
+- **[日次予測精度診断運用ポリシー](docs/internal_design/ml_prediction_diagnostics_policy.md)** - MdAPEを主軸とした価格帯・種別別ズレ日次診断、ワースト要因タギング、AIインサイト運用仕様
+- **[マクロ経済時系列予測モデル設計書](docs/internal_design/macro_time_series_forecaster.md)** - 正則化多変量自己回帰 (Ridge VAR) による相場モメンタム特徴量 (`repi_growth_3m`, `macro_regime_score`) 仕様
+- **[1物件1リクエスト完結型AI属性抽出設計書](docs/internal_design/single_unified_property_ai_extractor.md)** - 1物件1AIリクエスト原則、マルチモーダル画像・全観点一括抽出スキーマ仕様
+- **[建物マスタ設計書](docs/internal_design/building_master_design.md)** - マンション名寄せ・自動スペック伝搬・BuildingMasterモデル仕様
 
 
 
