@@ -101,7 +101,7 @@ resource "google_compute_instance_template" "proxysql_template" {
     (
         {
             username="${var.db_user}"
-            password=""
+            password="${random_password.db_password.result}"
             default_hostgroup=0
             max_connections=1000
             default_schema="${var.db_name}"

@@ -71,6 +71,8 @@
   - バックエンド Cloud SQL への接続数は、各インスタンス上限を 50 に設定し、2台スケール時でも計 100 接続以内に収めて Cloud SQL の耐用上限を安全に保護すること。
 - **負荷分散 & 透過的接続 (Internal Load Balancer)**:
   - 内部TCPロードバランサー (ILB) を配置し、Cloud Run (VPC Access Connector 経由) からは単一のプライベート IP（ポート 6033）に向けて接続可能であること。
-- **ヘルスチェック & 自動復旧 (Health Check & Auto-healing)**:
-  - ILB が ProxySQL のトラフィックポート（6033）または管理ポート（6032）を定期監視（TCP ヘルスチェック）し、障害インスタンスをトラフィックから自動除外およびMIGによる自動再作成（Auto-healing）を行えること。
+- **Cloud Run / Service からの接続統一 (ProxySQL Direct Routing)**:
+  - クローラー実行用 Cloud Run Job、Slack Agent サービス、価格推定 API サービスは、直接 Cloud SQL への接続を廃止し、ProxySQL ILB（プライベート IP、ポート 6033）へ接続を統一すること。
+  - プロセスごとのプールサイズ（`DB_POOL_SIZE`）をクローラー特性に合わせて適正化（Job: 2、Service: 5）し、不要なアイドル接続の保持を抑制すること。
+  - DBスキーママイグレーション（DDL）を実行する Migrate Job のみ、直接 Cloud SQL（ポート 3306）への接続を維持すること。
 
