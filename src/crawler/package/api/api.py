@@ -1077,7 +1077,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             existing_record = None
             try:
                 def get_existing():
-                    return model_class.objects.filter(UrlMatcher.build_db_filter("pageUrl", item.pageUrl)).order_by("-id").first()
+                    return model_class.objects.filter(UrlMatcher.build_db_filter("pageUrl", item.pageUrl)).first()
                 existing_record = await sync_to_async(get_existing)()
             except Exception as e:
                 logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
