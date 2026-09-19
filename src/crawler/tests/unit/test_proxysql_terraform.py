@@ -35,6 +35,8 @@ def test_proxysql_resources_defined():
     # 3. MIG (リージョン配置, 2ゾーン分散)
     assert re.search(r'resource\s+"google_compute_region_instance_group_manager"\s+"proxysql_mig"', content), \
         "Region instance group manager (MIG) for ProxySQL must be defined."
+    assert re.search(r'max_surge_fixed\s*=\s*2', content), \
+        "max_surge_fixed must be at least 2 for regional MIG with 2 zones."
 
     # 3.1 オートスケーラー (Min 1, Max 2, CPU連動)
     assert re.search(r'resource\s+"google_compute_region_autoscaler"\s+"proxysql_autoscaler"', content), \
