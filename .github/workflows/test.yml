@@ -7,8 +7,31 @@ on:
     branches: [ main, master, production ]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+      - name: Path Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'config/**'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - 'pytest.ini'
+              - '.github/workflows/test.yml'
+
   test-matrix:
     name: Test (${{ matrix.name }})
+    needs: changes
+    if: ${{ needs.changes.outputs.app == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -58,12 +81,16 @@ jobs:
 
   test:
     name: test
-    needs: test-matrix
+    needs: [changes, test-matrix]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Verify all test jobs passed
+      - name: Verify test results
         run: |
+          if [ "${{ needs.changes.outputs.app }}" != "true" ]; then
+            echo "App files not modified. Tests skipped (Passed)."
+            exit 0
+          fi
           if [ "${{ needs.test-matrix.result }}" != "success" ]; then
             echo "::error::One or more test matrix jobs failed."
             exit 1

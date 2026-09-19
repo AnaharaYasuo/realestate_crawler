@@ -269,18 +269,28 @@ graph TD
   - 定時（JST 09:00 / UTC 00:00）に実行され、`--auto-merge --auto-rebase` を指定してスクリプトをキック。
   - 実行サマリーを `$GITHUB_STEP_SUMMARY` へ Markdown 出力。
 
-### 6.16 CI並列分散ワークフローおよびテスト並列化設計仕様
+### 6.16 CI並列分散ワークフロー・差分スキップおよび先行実行設計仕様
 - **pytest-xdist マルチプロセス並列化**:
   - `pytest -n auto` を導入し、CI仮想マシン（4 vCPU）のCPUリソースを自動検出し並列実行する。
   - `pytest-cov` の `--cov` オプションと併用し、並列テスト実行結果からカバレッジをマージして `coverage.xml` を出力する。
-- **test.yml マトリクス並列化構成**:
+- **test.yml マトリクス並列化および集約ゲート**:
   - `strategy.matrix.test-group`:
     - `unit`: `src/crawler/tests/unit/`（単体テスト群、428件）
     - `integration`: `src/crawler/tests/integration/`（`test_live_reachability.py`, `test_crawler_pipeline_e2e.py`）
     - `ml`: `src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py`（ML学習・画像処理テスト）
-  - 各マトリクスジョブが独立した GitHub Actions ランナーで完全並行稼働。
+  - 各マトリクスジョブ（`test-matrix`）が独立した GitHub Actions ランナーで完全並行稼働。
+  - 集約ジョブ `test`（`needs: test-matrix`）により、ブランチ保護ルール互換性を維持しつつ全マトリクスの合否を一元判定。
+- **変更差分フィルタリング (`dorny/paths-filter`)**:
+  - `docs`: `['docs/**', '*.md', '.agents/**', 'LICENSE']` のみの変更時はテスト・Dockerビルドを完全スキップ。
+  - `terraform`: `['terraform/**']` の変更時はアプリテストをスキップして `terraform-plan` のみ実行。
+  - スキップ時でも集約ジョブ `test` は成功ステータスを返し、PRマージをブロックしない。
+- **SonarCloud 先行独立パイプライン**:
+  - PR作成/更新時に最優先で独立起動。
+  - `-m "not live"` オプションにより外部実サイトへの生通信テストを除外し、モック＆単体テストで純粋なコードカバレッジを高速測定（所要時間2分以内）。
+- **Production PR 完全並列化**:
+  - `production` 宛て PR では `Verify Source Branch is master`、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
 - **Docker BuildKit GHA キャッシュ連携**:
-  - `docker/setup-buildx-action` と BuildKit cache (`type=gha`) を利用し、Dockerレイヤーキャッシュ（OS依存・Python依存パッケージ・Playwrightブラウザ）をGitHub Actions Cache上に永続化。
+  - `docker/setup-buildx-action` と BuildKit cache (`type=gha,scope=app`) を利用し、Dockerレイヤーキャッシュ（OS依存・Python依存パッケージ・Playwrightブラウザ）をGitHub Actions Cache上に永続化。
   - キャッシュヒット時はイメージの再ビルドをスキップし、起動オーバーヘッドを4分半から20秒未満に圧縮する。
 
 ---
@@ -293,4 +303,4 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.8 (Dependabot日次自動マージ＆CI並列分散ワークフロー追記)
+**バージョン**: 1.9 (差分スキップ・Sonar先行化・Production PR並列化設計追記)
