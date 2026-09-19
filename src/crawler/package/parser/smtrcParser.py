@@ -4,6 +4,7 @@ from package.parser.baseParser import ParserBase, MansionParserBase, KodateParse
 from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi, SmtrcInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
+from package.utils.property_type_detector import PropertyTypeDetector
 import re
 
 class SmtrcParser(ParserBase):
@@ -485,15 +486,7 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         item.chimoku = specs.get("地目", "")
         item.youtoChiiki = specs.get("用途地域", "")
 
-        # 物件種別（Apartment, Mansion, Building）の判定
-        h1_text = item.propertyName or ""
-        if "アパート" in h1_text:
-            item.propertyType = "Apartment"
-        elif "マンション" in h1_text or "レジ" in h1_text:
-            item.propertyType = "Mansion"
-        elif "ビル" in h1_text or "店舗" in h1_text or "事務所" in h1_text:
-            item.propertyType = "Building"
-        else:
-            item.propertyType = "Apartment" # fallback
+        # 物件種別（Apartment, Mansion, Building）の判定 (共通化)
+        item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
 
         return item

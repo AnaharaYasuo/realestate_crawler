@@ -314,14 +314,20 @@ logging.error(
 
 ```python
 class PropertyTypeDetector:
+    # 投資用絶対判定キーワード（最優先ガードレール）
+    INVESTMENT_STRONG_SIGNALS = [
+        "表面利回り", "実質利回り", "想定利回り", "現況利回り", "満室利回り", "満室時利回り",
+        "利回り", "オーナーチェンジ", "サブリース", "想定年収", "満室想定", "年間予定賃料", "賃貸中"
+    ]
+
     # 判定優先度付きキーワードマップ
     # ※「一棟マンション」等の複合語を「マンション」より先に判定するため順序を厳格化
     APARTMENT_KEYWORDS = [
         "一棟アパート", "一棟売りアパート", "一棟マンション", "一棟売りマンション",
-        "一棟ビル", "一棟売りビル", "収益物件", "アパート", "収益アパート", "投資用アパート"
+        "一棟ビル", "一棟売りビル", "収益物件", "アパート", "収益アパート", "投資用アパート", "一棟売り", "一棟"
     ]
     MANSION_KEYWORDS = [
-        "区分マンション", "中古マンション", "新築マンション", "マンション", "区分所有"
+        "区分マンション", "中古マンション", "新築マンション", "マンション", "区分所有", "ライオンズマンション", "パークホームズ"
     ]
     KODATE_KEYWORDS = [
         "一戸建て", "一戸建", "新築戸建", "中古戸建", "戸建", "テラスハウス"
@@ -337,11 +343,46 @@ class PropertyTypeDetector:
         title: Optional[str] = None,
         html_text: Optional[str] = None,
         specs: Optional[Dict[str, Any]] = None,
-        default: Optional[str] = None
+        default: Optional[str] = None,
+        use_ai: bool = False
     ) -> Optional[str]:
         """
-        スペック表 -> タイトル -> HTMLテキスト -> URL の優先順位で種別判定
+        1. 決定論的利回りガード (Yield Guard)
+        2. スペック表 -> タイトル -> HTMLテキスト -> URL の優先順位でルール判定
+        3. ルール判定不能時かつ use_ai=True の場合、Gemini Flash による AI フォールバック実行
         戻り値: 'apartment' | 'mansion' | 'kodate' | 'tochi' | default
+        """
+        ...
+
+    @classmethod
+    def detect_with_ai(
+        cls,
+        url: Optional[str] = None,
+        title: Optional[str] = None,
+        html_text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+        default: str = "mansion"
+    ) -> str:
+        """
+        Gemini 1.5 Flash を用いた高精度分類フォールバック。
+        1物件につきAI呼び出しは最大1回（インメモリキャッシュで同一物件への重複実行を完全防止）。
+        AI出力は事後サニタイザー (_sanitize_output) により利回り・物理制約を再検証。
+        """
+        ...
+
+    @classmethod
+    def detect_from_object(cls, property_obj: Any) -> str:
+        """
+        dict または Django Model インスタンスから物件種別を判定。
+        （利回り、土地面積0のRC造是正ロジックを統合したSSOTメソッド）
+        """
+        ...
+
+    @classmethod
+    def detect_investment_type(cls, text: str, default: str = "Apartment") -> str:
+        """
+        投資物件の表題・テキスト等から Apartment / Mansion / Building を判定。
+        各社投資パーサーの共通メソッド。
         """
         ...
 ```
@@ -353,3 +394,7 @@ class PropertyTypeDetector:
    - URLによる解決に加え、タイトルやスペック表が渡された場合に動的に種別特定・検証を実行可能。
 3. **`evaluation_routes.py`**:
    - URLセキュリティ判定で取得したタイトル・コンテンツ情報から `PropertyTypeDetector.detect` を呼び出し、種別を確定。
+4. **`predict.py` (ML推論パイプライン)**:
+   - `_detect_property_type` を `PropertyTypeDetector.detect_from_object` に一本化。
+5. **各社投資パーサー**:
+   - `PropertyTypeDetector.detect_investment_type` でサブ種別判定を一元化。
