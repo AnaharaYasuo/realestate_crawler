@@ -140,6 +140,14 @@
 - **事前走査の義務化**: コード修正や新機能追加の後、GitHub に Pull Request を作成・プッシュする前に、必ずローカル環境で Snyk によるセキュリティ脆弱性スキャンおよび SonarLint / SonarQube による静的コード解析を実施すること。
 - **指摘事項の解消**: 検出された重大な脆弱性（High/Critical）、Code Smell、型エラー、未解決の指摘はすべて修正してからコミット・PR作成を行うこと。
 
+## 【プロジェクト普遍ルール】パーサー未整備サイトの自律検知およびパーサー新規作成義務化原則 (Parser Missing Detection & Backlog Creation Rule)
+- **パーサー未整備エラーの自動捕捉**:
+  - クローラーまたは価格推定API (`/api/evaluation/predict-by-url`) において、パーサー未整備エラー（`[PARSER_UNAVAILABLE]` または `[PARSER_NOT_FOUND]`）が発生・ログ出力されたサイトは、一時的エラーや無視できる障害として放置してはならない。
+  - これらのエラーは「新規パーサー開発対象（Backlog）の自動検出」として認識し、`CandidatePropertyUrl` テーブルに蓄積されたリクエスト回数 (`request_count`) や重要度に応じて、当該サイト（および物件種別）のパーサー新規実装タスクを自律的に立案・作成しなければならない。
+- **パーサー開発・拡張時の必須遵守事項**:
+  - 新規パーサーを作成する際は、必ず「物件種別別 Base パーサー階層アーキテクチャ原則」（`MansionParserBase`, `KodateParserBase`, `TochiParserBase`, `InvestmentParserBase` 等の継承と全抽象メソッド実装）および SDD × TDD 統合開発原則（仕様更新 ➔ 単体テスト ➔ 実装）に厳格に従うこと。
+  - ルーティング定義 (`UrlRouter`) に正規表現パターンおよび対応パーサー・モデルクラスを追加し、二段階回帰テスト (`/regression-test`) を実行して全件合格を裏付けること。
+
 
 
 
