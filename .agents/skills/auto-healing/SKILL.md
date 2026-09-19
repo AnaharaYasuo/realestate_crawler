@@ -12,8 +12,9 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 ### 1. アラート調査・コンテナログ点検 ＆ 原因特定
 * 把握した問題・アラート一覧をまず整理し、最初（Step 1）に Slack チャンネルへ投稿・報告すること。
 * 実際に存在するすべてのアラート系 Slack チャンネル（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#property_alert`, `#dev-agent`）の直近投稿およびスレッドを漏れなくすべてチェック。
-* **メインコンテナログの点検**: `realestate_crawler-app-1`（`docker logs --tail 300 realestate_crawler-app-1` 等）のログを巡回点検し、`QueuePool overflow` (DB接続漏れ/タイムアウト)、`500 Internal Server Error`、未捕捉例外、パース失敗エラーが発生していないかを自動検知。
+* **メインコンテナログの点検**: `realestate_crawler-app-1`（`docker logs --tail 300 realestate_crawler-app-1` 等）のログを巡回点検し、`QueuePool overflow` (DB接続漏れ/タイムアウト)、`500 Internal Server Error`、未捕捉例外、パース失敗エラー、**パーサー未整備エラー（`[PARSER_UNAVAILABLE]`, `[PARSER_NOT_FOUND]`）**が発生していないかを自動検知。
 * 0件取得（Zero-Count Failure）になっているサイト・モデル、およびパースエラーを起こしているページを特定。
+* **パーサー未整備エラーの新規作成タスク化**: `[PARSER_UNAVAILABLE]` が検知された場合、`CandidatePropertyUrl` テーブルから対象ドメイン・URL・リクエスト頻度を抽出し、新規パーサー開発対象（Backlog）として自律的に開発タスクを起票・実装する。
 * 対象のパーサー、ルート、モデル、スタートURL、または DB コネクション管理コードを正しく修正。
 
 

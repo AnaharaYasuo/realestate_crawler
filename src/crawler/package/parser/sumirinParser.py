@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.sumirin import SumirinMansion, SumirinKodate, SumirinTochi, SumirinInvestment
 from package.utils import converter
+from package.utils.property_type_detector import PropertyTypeDetector
 import re
 import urllib.parse
 
@@ -538,16 +539,8 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
 
-        # 物件種別の判定 (タイトル等から)
-        h1_text = item.propertyName or ""
-        if "アパート" in h1_text:
-            item.propertyType = "Apartment"
-        elif "マンション" in h1_text:
-            item.propertyType = "Mansion"
-        elif "ビル" in h1_text or "店舗" in h1_text or "事務所" in h1_text:
-            item.propertyType = "Building"
-        else:
-            item.propertyType = "Apartment" # fallback
+        # 物件種別の判定 (タイトル等から共通化)
+        item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
 
         return item
 

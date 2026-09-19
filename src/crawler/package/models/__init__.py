@@ -24,3 +24,4 @@ from .sotetsu import *
 from .keisei import *
 from .daikyo import *
 from .crawler_task_execution import *
+from .candidate import *
