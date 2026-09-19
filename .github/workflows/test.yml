@@ -7,7 +7,7 @@ on:
     branches: [ main, master, production ]
 
 jobs:
-  test:
+  test-matrix:
     name: Test (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
@@ -55,3 +55,17 @@ jobs:
       - name: Stop containers
         if: always()
         run: docker compose down
+
+  test:
+    name: test
+    needs: test-matrix
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify all test jobs passed
+        run: |
+          if [ "${{ needs.test-matrix.result }}" != "success" ]; then
+            echo "::error::One or more test matrix jobs failed."
+            exit 1
+          fi
+          echo "All test matrix jobs passed successfully."
