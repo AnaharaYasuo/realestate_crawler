@@ -38,8 +38,8 @@ def test_flask_app_request_response_logging():
     from main import app
 
     with app.test_client() as client, \
-         patch("main.logging.info") as mock_info, \
-         patch("main.logging.log") as mock_log:
+         patch("package.utils.api_logger.logging.info") as mock_info, \
+         patch("package.utils.api_logger.logging.log") as mock_log:
 
         resp = client.post(
             "/api/evaluation/predict-by-url",
