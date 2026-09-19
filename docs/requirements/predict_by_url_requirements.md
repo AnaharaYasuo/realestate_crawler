@@ -117,3 +117,10 @@
      - `PropertyTypeDetector.detect(url=..., title=..., html_text=..., specs=..., default=...)` として、任意の引数組み合わせで独立して安全に呼び出せること。
   4. **UrlRouterおよびHomes投資ポータルへの適用**:
      - `UrlRouter.ROUTES` に `toushi.homes.co.jp` を登録し、投資用パーサー（`HomesInvestmentApartmentParser`）およびモデル（`HomesInvestmentApartment`）に解決すること。
+  5. **誤り混入防止ガードレール要件 (FR-GUARDRAIL-DETECTION)**:
+     - 利回り（表面利回り・想定利回り・実質利回り等）表記、あるいは `grossYield > 0`、オーナーチェンジ等の収益指標を検知した場合、他の判定（AI含む）に優先して無条件で `apartment`（投資用）と確定・オーバーライドし、実需モデルへの混入を防止する。
+     - 土地面積 0 かつ RC/SRC/鉄骨構造の場合は戸建（`kodate`）判定を禁止し、`mansion` へ強制是正する。
+  6. **AIフォールバック要件 (FR-AI-ASSISTED-DETECTION)**:
+     - ルール判定不能時、Gemini Flash（`gemini-1.5-flash`）を呼び出して高精度分類を行う。
+     - AI出力結果は必ず事後ガードレールにより検証・サニタイズ（利回り表記の強制オーバーライド等）を実施する。
+     - API未設定時・オフライン時・タイムアウト（1.5秒）時は安全に静的デフォルトへフォールバックし、バッチやパイプラインを停止させないこと。

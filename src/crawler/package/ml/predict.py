@@ -8,6 +8,8 @@ import joblib
 import logging
 import warnings
 import traceback
+from sklearn.utils.parallel import config_context
+from package.utils.property_type_detector import PropertyTypeDetector
 
 def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
     if "sklearn.utils.parallel" in str(message):
@@ -164,60 +166,17 @@ def preload_all_models():
         _load_second_stage_models(ptype, model_dir)
 
 def _detect_property_type_from_dict(property_obj):
-    tochi = property_obj.get("tochiMenseki", None)
-    senyu = property_obj.get("senyuMenseki", None)
-    structure = str(property_obj.get("structure", "") or property_obj.get("kouzou", "") or "")
-    try:
-        tochi_val = float(tochi) if tochi is not None else None
-    except (ValueError, TypeError):
-        tochi_val = None
-    if tochi_val is not None and tochi_val <= 0:
-        if senyu or any(x in structure for x in ["RC", "SRC", "鉄筋", "コンクリート", "鉄骨"]):
-            return "mansion"
-
-    ptype = property_obj.get("propertyType", "").lower()
-    if "mansion" in ptype: return "mansion"
-    if "kodate" in ptype: return "kodate"
-    if "apartment" in ptype: return "apartment"
-    if "tochi" in ptype: return "tochi"
-    
-    if "senyuMenseki" in property_obj: return "mansion"
-    if "tatemonoMenseki" in property_obj:
-        if "grossYield" in property_obj: return "apartment"
-        return "kodate"
-    if "tochiMenseki" in property_obj or "maguchi" in property_obj: return "tochi"
-    return "mansion"
+    return PropertyTypeDetector._detect_from_dict(property_obj)
 
 def _detect_property_type_from_django(property_obj):
-    tochi = getattr(property_obj, "tochiMenseki", None)
-    senyu = getattr(property_obj, "senyuMenseki", None)
-    structure = str(getattr(property_obj, "structure", "") or getattr(property_obj, "kouzou", "") or "")
-    try:
-        tochi_val = float(tochi) if tochi is not None else None
-    except (ValueError, TypeError):
-        tochi_val = None
-    if tochi_val is not None and tochi_val <= 0:
-        if senyu or any(x in structure for x in ["RC", "SRC", "鉄筋", "コンクリート", "鉄骨"]):
-            return "mansion"
-
-    class_name = property_obj.__class__.__name__.lower()
-    if "mansion" in class_name:
-        return "mansion"
-    elif "kodate" in class_name:
-        return "kodate"
-    elif "apartment" in class_name:
-        return "apartment"
-    elif "tochi" in class_name:
-        return "tochi"
-    return "mansion"
+    return PropertyTypeDetector._detect_from_django(property_obj)
 
 def _detect_property_type(property_obj):
     """
     オブジェクト名または型から mansion / kodate / apartment / tochi の種別を自動判定
+    (PropertyTypeDetector へ委譲・共通化)
     """
-    if isinstance(property_obj, dict):
-        return _detect_property_type_from_dict(property_obj)
-    return _detect_property_type_from_django(property_obj)
+    return PropertyTypeDetector.detect_from_object(property_obj)
 
 def _log_prediction_error(property_obj, property_type, predicted_price, actual_price, features):
     """
@@ -347,7 +306,6 @@ def _align_features(df, model):
             df_aligned[col] = 0.0
     return df_aligned[expected_features]
 
-from sklearn.utils.parallel import config_context
 
 def _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas):
     """

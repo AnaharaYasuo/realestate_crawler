@@ -210,3 +210,15 @@ sequenceDiagram
      - `tochi`: 「売地」「土地」「建築条件付土地」等。
 2. **ルーティング (`UrlRouter`) との連携**:
    - URLパスのみで種別特定が完結しないサイト（例: `toushi.homes.co.jp/bukkendetail/index/<id>`）において、デフォルト種別（`apartment`）を割り当てるとともに、`PropertyTypeDetector` と連携して動的にパーサー・モデルを解決可能とする。
+3. **多層防御判定アーキテクチャ (Multi-Tier Defense Architecture)**:
+   - **第1層: 決定論的ガードレール (Yield Guard & Physical Guard)**
+     - 「利回り（表面/想定/実質/現況）」「オーナーチェンジ」「満室想定」「年間予定賃料」や `grossYield > 0` を検知した場合は無条件で `apartment`（投資用）確定。
+     - 「土地面積 0 + RC構造」の場合は `kodate` を禁止し `mansion` へ強制是正。
+   - **第2層: 高速ルールエンジン (<0.1ms)**
+     - スペック辞書 ➔ ページタイトル ➔ 本文テキスト ➔ URLパス の優先度で判定。
+   - **第3層: AI判定フォールバック (Gemini 1.5 Flash)**
+     - ルールエンジンで判定不能なエッジケースにのみ起動。
+   - **第4層: 事後サニタイザー (Post-AI Sanitizer)**
+     - AI出力結果に対しても第1層ガードレールを再適用し、ハルシネーションによる誤分類を100%遮断。
+4. **全プロジェクト共通化 (SSOT)**:
+   - ML推論パイプライン (`predict.py`)、APIレイヤー (`api.py`)、および各社投資パーサー (`smtrc`, `mizuho`, `odakyu`, `sumai1`, `sumirin`) の物件種別判定を `PropertyTypeDetector` に一元化。
