@@ -9,8 +9,31 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+      - name: Path Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'config/**'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - 'pytest.ini'
+              - '.github/workflows/sonar.yml'
+
   sonarcloud:
     name: SonarCloud Scan
+    needs: changes
+    if: ${{ needs.changes.outputs.app == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -40,7 +63,7 @@ jobs:
 
       - name: Run Tests with Coverage
         run: |
-          docker compose exec -T app pytest -n auto src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
+          docker compose exec -T app pytest -n auto -m "not live" src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
 
       - name: Copy Coverage and Test Reports
         run: |

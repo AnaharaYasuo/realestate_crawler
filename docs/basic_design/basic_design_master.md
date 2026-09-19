@@ -641,4 +641,20 @@ graph TD
    - `docker/setup-buildx-action` と BuildKit GHA キャッシュ連携を行い、aptパッケージやPython依存ライブラリ（Playwright含む）のレイヤーキャッシュを保存・再利用。
    - コンテナ準備時間を4分半から20秒未満に短縮。
 
+### 11.3 変更差分ルーティング (Path-Based Skipping)
+```mermaid
+graph TD
+    A[PR / Push イベント] --> B[dorny/paths-filter]
+    B -->|docs / *.md のみ| C[全テスト・Dockerビルドをスキップ<br/>即時Green判定]
+    B -->|terraform のみ| D[アプリテストをスキップ<br/>Terraform Plan のみ実行]
+    B -->|src / Dockerfile / config| E[並列テスト & Sonar 実行]
+```
+
+### 11.4 SonarCloud 先行実行 ＆ Production PR 完全並行化
+1. **SonarCloud 先行化**:
+   - PR作成・更新時に最優先で独立起動し、他ジョブと完全並行でバックグラウンド実行。
+   - 外部ライブ通信テストを除外し、モック中心のテストで高速にカバレッジを測定（2分以内）。
+2. **Production PR 完全並行化**:
+   - `master` ➔ `production` へのリリースPRでは、ブランチ検証（`Verify Source Branch is master`）、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
+
 
