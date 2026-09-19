@@ -98,3 +98,11 @@ jobs:
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_slack_agent.py \
             --region=asia-northeast1
+
+      - name: Update Cloud Run API Service Image
+        run: |
+          gcloud run services update realestate-api-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/main.py \
+            --region=asia-northeast1
+

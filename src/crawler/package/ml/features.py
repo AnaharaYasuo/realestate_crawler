@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import datetime
+import re
+from decimal import Decimal
 from typing import Dict, Tuple, Any
+from package.utils.plot_shape_analyzer import analyze_plot_shape
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -32,8 +35,14 @@ FEATURE_SETS = {
             "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
             "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "floor_number", "total_floors", "floor_ratio", "is_top_floor", "is_first_floor",
+            "room_count", "has_ldk", "is_studio",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "chikunen", "walk_min", "kanrihi", "syuzen",
@@ -44,9 +53,15 @@ FEATURE_SETS = {
             "max_youseki", "max_kenpei", "max_building_area", "max_floor_area",
             "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "floor_number", "total_floors", "floor_ratio", "is_top_floor", "is_first_floor",
+            "room_count", "has_ldk", "is_studio",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "kodate": {
@@ -63,8 +78,22 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "room_count", "has_ldk", "total_floors",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -79,9 +108,23 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "room_count", "has_ldk", "total_floors",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "apartment": {
@@ -99,8 +142,22 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "total_floors",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -116,9 +173,23 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "total_floors",
+            "kouzou_durability_rank", "kouzou_fireproof_score", "is_rc_or_src", "is_wood",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "tochi": {
@@ -134,8 +205,21 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "walk_min",
@@ -149,9 +233,22 @@ FEATURE_SETS = {
             "max_building_area", "max_floor_area", "kagechi_ratio",
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density",
+            "road_direction_angle", "sunlight_score", "is_south_facing",
+            "road_type_score", "is_public_road", "is_private_road",
+            "road_structure_score", "is_corner_lot", "is_double_sided_road",
+            "chimoku_score", "is_residential_chimoku",
+            "company_tier", "is_major_company",
+            "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
+            "shape_type_code", "is_regular_shape",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
+            "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
+            "plot_shape_score_100",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     }
 }
@@ -172,6 +269,277 @@ def parse_kouzou(kouzou_str):
     if '木' in kouzou_str or 'Ｗ造' in kouzou_str:
         return 'W'
     return 'default'
+
+
+def parse_road_direction_features(direction_str: str) -> Dict[str, float]:
+    """接道方角の数値化（方位角度数、日照採光スコア、南向きフラグ）"""
+    d = str(direction_str or "")
+    angles = {
+        '北': 0.0, '北東': 45.0, '東': 90.0, '南東': 135.0,
+        '南': 180.0, '南西': 225.0, '西': 270.0, '北西': 315.0
+    }
+    sunlight = {
+        '南': 1.00, '南東': 0.95, '南西': 0.95, '東': 0.90,
+        '西': 0.85, '北東': 0.80, '北西': 0.80, '北': 0.75
+    }
+    angle = 180.0
+    sun = 0.88
+    is_south = 0.0
+    for k in ['南東', '南西', '北東', '北西', '南', '東', '西', '北']:
+        if k in d:
+            angle = angles[k]
+            sun = sunlight[k]
+            is_south = 1.0 if '南' in k else 0.0
+            break
+    return {
+        "road_direction_angle": angle,
+        "sunlight_score": sun,
+        "is_south_facing": is_south
+    }
+
+
+def parse_road_type_features(type_str: str) -> Dict[str, float]:
+    """道路種別の数値化（公道・私道・位置指定スコア）"""
+    t = str(type_str or "")
+    if "公道" in t:
+        score = 1.00
+        is_pub = 1.0
+        is_pri = 0.0
+    elif "位置指定" in t:
+        score = 0.95
+        is_pub = 0.0
+        is_pri = 1.0
+    elif "私道" in t:
+        score = 0.90
+        is_pub = 0.0
+        is_pri = 1.0
+    else:
+        score = 0.90
+        is_pub = 0.0
+        is_pri = 0.0
+    return {
+        "road_type_score": score,
+        "is_public_road": is_pub,
+        "is_private_road": is_pri
+    }
+
+
+def parse_road_structure_features(struct_str: str) -> Dict[str, float]:
+    """接道形態・状況の数値化（角地・両面道路プレミアム）"""
+    s = str(struct_str or "")
+    if "四方" in s:
+        score = 1.15
+        is_corner = 1.0
+        is_double = 1.0
+    elif "三方" in s:
+        score = 1.10
+        is_corner = 1.0
+        is_double = 1.0
+    elif "角地" in s or "準角地" in s:
+        score = 1.08 if "角地" in s else 1.04
+        is_corner = 1.0
+        is_double = 0.0
+    elif "両面" in s or "二方" in s:
+        score = 1.06
+        is_corner = 0.0
+        is_double = 1.0
+    elif any(k in s for k in ["袋地", "無道路", "通路"]):
+        score = 0.75
+        is_corner = 0.0
+        is_double = 0.0
+    else:
+        score = 1.00
+        is_corner = 0.0
+        is_double = 0.0
+    return {
+        "road_structure_score": score,
+        "is_corner_lot": is_corner,
+        "is_double_sided_road": is_double
+    }
+
+
+def parse_chimoku_features(chimoku_str: str) -> Dict[str, float]:
+    """地目の数値化（宅地・雑種地・農地・山林スコア）"""
+    c = str(chimoku_str or "")
+    if "宅地" in c:
+        score = 1.00
+        is_res = 1.0
+    elif "雑種" in c:
+        score = 0.95
+        is_res = 0.0
+    elif any(k in c for k in ["畑", "田", "農地"]):
+        score = 0.85
+        is_res = 0.0
+    elif any(k in c for k in ["山林", "原野"]):
+        score = 0.70
+        is_res = 0.0
+    else:
+        score = 0.95
+        is_res = 1.0 if not c else 0.0
+    return {
+        "chimoku_score": score,
+        "is_residential_chimoku": is_res
+    }
+
+
+def parse_kouzou_features(kouzou_str: str) -> Dict[str, float]:
+    """建物構造の数値化（耐久ランク、耐火スコア、RC/木造フラグ）"""
+    k = str(kouzou_str or "").upper()
+    cat = parse_kouzou(kouzou_str)
+    if cat == 'SRC':
+        rank = 5.0
+        fireproof = 1.00
+        is_rc = 1.0
+        is_w = 0.0
+    elif cat == 'RC':
+        rank = 4.0
+        fireproof = 1.00
+        is_rc = 1.0
+        is_w = 0.0
+    elif cat == 'S':
+        rank = 3.0
+        fireproof = 0.80
+        is_rc = 0.0
+        is_w = 0.0
+    elif cat == 'LS':
+        rank = 2.0
+        fireproof = 0.70
+        is_rc = 0.0
+        is_w = 0.0
+    elif cat == 'W' or '木' in k:
+        rank = 1.0
+        fireproof = 0.60
+        is_rc = 0.0
+        is_w = 1.0
+    else:
+        rank = 2.5
+        fireproof = 0.70
+        is_rc = 0.0
+        is_w = 0.0
+    return {
+        "kouzou_durability_rank": rank,
+        "kouzou_fireproof_score": fireproof,
+        "is_rc_or_src": is_rc,
+        "is_wood": is_w
+    }
+
+
+def parse_company_features(company_str: str) -> Dict[str, float]:
+    """不動産会社・分譲ブランドの数値化（大手ティア・ブランド力）"""
+    c = str(company_str or "").lower()
+    major_four = ["mitsui", "sumitomo", "nomura", "tokyu", "三井", "住友", "野村", "東急"]
+    house_makers = ["misawa", "daiwa", "sekisui", "asahi", "ミサワ", "大和", "積水", "旭化成"]
+    if any(m in c for m in major_four):
+        tier = 3.0
+        is_major = 1.0
+    elif any(h in c for h in house_makers):
+        tier = 2.0
+        is_major = 0.0
+    else:
+        tier = 1.0
+        is_major = 0.0
+    return {
+        "company_tier": tier,
+        "is_major_company": is_major
+    }
+
+
+def parse_youto_zone_features(youto_str: str) -> Dict[str, float]:
+    """用途地域規制の数値化（住居・商業・工業系フラグおよび住環境ランク）"""
+    y = str(youto_str or "")
+    is_res = 1.0 if any(k in y for k in ["住居", "低層", "中高層"]) else 0.0
+    is_comm = 1.0 if any(k in y for k in ["商業", "近隣商業"]) else 0.0
+    is_ind = 1.0 if any(k in y for k in ["工業", "準工業"]) else 0.0
+
+    if "第1種低層" in y or "第１種低層" in y:
+        rank = 5.0
+    elif "第2種低層" in y or "第２種低層" in y:
+        rank = 4.5
+    elif "中高層" in y:
+        rank = 4.0
+    elif "住居" in y:
+        rank = 3.5
+    elif is_comm:
+        rank = 3.0
+    elif is_ind:
+        rank = 2.0
+    else:
+        rank = 3.5
+    return {
+        "is_residential_zone": is_res,
+        "is_commercial_zone": is_comm,
+        "is_industrial_zone": is_ind,
+        "zone_rank": rank
+    }
+
+
+def parse_madori_layout_features(madori_str: str, text: str = "") -> Dict[str, float]:
+    """間取り・部屋数の数値化（部屋数、LDKフラグ、ワンルームフラグ）"""
+    raw = (str(madori_str or "") + " " + str(text or "")).upper()
+    room_count = 3.0
+    has_ldk = 0.0
+    is_studio = 0.0
+    m = re.search(r'(\d+)\s*(?:R|K|DK|LDK|SLDK)?', raw)
+    if m:
+        room_count = float(m.group(1))
+    if 'LDK' in raw:
+        has_ldk = 1.0
+    elif 'DK' in raw:
+        has_ldk = 0.5
+    elif '1R' in raw or 'ワンルーム' in raw:
+        is_studio = 1.0
+        room_count = 1.0
+    return {
+        "room_count": room_count,
+        "has_ldk": has_ldk,
+        "is_studio": is_studio
+    }
+
+
+def parse_floor_features(floor_val: any, total_floor_val: any, text: str = "") -> Dict[str, float]:
+    """所在階・総階数・階高比率の数値化（最上階・1階フラグ）"""
+    fl = 0.0
+    tot = 0.0
+    raw = str(floor_val or "") + " " + str(total_floor_val or "") + " " + str(text or "")
+    m_fl = re.search(r'(\d+)\s*階(?:建|部分)?', str(floor_val or ""))
+    if m_fl:
+        fl = float(m_fl.group(1))
+    elif floor_val:
+        try:
+            fl = float(floor_val)
+        except Exception:
+            pass
+    if fl <= 0.0:
+        m_fl2 = re.search(r'(\d+)\s*階部分', raw)
+        if m_fl2:
+            fl = float(m_fl2.group(1))
+
+    m_tot = re.search(r'(?:地上|地下)?\s*(\d+)\s*階建', str(total_floor_val or ""))
+    if m_tot:
+        tot = float(m_tot.group(1))
+    elif total_floor_val:
+        try:
+            tot = float(total_floor_val)
+        except Exception:
+            pass
+    if tot <= 0.0:
+        m_tot2 = re.search(r'(\d+)\s*階建', raw)
+        if m_tot2:
+            tot = float(m_tot2.group(1))
+
+    fl = max(1.0, fl) if fl > 0 else 3.0
+    tot = max(fl, tot) if tot > 0 else max(fl, 5.0)
+    fl_ratio = round(fl / tot, 3)
+    is_top = 1.0 if fl >= tot else 0.0
+    is_first = 1.0 if fl <= 1.0 else 0.0
+    return {
+        "floor_number": fl,
+        "total_floors": tot,
+        "floor_ratio": fl_ratio,
+        "is_top_floor": is_top,
+        "is_first_floor": is_first
+    }
+
 
 def calculate_chikunen(chikunengetsu, base_date=None):
     """築年数を算出 (基準日を指定可能。文字列からのパースにも対応)"""
@@ -222,8 +590,6 @@ def calculate_chikunen(chikunengetsu, base_date=None):
         return (base_date - chikunengetsu).days / 365.25
     return 20.0
 
-from decimal import Decimal
-import re
 
 def safe_float(val, default_val):
     if val is None:
@@ -377,6 +743,9 @@ def _init_global_caches():
         connections.close_all()
     except Exception:
         pass
+
+_load_all_potential_caches_once = _init_global_caches
+
 
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
     """
@@ -644,31 +1013,58 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     max_youseki = extract_limit(youseki_raw, is_youseki=True)
     max_kenpei = extract_limit(kenpei_raw, is_youseki=False)
     
+    zone_name_prop = (
+        get_attr(property_obj, 'zone_name', None)
+        or get_attr(property_obj, 'youtoChiiki', None)
+        or get_attr(property_obj, 'youto', None)
+    )
+    zone_rec = None
+    if zone_name_prop:
+        if zone_name_prop in _zone_cache:
+            zone_rec = _zone_cache[zone_name_prop]
+        else:
+            for name, z in _zone_cache.items():
+                if name in str(zone_name_prop) or str(zone_name_prop) in name:
+                    zone_rec = z
+                    break
+
+    if zone_rec:
+        zone_max_kenpei = float(zone_rec.max_kenpei)
+        zone_max_youseki = float(zone_rec.max_youseki)
+        if max_kenpei is None:
+            max_kenpei = zone_max_kenpei
+        if max_youseki is None:
+            max_youseki = zone_max_youseki
+    else:
+        zone_max_kenpei = max_kenpei if max_kenpei is not None else 60.0
+        zone_max_youseki = max_youseki if max_youseki is not None else 200.0
+
     if max_youseki is None or max_kenpei is None:
         zone_keyword = None
-        if youseki_raw:
-            keywords = [
-                "第一種低層", "第二種低層", "第一種中高層", "第二種中高層",
-                "第一種住居", "第二種住居", "準住居", "田園住居",
-                "近隣商業", "商業", "準工業", "工業", "工業専用"
-            ]
-            for kw in keywords:
-                if kw in str(youseki_raw):
-                    zone_keyword = kw
-                    break
+        check_text = str(youseki_raw or '') + " " + str(zone_name_prop or '')
+        keywords = [
+            "第一種低層", "第二種低層", "第一種中高層", "第二種中高層",
+            "第一種住居", "第二種住居", "準住居", "田園住居",
+            "近隣商業", "商業", "準工業", "工業", "工業専用"
+        ]
+        for kw in keywords:
+            if kw in check_text:
+                zone_keyword = kw
+                break
         
         if zone_keyword:
             try:
-                zone_rec = None
                 for name, z in _zone_cache.items():
                     if zone_keyword in name:
                         zone_rec = z
                         break
                 if zone_rec:
+                    zone_max_kenpei = float(zone_rec.max_kenpei)
+                    zone_max_youseki = float(zone_rec.max_youseki)
                     if max_youseki is None:
-                        max_youseki = float(zone_rec.max_youseki)
+                        max_youseki = zone_max_youseki
                     if max_kenpei is None:
-                        max_kenpei = float(zone_rec.max_kenpei)
+                        max_kenpei = zone_max_kenpei
             except:
                 pass
                 
@@ -995,6 +1391,46 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         else:
             kagechi_ratio = 0.0
 
+    # 土地形状（かげ地・最大内接矩形・うなぎの寝床・MIC・ボトルネック・国税庁補正等）の幾何・数値評価
+    plot_vertices = get_attr(property_obj, 'plot_vertices', None)
+    if plot_vertices and len(plot_vertices) >= 3:
+        shape_metrics = analyze_plot_shape(plot_vertices)
+        kagechi_ratio = shape_metrics.shadow_area_ratio
+        plot_shadow_ratio = shape_metrics.shadow_area_ratio
+        plot_aspect_ratio = shape_metrics.mir_aspect_ratio
+        plot_effective_ratio = shape_metrics.mir_effective_ratio
+        plot_shape_penalty = shape_metrics.shape_penalty_score
+        plot_mic_diameter = shape_metrics.mic_diameter
+        plot_bottleneck_width = shape_metrics.bottleneck_width
+        plot_solidity = shape_metrics.solidity
+        plot_compactness = shape_metrics.compactness
+        plot_nta_discount = shape_metrics.nta_composite_discount
+        plot_acute_angles = float(shape_metrics.acute_angle_count)
+        plot_flagpole_ratio = shape_metrics.flagpole_passage_ratio
+        plot_shape_grade_num = float(shape_metrics.shape_grade_num)
+        plot_shape_score_100 = shape_metrics.shape_score_100
+    else:
+        plot_shadow_ratio = kagechi_ratio
+        plot_aspect_ratio = 1.0 if not is_fuseigei else 0.5
+        plot_effective_ratio = max(0.0, 1.0 - kagechi_ratio)
+        plot_shape_penalty = round(max(0.60, min(1.0, 1.0 - (kagechi_ratio * 0.35))), 4)
+        plot_mic_diameter = 10.0 if not is_fuseigei else 6.0
+        plot_bottleneck_width = 10.0 if not is_fuseigei else 4.0
+        plot_solidity = 1.0 if not is_fuseigei else 0.85
+        plot_compactness = 1.0 if not is_fuseigei else 0.70
+        plot_nta_discount = plot_shape_penalty
+        plot_acute_angles = 0.0
+        plot_flagpole_ratio = 0.0
+        plot_shape_grade_num = 5.0 if not is_fuseigei else 3.0
+        plot_shape_score_100 = round(plot_shape_penalty * 100.0, 1)
+
+    # 形状ペナルティによる土地価値補正
+    if property_type in ['tochi', 'kodate']:
+        cost_approach_value = round(cost_approach_value * plot_shape_penalty, 2)
+        mkt_comparison_value = round(mkt_comparison_value * plot_shape_penalty, 2)
+        if residual_land_value > 0:
+            residual_land_value = round(residual_land_value * plot_shape_penalty, 2)
+
     # 特徴量辞書を返却
     feats = {
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
@@ -1040,7 +1476,22 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "effective_walk_min": effective_walk_min,
         "population_density": pop_density,
         "potential_floor_area": potential_floor_area,
-        "scale_discount": scale_discount
+        "scale_discount": scale_discount,
+        "plot_shadow_ratio": plot_shadow_ratio,
+        "plot_aspect_ratio": plot_aspect_ratio,
+        "plot_effective_ratio": plot_effective_ratio,
+        "plot_shape_penalty": plot_shape_penalty,
+        "plot_mic_diameter": plot_mic_diameter,
+        "plot_bottleneck_width": plot_bottleneck_width,
+        "plot_solidity": plot_solidity,
+        "plot_compactness": plot_compactness,
+        "plot_nta_discount": plot_nta_discount,
+        "plot_acute_angles": plot_acute_angles,
+        "plot_flagpole_ratio": plot_flagpole_ratio,
+        "plot_shape_grade_num": plot_shape_grade_num,
+        "plot_shape_score_100": plot_shape_score_100,
+        "zone_max_kenpei": zone_max_kenpei,
+        "zone_max_youseki": zone_max_youseki
     }
     
     # カテゴリカル（文字列）
@@ -1064,8 +1515,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     prop_name = get_attr(property_obj, 'propertyName', '') or ''
     setsudou_text = get_attr(property_obj, 'setsudou', '') or get_attr(property_obj, 'roadStructure', '') or ''
     notes_val = get_attr(property_obj, 'notes', '') or get_attr(property_obj, 'bikou', '') or ''
+    genkyo_val = get_attr(property_obj, 'genkyo', '') or ''
 
-    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val]
+    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val, genkyo_val]
     combined_text = " ".join([str(x) for x in all_text_list if x])
     combined_text_lower = combined_text.lower()
     
@@ -1087,11 +1539,142 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["is_shigaika_chousei"] = is_shigaika_chousei
     feats["is_saikenchiku_fuka"] = is_saikenchiku_fuka
     feats["rights_ratio"] = rights_ratio
+
+    # ⑩ 古家付き土地（建物残存価値・解体費用控除・再建築不可特則・リノベ戸建賃貸オプション評価）
+    is_furuya = 0.0
+    has_demolition_condition = 0.0
+    furuya_demolition_cost = 0.0
+    furuya_usable_value = 0.0
+    furuya_option_value = 0.0
+
+    furuya_keywords = [
+        "古家あり", "古家有", "古家付", "古家建", "上物あり", "上物有", "上物付",
+        "古家解体", "建物あり", "建物有", "現況：古家", "現況古家", "上物解体", "古家付売地"
+    ]
+    if any(k in combined_text for k in furuya_keywords):
+        is_furuya = 1.0
+        
+        # 解体更地渡し条件の判定（売主負担による解体）
+        demolition_cond_keywords = [
+            "更地渡し", "解体更地渡し", "解体後引渡", "更地引渡",
+            "売主負担にて解体", "売主負担で解体", "売主にて解体", "売主側で解体"
+        ]
+        if any(k in combined_text for k in demolition_cond_keywords):
+            has_demolition_condition = 1.0
+            
+        # 古家建物面積の抽出 (テキストから「建物〇㎡」「延床〇㎡」またはtatemono_area)
+        furuya_bldg_area = 0.0
+        m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
+        if m_bldg:
+            furuya_bldg_area = safe_float(m_bldg.group(1), 0.0)
+        if furuya_bldg_area <= 0.0:
+            furuya_bldg_area = safe_float(tatemono_area, 0.0)
+        if furuya_bldg_area <= 0.0:
+            furuya_bldg_area = 80.0  # 標準的な中古木造戸建の延床面積
+            
+        # 構造別の解体単価 (木造 1.4万円/㎡, 鉄骨 1.8万円/㎡, RC 2.5万円/㎡)
+        unit_demolish = 1.4
+        if "鉄骨" in combined_text:
+            unit_demolish = 1.8
+        elif any(x in combined_text for x in ["RC", "鉄筋"]):
+            unit_demolish = 2.5
+            
+        if has_demolition_condition >= 0.5 or is_saikenchiku_fuka >= 0.5:
+            # 更地渡し、または再建築不可（解体すると新築不可のため既得権維持・解体禁止）の場合は買主負担0
+            furuya_demolition_cost = 0.0
+        else:
+            furuya_demolition_cost = round(furuya_bldg_area * unit_demolish, 2)
+            
+        # 古家の戸建賃貸運用・リノベーション再生価値
+        unit_rent_monthly = max(1200.0, min(8000.0, average_land_price * 0.0018))
+        est_monthly_rent_man = max(4.0, min(25.0, (unit_rent_monthly * furuya_bldg_area * 0.70) / 10000.0))
+        est_annual_noi_man = est_monthly_rent_man * 12.0 * 0.80
+        
+        # 還元利回り (再建築不可は10.0%, 通常古家は8.0%)
+        cap_rate_furuya = 0.10 if is_saikenchiku_fuka >= 0.5 else 0.08
+        gross_furuya_val = est_annual_noi_man / cap_rate_furuya
+        renov_cost = furuya_bldg_area * 3.0  # リノベ費用目安: 3万円/㎡
+        
+        if is_saikenchiku_fuka >= 0.5:
+            # 再建築不可の場合、建物維持による敷地既得権利用価値を加算
+            furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost) + tochi_area * (average_land_price / 10000.0) * 0.25, 2)
+        else:
+            furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost), 2)
+            
+        # オプション価値: 更地手取り価格（再建築不可の場合は新築不可による20%減価底地水準）を上回る古家再生のプレミアム
+        saikenchiku_land_factor = 0.20 if is_saikenchiku_fuka >= 0.5 else 1.0
+        clean_land_val = max(0.0, tochi_area * (average_land_price / 10000.0) * scale_discount * saikenchiku_land_factor - furuya_demolition_cost)
+        furuya_option_value = round(max(0.0, furuya_usable_value - clean_land_val), 2)
+        
+        # 土地評価額への古家査定反映
+        if property_type == 'tochi':
+            if is_saikenchiku_fuka >= 0.5:
+                cost_approach_value = furuya_usable_value
+                income_approach_value = max(income_approach_value, furuya_usable_value)
+            else:
+                cost_approach_value = max(0.0, cost_approach_value - furuya_demolition_cost) + (furuya_option_value * 0.5)
+                if furuya_usable_value > 0:
+                    income_approach_value = max(income_approach_value, furuya_usable_value)
+            if furuya_demolition_cost > 0:
+                residual_land_value = max(0.0, residual_land_value - furuya_demolition_cost)
+
+    feats["is_furuya"] = is_furuya
+    feats["has_demolition_condition"] = has_demolition_condition
+    feats["furuya_demolition_cost"] = furuya_demolition_cost
+    feats["furuya_usable_value"] = furuya_usable_value
+    feats["furuya_option_value"] = furuya_option_value
+    feats["cost_approach_value"] = cost_approach_value
+    feats["income_approach_value"] = income_approach_value
+    feats["residual_land_value"] = residual_land_value
     
     # ⑩ 構造耐用年数消化比率 (Wood: 22年急減価, RC: 47年緩減価の相互作用)
     kouzou_cat = parse_kouzou(kouzou_str)
     lifespan_val = LIFESPAN.get(kouzou_cat, 30)
     feats["kouzou_lifespan_ratio"] = min(2.5, float(chikunen) / float(lifespan_val)) if lifespan_val > 0 else 1.0
+
+    # ⑪ 文字列・カテゴリカルの完全数値化特徴量 (Numerical Transformation)
+    if not road_direction_str:
+        road_direction_str = get_attr(property_obj, 'roadDirection', '') or get_attr(property_obj, 'douroMuki', '') or ''
+    if not road_type_str:
+        road_type_str = get_attr(property_obj, 'roadType', '') or get_attr(property_obj, 'douroKubun', '') or ''
+    if not road_structure_str:
+        road_structure_str = get_attr(property_obj, 'roadStructure', '') or get_attr(property_obj, 'setsudou', '') or ''
+    if not chimoku_str:
+        chimoku_str = get_attr(property_obj, 'chimoku', '') or ''
+    if not kouzou_str:
+        kouzou_str = get_attr(property_obj, 'structure', '') or ''
+
+    feats.update(parse_road_direction_features(road_direction_str))
+    feats.update(parse_road_type_features(road_type_str))
+    feats.update(parse_road_structure_features(road_structure_str))
+    feats.update(parse_chimoku_features(chimoku_str))
+    feats.update(parse_kouzou_features(kouzou_str))
+    feats.update(parse_company_features(company))
+
+    youto_val = youto or str(zone_name_prop or '')
+    feats.update(parse_youto_zone_features(youto_val))
+
+    madori_val = get_attr(property_obj, 'madori', '') or get_attr(property_obj, 'roomLayout', '') or ''
+    feats.update(parse_madori_layout_features(madori_val, combined_text))
+
+    floor_val = get_attr(property_obj, 'kai', '') or get_attr(property_obj, 'floor', '') or get_attr(property_obj, 'floorNumber', '') or ''
+    total_floor_val = get_attr(property_obj, 'chijo', '') or get_attr(property_obj, 'totalFloor', '') or get_attr(property_obj, 'totalFloors', '') or ''
+    feats.update(parse_floor_features(floor_val, total_floor_val, combined_text))
+
+    shape_code_map = {'regular': 1.0, 'irregular': 2.0, 'slender': 3.0, 'flagpole': 4.0}
+    if 'shape_metrics' in locals() and shape_metrics:
+        s_type = getattr(shape_metrics, 'shape_type', 'regular')
+    elif is_hatasao:
+        s_type = 'flagpole'
+    elif is_fuseigei:
+        s_type = 'irregular'
+    else:
+        s_type = 'regular'
+    feats["shape_type_code"] = shape_code_map.get(s_type, 1.0)
+    feats["is_regular_shape"] = 1.0 if s_type == 'regular' else 0.0
+
+    feats["interior_score"] = safe_float(get_attr(property_obj, 'interior_score', 0.0), 0.0)
+    feats["layout_score"] = safe_float(get_attr(property_obj, 'layout_score', 0.0), 0.0)
 
     return feats
 
