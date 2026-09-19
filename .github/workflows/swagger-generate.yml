@@ -1,0 +1,56 @@
+name: Auto-Generate Swagger Spec
+
+on:
+  pull_request:
+    branches: [ master, main, production ]
+    paths:
+      - 'src/crawler/routes/**'
+      - 'src/crawler/package/ml/**'
+      - 'src/crawler/scripts/generate_swagger_spec.py'
+      - 'docs/api/**'
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'src/crawler/routes/**'
+      - 'src/crawler/package/ml/**'
+      - 'src/crawler/scripts/generate_swagger_spec.py'
+      - 'docs/api/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  auto-generate-swagger:
+    name: Auto-Generate & Commit OpenAPI Spec
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Generate Swagger OpenAPI Spec
+        run: python src/crawler/scripts/generate_swagger_spec.py
+
+      - name: Commit and push changes if updated
+        run: |
+          if [ -n "$(git status --porcelain docs/api/openapi.yaml)" ]; then
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs/api/openapi.yaml
+            git commit -m "chore(docs): auto-generate Swagger OpenAPI spec [skip ci]"
+            git push
+            echo "Swagger specification automatically generated and pushed."
+          else
+            echo "Swagger specification is already up-to-date."
+          fi

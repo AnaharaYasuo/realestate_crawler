@@ -12,6 +12,8 @@
 | `ApiAsyncProcBase` | `src/crawler/package/api/api.py` | 非同期 HTTP リクエスト、並列制御、リトライ、Fire-and-Forget の基底ロジック |
 | `Parse{Site}{Type}StartAsync` | 各社ディレクトリ (e.g. `mitsui/start.py`) | サイトごとのクロール開始地点（初手）のロジック |
 | 各社共通パーサー | 各社ディレクトリ (e.g. `mitsui/mitsui_base.py`) | HTML 解析の共通ユーティリティ、タグ抽出、正規化 |
+| `evaluation_bp` | `src/crawler/routes/evaluation_routes.py` | 学習済みモデル（CatBoost/LightGBM）を用いたリアルタイム価格推定推論API |
+| `swagger_bp` | `src/crawler/routes/swagger_routes.py` | OpenAPI 3.0 仕様書配信および Swagger UI (`/docs`) エンドポイント |
 
 ## 2. 主要概念 (Key Concepts)
 

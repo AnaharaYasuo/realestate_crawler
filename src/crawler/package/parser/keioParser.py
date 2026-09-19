@@ -67,9 +67,23 @@ class KeioParser(ParserBase):
         query = urllib.parse.urlencode(clean_params)
         return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, query, parsed.fragment))
 
-    async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
-        return await super().getResponseBs(session, url, charset)
+    current_page_num = 1
+    current_base_url = ""
 
+    async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
+        self.current_base_url = url
+        if "get_search_result_sale" in url:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': 'https://chukai.keiofudosan.co.jp/sale/search/area/pref_13/',
+            }
+            async with session.get(url, headers=headers) as resp:
+                data = await resp.json()
+                html = data.get("html", "")
+                return BeautifulSoup(html, "html.parser")
+        return await super().getResponseBs(session, url, charset)
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーション内の a.pager.current (アクティブなページ) の次のリンクを探す
@@ -77,14 +91,31 @@ class KeioParser(ParserBase):
         if current:
             next_el = current.find_next_sibling("a", class_="pager")
             if next_el:
+                target_page = next_el.get("data-page")
+                if not target_page:
+                    t = next_el.get_text(strip=True)
+                    if t.isdigit():
+                        target_page = t
+                if target_page and self.current_base_url:
+                    parsed = urllib.parse.urlparse(self.current_base_url)
+                    query = dict(urllib.parse.parse_qsl(parsed.query))
+                    query["page_num"] = str(target_page)
+                    new_query = urllib.parse.urlencode(query)
+                    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
                 href = next_el.get("href")
                 if href and "page_num=" in href:
                     return self.getRootDestUrl(href)
         else:
-            # 別のクラス指定「next」などがあるか、またはテキストチェック
             for a in response.select("div.block_pager a.pager"):
                 text = a.get_text().strip()
                 if "次" in text or ">" in text:
+                    target_page = a.get("data-page")
+                    if target_page and self.current_base_url:
+                        parsed = urllib.parse.urlparse(self.current_base_url)
+                        query = dict(urllib.parse.parse_qsl(parsed.query))
+                        query["page_num"] = str(target_page)
+                        new_query = urllib.parse.urlencode(query)
+                        return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
                     href = a.get("href")
                     if href and "page_num=" in href:
                         return self.getRootDestUrl(href)

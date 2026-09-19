@@ -1,9 +1,45 @@
 # -*- coding: utf-8 -*-
+import os
 import logging
 from flask import Blueprint, request, jsonify
 from package.ml.predict import predict_first_stage_local, predict_second_stage_local
 
 evaluation_bp = Blueprint('evaluation', __name__)
+
+def _check_api_key():
+    """
+    外部アクセス用APIキー検証
+    - クラウド環境(IS_CLOUD=true)ではAPIキー認証を完全強制
+    - ローカル環境でも ESTIMATION_API_KEY が設定されている場合は検証
+    """
+    is_cloud = os.getenv("IS_CLOUD", "").lower() in ("true", "1")
+    required_key = os.getenv("ESTIMATION_API_KEY")
+    
+    if is_cloud and not required_key:
+        logging.error("ESTIMATION_API_KEY is not configured in cloud environment")
+        return jsonify({
+            "success": False,
+            "message": "Server configuration error: API key not configured"
+        }), 500
+
+    if not required_key:
+        return None  # ローカル開発時のみ未設定スキップ
+    
+    provided_key = request.headers.get("X-API-KEY")
+    if not provided_key or provided_key != required_key:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized: Invalid or missing X-API-KEY header"
+        }), 401
+    return None
+
+
+@evaluation_bp.before_request
+def check_evaluation_request():
+    if request.method == 'OPTIONS':
+        return "", 200
+    return _check_api_key()
+
 
 def _predict_price_internal(property_type, data):
     """
@@ -50,7 +86,7 @@ def _predict_price_internal(property_type, data):
         except Exception:
             pass
 
-@evaluation_bp.route('/api/evaluation/predict/mansion', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/mansion', methods=['POST', 'OPTIONS'])
 def predict_mansion():
     """
     マンション価格推定API
@@ -112,12 +148,12 @@ def predict_mansion():
                   example: 15000
                 yousekiStr:
                   type: string
-                  description: 指定容積率 (例: 200%)
-                  example: "200%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "200"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率 (例: 60%)
-                  example: "60%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "60"
                 tochikenri:
                   type: string
                   description: 土地権利形態
@@ -171,7 +207,7 @@ def predict_mansion():
         logging.error(f"Error in predict_mansion: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST', 'OPTIONS'])
 def predict_kodate():
     """
     戸建価格推定API
@@ -230,12 +266,12 @@ def predict_kodate():
                   example: "木造"
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "150%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "150"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "50%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "50"
                 maguchi:
                   type: number
                   description: 接道間口 (m)
@@ -297,7 +333,7 @@ def predict_kodate():
         logging.error(f"Error in predict_kodate: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST', 'OPTIONS'])
 def predict_apartment():
     """
     一棟アパート（投資用）価格推定API
@@ -358,12 +394,12 @@ def predict_apartment():
                   example: "軽量鉄骨造"
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "200%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "200"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "60%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "60"
                 maguchi:
                   type: number
                   description: 接道間口 (m)
@@ -431,7 +467,7 @@ def predict_apartment():
         logging.error(f"Error in predict_apartment: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST', 'OPTIONS'])
 def predict_tochi():
     """
     土地価格推定API
@@ -477,12 +513,12 @@ def predict_tochi():
                   example: 9
                 yousekiStr:
                   type: string
-                  description: 指定容積率
-                  example: "150%"
+                  description: 指定容積率 (%不要、数値・文字列可)
+                  example: "150"
                 kenpeiStr:
                   type: string
-                  description: 指定建ぺい率
-                  example: "55%"
+                  description: 指定建ぺい率 (%不要、数値・文字列可)
+                  example: "55"
                 maguchi:
                   type: number
                   description: 接道間口 (m)
