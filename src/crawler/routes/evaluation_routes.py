@@ -1,9 +1,34 @@
 # -*- coding: utf-8 -*-
+import os
 import logging
 from flask import Blueprint, request, jsonify
 from package.ml.predict import predict_first_stage_local, predict_second_stage_local
 
 evaluation_bp = Blueprint('evaluation', __name__)
+
+def _check_api_key():
+    """
+    外部アクセス用APIキー検証
+    ESTIMATION_API_KEY 環境変数が設定されている場合、X-API-KEY ヘッダーを検証する
+    """
+    required_key = os.getenv("ESTIMATION_API_KEY")
+    if not required_key:
+        return None  # 未設定時はスキップ（オープンアクセス）
+    
+    provided_key = request.headers.get("X-API-KEY")
+    if not provided_key or provided_key != required_key:
+        return jsonify({
+            "success": False,
+            "message": "Unauthorized: Invalid or missing API key"
+        }), 401
+    return None
+
+@evaluation_bp.before_request
+def check_evaluation_request():
+    if request.method == 'OPTIONS':
+        return "", 200
+    return _check_api_key()
+
 
 def _predict_price_internal(property_type, data):
     """
@@ -50,7 +75,7 @@ def _predict_price_internal(property_type, data):
         except Exception:
             pass
 
-@evaluation_bp.route('/api/evaluation/predict/mansion', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/mansion', methods=['POST', 'OPTIONS'])
 def predict_mansion():
     """
     マンション価格推定API
@@ -171,7 +196,7 @@ def predict_mansion():
         logging.error(f"Error in predict_mansion: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST', 'OPTIONS'])
 def predict_kodate():
     """
     戸建価格推定API
@@ -297,7 +322,7 @@ def predict_kodate():
         logging.error(f"Error in predict_kodate: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST', 'OPTIONS'])
 def predict_apartment():
     """
     一棟アパート（投資用）価格推定API
@@ -431,7 +456,7 @@ def predict_apartment():
         logging.error(f"Error in predict_apartment: {e}", exc_info=True)
         return jsonify({"success": False, "message": str(e)}), 500
 
-@evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST'])
+@evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST', 'OPTIONS'])
 def predict_tochi():
     """
     土地価格推定API

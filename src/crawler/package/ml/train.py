@@ -331,6 +331,11 @@ def _generate_single_dummy_record(ptype, rng):
         "rights_ratio": 1.0,
         "potential_floor_area": area if ptype == 'mansion' else tochi_area * 2.0,
         "scale_discount": 1.0,
+        "is_furuya": 1.0 if (ptype == 'tochi' and rng.random() < 0.25) else 0.0,
+        "has_demolition_condition": 0.0,
+        "furuya_demolition_cost": 100.0 if (ptype == 'tochi' and rng.random() < 0.25) else 0.0,
+        "furuya_usable_value": 0.0,
+        "furuya_option_value": 0.0,
     }
 
 def generate_dummy_data(ptype, num_records=500):

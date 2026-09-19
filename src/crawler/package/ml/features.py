@@ -135,7 +135,8 @@ FEATURE_SETS = {
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value"
         ],
         "second": [
             "area", "tochi_menseki", "walk_min",
@@ -151,7 +152,8 @@ FEATURE_SETS = {
             "effective_walk_min", "population_density",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value"
         ]
     }
 }
@@ -1064,8 +1066,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     prop_name = get_attr(property_obj, 'propertyName', '') or ''
     setsudou_text = get_attr(property_obj, 'setsudou', '') or get_attr(property_obj, 'roadStructure', '') or ''
     notes_val = get_attr(property_obj, 'notes', '') or get_attr(property_obj, 'bikou', '') or ''
+    genkyo_val = get_attr(property_obj, 'genkyo', '') or ''
 
-    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val]
+    all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val, genkyo_val]
     combined_text = " ".join([str(x) for x in all_text_list if x])
     combined_text_lower = combined_text.lower()
     
@@ -1087,6 +1090,93 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["is_shigaika_chousei"] = is_shigaika_chousei
     feats["is_saikenchiku_fuka"] = is_saikenchiku_fuka
     feats["rights_ratio"] = rights_ratio
+
+    # ⑩ 古家付き土地（建物残存価値・解体費用控除・再建築不可特則・リノベ戸建賃貸オプション評価）
+    is_furuya = 0.0
+    has_demolition_condition = 0.0
+    furuya_demolition_cost = 0.0
+    furuya_usable_value = 0.0
+    furuya_option_value = 0.0
+
+    furuya_keywords = [
+        "古家あり", "古家有", "古家付", "古家建", "上物あり", "上物有", "上物付",
+        "古家解体", "建物あり", "建物有", "現況：古家", "現況古家", "上物解体", "古家付売地"
+    ]
+    if any(k in combined_text for k in furuya_keywords):
+        is_furuya = 1.0
+        
+        # 解体更地渡し条件の判定（売主負担による解体）
+        demolition_cond_keywords = [
+            "更地渡し", "解体更地渡し", "解体後引渡", "更地引渡",
+            "売主負担にて解体", "売主負担で解体", "売主にて解体", "売主側で解体"
+        ]
+        if any(k in combined_text for k in demolition_cond_keywords):
+            has_demolition_condition = 1.0
+            
+        # 古家建物面積の抽出 (テキストから「建物〇㎡」「延床〇㎡」またはtatemono_area)
+        furuya_bldg_area = 0.0
+        m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
+        if m_bldg:
+            furuya_bldg_area = safe_float(m_bldg.group(1), 0.0)
+        if furuya_bldg_area <= 0.0:
+            furuya_bldg_area = safe_float(tatemono_area, 0.0)
+        if furuya_bldg_area <= 0.0:
+            furuya_bldg_area = 80.0  # 標準的な中古木造戸建の延床面積
+            
+        # 構造別の解体単価 (木造 1.4万円/㎡, 鉄骨 1.8万円/㎡, RC 2.5万円/㎡)
+        unit_demolish = 1.4
+        if "鉄骨" in combined_text:
+            unit_demolish = 1.8
+        elif any(x in combined_text for x in ["RC", "鉄筋"]):
+            unit_demolish = 2.5
+            
+        if has_demolition_condition == 1.0 or is_saikenchiku_fuka == 1.0:
+            # 更地渡し、または再建築不可（解体すると新築不可のため既得権維持・解体禁止）の場合は買主負担0
+            furuya_demolition_cost = 0.0
+        else:
+            furuya_demolition_cost = round(furuya_bldg_area * unit_demolish, 2)
+            
+        # 古家の戸建賃貸運用・リノベーション再生価値
+        unit_rent_monthly = max(1200.0, min(8000.0, average_land_price * 0.0018))
+        est_monthly_rent_man = max(4.0, min(25.0, (unit_rent_monthly * furuya_bldg_area * 0.70) / 10000.0))
+        est_annual_noi_man = est_monthly_rent_man * 12.0 * 0.80
+        
+        # 還元利回り (再建築不可は10.0%, 通常古家は8.0%)
+        cap_rate_furuya = 0.10 if is_saikenchiku_fuka == 1.0 else 0.08
+        gross_furuya_val = est_annual_noi_man / cap_rate_furuya
+        renov_cost = furuya_bldg_area * 3.0  # リノベ費用目安: 3万円/㎡
+        
+        if is_saikenchiku_fuka == 1.0:
+            # 再建築不可の場合、建物維持による敷地既得権利用価値を加算
+            furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost) + tochi_area * (average_land_price / 10000.0) * 0.25, 2)
+        else:
+            furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost), 2)
+            
+        # オプション価値: 更地手取り価格（再建築不可の場合は新築不可による20%減価底地水準）を上回る古家再生のプレミアム
+        saikenchiku_land_factor = 0.20 if is_saikenchiku_fuka == 1.0 else 1.0
+        clean_land_val = max(0.0, tochi_area * (average_land_price / 10000.0) * scale_discount * saikenchiku_land_factor - furuya_demolition_cost)
+        furuya_option_value = round(max(0.0, furuya_usable_value - clean_land_val), 2)
+        
+        # 土地評価額への古家査定反映
+        if property_type == 'tochi':
+            if is_saikenchiku_fuka == 1.0:
+                cost_approach_value = furuya_usable_value
+                income_approach_value = max(income_approach_value, furuya_usable_value)
+            else:
+                cost_approach_value = max(0.0, cost_approach_value - furuya_demolition_cost) + (furuya_option_value * 0.5)
+                if furuya_usable_value > 0:
+                    income_approach_value = max(income_approach_value, furuya_usable_value)
+            if furuya_demolition_cost > 0:
+                residual_land_value = max(0.0, residual_land_value - furuya_demolition_cost)
+
+    feats["is_furuya"] = is_furuya
+    feats["has_demolition_condition"] = has_demolition_condition
+    feats["furuya_demolition_cost"] = furuya_demolition_cost
+    feats["furuya_usable_value"] = furuya_usable_value
+    feats["furuya_option_value"] = furuya_option_value
+    feats["cost_approach_value"] = cost_approach_value
+    feats["income_approach_value"] = income_approach_value
+    feats["residual_land_value"] = residual_land_value
     
     # ⑩ 構造耐用年数消化比率 (Wood: 22年急減価, RC: 47年緩減価の相互作用)
     kouzou_cat = parse_kouzou(kouzou_str)

@@ -218,3 +218,35 @@ def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
 | `first_stage_predicted_price` | Integer | 一次推定理論価格（万円）。画像なしの特徴量による理論価格。 |
 | `second_stage_predicted_price` | Integer | 二次推定精密理論価格（万円）。画像スコアを統合した精密理論価格。 |
 | `message` | String | メッセージ |
+
+---
+
+## 8. 外部公開仕様 (External Access, Swagger & Security)
+
+外部システム、Webフロントエンド、他クライアントから価格推定APIを安全かつ容易に利用可能にするための仕様です。
+
+### 8.1 Swagger UI & OpenAPI 3.0 エンドポイント
+
+| エンドポイント | メソッド | 説明 |
+| :--- | :--- | :--- |
+| `/docs` | `GET` | 対話型 Swagger UI ドキュメント。ブラウザで開き直接 API テスト（Try it out）が可能。 |
+| `/api/openapi.yaml` | `GET` | OpenAPI 3.0 準拠の API 定義 YAML ファイル。 |
+
+### 8.2 CORS (Cross-Origin Resource Sharing)
+
+外部ドメインのフロントエンドアプリケーション（React / Vue / モバイルWeb等）からの直接呼出しを許可するため、以下の CORS 制御を実装します。
+
+- **プリフライト対応**: 全ての推論エンドポイントおよび Swagger エンドポイントで `OPTIONS` メソッドを受け入れ、`200 OK` を返却。
+- **許可ヘッダー**:
+  - `Access-Control-Allow-Origin: *` (または環境変数で許可されたオリジン)
+  - `Access-Control-Allow-Methods: GET, POST, OPTIONS`
+  - `Access-Control-Allow-Headers: Content-Type, Authorization, X-API-KEY`
+
+### 8.3 認証 (API Key Authentication)
+
+- **ヘッダー**: `X-API-KEY: <API_KEY>`
+- **動作ポリシー**:
+  - 環境変数 `ESTIMATION_API_KEY` が設定されている場合: ヘッダー `X-API-KEY` の値を検証。不一致または欠損時は `401 Unauthorized` を返却。
+  - 環境変数 `ESTIMATION_API_KEY` が未設定または空の場合: 開発・ローカルモードとみなし、認証チェックをスキップして通過。
+  - `/docs` および `/api/openapi.yaml` は仕様確認のため認証不要（公開）。
+

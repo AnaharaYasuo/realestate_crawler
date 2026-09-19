@@ -3,6 +3,14 @@ info:
   title: Realestate Price Estimation API
   description: 不動産の基本情報および画像スコアをベースに、機械学習アンサンブルモデルを用いた推定理論価格（一次予測および二次予測）を算出するAPI。
   version: 1.0.0
+servers:
+  - url: /
+    description: Current Host
+  - url: http://localhost:8000
+    description: Local Development Server
+security:
+  - ApiKeyAuth: []
+  - {}
 paths:
   /api/evaluation/predict/mansion:
     post:
@@ -322,3 +330,10 @@ components:
               message:
                 type: string
                 example: "Missing or invalid JSON request body"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+      description: API Key authentication header

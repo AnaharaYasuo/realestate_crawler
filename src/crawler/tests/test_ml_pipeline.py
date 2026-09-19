@@ -14,32 +14,13 @@ def test_ml_pipeline():
     os.makedirs(model_dir, exist_ok=True)
     
     # ダミーデータを生成してモデル保存
-    feature_sets = {
-        "mansion": {
-            "first": [
-                "area", "chikunen", "walk_min", "kanrihi", "syuzen",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei"
-            ],
-            "second": [
-                "area", "chikunen", "walk_min", "kanrihi", "syuzen",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei", "interior_score", "layout_score"
-            ]
-        }
-    }
+    from package.ml.features import FEATURE_SETS
     
     # 20件のダミーデータで学習（テスト用高速検証）
     df_mansion = generate_dummy_data('mansion', num_records=20)
     
-    trained_first = train_and_compare(df_mansion, feature_sets["mansion"]["first"], "mansion - First Stage")
-    trained_second = train_and_compare(df_mansion, feature_sets["mansion"]["second"], "mansion - Second Stage")
+    trained_first = train_and_compare(df_mansion, FEATURE_SETS["mansion"]["first"], "mansion - First Stage")
+    trained_second = train_and_compare(df_mansion, FEATURE_SETS["mansion"]["second"], "mansion - Second Stage")
     
     # モデルの保存
     for algo in ['lgb', 'xgb', 'cat']:
@@ -49,44 +30,8 @@ def test_ml_pipeline():
     # 他の物件種別（kodate, apartment, tochi）もダミー学習させておく（predictで利用するため）
     for ptype in ['kodate', 'apartment', 'tochi']:
         df_ptype = generate_dummy_data(ptype, num_records=20)
-        if ptype == 'apartment':
-            feats_first = [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "gross_yield", "annual_rent",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
-            ]
-        elif ptype == 'tochi':
-            feats_first = [
-                "area", "tochi_menseki", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
-            ]
-        else:
-            feats_first = [
-                "area", "tochi_menseki", "chikunen", "walk_min",
-                "pop_growth", "income", "passenger_volume", "average_land_price",
-                "estimated_rosenka_price", "estimated_fixed_asset_price",
-                "digest_volume_ratio", "surplus_volume_potential", "non_conforming_flag",
-                "cost_approach_value", "mkt_comparison_value", "income_approach_value",
-                "is_shin_taishin", "flood_risk_level", "landslide_risk_level",
-                "max_youseki", "max_kenpei",
-                "maguchi", "road_width", "setback_ratio", "actual_volume_limit",
-                "volume_digest_factor", "road_condition_factor", "frontage_penalty_factor", "residual_land_value"
-            ]
-            
-        feats_second = feats_first + ["interior_score", "layout_score"]
+        feats_first = FEATURE_SETS[ptype]["first"]
+        feats_second = FEATURE_SETS[ptype]["second"]
         
         trained_f = train_and_compare(df_ptype, feats_first, f"{ptype} - First Stage")
         trained_s = train_and_compare(df_ptype, feats_second, f"{ptype} - Second Stage")
