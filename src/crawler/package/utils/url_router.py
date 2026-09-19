@@ -170,6 +170,15 @@ class UrlRouter:
             "model_module": "package.models.homes",
             "model_cls": "HomesTochi",
         },
+        {
+            "pattern": re.compile(r"toushi\.homes\.co\.jp/bukkendetail/"),
+            "site": "homes",
+            "property_type": "apartment",
+            "parser_module": "package.parser.homesParser",
+            "parser_cls": "HomesInvestmentApartmentParser",
+            "model_module": "package.models.homes",
+            "model_cls": "HomesInvestmentApartment",
+        },
 
         # ミサワホーム (Misawa)
         {
@@ -193,7 +202,34 @@ class UrlRouter:
 
         # 三井住友トラスト (Smtrc)
         {
-            "pattern": re.compile(r"smtrc\.jp/buy/detail/|smtrc\.jp/detail/"),
+            "pattern": re.compile(r"smtrc\.jp/buy/kodate/|smtrc\.jp/list/.*bukenkind=2"),
+            "site": "smtrc",
+            "property_type": "kodate",
+            "parser_module": "package.parser.smtrcParser",
+            "parser_cls": "SmtrcKodateParser",
+            "model_module": "package.models.smtrc",
+            "model_cls": "SmtrcKodate",
+        },
+        {
+            "pattern": re.compile(r"smtrc\.jp/buy/tochi/|smtrc\.jp/list/.*bukenkind=3"),
+            "site": "smtrc",
+            "property_type": "tochi",
+            "parser_module": "package.parser.smtrcParser",
+            "parser_cls": "SmtrcTochiParser",
+            "model_module": "package.models.smtrc",
+            "model_cls": "SmtrcTochi",
+        },
+        {
+            "pattern": re.compile(r"smtrc\.jp/buy/investment/|smtrc\.jp/list/.*proptype=33|smtrc\.jp/list/Listviewinvest"),
+            "site": "smtrc",
+            "property_type": "apartment",
+            "parser_module": "package.parser.smtrcParser",
+            "parser_cls": "SmtrcInvestmentParser",
+            "model_module": "package.models.smtrc",
+            "model_cls": "SmtrcInvestment",
+        },
+        {
+            "pattern": re.compile(r"smtrc\.jp/buy/detail/|smtrc\.jp/detail/|smtrc\.jp/buy/mansion/|smtrc\.jp/list/.*bukenkind=1"),
             "site": "smtrc",
             "property_type": "mansion",
             "parser_module": "package.parser.smtrcParser",
@@ -233,16 +269,51 @@ class UrlRouter:
     ]
 
     @classmethod
-    def resolve(cls, url: str) -> Optional[Dict[str, Any]]:
+    def resolve(
+        cls,
+        url: str,
+        title: Optional[str] = None,
+        html_text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+        property_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """
         URLから対象サイト・物件種別・パーサークラス情報を特定
+        オプションで property_type, title, html_text, specs を渡すことで動的な物件種別判別にも対応
         Returns:
             Dict or None (未対応サイト時)
         """
         if not url or not isinstance(url, str):
             return None
 
-        for route in cls.ROUTES:
-            if route["pattern"].search(url):
-                return route
-        return None
+        # 1. URL パターンにマッチする全ルートを抽出
+        matched_routes = [route for route in cls.ROUTES if route["pattern"].search(url)]
+        if not matched_routes:
+            return None
+
+        # 2. 目的の property_type の特定 (引数指定 > PropertyTypeDetector動的判定)
+        target_ptype = property_type
+        if not target_ptype and (title or html_text or specs):
+            from package.utils.property_type_detector import PropertyTypeDetector
+            target_ptype = PropertyTypeDetector.detect(
+                url=url,
+                title=title,
+                html_text=html_text,
+                specs=specs
+            )
+
+        # 3. 指定・判定された property_type に合致するルートを選択
+        if target_ptype:
+            # マッチしたルート群の中から該当種別を探す
+            for route in matched_routes:
+                if route["property_type"] == target_ptype:
+                    return route
+
+            # マッチしたサイトの全ルートの中から該当種別を探す（汎用URLの場合）
+            matched_site = matched_routes[0]["site"]
+            for route in cls.ROUTES:
+                if route["site"] == matched_site and route["property_type"] == target_ptype:
+                    return route
+
+        # 4. 種別指定なし、または該当なしの場合は先頭の一致ルートを返却
+        return matched_routes[0]

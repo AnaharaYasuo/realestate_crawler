@@ -6,12 +6,14 @@ import asyncio
 import aiohttp
 import urllib.parse
 import importlib
+from typing import Optional, Dict, Any
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 
 from package.ml.predict import predict_first_stage_local, predict_second_stage_local, _serialize_property
 from package.utils.url_security import UrlSecurityValidator
 from package.utils.url_router import UrlRouter
+from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_matcher import UrlMatcher
 from package.utils.singleflight import SingleflightGroup
 from package.utils.rate_limiter import SlidingWindowRateLimiter, LockoutManager
@@ -687,7 +689,13 @@ def _extract_property_info(item):
     return {k: v for k, v in info.items() if v is not None and v != ""}
 
 
-async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score: float, layout_score: float):
+async def _execute_predict_by_url(
+    url: str,
+    force_refresh: bool,
+    interior_score: float,
+    layout_score: float,
+    property_type_hint: Optional[str] = None
+):
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
     """
@@ -703,7 +711,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
 
         if eval_record and eval_record.first_stage_predicted_price is not None:
             prop_info = {}
-            route = UrlRouter.resolve(url)
+            route = UrlRouter.resolve(url, property_type=property_type_hint)
             if route:
                 try:
                     mod = importlib.import_module(route["model_module"])
@@ -756,11 +764,12 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
     # -------------------------------------------------------------
     # 対象サイトの判定
     # -------------------------------------------------------------
-    route = UrlRouter.resolve(url)
+    route = UrlRouter.resolve(url, property_type=property_type_hint)
     if not route:
         # 未対応サイト ➔ 到達性 & 不動産キーワードチェック ➔ CandidatePropertyUrl 登録
         is_prop, page_title, matched_kws = await UrlSecurityValidator.check_property_content_and_reachability(url)
         if is_prop:
+            detected_type = PropertyTypeDetector.detect(url=url, title=page_title)
             parsed_domain = urllib.parse.urlparse(url).netloc
             clean_url = UrlMatcher.normalize(url)
             cand = CandidatePropertyUrl.objects.filter(UrlMatcher.build_db_filter("url", url)).first()
@@ -779,8 +788,9 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 req_count = 1
 
             # パーサー未対応サイトとして明示的に ERROR ログを出力（監視・新規パーサー開発対象）
+            type_label = f" (detected_type: {detected_type})" if detected_type else ""
             logging.error(
-                f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}' "
+                f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}'{type_label} "
                 f"(URL: {clean_url}, Title: '{page_title}', Keywords: {matched_kws}). "
                 f"Target registered to CandidatePropertyUrl backlog (count={req_count})."
             )
@@ -794,6 +804,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 "details": {
                     "domain": parsed_domain,
                     "title": page_title,
+                    "detected_property_type": detected_type,
                     "matched_keywords": matched_kws,
                     "candidate_request_count": req_count
                 }
@@ -1019,6 +1030,9 @@ def predict_by_url():
     force_refresh = bool(data.get("force_refresh", False))
     interior_score = float(data.get("interior_score", 3.0))
     layout_score = float(data.get("layout_score", 3.0))
+    property_type = data.get("property_type")
+    if property_type:
+        property_type = str(property_type).strip().lower()
 
     # Singleflight で同一URLの並行処理合流
     try:
@@ -1029,14 +1043,16 @@ def predict_by_url():
 
     try:
         normalized_url = UrlMatcher.normalize(url)
+        flight_key = f"{normalized_url}:{property_type}" if property_type else normalized_url
         result, status_code = loop.run_until_complete(
             singleflight_group.do(
-                normalized_url,
+                flight_key,
                 _execute_predict_by_url,
                 url,
                 force_refresh,
                 interior_score,
-                layout_score
+                layout_score,
+                property_type
             )
         )
         return jsonify(result), status_code

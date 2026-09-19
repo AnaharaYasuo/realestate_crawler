@@ -6,6 +6,7 @@
 |---|---|
 | `package.models.candidate.CandidatePropertyUrl` | 未対応物件URLのクローリング候補を永続化するDjangoモデル |
 | `package.utils.url_router.UrlRouter` | URL正規表現から `(site, property_type, parser_cls)` を解決 |
+| `package.utils.property_type_detector.PropertyTypeDetector` | URL・タイトル・HTML構造・スペック辞書から物件種別を総合判定する再利用可能モジュール |
 | `package.utils.url_security.UrlSecurityValidator` | SSRF防御（IP解決・プライベートIP除外）、HTTP疎通確認、不動産キーワード判定 |
 | `package.utils.singleflight.SingleflightGroup` | 同一キー（URL）に対する多重非同期リクエストの合流・待機制御 |
 | `package.utils.rate_limiter.SlidingWindowRateLimiter` | インメモリ・スライディングウィンドウ型レートリミッター |
@@ -304,3 +305,51 @@ logging.error(
     exc_info=True
 )
 ```
+
+---
+
+## 10. 動的物件種別判別設計 (`PropertyTypeDetector`)
+
+多様な入力シグナル（スペック辞書、タイトル、HTMLテキスト、URL）から物件種別を安全・確実に判定する。各所から単体・組合せで呼び出し可能。
+
+```python
+class PropertyTypeDetector:
+    # 判定優先度付きキーワードマップ
+    # ※「一棟マンション」等の複合語を「マンション」より先に判定するため順序を厳格化
+    APARTMENT_KEYWORDS = [
+        "一棟アパート", "一棟売りアパート", "一棟マンション", "一棟売りマンション",
+        "一棟ビル", "一棟売りビル", "収益物件", "アパート", "収益アパート", "投資用アパート"
+    ]
+    MANSION_KEYWORDS = [
+        "区分マンション", "中古マンション", "新築マンション", "マンション", "区分所有"
+    ]
+    KODATE_KEYWORDS = [
+        "一戸建て", "一戸建", "新築戸建", "中古戸建", "戸建", "テラスハウス"
+    ]
+    TOCHI_KEYWORDS = [
+        "売り土地", "売土地", "売地", "土地", "建築条件付土地"
+    ]
+
+    @classmethod
+    def detect(
+        cls,
+        url: Optional[str] = None,
+        title: Optional[str] = None,
+        html_text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+        default: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        スペック表 -> タイトル -> HTMLテキスト -> URL の優先順位で種別判定
+        戻り値: 'apartment' | 'mansion' | 'kodate' | 'tochi' | default
+        """
+        ...
+```
+
+### 連携ポイント
+1. **`UrlRouter.ROUTES`**:
+   - `toushi.homes.co.jp` を追加（デフォルト: `apartment` ➔ `HomesInvestmentApartmentParser` / `HomesInvestmentApartment`）。
+2. **`UrlRouter.resolve(url, title=None, html_text=None, specs=None)`**:
+   - URLによる解決に加え、タイトルやスペック表が渡された場合に動的に種別特定・検証を実行可能。
+3. **`evaluation_routes.py`**:
+   - URLセキュリティ判定で取得したタイトル・コンテンツ情報から `PropertyTypeDetector.detect` を呼び出し、種別を確定。

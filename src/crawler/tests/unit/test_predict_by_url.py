@@ -307,6 +307,100 @@ def test_predict_by_url_parser_loading_failure_logs_error(client, caplog):
         assert any("[PARSER_NOT_FOUND]" in record.message for record in caplog.records)
 
 
+def test_predict_by_url_toushi_homes_routes_correctly(client):
+    """toushi.homes.co.jp の投資用物件URLが HomesInvestmentApartmentParser / apartment に正しくルーティングされること"""
+    test_url = "https://toushi.homes.co.jp/bukkendetail/index/4721792/"
+
+    fake_item = MagicMock()
+    fake_item.id = 777
+    fake_item.pageUrl = test_url
+    fake_item.price = 41200000
+    fake_item.address = "埼玉県さいたま市中央区円阿弥"
+    fake_item.station1 = "与野本町"
+    fake_item.railwayWalkMinute1 = 15
+    fake_item.grossYield = 6.02
+    fake_item.annualRent = 2480000
+    fake_item.kouzou = "木造"
+    fake_item.youseki = 200.0
+    fake_item.kenpei = 60.0
+    fake_item.tochikenri = "所有権"
+    fake_item.biko = ""
+    fake_item.chikunengetsu = None
+    fake_item.chikunengetsuStr = "1995-04"
+    fake_item.tatemonoMenseki = 180.5
+    fake_item.tochiMenseki = 150.0
+    fake_item.maguchi = 8.5
+    fake_item.roadWidth = 4.0
+    fake_item.setsudou = "公道"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_p_filter, \
+         patch('package.models.homes.HomesInvestmentApartment.objects.filter') as mock_h_filter, \
+         patch('package.models.evaluation.PropertyEvaluation.objects.update_or_create'), \
+         patch('routes.evaluation_routes.predict_first_stage_local', return_value=4300), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=4350):
+
+        mock_p_filter.return_value.first.return_value = None
+        mock_h_filter.return_value.first.return_value = fake_item
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url}),
+            content_type='application/json'
+        )
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["site"] == "homes"
+        assert data["property_type"] == "apartment"
+        assert data["prediction"]["first_stage_predicted_price"] == 4300
+
+
+def test_predict_by_url_with_property_type_param(client):
+    """リクエストボディで property_type が指定された場合、指定された種別のパーサー/モデルにルーティングされること"""
+    test_url = "https://smtrc.jp/detail/12345"
+
+    fake_item = MagicMock()
+    fake_item.id = 888
+    fake_item.pageUrl = test_url
+    fake_item.price = 55000000
+    fake_item.address = "東京都世田谷区桜丘"
+    fake_item.station1 = "経堂"
+    fake_item.railwayWalkMinute1 = 10
+    fake_item.kouzou = "木造"
+    fake_item.youseki = 150.0
+    fake_item.kenpei = 50.0
+    fake_item.tochikenri = "所有権"
+    fake_item.biko = ""
+    fake_item.chikunengetsu = None
+    fake_item.chikunengetsuStr = "2015-06"
+    fake_item.tatemonoMenseki = 95.0
+    fake_item.tochiMenseki = 110.0
+    fake_item.maguchi = 7.0
+    fake_item.roadWidth = 4.5
+    fake_item.setsudou = "南側道路公道"
+
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_p_filter, \
+         patch('package.models.smtrc.SmtrcKodate.objects.filter') as mock_s_filter, \
+         patch('package.models.evaluation.PropertyEvaluation.objects.update_or_create'), \
+         patch('routes.evaluation_routes.predict_first_stage_local', return_value=5400), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=5450):
+
+        mock_p_filter.return_value.first.return_value = None
+        mock_s_filter.return_value.first.return_value = fake_item
+
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({"url": test_url, "property_type": "kodate"}),
+            content_type='application/json'
+        )
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["site"] == "smtrc"
+        assert data["property_type"] == "kodate"
+        assert data["prediction"]["first_stage_predicted_price"] == 5400
+
+
 def test_lockout_manager():
     from package.utils.rate_limiter import LockoutManager
     manager = LockoutManager(lockout_seconds=60, strike_threshold=2)
