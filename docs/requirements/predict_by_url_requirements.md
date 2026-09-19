@@ -242,17 +242,26 @@
      - AI出力結果は必ず事後ガードレールにより検証・サニタイズ（利回り表記の強制オーバーライド等）を実施する。
      - API未設定時・オフライン時・タイムアウト（1.5秒）時は安全に静的デフォルトへフォールバックし、バッチやパイプラインを停止させないこと。
 
-### 3.10 健美家 (Kenbiya) 投資用一棟アパートパーサー要件 (FR-KENBIYA-PARSER)
+### 3.10 健美家 (Kenbiya) 各種物件パーサー要件 (FR-KENBIYA-PARSER)
 - **背景・目的**:
-  - `CandidatePropertyUrl` に蓄積された未対応物件URLのうち、健美家（`kenbiya.com`）の一棟収益アパート案件を正式サポート対象に昇格し、Tier 3 リアルタイムスクレイピング＆推論を可能にする。
+  - `CandidatePropertyUrl` に蓄積された未対応物件URLのうち、国内有数の投資不動産ポータルである健美家（`kenbiya.com`: 112,000件超）の全主要物件種別（区分マンション、一棟アパート、一棟マンション/ビル、戸建賃貸、投資用土地）を正式サポート対象に昇格し、Tier 3 リアルタイムスクレイピング＆推論を可能にする。
 - **要件**:
-  1. **対象URLパターン**:
-     - `https://www.kenbiya.com/pp2/s/.../re_[0-9a-zA-Z]+/` 等の健美家物件詳細URLに対応。
+  1. **対象URLパターン & 種別マッピング**:
+     - `/pp1/` 区分マンション（3.6万件）➔ `KenbiyaMansionParser` (`mansion`)
+     - `/pp2/` 一棟売りアパート（1.7万件）➔ `KenbiyaInvestmentApartmentParser` (`apartment`)
+     - `/pp3/` 一棟売りマンション（1.0万件） & `/pp4/` 一棟売りビル（0.2万件）➔ `KenbiyaInvestmentBuildingParser` (`apartment` / `building`)
+     - `/pp8/` 戸建賃貸（2.8万件）➔ `KenbiyaKodateParser` (`kodate`)
+     - `/pp5/` 投資用土地・事業用土地（0.6万件）➔ `KenbiyaTochiParser` (`tochi`)
   2. **物件種別Base継承**:
-     - `InvestmentParserBase` を継承し、全抽象メソッド（`_parseGrossYield`, `_parseAnnualRent`, `_parseMonthlyRent`, `_parseChikunengetsu`, `_parseKouzou`, `_parseTochiMenseki`, `_parseTatemonoMenseki`, `_parsePrice`, `_parseAddress`, `_parsePropertyName`, `_parseRights`, `_parseSetsudou`, `_parseYoutoChiiki`, `_parseCurrentStatus`, `_parseGenkyo`, `_parseHikiwatashi`, `_parseChimoku` 等）を完全実装すること。
+     - マンション: `MansionParserBase` を継承し、専有面積、階数、間取り、管理費、修繕積立金、および投資利回り等を抽出。
+     - 一棟アパート/一棟ビル: `InvestmentParserBase` を継承し、表面利回り、満室時年収、建物/土地面積、構造等を抽出。
+     - 戸建: `KodateParserBase` を継承し、建物面積、土地面積、間取り、構造、利回り等を抽出。
+     - 土地: `TochiParserBase` を継承し、土地面積、建ぺい/容積率、地目、接道、用途地域等を抽出。
+     - 全パーサーで `ParserBase` の全抽象メソッド（`_parsePropertyName`, `_parsePrice`, `_parsePriceStr`, `_parseAddress`, `_parseTransport1` 等）を完全実装すること。
   3. **ブラウザヘッダ要件 (429回避)**:
      - 健美家のBot保護を回避するため、リクエスト時にブラウザ標準の `Accept-Language: ja,en-US;q=0.9,en;q=0.8` および `Accept` ヘッダーを送信すること。
   4. **データ抽出仕様**:
-     - 定義リスト（`<dl><dt>...<dd>...`）およびページ上部サマリーから、価格、利回り、満室時年収/月収、所在地、物件名、築年月、建物構造、土地面積、建物面積、建ぺい/容積率、接道状況、用途地域、土地権利、現況、交通を精緻に抽出・正規化すること。
+     - 定義リスト（`<dl><dt>...<dd>...`）およびページ上部サマリーから、価格、利回り、満室時年収/月収、所在地、物件名、築年月、建物構造、土地面積、建物/専有面積、建ぺい/容積率、接道状況、用途地域、土地権利、現況、交通を精緻に抽出・正規化すること。
   5. **候補URLステータス連動**:
      - 開発完了に伴い、`CandidatePropertyUrl` 内の健美家URLの `status` を `implemented` へ更新可能とすること。
+

@@ -225,15 +225,17 @@ sequenceDiagram
 
 ---
 
-## 8. 健美家 (Kenbiya) 投資用パーサー連携仕様
+## 8. 健美家 (Kenbiya) 各種物件パーサー連携仕様
 1. **ルーティング仕様 (`UrlRouter`)**:
-   - パターン: `r"kenbiya\.com/.*re_[0-9a-zA-Z]+"`
-   - サイト名: `kenbiya`
-   - 物件種別: `apartment`
-   - パーサークラス: `KenbiyaInvestmentApartmentParser` (`package.parser.kenbiyaParser`)
-   - モデルクラス: `KenbiyaInvestmentApartment` (`package.models.kenbiya`)
+   - `/pp1/` (区分マンション): `mansion` ➔ `KenbiyaMansionParser` / `KenbiyaMansion`
+   - `/pp2/` (一棟アパート): `apartment` ➔ `KenbiyaInvestmentApartmentParser` / `KenbiyaInvestmentApartment`
+   - `/pp3/`, `/pp4/` (一棟マンション/ビル): `apartment` ➔ `KenbiyaInvestmentBuildingParser` / `KenbiyaInvestmentBuilding`
+   - `/pp8/` (戸建賃貸): `kodate` ➔ `KenbiyaKodateParser` / `KenbiyaKodate`
+   - `/pp5/` (投資用土地): `tochi` ➔ `KenbiyaTochiParser` / `KenbiyaTochi`
+   - 未特定URL (`kenbiya.com/.*re_[0-9a-zA-Z]+`): `property_type_hint` または `PropertyTypeDetector` に応じて動的解決（デフォルト: `apartment`）
 2. **ライフサイクルと処理フロー**:
-   - `predict-by-url` 受信時、健美家URLを検知して `KenbiyaInvestmentApartmentParser` をインスタンス化。
+   - `predict-by-url` 受信時、健美家URLの種別プレフィックス（`/pp1/`, `/pp2/`, `/pp3/`, `/pp4/`, `/pp5/`, `/pp8/`）から最適パーサーをインスタンス化。
    - ブラウザ標準ヘッダー（`Accept-Language: ja,en-US;q=0.9,en;q=0.8`）を付与してHTMLを取得し、`<dl><dt>...<dd>` からスペックを抽出。
-   - `KenbiyaInvestmentApartment` モデルインスタンスを生成してDBへ保存後、投資用MLモデルによる価格推定を実行。
+   - 各種別モデルインスタンスを生成してDBへ保存後、当該種別のMLモデルによる価格推定を実行。
+
 

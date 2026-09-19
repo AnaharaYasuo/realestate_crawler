@@ -13,23 +13,24 @@ def parse_price(price_str):
         return None
     
     price_work = price_str.replace(',', '').replace(' ', '')
-    oku = 0
-    man = 0
+    oku = 0.0
+    man = 0.0
     
     try:
         if "億" in price_work:
             parts = price_work.split("億")
-            oku = int(float(parts[0]) * 10000)
+            oku = float(parts[0]) * 10000.0
             if len(parts) > 1 and parts[1]:
                 man_match = re.search(r'(\d+(?:\.\d+)?)', parts[1])
                 if man_match:
-                    man = int(float(man_match.group(1)))
+                    man = float(man_match.group(1))
         else:
             man_match = re.search(r'(\d+(?:\.\d+)?)', price_work)
             if man_match:
-                man = int(float(man_match.group(1)))
+                man = float(man_match.group(1))
         
-        return (oku + man) * 10000
+        return int(round((oku + man) * 10000))
+
     except Exception:
         return None
 
@@ -45,7 +46,7 @@ def parse_yen(text):
         val = re.sub(r'\D', '', text)
         if val:
             return int(val)
-    except:
+    except Exception:
         pass
     return 0
 
@@ -96,7 +97,7 @@ def parse_numeric(text):
         match = re.search(r'(\d+)', text)
         if match:
             return int(match.group(1))
-    except:
+    except Exception:
         pass
     return 0
 
