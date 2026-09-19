@@ -43,7 +43,7 @@ def configure():
                         'OPTIONS': {'charset': 'utf8mb4'},
                         'POOL_OPTIONS': {
                             'POOL_SIZE': int(os.getenv('DB_POOL_SIZE', 10)),
-                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', 5)),
+                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', -1)),
                             'RECYCLE': int(os.getenv('DB_POOL_RECYCLE', 1800)),
                         }
                     }
@@ -72,7 +72,7 @@ def configure():
                         'OPTIONS': {'charset': 'utf8mb4'},
                         'POOL_OPTIONS': {
                             'POOL_SIZE': int(os.getenv('DB_POOL_SIZE', 10)),
-                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', 5)),
+                            'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', -1)),
                             'RECYCLE': int(os.getenv('DB_POOL_RECYCLE', 1800)),
                         }
                     }
