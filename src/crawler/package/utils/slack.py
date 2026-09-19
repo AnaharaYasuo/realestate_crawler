@@ -6,17 +6,60 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# 既知のアラートチャンネルID（小文字で定義して大文字小文字不問で判定）
+KNOWN_ALERT_CHANNEL_IDS = {
+    "c0bjwuctrnu",  # alerts-mansion
+    "c0bhza5asdt",  # alerts-kodate
+    "c0bj2jvgcls",  # alerts-tochi
+    "c0bj6b4r3e0",  # alerts-invest-apartment
+    "c0bj0ksjedc",  # alerts-invest-kodate
+}
+
+
+def is_alert_channel(channel: str | None) -> bool:
+    """
+    指定されたSlackチャンネル（またはID）がアラート専用チャンネルかどうかを判定します。
+    """
+    if not channel or not isinstance(channel, str):
+        return False
+
+    ch = channel.strip()
+    if not ch:
+        return False
+
+    ch_lower = ch.lower()
+
+    # 1. チャンネル名パターン (alerts-*, property_alert, または alert を含む名前)
+    if ch_lower.startswith("alerts-") or ch_lower == "property_alert" or "alert" in ch_lower:
+        return True
+
+    # 2. 既知のアラートチャンネルID
+    if ch_lower in KNOWN_ALERT_CHANNEL_IDS:
+        return True
+
+    # 3. 環境変数で設定されたアラートチャンネル名・ID
+    for env_key, env_val in os.environ.items():
+        if env_key.startswith("SLACK_ALERT_") and env_val:
+            if ch_lower == env_val.strip().lower():
+                return True
+
+    return False
+
+
 async def send_slack_message(message: str, channel: str | None = None) -> bool:
     """
     非同期でSlackの指定チャンネルにメッセージを投稿します。
     引数 channel が指定されていない場合は、環境変数 SLACK_CHANNEL_ID を使用します。
+    アラートチャンネル宛ての場合は、ログ監視（Cloud Logging）のためにログレベル ERROR で出力します。
     """
     token = os.getenv("SLACK_BOT_TOKEN")
-    if not channel:
-        channel = os.getenv("SLACK_CHANNEL_ID")
+    target_channel = channel or os.getenv("SLACK_CHANNEL_ID")
 
+    # アラートチャンネル宛ての通知内容は必ず ERROR レベルログとして出力
+    if is_alert_channel(target_channel):
+        logger.error(f"[SLACK ALERT -> {target_channel}]:\n{message}")
 
-    if not token or not channel:
+    if not token or not target_channel:
         logger.warning("Slack notification skipped: SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set in environment.")
         return False
 
@@ -26,7 +69,7 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
         "Content-Type": "application/json; charset=utf-8"
     }
     payload = {
-        "channel": channel,
+        "channel": target_channel,
         "text": message
     }
 
