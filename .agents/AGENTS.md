@@ -132,6 +132,13 @@
      - `production` 宛てにリリース PR を作成: `gh pr create --base production --head master --title "release: ..." --body "..."`
      - CI（Production Gate & Terraform Plan）確認後、`production` にマージ。マージ完了により本番デプロイパイプライン（`deploy-production.yml`）が自動起動する。
 
+## 【プロジェクト普遍ルール】複数セッション並行開発時の Git ワークツリー運用原則 (Git Worktree Isolation)
+- **並行セッションの衝突防止**: 複数のAIエージェントやセッションが同時に稼働する際、同一ワーキングツリー内でのファイル変更・Gitインデックスのバッティングを防ぐため、必ず `git worktree` を用いて独立したワークツリーディレクトリ（例: `../realestate_crawler_<topic>`）を作成して作業すること。
+- **ブランチの独立性**: 各ワークツリーは `master` から分岐した専用の作業ブランチ（`feature/<topic>` または `fix/<topic>`）に紐付け、作業完了後は通常フローに従って PR 作成・マージ後にワークツリーを安全に削除（`git worktree remove`）すること。
+
+## 【プロジェクト普遍ルール】PR作成前のローカル静的解析義務化ルール (Snyk & SonarLint Pre-PR Check)
+- **事前走査の義務化**: コード修正や新機能追加の後、GitHub に Pull Request を作成・プッシュする前に、必ずローカル環境で Snyk によるセキュリティ脆弱性スキャンおよび SonarLint / SonarQube による静的コード解析を実施すること。
+- **指摘事項の解消**: 検出された重大な脆弱性（High/Critical）、Code Smell、型エラー、未解決の指摘はすべて修正してからコミット・PR作成を行うこと。
 
 
 

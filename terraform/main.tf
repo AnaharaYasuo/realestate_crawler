@@ -40,6 +40,7 @@ resource "google_project_service" "enabled_services" {
   for_each = toset([
     "run.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "cloudtasks.googleapis.com",
     "sqladmin.googleapis.com",
     "secretmanager.googleapis.com",
     "artifactregistry.googleapis.com",

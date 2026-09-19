@@ -1,3 +1,4 @@
+# ruff: noqa: E402, F401
 # -*- coding: utf-8 -*-
 import os
 import sys
@@ -26,6 +27,8 @@ while True:
 from django.apps import apps
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert
+from package.utils.task_distribution import get_task_config, distribute_jobs
+from package.models.crawler_task_execution import CrawlerTaskExecution
 
 
 # # CLI 引数のパース
@@ -200,12 +203,35 @@ def main():
     today_str = datetime.date.today().strftime("%Y%m%d")
     report_path = os.path.join(log_dir, f"crawl_report_{today_str}.json")
     
+    task_index, task_count = get_task_config()
     target_jobs = list(CRAWL_JOBS)
     if args.skip_portals:
         target_jobs = [j for j in target_jobs if j[0].lower() not in PORTAL_COMPANIES]
         logging.info(f"Skipping portal sites ({', '.join(PORTAL_COMPANIES)}). Active jobs: {len(target_jobs)}/{len(CRAWL_JOBS)}")
 
-    post_slack(f"🚀 【クローリング開始】 一括巡回処理を開始します。(全 {len(target_jobs)} ジョブ{' [ポータル割愛]' if args.skip_portals else ''})")
+    if task_count > 1 and task_index is not None:
+        target_jobs = distribute_jobs(target_jobs, task_index, task_count)
+        logging.info(f"🎯 [Task Array] Task {task_index}/{task_count} に {len(target_jobs)} 件のジョブを割り当てました")
+
+    # DB にタスク実行状態を登録
+    task_exec_record = None
+    try:
+        task_exec_record, _ = CrawlerTaskExecution.objects.update_or_create(
+            execution_date=datetime.date.today(),
+            task_index=task_index or 0,
+            defaults={
+                "task_count": task_count,
+                "status": "RUNNING",
+                "jobs_assigned": len(target_jobs),
+            }
+        )
+    except Exception as dbe:
+        logging.warning(f"Failed to record CrawlerTaskExecution start: {dbe}")
+
+    if task_count > 1 and task_index is not None:
+        post_slack(f"🚀 【分散クローリング開始】 Task {task_index}/{task_count} を開始します。(担当 {len(target_jobs)} ジョブ)")
+    else:
+        post_slack(f"🚀 【クローリング開始】 一括巡回処理を開始します。(全 {len(target_jobs)} ジョブ{' [ポータル割愛]' if args.skip_portals else ''})")
     
     results = []
     job_queue = list(target_jobs)
@@ -349,6 +375,17 @@ def main():
         json.dump(summary, f, ensure_ascii=False, indent=2)
         
     logging.info(f"All crawl jobs finished. Report written to {report_path}")
+    
+    # DB にタスク完了状態を記録
+    if task_exec_record is not None:
+        try:
+            task_exec_record.status = "COMPLETED" if summary["failed_jobs"] == 0 else "FAILED"
+            task_exec_record.jobs_success = summary["success_jobs"]
+            task_exec_record.jobs_failed = summary["failed_jobs"]
+            task_exec_record.save()
+            logging.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
+        except Exception as dbe:
+            logging.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
     
     # Slack notifications for crawl statuses
     try:
