@@ -1063,14 +1063,16 @@ def predict_by_url():
         normalized_url = UrlMatcher.normalize(url)
         flight_key = f"{normalized_url}:{property_type}" if property_type else normalized_url
         result, status_code = loop.run_until_complete(
-            singleflight_group.do(
-                flight_key,
-                _execute_predict_by_url,
-                url,
-                force_refresh,
-                interior_score,
-                layout_score,
-                property_type
+            loop.create_task(
+                singleflight_group.do(
+                    flight_key,
+                    _execute_predict_by_url,
+                    url,
+                    force_refresh,
+                    interior_score,
+                    layout_score,
+                    property_type
+                )
             )
         )
         return jsonify(result), status_code

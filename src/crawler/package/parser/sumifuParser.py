@@ -507,10 +507,20 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             if href:
                 if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
                     continue
-                if "/pro/detail_" in href or "/detail_" in href:
-                    joined_url = urllib.parse.urljoin(self.BASE_URL, href)
-                    if "javascript:" not in joined_url and "void(0)" not in joined_url:
-                        yield joined_url
+                if "/chintai/" in href or "/rent/" in href:
+                    continue
+                if self.property_type in ("mansion", "kodate", "tochi"):
+                    if f"/{self.property_type}/" not in href or "/detail_" not in href:
+                        continue
+                elif self.property_type in ("investment", "invest_apartment", "invest_kodate"):
+                    if "/pro/detail_" not in href:
+                        continue
+                elif "/pro/detail_" not in href and "/detail_" not in href:
+                    continue
+
+                joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+                if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                    yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -589,7 +599,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
         yield_val = specs.get("表面利回り", specs.get("利回り", ""))
-        if yield_val:
+        if yield_val and isinstance(yield_val, str):
             try: return Decimal(yield_val.replace("%", "").strip())
             except: pass
         return Decimal(0)
@@ -1338,7 +1348,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         # If extracted from combined "地目地勢", try to remove chimoku
         if "地目地勢" in specs:
             chimoku = self._parseChimoku(response)
-            if chimoku and chimoku != "-" and chimoku in val:
+            if val and isinstance(val, str) and chimoku and isinstance(chimoku, str) and chimoku != "-" and chimoku in val:
                 val = val.replace(chimoku, "").strip()
         
         return val if val else "-"
@@ -1597,7 +1607,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         if not val: return "-"
         # If extracts chimoku, remove it
         chimoku = self._parseChimoku(response)
-        if chimoku and chimoku != "-" and chimoku in val:
+        if val and isinstance(val, str) and chimoku and isinstance(chimoku, str) and chimoku != "-" and chimoku in val:
             val = val.replace(chimoku, "").strip()
         return val if val else "-"
 
