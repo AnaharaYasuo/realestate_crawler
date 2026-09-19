@@ -194,14 +194,24 @@ class PropertyTypeDetector:
                 return "apartment"
 
         # 5. ルールで特定不能な場合の AI フォールバック
-        if use_ai and (title or html_text or specs):
-            return cls.detect_with_ai(title=title, html_text=html_text, specs=specs, default=default or "mansion")
+        if use_ai and (title or html_text or specs or url):
+            return cls.detect_with_ai(
+                url=url, title=title, html_text=html_text, specs=specs, default=default or "mansion"
+            )
 
         return default
+
+    _ai_cache: Dict[str, str] = {}
+
+    @classmethod
+    def clear_ai_cache(cls) -> None:
+        """テストやジョブ間リセット用のAI判定キャッシュクリア"""
+        cls._ai_cache.clear()
 
     @classmethod
     def detect_with_ai(
         cls,
+        url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
         specs: Optional[Dict[str, Any]] = None,
@@ -209,16 +219,28 @@ class PropertyTypeDetector:
     ) -> str:
         """
         Gemini 1.5 Flash を用いた高精度分類フォールバック。
+        同一物件（URLまたはタイトル/スペック）に対するAI呼び出しは1回のみに制限（インメモリキャッシュ）。
         事後サニタイザー (_sanitize_output) により利回り・物理制約を再検証。
         """
-        combined_text = f"Title: {title or ''}\nSpecs: {str(specs or '')}\nText: {(html_text or '')[:500]}"
+        # キャッシュキーの導出（URL優先、なければタイトルやスペック表ハッシュ）
+        cache_key = (
+            url.strip() if url
+            else (title.strip() if title else None)
+        ) or f"{str(specs)}_{str(html_text)[:100]}"
+
+        if cache_key in cls._ai_cache:
+            return cls._ai_cache[cache_key]
+
+        combined_text = f"URL: {url or ''}\nTitle: {title or ''}\nSpecs: {str(specs or '')}\nText: {(html_text or '')[:500]}"
 
         # 事前 Yield Guard
         if cls._has_yield_signal(combined_text):
+            cls._ai_cache[cache_key] = "apartment"
             return "apartment"
 
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or genai is None:
+            cls._ai_cache[cache_key] = default
             return default
 
         try:
@@ -243,9 +265,12 @@ class PropertyTypeDetector:
                     break
 
             # 事後サニタイザー
-            return cls._sanitize_output(predicted, text=combined_text)
+            final_res = cls._sanitize_output(predicted, text=combined_text)
+            cls._ai_cache[cache_key] = final_res
+            return final_res
         except Exception as e:
             logging.warning(f"PropertyTypeDetector: Gemini classification failed, fallback to '{default}': {e}")
+            cls._ai_cache[cache_key] = default
             return default
 
     @classmethod

@@ -265,3 +265,43 @@ def test_detect_with_ai_fallback_and_sanitizer(monkeypatch):
     res_fallback = PropertyTypeDetector.detect_with_ai(title="謎の物件", default="mansion")
     assert res_fallback == "mansion"
 
+
+def test_ai_called_once_per_property(monkeypatch):
+    """同一物件に対するAI呼び出しが最大1回に制限されること（キャッシュ）の検証"""
+    call_counts = {"count": 0}
+
+    class MockResponse:
+        def __init__(self, text):
+            self.text = text
+
+    class CountingMockModel:
+        def __init__(self, name):
+            self.name = name
+
+        def generate_content(self, prompt):
+            call_counts["count"] += 1
+            return MockResponse("kodate")
+
+    class MockGenAI:
+        def configure(self, api_key):
+            pass
+
+        def GenerativeModel(self, name):
+            return CountingMockModel(name)
+
+    PropertyTypeDetector.clear_ai_cache()
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-1234")
+    monkeypatch.setattr("package.utils.property_type_detector.genai", MockGenAI())
+
+    # 同一URL物件に対して複数回呼び出し
+    url = "https://example.com/property/12345"
+    res1 = PropertyTypeDetector.detect_with_ai(url=url, title="緑豊かな邸宅")
+    res2 = PropertyTypeDetector.detect_with_ai(url=url, title="緑豊かな邸宅")
+    res3 = PropertyTypeDetector.detect(url=url, title="緑豊かな邸宅", use_ai=True)
+
+    assert res1 == "kodate"
+    assert res2 == "kodate"
+    assert res3 == "kodate"
+    # AI APIの呼び出し回数が厳密に1回であること
+    assert call_counts["count"] == 1
+

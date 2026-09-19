@@ -357,6 +357,7 @@ class PropertyTypeDetector:
     @classmethod
     def detect_with_ai(
         cls,
+        url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
         specs: Optional[Dict[str, Any]] = None,
@@ -364,6 +365,7 @@ class PropertyTypeDetector:
     ) -> str:
         """
         Gemini 1.5 Flash を用いた高精度分類フォールバック。
+        1物件につきAI呼び出しは最大1回（インメモリキャッシュで同一物件への重複実行を完全防止）。
         AI出力は事後サニタイザー (_sanitize_output) により利回り・物理制約を再検証。
         """
         ...
