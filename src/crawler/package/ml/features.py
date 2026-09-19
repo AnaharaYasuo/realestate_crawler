@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import datetime
+import re
+from decimal import Decimal
 from typing import Dict, Tuple, Any
+from package.utils.plot_shape_analyzer import analyze_plot_shape
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -33,7 +36,8 @@ FEATURE_SETS = {
             "kagechi_ratio", "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "chikunen", "walk_min", "kanrihi", "syuzen",
@@ -46,7 +50,8 @@ FEATURE_SETS = {
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "kodate": {
@@ -64,7 +69,9 @@ FEATURE_SETS = {
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -81,7 +88,9 @@ FEATURE_SETS = {
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "apartment": {
@@ -100,7 +109,9 @@ FEATURE_SETS = {
             "total_population", "income_growth_rate", "land_price_growth_rate",
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -118,7 +129,9 @@ FEATURE_SETS = {
             "effective_walk_min", "population_density", "kouzou_lifespan_ratio",
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
-            "potential_floor_area", "scale_discount"
+            "potential_floor_area", "scale_discount",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     },
     "tochi": {
@@ -136,7 +149,9 @@ FEATURE_SETS = {
             "effective_walk_min", "population_density",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
-            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value"
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ],
         "second": [
             "area", "tochi_menseki", "walk_min",
@@ -153,7 +168,9 @@ FEATURE_SETS = {
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
-            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value"
+            "is_furuya", "has_demolition_condition", "furuya_demolition_cost", "furuya_usable_value", "furuya_option_value",
+            "plot_shadow_ratio", "plot_aspect_ratio", "plot_effective_ratio", "plot_shape_penalty",
+            "zone_max_kenpei", "zone_max_youseki"
         ]
     }
 }
@@ -224,8 +241,6 @@ def calculate_chikunen(chikunengetsu, base_date=None):
         return (base_date - chikunengetsu).days / 365.25
     return 20.0
 
-from decimal import Decimal
-import re
 
 def safe_float(val, default_val):
     if val is None:
@@ -379,6 +394,9 @@ def _init_global_caches():
         connections.close_all()
     except Exception:
         pass
+
+_load_all_potential_caches_once = _init_global_caches
+
 
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
     """
@@ -646,31 +664,58 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     max_youseki = extract_limit(youseki_raw, is_youseki=True)
     max_kenpei = extract_limit(kenpei_raw, is_youseki=False)
     
+    zone_name_prop = (
+        get_attr(property_obj, 'zone_name', None)
+        or get_attr(property_obj, 'youtoChiiki', None)
+        or get_attr(property_obj, 'youto', None)
+    )
+    zone_rec = None
+    if zone_name_prop:
+        if zone_name_prop in _zone_cache:
+            zone_rec = _zone_cache[zone_name_prop]
+        else:
+            for name, z in _zone_cache.items():
+                if name in str(zone_name_prop) or str(zone_name_prop) in name:
+                    zone_rec = z
+                    break
+
+    if zone_rec:
+        zone_max_kenpei = float(zone_rec.max_kenpei)
+        zone_max_youseki = float(zone_rec.max_youseki)
+        if max_kenpei is None:
+            max_kenpei = zone_max_kenpei
+        if max_youseki is None:
+            max_youseki = zone_max_youseki
+    else:
+        zone_max_kenpei = max_kenpei if max_kenpei is not None else 60.0
+        zone_max_youseki = max_youseki if max_youseki is not None else 200.0
+
     if max_youseki is None or max_kenpei is None:
         zone_keyword = None
-        if youseki_raw:
-            keywords = [
-                "第一種低層", "第二種低層", "第一種中高層", "第二種中高層",
-                "第一種住居", "第二種住居", "準住居", "田園住居",
-                "近隣商業", "商業", "準工業", "工業", "工業専用"
-            ]
-            for kw in keywords:
-                if kw in str(youseki_raw):
-                    zone_keyword = kw
-                    break
+        check_text = str(youseki_raw or '') + " " + str(zone_name_prop or '')
+        keywords = [
+            "第一種低層", "第二種低層", "第一種中高層", "第二種中高層",
+            "第一種住居", "第二種住居", "準住居", "田園住居",
+            "近隣商業", "商業", "準工業", "工業", "工業専用"
+        ]
+        for kw in keywords:
+            if kw in check_text:
+                zone_keyword = kw
+                break
         
         if zone_keyword:
             try:
-                zone_rec = None
                 for name, z in _zone_cache.items():
                     if zone_keyword in name:
                         zone_rec = z
                         break
                 if zone_rec:
+                    zone_max_kenpei = float(zone_rec.max_kenpei)
+                    zone_max_youseki = float(zone_rec.max_youseki)
                     if max_youseki is None:
-                        max_youseki = float(zone_rec.max_youseki)
+                        max_youseki = zone_max_youseki
                     if max_kenpei is None:
-                        max_kenpei = float(zone_rec.max_kenpei)
+                        max_kenpei = zone_max_kenpei
             except:
                 pass
                 
@@ -997,6 +1042,28 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         else:
             kagechi_ratio = 0.0
 
+    # 土地形状（かげ地・最大内接矩形・うなぎの寝床・頂点数）の幾何評価
+    plot_vertices = get_attr(property_obj, 'plot_vertices', None)
+    if plot_vertices and len(plot_vertices) >= 3:
+        shape_metrics = analyze_plot_shape(plot_vertices)
+        kagechi_ratio = shape_metrics.shadow_area_ratio
+        plot_shadow_ratio = shape_metrics.shadow_area_ratio
+        plot_aspect_ratio = shape_metrics.mir_aspect_ratio
+        plot_effective_ratio = shape_metrics.mir_effective_ratio
+        plot_shape_penalty = shape_metrics.shape_penalty_score
+    else:
+        plot_shadow_ratio = kagechi_ratio
+        plot_aspect_ratio = 1.0 if not is_fuseigei else 0.5
+        plot_effective_ratio = max(0.0, 1.0 - kagechi_ratio)
+        plot_shape_penalty = round(max(0.60, min(1.0, 1.0 - (kagechi_ratio * 0.35))), 4)
+
+    # 形状ペナルティによる土地価値補正
+    if property_type in ['tochi', 'kodate']:
+        cost_approach_value = round(cost_approach_value * plot_shape_penalty, 2)
+        mkt_comparison_value = round(mkt_comparison_value * plot_shape_penalty, 2)
+        if residual_land_value > 0:
+            residual_land_value = round(residual_land_value * plot_shape_penalty, 2)
+
     # 特徴量辞書を返却
     feats = {
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
@@ -1042,7 +1109,13 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "effective_walk_min": effective_walk_min,
         "population_density": pop_density,
         "potential_floor_area": potential_floor_area,
-        "scale_discount": scale_discount
+        "scale_discount": scale_discount,
+        "plot_shadow_ratio": plot_shadow_ratio,
+        "plot_aspect_ratio": plot_aspect_ratio,
+        "plot_effective_ratio": plot_effective_ratio,
+        "plot_shape_penalty": plot_shape_penalty,
+        "zone_max_kenpei": zone_max_kenpei,
+        "zone_max_youseki": zone_max_youseki
     }
     
     # カテゴリカル（文字列）

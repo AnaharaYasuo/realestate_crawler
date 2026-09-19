@@ -336,6 +336,12 @@ def _generate_single_dummy_record(ptype, rng):
         "furuya_demolition_cost": 100.0 if (ptype == 'tochi' and rng.random() < 0.25) else 0.0,
         "furuya_usable_value": 0.0,
         "furuya_option_value": 0.0,
+        "plot_shadow_ratio": 0.0,
+        "plot_aspect_ratio": 1.0,
+        "plot_effective_ratio": 1.0,
+        "plot_shape_penalty": 1.0,
+        "zone_max_kenpei": 60.0,
+        "zone_max_youseki": 200.0,
     }
 
 def generate_dummy_data(ptype, num_records=500):

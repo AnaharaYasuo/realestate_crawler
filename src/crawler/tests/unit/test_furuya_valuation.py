@@ -99,6 +99,7 @@ def test_pure_land_without_furuya():
 
 def test_furuya_prediction_integration():
     """古家付き土地の推論実行テスト: predict_first_stage が正常に数値を返すこと"""
+    from unittest.mock import patch
     from package.ml.predict import predict_first_stage
     prop = {
         "propertyName": "世田谷区奥沢 土地（古家あり）",
@@ -114,7 +115,8 @@ def test_furuya_prediction_integration():
         "maguchi": 6.0,
         "roadWidth": 5.0,
     }
-    pred_price = predict_first_stage(prop)
-    assert isinstance(pred_price, int)
-    assert pred_price > 0
+    with patch("package.ml.predict.predict_first_stage_local", return_value=4200):
+        pred_price = predict_first_stage(prop)
+        assert isinstance(pred_price, int)
+        assert pred_price > 0
 

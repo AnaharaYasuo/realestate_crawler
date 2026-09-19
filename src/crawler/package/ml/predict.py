@@ -415,9 +415,15 @@ def _serialize_property(item, ptype):
             return item.get(name, default)
         return getattr(item, name, default)
 
+    address = _val("address", "")
+    if not address:
+        addr1 = _val("address1", "") or ""
+        addr2 = _val("address2", "") or ""
+        address = f"{addr1}{addr2}".strip()
+
     data = {
         "price": _val("price", None),
-        "address": _val("address", ""),
+        "address": address,
         "station1": _val("station1", ""),
         "railwayWalkMinute1": _val("railwayWalkMinute1", None),
         "kouzou": _val("kouzou", ""),

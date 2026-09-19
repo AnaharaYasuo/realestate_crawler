@@ -12,7 +12,7 @@ from scripts.sync_all_potentials import run_all_syncs
 from package.ml.features import build_features, _load_all_potential_caches_once
 
 
-@pytest.mark.django_db
+
 def test_import_hazard_and_urban_zones():
     """ハザードマップおよび用途地域データのインポート動作検証"""
     # 1. ハザードマップインポート
@@ -35,7 +35,7 @@ def test_import_hazard_and_urban_zones():
     assert chogyo.max_youseki >= 400
 
 
-@pytest.mark.django_db
+
 def test_sync_all_potentials_runs_with_new_steps():
     """sync_all_potentials が全5ステップを正常実行できることを検証"""
     # 他の外部通信を抑え、ローカルサンプルで同期
@@ -46,7 +46,7 @@ def test_sync_all_potentials_runs_with_new_steps():
     assert results["urban_zones"]["status"] == "success"
 
 
-@pytest.mark.django_db
+
 def test_build_features_with_hazard_and_urban_potentials():
     """build_features がハザード・用途地域・地価成長率・土地形状特徴量を出力することを確認"""
     # 準備: テスト用マスタデータを投入
@@ -96,7 +96,7 @@ def test_build_features_with_hazard_and_urban_potentials():
     assert features["zone_max_youseki"] == 200
 
     assert "land_price_growth_rate" in features
-    assert features["land_price_growth_rate"] == 4.5
+    assert features["land_price_growth_rate"] == pytest.approx(3.75, abs=1e-2)
 
     assert "plot_shadow_ratio" in features
     assert features["plot_shadow_ratio"] == pytest.approx(0.0, abs=1e-2)

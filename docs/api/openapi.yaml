@@ -10,7 +10,6 @@ servers:
     description: Local Development Server
 security:
   - ApiKeyAuth: []
-  - {}
 paths:
   /api/evaluation/predict/mansion:
     post:
