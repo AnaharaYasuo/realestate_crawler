@@ -689,6 +689,40 @@ def _extract_property_info(item):
     return {k: v for k, v in info.items() if v is not None and v != ""}
 
 
+def _calculate_prediction_metrics(predicted_val, asking_price):
+    """
+    推論理論価格と売出価格の乖離額（price_gap）、乖離率（divergence_ratio）、割安判定（is_bargain）を算出
+    円単位（>100,000）と万円単位（<=100,000）のスケール差を自動正規化
+    """
+    if asking_price is None or predicted_val is None:
+        return None, None, False
+
+    try:
+        asking_price = int(asking_price)
+        predicted_val = int(predicted_val)
+    except (ValueError, TypeError):
+        return None, None, False
+
+    if asking_price <= 0 or predicted_val <= 0:
+        return None, None, False
+
+    # 万円単位への正規化（比率計算用）
+    asking_man = (asking_price / 10000.0) if asking_price > 100000 else float(asking_price)
+    pred_man = (predicted_val / 10000.0) if predicted_val > 100000 else float(predicted_val)
+    ratio = round(pred_man / asking_man, 3) if asking_man > 0 else None
+    is_bargain = (ratio >= 1.15) if ratio else False
+
+    # 乖離額の算出（双方が円単位の場合は円、いずれかが万円単位の場合は万円で統一）
+    if predicted_val > 100000 and asking_price > 100000:
+        price_gap = predicted_val - asking_price
+    elif predicted_val <= 100000 and asking_price > 100000:
+        price_gap = int(predicted_val - asking_man)
+    else:
+        price_gap = int(predicted_val - asking_price)
+
+    return price_gap, ratio, is_bargain
+
+
 async def _execute_predict_by_url(
     url: str,
     force_refresh: bool,
@@ -725,15 +759,7 @@ async def _execute_predict_by_url(
             first_pred = int(eval_record.first_stage_predicted_price)
             second_pred = int(eval_record.second_stage_predicted_price) if eval_record.second_stage_predicted_price is not None else first_pred
             asking_price = prop_info.get("price")
-            if asking_price is not None:
-                try:
-                    asking_price = int(asking_price)
-                except Exception:
-                    asking_price = None
-
-            price_gap = (first_pred - asking_price) if asking_price else None
-            ratio = round(first_pred / asking_price, 3) if asking_price else None
-            is_bargain = (ratio >= 1.15) if ratio else False
+            price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_pred, asking_price)
 
             site_name = getattr(eval_record, 'company', 'unknown')
             if hasattr(site_name, '_mock_name') or type(site_name).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
@@ -946,15 +972,7 @@ async def _execute_predict_by_url(
 
     prop_info = _extract_property_info(target_item)
     asking_price = prop_info.get("price")
-    if asking_price is not None:
-        try:
-            asking_price = int(asking_price)
-        except Exception:
-            asking_price = None
-
-    price_gap = (first_val - asking_price) if asking_price else None
-    ratio = round(first_val / asking_price, 3) if asking_price else None
-    is_bargain = (ratio >= 1.15) if ratio else False
+    price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_val, asking_price)
 
     return {
         "success": True,
