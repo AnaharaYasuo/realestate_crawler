@@ -20,6 +20,7 @@ from package.utils.report import CrawlerReporter
 from asgiref.sync import sync_to_async
 from package.api.differential import filter_differential_items, ListItem
 from package.models.evaluation import PropertyPriceHistory
+from package.utils.url_matcher import UrlMatcher
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -1071,11 +1072,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             currentDay = datetime.date.today()
 
             # Enforce 1 property = 1 record and record price revision history
+            item.pageUrl = UrlMatcher.normalize(item.pageUrl)
             model_class = item.__class__
             existing_record = None
             try:
                 def get_existing():
-                    return model_class.objects.filter(pageUrl=item.pageUrl).first()
+                    return model_class.objects.filter(UrlMatcher.build_db_filter("pageUrl", item.pageUrl)).first()
                 existing_record = await sync_to_async(get_existing)()
             except Exception as e:
                 logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
@@ -1147,7 +1149,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     property_type = model_name.lower().replace(company, "")
                     
                     # すでに価格推定（一次・二次予測、または一次不合格）が完了している場合は全体をスキップ
-                    existing_eval = await sync_to_async(PropertyEvaluation.objects.filter(property_url=item.pageUrl).first)()
+                    def get_existing_eval():
+                        return PropertyEvaluation.objects.filter(UrlMatcher.build_db_filter("property_url", item.pageUrl)).order_by("-id").first()
+                    existing_eval = await sync_to_async(get_existing_eval)()
                     
                     price_stage1 = None
                     is_passed = False
