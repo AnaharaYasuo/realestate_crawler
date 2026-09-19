@@ -15,6 +15,7 @@ services:
 
   app:
     build: .
+    image: realestate_crawler-app:latest
     ports:
       - "8000:8000"
     env_file:

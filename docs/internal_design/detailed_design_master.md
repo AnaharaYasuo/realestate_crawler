@@ -269,6 +269,20 @@ graph TD
   - 定時（JST 09:00 / UTC 00:00）に実行され、`--auto-merge --auto-rebase` を指定してスクリプトをキック。
   - 実行サマリーを `$GITHUB_STEP_SUMMARY` へ Markdown 出力。
 
+### 6.16 CI並列分散ワークフローおよびテスト並列化設計仕様
+- **pytest-xdist マルチプロセス並列化**:
+  - `pytest -n auto` を導入し、CI仮想マシン（4 vCPU）のCPUリソースを自動検出し並列実行する。
+  - `pytest-cov` の `--cov` オプションと併用し、並列テスト実行結果からカバレッジをマージして `coverage.xml` を出力する。
+- **test.yml マトリクス並列化構成**:
+  - `strategy.matrix.test-group`:
+    - `unit`: `src/crawler/tests/unit/`（単体テスト群、428件）
+    - `integration`: `src/crawler/tests/integration/`（`test_live_reachability.py`, `test_crawler_pipeline_e2e.py`）
+    - `ml`: `src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py`（ML学習・画像処理テスト）
+  - 各マトリクスジョブが独立した GitHub Actions ランナーで完全並行稼働。
+- **Docker BuildKit GHA キャッシュ連携**:
+  - `docker/setup-buildx-action` と BuildKit cache (`type=gha`) を利用し、Dockerレイヤーキャッシュ（OS依存・Python依存パッケージ・Playwrightブラウザ）をGitHub Actions Cache上に永続化。
+  - キャッシュヒット時はイメージの再ビルドをスキップし、起動オーバーヘッドを4分半から20秒未満に圧縮する。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -279,4 +293,4 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.7 (Dependabot日次自動マージ＆自律修復設計原則追記)
+**バージョン**: 1.8 (Dependabot日次自動マージ＆CI並列分散ワークフロー追記)
