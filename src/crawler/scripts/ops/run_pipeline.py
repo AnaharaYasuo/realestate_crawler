@@ -95,13 +95,13 @@ def main():
         run_command([
             sys.executable,
             os.path.join(debug_tools_dir, "check_slack_connection.py")
-        ], "Step 0/5: Slack Connection Pre-flight Check")
+        ], "Step 0/6: Slack Connection Pre-flight Check")
 
         # Step 0.4: Database Readiness Pre-flight Check
         run_command([
             sys.executable,
             os.path.join(debug_tools_dir, "wait_for_db.py")
-        ], "Step 0.4/5: Database Readiness Pre-flight Check")
+        ], "Step 0.4/6: Database Readiness Pre-flight Check")
 
         # Step 0.5: Database Schema Migration (テーブル未初期化・マイグレーション自動反映)
         if is_coordinator:
@@ -110,7 +110,7 @@ def main():
                 os.path.join(crawler_dir, "manage.py"),
                 "migrate",
                 "--noinput"
-            ], "Step 0.5/5: Database Schema Migration (Coordinator)")
+            ], "Step 0.5/6: Database Schema Migration (Coordinator)")
         else:
             logging.info("⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)...")
             time.sleep(10)
@@ -119,7 +119,7 @@ def main():
         crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
         if args.skip_portals:
             crawl_cmd.append("--skip-portals")
-        step1_title = f"Step 1/5: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if args.skip_portals else ''}"
+        step1_title = f"Step 1/6: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if args.skip_portals else ''}"
         run_command(crawl_cmd, step1_title)
 
         # Worker タスクはクローリング完了で正常終了 (後続処理は Coordinator が一括担当)
@@ -140,35 +140,42 @@ def main():
             if not all_ok:
                 logging.warning(f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。")
         
-        # Step 1.5 (2/5): 不正データ自動検証 & クレンジング & HTMLエラー監視
+        # Step 1.5 (2/6): 不正データ自動検証 & クレンジング & HTMLエラー監視
         run_command([
             sys.executable,
             os.path.join(maintenance_dir, "validate_data.py")
-        ], "Step 2/5: Scraping Data Validation & Automated Cleansing")
+        ], "Step 2/6: Scraping Data Validation & Automated Cleansing")
         
         # AI自己修復用のバグ指示書生成
         run_command([
             sys.executable,
             os.path.join(debug_tools_dir, "auto_heal_parsers.py")
-        ], "Step 2.5/5: Auto-Heal Instruction Generation for AI Agent")
+        ], "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent")
         
-        # Step 2 (3/5): 最新データによるMLモデル再学習
+        # Step 2 (3/6): 最新データによるMLモデル再学習
         run_command([
             sys.executable,
             os.path.join(crawler_dir, "package", "ml", "train.py")
-        ], "Step 3/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
+        ], "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
         
-        # Step 3 (4/5): 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
+        # Step 3 (4/6): 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if args.skip_portals:
             eval_cmd.append("--skip-portals")
-        run_command(eval_cmd, f"Step 4/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}")
+        run_command(eval_cmd, f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}")
         
-        # Step 4 (5/5): お宝物件のスクリーニング & Slack通知
+        # Step 4 (5/6): お宝物件のスクリーニング & Slack通知
         run_command([
             sys.executable,
             os.path.join(ops_dir, "send_recommendations.py")
-        ], "Step 5/5: Slack Notification (Hot Property Recommendation)")
+        ], "Step 5/6: Slack Notification (Hot Property Recommendation)")
+
+        # Step 5 (6/6): 日次予測精度診断 & AIインサイト分析
+        run_command([
+            sys.executable,
+            os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
+            "--notify"
+        ], "Step 6/6: Daily ML Prediction Diagnostics & AI Insights")
 
         
         # パイプライン全体におけるSlack送信不達チェック
