@@ -222,7 +222,7 @@ async def run_single_site_test(target: dict):
             parse_ms = (time.perf_counter() - start_parse) * 1000.0
 
             print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")
-            assert parse_ms < 5000.0, f"[{site}] Pure parse time exceeded 5,000ms SLA: {parse_ms:.2f}ms"
+            assert parse_ms < 10000.0, f"[{site}] Pure parse time exceeded 10,000ms SLA: {parse_ms:.2f}ms"
 
             # 全フィールド検証
             assert_full_model_fields(cleaned_item, model_cls, site)

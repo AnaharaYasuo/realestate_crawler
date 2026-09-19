@@ -605,4 +605,56 @@ flowchart TD
    - `--auto-rebase` でコンフリクト・遅延PRに対する再構築コマンド発行。
    - CI チェックのステータス解析、マージ判定、実行ログ出力をカプセル化。
 
+---
+
+## 11. CI/CDパイプライン並列分散アーキテクチャ (CI Pipeline Parallelization Architecture)
+
+テスト実行時間およびビルド時間の肥大化を防ぎ、開発サイクルを加速させるためのCI並列化・最適化設計。
+
+### 11.1 並列化アーキテクチャ概要
+```mermaid
+graph TD
+    A[PR / Push イベント] --> B[CIパイプライン起動]
+    subgraph Parallel CI Jobs
+        B --> C1[Job: unit<br/>pytest -n auto tests/unit/]
+        B --> C2[Job: integration<br/>pytest -n auto tests/integration/]
+        B --> C3[Job: ml<br/>pytest -n auto test_ml_pipeline.py]
+    end
+    subgraph BuildKit GHA Layer Cache
+        D[GitHub Actions Cache] -.->|cache-from / cache-to| C1
+        D -.->|cache-from / cache-to| C2
+        D -.->|cache-from / cache-to| C3
+    end
+    C1 --> E[マージ判定 / Gate チェック]
+    C2 --> E
+    C3 --> E
+```
+
+### 11.2 並列化・高速化の3本柱
+1. **プロセス内並列化 (`pytest-xdist`)**:
+   - ランナー（4 vCPU）の能力をフル活用するため、`-n auto` オプションを指定し、テストケースをCPUコアに分散実行。
+   - `pytest-cov` カバレッジ収集時にも並列セッションを統合。
+2. **ジョブマトリクス並列化 (GitHub Actions Matrix)**:
+   - テストスイートを責務・実行時間特性に応じて3系統（`unit`, `integration`, `ml`）に分割し、別々のGitHub Actions仮想マシンで並列実行。
+   - 実行時間最大のボトルネックを並列分散することで全体の完了待機時間を最短化。
+3. **Docker BuildKit GHA キャッシュ**:
+   - `docker/setup-buildx-action` と BuildKit GHA キャッシュ連携を行い、aptパッケージやPython依存ライブラリ（Playwright含む）のレイヤーキャッシュを保存・再利用。
+   - コンテナ準備時間を4分半から20秒未満に短縮。
+
+### 11.3 変更差分ルーティング (Path-Based Skipping)
+```mermaid
+graph TD
+    A[PR / Push イベント] --> B[dorny/paths-filter]
+    B -->|docs / *.md のみ| C[全テスト・Dockerビルドをスキップ<br/>即時Green判定]
+    B -->|terraform のみ| D[アプリテストをスキップ<br/>Terraform Plan のみ実行]
+    B -->|src / Dockerfile / config| E[並列テスト & Sonar 実行]
+```
+
+### 11.4 SonarCloud 先行実行 ＆ Production PR 完全並行化
+1. **SonarCloud 先行化**:
+   - PR作成・更新時に最優先で独立起動し、他ジョブと完全並行でバックグラウンド実行。
+   - 外部ライブ通信テストを除外し、モック中心のテストで高速にカバレッジを測定（2分以内）。
+2. **Production PR 完全並行化**:
+   - `master` ➔ `production` へのリリースPRでは、ブランチ検証（`Verify Source Branch is master`）、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
+
 

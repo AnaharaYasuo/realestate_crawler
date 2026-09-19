@@ -9,8 +9,35 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      iac: ${{ steps.filter.outputs.iac }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+      - name: Path Filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'config/**'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+              - '.github/workflows/snyk.yml'
+            iac:
+              - 'terraform/**'
+              - '.trivyignore'
+              - '.github/workflows/snyk.yml'
+
   snyk:
     name: Snyk Analysis
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' || needs.changes.outputs.iac == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -62,6 +89,8 @@ jobs:
 
   trivy-iac:
     name: Trivy IaC Security Scan
+    needs: changes
+    if: ${{ needs.changes.outputs.iac == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

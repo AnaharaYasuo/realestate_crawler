@@ -248,10 +248,12 @@ graph TD
 - **ログレベルの適正化**:
   - 毎物件発生する `Local routing: ...`, `Middleware Request/Response: ...`, `start/finished afterRunProc`, `Attempting/Successfully saved item (Single): ...` はすべて `DEBUG` レベルへ適正化。
   - 例外発生時は多重ログ出力を廃止し、単一の `logger.error(..., exc_info=True)` に集約して完全なスタックトレースを単一のJSONペイロード内に格納する。
-- **掲載終了（404/掲載終了文言）の正常スキップ**:
-  - 各パーサー（`athomeParser.py` 等）において、物件ページに「掲載を終了しました」「お探しの物件は見つかりませんでした」等のシグナルがある場合は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップ（Slackアラート除外）。
+### 6.15 野村不動産スペックテーブルのモーダル用語集除外およびツールチップ/ヘルプ除去原則
+- **モーダル用語集テーブルの除外**: 野村不動産の詳細ページに配置されている `div.fullModal` などのモーダルダイアログ内の用語解説用テーブルは、物件スペックではなく用語説明であるため、スペック抽出（`_scrape_specs`）対象から完全に除外する。
+- **th/dt/status からのヘルプ・ツールチップ要素除去**: `th`、`dt`、`item_status_title` のテキスト抽出前に、`.item_help`, `.icon_help`, `.tooltip`, `.help` 等の要素を `decompose()` してキー名に混入するのを防止し、正規化キー（`専有面積`, `間取り` 等）を正確に保持する。
+- **ハイライトカードからの専有面積フォールバック**: `_parseSenyuMenseki` において、`specs` からの取得に加え、ページ内サマリーブロック（`td > div.inner` や `div.inner > div.heading: 専有面積` ➔ `p`）からの直接抽出フォールバックを実装し、NOT NULL 制約カラムの `IntegrityError` 発生を完全に抑止する。
 
-### 6.15 Dependabot日次自動マージ＆自律修復スクリプト設計原則
+### 6.16 Dependabot日次自動マージ＆自律修復スクリプト設計原則
 - **モジュール配置**: `src/crawler/scripts/ops/dependabot_automerge.py`
 - **主要クラス・関数**:
   - `DependabotPrInspector`:
@@ -269,6 +271,30 @@ graph TD
   - 定時（JST 09:00 / UTC 00:00）に実行され、`--auto-merge --auto-rebase` を指定してスクリプトをキック。
   - 実行サマリーを `$GITHUB_STEP_SUMMARY` へ Markdown 出力。
 
+### 6.17 CI並列分散ワークフロー・差分スキップおよび先行実行設計仕様
+- **pytest-xdist マルチプロセス並列化**:
+  - `pytest -n auto` を導入し、CI仮想マシン（4 vCPU）のCPUリソースを自動検出し並列実行する。
+  - `pytest-cov` の `--cov` オプションと併用し、並列テスト実行結果からカバレッジをマージして `coverage.xml` を出力する。
+- **test.yml マトリクス並列化および集約ゲート**:
+  - `strategy.matrix.test-group`:
+    - `unit`: `src/crawler/tests/unit/`（単体テスト群、428件）
+    - `integration`: `src/crawler/tests/integration/`（`test_live_reachability.py`, `test_crawler_pipeline_e2e.py`）
+    - `ml`: `src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py`（ML学習・画像処理テスト）
+  - 各マトリクスジョブ（`test-matrix`）が独立した GitHub Actions ランナーで完全並行稼働。
+  - 集約ジョブ `test`（`needs: test-matrix`）により、ブランチ保護ルール互換性を維持しつつ全マトリクスの合否を一元判定。
+- **変更差分フィルタリング (`dorny/paths-filter`)**:
+  - `docs`: `['docs/**', '*.md', '.agents/**', 'LICENSE']` のみの変更時はテスト・Dockerビルドを完全スキップ。
+  - `terraform`: `['terraform/**']` の変更時はアプリテストをスキップして `terraform-plan` のみ実行。
+  - スキップ時でも集約ジョブ `test` は成功ステータスを返し、PRマージをブロックしない。
+- **SonarCloud 先行独立パイプライン**:
+  - PR作成/更新時に最優先で独立起動。
+  - `-m "not live"` オプションにより外部実サイトへの生通信テストを除外し、モック＆単体テストで純粋なコードカバレッジを高速測定（所要時間2分以内）。
+- **Production PR 完全並列化**:
+  - `production` 宛て PR では `Verify Source Branch is master`、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
+- **Docker BuildKit GHA キャッシュ連携**:
+  - `docker/setup-buildx-action` と BuildKit cache (`type=gha,scope=app`) を利用し、Dockerレイヤーキャッシュ（OS依存・Python依存パッケージ・Playwrightブラウザ）をGitHub Actions Cache上に永続化。
+  - キャッシュヒット時はイメージの再ビルドをスキップし、起動オーバーヘッドを4分半から20秒未満に圧縮する。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -279,4 +305,5 @@ graph TD
 ---
 
 **最終更新**: 2026年9月19日  
-**バージョン**: 1.7 (Dependabot日次自動マージ＆自律修復設計原則追記)
+**バージョン**: 1.9 (野村不動産スペックパース修復・Dependabot自律運用・CI並列分散ワークフロー・差分スキップ追記)
+
