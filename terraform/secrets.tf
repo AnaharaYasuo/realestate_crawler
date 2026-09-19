@@ -79,3 +79,13 @@ resource "google_secret_manager_secret_version" "estimation_api_key_version" {
   }
 }
 
+import {
+  id = "projects/sumifu/secrets/realestate-estimation-api-key-prod"
+  to = google_secret_manager_secret.estimation_api_key_secret
+}
+
+import {
+  id = "projects/sumifu/secrets/realestate-estimation-api-key-prod/versions/1"
+  to = google_secret_manager_secret_version.estimation_api_key_version
+}
+
