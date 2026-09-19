@@ -97,6 +97,46 @@ railwayWalkMinute1 = 5
 5. **busUse1（バス利用の有無）**
    - バスを利用する場合は1、そうでない場合は0
 
+### Differential Crawling Pattern (差分クロールパターン)
+
+一覧ページ（Middle Page）から詳細ページ（Detail Page）への遷移時、全件フェッチによるサーバー負荷と帯域消費を防ぐため、DB突合による差分フィルタリングを行うパターン。
+
+**フロー:**
+1. 一覧ページから抽出されたアイテム群（URLおよびオプションの価格情報）を受領。
+2. 対象モデルのDBテーブルに対して `pageUrl IN (...)` で一括検索し、既存レコードの `price`、`updateDateTime`、`inputDateTime` を取得。
+3. 判定ロジック:
+   - **NEW**: DBに存在しないURL ➔ 詳細フェッチ対象
+   - **UPDATED**: DBに存在するが価格が変動している ➔ 詳細フェッチ対象（最新化＆価格履歴記録へ）
+   - **EXPIRED**: DBに存在するが前回収集からTTL日数（デフォルト7日）経過 ➔ 詳細フェッチ対象
+   - **CACHED ACTIVE**: 価格変更なし・TTL内 ➔ 詳細フェッチをスキップし、`model.objects.filter(pageUrl__in=skipped).update(updateDateTime=now)` で生存確認を記録
+4. フィルタリング後の `urls_to_fetch` のみに対して `_callApi()` を発行。
+
+### Price History Pattern (価格改定履歴パターン)
+
+物件マスタテーブルの「1物件1レコード（常に最新情報）」の原則を維持しつつ、価格の値下げ・改定推移を時系列で保存するパターン。
+
+**仕様:**
+- **物件マスタテーブル**: 同一 `pageUrl` の物件が存在する場合、既存レコードを上書き更新（`UPDATE`）する。初回登録日時 `inputDateTime` は不変とし、`updateDateTime` のみ現在時刻に更新する。
+- **価格改定テーブル (`PropertyPriceHistory`)**: 既存価格と新価格に差分（`existing.price != item.price`）がある場合のみ、改定レコードを1行挿入する。
+  - `property_url`: 物件URL
+  - `company`: 不動産会社コード
+  - `property_type`: 種別
+  - `old_price`: 改定前価格
+  - `new_price`: 改定後価格
+  - `price_diff`: 価格差（`new_price - old_price`、値下げ時はマイナス）
+  - `recorded_at`: 改定検知日時
+
+### Migration & Deduplication Architecture (既存重複移行・正規化設計)
+
+過去クロールによって蓄積された同一URLの重複レコードを解消し、過去価格変動を履歴テーブルへ移行するアーキテクチャ。
+
+**処理手順:**
+1. 同一 `pageUrl` の複数レコードを `(inputDateTime ASC, id ASC)` 順で取得。
+2. 時系列に価格差分（`old_price != new_price`）を判定し、`PropertyPriceHistory` へ一括投入。
+3. 最新レコードを生存マスタとして保持し、`inputDateTime` に最古日時、`updateDateTime` に最新日時を復元。
+4. 外部参照（`PropertyEvaluation.property_id`）を残す最新レコードの `id` に再リンク更新。
+5. 最新レコード以外の過去重複行をバッチ削除。
+
 ---
 
 ## 3. アーキテクチャ詳細 (Architecture Details)
