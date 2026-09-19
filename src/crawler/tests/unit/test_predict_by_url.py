@@ -9,6 +9,7 @@ from package.utils.url_security import UrlSecurityValidator
 from package.utils.url_router import UrlRouter
 from package.utils.singleflight import SingleflightGroup
 from package.utils.rate_limiter import SlidingWindowRateLimiter
+from package.utils.url_matcher import UrlMatcher
 
 
 @pytest.fixture
@@ -100,6 +101,31 @@ async def test_singleflight_coalescing():
     # 5回呼ばれても実処理は1回だけ
     assert call_count == 1
     assert all(r == f"result_for_{target_url}" for r in results)
+
+
+@pytest.mark.asyncio
+async def test_singleflight_coalescing_different_query_params():
+    """異なるクエリパラメータが付与された同一物件URLの並行リクエストが1回に合流すること"""
+    group = SingleflightGroup()
+    call_count = 0
+
+    async def expensive_crawl(u):
+        nonlocal call_count
+        call_count += 1
+        await asyncio.sleep(0.05)
+        return "crawled_data"
+
+    raw_urls = [
+        "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/?utm_source=twitter",
+        "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/?utm_source=google",
+        "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/#overview",
+        "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/?DOWN=1"
+    ]
+    tasks = [group.do(UrlMatcher.normalize(u), expensive_crawl, u) for u in raw_urls]
+    results = await asyncio.gather(*tasks)
+
+    assert call_count == 1
+    assert all(r == "crawled_data" for r in results)
 
 
 # ==============================================================================
@@ -297,4 +323,99 @@ def test_predict_by_url_internal_bypasses_rate_limit(client):
         assert res.status_code == 200
         data = res.get_json()
         assert data["success"] is True
+
+
+# ==============================================================================
+# 8. URL Matcher & Query Parameter Ignoring Unit Tests
+# ==============================================================================
+def test_url_matcher_normalize_and_same_url():
+    """クエリパラメータ・フラグメント・ポート・大文字小文字を除去した正規化と同一性検証"""
+    u1 = "https://WWW.Rehouse.co.jp:443/buy/mansion/bkdetail/F24X2A08/?utm_source=twitter&utm_medium=cpc&token=123#overview"
+    u2 = "https://www.rehouse.co.jp/buy/mansion/bkdetail/F24X2A08/"
+    u3 = "https://www.rehouse.co.jp/buy/mansion/bkdetail/F24X2A08"
+    u4 = "https://www.rehouse.co.jp/buy/mansion/bkdetail/F24X2A08/?DOWN=1"
+    u_diff = "https://www.rehouse.co.jp/buy/mansion/bkdetail/OTHER123/"
+
+    assert UrlMatcher.normalize(u1) == "https://www.rehouse.co.jp/buy/mansion/bkdetail/F24X2A08/"
+    assert UrlMatcher.is_same_url(u1, u2) is True
+    assert UrlMatcher.is_same_url(u1, u3) is True
+    assert UrlMatcher.is_same_url(u1, u4) is True
+    assert UrlMatcher.is_same_url(u2, u4) is True
+    assert UrlMatcher.is_same_url(u1, u_diff) is False
+
+
+def test_url_matcher_build_db_filter():
+    """build_db_filter がクエリパラメータ・末尾スラッシュを網羅するQオブジェクトを生成すること"""
+    q = UrlMatcher.build_db_filter("pageUrl", "https://site.com/detail/123/?utm_source=test")
+    q_str = str(q)
+    assert "https://site.com/detail/123/" in q_str
+    assert "https://site.com/detail/123/?" in q_str
+    assert "https://site.com/detail/123" in q_str
+    assert "https://site.com/detail/123?" in q_str
+
+
+def test_predict_by_url_tier1_ignores_query_params(client):
+    """リクエストにクエリパラメータが付与されていても、DBにクリーンなURLで保存された評価キャッシュにヒットすること"""
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_mitsui:
+
+        mock_eval = MagicMock()
+        mock_eval.property_url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/NORMTEST01/"
+        mock_eval.first_stage_predicted_price = 52000000
+        mock_eval.second_stage_predicted_price = 53500000
+        mock_eval.company = "mitsui"
+        mock_eval.property_type = "mansion"
+        mock_filter.return_value.first.return_value = mock_eval
+        mock_mitsui.return_value.first.return_value = None
+
+        # トラッキングパラメータ付きでリクエスト
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({
+                "url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/NORMTEST01/?utm_source=google&gclid=xyz123#map"
+            }),
+            content_type='application/json'
+        )
+
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["data_source"] == "evaluation_cache"
+        assert data["prediction"]["first_stage_predicted_price"] == 52000000
+
+
+def test_predict_by_url_tier2_ignores_query_params(client):
+    """リクエストにクエリパラメータが付与されていても、DBに保存された物件レコードと突合してオンデマンド推論されること"""
+    with patch('package.models.evaluation.PropertyEvaluation.objects.filter') as mock_filter, \
+         patch('package.models.mitsui.MitsuiMansion.objects.filter') as mock_mitsui, \
+         patch('routes.evaluation_routes.predict_first_stage_local', return_value=4800), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=4850), \
+         patch('package.models.evaluation.PropertyEvaluation.objects.update_or_create'):
+
+        # Tier 1 はミス
+        mock_filter.return_value.first.return_value = None
+
+        # Tier 2: DB物件データあり（DB側はクリーンURL）
+        mock_item = MagicMock()
+        mock_item.pageUrl = "https://www.rehouse.co.jp/buy/mansion/bkdetail/NORMTEST02/"
+        mock_item.propertyName = "パークホームズ中野"
+        mock_item.price = 45000000
+        mock_item.address = "東京都中野区中央1-1"
+        mock_item.senyuMenseki = 65.0
+        mock_mitsui.return_value.first.return_value = mock_item
+
+        # 追跡パラメータ付きでリクエスト
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({
+                "url": "https://www.rehouse.co.jp/buy/mansion/bkdetail/NORMTEST02/?ref=campaign&fbclid=abc"
+            }),
+            content_type='application/json'
+        )
+
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["success"] is True
+        assert data["data_source"] == "db_property"
+        assert data["prediction"]["first_stage_predicted_price"] == 4800
 

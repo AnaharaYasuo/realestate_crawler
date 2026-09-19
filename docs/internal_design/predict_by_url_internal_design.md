@@ -236,3 +236,50 @@ class LockoutManager:
                 return True, self.lockout_seconds
             return False, 0
 ```
+
+---
+
+## 8. URL正規化・クエリパラメータ突合モジュール設計 (`UrlMatcher`)
+
+`yarl` ライブラリを採用し、URL正規化、同一性判定、Django ORM検索クエリ生成を一元化。
+
+```python
+from yarl import URL
+from django.db.models import Q
+
+class UrlMatcher:
+    @staticmethod
+    def normalize(url: str) -> str:
+        """クエリパラメータ・フラグメントを除去し、正規化ベースURLを生成"""
+        if not url:
+            return ""
+        try:
+            u = URL(url).with_query(None).with_fragment(None)
+            return str(u)
+        except Exception:
+            return url.split("?")[0].split("#")[0]
+
+    @staticmethod
+    def is_same_url(url1: str, url2: str) -> bool:
+        """クエリパラメータ・末尾スラッシュの有無を無視して同一物件URLかを判定"""
+        if not url1 or not url2:
+            return False
+        n1 = UrlMatcher.normalize(url1).rstrip("/")
+        n2 = UrlMatcher.normalize(url2).rstrip("/")
+        return n1 == n2
+
+    @staticmethod
+    def build_db_filter(field_name: str, url: str) -> Q:
+        """
+        DB内レコード（クエリ付き/無し/末尾スラッシュ有無）に双方向適合するQオブジェクトを生成
+        """
+        norm = UrlMatcher.normalize(url)
+        norm_no_slash = norm.rstrip("/")
+        norm_with_slash = norm_no_slash + "/"
+        return (
+            Q(**{field_name: norm_with_slash}) |
+            Q(**{f"{field_name}__startswith": norm_with_slash + "?"}) |
+            Q(**{field_name: norm_no_slash}) |
+            Q(**{f"{field_name}__startswith": norm_no_slash + "?"})
+        )
+```

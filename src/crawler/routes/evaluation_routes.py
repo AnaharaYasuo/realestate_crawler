@@ -12,6 +12,7 @@ from django.db import connections, reset_queries
 from package.ml.predict import predict_first_stage_local, predict_second_stage_local, _serialize_property
 from package.utils.url_security import UrlSecurityValidator
 from package.utils.url_router import UrlRouter
+from package.utils.url_matcher import UrlMatcher
 from package.utils.singleflight import SingleflightGroup
 from package.utils.rate_limiter import SlidingWindowRateLimiter, LockoutManager
 from package.models.evaluation import PropertyEvaluation
@@ -696,7 +697,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
     if not force_refresh:
         eval_record = None
         try:
-            eval_record = PropertyEvaluation.objects.filter(property_url=url).first()
+            eval_record = PropertyEvaluation.objects.filter(UrlMatcher.build_db_filter("property_url", url)).first()
         except Exception as e:
             logging.debug(f"PropertyEvaluation cache query skipped: {e}")
 
@@ -707,7 +708,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 try:
                     mod = importlib.import_module(route["model_module"])
                     model_cls = getattr(mod, route["model_cls"])
-                    existing_item = model_cls.objects.filter(pageUrl=url).first()
+                    existing_item = model_cls.objects.filter(UrlMatcher.build_db_filter("pageUrl", url)).first()
                     if existing_item:
                         prop_info = _extract_property_info(existing_item)
                 except Exception as e:
@@ -761,13 +762,13 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
         is_prop, page_title, matched_kws = await UrlSecurityValidator.check_property_content_and_reachability(url)
         if is_prop:
             parsed_domain = urllib.parse.urlparse(url).netloc
-            cand = CandidatePropertyUrl.objects.filter(url=url).first()
+            cand = CandidatePropertyUrl.objects.filter(UrlMatcher.build_db_filter("url", url)).first()
             if cand:
                 cand.request_count += 1
                 cand.save(update_fields=["request_count", "updated_at"])
             else:
                 CandidatePropertyUrl.objects.create(
-                    url=url,
+                    url=UrlMatcher.normalize(url),
                     domain=parsed_domain,
                     title=str(page_title or "")[:300],
                     matched_keywords=matched_kws,
@@ -805,7 +806,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
     # -------------------------------------------------------------
     existing_item = None
     if not force_refresh:
-        existing_item = model_cls.objects.filter(pageUrl=url).first()
+        existing_item = model_cls.objects.filter(UrlMatcher.build_db_filter("pageUrl", url)).first()
 
     target_item = existing_item
     data_source = "db_property" if existing_item else "live_crawl"
@@ -858,7 +859,8 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 "message": "物件情報の抽出結果が空です。"
             }, 422
 
-        # 物件テーブルへの Upsert
+        # 物件テーブルへの Upsert (正規化URLで保存)
+        clean_url = UrlMatcher.normalize(url)
         try:
             model_fields = [f.name for f in model_cls._meta.fields if f.name not in ('id', 'created_at', 'updated_at', 'inputDate')]
             defaults_dict = {}
@@ -866,7 +868,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
                 val = getattr(target_item, f, None)
                 if val is not None:
                     defaults_dict[f] = val
-            saved_item, _ = model_cls.objects.update_or_create(pageUrl=url, defaults=defaults_dict)
+            saved_item, _ = model_cls.objects.update_or_create(pageUrl=clean_url, defaults=defaults_dict)
             target_item = saved_item
         except Exception as e:
             logging.warning(f"Failed to upsert property item to DB for {url}: {e}")
@@ -881,7 +883,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
     first_val = int(first_pred or 0)
     second_val = int(second_pred or first_val)
 
-    # PropertyEvaluation への Upsert
+    # PropertyEvaluation への Upsert (正規化URLで保存)
     prop_id = getattr(target_item, 'id', 0)
     if hasattr(prop_id, '_mock_name') or type(prop_id).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
         prop_id = 0
@@ -893,7 +895,7 @@ async def _execute_predict_by_url(url: str, force_refresh: bool, interior_score:
 
     try:
         PropertyEvaluation.objects.update_or_create(
-            property_url=url,
+            property_url=UrlMatcher.normalize(url),
             defaults={
                 "company": site,
                 "property_type": property_type,
@@ -1002,9 +1004,10 @@ def predict_by_url():
         asyncio.set_event_loop(loop)
 
     try:
+        normalized_url = UrlMatcher.normalize(url)
         result, status_code = loop.run_until_complete(
             singleflight_group.do(
-                url,
+                normalized_url,
                 _execute_predict_by_url,
                 url,
                 force_refresh,

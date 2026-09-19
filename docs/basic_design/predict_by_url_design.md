@@ -176,3 +176,14 @@ sequenceDiagram
     API->>Flight: ロック解除 ＆ 待機中リクエストへ通知
     API-->>Client: 200 OK (source: live_crawl)
 ```
+
+---
+
+## 5. URL正規化・クエリパラメータ無視突合仕様
+1. **リクエストURLの正規化**:
+   - `yarl` ライブラリ（`yarl.URL`）を利用し、リクエストされたURLからクエリパラメータ（`?utm_source=...` 等）およびフラグメント（`#...`）を除去した正規化ベースURLを生成する。
+2. **Singleflightキー**:
+   - 排他キーは `predict_url:{normalized_url}` とし、パラメータ違いの多重リクエストを確実に同一実行に統合・合流させる。
+3. **DB突合クエリ (Tier 1 & Tier 2)**:
+   - DB内のレコードにクエリパラメータが付与されている場合（例: `?DOWN=1`）と付与されていない場合の両方に適合するクエリ条件（`field = normalized OR field LIKE normalized?%`）を発行。
+   - 取得結果に対して `yarl` による等価判定を実施し、クエリパラメータの有無・相違に関わらず同一物件として確実に突合する。

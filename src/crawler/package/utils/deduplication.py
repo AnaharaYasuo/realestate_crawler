@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 from difflib import SequenceMatcher
 from package.models.evaluation import PropertyEvaluation
+from package.utils.url_matcher import UrlMatcher
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,8 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
     2つの PropertyEvaluation レコード（および紐づく実データ）の類似度を計算する。
     戻り値: 0.0 (全く異なる) 〜 1.0 (完全に同一) の類似度スコア
     """
-    # 同一URLの場合は1.0
-    if eval_a.property_url == eval_b.property_url:
+    # 同一URLの場合は1.0（クエリパラメータ・フラグメントは無視して突合）
+    if UrlMatcher.is_same_url(eval_a.property_url, eval_b.property_url):
         return 1.0
         
     # 物件種別の互換性チェック（マンション・アパート系同士、または戸建て系同士）
