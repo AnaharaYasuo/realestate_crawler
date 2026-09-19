@@ -44,8 +44,8 @@
 ### 厳格化フィールド (Strict Fields)
 以下のフィールドは `null=False` で定義されており、欠損時はレコードが保存されません:
 
-**モデルレベルで必須 (null=False):**
-- `propertyName`, `pageUrl`, `inputDate`, `inputDateTime`, `price`, `address`
+**モデルレベルで必須または自動設定:**
+- `propertyName`, `pageUrl`, `inputDate`, `inputDateTime`, `updateDateTime`, `price`, `address`
 - `railway1` (または `traffic` - 生テキストの場合)
 
 **物件種別ごと:**
@@ -2034,6 +2034,19 @@ WARNING: Skipping save for this property due to validation errors.
 
 ※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
 
+## 26. 価格改定履歴テーブル (PropertyPriceHistory)
 
+### 26.1 property_price_history
+**テーブル名**: `property_price_history`  
+**目的**: 各不動産物件の価格改定（値下げ・値上げ）イベントを時系列で永続化し、値下げトレンドやお宝物件分析に利用する。
 
-
+| カラム名 | 型 | NULL | インデックス | 説明 |
+|---------|---|------|------------|------|
+| `id` | BigAutoField | NO | PRIMARY KEY | 主キー |
+| `property_url` | VARCHAR(500) | NO | INDEX | 対象物件URL |
+| `company` | VARCHAR(50) | YES | INDEX | 不動産会社コード (例: `mitsui`, `homes`) |
+| `property_type` | VARCHAR(50) | YES | INDEX | 物件種別 (例: `mansion`, `kodate`) |
+| `old_price` | BIGINT | NO | - | 改定前価格（数値・円） |
+| `new_price` | BIGINT | NO | - | 改定後価格（数値・円） |
+| `price_diff` | BIGINT | YES | - | 改定差分（`new_price - old_price`、値下げ時はマイナス） |
+| `recorded_at` | DATETIME | NO | INDEX | 価格改定検知・記録日時 |

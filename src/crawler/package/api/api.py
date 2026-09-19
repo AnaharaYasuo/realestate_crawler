@@ -18,6 +18,8 @@ import logging
 from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.utils.report import CrawlerReporter
 from asgiref.sync import sync_to_async
+from package.api.differential import filter_differential_items, ListItem
+from package.models.evaluation import PropertyPriceHistory
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -890,9 +892,41 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         return
 
     async def _callApi(self, urlList):
+        if not urlList:
+            return []
+
+        model_class = None
+        if hasattr(self, "parser") and self.parser:
+            try:
+                entity = self.parser.createEntity()
+                if entity is not None:
+                    model_class = entity.__class__
+            except Exception:
+                model_class = None
+
+        to_fetch = urlList
+        if model_class is not None:
+            ttl_days = int(os.getenv("DIFFERENTIAL_TTL_DAYS", "7"))
+            force_full = os.getenv("FORCE_FULL_CRAWL", "false").lower() in ("true", "1")
+            enabled = os.getenv("ENABLE_DIFFERENTIAL_CRAWL", "true").lower() in ("true", "1")
+            to_fetch, _ = await filter_differential_items(
+                items=urlList,
+                model_class=model_class,
+                ttl_days=ttl_days,
+                force_full=force_full,
+                enabled=enabled,
+            )
+
         tasks = []
         loop = self._getActiveEventLoop()
-        for detailUrl in urlList:
+        for detail_item in to_fetch:
+            if isinstance(detail_item, ListItem):
+                detailUrl = detail_item.url
+            elif isinstance(detail_item, (tuple, list)):
+                detailUrl = detail_item[0]
+            else:
+                detailUrl = str(detail_item)
+
             colo = self._fetchWithEachSession(
                 detailUrl, self._getApiUrl(), loop)
             task = asyncio.create_task(colo)
@@ -1021,12 +1055,52 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if item is not None:
             currentTime = datetime.datetime.now()
             currentDay = datetime.date.today()
-            item.inputDateTime = currentTime
-            item.inputDate = currentDay
-            
-            # ponytail: validateEntity was removed — method never existed, caused
-            # AttributeError silently dropping all items. validate_required_fields
-            # in parsePropertyDetailPage already enforces data quality.
+
+            # Enforce 1 property = 1 record and record price revision history
+            model_class = item.__class__
+            existing_record = None
+            try:
+                def get_existing():
+                    return model_class.objects.filter(pageUrl=item.pageUrl).first()
+                existing_record = await sync_to_async(get_existing)()
+            except Exception as e:
+                logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
+
+            if existing_record:
+                item.id = existing_record.id
+                item._state.adding = False
+                item.inputDate = existing_record.inputDate or currentDay
+                item.inputDateTime = existing_record.inputDateTime or currentTime
+                item.updateDateTime = currentTime
+
+                old_p = existing_record.price
+                new_p = item.price
+                if old_p is not None and new_p is not None and old_p != new_p:
+                    model_name = model_class.__name__
+                    company = "unknown"
+                    for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+                        if model_name.lower().startswith(c):
+                            company = c
+                            break
+                    property_type = model_name.lower().replace(company, "")
+                    try:
+                        def create_price_history():
+                            PropertyPriceHistory.objects.create(
+                                property_url=item.pageUrl,
+                                company=company,
+                                property_type=property_type,
+                                old_price=old_p,
+                                new_price=new_p,
+                                price_diff=new_p - old_p,
+                            )
+                        await sync_to_async(create_price_history)()
+                        logging.info(f"[Price Revision] {item.pageUrl}: {old_p} -> {new_p} (diff: {new_p - old_p:+d})")
+                    except Exception as he:
+                        logging.warning(f"Failed to record price history for {item.pageUrl}: {he}")
+            else:
+                item.inputDateTime = currentTime
+                item.inputDate = currentDay
+                item.updateDateTime = currentTime
 
             try:
                 logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
@@ -1039,7 +1113,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 enable_inline_ml = os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1")
                 if not enable_inline_ml:
                     logging.debug(f"ML: Inline ML evaluation disabled. Property {item.pageUrl} saved for bulk evaluation.")
-                    return
+                    return item
 
                 try:
                     # 機械学習・画像解析モジュールのインポート
@@ -1070,7 +1144,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         # 二次予測まで終わっているか、または一次不合格で終了している場合
                         if existing_eval.second_stage_predicted_price is not None or not existing_eval.is_first_stage_passed:
                             logging.info(f"ML: Skipping already fully evaluated property: {item.pageUrl}")
-                            return
+                            return item
                         else:
                             # 一次合格しているが二次未完了の場合、一次予測結果を再利用して後半の画像解析へ進む
                             price_stage1 = float(existing_eval.first_stage_predicted_price)
