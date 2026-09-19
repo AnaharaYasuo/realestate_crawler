@@ -200,7 +200,9 @@ class KenbiyaParserBase(ParserBase):
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         kouzou = specs.get(STRUCTURE_FLOOR, "") or specs.get(STRUCTURE_TEXT, "") or specs.get("構造", "")
-        return re.sub(r'\s*総戸数\d+戸$', '', kouzou).strip()
+        if "総戸数" in kouzou:
+            kouzou = kouzou.split("総戸数")[0]
+        return kouzou.strip()
 
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -352,34 +354,54 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         val = specs.get("間取り", "")
-        m = re.search(r'(\d+[LDKSldks]+|1R|ワンルーム|\d+K)', val)
+        if not val:
+            return ""
+        first_word = val.split()[0]
+        if first_word in ("ワンルーム", "1R") or any(first_word.endswith(suffix) for suffix in ("R", "K", "DK", "LDK", "SLDK", "SK")):
+            return first_word
+        m = re.search(r'(\d+[A-Za-z]+|ワンルーム)', val)
         if m:
             return m.group(1).strip()
-        return val.split()[0] if val else ""
+        return first_word
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "")
-        m = re.search(r'([0-9.]+)m²', val)
-        return Decimal(m.group(1)) if m else converter.parse_menseki(val)
+        if not val:
+            return None
+        val_main = val.split("（")[0].split("(")[0]
+        return converter.parse_menseki(val_main.replace("m²", "㎡"))
 
     def _parseBalconyMenseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "") or specs.get("バルコニー面積", "")
-        m = re.search(r'バルコニー\s*([0-9.]+)m²', val)
-        return Decimal(m.group(1)) if m else None
+        if "バルコニー" in val:
+            b_part = val.split("バルコニー")[1].split("）")[0].split(")")[0]
+            return converter.parse_menseki(b_part.replace("m²", "㎡"))
+        return None
 
     def _parseFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("所在階", "")
-        m = re.search(r'(\d+)階', val)
-        return int(m.group(1)) if m else None
+        if "/" in val:
+            val = val.split("/")[0]
+        digits = "".join(c for c in val if c.isdigit())
+        return int(digits) if digits else None
 
     def _parseTotalFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("総階数", "")
-        m = re.search(r'/(\d+)階建', val) or re.search(r'地上(\d+)階', val)
-        return int(m.group(1)) if m else None
+        if "/" in val:
+            part = val.split("/")[1].split("階")[0]
+            digits = "".join(c for c in part if c.isdigit())
+            if digits:
+                return int(digits)
+        if "地上" in val:
+            part = val.split("地上")[1].split("階")[0]
+            digits = "".join(c for c in part if c.isdigit())
+            if digits:
+                return int(digits)
+        return None
 
     def _parseSouKosu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -494,8 +516,10 @@ class KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase):
     def _parseMaguchi(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("間口", "") or specs.get("接道状況", "")
-        m = re.search(r'間口\s*([0-9.]+)m', val)
-        return Decimal(m.group(1)) if m else None
+        if "間口" in val:
+            part = val.split("間口")[1].split("m")[0]
+            return converter.parse_menseki(part)
+        return None
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._populate_common_fields(item, response)
