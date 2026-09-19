@@ -233,3 +233,27 @@ class UrbanPlanningZonePotential(models.Model):
     def __str__(self):
         return f"{self.zone_name} (建ぺい: {self.max_kenpei}%, 容積: {self.max_youseki}%)"
 
+
+class PropertyPriceHistory(models.Model):
+    """
+    物件価格改定履歴モデル
+    価格の値下げ・値上げ推移を時系列で保存する
+    """
+    property_url = models.CharField(max_length=500, db_index=True, verbose_name="物件URL")
+    company = models.CharField(max_length=50, blank=True, null=True, db_index=True, verbose_name="不動産会社コード")
+    property_type = models.CharField(max_length=50, blank=True, null=True, db_index=True, verbose_name="物件種別")
+    old_price = models.BigIntegerField(verbose_name="改定前価格（数値）")
+    new_price = models.BigIntegerField(verbose_name="改定後価格（数値）")
+    price_diff = models.BigIntegerField(blank=True, null=True, verbose_name="価格差分（新-旧）")
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="記録日時")
+
+    class Meta:
+        db_table = 'property_price_history'
+        verbose_name = "物件価格改定履歴"
+        verbose_name_plural = "物件価格改定履歴"
+        ordering = ['-recorded_at']
+
+    def __str__(self):
+        diff_str = f"{self.price_diff:+d}" if self.price_diff is not None else "0"
+        return f"{self.property_url}: {self.old_price} -> {self.new_price} ({diff_str})"
+

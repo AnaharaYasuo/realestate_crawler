@@ -560,11 +560,12 @@ task logs
 初めてのユーザーが次に学ぶべき内容：
 
 ### 1. システムの理解を深める
-- **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（FR-015〜FR-017 バルク推論・価格推定最適化）
+- **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（差分クロール FR-004-DIFF、価格改定履歴 FR-005-HIST、重複データ移行 FR-005-MIGRATE、バルク推論）
 - **[GCPインフラ要件定義書](docs/requirements/gcp_infrastructure_requirements.md)**: クラウド移行要件・非機能要件
-- **[基本設計書](docs/basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング、バルク推論アーキテクチャ
+- **[基本設計書](docs/basic_design/basic_design_master.md)**: 差分クロールパターン、価格履歴パターン、移行・重複排除アーキテクチャ、Fire-and-Forgetパターン
 - **[GCPアーキテクチャ基本設計書](docs/basic_design/gcp_architecture_design.md)**: Cloud Run Jobs / Cloud SQL / GCS サーバーレス構成
-- **[内部設計書](docs/internal_design/detailed_design_master.md)**: データベーススキーマ、Dual Storageパターン
+- **[内部設計書](docs/internal_design/detailed_design_master.md)**: 差分クロール・価格履歴シーケンス図、データベーススキーマ、Dual Storageパターン
+- **[データベース定義書](docs/internal_design/database_schema.md)**: 各社物件テーブル、PropertyPriceHistory（価格改定履歴）定義、updateDateTimeフィールド
 - **[GCP並列分散実行内部設計書](docs/internal_design/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
 - **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正

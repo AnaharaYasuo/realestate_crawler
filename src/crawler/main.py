@@ -10,6 +10,7 @@ import asyncio
 import datetime
 from flask import Flask, request
 from django.apps import apps
+from django.db.models import Q
 
 import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
@@ -330,7 +331,8 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
                 if m_name.startswith(company.lower()):
                     rest = m_name[len(company):]
                     if rest == target or rest == target.replace("invest", "investment"):
-                        scraped_count = model.objects.filter(inputDateTime__gte=start_dt).count()
+                        q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
+                        scraped_count = model.objects.filter(q).count()
         except Exception as ce:
             logging.error(f"Failed to count scraped items: {ce}")
 

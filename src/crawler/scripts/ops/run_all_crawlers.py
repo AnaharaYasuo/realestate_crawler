@@ -25,6 +25,7 @@ while True:
     _cur = _parent
 
 from django.apps import apps
+from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert
 from package.utils.task_distribution import get_task_config, distribute_jobs
@@ -195,7 +196,8 @@ def main():
                 if m_name.startswith(company.lower()):
                     rest = m_name[len(company):]
                     if rest == target or rest == target.replace("invest", "investment"):
-                        return model.objects.filter(inputDateTime__gte=start_dt).count()
+                        q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
+                        return model.objects.filter(q).count()
         except Exception as ce:
             logging.error(f"Failed to get db count for {company} - {ptype}: {ce}")
         return 0
@@ -419,7 +421,8 @@ def main():
                 prop_type = "investment"
                 
             try:
-                count_24h = model.objects.filter(inputDateTime__gte=threshold_24h).count()
+                q = Q(updateDateTime__gte=threshold_24h) | Q(inputDateTime__gte=threshold_24h) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=threshold_24h)
+                count_24h = model.objects.filter(q).count()
                 db_summary.append((company, prop_type, count_24h))
             except Exception:
                 pass
