@@ -82,6 +82,7 @@ terraform/
   - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、耐用上限ギリギリ（デフォルト 50 コネクション/台 = 2台で計100）のコネクション多重化設定、ポート 6033/6032 のリスニング開始
 - `google_compute_region_instance_group_manager`:
   - リージョン配置 MIG (2ゾーン分散: `asia-northeast1-a`, `asia-northeast1-c`)
+  - ローリングアップデートポリシー: `PROACTIVE`, `minimal_action = REPLACE`, `max_surge_fixed = 2` (リージョンMIGのゾーン数に合わせゼロダウンタイム更新), `max_unavailable_fixed = 0`
   - インスタンス管理は `google_compute_region_autoscaler` に委譲
   - 自動復旧ポリシー: `google_compute_region_health_check` と連携し、異常インスタンスを自動再作成
 - `google_compute_region_autoscaler`:
