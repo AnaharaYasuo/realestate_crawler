@@ -501,7 +501,7 @@ def parse_floor_features(floor_val: any, total_floor_val: any, text: str = "") -
     fl = 0.0
     tot = 0.0
     raw = str(floor_val or "") + " " + str(total_floor_val or "") + " " + str(text or "")
-    m_fl = re.search(r'(\d+)\s*階(?:\s*(?:建|部分))?', str(floor_val or ""))
+    m_fl = re.search(r'(\d+)\s*階(?:建|部分)?', str(floor_val or ""))
     if m_fl:
         fl = float(m_fl.group(1))
     elif floor_val:
@@ -509,7 +509,7 @@ def parse_floor_features(floor_val: any, total_floor_val: any, text: str = "") -
             fl = float(floor_val)
         except Exception:
             pass
-    if fl == 0.0:
+    if fl <= 0.0:
         m_fl2 = re.search(r'(\d+)\s*階部分', raw)
         if m_fl2:
             fl = float(m_fl2.group(1))
@@ -522,7 +522,7 @@ def parse_floor_features(floor_val: any, total_floor_val: any, text: str = "") -
             tot = float(total_floor_val)
         except Exception:
             pass
-    if tot == 0.0:
+    if tot <= 0.0:
         m_tot2 = re.search(r'(\d+)\s*階建', raw)
         if m_tot2:
             tot = float(m_tot2.group(1))
@@ -531,7 +531,7 @@ def parse_floor_features(floor_val: any, total_floor_val: any, text: str = "") -
     tot = max(fl, tot) if tot > 0 else max(fl, 5.0)
     fl_ratio = round(fl / tot, 3)
     is_top = 1.0 if fl >= tot else 0.0
-    is_first = 1.0 if fl == 1.0 else 0.0
+    is_first = 1.0 if fl <= 1.0 else 0.0
     return {
         "floor_number": fl,
         "total_floors": tot,
@@ -1579,7 +1579,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         elif any(x in combined_text for x in ["RC", "鉄筋"]):
             unit_demolish = 2.5
             
-        if has_demolition_condition == 1.0 or is_saikenchiku_fuka == 1.0:
+        if has_demolition_condition >= 0.5 or is_saikenchiku_fuka >= 0.5:
             # 更地渡し、または再建築不可（解体すると新築不可のため既得権維持・解体禁止）の場合は買主負担0
             furuya_demolition_cost = 0.0
         else:
@@ -1591,24 +1591,24 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         est_annual_noi_man = est_monthly_rent_man * 12.0 * 0.80
         
         # 還元利回り (再建築不可は10.0%, 通常古家は8.0%)
-        cap_rate_furuya = 0.10 if is_saikenchiku_fuka == 1.0 else 0.08
+        cap_rate_furuya = 0.10 if is_saikenchiku_fuka >= 0.5 else 0.08
         gross_furuya_val = est_annual_noi_man / cap_rate_furuya
         renov_cost = furuya_bldg_area * 3.0  # リノベ費用目安: 3万円/㎡
         
-        if is_saikenchiku_fuka == 1.0:
+        if is_saikenchiku_fuka >= 0.5:
             # 再建築不可の場合、建物維持による敷地既得権利用価値を加算
             furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost) + tochi_area * (average_land_price / 10000.0) * 0.25, 2)
         else:
             furuya_usable_value = round(max(0.0, gross_furuya_val - renov_cost), 2)
             
         # オプション価値: 更地手取り価格（再建築不可の場合は新築不可による20%減価底地水準）を上回る古家再生のプレミアム
-        saikenchiku_land_factor = 0.20 if is_saikenchiku_fuka == 1.0 else 1.0
+        saikenchiku_land_factor = 0.20 if is_saikenchiku_fuka >= 0.5 else 1.0
         clean_land_val = max(0.0, tochi_area * (average_land_price / 10000.0) * scale_discount * saikenchiku_land_factor - furuya_demolition_cost)
         furuya_option_value = round(max(0.0, furuya_usable_value - clean_land_val), 2)
         
         # 土地評価額への古家査定反映
         if property_type == 'tochi':
-            if is_saikenchiku_fuka == 1.0:
+            if is_saikenchiku_fuka >= 0.5:
                 cost_approach_value = furuya_usable_value
                 income_approach_value = max(income_approach_value, furuya_usable_value)
             else:

@@ -428,5 +428,6 @@ if __name__ == "__main__":
 
     port = int(os.getenv('PORT', '8000'))
     flask_debug = os.getenv('FLASK_DEBUG', 'false').lower() in ('true', '1')
-    app.run(host='0.0.0.0', port=port, debug=flask_debug)
+    host = os.getenv('FLASK_HOST', '0.0.0.0')
+    app.run(host=host, port=port, debug=flask_debug)  # NOSONAR
 

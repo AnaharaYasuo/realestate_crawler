@@ -41,7 +41,6 @@ def run_all_syncs(estat_csv=None, stations_csv=None, land_prices_csv=None,
     全外部ポテンシャルデータを一括同期・洗い替えする。
     """
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(current_dir))
     temp_files_to_cleanup = []
 
     results = {

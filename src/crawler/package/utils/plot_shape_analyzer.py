@@ -198,7 +198,7 @@ def calculate_max_inscribed_rectangle(
         angles.append(math.atan2(dy, dx))
 
     # 重複角度を丸め
-    unique_angles = sorted(list(set(round(a % (math.pi / 2), 3) for a in angles)))
+    unique_angles = sorted({round(a % (math.pi / 2), 3) for a in angles})
 
     best_real_area = 0.0
     best_short = 0.0
@@ -315,7 +315,7 @@ def calculate_yoshino_assumed_plot(
     if len(vertices) < 3 or plot_area <= 0.0:
         return 0.0, 0.0, 1.0
 
-    obb_area, obb_w, obb_h = calculate_obb(vertices)
+    obb_area, _, _ = calculate_obb(vertices)
     yoshino_area = max(plot_area, obb_area)
     if yoshino_area > 0.0:
         shadow_ratio = max(0.0, min(1.0, (yoshino_area - plot_area) / yoshino_area))
@@ -492,7 +492,12 @@ def calculate_mic_and_bottleneck(
     else:
         valid_rows = row_widths[row_widths > 0.1]
         valid_cols = col_widths[col_widths > 0.1]
-        all_valid = np.concatenate([valid_rows, valid_cols]) if len(valid_rows) > 0 and len(valid_cols) > 0 else (valid_rows if len(valid_rows) > 0 else valid_cols)
+        if len(valid_rows) > 0 and len(valid_cols) > 0:
+            all_valid = np.concatenate([valid_rows, valid_cols])
+        elif len(valid_rows) > 0:
+            all_valid = valid_rows
+        else:
+            all_valid = valid_cols
         if len(all_valid) > 10:
             trimmed = np.sort(all_valid)
             bottleneck_w = float(trimmed[int(len(trimmed) * 0.05)])
