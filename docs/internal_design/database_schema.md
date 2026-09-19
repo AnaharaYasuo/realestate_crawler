@@ -2050,3 +2050,24 @@ WARNING: Skipping save for this property due to validation errors.
 | `new_price` | BIGINT | NO | - | 改定後価格（数値・円） |
 | `price_diff` | BIGINT | YES | - | 改定差分（`new_price - old_price`、値下げ時はマイナス） |
 | `recorded_at` | DATETIME | NO | INDEX | 価格改定検知・記録日時 |
+
+## 27. マクロ経済指標マスタ (MacroEconomicIndex)
+
+### 27.1 macro_economic_index
+**テーブル名**: `macro_economic_index`  
+**目的**: 物件の掲載年月（`inputDate`）に連動してマクロ経済環境（不動産価格指数、長期金利、株価、REIT指数、建設物価指数）を結合し、年代別の相場変動を機械学習モデルで説明可能にする。
+
+| カラム名 | 型 | NULL | インデックス | 説明 |
+|---------|---|------|------------|------|
+| `id` | BigAutoField | NO | PRIMARY KEY | 主キー |
+| `year_month` | VARCHAR(7) | NO | UNIQUE / INDEX | 対象年月 (例: `2024-05`) |
+| `repi_mansion` | DOUBLE | YES | - | 国土交通省 不動産価格指数(マンション、2010年=100) |
+| `repi_kodate` | DOUBLE | YES | - | 国土交通省 不動産価格指数(戸建、2010年=100) |
+| `repi_tochi` | DOUBLE | YES | - | 国土交通省 不動産価格指数(住宅地、2010年=100) |
+| `jgb_10y_yield` | DOUBLE | YES | - | 新発10年物国債利回り (%) |
+| `mortgage_fixed_rate` | DOUBLE | YES | - | フラット35基準固定金利 (%) |
+| `nikkei_225` | DOUBLE | YES | - | 日経平均株価月末終値 (円) |
+| `tse_reit_index` | DOUBLE | YES | - | 東証REIT指数月末終値 (pt) |
+| `construction_cost_index` | DOUBLE | YES | - | 建設物価指数（RC/住宅、2015年=100） |
+| `cpi_core` | DOUBLE | YES | - | 消費者物価指数コア (2020年=100) |
+

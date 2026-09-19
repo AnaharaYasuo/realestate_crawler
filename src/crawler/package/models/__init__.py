@@ -25,3 +25,4 @@ from .keisei import *
 from .daikyo import *
 from .crawler_task_execution import *
 from .candidate import *
+from .building_master import *

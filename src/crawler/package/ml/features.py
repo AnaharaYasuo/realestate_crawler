@@ -42,7 +42,8 @@ FEATURE_SETS = {
             "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
         "second": [
             "area", "chikunen", "walk_min", "kanrihi", "syuzen",
@@ -61,7 +62,8 @@ FEATURE_SETS = {
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
     },
     "kodate": {
@@ -93,7 +95,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -124,7 +127,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
     },
     "apartment": {
@@ -157,7 +161,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
         "second": [
             "area", "tochi_menseki", "chikunen", "walk_min",
@@ -189,7 +194,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
     },
     "tochi": {
@@ -219,7 +225,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
         "second": [
             "area", "tochi_menseki", "walk_min",
@@ -248,7 +255,8 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
-            "zone_max_kenpei", "zone_max_youseki"
+            "zone_max_kenpei", "zone_max_youseki",
+            "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
     }
 }
@@ -704,14 +712,15 @@ _lp_pref_res_cache: Dict[str, list] = {}
 _lp_pref_comm_cache: Dict[str, list] = {}
 _hazard_cache: Dict[Tuple[str, str], Any] = {}
 _zone_cache: Dict[str, Any] = {}
+_macro_cache: Dict[str, Any] = {}
 
 def _init_global_caches():
     """
     特徴量抽出のボトルネックを解消するため、
     全 Potential 関連マスタを一括でインメモリキャッシュします。
     """
-    global _muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache, _lp_pref_comm_cache, _hazard_cache, _zone_cache
-    from package.models.evaluation import MunicipalPotential, StationPotential, LandPricePotential, HazardMapPotential, UrbanPlanningZonePotential
+    global _muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache, _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache
+    from package.models.evaluation import MunicipalPotential, StationPotential, LandPricePotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex
 
     if not _muni_cache:
         for m in MunicipalPotential.objects.all():
@@ -737,6 +746,10 @@ def _init_global_caches():
     if not _zone_cache:
         for z in UrbanPlanningZonePotential.objects.all():
             _zone_cache[z.zone_name] = z
+
+    _macro_cache.clear()
+    for macro in MacroEconomicIndex.objects.all():
+        _macro_cache[macro.year_month] = macro
 
     from django.db import connections
     try:
@@ -779,14 +792,78 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     station1 = get_attr(property_obj, 'station1', '') or ''
     company = get_attr(property_obj, 'company', 'unknown') or 'unknown'
 
-    # 基準日の設定
-    if not base_date:
-        input_date = get_attr(property_obj, 'inputDate', None)
-        if input_date:
-            base_date = input_date
+    # 基準日と物件掲載日の設定
+    raw_prop_date = get_attr(property_obj, 'inputDate', None) or get_attr(property_obj, 'inputDateTime', None)
+    if isinstance(raw_prop_date, datetime.datetime):
+        prop_date = raw_prop_date.date()
+    elif isinstance(raw_prop_date, datetime.date):
+        prop_date = raw_prop_date
+    elif isinstance(raw_prop_date, str):
+        try:
+            prop_date = datetime.datetime.strptime(raw_prop_date[:10], "%Y-%m-%d").date()
+        except Exception:
+            prop_date = None
+    else:
+        prop_date = None
+
+    if base_date:
+        if isinstance(base_date, datetime.datetime):
+            eval_base_date = base_date.date()
+        elif isinstance(base_date, str):
+            try:
+                eval_base_date = datetime.datetime.strptime(base_date[:10], "%Y-%m-%d").date()
+            except Exception:
+                eval_base_date = datetime.date.today()
         else:
-            base_date = datetime.date.today()
-            
+            eval_base_date = base_date
+    else:
+        eval_base_date = prop_date or datetime.date.today()
+
+    # 時間差分 (経過月数) および旧データフラグの算出
+    ref_prop_date = prop_date or eval_base_date
+    diff_days = (eval_base_date - ref_prop_date).days
+    time_diff_months = max(0.0, round(float(diff_days) / 30.4375, 2))
+
+    is_legacy = 1.0 if (
+        (prop_date and prop_date < datetime.date(2025, 1, 1))
+        or bool(get_attr(property_obj, 'is_legacy_data', False))
+        or get_attr(property_obj, 'isSoldout', 0) == 1
+    ) else 0.0
+
+    # マクロ経済指標の抽出 (掲載年月に基づくインメモリマスタ参照)
+    ym = f"{ref_prop_date.year:04d}-{ref_prop_date.month:02d}"
+    macro_rec = _macro_cache.get(ym)
+    if not macro_rec and _macro_cache:
+        sorted_keys = sorted(_macro_cache.keys())
+        if ym < sorted_keys[0]:
+            macro_rec = _macro_cache[sorted_keys[0]]
+        else:
+            macro_rec = _macro_cache[sorted_keys[-1]]
+
+    if macro_rec:
+        repi_m = float(macro_rec.repi_mansion or 100.0)
+        repi_k = float(macro_rec.repi_kodate or 100.0)
+        repi_t = float(macro_rec.repi_tochi or 100.0)
+        jgb = float(macro_rec.jgb_10y_yield or 0.0)
+        nikkei = float(macro_rec.nikkei_225 or 25000.0)
+        reit = float(macro_rec.tse_reit_index or 1800.0)
+        const_cost = float(macro_rec.construction_cost_index or 100.0)
+    else:
+        repi_m, repi_k, repi_t = 100.0, 100.0, 100.0
+        jgb = 0.5
+        nikkei = 30000.0
+        reit = 1800.0
+        const_cost = 100.0
+
+    if property_type in ['mansion', 'apartment']:
+        macro_repi = repi_m
+    elif property_type == 'kodate':
+        macro_repi = repi_k
+    elif property_type == 'tochi':
+        macro_repi = repi_t
+    else:
+        macro_repi = repi_m
+
     chikunengetsu = (
         get_attr(property_obj, 'chikunengetsu', None)
         or get_attr(property_obj, 'builtYear', None)
@@ -802,7 +879,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         else:
             chikunen = 30.0
     else:
-        chikunen = calculate_chikunen(chikunengetsu, base_date)
+        chikunen = calculate_chikunen(chikunengetsu, eval_base_date)
     
     walk_min = get_attr(property_obj, 'railwayWalkMinute1', None)
     raw_traffic = str(get_attr(property_obj, 'traffic', '') or get_attr(property_obj, 'koutsu', '') or '')
@@ -1657,7 +1734,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     madori_val = get_attr(property_obj, 'madori', '') or get_attr(property_obj, 'roomLayout', '') or ''
     feats.update(parse_madori_layout_features(madori_val, combined_text))
 
-    floor_val = get_attr(property_obj, 'kai', '') or get_attr(property_obj, 'floor', '') or get_attr(property_obj, 'floorNumber', '') or ''
+    floor_val = get_attr(property_obj, 'kai', '') or get_attr(property_obj, 'floor', '') or get_attr(property_obj, 'floorNumber', '') or get_attr(property_obj, 'kaisu', '') or ''
     total_floor_val = get_attr(property_obj, 'chijo', '') or get_attr(property_obj, 'totalFloor', '') or get_attr(property_obj, 'totalFloors', '') or ''
     feats.update(parse_floor_features(floor_val, total_floor_val, combined_text))
 
@@ -1676,7 +1753,64 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     feats["interior_score"] = safe_float(get_attr(property_obj, 'interior_score', 0.0), 0.0)
     feats["layout_score"] = safe_float(get_attr(property_obj, 'layout_score', 0.0), 0.0)
 
+    # ⑬ 建物マスタ (BuildingMaster) & 1物件1リクエスト抽出属性の特徴量統合
+    bm_obj = get_attr(property_obj, 'building_master', None)
+    if not bm_obj:
+        try:
+            from package.models.building_master import BuildingMaster
+            from package.utils.building_resolver import normalize_building_name, normalize_building_address
+            p_name = get_attr(property_obj, 'propertyName', '') or get_attr(property_obj, 'title', '') or ''
+            p_addr = get_attr(property_obj, 'address', '') or ''
+            n_name = normalize_building_name(p_name)
+            n_addr = normalize_building_address(p_addr)
+            if n_name and n_addr:
+                bm_obj = BuildingMaster.objects.filter(normalized_name=n_name, normalized_address=n_addr).first()
+        except Exception:
+            bm_obj = None
+
+    dev_tier = getattr(bm_obj, 'developer_tier', 'unknown') if bm_obj else 'unknown'
+    feats["bm_brand_tier_score"] = 1.0 if dev_tier == "major_reputable" else (0.5 if dev_tier == "standard" else 0.0)
+
+    contractor_tier = getattr(bm_obj, 'contractor_tier', 'unknown') if bm_obj else 'unknown'
+    feats["bm_contractor_tier_score"] = 1.0 if contractor_tier == "super_general" else (0.6 if contractor_tier == "major" else 0.0)
+
+    eq_res = getattr(bm_obj, 'earthquake_resistance', '') or ''
+    feats["bm_is_seismic_isolated"] = 1.0 if "免震" in str(eq_res) else (0.5 if "制震" in str(eq_res) else 0.0)
+
+    ev_avail = getattr(bm_obj, 'elevator_available', None) if bm_obj else None
+    if ev_avail is True:
+        feats["bm_has_elevator"] = 1.0
+    elif ev_avail is False:
+        feats["bm_has_elevator"] = -1.0
+    else:
+        feats["bm_has_elevator"] = 1.0 if re.search(r'エレベーター|EV', combined_text) else 0.0
+
+    hallway = getattr(bm_obj, 'hallway_type', '') or ''
+    feats["bm_is_indoor_hallway"] = 1.0 if "内廊下" in str(hallway) or "内廊下" in combined_text else 0.0
+
+    gb = getattr(bm_obj, 'garbage_disposal_24h', None) if bm_obj else None
+    feats["bm_has_24h_garbage"] = 1.0 if gb or "24時間ゴミ出し" in combined_text or "ゴミステーション" in combined_text else 0.0
+
+    # 専有部・土地固有スペック
+    feats["has_disposer"] = 1.0 if re.search(r'ディスポーザー', combined_text) else 0.0
+    feats["is_corner_unit"] = 1.0 if re.search(r'角部屋|角住戸', combined_text) else 0.0
+    feats["is_leasehold"] = 1.0 if re.search(r'借地権|地上権|賃借権', combined_text) else 0.0
+    feats["has_psychological_defect"] = 1.0 if re.search(r'告知事項|心理的瑕疵', combined_text) else 0.0
+
+    # 画像補正調整率
+    feats["visual_adjustment_percent"] = safe_float(get_attr(property_obj, 'visual_adjustment_percent', 0.0), 0.0)
+
+    # ⑫ 時間概念およびマクロ経済指標特徴量 (Temporal & Macroeconomic Features)
+    feats["time_diff_months"] = time_diff_months
+    feats["macro_repi"] = macro_repi
+    feats["macro_jgb_10y"] = jgb
+    feats["macro_nikkei"] = nikkei
+    feats["macro_reit"] = reit
+    feats["macro_construction_cost"] = const_cost
+    feats["is_legacy_data"] = is_legacy
+
     return feats
+
 
 
 def build_features_batch(properties_list, property_type, base_date=None, mkt_comparison_master=None):
