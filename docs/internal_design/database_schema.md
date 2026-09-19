@@ -57,12 +57,14 @@
 ### データ型凡例
 - `Text`: TextField (無制限長)
 - `Char(N)`: CharField (最大N文字)
-- `Int`: IntegerField
+- `BigInt`: BigIntegerField (64-bit 整数、価格等の20億円超高額物件対応)
+- `Int`: IntegerField (32-bit 整数)
 - `Dec(M,D)`: DecimalField (最大M桁、小数点以下D桁)
 - `Date`: DateField
 - `DateTime`: DateTimeField
 - `❌`: null=False (必須)
 - `✅`: null=True (任意)
+
 
 ---
 

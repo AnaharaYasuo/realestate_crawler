@@ -371,6 +371,15 @@ class ParserBase(metaclass=ABCMeta):
                 val_cleaned = re.sub(r'\s+', ' ', val_str)
                 setattr(item, field.name, val_cleaned)
 
+        # price フィールドの数値検証・型安全ガード
+        if hasattr(item, 'price'):
+            price_val = getattr(item, 'price', None)
+            if price_val is not None:
+                try:
+                    setattr(item, 'price', int(price_val))
+                except (ValueError, TypeError):
+                    setattr(item, 'price', None if item._meta.get_field('price').null else 0)
+
         # station1, station2, station3 の表記統一 (『成城学園前』駅 -> 成城学園前, 勝どき駅 -> 勝どき)
         for st_field in ['station1', 'station2', 'station3']:
             if hasattr(item, st_field):
