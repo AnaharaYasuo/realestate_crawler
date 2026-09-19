@@ -417,6 +417,15 @@ def _generate_single_dummy_record(ptype, rng):
         "zone_rank": float(rng.choice([2.0, 3.0, 3.5, 4.0, 4.5, 5.0])),
         "shape_type_code": float(rng.choice([1.0, 2.0, 3.0, 4.0])),
         "is_regular_shape": float(rng.choice([0.0, 1.0])),
+        "time_diff_months": float(rng.uniform(0.0, 24.0)),
+        "macro_repi": 180.0,
+        "macro_jgb_10y": 0.8,
+        "macro_nikkei": 38000.0,
+        "macro_reit": 1900.0,
+        "macro_construction_cost": 125.0,
+        "is_legacy_data": 0.0,
+        "interior_score": 3.0,
+        "layout_score": 3.0,
     }
 
 def generate_dummy_data(ptype, num_records=500):
@@ -599,6 +608,11 @@ def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> Train
     Repeated 5-Fold CV (計15サイクル) 評価を行った上で、全データで最終学習したモデル、
     データ駆動最適アンサンブル重み、およびDuan's Smearing補正係数を返します。
     """
+    # 欠損特徴量カラムのゼロ埋め（ダミーデータや過去データ等の互換性ガード）
+    for col in feature_cols:
+        if col not in df.columns:
+            df[col] = 0.0
+
     X = df[feature_cols].copy()
     y = np.log1p(df["price"] / df["area"]) # 平米単価の対数変換 (log1p) を施す
     
