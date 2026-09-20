@@ -100,11 +100,12 @@ def test_calculate_property_similarity_get_real_property_exception_logs_warning(
     eval_b.property_type = "mansion"
     eval_b.id = 998
 
-    with patch("package.utils.deduplication.apps.get_model", side_effect=Exception("Model not found")):
+    with patch("django.apps.apps.get_model", side_effect=Exception("Model not found")):
         with patch("package.utils.deduplication.logger.warning") as mock_warn:
             result = calculate_property_similarity(eval_a, eval_b)
             assert result == 0.0
             assert mock_warn.call_count >= 1
             log_msg = mock_warn.call_args[0][0]
             assert "Failed to load real property data" in log_msg
+
 
