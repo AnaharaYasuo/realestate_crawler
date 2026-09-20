@@ -150,6 +150,9 @@ re.fullmatch(r"(x+)+", s)
 re.split(r"(y+)+", s)
 '''
     issues = detect_regex_redos_risks(code, filename="dummy.py")
+    assert len(issues) == 2
+
+
 def test_detect_regex_mixed_wildcards():
     code = '''
 import re

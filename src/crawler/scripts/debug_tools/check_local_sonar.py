@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional, Set
 
 DEFAULT_MAX_COMPLEXITY = 15
 MAX_REGEX_LENGTH = 500
@@ -301,35 +301,30 @@ def _run_git_cmd(args: List[str]) -> Tuple[bool, List[str], str]:
         return (False, [], str(e))
 
 
+def _get_py_files_from_cmd(args: List[str]) -> Set[str]:
+    """Execute git command and return matching python files."""
+    success, lines, _ = _run_git_cmd(args)
+    if not success:
+        return set()
+    return {line.strip() for line in lines if line.strip().endswith(".py")}
+
+
+def _get_branch_diff_files() -> Set[str]:
+    """Get modified python files against origin/master or master."""
+    files = _get_py_files_from_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"])
+    if not files:
+        files = _get_py_files_from_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "master...HEAD"])
+    return files
+
+
 def get_git_diff_files() -> List[str]:
     """Get modified/added Python files by combining branch diff, staged, and working tree changes."""
-    files = set()
+    files = _get_branch_diff_files()
+    files.update(_get_py_files_from_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"]))
 
-    # 1. Primary: Diff of current branch against origin/master
-    success, lines, stderr = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"])
-    if not success and stderr:
-        # Fallback to local master if origin/master ref is unavailable
-        success_m, lines_m, _ = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "master...HEAD"])
-        if success_m:
-            lines = lines_m
-        else:
-            print(f"Warning: Git diff command failed: {stderr}", file=sys.stderr)
-
-    for line in lines:
-        if line.strip().endswith(".py"):
-            files.add(line.strip())
-
-    # 2. Always include staged changes
-    _, staged_lines, _ = _run_git_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"])
-    for line in staged_lines:
-        if line.strip().endswith(".py"):
-            files.add(line.strip())
-
-    # 3. Always include working tree changes
-    _, wt_lines, _ = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol"])
-    for line in wt_lines:
-        if line.strip().endswith(".py"):
-            files.add(line.strip())
+    # Fallback: Only include working tree changes if neither branch diff nor staged diff found anything
+    if not files:
+        files.update(_get_py_files_from_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol"]))
 
     return sorted(files)
 
