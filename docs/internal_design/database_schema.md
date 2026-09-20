@@ -2071,3 +2071,34 @@ WARNING: Skipping save for this property due to validation errors.
 | `construction_cost_index` | DOUBLE | YES | - | 建設物価指数（RC/住宅、2015年=100） |
 | `cpi_core` | DOUBLE | YES | - | 消費者物価指数コア (2020年=100) |
 
+## 28. 物件評価・価格推定テーブル (PropertyEvaluation)
+
+### 28.1 property_evaluation
+**テーブル名**: `property_evaluation`  
+**目的**: 各不動産会社テーブルの物件と 1:1 に紐づき、一次・二次機械学習推論結果、投資収支指標、および借地権における地代負債評価を永続化する。
+
+| カラム名 | 型 | NULL | インデックス | 説明 |
+|---------|---|------|------------|------|
+| `id` | BigAutoField | NO | PRIMARY KEY | 主キー |
+| `company` | VARCHAR(50) | NO | INDEX | 不動産会社コード (例: `mitsui`, `athome`) |
+| `property_type` | VARCHAR(50) | NO | INDEX | 物件種別 (例: `mansion`, `kodate`) |
+| `property_id` | INT | NO | INDEX | 元テーブルレコードID |
+| `property_url` | VARCHAR(500) | NO | UNIQUE / INDEX | 対象物件URL |
+| `first_stage_predicted_price` | DECIMAL(12,0) | YES | - | 一次予測理論価格 (円) |
+| `is_first_stage_passed` | BOOL | NO | - | 一次スクリーニング合格フラグ |
+| `second_stage_predicted_price` | DECIMAL(12,0) | YES | - | 二次予測理論価格 (円) |
+| `monthly_land_rent` | INT | YES | - | 月額地代 (数値・円) |
+| `land_rent_liability` | DECIMAL(12,0) | YES | - | 地代負債現在価値 (万円、年間地代÷0.05) |
+| `net_operating_income` | DECIMAL(12,0) | YES | - | ネット営業純利益 (NOI、実額地代控除済) |
+| `cash_flow` | DECIMAL(12,0) | YES | - | 年間手残りキャッシュフロー |
+| `dscr` | DECIMAL(6,2) | YES | - | 債務サービスカバー率 (DSCR) |
+
+## 29. 全物件共通基底モデル (PropertyBaseModel) 地代フィールド追加
+
+全社の全物件モデル（Mansion, Kodate, Tochi, Investment等）の共通親クラス `PropertyBaseModel` に以下が追加されます：
+
+| カラム名 | 型 | NULL | 説明 |
+|---------|---|------|------|
+| `chidaiStr` | Text | YES (blank=True) | 地代元表記（例: "20年 20,000円", "20,000円/月"） |
+| `chidai` | Integer | YES (null=True) | 月額地代（数値・円、例: 20000） |
+

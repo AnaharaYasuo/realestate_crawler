@@ -577,6 +577,7 @@ task logs
 - **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
 - **[CodeRabbitレビュー＆未解決ゲート詳細設計書](docs/internal_design/coderabbit_gate_internal_design.md)**: CodeRabbit自動コードレビュー、未解決コメント・未完了チェックボックスのマージブロック強制設計
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
+- **[1物件1AIリクエスト属性抽出設計書](docs/internal_design/single_unified_property_ai_extractor.md)**: 1物件1リクエスト完結属性抽出、地代・借地権および建物マスタ連携仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
