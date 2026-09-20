@@ -74,7 +74,7 @@ class LoggingMiddleware(CrawlerMiddleware):
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
-        """レスポンスステータスに応じて適切な重大度（2xx/3xx: INFO, 4xx: WARNING, 5xx: ERROR）でログ出力します。"""
+        """レスポンスステータスに応じて適切な重大度 (2xx/3xx: INFO, 4xx: WARNING, 5xx: ERROR) でログ出力します。"""
         status = response_context.get('status')
         url = response_context.get('url')
         data = response_context.get('data') or response_context.get('text')
