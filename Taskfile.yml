@@ -109,9 +109,24 @@ tasks:
       - docker run --rm --env-file .env -v .:/app -w /app snyk/snyk:cli snyk iac test terraform/ --severity-threshold=high
 
   trivy:
-    desc: Run Trivy IaC & misconfiguration security scan locally using Docker (Free / No token needed)
+    desc: Run Trivy SCA & IaC security scan locally using Docker (Free / No token needed)
     cmds:
-      - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy config terraform/ --severity HIGH,CRITICAL --ignorefile .trivyignore
+      - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy fs . --scanners vuln,misconfig --severity HIGH,CRITICAL --ignorefile .trivyignore
+
+  semgrep:
+    desc: Run Semgrep SAST scan locally using Docker (Free / No token needed)
+    cmds:
+      - docker run --rm -v {{.PWD}}:/src semgrep/semgrep semgrep scan --config p/python --config p/owasp-top-ten --severity ERROR src/
+
+  checkov:
+    desc: Run Checkov IaC & Google Cloud configuration audit locally using Docker
+    cmds:
+      - docker run --rm -v {{.PWD}}:/tf -w /tf bridgecrew/checkov -d terraform/ --framework terraform
+
+  prowler:
+    desc: Run Prowler live Google Cloud security posture audit locally using Docker
+    cmds:
+      - docker run --rm -ti -v ~/.config/gcloud:/root/.config/gcloud toniblyx/prowler:latest gcp --severity critical,high
 
   sonar:
     desc: Run SonarCloud scan locally using Docker

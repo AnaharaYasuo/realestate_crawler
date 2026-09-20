@@ -12,23 +12,19 @@ while True:
         import setup_env
         break
     _cur = _parent
-from django.db import connection
+from django.apps import apps
 
 threshold = "2026-08-22 13:50:00"
 
-with connection.cursor() as cursor:
-    cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
-    cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'")
-    tables = [r[0] for r in cursor.fetchall()]
-    
-    results = []
-    total = 0
-    for t in tables:
-        if t in ['django_migrations', 'django_content_type', 'auth_permission', 'property_evaluations']:
-            continue
+results = []
+total = 0
+for model in apps.get_models():
+    t = model._meta.db_table
+    if t in ['django_migrations', 'django_content_type', 'auth_permission', 'property_evaluations']:
+        continue
+    if hasattr(model, 'inputDateTime'):
         try:
-            cursor.execute(f"SELECT COUNT(*) FROM `{t}` WHERE inputDateTime >= %s", [threshold])
-            cnt = cursor.fetchone()[0]
+            cnt = model.objects.filter(inputDateTime__gte=threshold).count()
             if cnt > 0:
                 print(f"• {t}: {cnt:,} 件", flush=True)
                 results.append((t, cnt))

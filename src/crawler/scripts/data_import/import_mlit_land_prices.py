@@ -53,20 +53,31 @@ def generate_sample_land_price_csv(filepath):
         writer.writerows(sample_data)
 
 
+def safe_path(path: str) -> str:
+    resolved = os.path.realpath(path)
+    base_dir = os.path.realpath(os.getcwd())
+    if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
+        project_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        if resolved != project_root and not resolved.startswith(project_root + os.sep):
+            raise ValueError(f"path {path!r} is outside the allowed directory")
+    return resolved
+
+
 def import_land_prices(csv_path):
     """
     地価公示CSVを読み込み、平均地価テーブルに同期（洗い替え）する。
     """
-    if not os.path.exists(csv_path):
-        logging.error(f"CSV file not found: {csv_path}")
+    clean_csv = safe_path(csv_path)
+    if not os.path.exists(clean_csv):
+        logging.error(f"CSV file not found: {clean_csv}")
         return False
         
-    logging.info(f"Importing average land price data from CSV: {csv_path}...")
+    logging.info(f"Importing average land price data from CSV: {clean_csv}...")
     
     processed = 0
     created_count = 0
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
+    with open(clean_csv, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             pref = row.get("prefecture", "").strip()

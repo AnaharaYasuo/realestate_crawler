@@ -1,0 +1,62 @@
+name: Prowler GCP Security Posture Audit
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # 毎週月曜 09:00 JST / 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Severity filter (e.g. critical,high or all)'
+        required: false
+        default: 'critical,high'
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+jobs:
+  prowler-gcp:
+    name: Prowler GCP Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Prowler
+        run: pip install prowler
+
+      - name: Run Prowler GCP Audit
+        run: |
+          mkdir -p prowler_output
+          SEV_ARG=""
+          if [ "${{ inputs.severity }}" != "all" ]; then
+            SEV_ARG="--severity ${{ inputs.severity || 'critical,high' }}"
+          fi
+          prowler gcp $SEV_ARG --output-modes html,csv,json,sarif --output-directory prowler_output || true
+
+      - name: Upload Prowler Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prowler-gcp-reports
+          path: prowler_output/
+
+      - name: Upload Prowler SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: prowler_output/
+          category: 'prowler-gcp'

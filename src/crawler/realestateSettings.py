@@ -38,7 +38,7 @@ def configure():
                         'NAME': os.getenv('DB_NAME', 'real_estate'),
                         'USER': os.getenv('DB_USER', 'sumifu'),
                         'PASSWORD': os.getenv('DB_PASSWORD'),
-                        'HOST': os.getenv('DB_HOST', '10.128.0.17'),
+                        'HOST': os.getenv('DB_HOST', 'localhost'),
                         'PORT': os.getenv('DB_PORT', '3306'),
                         'OPTIONS': {'charset': 'utf8mb4'},
                         'POOL_OPTIONS': {

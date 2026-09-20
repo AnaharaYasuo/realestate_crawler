@@ -108,7 +108,8 @@ async function processInstruction(say, client, event) {
   let progressPostCount = 0;
   let isChildActive = true;
 
-  const child = spawn('cmd.exe', ['/c', cmdLine], {
+  const shellCmd = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
+  const child = spawn(shellCmd, ['/c', cmdLine], {
     cwd: 'c:\\Users\\weare\\Documents\\realestate_crawler',
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     shell: true

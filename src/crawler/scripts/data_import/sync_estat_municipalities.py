@@ -3,6 +3,7 @@ import os
 import sys
 import requests
 import logging
+import csv
 from decimal import Decimal
 
 # Django環境のロード
@@ -105,6 +106,16 @@ def generate_mock_estat_data():
     ]
 
 
+def safe_path(path: str) -> str:
+    resolved = os.path.realpath(path)
+    base_dir = os.path.realpath(os.getcwd())
+    if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
+        project_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        if resolved != project_root and not resolved.startswith(project_root + os.sep):
+            raise ValueError(f"path {path!r} is outside the allowed directory")
+    return resolved
+
+
 def sync_municipalities(csv_path=None):
     if not csv_path:
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -121,9 +132,9 @@ def sync_municipalities(csv_path=None):
             logging.error(f"Failed to fetch from e-Stat API: {e}")
             
     if not data and os.path.exists(csv_path):
-        import csv
-        logging.info(f"Loading e-Stat municipal potential data from local CSV: {csv_path}...")
-        with open(csv_path, 'r', encoding='utf-8') as f:
+        clean_csv = safe_path(csv_path)
+        logging.info(f"Loading e-Stat municipal potential data from local CSV: {clean_csv}...")
+        with open(clean_csv, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 pop_growth = Decimal(row.get("population_growth_rate", "0.0").strip())

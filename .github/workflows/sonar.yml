@@ -88,6 +88,7 @@ jobs:
         with:
           args: >
             "-Dsonar.sourceEncoding=UTF-8"
+            "-Dsonar.qualitygate.wait=true"
             "-Dsonar.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg"
             "-Dsonar.coverage.exclusions=**/scripts/**"
             "-Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**"

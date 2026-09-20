@@ -16,6 +16,16 @@ from package.models.evaluation import LandPricePotential
 # 国土交通省 不動産取引価格情報取得APIエンドポイント
 MLIT_API_URL = "https://www.land.mlit.go.jp/webland/api/TradeListSearch"
 
+def safe_path(path: str) -> str:
+    resolved = os.path.realpath(path)
+    base_dir = os.path.realpath(os.getcwd())
+    if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
+        project_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        if resolved != project_root and not resolved.startswith(project_root + os.sep):
+            raise ValueError(f"path {path!r} is outside the allowed directory")
+    return resolved
+
+
 def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=None):
     """
     国土交通省の取引価格情報APIまたはローカルJSONからデータを取得し、市区町村別の平均地価マスタを動的に構築・同期する。
@@ -23,7 +33,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
     trade_list = []
     try:
         if json_path:
-            clean_path = os.path.abspath(os.path.normpath(json_path))
+            clean_path = safe_path(json_path)
             logging.info(f"Loading real estate trade data from local JSON file: {clean_path}...")
             with open(clean_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)

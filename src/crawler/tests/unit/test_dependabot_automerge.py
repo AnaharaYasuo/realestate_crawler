@@ -118,5 +118,23 @@ class TestDependabotAutomerge(unittest.TestCase):
         self.assertIn("Rebase Requested (Dry-Run)", md)
 
 
+    def test_evaluate_pr_ignore_unmerged_checks(self):
+        """マージ後にしか解消されない Code Scanning / upload-sarif などのエラーがマージ可否判定で除外されることを検証"""
+        pr_data = {
+            "number": 105,
+            "title": "chore(deps): bump certifi from 2024.2.2 to 2024.7.4",
+            "mergeable": "MERGEABLE",
+            "statusCheckRollup": [
+                {"name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                {"name": "Trivy Security Scan", "status": "COMPLETED", "conclusion": "SUCCESS"},
+                {"name": "upload-sarif", "status": "COMPLETED", "conclusion": "FAILURE"},
+            ],
+        }
+        status, reason = self.inspector.evaluate_pr_status(pr_data)
+        self.assertEqual(status, PRStatus.MERGE_READY)
+        self.assertIn("All checks passed", reason)
+
+
 if __name__ == "__main__":
     unittest.main()
+

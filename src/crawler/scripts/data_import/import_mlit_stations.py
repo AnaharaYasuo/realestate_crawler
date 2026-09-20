@@ -44,20 +44,31 @@ def generate_sample_mlit_csv(filepath):
         writer.writerows(sample_data)
 
 
+def safe_path(path: str) -> str:
+    resolved = os.path.realpath(path)
+    base_dir = os.path.realpath(os.getcwd())
+    if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
+        project_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        if resolved != project_root and not resolved.startswith(project_root + os.sep):
+            raise ValueError(f"path {path!r} is outside the allowed directory")
+    return resolved
+
+
 def import_mlit_stations(csv_path):
     """
-    国土数値情報CSVを読み込み、駅ポテンシャルテーブルに同期する。
+    国土交通省の駅別乗降客数CSVを読み込み、StationPotentialテーブルにインポートする。
     """
-    if not os.path.exists(csv_path):
-        logging.error(f"CSV file not found: {csv_path}")
+    clean_csv = safe_path(csv_path)
+    if not os.path.exists(clean_csv):
+        logging.error(f"CSV file not found: {clean_csv}")
         return False
         
-    logging.info(f"Importing station data from MLIT CSV: {csv_path}...")
+    logging.info(f"Importing station data from MLIT CSV: {clean_csv}...")
     
     processed = 0
     created_count = 0
     
-    with open(csv_path, 'r', encoding='utf-8') as f:
+    with open(clean_csv, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             # カラム名マッピング (国土数値情報のカラム名に合わせる、またはマッピング対応)
@@ -116,9 +127,11 @@ if __name__ == "__main__":
         import_mlit_stations(target_csv)
     finally:
         # 一時生成したサンプルファイルを削除
-        if temp_file and os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-                logging.info(f"Cleaned up temporary sample CSV: {temp_file}")
-            except Exception as e:
-                logging.warning(f"Failed to delete temp file {temp_file}: {e}")
+        if temp_file:
+            clean_temp = safe_path(temp_file)
+            if os.path.exists(clean_temp):
+                try:
+                    os.remove(clean_temp)
+                    logging.info(f"Cleaned up temporary sample CSV: {clean_temp}")
+                except Exception as e:
+                    logging.warning(f"Failed to delete temp file {clean_temp}: {e}")
