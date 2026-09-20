@@ -1,0 +1,121 @@
+name: Review Conversation Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches:
+      - master
+      - production
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  verify-conversations-resolved:
+    name: Verify All Review Conversations Resolved
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check unresolved review threads
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.info('No pull request found in context. Skipping.');
+              return;
+            }
+
+            const targetBranch = pr.base && pr.base.ref;
+            if (targetBranch !== 'master' && targetBranch !== 'production') {
+              core.info(`Target branch is '${targetBranch}'. Skipping review gate.`);
+              return;
+            }
+
+            const query = `
+              query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $prNumber) {
+                    reviewThreads(first: 100, after: $cursor) {
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                      nodes {
+                        id
+                        isResolved
+                        path
+                        line
+                        comments(first: 1) {
+                          nodes {
+                            author {
+                              login
+                            }
+                            body
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            let hasNextPage = true;
+            let cursor = null;
+            const allThreads = [];
+
+            while (hasNextPage) {
+              const variables = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                prNumber: pr.number,
+                cursor: cursor
+              };
+
+              const result = await github.graphql(query, variables);
+              const connection = result.repository.pullRequest.reviewThreads;
+              allThreads.push(...connection.nodes);
+              const hasMorePages = connection.pageInfo.hasNextPage;
+              const nextCursor = connection.pageInfo.endCursor;
+              if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
+                throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+              }
+              hasNextPage = hasMorePages;
+              cursor = nextCursor;
+            }
+
+            const unresolved = allThreads.filter(t => !t.isResolved);
+
+            if (unresolved.length === 0) {
+              console.log('✅ すべてのレビュー会話スレッドが解決済みです。マージ可能です。');
+              core.summary
+                .addHeading('✅ Review Conversations Check Passed')
+                .addRaw(`すべてのレビュー会話スレッド（走査対象: ${allThreads.length}件）が解決されています。`)
+                .write();
+              return;
+            }
+
+            console.error(`⛔ 未解決のレビュー会話スレッドが ${unresolved.length} 件存在します。`);
+            
+            let summaryText = `### ⛔ マージ不可: 未解決のレビューコメントが存在します (${unresolved.length}件)\n\n`;
+            summaryText += `PRをマージするには、CodeRabbitおよびレビュアーからのすべての指摘に対応し、会話スレッドを「**Resolve conversation**」してください。\n\n`;
+            summaryText += `| ファイル | 行 | レビュアー | コメント抜粋 |\n`;
+            summaryText += `| :--- | :--- | :--- | :--- |\n`;
+
+            for (const t of unresolved) {
+              const file = t.path || 'Unknown';
+              const line = t.line || '-';
+              const comment = t.comments.nodes[0] || {};
+              const author = comment.author ? comment.author.login : 'Unknown';
+              const snippet = (comment.body || '').replace(/[\r\n]+/g, ' ').substring(0, 80);
+              summaryText += `| \`${file}\` | ${line} | @${author} | ${snippet}... |\n`;
+            }
+
+            await core.summary.addRaw(summaryText).write();
+            core.setFailed(`PR #${pr.number} に未解決のレビューコメントが ${unresolved.length} 件あります。会話を解決（Resolve conversation）してください。`);
