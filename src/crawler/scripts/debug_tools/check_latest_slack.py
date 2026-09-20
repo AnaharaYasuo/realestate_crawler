@@ -39,6 +39,7 @@ async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token
     return channel
 
 async def verify(target_channel: str | None = None):
+    """指定チャンネルの直近のSlackメッセージを取得して表示する。"""
     token = os.getenv("SLACK_BOT_TOKEN")
     channel = target_channel or os.getenv("SLACK_DEV_CHANNEL") or os.getenv("SLACK_CHANNEL_ID") or "dev-agent"
     if not token:
