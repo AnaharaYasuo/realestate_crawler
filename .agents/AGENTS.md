@@ -49,18 +49,64 @@
 - **バルク推論の実施**: ML 評価はモデルを1回のみメモリロードして一括処理するバルク評価バッチ（`run_bulk_ml_evaluation.py`）または一括評価ステップで処理すること。
 
 ## 【普遍開発ルール：SDD（仕様駆動開発）× TDD（テスト駆動開発）統合開発原則】
-指示や新規機能要求があった場合、**仕様定義/ドキュメント ➔ テスト ➔ コード実装** の一貫したトップダウンライフサイクルを絶対遵守すること：
+指示や新規機能要求、不具合修正があった場合、**GitHub Issue起票 ➔ 仕様定義/ドキュメント ➔ テスト ➔ コード実装** の一貫したトップダウンライフサイクルを絶対遵守すること：
 
+0. **Step 0: GitHub Issues による課題・要求の起票 ＆ 受入基準策定 (Issue-Driven)**:
+   - 今後修正・追加する内容はすべて **Issue の単位で GitHub Issues に起票**する。
+   - 起票された Issue の記載内容（ユーザーストーリー、受入基準等）に問題がないことを確認・合意した上で、後続のブランチ作成・ドキュメント更新・実装に着手する。
+   - **プッシュ＆PR制約**: 有効な GitHub Issue が存在しない作業ブランチは、ローカル Git フック（`.githooks/pre-push`）でリモートへの `git push` が拒否され、GitHub Actions（`.github/workflows/issue-gate.yml`）で `master` への PR マージがブロックされる。
+   - **フィーチャーチケット（機能追加・改善）の標準構成**:
+     ```markdown
+     ## 1. 概要 / ユーザーストーリー
+     【誰が】【何をしたいか】【なぜなら〜】の形式で記載します。
+     * **ユーザーとして**、[役割]
+     * **[目的]** をしたい
+     * **なぜなら**、[理由・価値] のため
+
+     ## 2. アクセプタンスクライテリア (受入基準)
+     * [ ] 【基準1】〜〜であること
+     * [ ] 【基準2】〜〜の場合、〜〜となること
+
+     ## 3. 画面イメージ / モックアップ (任意)
+     * Figmaのリンクやスクリーンショット
+
+     ## 4. テストデータ / 前提条件 (任意)
+     * アカウント情報や、再現手順に必要なデータ
+     ```
+   - **バグチケット（不具合修復）の標準構成**（同趣旨で運用）:
+     ```markdown
+     ## 1. 概要 / バグ事象
+     【どこで】【何が発生しているか】【本来どうあるべきか】を記載します。
+     * **事象**: [発生している不具合の概要]
+     * **対象機能・影響**: [影響を受けるコンポーネント・画面・ジョブ]
+
+     ## 2. 再現手順 / 前提条件
+     1. [再現手順1]
+     2. [再現手順2]
+     * **前提条件 / テストデータ**: [再現に必要なデータ、URL、アカウント情報等]
+
+     ## 3. 期待される動作 vs 実際の動作
+     * **期待される動作**: [本来あるべき正常動作]
+     * **実際の動作**: [実際のエラー内容、不正な挙動]
+
+     ## 4. アクセプタンスクライテリア (受入基準)
+     * [ ] 【基準1】〜〜のケースでエラーが発生せず正常完了すること
+     * [ ] 【基準2】再現テスト/回帰テスト（テストコード）で不具合の再発防止が担保されていること
+
+     ## 5. エラーログ / 画面キャプチャ (任意)
+     * エラーログ、スタックトレース、またはスクリーンショット
+     ```
 1. **Step 1: ドキュメント階層のトップダウン更新 (SDD/DDD)**:
+   - 仕様マークダウンの構図は変更せずそのまま維持する。
    - 要件定義 (`docs/requirements/`) ➔ 外部設計 (`docs/external_design/`, `docs/basic_design/`) ➔ 内部設計 (`docs/internal_design/`) の順で、コードを触る前に仕様ドキュメントを先行更新する。
-2. **Step 2: ドキュメント仕様に基づくテストコード作成 (TDD)**:
-   - 更新されたドキュメントの仕様を満たしているかを検証するテストコード（`pytest` 等）をコード実装前にあらかじめ作成・記述する（テストファースト）。
-3. **Step 3: ドキュメント ＆ テストに適合する最小コード実装 (Implementation)**:
-   - 単一の正（Single Source of Truth）であるドキュメントとテストに従い、テストを通過させる必要最小限（Micro-Diff）のコードを実装する。
+2. **Step 2: 受入基準（Issue）＆ ドキュメント仕様に基づくテストコード作成 (TDD)**:
+   - Issueに定義された「アクセプタンスクライテリア（受入基準）」および先行更新されたドキュメント仕様を満たしているかを検証するテストコード（`pytest` 等）をコード実装前にあらかじめ作成・記述する（テストファースト）。
+3. **Step 3: 受入基準 ＆ ドキュメント ＆ テストに適合する最小コード実装 (Implementation)**:
+   - 単一の正（Single Source of Truth）であるIssue受入基準・ドキュメント・テストに従い、テストを通過させる必要最小限（Micro-Diff）のコードを実装する。
 4. **Step 4: 先行実装発生時の即用レスキュー補正 (Safety-Net)**:
-   - デバッグや緊急修復で実装が先行した場合も放置せず、**可及的速やかに「テストコード化 (TDD) ➔ ドキュメント階層同期 (SDD)」を逆引き補正**する。
+   - デバッグや緊急修復で実装が先行した場合も放置せず、**可及的速やかに「Issue受入基準確認 ➔ テストコード化 (TDD) ➔ ドキュメント階層同期 (SDD)」を逆引き補正**する。
 5. **Step 5: spec-driven-development (仕様・ドキュメント同期) の必須呼び出し義務**:
-   - コード実装や修復作業の最後には、必ず `/spec-driven-development` スキルを実行し、`docs/` 配下の仕様書および [README.md](file:///README.md) の「ドキュメント一覧」が漏れなく同期更新されたことを裏付けること。
+   - コード実装や修復作業の最後には、必ず `/spec-driven-development` スキルを実行し、Issueの受入基準充足、`docs/` 配下の仕様書および [README.md](file:///README.md) の「ドキュメント一覧」が漏れなく同期更新されたことを裏付けること。
 
 
 
@@ -119,14 +165,18 @@
 - **ブランチの役割定義**:
   - `production`: 本番環境（GCP Cloud Run 等のデプロイ対象）。直接のコードプッシュおよび作業ブランチからの直接 PR は厳禁。
   - `master`: 統合・検証ブランチ（開発の主幹）。すべての機能追加・バグ修正はまず `master` に集約される。
-  - `fix/<topic>` または `feature/<topic>`: 作業ブランチ。すべての開発・修正作業は `master` から分岐した作業ブランチで実施する。
-- **マージゲートウェイ原則（Production PR Gate）**:
-  - `production` ブランチへの Pull Request は **`master` ブランチからのみ** 許可されている（`.github/workflows/production-gate.yml` により自動検証。他ブランチからの直接 PR は即時クローズされる）。
+  - `fix/<issue_num>-<topic>` または `feature/<issue_num>-<topic>`: 作業ブランチ。**必ず GitHub Issue 番号を含めて作成**する（例: `feature/12-add-auth`, `fix/34-parse-error`）。
+- **プッシュ前 Issue 検証制約 (Local Pre-Push Enforcement)**:
+  - リポジトリの Git フック（`.githooks/pre-push`）により、GitHub Issue が存在しないブランチやコミットからの `git push` は即時拒否（Reject）される。
+  - 開発着手時は必ず GitHub Issues を事前起票し、発行された Issue 番号を作業ブランチ名またはコミットに含めること。
+- **マージゲートウェイ原則（Production & Issue PR Gates）**:
+  - **Issue PR Gate (`.github/workflows/issue-gate.yml`)**: `master` 宛ての全 Pull Request において、実在する GitHub Issue の紐付け（ブランチ名、タイトル、または本文の `Closes #123`）が必須。未紐付け PR は CI FAIL となりマージ不可。
+  - **Production PR Gate (`.github/workflows/production-gate.yml`)**: `production` ブランチへの Pull Request は **`master` ブランチからのみ** 許可（他ブランチからの直接 PR は即時自動クローズ）。
 - **完全二段階マージパイプライン (Two-Stage Release Flow)**:
   1. **Step 1 (作業ブランチ ➔ `master`)**:
-     - 作業ブランチをリモートにプッシュ: `git push -u origin <branch-name>`
-     - `master` 宛てに PR 作成: `gh pr create --base master --head <branch-name> --title "..." --body "..."`
-     - CI チェック通過後、`master` にマージ。
+     - 作業ブランチをリモートにプッシュ: `git push -u origin <branch-name>`（※Issue 存在がフックで自動検証される）
+     - `master` 宛てに PR 作成: `gh pr create --base master --head <branch-name> --title "[#<issue_num>] ..." --body "Closes #<issue_num>\n..."`
+     - CI チェック（Issue PR Gate、テスト、静的解析）通過後、`master` にマージ。
   2. **Step 2 (`master` ➔ `production`)**:
      - ローカルの `master` を最新化: `git checkout master && git pull origin master`
      - `production` 宛てにリリース PR を作成: `gh pr create --base production --head master --title "release: ..." --body "..."`

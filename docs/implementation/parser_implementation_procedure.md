@@ -108,3 +108,17 @@ def _parseSenyuMenseki(self, response):
 4. **純処理時間アサーション（1,000ms以内/件）**:
    - ネットワークHTTP通信待ち時間を完全に除外した「純粋なDOM/パース・データ処理時間」を計測し、**1件あたり1,000ms（1秒）を超過した場合はパフォーマンス劣化バグとしてテスト失敗 (FAIL)** と判定する。
 
+## 8. 抽出結果検証 ＆ 欠損・0補完隠蔽防止エラーロギング規約 (Issue #209)
+パーサーのセレクター指定ミスや画面構造変更による項目抽出漏れを早期検知・可視化するため、基底クラス `ParserBase.clean_parsed_item()` の冒頭で `validate_extracted_fields(item)` が自動実行されます。
+
+- **検査対象フィールド（種別別）**:
+  - **マンション**: `price`, `address`, `senyuMenseki`, `madori`, `chikunengetsuStr`, `kouzou`
+  - **戸建**: `price`, `address`, `tochiMenseki`, `tatemonoMenseki`, `madori`, `chikunengetsuStr`, `kouzou`
+  - **土地**: `price`, `address`, `tochiMenseki`
+  - **投資用**: `price`, `address`, `grossYield`, `annualRent`, `kouzou`
+- **検知条件**:
+  - 値が `None`、空文字 `""`、または本来正数であるべき項目（面積・価格・賃料・利回り等）での `0`（`Decimal('0.0')` 含む）。
+- **エラーロギング**:
+  - 未抽出・不正0値を検知した場合、`logging.error("[PARSER_EXTRACTION_ERROR] Failed to extract expected field ...")` を出力し、0補完による欠損隠蔽を防止します。
+
+

@@ -310,6 +310,14 @@
 - **Tochi**: `tochiMenseki`, `kenpei`, `youseki`
 - **Investment**: `landArea`, `buildingArea`
 
+#### FR-007-VAL: 全サイト全項目抽出検証・0補完隠蔽防止エラーロギング (Extraction Field Validation & Zero-Coercion Concealment Prevention)
+- **暗黙0補完の隠蔽排除**: `clean_parsed_item` による未取得数値の 0 や未取得文字列の空文字への自動補完を行う前に、各パーサーが意図通り全項目を抽出できたかの完全性検証（`validate_extracted_fields`）を全物件で実行すること。
+- **欠損・セレクター不整合の即時検知**: セレクター指定ミスやHTML要素欠落によって、本来取得されるべき重要スペック項目（面積、間取り、築年月、構造、権利、利回り等）が `None`, 空文字, または不正な `0` となっている場合、単に隠蔽・握りつぶさず、URL・会社・物件種別・欠落フィールド名を含む明示的な `[PARSER_EXTRACTION_ERROR]` ログ（`logging.error`）を出力すること。
+- **項目重要度別ハンドリング**:
+  - **致命的必須項目 (`price`, `address`)**: 欠損時は `LoadPropertyPageException` を送出して処理を中断し、エラーHTML保存およびアラート発報。
+  - **重要スペック項目 (`menseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `grossYield` 等)**: `[PARSER_EXTRACTION_ERROR]` ログを記録し、後続のAIフォールバック補完へ連携。
+  - **任意・付加項目 (`kanrihi`, `syuzenTsumitate`, `kaisu`, `setsudou` 等)**: `[PARSER_EXTRACTION_WARN]` を記録。
+
 ### 2.3 テスト・品質保証機能
 
 #### FR-008: ライブサイト到達・動的パース検証統合テスト
