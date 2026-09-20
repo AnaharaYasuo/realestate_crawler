@@ -94,3 +94,61 @@ def test_misawa_investment_connector():
     finally:
         loop.close()
 
+
+def test_keio_parser_get_response_bs():
+    from unittest.mock import patch, MagicMock
+    p = KeioMansionParser()
+    import asyncio
+
+    # Success case with JSON html
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"html": "<p>Hello Keio</p>"}
+    with patch("package.parser.keioParser.requests.get", return_value=mock_resp):
+        soup = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/result/123", "utf-8"))
+        assert "Hello Keio" in soup.text
+
+    # Exception case returns empty soup
+    with patch("package.parser.keioParser.requests.get", side_effect=RuntimeError("network error")):
+        soup_err = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/result/123", "utf-8"))
+        assert soup_err.text == ""
+
+
+def test_base_parser_xpath_starts_with_and_not_contains():
+    p = MitsuiMansionParser()
+    # Test _parsePageCore logic with starts-with and not(contains)
+    xpath = "//a[starts-with(@href, '/buy/') and not(contains(@href, '/store/')) and contains(@href, 'mansion')]"
+    html = '''<html><body>
+        <a href="/buy/mansion/tokyo/">Tokyo</a>
+        <a href="/buy/mansion/store/123/">Store</a>
+        <a href="/rent/mansion/tokyo/">Rent</a>
+    </body></html>'''
+    soup = BeautifulSoup(html, "html.parser")
+    urls = list(p._parsePageCore(soup, xpath))
+    assert len(urls) == 1
+    assert "/buy/mansion/tokyo/" in urls[0]
+
+
+def test_api_middle_page_next_page_fetch():
+    from unittest.mock import AsyncMock, patch
+    from package.api.api import ParseMiddlePageAsyncBase
+
+    class DummyMiddlePage(ParseMiddlePageAsyncBase):
+        def _getStartUrl(self):
+            return "http://test.example.com"
+        def _getNextPage(self, response):
+            return ["http://test.example.com/next"]
+        def _getDetailUrlList(self, response):
+            return ["http://test.example.com/detail/1"]
+
+    obj = DummyMiddlePage()
+    import asyncio
+
+    async def run():
+        with patch.object(obj, "_fetch", new_callable=AsyncMock) as mock_fetch:
+            urls = await obj._parseMiddlePageCore(BeautifulSoup("<html></html>", "html.parser"), None)
+            assert "http://test.example.com/detail/1" in urls
+            mock_fetch.assert_awaited()
+
+    asyncio.run(run())
+
+
