@@ -256,7 +256,7 @@ def predict_mansion():
         return _predict_price_internal('mansion', data)
     except Exception as e:
         logging.error(f"Error in predict_mansion: {e}", exc_info=True)
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "An internal server error occurred."}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST', 'OPTIONS'])
 def predict_kodate():
@@ -382,7 +382,7 @@ def predict_kodate():
         return _predict_price_internal('kodate', data)
     except Exception as e:
         logging.error(f"Error in predict_kodate: {e}", exc_info=True)
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "An internal server error occurred."}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST', 'OPTIONS'])
 def predict_apartment():
@@ -516,7 +516,7 @@ def predict_apartment():
         return _predict_price_internal('apartment', data)
     except Exception as e:
         logging.error(f"Error in predict_apartment: {e}", exc_info=True)
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "An internal server error occurred."}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST', 'OPTIONS'])
 def predict_tochi():
@@ -627,7 +627,7 @@ def predict_tochi():
         return _predict_price_internal('tochi', data)
     except Exception as e:
         logging.error(f"Error in predict_tochi: {e}", exc_info=True)
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "An internal server error occurred."}), 500
 
 
 def _extract_property_info(item):
@@ -1094,7 +1094,7 @@ def predict_by_url():
         return jsonify({
             "success": False,
             "error_code": "INTERNAL_SERVER_ERROR",
-            "message": str(e)
+            "message": "An internal server error occurred."
         }), 500
     finally:
         try:

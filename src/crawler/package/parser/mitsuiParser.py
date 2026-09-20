@@ -222,7 +222,7 @@ class MitsuiParser(ParserBase):
 
         filtered_lines = []
         for l in lines:
-            if l and not ("@context" in l or "schema.org" in l or "{" in l):
+            if l and not ("@context" in l or "schema" in l.lower() or "{" in l):
                 filtered_lines.append(l)
         return filtered_lines
 

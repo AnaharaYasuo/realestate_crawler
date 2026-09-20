@@ -18,14 +18,14 @@ async def test_rate_limit_middleware():
 async def test_logging_middleware_request():
     from unittest.mock import patch
     mw = LoggingMiddleware()
-    context = {"method": "POST", "url": "http://test.com", "payload": {"key": "value"}}
+    context = {"method": "POST", "url": "http://test-server.internal", "payload": {"key": "value"}}
     with patch("package.api.middleware.logger.info") as mock_log:
         result = await mw.process_request(context)
         assert result is None
         mock_log.assert_called_once()
         log_str = mock_log.call_args[0][0]
         assert "POST" in log_str
-        assert "http://test.com" in log_str
+        assert "http://test-server.internal" in log_str
         assert "key" in log_str
 
 
@@ -35,7 +35,7 @@ async def test_logging_middleware_response():
     mw = LoggingMiddleware()
 
     # 1. 200 OK -> INFO
-    context_200 = {"status": 200, "url": "http://test.com", "data": "<html>success</html>"}
+    context_200 = {"status": 200, "url": "http://test-server.internal", "data": "<html>success</html>"}
     with patch("package.api.middleware.logger.info") as mock_info:
         result = await mw.process_response(context_200)
         assert result["status"] == 200
@@ -44,7 +44,7 @@ async def test_logging_middleware_response():
         assert "200" in log_str
 
     # 2. 404 Not Found -> WARNING
-    context_404 = {"status": 404, "url": "http://test.com/missing", "data": "<html>not found</html>"}
+    context_404 = {"status": 404, "url": "http://test-server.internal/missing", "data": "<html>not found</html>"}
     with patch("package.api.middleware.logger.warning") as mock_warn:
         result = await mw.process_response(context_404)
         assert result["status"] == 404
@@ -53,7 +53,7 @@ async def test_logging_middleware_response():
         assert "404" in log_str
 
     # 3. 500 Internal Server Error -> ERROR
-    context_500 = {"status": 500, "url": "http://test.com/error", "data": "<html>server error</html>"}
+    context_500 = {"status": 500, "url": "http://test-server.internal/error", "data": "<html>server error</html>"}
     with patch("package.api.middleware.logger.error") as mock_err:
         result = await mw.process_response(context_500)
         assert result["status"] == 500
