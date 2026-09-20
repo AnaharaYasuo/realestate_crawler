@@ -292,7 +292,7 @@ class SingleUnifiedPropertyExtractor:
                     val = parse_chidai(str(v))
                     if val:
                         return val
-        rent_match = re.search(r'(?:地代|借地料)[^\d\r\n]{0,15}(\d[\d,]*(?:\.\d+)?\s*万?円)', all_text)
+        rent_match = re.search(r'((?:地代|借地料)[^\d\r\n]{0,15}\d[\d,]*(?:\.\d+)?\s*万?円(?:\s*/\s*(?:月|年))?)', all_text)
         if rent_match:
             return parse_chidai(rent_match.group(1))
         return None

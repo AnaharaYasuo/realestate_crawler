@@ -6,24 +6,11 @@
 
 ## 👑 セントラルドグマ: Issue起票 ＆ 仕様駆動開発 (Issue-Driven & Spec-Driven Development)
 
-<<<<<<< HEAD
-本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**「GitHub Issue起票 ➔ 仕様ドキュメント定義 ➔ テスト ➔ 実装」のトップダウンライフサイクルを絶対的な原則（セントラルドグマ）**とします。
-=======
 本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**「GitHub Issue起票 ➔ 仕様ドキュメント先行定義 ➔ テスト ➔ 実装」のトップダウンライフサイクルを絶対的な原則（セントラルドグマ）**とします。
->>>>>>> origin/master
 
 1. **Issueファースト ＆ 受入基準合意 (Issue-First)**:
    - 今後修正・追加する内容は、すべて Issue の単位で GitHub Issues に起票する。
    - ユーザーストーリーおよび「アクセプタンスクライテリア (受入基準)」を定義し、内容に問題がないことを確認・合意した上で実装に着手する。
-<<<<<<< HEAD
-2. **ドキュメント・ファースト (Document-First)**:
-   - 仕様マークダウンの構図（要件 ➔ 設計）は維持する。
-   - 実装を開始する前に、まず該当する設計ドキュメント（`docs/requirements/` ➔ `docs/external_design/`, `docs/basic_design/` ➔ `docs/internal_design/`）を先行更新する。
-   - 設計に定義されていないコード変更は認めない。
-3. **仕様とコードの同期 (Complete Sync)**:
-   - 実装コードは常に最新のドキュメントおよび受入基準の写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
-4. **推測の排除 (No Speculations)**:
-=======
    - 有効な Issue 番号を作業ブランチ名（例: `feature/12-auth`, `fix/34-parser`）に含めること。
 2. **プッシュ前・PRゲート自動検証 (Gate Enforcement)**:
    - Gitフック（`.githooks/pre-push`）により、GitHub Issue の存在しないブランチからの `git push` は即時ブロックされる。
@@ -35,7 +22,6 @@
 4. **仕様とコードの同期 (Complete Sync)**:
    - 実装コードは常に最新のドキュメントおよび受入基準の写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
 5. **推測の排除 (No Speculations)**:
->>>>>>> origin/master
    - 仕様が曖昧な場合は独断で実装せず、Issueの受入基準および仕様ドキュメントを明確に定めた上でコードを修正する。
 
 ---
@@ -62,26 +48,16 @@ graph TD
     A[0. GitHub Issue起票<br>ユーザーストーリー & 受入基準合意] --> B[1. ドキュメント先行更新<br>docs/requirements & design]
     B --> C[2. 受入基準テスト作成<br>pytest TDD]
     C --> D[3. 最小コード実装<br>Micro-Diff in Docker]
-<<<<<<< HEAD
-    D --> E[4. 自己検証 & リグレッション<br>pytest 100% PASS]
-    E -->|失敗| F[トラブルシューティング<br>原因分析 & 修正]
-    F --> D
-    E -->|成功| G[5. 仕様同期 & Issue基準充足<br>DB Schema, README, Issue完了]
-=======
     D --> E[4. 自己検証 & プッシュ前検証<br>pytest PASS & pre-push check]
     E -->|失敗| F[トラブルシューティング<br>原因分析 & 修正]
     F --> D
     E -->|成功| G[5. PR作成 & Issue基準充足<br>Issue PR Gate, README, Issue完了]
->>>>>>> origin/master
 ```
 
 ### 2.0 GitHub Issue起票 ＆ 受入基準合意 (Issue-Driven Initiation)
 *   **Issue起票**: 変更・新規開発・バグ修正は必ず Issue 単位で GitHub Issues に起票します。
 *   **受入基準 (AC) の合意**: 概要/ユーザーストーリー、アクセプタンスクライテリア（受入基準）を明記し、内容に問題がないことを確認・合意した上で実装へ進みます。
-<<<<<<< HEAD
-=======
 *   **ブランチ作成**: 発行された Issue 番号を含むブランチ（例: `feature/12-add-login`, `fix/34-fix-parser`）を作成します。
->>>>>>> origin/master
 
 ### 2.1 調査・文脈ロード ＆ ドキュメント先行更新 (Research & Spec-First)
 *   **コードとテストの把握**: 変更対象のコードおよび既存テスト（`tests/unit/test_*.py`）を確認します。

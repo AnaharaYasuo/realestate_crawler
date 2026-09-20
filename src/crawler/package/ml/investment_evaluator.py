@@ -244,7 +244,7 @@ def evaluate_investment_property(property_obj, evaluation_record):
 
     # 借地権の場合、支払地代をNOIから差し引く (実額地代を最優先、未記載時は更地想定価格の 1.0% / 年 と仮定)
     chidai_val = getattr(property_obj, "chidai", None)
-    is_leasehold = any(x in combined_str_lower for x in ["借地", "賃借", "定期", "定借"])
+    is_leasehold = any(x in combined_str_lower for x in ["借地", "賃借", "定期借地", "定借"])
 
     land_rent_annual_man = 0.0
     if chidai_val and float(chidai_val) > 0:

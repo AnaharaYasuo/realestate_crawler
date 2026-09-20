@@ -226,3 +226,21 @@ def test_unified_property_extractor_ground_rent_from_appeals_fallback(monkeypatc
     assert res.rights_economic_conditions.land_rights_type == "普通借地権"
 
 
+def test_unified_property_extractor_ground_rent_annual_normalized(monkeypatch):
+    """アピール文等の年額地代表記が月額に正規化されること"""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    input_data = {
+        "title": "中野区 戸建て",
+        "site": "athome",
+        "property_type": "kodate",
+        "specs": {"土地権利": "普通借地権"},
+        "appeals": ["地代 年額240,000円"],
+        "features": [],
+        "snippets": []
+    }
+    extractor = SingleUnifiedPropertyExtractor()
+    res = extractor.extract(input_data)
+    assert res.rights_economic_conditions.ground_rent_monthly_yen == 20000
+
+
+

@@ -2074,7 +2074,7 @@ WARNING: Skipping save for this property due to validation errors.
 ## 28. 物件評価・価格推定テーブル (PropertyEvaluation)
 
 ### 28.1 property_evaluation
-**テーブル名**: `package_propertyevaluation`  
+**テーブル名**: `property_evaluation`  
 **目的**: 各不動産会社テーブルの物件と 1:1 に紐づき、一次・二次機械学習推論結果、投資収支指標、および借地権における地代負債評価を永続化する。
 
 | カラム名 | 型 | NULL | インデックス | 説明 |

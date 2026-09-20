@@ -108,9 +108,8 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
                     existing.first_stage_predicted_price = price_stage1
                     existing.is_first_stage_passed = is_passed
                     existing.analysis_status = "pending"
-                    if monthly_rent is not None:
-                        existing.monthly_land_rent = monthly_rent
-                        existing.land_rent_liability = liability
+                    existing.monthly_land_rent = monthly_rent
+                    existing.land_rent_liability = liability
                     
                     if is_passed and not existing.duplicate_of:
                         dup = find_duplicate_property(existing, new_prop=item)

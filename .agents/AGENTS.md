@@ -53,12 +53,8 @@
 
 0. **Step 0: GitHub Issues による課題・要求の起票 ＆ 受入基準策定 (Issue-Driven)**:
    - 今後修正・追加する内容はすべて **Issue の単位で GitHub Issues に起票**する。
-<<<<<<< HEAD
-   - 起票された Issue の記載内容（ユーザーストーリー、受入基準等）に問題がないことを確認・合意した上で、後続のドキュメント更新および実装に着手する。
-=======
    - 起票された Issue の記載内容（ユーザーストーリー、受入基準等）に問題がないことを確認・合意した上で、後続のブランチ作成・ドキュメント更新・実装に着手する。
    - **プッシュ＆PR制約**: 有効な GitHub Issue が存在しない作業ブランチは、ローカル Git フック（`.githooks/pre-push`）でリモートへの `git push` が拒否され、GitHub Actions（`.github/workflows/issue-gate.yml`）で `master` への PR マージがブロックされる。
->>>>>>> origin/master
    - **フィーチャーチケット（機能追加・改善）の標準構成**:
      ```markdown
      ## 1. 概要 / ユーザーストーリー

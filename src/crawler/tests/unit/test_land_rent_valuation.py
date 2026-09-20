@@ -107,3 +107,35 @@ def test_features_extracts_from_text_fallback_for_leasehold():
     assert feats["annual_land_rent"] == 36.0
     assert abs(feats["land_rent_liability"] - 720.0) < 0.1
 
+
+def test_features_extracts_annual_rent_from_text_fallback():
+    """借地権物件で『地代 年額240,000円』等の年額表記が正しく月額に正規化されること"""
+    prop = MockProperty(price=50000000, chidai=None, chidaiStr="", tochikenri="借地権", biko="地代 年額240,000円、別途保証金あり")
+    feats = build_features(prop, "kodate")
+
+    assert feats["monthly_land_rent"] == 2.0  # 240,000 / 12 = 20,000円 -> 2.0万円
+    assert feats["annual_land_rent"] == 24.0
+    assert abs(feats["land_rent_liability"] - 480.0) < 0.1
+
+    prop2 = MockProperty(price=50000000, chidai=None, chidaiStr="", tochikenri="借地権", biko="借地料: 24万円/年")
+    feats2 = build_features(prop2, "kodate")
+    assert feats2["monthly_land_rent"] == 2.0
+    assert feats2["annual_land_rent"] == 24.0
+
+
+def test_investment_evaluator_leasehold_keyword_filtering():
+    """『定期点検』『定期清掃』等の所有権物件が誤って借地権判定されないこと"""
+    # 定期点検の所有権物件
+    prop_freehold = MockProperty(tochikenri="所有権", biko="定期点検実施済み、定期清掃あり", chidai=None)
+    eval_record = PropertyEvaluation(monthly_land_rent=None, land_rent_liability=None)
+    res_freehold = evaluate_investment_property(prop_freehold, eval_record)
+    assert res_freehold.monthly_land_rent is None
+    assert res_freehold.land_rent_liability is None
+
+    # 定期借地の物件
+    prop_leasehold = MockProperty(tochikenri="定期借地権", biko="借地期間50年", chidai=None)
+    eval_record2 = PropertyEvaluation(monthly_land_rent=None, land_rent_liability=None)
+    res_leasehold = evaluate_investment_property(prop_leasehold, eval_record2)
+    assert res_leasehold.monthly_land_rent is not None
+    assert res_leasehold.monthly_land_rent > 0
+
