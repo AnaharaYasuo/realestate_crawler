@@ -128,3 +128,14 @@ tasks:
     cmds:
       - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --all
 
+  pr-check:
+    desc: Verify that all acceptance criteria in the associated GitHub Issue are checked
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+
+  pr-create:
+    desc: Verify all issue acceptance criteria, then create Pull Request to master
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+      - gh pr create --base master
+

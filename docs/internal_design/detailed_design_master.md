@@ -369,6 +369,21 @@ graph TD
     - 違反が1件でもあれば exit code 1 で push を拒否。開発者に修正箇所を即時案内。
     - バイパス用環境変数 `SKIP_SONAR_CHECK=1` または `git push --no-verify` をサポート。
 
+### 6.25 GitHub Issue アクセプタンスクライテリアPR制限ゲートウェイ内部設計原則
+- **受入基準検証エンジン (`check_issue_criteria.py`)**:
+  - `gh issue view <issue_num> --json number,title,body,state` により対象Issueの本文を取得。
+  - 正規表現 `^[-*]\s+\[([ xX])\]\s+(.*)$` により Markdown タスクリストチェックボックスを抽出・分類。
+  - **検証ルール**:
+    1. Issue未紐付け / 存在しない場合: 検出不可エラー (Exit Code 1)
+    2. チェックボックス0件の場合: 受入基準未定義エラー (Exit Code 1)
+    3. 未チェック項目（`- [ ]`）が存在する場合: 未完了基準一覧を出力しエラー (Exit Code 1)
+    4. 全項目チェック済み（`- [x]`）の場合: 成功 (Exit Code 0)
+- **GitHub Actions 連携 (`.github/workflows/issue-gate.yml`)**:
+  - PRオープン・更新・編集時に、PRに紐づく Issue を照会し、未チェック項目が存在する場合は自動的に PR コメント（未完了基準一覧）を投稿した上で CI を FAIL とし、マージをブロック。
+- **Taskfile 連携**:
+  - `task pr-check`: カレントブランチの Issue 受入基準をローカル検証。
+  - `task pr-create`: 受入基準全件充足を事前検証した上で `gh pr create` を安全に起動。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -380,6 +395,7 @@ graph TD
 ---
 
 **最終更新**: 2026年9月20日  
-**バージョン**: 2.5 (ミューテーションテスト機構原則およびSonarCloudローカルガードレール内部設計原則追記)
+**バージョン**: 2.6 (IssueアクセプタンスクライテリアPR制限ゲートウェイ内部設計原則追記)
+
 
 

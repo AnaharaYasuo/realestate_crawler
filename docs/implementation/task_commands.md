@@ -370,6 +370,41 @@ task sonar-check-all
 
 ---
 
+### task pr-check
+
+**説明:**  
+現在の作業ブランチに関連付けられた GitHub Issue のアクセプタンスクライテリア（受入基準チェックボックス: `- [ ]`）がすべて達成・チェック済み（`- [x]`）であるかをローカルで即座に検証します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+```
+
+**使用例:**
+```bash
+task pr-check
+```
+
+---
+
+### task pr-create
+
+**説明:**  
+Issue のアクセプタンスクライテリアが全件チェック済みであることを自動事前検証し、問題がなければ `gh pr create --base master` を実行して Pull Request を提出します。未チェック項目がある場合は PR 作成を中断し、未完了項目をコンソールに出力します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+gh pr create --base master
+```
+
+**使用例:**
+```bash
+task pr-create
+```
+
+---
+
 ## トラブルシューティング
 
 ### コマンドが見つからない

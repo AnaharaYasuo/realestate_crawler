@@ -1037,4 +1037,53 @@ flowchart TD
 3. **差分高速解析 (`--diff`)**:
    - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルのみを抽出し、0.5秒以内で検査完了。全件走査（`--all`）もサポート。
 
+---
+
+## 19. GitHub Issue アクセプタンスクライテリアPR制限ゲートアーキテクチャ (Issue Acceptance Criteria PR Gate Architecture)
+
+開発者が Pull Request を作成・マージするにあたり、紐付けられた GitHub Issue に記載されているアクセプタンスクライテリア（受入基準: `- [ ]`）がすべて達成・チェック（`- [x]`）されていることを、ローカルCLIおよびGitHub Actions CIの二重防御で強制する設計。
+
+```mermaid
+flowchart TD
+    subgraph Local["ローカルゲート層 (PR作成前)"]
+        AC_CLI["check_issue_criteria.py<br/>(Issue Markdownチェックボックス解析)"]
+        Task_PR["task pr-create / task pr-check"]
+        Hook_Pre["git push (.githooks/pre-push)"]
+        AC_CLI --> Task_PR
+        AC_CLI --> Hook_Pre
+    end
+
+    subgraph CI["CI層 (GitHub Actions: issue-gate.yml)"]
+        PR_Open["Pull Request 作成 / 更新"]
+        Extract_Issue["ブランチ名 / PR本文から Issue番号抽出"]
+        Fetch_Body["gh issue view (Issue本文取得)"]
+        Check_Boxes{"全チェックボックス<br/>が [x] か?"}
+        PR_Pass["CI PASS (マージ可能)"]
+        PR_Block["CI FAIL & コメント通知<br/>(未完了基準一覧をフィードバック)"]
+        
+        PR_Open --> Extract_Issue
+        Extract_Issue --> Fetch_Body
+        Fetch_Body --> Check_Boxes
+        Check_Boxes -- YES --> PR_Pass
+        Check_Boxes -- NO (未チェック残存 or 基準未定義) --> PR_Block
+    end
+
+    Task_PR -->|全受入基準充足時のみPR作成実行| PR_Open
+```
+
+### 19.1 判定ロジックと動作仕様
+1. **Issue 存在確認**:
+   - PRのブランチ名（`feature/<issue_num>-*`, `fix/<issue_num>-*`）または PR本文（`Closes #<issue_num>`, `#<issue_num>`）から Issue 番号を抽出。
+   - Issue が未紐付け、またはリポジトリ上に存在しない場合は即座に FAIL。
+2. **アクセプタンスクライテリア定義の検証**:
+   - Issue 本文から Markdown のタスクリストチェックボックス（`^[-*]\s+\[([ xX])\]`）を全件抽出。
+   - チェックボックスが0件の場合（受入基準未策定）はマージ不可（FAIL）。
+3. **全件完了検証 (100% Completion Assertion)**:
+   - 未チェック項目（`- [ ]`）が1件でも残存している場合は、未完了の項目名一覧をPRコメントおよびジョブログに明示して CI を FAIL とし、マージをブロック。
+   - 全件が `- [x]` の場合のみ CI PASS となり、マージ可能となる。
+4. **ローカルツールと連携**:
+   - `task pr-check`: カレントブランチの Issue 受入基準のチェック状態を即座に確認。
+   - `task pr-create`: 受入基準がすべて満たされているかを自動事前判定し、合格時のみ `gh pr create` を呼び出す。
+
+
 

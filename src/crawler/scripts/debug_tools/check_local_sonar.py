@@ -252,13 +252,33 @@ def is_excluded_file(filepath: str) -> bool:
     return False
 
 
+def _resolve_safe_path(filepath: str) -> Optional[str]:
+    """Resolve filepath to a canonical safe absolute path within allowed directories."""
+    if not filepath or "\0" in filepath:
+        return None
+    try:
+        import tempfile
+        canonical = os.path.realpath(os.path.abspath(filepath))
+        allowed_roots = [
+            os.path.realpath(os.getcwd()),
+            os.path.realpath(tempfile.gettempdir()),
+        ]
+        for root in allowed_roots:
+            if os.path.commonpath([root, canonical]) == root:
+                return canonical
+        return None
+    except Exception:
+        return None
+
+
 def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> List[Dict[str, Any]]:
     """Scan a single Python file for Sonar issues."""
-    if not os.path.exists(filepath) or is_excluded_file(filepath) or not filepath.endswith(".py"):
+    safe_path = _resolve_safe_path(filepath)
+    if not safe_path or not os.path.isfile(safe_path) or is_excluded_file(safe_path) or not safe_path.endswith(".py"):
         return []
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(safe_path, "r", encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
         return [{
@@ -301,7 +321,7 @@ def get_git_diff_files() -> List[str]:
             if line.strip().endswith(".py"):
                 files.add(line.strip())
 
-    return sorted(list(files))
+    return sorted(files)
 
 
 def _determine_files_to_scan(args: argparse.Namespace) -> List[str]:
@@ -318,7 +338,7 @@ def _determine_files_to_scan(args: argparse.Namespace) -> List[str]:
     return get_git_diff_files()
 
 
-def _print_sonar_report(all_issues: List[Dict[str, Any]], scanned_count: int, max_complexity: int) -> int:
+def _print_sonar_report(all_issues: List[Dict[str, Any]], scanned_count: int) -> int:
     """Print scan results summary and return exit code."""
     print(f"Scanned {scanned_count} file(s).")
     if not all_issues:
@@ -368,7 +388,7 @@ def main() -> int:
         if issues:
             all_issues.extend(issues)
 
-    return _print_sonar_report(all_issues, scanned_count, args.max_complexity)
+    return _print_sonar_report(all_issues, scanned_count)
 
 
 if __name__ == "__main__":
