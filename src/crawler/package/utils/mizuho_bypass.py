@@ -2,9 +2,9 @@
 import logging
 from playwright.async_api import async_playwright
 
-async def get_mizuho_investment_links(url: str) -> list:
+async def get_mizuho_links(url: str) -> list:
     """
-    Playwrightを使ってWAF (403) を回避し、みずほ不動産販売の投資用一覧ページから詳細リンクを抽出する。
+    Playwrightを使ってWAF (403) を回避し、みずほ不動産販売の一覧ページから詳細リンクを抽出する。
     """
     links = []
     logging.info(f"MizuhoBypass: Initializing Playwright bypass for URL: {url}")
@@ -129,12 +129,15 @@ async def get_mizuho_investment_links(url: str) -> list:
         if context:
             try:
                 await context.close()
-            except Exception as e:
-                logging.error(f"MizuhoBypass: Error closing context: {e}")
+            except Exception:
+                pass
         if browser:
             try:
                 await browser.close()
-            except Exception as e:
-                logging.error(f"MizuhoBypass: Error closing browser: {e}")
+            except Exception:
+                pass
             
     return links
+
+# 投資用パーサーとの後方互換性エイリアス
+get_mizuho_investment_links = get_mizuho_links
