@@ -268,6 +268,11 @@ def _extract_single_eval_item(ev, model_cache: dict):
 
 
 def _collect_diagnostics_data(eval_records: list) -> list:
+    """Build diagnostic rows for evaluation records with usable property data.
+
+    Records that cannot be resolved or converted are skipped. Unexpected
+    extraction failures are logged as warnings without stopping the batch.
+    """
     model_cache = {}
     app_config = apps.get_app_config("package")
     for m in app_config.get_models():

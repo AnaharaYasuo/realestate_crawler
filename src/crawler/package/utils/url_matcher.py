@@ -65,9 +65,11 @@ class UrlMatcher:
 
     @classmethod
     def find_match_in_queryset(cls, queryset: Any, field_name: str, url: str) -> Optional[Any]:
-        """
-        QuerySetからクエリパラメータを無視してURLが一致するレコードを1件抽出。
-        DB側のQフィルターで候補を絞り込み、Python側の is_same_url で確実に検証する。
+        """Return the first record whose field matches the URL without its query.
+
+        A database filter narrows the candidates before normalized URLs are
+        compared. Query and iteration errors are logged with a traceback and
+        treated as no match.
         """
         if queryset is None or not url:
             return None

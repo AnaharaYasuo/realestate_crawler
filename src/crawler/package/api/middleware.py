@@ -69,6 +69,11 @@ class LoggingMiddleware(CrawlerMiddleware):
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Log a response summary by HTTP status and return the context unchanged.
+
+        Server errors are logged as errors, other 4xx responses as warnings, and
+        all remaining responses as informational messages.
+        """
         status = response_context.get('status')
         url = response_context.get('url')
         data = response_context.get('data') or response_context.get('text')

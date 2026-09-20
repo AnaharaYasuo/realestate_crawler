@@ -48,9 +48,13 @@ def normalize_address(address: str) -> str:
     return address
 
 def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEvaluation, prop_a=None, prop_b=None) -> float:
-    """
-    2つの PropertyEvaluation レコード（および紐づく実データ）の類似度を計算する。
-    戻り値: 0.0 (全く異なる) 〜 1.0 (完全に同一) の類似度スコア
+    """Calculate a weighted similarity score for two property evaluations.
+
+    ``prop_a`` and ``prop_b`` can supply the related property records directly;
+    omitted records are loaded from the models referenced by the evaluations.
+    Equivalent URLs return 1.0 immediately. Otherwise, compatible records are
+    scored by address, area, price, and construction date, for a maximum of 1.1.
+    Missing records or incompatible property groups return 0.0.
     """
     # 同一URLの場合は1.0（クエリパラメータ・フラグメントは無視して突合）
     if UrlMatcher.is_same_url(eval_a.property_url, eval_b.property_url):
@@ -67,6 +71,10 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
     # 実データモデルオブジェクトの取得
     # それぞれの評価レコードに紐づく物件実データをモデルから引く
     def get_real_property(eval_rec):
+        """Return the property record referenced by an evaluation, if available.
+
+        Lookup failures are logged as warnings and treated as missing records.
+        """
         try:
             from django.apps import apps
             company = eval_rec.company

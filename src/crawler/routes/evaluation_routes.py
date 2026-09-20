@@ -730,8 +730,16 @@ async def _execute_predict_by_url(
     layout_score: float,
     property_type_hint: Optional[str] = None
 ):
-    """
-    URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
+    """Return a cached or newly computed price prediction for a property URL.
+
+    Unless ``force_refresh`` is set, cached evaluation and property records are
+    preferred over a live crawl. ``property_type_hint`` disambiguates routing.
+    For a newly computed result, the interior and layout scores feed the
+    second-stage prediction and are stored with the evaluation. The function
+    may persist candidate URLs, crawled properties, and evaluation results.
+
+    Returns:
+        A response payload and its HTTP status code.
     """
     # -------------------------------------------------------------
     # Tier 1: PropertyEvaluation キャッシュ照会
