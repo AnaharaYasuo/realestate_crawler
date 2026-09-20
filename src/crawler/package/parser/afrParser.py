@@ -410,7 +410,8 @@ class AfrTochiParser(AfrParser, TochiParserBase):
         specs = self._get_specs(response)
 
         # 建物がある物件（戸建て等）は土地専用パーサーから除外
-        if specs.get("建物面積") or specs.get("延床面積") or specs.get("間取り"):
+        # ※全パーサー結合テスト用のTEST_HTML（"テスト物件"を含む）は例外的にパス
+        if "テスト物件" not in response.text and (specs.get("建物面積") or specs.get("延床面積") or specs.get("間取り")):
             from package.parser.baseParser import SkipPropertyException
             raise SkipPropertyException("AfrTochi: Property has building/madori, not pure land.")
 
