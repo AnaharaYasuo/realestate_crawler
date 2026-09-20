@@ -2,6 +2,7 @@
 """
 パーサー抽出完全性検証 ＆ 0補完・欠損隠蔽防止エラーロギングの単体テスト (TDD)
 """
+import json
 import logging
 from decimal import Decimal
 
@@ -139,3 +140,187 @@ def test_fully_extracted_property_logs_no_errors(caplog):
         parser.clean_parsed_item(item)
         extraction_errors = [r for r in caplog.records if "[PARSER_EXTRACTION_ERROR]" in r.message]
         assert len(extraction_errors) == 0
+
+
+def test_single_structured_log_per_property_with_selectors(caplog):
+    """複数項目の不備があっても物件単位で1件の構造化ログが集約出力され、URLやセレクタ情報が含まれること"""
+    parser = AthomeMansionParser()
+    parser.selectors = {"senyuMenseki": ".menseki-val", "price": ".price-num"}
+    item = parser.createEntity()
+    item.pageUrl = "https://example.com/test-single-log"
+    item.propertyName = "テスト集約マンション"
+    item.address = "東京都港区六本木1-1"
+    item.price = 70000000
+
+    # 4項目欠損
+    item.senyuMenseki = None
+    item.madori = ""
+    item.kouzou = ""
+    item.chikunengetsuStr = ""
+
+    with caplog.at_level(logging.ERROR):
+        parser.clean_parsed_item(item)
+
+        extraction_logs = [r for r in caplog.records if "[PARSER_EXTRACTION_ERROR]" in r.message]
+        # 複数項目不備があっても物件単位で1件のみ出力されること
+        assert len(extraction_logs) == 1
+
+        # 構造化ログ（JSON）の検証
+        log_msg = extraction_logs[0].message
+        assert "Payload: " in log_msg
+        payload_str = log_msg.split("Payload: ", 1)[1]
+        payload = json.loads(payload_str)
+
+        assert payload["event"] == "PARSER_EXTRACTION_ERROR"
+        assert payload["url"] == "https://example.com/test-single-log"
+        assert payload["failed_count"] == 4
+        assert set(payload["failed_fields"]) == {"senyuMenseki", "madori", "kouzou", "chikunengetsuStr"}
+        assert "selectors" in payload
+        assert payload["selectors"].get("senyuMenseki") == ".menseki-val"
+
+        # details 内の各項目にもセレクタや理由が含まれること
+        senyu_detail = next(d for d in payload["details"] if d["field"] == "senyuMenseki")
+        assert senyu_detail["selector"] == ".menseki-val"
+        assert senyu_detail["reason"] == "value is None"
+
+
+def test_model_fields_classification_coverage():
+    """モデルスキーマ動的照合: 全モデルの全フィールドが検証対象または任意・メタ項目に100%分類されていること (未分類漏れ防止)"""
+    import importlib
+    import pkgutil
+    import package.models
+    from package.parser.baseParser import ParserBase
+    from package.models.base import PropertyBaseModel
+
+    # 全モデルモジュールを動的インポート
+    for _, modname, _ in pkgutil.walk_packages(package.models.__path__, package.models.__name__ + "."):
+        importlib.import_module(modname)
+
+    def get_all_subclasses(cls):
+        subclasses = set(cls.__subclasses__())
+        for s in list(subclasses):
+            subclasses.update(get_all_subclasses(s))
+        return subclasses
+
+    all_property_models = [m for m in get_all_subclasses(PropertyBaseModel) if not m._meta.abstract]
+    assert len(all_property_models) > 20, f"Expected >20 property models, found {len(all_property_models)}"
+
+    classified_fields = ParserBase.get_classified_fields()
+    unclassified_report = {}
+
+    for model_cls in all_property_models:
+        model_fields = set(f.name for f in model_cls._meta.fields)
+        unclassified = model_fields - classified_fields
+        if unclassified:
+            unclassified_report[model_cls.__name__] = unclassified
+
+    # 未分類フィールドが1つでもあればテストFAIL（完全性担保）
+    assert len(unclassified_report) == 0, f"Unclassified fields found in models: {unclassified_report}"
+
+
+def test_mutation_testing_detection_rate():
+    """故意破損注入テスト (Mutation Testing): 各種別の全必須・重要項目を1つずつ故意に破損させ、100%検知できること"""
+    from package.parser.baseParser import ParserBase
+
+    test_cases = [
+        (
+            AthomeMansionParser(),
+            {
+                "pageUrl": "https://example.com/test",
+                "propertyName": "正常マンション",
+                "price": 50000000,
+                "priceStr": "5,000万円",
+                "address": "東京都千代田区1-1",
+                "senyuMenseki": Decimal("70.00"),
+                "madori": "3LDK",
+                "chikunengetsuStr": "2018年5月",
+                "kouzou": "RC",
+            },
+            "mansion",
+        ),
+        (
+            AthomeKodateParser(),
+            {
+                "pageUrl": "https://example.com/test",
+                "propertyName": "正常戸建",
+                "price": 45000000,
+                "priceStr": "4,500万円",
+                "address": "東京都世田谷区1-1",
+                "tochiMenseki": Decimal("100.00"),
+                "tatemonoMenseki": Decimal("90.00"),
+                "madori": "4LDK",
+                "chikunengetsuStr": "2015年10月",
+                "kouzou": "木造",
+            },
+            "kodate",
+        ),
+        (
+            AthomeTochiParser(),
+            {
+                "pageUrl": "https://example.com/test",
+                "propertyName": "正常土地",
+                "price": 30000000,
+                "priceStr": "3,000万円",
+                "address": "東京都杉並区1-1",
+                "tochiMenseki": Decimal("120.00"),
+            },
+            "tochi",
+        ),
+        (
+            AthomeInvestmentApartmentParser(),
+            {
+                "pageUrl": "https://example.com/test",
+                "propertyName": "正常投資アパート",
+                "price": 80000000,
+                "priceStr": "8,000万円",
+                "address": "東京都中野区1-1",
+                "grossYield": Decimal("7.50"),
+                "annualRent": 6000000,
+                "kouzou": "軽量鉄骨",
+            },
+            "investment",
+        ),
+    ]
+
+    for parser, valid_kwargs, prop_type in test_cases:
+        expected_fields = ParserBase.EXPECTED_SPEC_FIELDS_BY_TYPE[prop_type]
+
+        for target_field in expected_fields:
+            # 正常ベースオブジェクト生成
+            item = parser.createEntity()
+            for k, v in valid_kwargs.items():
+                setattr(item, k, v)
+
+            # 正常状態ではエラーゼロであることを確認
+            base_errors = parser.validate_extracted_fields(item)
+            assert len(base_errors) == 0, f"Baseline should be valid for {prop_type}, but got: {base_errors}"
+
+            # 1項目だけ故意に破損 (Mutation Injection)
+            item_mutated = parser.createEntity()
+            for k, v in valid_kwargs.items():
+                setattr(item_mutated, k, v)
+
+            # None破損
+            setattr(item_mutated, target_field, None)
+            if target_field == "annualRent":
+                setattr(item_mutated, "monthlyRent", None)
+            mutated_errors = parser.validate_extracted_fields(item_mutated)
+            caught_fields = [e["field"] for e in mutated_errors]
+            assert target_field in caught_fields, f"Mutation (None) of '{target_field}' not caught in {prop_type}!"
+
+            # 0値または空文字破損
+            item_zero = parser.createEntity()
+            for k, v in valid_kwargs.items():
+                setattr(item_zero, k, v)
+            if target_field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
+                setattr(item_zero, target_field, Decimal("0.0"))
+            elif target_field == "annualRent":
+                setattr(item_zero, "annualRent", 0)
+                setattr(item_zero, "monthlyRent", 0)
+            else:
+                setattr(item_zero, target_field, "")
+            zero_errors = parser.validate_extracted_fields(item_zero)
+            caught_zero_fields = [e["field"] for e in zero_errors]
+            assert target_field in caught_zero_fields, f"Mutation (Zero/Empty) of '{target_field}' not caught in {prop_type}!"
+
+
