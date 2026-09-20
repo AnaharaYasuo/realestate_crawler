@@ -65,6 +65,7 @@ jobs:
             const systemErrors = [];
             let crPending = false;
             let crPendingMsg = '';
+            let allCheckRuns = [];
 
             try {
               const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
@@ -79,13 +80,13 @@ jobs:
                 crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
               }
 
-              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+              allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
                 ref: headSha,
                 per_page: 100
               });
-              const crChecks = checkRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
+              const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
               const inProgressCheck = crChecks.find(c => c.status !== 'completed');
               if (inProgressCheck) {
                 crPending = true;
@@ -246,7 +247,7 @@ jobs:
               'checkov iac'
             ];
             const failedSecurityChecks = [];
-            for (const c of checkRuns) {
+            for (const c of allCheckRuns) {
               const matchesSecurity = securityCheckKeywords.some(keyword => (c.name || '').toLowerCase().includes(keyword));
               if (matchesSecurity && c.status === 'completed' && c.conclusion !== 'success' && c.conclusion !== 'neutral' && c.conclusion !== 'skipped') {
                 failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
