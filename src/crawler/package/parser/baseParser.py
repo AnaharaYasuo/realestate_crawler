@@ -7,6 +7,7 @@ import re
 
 from abc import ABCMeta, abstractmethod
 from decimal import Decimal
+from typing import Any, Optional
 from builtins import Exception
 
 import asyncio
@@ -430,122 +431,135 @@ class ParserBase(metaclass=ABCMeta):
                     return nxt
         return None
 
+    def _resolve_validation_property_type(self, item: models.Model) -> str:
+        pt = (getattr(self, 'property_type', '') or '').lower()
+        if 'mansion' in pt:
+            return 'mansion'
+        if 'kodate' in pt and 'invest' not in pt:
+            return 'kodate'
+        if 'tochi' in pt:
+            return 'tochi'
+        if 'invest' in pt or 'apartment' in pt:
+            return 'investment'
+
+        mname = item.__class__.__name__.lower()
+        if 'mansion' in mname or hasattr(item, 'senyuMenseki'):
+            return 'mansion'
+        if 'invest' in mname or 'apartment' in mname or hasattr(item, 'grossYield'):
+            return 'investment'
+        if 'kodate' in mname or hasattr(item, 'tatemonoMenseki'):
+            return 'kodate'
+        if 'tochi' in mname or hasattr(item, 'tochiMenseki'):
+            return 'tochi'
+        return 'general'
+
+    @staticmethod
+    def _validate_numeric_field_val(val: Any) -> tuple[bool, str]:
+        if val is None:
+            return True, "value is None"
+        if isinstance(val, (int, float, Decimal)) and val <= 0:
+            return True, f"invalid non-positive value ({val})"
+        if isinstance(val, str):
+            s = val.strip().lower()
+            if s in ['', 'none', 'null']:
+                return True, "empty string"
+            try:
+                if float(s) <= 0:
+                    return True, f"invalid non-positive value string ({val})"
+            except ValueError:
+                pass
+        return False, ""
+
+    @staticmethod
+    def _validate_rent_field_val(item: models.Model, rent_val: Any) -> tuple[bool, str]:
+        m_rent = getattr(item, 'monthlyRent', None)
+        has_rent = False
+        if rent_val is not None:
+            try:
+                if float(rent_val) > 0:
+                    has_rent = True
+            except (ValueError, TypeError):
+                pass
+        if not has_rent and m_rent is not None:
+            try:
+                if float(m_rent) > 0:
+                    has_rent = True
+            except (ValueError, TypeError):
+                pass
+        if not has_rent:
+            return True, f"annualRent and monthlyRent are both missing or zero (annualRent={rent_val}, monthlyRent={m_rent})"
+        return False, ""
+
+    @staticmethod
+    def _validate_general_field_val(val: Any) -> tuple[bool, str]:
+        if val is None:
+            return True, "value is None"
+        if isinstance(val, str) and val.strip().lower() in ['', 'none', 'null']:
+            return True, "empty string"
+        return False, ""
+
+    def _validate_item_field(self, item: models.Model, field: str) -> Optional[dict]:
+        if not hasattr(item, field):
+            return None
+        val = getattr(item, field, None)
+
+        if field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
+            is_invalid, reason = self._validate_numeric_field_val(val)
+        elif field == 'annualRent':
+            is_invalid, reason = self._validate_rent_field_val(item, val)
+        else:
+            is_invalid, reason = self._validate_general_field_val(val)
+
+        if is_invalid:
+            return {
+                "field": field,
+                "value": str(val) if isinstance(val, Decimal) else val,
+                "reason": reason,
+                "selector": self._get_field_selector(getattr(self, 'selectors', {}) or {}, field),
+            }
+        return None
+
     def validate_extracted_fields(self, item: models.Model) -> list[dict]:
         """
         全サイト全項目のスクレイピング抽出結果検証 (Issue #209)
         重要・必須スペック項目が未抽出(None/空文字)または不正な0値に補完されていないかを検証し、
         問題がある場合は [PARSER_EXTRACTION_ERROR] をエラーログとして出力する。
         """
-        pt = (getattr(self, 'property_type', '') or '').lower()
-        if 'mansion' in pt:
-            prop_type = 'mansion'
-        elif 'kodate' in pt and 'invest' not in pt:
-            prop_type = 'kodate'
-        elif 'tochi' in pt:
-            prop_type = 'tochi'
-        elif 'invest' in pt or 'apartment' in pt:
-            prop_type = 'investment'
-        else:
-            mname = item.__class__.__name__.lower()
-            if 'mansion' in mname or hasattr(item, 'senyuMenseki'):
-                prop_type = 'mansion'
-            elif 'invest' in mname or 'apartment' in mname or hasattr(item, 'grossYield'):
-                prop_type = 'investment'
-            elif 'kodate' in mname or hasattr(item, 'tatemonoMenseki'):
-                prop_type = 'kodate'
-            elif 'tochi' in mname or hasattr(item, 'tochiMenseki'):
-                prop_type = 'tochi'
-            else:
-                prop_type = 'general'
-
+        prop_type = self._resolve_validation_property_type(item)
         expected_fields = self.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, ['price', 'address'])
-        errors = []
+        errors: list[dict] = []
+
+        for field in expected_fields:
+            err = self._validate_item_field(item, field)
+            if err:
+                errors.append(err)
+
+        if errors and not getattr(item, '_extraction_error_logged', False):
+            item._extraction_error_logged = True
+            self._log_extraction_errors(item, prop_type, errors)
+
+        return errors
+
+    def _log_extraction_errors(self, item: models.Model, prop_type: str, errors: list[dict]):
         url = getattr(item, 'pageUrl', '') or 'unknown'
         model_name = item.__class__.__name__
         company = getattr(self, 'company', '') or getattr(self, '__class__', type(self)).__name__
-
-        for field in expected_fields:
-            if not hasattr(item, field):
-                continue
-            val = getattr(item, field, None)
-            is_invalid = False
-            reason = ""
-
-            if field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
-                if val is None:
-                    is_invalid = True
-                    reason = "value is None"
-                elif isinstance(val, (int, float, Decimal)) and val <= 0:
-                    is_invalid = True
-                    reason = f"invalid non-positive value ({val})"
-                elif isinstance(val, str):
-                    s = val.strip().lower()
-                    if s in ['', 'none', 'null']:
-                        is_invalid = True
-                        reason = "empty string"
-                    else:
-                        try:
-                            if float(s) <= 0:
-                                is_invalid = True
-                                reason = f"invalid non-positive value string ({val})"
-                        except ValueError:
-                            pass
-            elif field == 'annualRent':
-                rent_val = val
-                m_rent = getattr(item, 'monthlyRent', None)
-                has_rent = False
-                if rent_val is not None:
-                    try:
-                        if float(rent_val) > 0:
-                            has_rent = True
-                    except (ValueError, TypeError):
-                        pass
-                if not has_rent and m_rent is not None:
-                    try:
-                        if float(m_rent) > 0:
-                            has_rent = True
-                    except (ValueError, TypeError):
-                        pass
-                if not has_rent:
-                    is_invalid = True
-                    reason = f"annualRent and monthlyRent are both missing or zero (annualRent={rent_val}, monthlyRent={m_rent})"
-            else:
-                if val is None:
-                    is_invalid = True
-                    reason = "value is None"
-                elif isinstance(val, str) and val.strip().lower() in ['', 'none', 'null']:
-                    is_invalid = True
-                    reason = "empty string"
-
-            if is_invalid:
-                errors.append({
-                    "field": field,
-                    "value": str(val) if isinstance(val, Decimal) else val,
-                    "reason": reason,
-                    "selector": self._get_field_selector(getattr(self, 'selectors', {}) or {}, field),
-                })
-
-        # 物件単位でまとめて1件の構造化エラーログを出力 (重複防止ガード付き)
-        if errors and not getattr(item, '_extraction_error_logged', False):
-            item._extraction_error_logged = True
-            selectors = getattr(self, 'selectors', {}) or {}
-            log_payload = {
-                "event": "PARSER_EXTRACTION_ERROR",
-                "url": url,
-                "propertyName": getattr(item, "propertyName", "") or "",
-                "company": company,
-                "model": model_name,
-                "property_type": prop_type,
-                "failed_count": len(errors),
-                "failed_fields": [e["field"] for e in errors],
-                "details": errors,
-                "selectors": selectors,
-            }
-            logging.error(
-                f"[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json.dumps(log_payload, ensure_ascii=False, default=str)}"
-            )
-
-        return errors
+        selectors = getattr(self, 'selectors', {}) or {}
+        log_payload = {
+            "event": "PARSER_EXTRACTION_ERROR",
+            "url": url,
+            "propertyName": getattr(item, "propertyName", "") or "",
+            "company": company,
+            "model": model_name,
+            "property_type": prop_type,
+            "failed_count": len(errors),
+            "failed_fields": [e["field"] for e in errors],
+            "details": errors,
+            "selectors": selectors,
+        }
+        logging.error(
+            f"[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json.dumps(log_payload, ensure_ascii=False, default=str)}"
+        )
 
     def clean_parsed_item(self, item: models.Model) -> models.Model:
         # Issue #209: 全サイト全項目の抽出結果検証（0補完・欠損隠蔽防止エラーロギング）
