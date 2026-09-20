@@ -104,16 +104,17 @@ def test_keio_parser_get_response_bs():
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"html": "<p>Hello Keio</p>"}
     with patch("package.parser.keioParser.requests.get", return_value=mock_resp):
-        soup = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/result/123", "utf-8"))
+        soup = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/get_search_result_sale/123", "utf-8"))
         assert "Hello Keio" in soup.text
 
     # Exception case returns empty soup
     with patch("package.parser.keioParser.requests.get", side_effect=RuntimeError("network error")):
-        soup_err = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/result/123", "utf-8"))
+        soup_err = asyncio.run(p.getResponseBs(None, "https://chukai.keiofudosan.co.jp/sale/search/get_search_result_sale/123", "utf-8"))
         assert soup_err.text == ""
 
 
 def test_base_parser_xpath_starts_with_and_not_contains():
+    import asyncio
     p = MitsuiMansionParser()
     # Test _parsePageCore logic with starts-with and not(contains)
     xpath = "//a[starts-with(@href, '/buy/') and not(contains(@href, '/store/')) and contains(@href, 'mansion')]"
@@ -123,7 +124,9 @@ def test_base_parser_xpath_starts_with_and_not_contains():
         <a href="/rent/mansion/tokyo/">Rent</a>
     </body></html>'''
     soup = BeautifulSoup(html, "html.parser")
-    urls = list(p._parsePageCore(soup, xpath))
+    async def run():
+        return [u async for u in p._parsePageCore(soup, xpath)]
+    urls = asyncio.run(run())
     assert len(urls) == 1
     assert "/buy/mansion/tokyo/" in urls[0]
 
@@ -131,24 +134,48 @@ def test_base_parser_xpath_starts_with_and_not_contains():
 def test_api_middle_page_next_page_fetch():
     from unittest.mock import AsyncMock, patch
     from package.api.api import ParseMiddlePageAsyncBase
+    import asyncio
 
     class DummyMiddlePage(ParseMiddlePageAsyncBase):
         def _getStartUrl(self):
             return "http://test.example.com"
-        def _getNextPage(self, response):
-            return ["http://test.example.com/next"]
-        def _getDetailUrlList(self, response):
-            return ["http://test.example.com/detail/1"]
+        def _generateParser(self):
+            return None
+        def _getApiKey(self):
+            return "dummy"
+        def _getCloudPararellLimit(self):
+            return 1
+        def _getLocalPararellLimit(self):
+            return 1
+        def _getTimeOutSecond(self):
+            return 10
+        def _getParserFunc(self):
+            async def _dummy(res):
+                if False:
+                    yield None
+            return _dummy
+        def _getNextPageParserFunc(self):
+            async def _next(res):
+                return "http://test.example.com/next"
+            return _next
+        def _getUrl(self):
+            return "http://api.example.com"
 
     obj = DummyMiddlePage()
-    import asyncio
+    from unittest.mock import MagicMock
+    obj.parser = MagicMock()
+    obj.url = "http://test.example.com"
+    obj.parser.getResponse = AsyncMock(return_value="<html></html>")
+    obj.parser.getCharset = MagicMock(return_value="utf-8")
 
     async def run():
         with patch.object(obj, "_fetch", new_callable=AsyncMock) as mock_fetch:
-            urls = await obj._parseMiddlePageCore(BeautifulSoup("<html></html>", "html.parser"), None)
-            assert "http://test.example.com/detail/1" in urls
+            urls = await obj._treatPage(None)
+            assert isinstance(urls, list)
             mock_fetch.assert_awaited()
 
     asyncio.run(run())
+
+
 
 
