@@ -37,7 +37,7 @@ def test_mizuho_mansion_start():
 
 
 def test_mizuho_mansion_detail():
-    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000001/"})):
+    with app.test_request_context(json={"url": "https://www.mizuho-re.co.jp/buyers/property/000000000001/"}):
         with patch("routes.mizuho_routes.ParseMizuhoMansionDetailFuncAsync") as mock_cls:
             mock_instance = MagicMock()
             mock_cls.return_value = mock_instance
@@ -61,7 +61,7 @@ def test_mizuho_kodate_start():
 
 
 def test_mizuho_kodate_detail():
-    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000002/"})):
+    with app.test_request_context(json={"url": "https://www.mizuho-re.co.jp/buyers/property/000000000002/"}):
         with patch("routes.mizuho_routes.ParseMizuhoKodateDetailFuncAsync") as mock_cls:
             mock_instance = MagicMock()
             mock_cls.return_value = mock_instance
@@ -85,7 +85,7 @@ def test_mizuho_tochi_start():
 
 
 def test_mizuho_tochi_detail():
-    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000003/"})):
+    with app.test_request_context(json={"url": "https://www.mizuho-re.co.jp/buyers/property/000000000003/"}):
         with patch("routes.mizuho_routes.ParseMizuhoTochiDetailFuncAsync") as mock_cls:
             mock_instance = MagicMock()
             mock_cls.return_value = mock_instance
@@ -109,11 +109,23 @@ def test_mizuho_investment_start():
 
 
 def test_mizuho_investment_detail():
-    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/investors/property/000000000004/"})):
+    with app.test_request_context(json={"url": "https://www.mizuho-re.co.jp/investors/property/000000000004/"}):
         with patch("routes.mizuho_routes.ParseMizuhoInvestmentDetailFuncAsync") as mock_cls:
             mock_instance = MagicMock()
             mock_cls.return_value = mock_instance
 
             res = mizuhoInvestmentDetail()
             mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/investors/property/000000000004/")
+            assert res == ("finish", 200)
+
+
+def test_mizuho_detail_with_json_string():
+    """文字列形式のJSONペイロードも透過的に処理されることを検証。"""
+    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000005/"})):
+        with patch("routes.mizuho_routes.ParseMizuhoMansionDetailFuncAsync") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
+
+            res = mizuhoMansionDetail()
+            mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000005/")
             assert res == ("finish", 200)

@@ -16,7 +16,8 @@ def mizuhoMansionStart():
 @mizuho_bp.route(API_KEY_MIZUHO_MANSION_DETAIL, methods=['POST', 'GET'])
 def mizuhoMansionDetail():
     """みずほマンション詳細クローリングエンドポイント。"""
-    request_json = json.loads(request.get_json())
+    req_data = request.get_json()
+    request_json = json.loads(req_data) if isinstance(req_data, str) else req_data
     url = request_json['url']
     ParseMizuhoMansionDetailFuncAsync().main(url)
     return ('finish', 200)
@@ -29,7 +30,8 @@ def mizuhoKodateStart():
 @mizuho_bp.route(API_KEY_MIZUHO_KODATE_DETAIL, methods=['POST', 'GET'])
 def mizuhoKodateDetail():
     """みずほ戸建て詳細クローリングエンドポイント。"""
-    request_json = json.loads(request.get_json())
+    req_data = request.get_json()
+    request_json = json.loads(req_data) if isinstance(req_data, str) else req_data
     url = request_json['url']
     ParseMizuhoKodateDetailFuncAsync().main(url)
     return ('finish', 200)
@@ -42,7 +44,8 @@ def mizuhoTochiStart():
 @mizuho_bp.route(API_KEY_MIZUHO_TOCHI_DETAIL, methods=['POST', 'GET'])
 def mizuhoTochiDetail():
     """みずほ土地詳細クローリングエンドポイント。"""
-    request_json = json.loads(request.get_json())
+    req_data = request.get_json()
+    request_json = json.loads(req_data) if isinstance(req_data, str) else req_data
     url = request_json['url']
     ParseMizuhoTochiDetailFuncAsync().main(url)
     return ('finish', 200)
@@ -55,7 +58,8 @@ def mizuhoInvestmentStart():
 @mizuho_bp.route(API_KEY_MIZUHO_INVESTMENT_DETAIL, methods=['POST', 'GET'])
 def mizuhoInvestmentDetail():
     """みずほ投資用物件詳細クローリングエンドポイント。"""
-    request_json = json.loads(request.get_json())
+    req_data = request.get_json()
+    request_json = json.loads(req_data) if isinstance(req_data, str) else req_data
     url = request_json['url']
     ParseMizuhoInvestmentDetailFuncAsync().main(url)
     return ('finish', 200)

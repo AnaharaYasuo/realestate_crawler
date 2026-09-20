@@ -125,13 +125,13 @@ async def get_mizuho_links(url: str) -> list:
                 if context:
                     try:
                         await context.close()
-                    except Exception:
-                        pass
+                    except Exception as close_error:
+                        logging.debug("MizuhoBypass: Failed to close context: %s", close_error, exc_info=True)
                 if browser:
                     try:
                         await browser.close()
-                    except Exception:
-                        pass
+                    except Exception as close_error:
+                        logging.debug("MizuhoBypass: Failed to close browser: %s", close_error, exc_info=True)
     except Exception as e:
         logging.error(f"MizuhoBypass: Error during Playwright operation: {e}")
 
