@@ -74,6 +74,63 @@ jobs:
               }
 
               console.log(`✅ Verified associated GitHub Issue #${issueNumber}: "${issue.data.title}"`);
+
+              // 3. Verify Acceptance Criteria checkboxes in Issue body
+              const issueBody = issue.data.body || '';
+              const lines = issueBody.split(/\r?\n/);
+              const checked = [];
+              const unchecked = [];
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                const match = trimmed.match(/^[-*]\s*\[([ xX])\]\s*(.*)$/);
+                if (match) {
+                  const status = match[1];
+                  const item = match[2].trim();
+                  if (!item) continue;
+                  if (status === 'x' || status === 'X') {
+                    checked.push(item);
+                  } else {
+                    unchecked.push(item);
+                  }
+                }
+              }
+
+              const totalCriteria = checked.length + unchecked.length;
+
+              if (totalCriteria === 0) {
+                const noCriteriaMsg = `⛔ **マージ不可 (受入基準未定義)**: 紐付けられた Issue #${issueNumber} にアクセプタンスクライテリア（受入基準チェックボックス \`- [ ]\`）が定義されていません。\n\n` +
+                  `PRを作成・マージするには、Issue本文に受入基準チェックボックスを記載してください。`;
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: noCriteriaMsg
+                });
+
+                core.setFailed(`Issue #${issueNumber} does not define any Acceptance Criteria checkboxes (- [ ]).`);
+                return;
+              }
+
+              if (unchecked.length > 0) {
+                const uncheckedList = unchecked.map(c => `* [ ] ${c}`).join('\n');
+                const incompleteMsg = `⛔ **マージ不可 (受入基準未達)**: 紐付けられた Issue #${issueNumber} のアクセプタンスクライテリアに未完了の項目があります (${checked.length}/${totalCriteria} 完了)。\n\n` +
+                  `すべての受入基準を満たし、Issue 本文のチェックボックスを \`- [x]\` に更新してください。\n\n` +
+                  `### 未完了の受入基準:\n${uncheckedList}`;
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: incompleteMsg
+                });
+
+                core.setFailed(`Issue #${issueNumber} has ${unchecked.length} unchecked Acceptance Criteria.`);
+                return;
+              }
+
+              console.log(`✅ All ${totalCriteria} Acceptance Criteria in Issue #${issueNumber} are checked and verified!`);
             } catch (err) {
               const notFoundMessage = `⛔ **マージ不可 (無効なIssue番号)**: 指定された Issue #${issueNumber} がリポジトリに見つかりません。\n` +
                 '有効な GitHub Issue 番号を指定してください。';

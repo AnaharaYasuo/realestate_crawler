@@ -25,7 +25,7 @@ def tokyuMansionStart():
     url = "https://www.livable.co.jp/mansion/"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuMansionStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -46,7 +46,7 @@ def tokyuMansionArea(request):
     obj = ParseTokyuMansionAreaFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuMansionArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -67,7 +67,7 @@ def tokyuMansionPropertyList(request):
     obj = ParseTokyuMansionListFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuMansionPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -88,7 +88,7 @@ def tokyuMansionPropertyDetail(request):
     obj = ParseTokyuMansionDetailFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuMansionPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -114,10 +114,10 @@ def tokyuMansionPropertyDetailTest():
 def tokyuTochiStart():
     logging.info("Start tokyuTochiStart")
     obj = ParseTokyuTochiStartAsync()
-    url = "https://www.livable.co.jp/tochi/"
+    url = "https://www.livable.co.jp/kounyu/tochi/"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuTochiStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -136,7 +136,7 @@ def tokyuTochiArea(request):
     obj = ParseTokyuTochiAreaFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuTochiArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -155,7 +155,7 @@ def tokyuTochiPropertyList(request):
     obj = ParseTokyuTochiListFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuTochiPropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -174,7 +174,7 @@ def tokyuTochiPropertyDetail(request):
     obj = ParseTokyuTochiDetailFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuTochiPropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -189,10 +189,10 @@ def tokyuTochiPropertyDetail(request):
 def tokyuKodateStart():
     logging.info("Start tokyuKodateStart")
     obj = ParseTokyuKodateStartAsync()
-    url = "https://www.livable.co.jp/kodate/"
+    url = "https://www.livable.co.jp/kounyu/kodate/"
     try:
         result = obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuKodateStart")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -211,7 +211,7 @@ def tokyuKodateArea(request):
     obj = ParseTokyuKodateAreaFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuKodateArea")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -230,7 +230,7 @@ def tokyuKodatePropertyList(request):
     obj = ParseTokyuKodateListFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuKodatePropertyList")
         logging.error(traceback.format_exc())
         return "error end", 500
@@ -249,7 +249,7 @@ def tokyuKodatePropertyDetail(request):
     obj = ParseTokyuKodateDetailFuncAsync()
     try:
         obj.main(url)
-    except:
+    except Exception:
         logging.error("Failed tokyuKodatePropertyDetail")
         logging.error(traceback.format_exc())
         return "error end", 500
