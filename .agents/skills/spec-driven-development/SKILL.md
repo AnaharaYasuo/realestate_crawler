@@ -15,6 +15,10 @@ description: "仕様駆動開発(SDD: Specification-Driven Development)に基づ
 機能追加や不具合修正に着手する前に、**修正内容を Issue の単位で GitHub Issues に起票**します。
 起票された Issue の内容に問題がないことを確認・合意（レビュー）した上で、以降の実装ステップに進みます。
 
+- **プッシュ＆PRゲート制約**:
+  - 作業ブランチ名には必ず Issue 番号を含めます（例: `feature/12-add-login`, `fix/34-fix-parser`）。
+  - 有効な GitHub Issue が存在しない場合、ローカルの `pre-push` フック（`.githooks/pre-push`）でプッシュが拒否されます。
+  - `master` 宛ての Pull Request は GitHub Actions（`.github/workflows/issue-gate.yml`）で Issue 存在・紐付けが検証され、未紐付けの場合はマージ不可となります。
 #### 1. フィーチャーチケット（機能追加・改善）の標準構成
 ```markdown
 ## 1. 概要 / ユーザーストーリー
@@ -77,5 +81,9 @@ Issue 受入基準、仕様ドキュメント、およびテストコード（Si
 バグ緊急修復や試行錯誤で実装が先行した場合も放置せず、**可及的速やかに「Issue受入基準整理 ➔ テストコード作成 (TDD) ➔ ドキュメント階層更新 (DDD)」の順で波及補正**を行います。
 
 ### Step 5: README.md インデックス完全同期 ＆ 受入基準検証
+<<<<<<< HEAD
 1. `docs/` 配下に新規作成・変更・移動があった場合、[README.md](file:///README.md) の「ドキュメント一覧」の目次リンクと解説文を同期更新します。
+=======
+1. `docs/` 配下に新規作成・変更・移動があった場合、[README.md](../../../README.md) の「ドキュメント一覧」の目次リンクと解説文を同期更新します。
+>>>>>>> origin/master
 2. GitHub Issue に記載されたアクセプタンスクライテリアのチェックボックスがすべて満たされていることを確認します。

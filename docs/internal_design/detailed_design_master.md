@@ -332,16 +332,70 @@ graph TD
   - `LoggingMiddleware.process_request`: メソッド・URLに加えてリクエストペイロード（URL, 引数パラメータ）を `INFO` レベルで出力。
   - `LoggingMiddleware.process_response`: ステータス・URLに加えてレスポンスデータプレビューを `INFO` レベルで出力。
 
+### 6.23 ユニット完全性検証ミューテーションテスト機構原則
+- **Level 1 (ドメイン・データ故意破損注入)**:
+  - 対象: 全94モデルおよび各種別パーサー（マンション・戸建・土地・投資）
+  - 破損パターン: 必須・重要スペック項目（`price`, `address`, `senyuMenseki`, `tochiMenseki`, `tatemonoMenseki`, `madori`, `kouzou`, `grossYield`, `annualRent` 等）に対し、`None`（欠損）、`0 / Decimal(0)`（不正数値）、`""`（空文字）、境界値外データの注入。
+  - アサーション: `validate_extracted_fields` により100%捕捉され、構造化JSONログ (`[PARSER_EXTRACTION_ERROR]`) が出力されることを保証。
+  - 未分類項目防止: `ParserBase.get_classified_fields()` と全モデルフィールドの差分が0件であることを動的照合。
+- **Level 2 (コード構文木AST変異エンジン)**:
+  - クラス: `package.testing.mutation_engine.ASTMutationEngine`
+  - 変異規則: 比較演算子反転（`==` ↔ `!=`, `<` ↔ `>=`, `>` ↔ `<=`, `in` ↔ `not in`）、論理演算反転（`and` ↔ `or`）、戻り値破壊（`return True` ↔ `return False`, `return obj` ↔ `return None`）。
+  - サンドボックス実行: 元ソースをバックアップし、一時的に変異コードを適用 ➔ 該当ユニットテストを実行 ➔ テスト失敗時「KILLED（殺傷成功）」、テスト成功時「SURVIVED（生存：盲点）」として記録 ➔ 即時元ファイルへ復元。
+- **運用スクリプト (`src/crawler/scripts/run_mutation_testing.py`)**:
+  - 引数: `--mode [all|data|code]`, `--threshold [85]`, `--target [module/file]`, `--report [path]`
+  - 出力: 変異体総数、殺傷数、生存数、キル率（Mutation Score）、および生存変異体のソース行・内容。
+  - Taskfile連携: `task test:mutation`, `task test:mutation-data`, `task test:mutation-code`。
+
+### 6.24 SonarCloud事前検証ローカルガードレール内部設計原則 (Local Sonar Guardrail Internals)
+- **高速AST静的解析エンジン (`check_local_sonar.py`)**:
+  - Python標準モジュール `ast` を利用し、外部依存なしで実行（1ファイル平均 10〜30ms）。
+  - **S3776 認知的複雑度 (Cognitive Complexity) 算定アルゴリズム**:
+    - `If`, `For`, `While`, `ExceptHandler` を検知時にベーススコア +1、さらにカレントネスト深度（`nesting_level`）を加算。
+    - ブール演算子（`BoolOp`: `and`, `or`）の出現ごとに +1。
+    - 早期リターン（`Return`, `Raise`, `Break`, `Continue`）はネストを浅く保つ設計を推奨するため直接の加算は行わない。
+    - 関数・メソッド単位でスコアを累積し、閾値（デフォルト15）を超過した場合は関数名、開始行、超過スコア、および寄与した制御構文を行番号付きで報告。
+  - **S8786 ReDoS（正規表現バックトラッキング）静的検知アルゴリズム**:
+    - コード中の `re` モジュール呼出し（`re.search`, `re.match`, `re.compile`, `re.findall`, `re.sub` 等）のリテラル引数を抽出。
+    - 以下の危険パターンを正規表現および構文木走査で検出:
+      1. ネストした量指定子: `(a+)+`, `([a-z]*)*` 等
+      2. 貪欲マッチの連打: `.*.*`, `.+.*`, `.*[a-z]+.*` 等の曖昧境界
+      3. 終端・開始の境界が曖昧な広域マッチ
+  - **Git差分検出モード (`--diff`)**:
+    - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルを自動抽出。
+    - `tests/`、`migrations/`、`Temp/` 等の除外ディレクトリは `sonar-project.properties` と同様にスキップ。
+  - **プッシュ前ガード (`.githooks/pre-push`) 統合**:
+    - リモート push 実行時、Issue 番号検証に成功した後、自動的に `python src/crawler/scripts/debug_tools/check_local_sonar.py --diff` を実行。
+    - 違反が1件でもあれば exit code 1 で push を拒否。開発者に修正箇所を即時案内。
+    - バイパス用環境変数 `SKIP_SONAR_CHECK=1` または `git push --no-verify` をサポート。
+
+### 6.25 GitHub Issue アクセプタンスクライテリアPR制限ゲートウェイ内部設計原則
+- **受入基準検証エンジン (`check_issue_criteria.py`)**:
+  - `gh issue view <issue_num> --json number,title,body,state` により対象Issueの本文を取得。
+  - 正規表現 `^[-*]\s+\[([ xX])\]\s+(.*)$` により Markdown タスクリストチェックボックスを抽出・分類。
+  - **検証ルール**:
+    1. Issue未紐付け / 存在しない場合: 検出不可エラー (Exit Code 1)
+    2. チェックボックス0件の場合: 受入基準未定義エラー (Exit Code 1)
+    3. 未チェック項目（`- [ ]`）が存在する場合: 未完了基準一覧を出力しエラー (Exit Code 1)
+    4. 全項目チェック済み（`- [x]`）の場合: 成功 (Exit Code 0)
+- **GitHub Actions 連携 (`.github/workflows/issue-gate.yml`)**:
+  - PRオープン・更新・編集時に、PRに紐づく Issue を照会し、未チェック項目が存在する場合は自動的に PR コメント（未完了基準一覧）を投稿した上で CI を FAIL とし、マージをブロック。
+- **Taskfile 連携**:
+  - `task pr-check`: カレントブランチの Issue 受入基準をローカル検証。
+  - `task pr-create`: 受入基準全件充足を事前検証した上で `gh pr create` を安全に起動。
+
 ---
 
 ## 7. 参照ドキュメント
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
 - [API構造ドキュメント (API Structure)](api_structure.md): エンドポイント構造と処理フロー
+- [SonarGuardrail運用ガイド](../implementation/sonar_guardrail_guide.md): VSCode設定およびコーディングパターン集
 
 ---
 
 **最終更新**: 2026年9月20日  
-**バージョン**: 2.3 (APIリクエスト・レスポンスのペイロード構造化ログ出力原則追記)
+**バージョン**: 2.6 (IssueアクセプタンスクライテリアPR制限ゲートウェイ内部設計原則追記)
+
 
 

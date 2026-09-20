@@ -33,6 +33,7 @@
 7. **仕様駆動開発スキル** (`/spec-driven-development`)
    - **GitHub Issue起票 ➔ 仕様定義 ➔ テスト ➔ コード実装** のトップダウン開発プロセス
    - 今後修正・追加する内容はすべて Issue 単位で GitHub Issues に起票し、ユーザーストーリーおよび受入基準（アクセプタンスクライテリア）に合意の上で実装
+   - **プッシュ＆PR制約**: 有効な Issue が紐付いていない場合のプッシュ拒否（`.githooks/pre-push`）および PR マージブロック（`.github/workflows/issue-gate.yml`）
    - 仕様マークダウンの構図（要件 ➔ 設計）の維持と、README.md インデックスとの完全同期
    - 参照先: `.agents/skills/spec-driven-development/SKILL.md` / `.agents/AGENTS.md`
 

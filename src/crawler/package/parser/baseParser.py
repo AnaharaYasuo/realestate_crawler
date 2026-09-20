@@ -1,16 +1,20 @@
 import chardet
 import aiohttp
 from bs4 import BeautifulSoup
+import json
 import logging
 import re
 
 from abc import ABCMeta, abstractmethod
 from decimal import Decimal
+from typing import Any, Optional
 from builtins import Exception
 
 import asyncio
 from django.db import models
 from package.utils import converter
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.url_router import UrlRouter
 
 
 class ReadPropertyNameException(Exception):
@@ -48,6 +52,64 @@ class ServerDownException(Exception):
 
 
 class ParserBase(metaclass=ABCMeta):
+    property_type = ''
+
+    EXPECTED_SPEC_FIELDS_BY_TYPE = {
+        'mansion': ['price', 'address', 'senyuMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
+        'kodate': ['price', 'address', 'tochiMenseki', 'tatemonoMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
+        'tochi': ['price', 'address', 'tochiMenseki'],
+        'investment': ['price', 'address', 'grossYield', 'annualRent', 'kouzou'],
+    }
+
+    OPTIONAL_OR_METADATA_FIELDS = {
+        'id', 'pageUrl', 'propertyName', 'priceStr', 'traffic', 'transport1',
+        'inputDate', 'inputDateTime', 'updateDateTime',
+        'transfer1', 'railway1', 'station1', 'railwayWalkMinute1Str', 'railwayWalkMinute1', 'busStation1', 'busWalkMinute1Str', 'busWalkMinute1',
+        'transfer2', 'railway2', 'station2', 'railwayWalkMinute2Str', 'railwayWalkMinute2', 'busStation2', 'busWalkMinute2Str', 'busWalkMinute2',
+        'transfer3', 'railway3', 'station3', 'railwayWalkMinute3Str', 'railwayWalkMinute3', 'busStation3', 'busWalkMinute3Str', 'busWalkMinute3',
+        'transfer4', 'railway4', 'station4', 'railwayWalkMinute4Str', 'railwayWalkMinute4', 'busStation4', 'busWalkMinute4Str', 'busWalkMinute4',
+        'transfer5', 'railway5', 'station5', 'railwayWalkMinute5Str', 'railwayWalkMinute5', 'busStation5', 'busWalkMinute5Str', 'busWalkMinute5',
+        'railwayCount', 'busUse1', 'busUse2', 'busUse3', 'busUse4', 'busUse5',
+        'senyuMensekiStr', 'chikunengetsu', 'kanrihiStr', 'kanrihi', 'syuzenTsumitateStr', 'syuzenTsumitate',
+        'balconyMensekiStr', 'balconyMenseki', 'kaisu', 'kaisuStr', 'soukosu', 'soukosuStr',
+        'saikou', 'kanriKeitai', 'kanriKaisya', 'tyusyajo',
+        'tochiMensekiStr', 'tatemonoMensekiStr', 'chikunen', 'genkyo', 'currentStatus', 'tochikenri',
+        'hikiwatashi', 'biko', 'setsudou', 'chimoku', 'youtoChiiki', 'kenpei', 'kenpeiStr', 'youseki', 'yousekiStr',
+        'maguchi', 'maguchiStr', 'okuyuki', 'okuyukiStr', 'roadWidth', 'roadWidthStr', 'roadDirection', 'roadType', 'roadStructure',
+        'monthlyRent', 'propertyType', 'notes', 'rawSpecs', 'chidai', 'chidaiStr', 'douroMuki',
+        'address1', 'address2', 'address3', 'addressKyoto', 'bikeokiba', 'boukaChiiki', 'buildingCondition', 'bunjoKaisya',
+        'chiikiChiku', 'chimokuChisei', 'chisei', 'cityPlanning', 'deliveryDate', 'direction', 'douro', 'douroHaba', 'douroKubun',
+        'facilities', 'floor', 'floorStr', 'floorType_chijo', 'floorType_chika', 'floorType_kai', 'floorType_kouzou',
+        'isSoldout', 'kadobeya', 'kaisuKouzou', 'kakuninBango', 'kanriKeitaiKaisya', 'kanrihi_p_heibei', 'kenchikuJoken',
+        'kenpeiYousekiStr', 'kokudoHou', 'kuiki', 'kyutaishin', 'manager', 'neighborhood', 'nextUpdateAt', 'nextUpdateDate',
+        'otherArea', 'otherFees', 'privateRoadBurden', 'privateRoadFee', 'roofBarukoniMenseki', 'saikenchiku',
+        'saikouKadobeya', 'saikouMuki', 'saikouMukiStr', 'saikouSaiteki', 'saikouSaitekiStr', 'schoolDistrict',
+        'sekouKaisya', 'senyouNiwaMenseki', 'setback', 'setsumen', 'shidoMenseki', 'shidoMensekiStr', 'shuzenTsumitate',
+        'sonotaChiiki', 'sonotaHiyouStr', 'startRoad', 'syuzenTsumitate_p_heibei', 'tatemonoKaisu', 'torihiki',
+        'totalFloor', 'totalFloorStr', 'transactionType', 'updateDate', 'updatedAt', 'urbanPlanning'
+    }
+
+    @classmethod
+    def get_classified_fields(cls, prop_type: str = None) -> set:
+        """検証対象(Fatal/Expected)および任意・メタ項目として分類済みの全フィールド集合"""
+        classified = set(cls.OPTIONAL_OR_METADATA_FIELDS)
+        if prop_type:
+            classified.update(cls.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, []))
+        else:
+            for fields in cls.EXPECTED_SPEC_FIELDS_BY_TYPE.values():
+                classified.update(fields)
+        return classified
+
+    def _get_field_selector(self, selectors: dict, field: str) -> str:
+        if not selectors:
+            return ""
+        if field in selectors:
+            return str(selectors[field])
+        s_name = re.sub(r'(?<!^)(?=[A-Z])', '_', field).lower()
+        for candidate in [s_name, f"{s_name}_key", f"{s_name}_selector", f"{field}_key", f"{field}_selector"]:
+            if candidate in selectors:
+                return str(selectors[candidate])
+        return ""
 
     def __init__(self):
         self._specs_cache = {}
@@ -390,7 +452,140 @@ class ParserBase(metaclass=ABCMeta):
                     return nxt
         return None
 
+    def _resolve_validation_property_type(self, item: models.Model) -> str:
+        pt = (getattr(self, 'property_type', '') or '').lower()
+        if 'mansion' in pt:
+            return 'mansion'
+        if 'kodate' in pt and 'invest' not in pt:
+            return 'kodate'
+        if 'tochi' in pt:
+            return 'tochi'
+        if 'invest' in pt or 'apartment' in pt:
+            return 'investment'
+
+        mname = item.__class__.__name__.lower()
+        if 'mansion' in mname or hasattr(item, 'senyuMenseki'):
+            return 'mansion'
+        if 'invest' in mname or 'apartment' in mname or hasattr(item, 'grossYield'):
+            return 'investment'
+        if 'kodate' in mname or hasattr(item, 'tatemonoMenseki'):
+            return 'kodate'
+        if 'tochi' in mname or hasattr(item, 'tochiMenseki'):
+            return 'tochi'
+        return 'general'
+
+    @staticmethod
+    def _validate_numeric_field_val(val: Any) -> tuple[bool, str]:
+        if val is None:
+            return True, "value is None"
+        if isinstance(val, (int, float, Decimal)) and val <= 0:
+            return True, f"invalid non-positive value ({val})"
+        if isinstance(val, str):
+            s = val.strip().lower()
+            if s in ['', 'none', 'null']:
+                return True, "empty string"
+            try:
+                if float(s) <= 0:
+                    return True, f"invalid non-positive value string ({val})"
+            except ValueError:
+                pass
+        return False, ""
+
+    @staticmethod
+    def _validate_rent_field_val(item: models.Model, rent_val: Any) -> tuple[bool, str]:
+        m_rent = getattr(item, 'monthlyRent', None)
+        has_rent = False
+        if rent_val is not None:
+            try:
+                if float(rent_val) > 0:
+                    has_rent = True
+            except (ValueError, TypeError):
+                pass
+        if not has_rent and m_rent is not None:
+            try:
+                if float(m_rent) > 0:
+                    has_rent = True
+            except (ValueError, TypeError):
+                pass
+        if not has_rent:
+            return True, f"annualRent and monthlyRent are both missing or zero (annualRent={rent_val}, monthlyRent={m_rent})"
+        return False, ""
+
+    @staticmethod
+    def _validate_general_field_val(val: Any) -> tuple[bool, str]:
+        if val is None:
+            return True, "value is None"
+        if isinstance(val, str) and val.strip().lower() in ['', 'none', 'null']:
+            return True, "empty string"
+        return False, ""
+
+    def _validate_item_field(self, item: models.Model, field: str) -> Optional[dict]:
+        if not hasattr(item, field):
+            return None
+        val = getattr(item, field, None)
+
+        if field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
+            is_invalid, reason = self._validate_numeric_field_val(val)
+        elif field == 'annualRent':
+            is_invalid, reason = self._validate_rent_field_val(item, val)
+        else:
+            is_invalid, reason = self._validate_general_field_val(val)
+
+        if is_invalid:
+            return {
+                "field": field,
+                "value": str(val) if isinstance(val, Decimal) else val,
+                "reason": reason,
+                "selector": self._get_field_selector(getattr(self, 'selectors', {}) or {}, field),
+            }
+        return None
+
+    def validate_extracted_fields(self, item: models.Model) -> list[dict]:
+        """
+        全サイト全項目のスクレイピング抽出結果検証 (Issue #209)
+        重要・必須スペック項目が未抽出(None/空文字)または不正な0値に補完されていないかを検証し、
+        問題がある場合は [PARSER_EXTRACTION_ERROR] をエラーログとして出力する。
+        """
+        prop_type = self._resolve_validation_property_type(item)
+        expected_fields = self.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, ['price', 'address'])
+        errors: list[dict] = []
+
+        for field in expected_fields:
+            err = self._validate_item_field(item, field)
+            if err:
+                errors.append(err)
+
+        if errors and not getattr(item, '_extraction_error_logged', False):
+            item._extraction_error_logged = True
+            self._log_extraction_errors(item, prop_type, errors)
+
+        return errors
+
+    def _log_extraction_errors(self, item: models.Model, prop_type: str, errors: list[dict]):
+        url = getattr(item, 'pageUrl', '') or 'unknown'
+        model_name = item.__class__.__name__
+        company = getattr(self, 'company', '') or getattr(self, '__class__', type(self)).__name__
+        selectors = getattr(self, 'selectors', {}) or {}
+        log_payload = {
+            "event": "PARSER_EXTRACTION_ERROR",
+            "url": url,
+            "propertyName": getattr(item, "propertyName", "") or "",
+            "company": company,
+            "model": model_name,
+            "property_type": prop_type,
+            "failed_count": len(errors),
+            "failed_fields": [e["field"] for e in errors],
+            "details": errors,
+            "selectors": selectors,
+        }
+        logging.error(
+            f"[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json.dumps(log_payload, ensure_ascii=False, default=str)}"
+        )
+
     def clean_parsed_item(self, item: models.Model) -> models.Model:
+        # Issue #209: 全サイト全項目の抽出結果検証（0補完・欠損隠蔽防止エラーロギング）
+        self.validate_extracted_fields(item)
+
         for field in item._meta.fields:
             val = getattr(item, field.name, None)
             if isinstance(field, (models.CharField, models.TextField)):
@@ -404,9 +599,9 @@ class ParserBase(metaclass=ABCMeta):
                         setattr(item, field.name, None)
                     else:
                         setattr(item, field.name, "")
-                    continue
-                val_cleaned = re.sub(r'\s+', ' ', val_str)
-                setattr(item, field.name, val_cleaned)
+                else:
+                    val_cleaned = re.sub(r'\s+', ' ', val_str)
+                    setattr(item, field.name, val_cleaned)
 
         # 数値フィールドの数値検証・NOT NULL制約ガード・オーバーフロー防止
         for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen', 'chidai']:
@@ -471,8 +666,10 @@ class ParserBase(metaclass=ABCMeta):
 
     def validate_required_fields(self, item: models.Model):
         errors = []
-        if hasattr(item, 'price') and item.price is None:
-            errors.append("price is None")
+        if hasattr(item, 'price'):
+            p_val = getattr(item, 'price', None)
+            if p_val is None or (isinstance(p_val, (int, float, Decimal)) and p_val <= 0):
+                errors.append(f"price is invalid or non-positive ({p_val})")
         if hasattr(item, 'address') and not getattr(item, 'address', ''):
             errors.append("address is empty")
 
@@ -507,6 +704,7 @@ class ParserBase(metaclass=ABCMeta):
             logging.exception("Failed to save error HTML")
 
     async def parsePropertyDetailPage(self, session, url) -> models.Model:
+        """物件詳細ページを取得・動的種別判定を行い、適切なパーサーでパースしてモデルインスタンスを返却"""
         if url:
             u_lower = str(url).lower()
             if any(p in u_lower for p in ["/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/"]):
@@ -541,10 +739,37 @@ class ParserBase(metaclass=ABCMeta):
                     logging.info(f"Server busy for URL: {url}")
                     raise ServerBusyException()
 
-            item = self._parsePropertyDetailPage(item, soup)
-            item = self.clean_parsed_item(item)
+            # 物件詳細到着時の動的種別判定およびパーサー自己切り替え
+            specs = self._get_specs(soup)
+            detected_type = PropertyTypeDetector.detect(
+                url=url,
+                title=title,
+                html_text=soup.get_text()[:2000],
+                specs=specs,
+                default=self.property_type
+            )
+            parser_to_use = self
+            if detected_type and self.property_type and detected_type != self.property_type:
+                target_parser = UrlRouter.create_parser(
+                    url=url,
+                    title=title,
+                    html_text=soup.get_text()[:2000],
+                    specs=specs,
+                    property_type=detected_type
+                )
+                if target_parser and target_parser.__class__ != self.__class__:
+                    logging.info(
+                        f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) "
+                        f"-> detected '{detected_type}' ({target_parser.__class__.__name__})"
+                    )
+                    parser_to_use = target_parser
+                    item = target_parser.createEntity()
+                    item.pageUrl = url
+
+            item = parser_to_use._parsePropertyDetailPage(item, soup)
+            item = parser_to_use.clean_parsed_item(item)
             item._soup = soup
-            self.validate_required_fields(item)
+            parser_to_use.validate_required_fields(item)
         except SkipPropertyException as e:
             raise e
         except (LoadPropertyPageException, TimeoutError) as e:
@@ -594,6 +819,8 @@ class MansionParserBase(ParserBase):
     """
     マンション用基底パーサークラス
     """
+    property_type = 'mansion'
+
     @abstractmethod
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -692,6 +919,8 @@ class KodateParserBase(ParserBase):
     """
     戸建て用基底パーサークラス
     """
+    property_type = 'kodate'
+
     @abstractmethod
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -782,6 +1011,8 @@ class TochiParserBase(ParserBase):
     """
     土地用基底パーサークラス
     """
+    property_type = 'tochi'
+
     @abstractmethod
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -865,6 +1096,8 @@ class InvestmentParserBase(ParserBase):
     """
     投資用物件用基底パーサークラス
     """
+    property_type = 'investment'
+
     @abstractmethod
     def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)

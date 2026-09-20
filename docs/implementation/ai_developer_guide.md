@@ -6,11 +6,16 @@
 
 ## 👑 セントラルドグマ: Issue起票 ＆ 仕様駆動開発 (Issue-Driven & Spec-Driven Development)
 
+<<<<<<< HEAD
 本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**「GitHub Issue起票 ➔ 仕様ドキュメント定義 ➔ テスト ➔ 実装」のトップダウンライフサイクルを絶対的な原則（セントラルドグマ）**とします。
+=======
+本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**「GitHub Issue起票 ➔ 仕様ドキュメント先行定義 ➔ テスト ➔ 実装」のトップダウンライフサイクルを絶対的な原則（セントラルドグマ）**とします。
+>>>>>>> origin/master
 
 1. **Issueファースト ＆ 受入基準合意 (Issue-First)**:
    - 今後修正・追加する内容は、すべて Issue の単位で GitHub Issues に起票する。
    - ユーザーストーリーおよび「アクセプタンスクライテリア (受入基準)」を定義し、内容に問題がないことを確認・合意した上で実装に着手する。
+<<<<<<< HEAD
 2. **ドキュメント・ファースト (Document-First)**:
    - 仕様マークダウンの構図（要件 ➔ 設計）は維持する。
    - 実装を開始する前に、まず該当する設計ドキュメント（`docs/requirements/` ➔ `docs/external_design/`, `docs/basic_design/` ➔ `docs/internal_design/`）を先行更新する。
@@ -18,6 +23,19 @@
 3. **仕様とコードの同期 (Complete Sync)**:
    - 実装コードは常に最新のドキュメントおよび受入基準の写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
 4. **推測の排除 (No Speculations)**:
+=======
+   - 有効な Issue 番号を作業ブランチ名（例: `feature/12-auth`, `fix/34-parser`）に含めること。
+2. **プッシュ前・PRゲート自動検証 (Gate Enforcement)**:
+   - Gitフック（`.githooks/pre-push`）により、GitHub Issue の存在しないブランチからの `git push` は即時ブロックされる。
+   - `master` 宛ての PR は GitHub Actions（`issue-gate.yml`）で Issue 紐付けが自動検証され、未紐付けの PR はマージ不可となる。
+3. **ドキュメント・ファースト (Document-First)**:
+   - 仕様マークダウンの構図（要件 ➔ 設計）は維持する。
+   - 実装を開始する前に、まず該当する設計ドキュメント（`docs/requirements/` ➔ `docs/external_design/`, `docs/basic_design/` ➔ `docs/internal_design/`）を先行更新する。
+   - 設計に定義されていないコード変更は認めない。
+4. **仕様とコードの同期 (Complete Sync)**:
+   - 実装コードは常に最新のドキュメントおよび受入基準の写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
+5. **推測の排除 (No Speculations)**:
+>>>>>>> origin/master
    - 仕様が曖昧な場合は独断で実装せず、Issueの受入基準および仕様ドキュメントを明確に定めた上でコードを修正する。
 
 ---
@@ -44,15 +62,26 @@ graph TD
     A[0. GitHub Issue起票<br>ユーザーストーリー & 受入基準合意] --> B[1. ドキュメント先行更新<br>docs/requirements & design]
     B --> C[2. 受入基準テスト作成<br>pytest TDD]
     C --> D[3. 最小コード実装<br>Micro-Diff in Docker]
+<<<<<<< HEAD
     D --> E[4. 自己検証 & リグレッション<br>pytest 100% PASS]
     E -->|失敗| F[トラブルシューティング<br>原因分析 & 修正]
     F --> D
     E -->|成功| G[5. 仕様同期 & Issue基準充足<br>DB Schema, README, Issue完了]
+=======
+    D --> E[4. 自己検証 & プッシュ前検証<br>pytest PASS & pre-push check]
+    E -->|失敗| F[トラブルシューティング<br>原因分析 & 修正]
+    F --> D
+    E -->|成功| G[5. PR作成 & Issue基準充足<br>Issue PR Gate, README, Issue完了]
+>>>>>>> origin/master
 ```
 
 ### 2.0 GitHub Issue起票 ＆ 受入基準合意 (Issue-Driven Initiation)
 *   **Issue起票**: 変更・新規開発・バグ修正は必ず Issue 単位で GitHub Issues に起票します。
 *   **受入基準 (AC) の合意**: 概要/ユーザーストーリー、アクセプタンスクライテリア（受入基準）を明記し、内容に問題がないことを確認・合意した上で実装へ進みます。
+<<<<<<< HEAD
+=======
+*   **ブランチ作成**: 発行された Issue 番号を含むブランチ（例: `feature/12-add-login`, `fix/34-fix-parser`）を作成します。
+>>>>>>> origin/master
 
 ### 2.1 調査・文脈ロード ＆ ドキュメント先行更新 (Research & Spec-First)
 *   **コードとテストの把握**: 変更対象のコードおよび既存テスト（`tests/unit/test_*.py`）を確認します。
@@ -68,13 +97,13 @@ graph TD
     *   *正しい例*: `docker compose exec -T app pytest src/crawler/tests/unit/test_mitsui_parser.py`
     *   *誤った例*: `pytest src/crawler/tests/unit/...`
 
-### 2.4 自己検証とクオリティ保証 (Self-Verification & QA)
+### 2.4 自己検証とプッシュ前検証 (Self-Verification & Pre-Push Check)
 *   **pytestの実行**: 変更後は必ずテスト（またはコンテナ内での pytest）を実行し、全件パスすることを確認します。
-*   **再現HTMLの保存**: 新たなエラーを検出した場合は、エラーが発生した物件ページHTMLを `src/crawler/tests/error_pages/{company_type}/{id}.html` に退避させ、それをテストケースに組み込みます。
+*   **プッシュ前自動検証**: `git push` 時に `.githooks/pre-push` フックが走り、ブランチ名/コミットの Issue 番号および GitHub 上の実在が確認されます。
 
-### 2.5 ドキュメント同期 ＆ 受入基準充足確認 (Documentation Sync & Verification)
-*   **スキーマ情報の更新**: モデル（`package/models/*.py`）を変更した場合、必ず [database_schema.md](../internal_design/database_schema.md) を最新の定義に手動で更新します。
-*   **READMEの更新**: `docs/` 配下にファイルを新設・変更・削除した場合は、必ず [README.md](../../README.md) の「ドキュメント一覧」を更新します。
+### 2.5 PR作成 ＆ Issue受入基準充足確認 (PR Creation & Verification)
+*   **PR作成とゲート検証**: `master` 宛てに PR を作成（`gh pr create`）。`.github/workflows/issue-gate.yml` により自動で Issue 紐付けが検証されます。
+*   **スキーマ・READMEの更新**: モデル変更時は [database_schema.md](../internal_design/database_schema.md)、ドキュメント変更時は [README.md](../../README.md) の「ドキュメント一覧」を同期します。
 *   **Issue受入基準の確認**: 起票した GitHub Issue のアクセプタンスクライテリアがすべて達成されていることを確認します。
 
 ---

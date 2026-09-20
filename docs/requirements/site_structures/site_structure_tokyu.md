@@ -7,8 +7,10 @@
 
 ## URLパターン
 
-### 1. 検索結果 (一覧ページ)
-- **中古マンション:** `https://www.livable.co.jp/kounyu/mansion/`
+### 1. スタート・検索結果 (一覧ページ)
+- **中古マンション:** `https://www.livable.co.jp/mansion/` (または `https://www.livable.co.jp/kounyu/chuko-mansion/`)
+- **戸建て:** `https://www.livable.co.jp/kounyu/kodate/` (※旧 `/kodate/` から301リダイレクトされるため正規URLへ更新)
+- **土地:** `https://www.livable.co.jp/kounyu/tochi/` (※旧 `/tochi/` は404廃止されたため `/kounyu/tochi/` へ更新)
 - **エリア検索:** `https://www.livable.co.jp/kounyu/mansion/tokyo/` など
 - **注意点:** 一覧のレンダリングはクライアントサイド(JavaScript)で行われている可能性が高い。`data-url` 属性を持つ要素から非同期で部分HTMLを取得している挙動が見られる。
     - APIエンドポイント例: `/p0078/?template-name=...`

@@ -12,10 +12,17 @@ tasks:
       - docker compose down
 
   init:
-    desc: Build and start the application with DB setup
+    desc: Build and start the application with DB setup and git hooks
     cmds:
+      - git config core.hooksPath .githooks
       - docker compose up -d --build
       - docker compose exec -T app python src/crawler/db_setup.py
+
+  setup-hooks:
+    desc: Configure local git hooks to enforce GitHub Issue checks before pushing
+    cmds:
+      - git config core.hooksPath .githooks
+
 
   logs:
     desc: Tail the application logs
@@ -58,6 +65,26 @@ tasks:
     cmds:
       - docker compose exec -T app python Temp/test_slack_dispatch.py
 
+  test-mutation:
+    desc: Run mutation testing (Level 1 Data Mutation + Level 2 Code Mutation)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=all
+
+  test-mutation-data:
+    desc: Run Level 1 Data Mutation testing (100% detection rate on 94 models)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=data
+
+  test-mutation-code:
+    desc: Run Level 2 Code Mutation testing (AST syntax mutations with kill score)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=code
+
+  test-mutation-pr:
+    desc: Run mutation testing on changed files and unit tests for PR
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --pr-mode --threshold=80
+
   snyk:
     desc: Run Snyk security scan (dependencies) locally using Docker
     cmds:
@@ -90,4 +117,25 @@ tasks:
     desc: Run SonarCloud scan locally using Docker
     cmds:
       - docker run --rm --env-file .env -v .:/usr/src sonarsource/sonar-scanner-cli
+
+  sonar-check:
+    desc: Run fast local SonarCloud guardrail (S3776 & S8786 on git diff)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+
+  sonar-check-all:
+    desc: Run fast local SonarCloud guardrail on all Python files under src/
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --all
+
+  pr-check:
+    desc: Verify that all acceptance criteria in the associated GitHub Issue are checked
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+
+  pr-create:
+    desc: Verify all issue acceptance criteria, then create Pull Request to master
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+      - gh pr create --base master
 

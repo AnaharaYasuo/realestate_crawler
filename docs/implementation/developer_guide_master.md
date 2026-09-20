@@ -40,20 +40,28 @@ task logs
 本プロジェクトの開発は **「GitHub Issue起票 ➔ 仕様ドキュメント先行定義 (SDD) ➔ テスト作成 (TDD) ➔ 実装」** の原則に従います。
 新規機能追加や不具合修正時は、まず GitHub Issues にてユーザーストーリーおよび受入基準（アクセプタンスクライテリア）を定義・合意してから着手してください。
 
+- **プッシュ＆PR制約**:
+  - 作業ブランチ名は `feature/<issue_num>-<概要>` または `fix/<issue_num>-<概要>` とします。
+  - ローカル Git フック（`.githooks/pre-push`）により、Issue 番号のないブランチや存在しない Issue からの `git push` は拒否されます。
+  - `master` 宛ての PR は GitHub Actions（`issue-gate.yml`）で Issue 紐付けが自動検証されます。
+  - 初回環境セットアップ時または `task setup-hooks` でローカルフックが有効化されます。
+
 ### 新しいサイト (Company) を追加するフロー
 1. **GitHub Issue起票**: ユーザーストーリー・受入基準を記載したIssueを作成・合意。
-2. **仕様ドキュメント更新**: `docs/requirements/` および `docs/internal_design/`（DBスキーマ等）を更新。
-3. **テストコード作成 (TDD)**: 受入基準を満たす単体テスト・パース検証テストを作成。
-4. **モデルの作成**: `src/crawler/package/models/{company}.py` を作成。
-5. **マイグレーション**: 
+2. **作業ブランチ作成**: `git checkout -b feature/<issue_num>-add-<company>`
+3. **仕様ドキュメント更新**: `docs/requirements/` および `docs/internal_design/`（DBスキーマ等）を先行更新。
+4. **テストコード作成 (TDD)**: 受入基準を満たす単体テスト・パース検証テストを作成。
+5. **モデルの作成**: `src/crawler/package/models/{company}.py` を作成。
+6. **マイグレーション**: 
    ```bash
    docker compose exec app python src/crawler/manage.py makemigrations
    docker compose exec app python src/crawler/manage.py migrate
    ```
-6. **パーサーの実装**: `src/crawler/package/parser/{company}Parser.py` を作成し、種別Baseパーサーを継承。
-7. **APIクラスの実装**: `src/crawler/package/api/{company}.py` を作成。
-8. **ルート登録**: `src/crawler/main.py` にAPIエンドポイントを追加。
-9. **テスト＆検証**: `task test` および二段階検証で受入基準の充足を確認。
+7. **パーサーの実装**: `src/crawler/package/parser/{company}Parser.py` を作成し、種別Baseパーサーを継承。
+8. **APIクラスの実装**: `src/crawler/package/api/{company}.py` を作成。
+9. **ルート登録**: `src/crawler/main.py` にAPIエンドポイントを追加。
+10. **テスト＆検証**: `task test` および二段階検証で受入基準の充足を確認。
+11. **PR作成**: `gh pr create --base master --head feature/<issue_num>-... --title "[#<issue_num>] ..." --body "Closes #<issue_num>"`
 
 ---
 
