@@ -152,12 +152,19 @@ def parse_rent(rent_str):
 
 def _extract_chidai_amount(s: str) -> int | None:
     """地代文字列から円単位の基本数値を抽出する内部ヘルパー"""
-    man_match = re.search(r'(\d+(?:\.\d+)?)\s*万(?:円)?', s)
-    if man_match:
-        try:
-            return int(float(man_match.group(1)) * 10000)
-        except (ValueError, TypeError):
-            pass
+    if "万" in s:
+        parts = s.split("万")
+        man_match = re.search(r'(\d+(?:\.\d+)?)', parts[0])
+        if man_match:
+            try:
+                man_val = int(float(man_match.group(1)) * 10000)
+                if len(parts) > 1 and "円" in parts[1]:
+                    yen_part = re.search(r'(\d[\d,]*)\s*円', parts[1])
+                    if yen_part:
+                        return man_val + int(yen_part.group(1).replace(",", ""))
+                return man_val
+            except (ValueError, TypeError):
+                pass
 
     yen_match = re.search(r'(\d[\d,]*)\s*円', s)
     if yen_match:

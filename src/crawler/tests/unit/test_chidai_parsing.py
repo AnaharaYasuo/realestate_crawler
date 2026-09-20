@@ -44,6 +44,7 @@ def test_converter_parse_chidai_various_formats():
     assert converter.parse_chidai("2万円") == 20000
     assert converter.parse_chidai("月額2.5万円") == 25000
     assert converter.parse_chidai("2.0万円/月") == 20000
+    assert converter.parse_chidai("1万2000円") == 12000
     
     # 円表記
     assert converter.parse_chidai("20,000円") == 20000

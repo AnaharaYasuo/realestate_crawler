@@ -1805,7 +1805,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         if raw_chidai_str:
             raw_chidai = converter.parse_chidai(raw_chidai_str)
     if raw_chidai is None and feats.get("is_leasehold", 0.0) >= 0.5:
-        rent_match = re.search(r'((?:地代|借地料)[^\d\r\n]{0,15}\d[\d,]*(?:\.\d+)?\s*万?円(?:\s*/\s*(?:月|年))?)', combined_text)
+        rent_match = re.search(r'((?:地代|借地料)[^\d\r\n]{0,15}\d[\d,]*(?:\.\d+)?\s*万?円(?:\s*/\s*[年月])?)', combined_text)
         if rent_match:
             raw_chidai = converter.parse_chidai(rent_match.group(1))
 
