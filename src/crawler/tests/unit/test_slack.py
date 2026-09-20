@@ -275,4 +275,33 @@ async def test_send_dev_report_default_fallback(monkeypatch):
         mock_send.assert_called_once_with(report_text, "dev-agent")
 
 
+@pytest.mark.asyncio
+async def test_send_dev_report_empty_env_fallback(monkeypatch):
+    """SLACK_DEV_CHANNELが空文字の場合でも 'dev-agent' にフォールバックすることをテスト"""
+    from package.utils.slack import send_dev_report
 
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "")
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "✅ 【空文字フォールバックテスト】"
+        result = await send_dev_report(report_text)
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "dev-agent")
+
+
+@pytest.mark.asyncio
+async def test_send_dev_report_explicit_channel_override(monkeypatch):
+    """channel 引数が明示された場合は環境変数より優先されることをテスト"""
+    from package.utils.slack import send_dev_report
+
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "✅ 【明示指定テスト】"
+        result = await send_dev_report(report_text, channel="custom-channel")
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "custom-channel")

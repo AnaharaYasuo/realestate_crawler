@@ -127,14 +127,29 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
 }
 ```
 
-### 4.3 判定基準と出力
-1. **未解決スレッドが 0 件の場合**:
+### 4.3 未完了チェックボックス検出ロジック
+PR本文（`pr.body`）、全レビュー本文（`reviews`）、全PRレビューコメント（`pulls.listReviewComments`）、全PRコメント（`issues.listComments`）を走査し、正規表現 `^[-*]\s*\[\s*\]` に合致する未完了チェックボックス（`- [ ]`）を抽出します。
+
+```javascript
+// チェックボックス検出正規表現
+const uncheckedRegex = /^[-*]\s*\[\s*\]\s*(.*)$/gm;
+```
+
+CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。
+
+### 4.4 CodeRabbit レビューステータス検証ロジック
+最新のレビュー状態を照会し、以下のいずれかに該当する場合はマージ不可と判定します：
+1. レビュー状態が `CHANGES_REQUESTED`（変更要求中）であること。
+2. CodeRabbit のレビュー実行中（ステータスチェックが `pending` または `in_progress`）であり、完了前に早期マージされようとしていること。
+
+### 4.5 判定基準と出力
+1. **未解決スレッド 0 件 かつ 未完了チェックボックス 0 件 かつ レビュー状態正常（Approved または Commented）の場合**:
    - ジョブ成功 (`SUCCESS`)。
-   - `✅ All review conversations are resolved.` を出力。
-2. **未解決スレッドが 1 件以上の場合**:
+   - `✅ All review conversations resolved and all checkboxes checked.` を出力。
+2. **未解決スレッド、未完了チェックボックス、または変更要求が存在する場合**:
    - ジョブ失敗 (`FAILED`)。
-   - PR のマージを CI ステータスチェックとしてもブロック。
-   - 未解決スレッドの一覧（ファイル名、行番号、レビュアー、コメント冒頭）を GitHub Actions ログおよび Job Summary に整形出力。
+   - PR のマージを CI ステータスチェック（`Verify All Review Conversations Resolved`）として物理ブロック。
+   - 未解決スレッドおよび未完了チェックボックスの一覧（検出元、ファイル名、行番号、内容）を GitHub Actions ログおよび Job Summary に整形出力。
 
 ---
 

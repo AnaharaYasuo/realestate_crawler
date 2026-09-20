@@ -2,17 +2,16 @@
 import os
 import sys
 import asyncio
+import aiohttp
 
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _scripts_dir = os.path.dirname(_current_dir)
 _crawler_dir = os.path.dirname(_scripts_dir)
 sys.path.insert(0, _crawler_dir)
 
-import aiohttp
-
 async def verify(target_channel: str | None = None):
     token = os.getenv("SLACK_BOT_TOKEN")
-    channel = target_channel or os.getenv("SLACK_DEV_CHANNEL") or os.getenv("SLACK_CHANNEL_ID")
+    channel = target_channel or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
     url = f"https://slack.com/api/conversations.history?channel={channel}&limit=2"
     headers = {"Authorization": f"Bearer {token}"}
     

@@ -850,14 +850,17 @@ flowchart TD
    - `master` および `production` ブランチの保護ルールとして有効化。
    - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
 2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
-   - GitHub Actions 上で PR の会話スレッドを走査。
-   - 未解決のスレッドが存在する場合、CI ジョブ「Review Conversation Gate」が FAILED となり、ステータスチェック単位でもブロックされる。
-   - 解決が必要なコメントの所在（ファイル名・行番号・コメント抜粋）が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
+   - GitHub Actions 上で PR の会話スレッド、PR本文、全レビュー本文、全コメントを走査。
+   - **未解決スレッド検証**: 未解決の会話スレッドが存在する場合、CI を FAIL。
+   - **未完了チェックボックス検証**: PR本文、CodeRabbitレビュー本文、コメント等に未完了のチェックボックス（`- [ ]`）が残存している場合、CI を FAIL。
+   - **CodeRabbit レビューステータス検証**: レビューが実行中（pending / in-progress）または `CHANGES_REQUESTED` の場合、CI を FAIL。
+   - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
 
 ### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
 - **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
 - **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
 - **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
+- **チェックボックス完備**: レビュー本文およびサマリー内のアクション・チェックボックス（`- [ ]`）がすべて完了（`- [x]`）されていることを CI ゲートが自動検証。
 - **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）、`markdownlint`（ドキュメント検証）を同時走査。
 
 ---

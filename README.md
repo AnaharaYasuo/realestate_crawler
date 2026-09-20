@@ -575,6 +575,7 @@ task logs
 - **[データベース定義書](docs/internal_design/database_schema.md)**: 各社物件テーブル、PropertyPriceHistory（価格改定履歴）定義、updateDateTimeフィールド
 - **[GCP並列分散実行内部設計書](docs/internal_design/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
 - **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
+- **[CodeRabbitレビュー＆未解決ゲート詳細設計書](docs/internal_design/coderabbit_gate_internal_design.md)**: CodeRabbit自動コードレビュー、未解決コメント・未完了チェックボックスのマージブロック強制設計
 - **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
 
 ### 2. 開発を始める
