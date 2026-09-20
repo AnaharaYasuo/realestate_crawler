@@ -44,6 +44,7 @@
 - 面積: `senyuMensekiStr` (例: "81.65㎡") + `senyuMenseki` (例: 81.65)
 - 管理費: `kanrihiStr` + `kanrihi`
 - 修繕積立金: `syuzenTsumitateStr` + `syuzenTsumitate`
+- 地代: `chidaiStr` (例: "20年 20,000円", "20,000円/月") + `chidai` (数値・月額円: 20000)
 - 徒歩分数: `railwayWalkMinute{N}Str` + `railwayWalkMinute{N}`
 
 ### Transportation Fields Pattern
@@ -81,6 +82,19 @@ railwayWalkMinute1 = 5
    - 経過日数に基づく指数減衰重みを学習時に適用し、最新の相場感（価格水準）を優先しつつ過去データの豊富な属性関係（立地・間取り・築年数の係数）を最大限活用。
 3. **欠損値防御 (Defensive Imputation & Missing Indicators)**:
    - 過去データに存在しない新設属性（構造詳細・設備等）の NULL / 空文字を安全にフォールバックし、欠損インジケータとしてモデルに学習させる。
+
+### Land Rent Liability Architecture (借地地代負債評価アーキテクチャ)
+
+借地権物件において、地代（月額・年額）を負債（キャッシュ流出・資産価値低減要因）として正確に評価へ反映するアーキテクチャ。
+
+1. **データ取得の二重防衛（Scraping & AI Extraction）**:
+   - パーサー基底（`ParserBase`）により全サイトのHTMLテーブル/スペックから地代表記（`chidaiStr`）および月額円（`chidai`）を自動抽出。
+   - スクレイピングで拾えない特殊構造ページでも、1物件1AIリクエスト（`SingleUnifiedPropertyExtractor`）により `ground_rent_monthly_yen` を抽出して補完。
+2. **投資用物件における収支反映**:
+   - `investment_evaluator.py`: 実額年間地代（`chidai * 12`）をネット営業純利益（NOI）から直接控除し、収益還元価値およびキャッシュフローを正しく低減。
+3. **実需物件（戸建・マンション・土地）における負債現在価値反映**:
+   - 地代の資本還元現在価値（負債価値）= `(月額地代 × 12) ÷ 0.05`（還元利回り5%仮定）。
+   - ML特徴量（`monthly_land_rent`, `land_rent_liability`）および価格推定ロジックにおいて、所有権相当のベース価格から負債として控除・ディスカウント。
 
 ### Computed and Derived Fields
 
@@ -833,12 +847,17 @@ flowchart TD
     D -- NO --> F[PRステータス: Approved]
     
     E --> G[開発者がコード修正 & コメント返答]
-    G --> H[コメントスレッドの解決<br/>(Resolve conversation)]
+    G --> H[コメントスレッドの解決 & コメント更新<br/>(Resolve conversation / issue_comment)]
+    H --> C
     
-    C --> I[GitHub GraphQL API で未解決スレッド照会]
-    I --> J{未解決の会話スレッド存在?}
-    J -- YES --> K[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
-    J -- NO --> L[CI Check: SUCCESS]
+    C --> I[GitHub API / GraphQL で総合検証照会]
+    I --> J1{CodeRabbit実行中 or CHANGES_REQUESTED?}
+    J1 -- YES --> K1[CI Check: FAILED<br/>CodeRabbit完了または承認待ち<br/>マージブロック]
+    J1 -- NO --> J2{未完了チェックボックス - [ ] 存在?}
+    J2 -- YES --> K2[CI Check: FAILED<br/>残存チェックボックス一覧警告<br/>マージブロック]
+    J2 -- NO --> J3{未解決の会話スレッド存在?}
+    J3 -- YES --> K3[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
+    J3 -- NO --> L[CI Check: SUCCESS<br/>head.sha Check Run直接更新]
     
     H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
     M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]
@@ -850,14 +869,17 @@ flowchart TD
    - `master` および `production` ブランチの保護ルールとして有効化。
    - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
 2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
-   - GitHub Actions 上で PR の会話スレッドを走査。
-   - 未解決のスレッドが存在する場合、CI ジョブ「Review Conversation Gate」が FAILED となり、ステータスチェック単位でもブロックされる。
-   - 解決が必要なコメントの所在（ファイル名・行番号・コメント抜粋）が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
+   - GitHub Actions 上で PR の会話スレッド、PR本文、全レビュー本文、全コメントを走査。
+   - **未解決スレッド検証**: 未解決の会話スレッドが存在する場合、CI を FAIL。
+   - **未完了チェックボックス検証**: PR本文、CodeRabbitレビュー本文、コメント等に未完了のチェックボックス（`- [ ]`）が残存している場合、CI を FAIL。
+   - **CodeRabbit レビューステータス検証**: レビューが実行中（pending / in-progress）または `CHANGES_REQUESTED` の場合、CI を FAIL。
+   - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
 
 ### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
 - **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
 - **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
 - **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
+- **チェックボックス完備**: レビュー本文およびサマリー内のアクション・チェックボックス（`- [ ]`）がすべて完了（`- [x]`）されていることを CI ゲートが自動検証。
 - **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）、`markdownlint`（ドキュメント検証）を同時走査。
 
 ---

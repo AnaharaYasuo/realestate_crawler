@@ -163,3 +163,84 @@ def test_multimodal_single_call_with_images(sample_mansion_input, mock_mansion_j
         assert mock_model.call_count == 1
         assert isinstance(res, UnifiedPropertyAttributes)
 
+
+def test_ground_rent_llm_and_fallback_extraction(monkeypatch):
+    """地代（月額円）がLLMレスポンスおよびルールベースフォールバックの両方で正しく取得されること"""
+    kodate_input = {
+        "title": "中野区上高田 戸建て 借地権",
+        "site": "athome",
+        "property_type": "kodate",
+        "price_str": "4,380万円",
+        "specs": {
+            "土地権利": "普通賃借権",
+            "借地期間・地代（月額）": "20年 20,000円"
+        },
+        "features": ["駅徒歩7分"],
+        "appeals": ["陽当り良好。借地料月額20,000円。"],
+        "snippets": []
+    }
+
+    # 1. ルールベースフォールバックでの抽出検証 (APIキーなし)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    extractor = SingleUnifiedPropertyExtractor()
+    res_fb = extractor.extract(kodate_input)
+    assert res_fb.rights_economic_conditions.land_rights_type in ["普通借地権", "旧法借地権", "普通賃借権"]
+    assert res_fb.rights_economic_conditions.ground_rent_monthly_yen == 20000
+
+    # 2. LLM抽出での検証 (モック)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-key")
+    mock_json = json.dumps({
+        "property_overview": {"price_man_yen": 4380, "property_type": "kodate"},
+        "building_master": {},
+        "unit_specs": {},
+        "land_kodate_specs": {},
+        "rights_economic_conditions": {
+            "land_rights_type": "普通借地権",
+            "ground_rent_monthly_yen": 20000,
+            "lease_expiry_year_month": "2044-03"
+        },
+        "visual_features": {}
+    })
+    mock_model = MockGeminiModel(mock_json)
+    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+        res_llm = extractor.extract(kodate_input)
+        assert res_llm.rights_economic_conditions.ground_rent_monthly_yen == 20000
+        assert res_llm.rights_economic_conditions.land_rights_type == "普通借地権"
+
+
+def test_unified_property_extractor_ground_rent_from_appeals_fallback(monkeypatch):
+    """specsに地代がない場合でもアピール文等の本文から地代が抽出されること"""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    input_data = {
+        "title": "世田谷区 戸建て",
+        "site": "athome",
+        "property_type": "kodate",
+        "specs": {"土地権利": "普通借地権"},
+        "appeals": ["閑静な住宅街。地代 2.5万円要す。"],
+        "features": [],
+        "snippets": []
+    }
+    extractor = SingleUnifiedPropertyExtractor()
+    res = extractor.extract(input_data)
+    assert res.rights_economic_conditions.ground_rent_monthly_yen == 25000
+    assert res.rights_economic_conditions.land_rights_type == "普通借地権"
+
+
+def test_unified_property_extractor_ground_rent_annual_normalized(monkeypatch):
+    """アピール文等の年額地代表記が月額に正規化されること"""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    input_data = {
+        "title": "中野区 戸建て",
+        "site": "athome",
+        "property_type": "kodate",
+        "specs": {"土地権利": "普通借地権"},
+        "appeals": ["地代 年額240,000円"],
+        "features": [],
+        "snippets": []
+    }
+    extractor = SingleUnifiedPropertyExtractor()
+    res = extractor.extract(input_data)
+    assert res.rights_economic_conditions.ground_rent_monthly_yen == 20000
+
+
+

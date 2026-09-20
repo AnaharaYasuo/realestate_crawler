@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.db import close_old_connections, OperationalError
 from builtins import Exception
 import logging
+from decimal import Decimal
 from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.utils.report import CrawlerReporter
 from asgiref.sync import sync_to_async
@@ -22,6 +23,7 @@ from package.api.differential import filter_differential_items, ListItem
 from package.models.evaluation import PropertyPriceHistory
 from package.utils.url_matcher import UrlMatcher
 from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.converter import parse_chidai
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -1187,6 +1189,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
                             is_passed = True
                             
+                        chidai_val = getattr(item, "chidai", None)
+                        if chidai_val is None and getattr(item, "chidaiStr", None):
+                            chidai_val = parse_chidai(item.chidaiStr)
+                        monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
+                        liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+
                         # 4. PropertyEvaluation レコードの作成/更新
                         eval_record, created = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
                             property_url=item.pageUrl,
@@ -1196,7 +1204,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 "property_id": item.id,
                                 "first_stage_predicted_price": price_stage1,
                                 "is_first_stage_passed": is_passed,
-                                "analysis_status": "pending"
+                                "analysis_status": "pending",
+                                "monthly_land_rent": monthly_rent,
+                                "land_rent_liability": liability
                             }
                         )
                     
