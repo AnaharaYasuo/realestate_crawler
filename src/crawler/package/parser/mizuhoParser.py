@@ -51,6 +51,12 @@ class MizuhoParser(ParserBase):
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
+        """
+        みずほ不動産販売の一覧ページから物件詳細URLを抽出する。
+        1. 一時ファイルからURLを読み込み (存在する場合)
+        2. 静的HTMLから正規表現でリンクを抽出
+        3. リンクが見つからない場合、PlaywrightによるWAF回避処理を実行
+        """
         # 1. ローカルの一時URLリストファイルがあるかチェックして読み込む (WAF回避のハイブリッド方式)
         import os
         links_file = "src/crawler/Temp/mizuho_links.txt"
