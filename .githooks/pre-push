@@ -1,6 +1,6 @@
 #!/bin/sh
 # .githooks/pre-push
-# Enforce GitHub Issue association before pushing to remote
+# Enforce GitHub Issue association & SonarCloud local guardrail before pushing to remote
 
 set -e
 
@@ -12,6 +12,12 @@ do
     if [ "$local_sha" = "$zero" ]; then
         continue
     fi
+
+    # Only validate branch pushes, allowing tag pushes and other non-branch refs to proceed
+    case "$local_ref" in
+        refs/heads/*) ;;
+        *) continue ;;
+    esac
 
     # Extract branch name from ref
     branch=$(echo "$local_ref" | sed 's#^refs/heads/##')
@@ -80,6 +86,24 @@ do
         exit 1
     fi
     echo "✅ Issue #$issue_num の存在を確認しました。"
+
+    # 4. SonarCloud Local Guardrail (S3776 Cognitive Complexity & S8786 ReDoS Regex Defense)
+    if [ "$SKIP_SONAR_CHECK" = "1" ] || [ "$SKIP_SONAR_CHECK" = "true" ]; then
+        echo "⚠️  SKIP_SONAR_CHECK is enabled. Bypassing SonarCloud local guardrail."
+    else
+        echo "🔍 SonarCloud 事前静的解析 (S3776 & S8786) を実行中..."
+        if ! docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] SonarCloud ローカルガードレール違反が検出されました。"
+            echo "Cognitive Complexity (S3776 <= 15) または危険な正規表現 (S8786 ReDoS) を修正してください。"
+            echo "詳細は 'docs/implementation/sonar_guardrail_guide.md' を参照してください。"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
+        echo "✅ SonarCloud 事前静的解析に合格しました。"
+    fi
 done
 
 exit 0

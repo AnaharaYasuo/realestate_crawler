@@ -21,6 +21,7 @@
 | `task crawl` | クローラー実行 | 必要時 | ⭐⭐⭐ |
 | `task logs` | ログ表示 | デバッグ時 | ⭐⭐ |
 | `task test` | テスト実行 | 開発時 | ⭐⭐ |
+| `task sonar-check` | Sonar事前高速検証 (S3776/S8786差分解析) | コミット/Push前 | ⭐⭐⭐ |
 
 ---
 
@@ -343,6 +344,63 @@ task init
 
 # 4. テスト実行
 task test
+```
+
+### task sonar-check
+
+**説明:**  
+コミットまたはプッシュ前に、ローカルの変更差分（または指定ファイル）に対して SonarCloud の主要指摘（`python:S3776` 認知的複雑度超過、`python:S8786` 正規表現バックトラッキング・ReDoS）を約0.2〜0.5秒で高速静的解析します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+```
+
+**使用例:**
+```bash
+# 変更差分のチェック (推奨)
+task sonar-check
+
+# 全ファイルのチェック
+task sonar-check-all
+```
+
+**注意事項:**
+- `.githooks/pre-push` にも自動統合されており、プッシュ時に違反コードがあると自動で push が拒否されます。
+
+---
+
+### task pr-check
+
+**説明:**  
+現在の作業ブランチに関連付けられた GitHub Issue のアクセプタンスクライテリア（受入基準チェックボックス: `- [ ]`）がすべて達成・チェック済み（`- [x]`）であるかをローカルで即座に検証します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+```
+
+**使用例:**
+```bash
+task pr-check
+```
+
+---
+
+### task pr-create
+
+**説明:**  
+Issue のアクセプタンスクライテリアが全件チェック済みであることを自動事前検証し、問題がなければ `gh pr create --base master` を実行して Pull Request を提出します。未チェック項目がある場合は PR 作成を中断し、未完了項目をコンソールに出力します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+gh pr create --base master
+```
+
+**使用例:**
+```bash
+task pr-create
 ```
 
 ---

@@ -579,6 +579,8 @@ task logs
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
+- **[Taskコマンド完全リファレンス](docs/implementation/task_commands.md)**: Taskコマンド一覧および仕様
+- **[SonarCloud事前検証・コーディング規約ガイド](docs/implementation/sonar_guardrail_guide.md)**: SonarLint設定、S3776/S8786対策、ローカルガードレール運用
 - **[Terraformデプロイガイド](terraform/README.md)**: GCPインフラ一括プロビジョニング手順
 
 
