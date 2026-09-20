@@ -81,3 +81,16 @@ def test_keio_parser_abs_links():
     urls = asyncio.run(run())
     assert len(urls) == 1
     assert "2127977638870000006489" in urls[0]
+
+
+def test_misawa_investment_connector():
+    import asyncio
+    obj = ParseMisawaInvestmentStartAsync()
+    loop = asyncio.new_event_loop()
+    try:
+        connector = obj._generateConnector(loop)
+        assert connector is not None
+        assert connector._ssl is not None
+    finally:
+        loop.close()
+

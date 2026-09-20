@@ -17,7 +17,7 @@ DEFAULT_PARARELL_LIMIT = 1
 
 class MisawaInvestmentConnectorMixin:
     """Provides legacy TLS compatibility for Misawa's legacy servers."""
-    def _generateConnector(self, _loop):
+    def _generateConnector(self, _loop):  # NOSONAR
         ctx = ssl.create_default_context()
         try:
             ctx.set_ciphers('DEFAULT@SECLEVEL=1')  # NOSONAR
