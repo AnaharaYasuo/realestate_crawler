@@ -23,6 +23,7 @@ from package.models.mizuho import (
 
 
 def test_mizuho_mansion_parser():
+    """みずほマンションパーサーのインスタンス化とエンティティ生成を検証。"""
     parser = MizuhoMansionParser()
     item = parser.createEntity()
     assert isinstance(item, MizuhoMansion)
@@ -30,6 +31,7 @@ def test_mizuho_mansion_parser():
 
 
 def test_mizuho_kodate_parser():
+    """みずほ戸建てパーサーのインスタンス化とエンティティ生成を検証。"""
     parser = MizuhoKodateParser()
     item = parser.createEntity()
     assert isinstance(item, MizuhoKodate)
@@ -37,6 +39,7 @@ def test_mizuho_kodate_parser():
 
 
 def test_mizuho_tochi_parser():
+    """みずほ土地パーサーのインスタンス化とエンティティ生成を検証。"""
     parser = MizuhoTochiParser()
     item = parser.createEntity()
     assert isinstance(item, MizuhoTochi)
@@ -44,6 +47,7 @@ def test_mizuho_tochi_parser():
 
 
 def test_mizuho_investment_parser():
+    """みずほ投資用物件パーサーのインスタンス化とエンティティ生成を検証。"""
     parser = MizuhoInvestmentParser()
     item = parser.createEntity()
     assert isinstance(item, MizuhoInvestment)
@@ -99,7 +103,7 @@ async def test_mizuho_parse_root_page_bypass():
 
 @pytest.mark.asyncio
 async def test_mizuho_parse_root_page_bypass_zero_links():
-    """バイパスが0件を返却した場合の挙動を検証。"""
+    """Playwrightバイパスが0件を返却した場合の挙動を検証。"""
     parser = MizuhoKodateParser()
     empty_soup = BeautifulSoup("<html><head><title>403</title></head><body>WAF Blocked</body></html>", "html.parser")
     with patch("package.utils.mizuho_bypass.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
@@ -112,7 +116,7 @@ async def test_mizuho_parse_root_page_bypass_zero_links():
 
 @pytest.mark.asyncio
 async def test_mizuho_parse_root_page_bypass_exception():
-    """バイパス処理中に例外が発生した場合の例外捕捉を検証。"""
+    """Playwrightバイパス処理中に例外が発生した場合の例外捕捉を検証。"""
     parser = MizuhoKodateParser()
     empty_soup = BeautifulSoup("<html><head><title>403</title></head><body>WAF Blocked</body></html>", "html.parser")
     with patch("package.utils.mizuho_bypass.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
