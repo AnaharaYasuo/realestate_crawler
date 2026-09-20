@@ -324,3 +324,41 @@ def test_mutation_testing_detection_rate():
             assert target_field in caught_zero_fields, f"Mutation (Zero/Empty) of '{target_field}' not caught in {prop_type}!"
 
 
+def test_validate_required_fields_rejects_non_positive_price():
+    """価格が0または負値の場合に validate_required_fields で LoadPropertyPageException が送出されること"""
+    parser = AthomeMansionParser()
+    item = parser.createEntity()
+    item.address = "東京都港区1-1"
+    item.price = 0
+
+    try:
+        parser.validate_required_fields(item)
+        assert False, "Should raise LoadPropertyPageException for price 0"
+    except LoadPropertyPageException as e:
+        assert "price is invalid or non-positive" in str(e)
+
+
+def test_validate_extracted_fields_string_and_rent_branches():
+    """文字列フィールドやmonthlyRentフォールバック、一般モデルフォールバックの分岐網羅"""
+    parser = AthomeInvestmentApartmentParser()
+    item = parser.createEntity()
+    item.pageUrl = "https://example.com/test-invest-rent"
+    item.propertyName = "テストアパート"
+    item.address = "東京都中野区1-1"
+    item.grossYield = Decimal("6.5")
+    item.annualRent = None
+    item.monthlyRent = 500000  # annualRentがNoneでもmonthlyRentがあればOK
+    item.kouzou = "木造"
+
+    errors = parser.validate_extracted_fields(item)
+    error_fields = [e["field"] for e in errors]
+    assert "annualRent" not in error_fields
+
+    # 文字列での不正値
+    item.price = "-100"
+    errors2 = parser.validate_extracted_fields(item)
+    error_fields2 = [e["field"] for e in errors2]
+    assert "price" in error_fields2
+
+
+
