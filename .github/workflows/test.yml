@@ -39,13 +39,13 @@ jobs:
         include:
           - group: unit
             name: Unit Tests
-            path: src/crawler/tests/unit/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/unit/
           - group: integration
             name: Integration Tests
-            path: src/crawler/tests/integration/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/
           - group: ml-pipeline
             name: ML & Pipeline Tests
-            path: src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py
           - group: mutation
             name: PR Mutation Tests
             command: docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --pr-mode --threshold=80
@@ -77,12 +77,7 @@ jobs:
           docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Run Tests (${{ matrix.name }})
-        run: |
-          if [ "${{ matrix.group }}" = "mutation" ]; then
-            ${{ matrix.command }}
-          else
-            docker compose exec -T app pytest -n auto ${{ matrix.path }}
-          fi
+        run: ${{ matrix.command }}
 
 
       - name: Stop containers
