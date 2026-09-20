@@ -90,11 +90,19 @@ GitHub ネイティブのブランチ保護機能。
 
 ## 4. CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)
 
-### 4.1 トリガー仕様
+### 4.1 トリガー仕様および再評価機構
 - **イベント**:
   - `pull_request`: `types: [opened, edited, synchronize, reopened]`, `branches: [master, production]`
-  - `pull_request_review`: `types: [submitted]`
+  - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
+  - `issue_comment`: `types: [created, edited, deleted]`
+- **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
+  - GitHub では「会話スレッドの解決（Resolve conversation）」単体での GitHub Actions 直接トリガー（Webhookイベント）が存在しない制約があります。
+  - そのため、スレッド解決後やチェックボックス更新時には以下の再評価経路を提供します：
+    1. **PRコメント/レビュー更新トリガー**: `issue_comment`（コメント投稿・編集・削除）または `pull_request_review` の実行。
+    2. **GitHub App Webhook 連携 (将来拡張/推奨)**: スレッド解決Webhookを受信したGitHub Appまたはポーリング機構から `repository_dispatch` を発火してワークフローを再実行。
+    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した `Verify All Review Conversations Resolved` チェックを再実行。
+  - いずれの経路でも、ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
@@ -127,14 +135,29 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
 }
 ```
 
-### 4.3 判定基準と出力
-1. **未解決スレッドが 0 件の場合**:
+### 4.3 未完了チェックボックス検出ロジック
+PR本文（`pr.body`）、全レビュー本文（`reviews`）、全PRレビューコメント（`pulls.listReviewComments`）、全PRコメント（`issues.listComments`）を走査し、正規表現 `^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$` に合致する未完了チェックボックス（`- [ ]`）を抽出します。先頭のインデント（空白・タブ）やネストされたリスト項目を許容しつつ、水平空白のみに限定して誤検知を防止します。
+
+```javascript
+// チェックボックス検出正規表現（ネスト・インデント許容、水平空白限定）
+const uncheckedRegex = /^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$/gm;
+```
+
+CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。なお、無効化済みのレビュー（`state: DISMISSED`）および CodeRabbit の対話型アクションボタン（`radioGroupId` を含む単体テスト生成トリガー、`Fix all pre-merge checks with AI` 等の自動修復トリガー）はタスクではないため除外判定されます。
+
+### 4.4 CodeRabbit レビューステータス検証ロジック
+最新のレビュー状態を照会し、以下のいずれかに該当する場合はマージ不可と判定します：
+1. レビュー状態が `CHANGES_REQUESTED`（変更要求中）であること。
+2. CodeRabbit のレビュー実行中（ステータスチェックが `pending` または `in_progress`）であり、完了前に早期マージされようとしていること。
+
+### 4.5 判定基準と出力
+1. **未解決スレッド 0 件 かつ 未完了チェックボックス 0 件 かつ レビュー状態正常（Approved または Commented）の場合**:
    - ジョブ成功 (`SUCCESS`)。
-   - `✅ All review conversations are resolved.` を出力。
-2. **未解決スレッドが 1 件以上の場合**:
+   - `✅ All review conversations resolved and all checkboxes checked.` を出力。
+2. **未解決スレッド、未完了チェックボックス、または変更要求が存在する場合**:
    - ジョブ失敗 (`FAILED`)。
-   - PR のマージを CI ステータスチェックとしてもブロック。
-   - 未解決スレッドの一覧（ファイル名、行番号、レビュアー、コメント冒頭）を GitHub Actions ログおよび Job Summary に整形出力。
+   - PR のマージを CI ステータスチェック（`Verify All Review Conversations Resolved`）として物理ブロック。
+   - 未解決スレッドおよび未完了チェックボックスの一覧（検出元、ファイル名、行番号、内容）を GitHub Actions ログおよび Job Summary に整形出力。
 
 ---
 

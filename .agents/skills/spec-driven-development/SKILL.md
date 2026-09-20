@@ -19,7 +19,6 @@ description: "仕様駆動開発(SDD: Specification-Driven Development)に基づ
   - 作業ブランチ名には必ず Issue 番号を含めます（例: `feature/12-add-login`, `fix/34-fix-parser`）。
   - 有効な GitHub Issue が存在しない場合、ローカルの `pre-push` フック（`.githooks/pre-push`）でプッシュが拒否されます。
   - `master` 宛ての Pull Request は GitHub Actions（`.github/workflows/issue-gate.yml`）で Issue 存在・紐付けが検証され、未紐付けの場合はマージ不可となります。
-
 #### 1. フィーチャーチケット（機能追加・改善）の標準構成
 ```markdown
 ## 1. 概要 / ユーザーストーリー
