@@ -389,6 +389,22 @@ graph TD
 - **リサイクル間隔の短縮**: `RECYCLE` 設定を従来の 1800秒（30分）から 300秒（5分）へ短縮する。接続は 300 秒を超過した後の次回 checkout 時に破棄・再作成される。アイドル切断の検知と再接続には `PRE_PING` を併用する。
 
 
+### 6.26 クローリング実行状況レポート時間粒度拡張および異常クローラー修復内部設計
+- **所要時間フォーマット関数 (`format_duration`)**:
+  - 秒数を受け取り、`〇時間〇分〇秒`、`〇分〇秒`、`〇秒` の最小表現に整形。
+- **実行状況集計拡張 (`run_all_crawlers.py`)**:
+  - バッチ開始時 (`batch_start_dt`) および終了時 (`batch_end_dt`) のタイムスタンプを保持し、所要時間を算出。
+  - プロセス起動時および回収時に各ジョブの `start_time`、`end_time`、`duration`、`scraped_cnt` を `results` 配列に記録。
+  - Slack通知生成時、`db_summary`（会社×種別）と `job_timings` を結合し、件数とともに `(開始: HH:MM:SS, 終了: HH:MM:SS, 所要: 〇分〇秒)` を出力。
+- **異常クローラー4件の修復**:
+  1. **三井 (mitsui - mansion/kodate/tochi)**: `config/selectors/mitsui.yaml` の `root_xpath` を `//a[contains(@href,'prefecture/') and not(contains(@href,'/store/'))]/@href` に更新し、`getRootDestUrl` で相対リンク `/buy/{section}/prefecture/...` を正しく解決。`baseParser.py` の `_parsePageCore` で `not(contains(...))` および `starts-with(...)` を正確に評価するよう改修。
+  2. **東急 (tokyu - tochi)**: `tokyu_routes.py` の開始URLを `https://www.livable.co.jp/kounyu/tochi/select-area/` に変更し、都道府県選択ページから市・区リストへの巡回ルートを確立。
+  3. **京王 (keio - mansion)**: CloudFront WAFの制約を回避するため、WP REST API (`get_search_result_sale`) 取得時は `asyncio.to_thread` 経由で `requests.get` を呼び出し、正常にJSONおよびHTMLカード群（36件）を取得可能に修復。
+  4. **ミサワ (misawa - invest_kodate)**: 収益・事業用の正式種別コード `bukken_type[]=9` を指定し、OpenSSL 3.0環境に対応するため `_generateConnector` の SSL Context に `DEFAULT@SECLEVEL=1` を設定。
+- **種別跨ぎ同件数防止ガード (旭化成 afr)**:
+  - `AfrMansionParser` において `専有面積` が存在しない物件を `SkipPropertyException` でスキップ。
+  - `AfrTochiParser` において `建物面積` / `間取り` が存在する戸建物件を `SkipPropertyException` でスキップ。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -399,8 +415,9 @@ graph TD
 
 ---
 
-**最終更新**: 2026年9月20日  
-**バージョン**: 2.6 (IssueアクセプタンスクライテリアPR制限ゲートウェイ内部設計原則追記)
+**最終更新**: 2026年9月21日  
+**バージョン**: 2.7 (クローリング実行状況レポート時間粒度拡張および異常クローラー修復内部設計追記)
+
 
 
 

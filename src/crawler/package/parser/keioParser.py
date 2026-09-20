@@ -1,8 +1,11 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
+import asyncio
+import json
 import re
 import logging
 import urllib.parse
+import requests
 from bs4 import BeautifulSoup
 
 from package.models.keio import KeioMansion, KeioKodate, KeioTochi
@@ -76,13 +79,15 @@ class KeioParser(ParserBase):
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Referer': 'https://chukai.keiofudosan.co.jp/sale/search/area/pref_13/',
             }
-            async with session.get(url, headers=headers) as resp:
-                data = await resp.json()
-                html = data.get("html", "")
+            try:
+                resp = await asyncio.to_thread(requests.get, url, headers=headers, timeout=20)
+                data = resp.json()
+                html = data.get("html", "") if isinstance(data, dict) else ""
                 return BeautifulSoup(html, "html.parser")
+            except Exception as e:
+                logging.warning(f"Keio REST API fetch error: {e}")
+                return BeautifulSoup("", "html.parser")
         return await super().getResponseBs(session, url, charset)
 
     async def parseNextPage(self, response: BeautifulSoup):

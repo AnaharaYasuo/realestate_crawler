@@ -107,8 +107,8 @@ class ParseMisawaInvestmentKodateListFuncAsync(ParseMiddlePageAsyncBase):
         return API_KEY_MISAWA_INVEST_KODATE_LIST
 
 class ParseMisawaInvestmentStartAsync(ApiAsyncProcBase):
-    # Investment = Type 4 (Web ID)
-    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=4"]
+    # Investment = Type 9 (Web ID)
+    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
 
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentApartmentParser

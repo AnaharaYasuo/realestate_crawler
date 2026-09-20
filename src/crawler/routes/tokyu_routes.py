@@ -114,7 +114,7 @@ def tokyuMansionPropertyDetailTest():
 def tokyuTochiStart():
     logging.info("Start tokyuTochiStart")
     obj = ParseTokyuTochiStartAsync()
-    url = "https://www.livable.co.jp/kounyu/tochi/"
+    url = "https://www.livable.co.jp/kounyu/tochi/select-area/"
     try:
         result = obj.main(url)
     except Exception:
