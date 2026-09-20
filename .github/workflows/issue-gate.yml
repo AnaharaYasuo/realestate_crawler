@@ -1,0 +1,89 @@
+name: Issue PR Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  verify-issue-association:
+    name: Verify GitHub Issue Association
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for associated GitHub Issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const branchName = pr.head.ref;
+            const title = pr.title || '';
+            const body = pr.body || '';
+
+            // 1. Extract potential issue numbers from branch, title, or body
+            // Regex patterns
+            const branchMatch = branchName.match(/(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)/i) 
+              || branchName.match(/(?:^|[-/_])(\d+)(?:[-/_]|$)/);
+            const titleMatch = title.match(/(?:#|issue[ -]?#?)(\d+)/i);
+            const bodyMatch = body.match(/(?:(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#|#|issue[ -]?#?)(\d+)/i);
+
+            let issueNumber = null;
+            if (branchMatch && branchMatch[1]) {
+              issueNumber = parseInt(branchMatch[1], 10);
+            } else if (titleMatch && titleMatch[1]) {
+              issueNumber = parseInt(titleMatch[1], 10);
+            } else if (bodyMatch && bodyMatch[1]) {
+              issueNumber = parseInt(bodyMatch[1], 10);
+            }
+
+            if (!issueNumber) {
+              const errorMessage = '⛔ **マージ不可 (Issue未紐付け)**: この Pull Request には対応する GitHub Issue が紐付けられていません。\n\n' +
+                '### 解決手順:\n' +
+                '1. [GitHub Issues](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/issues) でフィーチャーまたはバグチケットを起票してください。\n' +
+                '2. PR 本文に `Closes #<Issue番号>` を記載するか、ブランチ名（例: `feature/123-xxx`）または PR タイトルに Issue 番号（例: `[#123] ...`）を含めてください。\n' +
+                '3. 更新後、このチェックが自動的に再検証されます。';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: errorMessage
+              });
+
+              core.setFailed('No associated GitHub Issue found in branch name, PR title, or PR body.');
+              return;
+            }
+
+            // 2. Verify issue existence on GitHub
+            try {
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+
+              // Ensure it is an issue and not another pull request
+              if (issue.data.pull_request) {
+                core.setFailed(`Reference #${issueNumber} is a Pull Request, not a GitHub Issue. Please reference a valid Issue.`);
+                return;
+              }
+
+              console.log(`✅ Verified associated GitHub Issue #${issueNumber}: "${issue.data.title}"`);
+            } catch (err) {
+              const notFoundMessage = `⛔ **マージ不可 (無効なIssue番号)**: 指定された Issue #${issueNumber} がリポジトリに見つかりません。\n` +
+                '有効な GitHub Issue 番号を指定してください。';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: notFoundMessage
+              });
+
+              core.setFailed(`Issue #${issueNumber} does not exist: ${err.message}`);
+            }

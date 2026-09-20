@@ -350,3 +350,59 @@ def test_edge_cases_and_error_paths(monkeypatch):
     res = PropertyTypeDetector.detect_with_ai(title="珍しい形状の住宅", default="mansion")
     assert res == "mansion"
 
+
+def test_property_type_detector_helpers_and_guards():
+    """変異テスト耐性: ヘルパーおよびガード関数の網羅的検証"""
+    # 1. _get_field
+    class SampleObj:
+        senyuMenseki = 72.5
+        tochiMenseki = 0.0
+        kouzou = "RC造"
+
+    obj = SampleObj()
+    assert PropertyTypeDetector._get_field(obj, "senyuMenseki") == 72.5
+    assert PropertyTypeDetector._get_field(obj, "unknown", default="def") == "def"
+    assert PropertyTypeDetector._get_field(None, "senyuMenseki") is None
+    assert PropertyTypeDetector._get_field(None, "senyuMenseki", default="def_val") == "def_val"
+
+    # 2. _is_rc_zero_land
+    assert PropertyTypeDetector._is_rc_zero_land(obj) is True
+    assert PropertyTypeDetector._is_rc_zero_land(None) is False
+
+    class NonRcObj:
+        tochiMenseki = 100.0
+        kouzou = "木造"
+
+    assert PropertyTypeDetector._is_rc_zero_land(NonRcObj()) is False
+
+    # 3. _has_yield_signal (正例・負例)
+    assert PropertyTypeDetector._has_yield_signal("表面利回り 6.5%") is True
+    assert PropertyTypeDetector._has_yield_signal("東京都目黒区の閑静な住宅街") is False
+    assert PropertyTypeDetector._has_yield_signal(None) is False
+    assert PropertyTypeDetector._has_yield_signal(123) is False
+
+    # 4. _has_yield_signal_specs (正例・負例)
+    assert PropertyTypeDetector._has_yield_signal_specs({"grossYield": "5.0%"}) is True
+    assert PropertyTypeDetector._has_yield_signal_specs({"間取り": "3LDK", "所在地": "新宿区"}) is False
+
+    # 5. _compute_cache_key fallback (specs + html_text)
+    cache_key = PropertyTypeDetector._compute_cache_key(
+        url="",
+        title="",
+        specs={"a": 1},
+        html_text="<div>test_html</div>"
+    )
+    assert cache_key == "{'a': 1}_<div>test_html</div>"
+
+    # 6. _detect_from_area_fields fallback
+    assert PropertyTypeDetector._detect_from_area_fields({}) == "mansion"
+
+    # 7. is_investment
+    assert PropertyTypeDetector.is_investment("apartment") is True
+    assert PropertyTypeDetector.is_investment("investment") is True
+    assert PropertyTypeDetector.is_investment("invest_kodate") is True
+    assert PropertyTypeDetector.is_investment("kodate") is False
+    assert PropertyTypeDetector.is_investment("mansion") is False
+    assert PropertyTypeDetector.is_investment(None) is False
+
+
