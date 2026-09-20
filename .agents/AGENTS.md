@@ -107,6 +107,15 @@
    - デバッグや緊急修復で実装が先行した場合も放置せず、**可及的速やかに「Issue受入基準確認 ➔ テストコード化 (TDD) ➔ ドキュメント階層同期 (SDD)」を逆引き補正**する。
 5. **Step 5: spec-driven-development (仕様・ドキュメント同期) の必須呼び出し義務**:
    - コード実装や修復作業の最後には、必ず `/spec-driven-development` スキルを実行し、Issueの受入基準充足、`docs/` 配下の仕様書および [README.md](../README.md) の「ドキュメント一覧」が漏れなく同期更新されたことを裏付けること。
+6. **Step 6: GitHub Issue のステータス完了前進 ＆ 閉じ漏れ防止 (Issue Lifecycle Enforcement)**:
+   - 受入基準を満たしてテスト・検証を完了した Issue は、オープン状態のまま放置せず、確実に「完了済み (Closed)」へステータスを進めること。
+   - PR マージ時の自動クローズ（PR本文の `Closes #<issue_num>` 記載）を徹底し、マージ後または手動完了時には `gh issue list --state open` により閉じ漏れ Issue が残存していないかを点検・是正（`gh issue close <issue_num>`）すること。
+
+## 【プロジェクト普遍ルール】完了した GitHub Issue のステータス完了前進 ＆ 閉じ漏れ防止原則 (Issue Lifecycle Enforcement)
+- **完了時ステータス前進義務**: 受入基準をすべて満たし、テスト・検証が完了した作業の GitHub Issue は、未完了のまま放置せず、必ず「完了済み（Closed）」へとステータスを進めなければならない。
+- **PR 連携による自動クローズ**: 作業ブランチから `master` への Pull Request 作成時は、必ず PR 本文に `Closes #<issue_num>`（または `Fixes #<issue_num>`）を明記し、PR マージ時に自動的にクローズされるようにする。
+- **定期・完了時の閉じ漏れ監査**: 新しいタスク着手時および作業完了時には、必ず `gh issue list --state open` を実行し、すでに完了しているチケットがオープン状態のまま残存していないか（閉じ漏れ）を監査する。
+- **手動完了クローズ対応**: マージ漏れや手動作業等で完了基準を満たした Issue がオープンのまま放置されている場合は、完了理由・対応コミット/PRを添えて直ちに `gh issue close <issue_num> --comment "..."` を実行してクローズすること。
 
 
 

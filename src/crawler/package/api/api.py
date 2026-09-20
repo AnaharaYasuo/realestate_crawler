@@ -562,16 +562,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return self._loop
 
     def _generateConnector(self, _loop):
-        # SSL Context with Legacy Support
+        """Create a bounded aiohttp connector using the default TLS checks."""
+        # SSL Context with secure defaults
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        try:
-            # OP_LEGACY_SERVER_CONNECT = 0x4
-            ctx.options |= 0x4
-            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
-        except Exception:
-            pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
     def _generateTimeout(self):

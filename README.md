@@ -421,6 +421,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[site_structures/](docs/requirements/site_structures/)**: 各社サイト構造解析資料
     *   **[project_status_and_design_intent.md](docs/requirements/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
     *   **[land_evaluation_design.md](docs/requirements/land_evaluation_design.md)**: 土地情報収集＆高精度土地評価エンジン詳細設計書
+    *   **[security_scan_workflow.md](docs/requirements/security_scan_workflow.md)**: セキュリティ自動スキャンワークフロー要件定義書 (Trivy, Semgrep, Checkov, Prowler)
 
 
 
@@ -430,6 +431,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[basic_design_master.md](docs/basic_design/basic_design_master.md)**
     *   クローラー仕様詳細
     *   サンプル物件URLリスト
+*   **[security_scan_workflow.md](docs/basic_design/security_scan_workflow.md)**: セキュリティ自動スキャン基本設計書 (多層防御アーキテクチャ・並列ジョブ構成)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -447,7 +449,8 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[マクロ経済時系列予測モデル設計書](docs/internal_design/macro_time_series_forecaster.md)** - 正則化多変量自己回帰 (Ridge VAR) による相場モメンタム特徴量 (`repi_growth_3m`, `macro_regime_score`) 仕様
 - **[1物件1リクエスト完結型AI属性抽出設計書](docs/internal_design/single_unified_property_ai_extractor.md)** - 1物件1AIリクエスト原則、マルチモーダル画像・全観点一括抽出スキーマ仕様
 - **[建物マスタ設計書](docs/internal_design/building_master_design.md)** - マンション名寄せ・自動スペック伝搬・BuildingMasterモデル仕様
-- **[CodeRabbitレビュー＆マージゲート内部設計書](docs/internal_design/coderabbit_gate_internal_design.md)** - CodeRabbit自動コードレビュー設定、未解決レビューコメント解決必須化、CIマージブロックゲート仕様
+- [CodeRabbitレビュー＆マージゲート内部設計書](docs/internal_design/coderabbit_gate_internal_design.md) - CodeRabbit自動コードレビュー設定、未解決レビューコメント解決必須化、CIマージブロックゲート仕様
+- [セキュリティ自動スキャン内部設計書](docs/internal_design/security_scan_workflow.md) - Trivy, Semgrep, Checkov 並列スキャン、SARIFアップロード、Prowler GCPライブ監査仕様
 
 
 

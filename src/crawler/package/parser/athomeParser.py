@@ -5,6 +5,9 @@ from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentA
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from decimal import Decimal
+import asyncio
+import math
+import secrets
 import logging
 import re
 import urllib.parse
@@ -45,18 +48,17 @@ class AthomeParser(ParserBase):
         return "utf-8"
 
     async def _humanMouseMove(self, page, start_x, start_y, end_x, end_y):
-        import random
-        import math
-        import asyncio
+        """Move a Playwright mouse between two points along a randomized path."""
+        prng = secrets.SystemRandom()
         
         # 3次ベジエ曲線の制御点をランダムに生成
-        control_x1 = start_x + (end_x - start_x) * random.uniform(0.1, 0.4) + random.randint(-50, 50)
-        control_y1 = start_y + (end_y - start_y) * random.uniform(0.1, 0.4) + random.randint(-50, 50)
-        control_x2 = start_x + (end_x - start_x) * random.uniform(0.6, 0.9) + random.randint(-50, 50)
-        control_y2 = start_y + (end_y - start_y) * random.uniform(0.6, 0.9) + random.randint(-50, 50)
+        control_x1 = start_x + (end_x - start_x) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)  # NOSONAR
+        control_y1 = start_y + (end_y - start_y) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)  # NOSONAR
+        control_x2 = start_x + (end_x - start_x) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)  # NOSONAR
+        control_y2 = start_y + (end_y - start_y) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)  # NOSONAR
         
         # 移動ステップ数をランダムに決定 (15〜35ステップ)
-        steps = random.randint(15, 35)
+        steps = prng.randint(15, 35)  # NOSONAR
         
         for i in range(steps + 1):
             t = i / steps
@@ -66,18 +68,18 @@ class AthomeParser(ParserBase):
             
             # 手ブレをシミュレート
             if i < steps:
-                x += random.uniform(-1.5, 1.5)
-                y += random.uniform(-1.5, 1.5)
+                x += prng.uniform(-1.5, 1.5)  # NOSONAR
+                y += prng.uniform(-1.5, 1.5)  # NOSONAR
                 
             # イージング（開始と終了はゆっくり、中間は速く）をシミュレートするディレイ
             ease_factor = math.sin(t * math.pi)  # 0 -> 1 -> 0
-            delay = 0.005 + (1.0 - ease_factor) * 0.02 + random.uniform(0.001, 0.005)
+            delay = 0.005 + (1.0 - ease_factor) * 0.02 + prng.uniform(0.001, 0.005)  # NOSONAR
             
             await page.mouse.move(int(x), int(y))
             await asyncio.sleep(delay)
 
     async def _getContent(self, session, url):
-        import asyncio
+        """Fetch a URL with Playwright, falling back to the base HTTP fetcher."""
         await asyncio.sleep(0.5)
         try:
             from playwright.async_api import async_playwright

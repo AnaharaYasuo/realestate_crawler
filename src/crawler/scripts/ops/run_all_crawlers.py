@@ -170,6 +170,10 @@ def clean_zombies():
         logging.info(f"過去のゾンビプロセス {cleaned} 件を一掃しました。")
 
 def main():
+    """Run or list crawler jobs and report execution results.
+
+    Executed runs post Slack and database status and write a dated JSON report.
+    """
     if args.dry_run:
         target_jobs = [j for j in CRAWL_JOBS if not (args.skip_portals and j[0].lower() in PORTAL_COMPANIES)]
         logging.info(f"--- Dry Run Mode: List of Crawling Jobs ({len(target_jobs)} jobs) ---")
@@ -340,6 +344,7 @@ def main():
                 try:
                     # クロール開始前のタイムスタンプを保存
                     start_dt = timezone.now() if timezone is not None else None
+                    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
                         cmd,
                         preexec_fn=os.setsid

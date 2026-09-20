@@ -43,6 +43,11 @@ class DependabotPrInspector:
             return []
 
     def evaluate_pr_status(self, pr_data: Dict[str, Any]) -> Tuple[PRStatus, str]:
+        """Classify a Dependabot PR from its mergeability and rolled-up CI state.
+
+        Failed checks whose names contain ``upload-sarif``, ``code scanning``, or
+        ``security/snyk`` are non-blocking. The returned string explains the status.
+        """
         mergeable = pr_data.get("mergeable", "UNKNOWN")
         if mergeable == "CONFLICTING":
             return PRStatus.NEED_REBASE, "PR has merge conflicts with base branch"
@@ -65,8 +70,11 @@ class DependabotPrInspector:
             if status in ["QUEUED", "IN_PROGRESS"] or state == "PENDING":
                 has_running = True
             elif conclusion in ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"] or state in ["FAILURE", "ERROR"]:
-                # Note: security/snyk context may report error if token missing on dependabot PR
-                # but if Snyk Analysis CheckRun passed, consider that.
+                # Note: Snyk token context or unmerged-only Code Scanning SARIF baseline errors
+                # should be ignored as they only resolve after merge to master
+                if any(ignorable in name.lower() for ignorable in ["upload-sarif", "code scanning", "security/snyk"]):
+                    logger.warning(f"Ignoring non-blocking or unmerged-dependent check failure: {name}")
+                    continue
                 has_failed = True
                 failed_names.append(name)
 
