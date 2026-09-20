@@ -243,4 +243,40 @@ def test_unified_property_extractor_ground_rent_annual_normalized(monkeypatch):
     assert res.rights_economic_conditions.ground_rent_monthly_yen == 20000
 
 
+def test_llm_null_ground_rent_preserves_rule_based_fallback(monkeypatch):
+    """LLMが地代をnullで返してもspecsから得た地代を失わないこと"""
+    monkeypatch.setenv("GEMINI_API_KEY", "mock-key")
+    input_data = {
+        "title": "中野区 戸建て 借地権",
+        "site": "athome",
+        "property_type": "kodate",
+        "price_str": "4,380万円",
+        "specs": {
+            "土地権利": "普通借地権",
+            "地代（月額）": "18,500円",
+        },
+        "features": [],
+        "appeals": [],
+        "snippets": [],
+    }
+    mock_json = json.dumps({
+        "property_overview": {"price_man_yen": 4380, "property_type": "kodate"},
+        "building_master": {},
+        "unit_specs": {},
+        "land_kodate_specs": {},
+        "rights_economic_conditions": {
+            "land_rights_type": "普通借地権",
+            "ground_rent_monthly_yen": None,
+        },
+        "visual_features": {},
+    })
+    extractor = SingleUnifiedPropertyExtractor()
+    mock_model = MockGeminiModel(mock_json)
+
+    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+        result = extractor.extract(input_data)
+
+    assert mock_model.call_count == 1
+    assert result.rights_economic_conditions.ground_rent_monthly_yen == 18500
+
 

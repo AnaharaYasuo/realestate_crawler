@@ -2,12 +2,16 @@
 """
 地代（借地料）パース抽出機能の単体テスト (TDD)
 """
+import pytest
 from bs4 import BeautifulSoup
+from django.apps import apps
+from django.db import models
 
 from package.utils import converter
-from package.parser.baseParser import ParserBase
-from package.parser.athomeParser import AthomeKodateParser
 from package.models.athome import AthomeKodate
+from package.models.base import PropertyBaseModel
+from package.parser.athomeParser import AthomeKodateParser
+from package.parser.baseParser import ParserBase
 
 
 class DummyParser(ParserBase):
@@ -75,6 +79,47 @@ def test_converter_parse_chidai_various_formats():
     # 数字のみフォールバック
     assert converter.parse_chidai("30000") == 30000
     assert converter.parse_chidai("360000/年") == 30000
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("2万3,500円", 23500),
+        ("年額1万2,000円", 1000),
+        ("  月額 42,000 円  ", 42000),
+        (12500, 12500),
+    ],
+)
+def test_converter_parse_chidai_regression_boundaries(raw_value, expected):
+    """複合表記、年額換算、空白、数値入力でも月額円へ正規化されること"""
+    assert converter.parse_chidai(raw_value) == expected
+
+
+@pytest.mark.parametrize("raw_value", ["   ", "0万円", "年額0円", "----"])
+def test_converter_parse_chidai_rejects_non_positive_or_blank_values(raw_value):
+    """空白やゼロ相当の地代を有効な負債として扱わないこと"""
+    assert converter.parse_chidai(raw_value) is None
+
+
+def test_all_concrete_property_models_expose_land_rent_fields():
+    """全サイト・全物件種別の具象モデルに地代の二重保持フィールドが継承されること"""
+    property_models = [
+        model
+        for model in apps.get_app_config("package").get_models()
+        if issubclass(model, PropertyBaseModel)
+    ]
+
+    assert property_models, "No concrete property models were discovered"
+    for model in property_models:
+        numeric_field = model._meta.get_field("chidai")
+        string_field = model._meta.get_field("chidaiStr")
+
+        assert isinstance(numeric_field, models.IntegerField), model.__name__
+        assert numeric_field.null is True, model.__name__
+        assert numeric_field.blank is True, model.__name__
+        assert isinstance(string_field, models.TextField), model.__name__
+        assert string_field.blank is True, model.__name__
+        assert string_field.default == "", model.__name__
 
 
 def test_parser_base_parse_chidai_from_specs():

@@ -55,6 +55,28 @@ def test_investment_evaluator_deducts_actual_land_rent():
     # 手残りキャッシュフロー(CF)も地代分減少していること
     cf_diff = float(eval_res2.cash_flow) - float(eval_res1.cash_flow)
     assert abs(cf_diff - 24.0) < 1.0
+    assert eval_res1.monthly_land_rent == 20000
+    assert eval_res1.land_rent_liability == Decimal("480")
+
+
+def test_investment_evaluator_clamps_noi_when_land_rent_exceeds_income():
+    """地代が営業純利益を上回ってもNOIが負数にならず、負債額は全額保存されること"""
+    prop = MockProperty(
+        chidai=100000,
+        tochikenri="借地権",
+        annualRent=1000000,
+    )
+    evaluation = PropertyEvaluation(
+        property_url=prop.pageUrl,
+        company="athome",
+        property_type="investment_kodate",
+    )
+
+    result = evaluate_investment_property(prop, evaluation)
+
+    assert result.net_operating_income == 0
+    assert result.monthly_land_rent == 100000
+    assert result.land_rent_liability == Decimal("2400")
 
 
 def test_features_builds_land_rent_debt_features():
@@ -85,6 +107,23 @@ def test_features_handles_missing_land_rent():
     assert feats["land_rent_liability"] == 0.0
     assert feats["land_rent_ratio"] == 0.0
     assert feats["is_leasehold"] == 0.0
+
+
+def test_features_ignore_text_land_rent_for_freehold_property():
+    """所有権物件では備考中の地代表記だけを根拠に借地負債を作らないこと"""
+    prop = MockProperty(
+        price=40000000,
+        chidai=None,
+        chidaiStr="",
+        tochikenri="所有権",
+        biko="周辺相場の参考情報: 地代 月額30,000円",
+    )
+
+    feats = build_features(prop, "kodate")
+
+    assert feats["is_leasehold"] == 0.0
+    assert feats["monthly_land_rent"] == 0.0
+    assert feats["land_rent_liability"] == 0.0
 
 
 def test_features_extracts_from_chidaistr_when_chidai_is_none():
@@ -138,4 +177,3 @@ def test_investment_evaluator_leasehold_keyword_filtering():
     res_leasehold = evaluate_investment_property(prop_leasehold, eval_record2)
     assert res_leasehold.monthly_land_rent is not None
     assert res_leasehold.monthly_land_rent > 0
-

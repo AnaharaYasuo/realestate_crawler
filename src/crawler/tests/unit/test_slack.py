@@ -320,6 +320,19 @@ async def test_resolve_channel_id_already_id():
 
 
 @pytest.mark.asyncio
+async def test_resolve_channel_id_empty_channel_does_not_call_api():
+    """空のチャンネル指定はAPI照会せずそのまま返すこと"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_session = MagicMock()
+
+    result = await resolve_channel_id(mock_session, "", "fake-token")
+
+    assert result == ""
+    mock_session.get.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_resolve_channel_id_lookup_success():
     """チャンネル名が指定された場合に conversations.list から ID を解決することをテスト"""
     from scripts.debug_tools.check_latest_slack import resolve_channel_id
@@ -393,4 +406,26 @@ async def test_resolve_channel_id_pagination_success():
     assert result == "C0222222222"
     assert mock_session.get.call_count == 2
 
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_stops_when_pagination_cursor_repeats():
+    """Slackが同じcursorを返し続けても無限ループせず元の名前へフォールバックすること"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    response = AsyncMock()
+    response.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [],
+        "response_metadata": {"next_cursor": "stuck-cursor"},
+    })
+    request_context = MagicMock()
+    request_context.__aenter__ = AsyncMock(return_value=response)
+    request_context.__aexit__ = AsyncMock()
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=request_context)
+
+    result = await resolve_channel_id(mock_session, "missing-channel", "fake-token")
+
+    assert result == "missing-channel"
+    assert mock_session.get.call_count == 2
 
