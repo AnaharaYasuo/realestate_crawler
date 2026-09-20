@@ -107,7 +107,7 @@ def generate_mock_estat_data():
 
 
 def safe_path(path: str) -> str:
-    """Return the canonical path when it is within the working or source tree.
+    """Return the canonical path when it is within the working or repository tree.
 
     Raises:
         ValueError: If the resolved path is outside both allowed trees.

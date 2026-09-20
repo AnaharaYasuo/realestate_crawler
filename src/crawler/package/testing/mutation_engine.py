@@ -217,7 +217,11 @@ class ASTMutationEngine:
         cwd: Optional[str] = None,
         timeout: int = 30
     ) -> bool:
-        """変異を適用してテストを実行。テストが失敗 (FAIL) すれば変異体殺傷 (Killed=True)"""
+        """Apply a mutant and report whether the test command detects it.
+
+        The original file is restored before returning. A nonzero exit status,
+        timeout, or execution error counts as a killed mutant.
+        """
         backup = self.apply_mutant(mutant)
         try:
             # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true

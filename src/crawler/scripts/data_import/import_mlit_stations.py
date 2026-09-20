@@ -45,7 +45,7 @@ def generate_sample_mlit_csv(filepath):
 
 
 def safe_path(path: str) -> str:
-    """Return the canonical path when it is within the working or source tree.
+    """Return the canonical path when it is within the working or repository tree.
 
     Raises:
         ValueError: If the resolved path is outside both allowed trees.

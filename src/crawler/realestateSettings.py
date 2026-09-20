@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv()
 def configure():
+    """Configure Django once for the active test, cloud, or local environment."""
     if not settings.configured:
         import sys
         is_testing = 'pytest' in sys.argv[0] or os.getenv('FORCE_SQLITE') == 'true'

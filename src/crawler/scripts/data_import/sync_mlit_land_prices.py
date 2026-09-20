@@ -17,7 +17,7 @@ from package.models.evaluation import LandPricePotential
 MLIT_API_URL = "https://www.land.mlit.go.jp/webland/api/TradeListSearch"
 
 def safe_path(path: str) -> str:
-    """Return the canonical path when it is within the working or source tree.
+    """Return the canonical path when it is within the working or repository tree.
 
     Raises:
         ValueError: If the resolved path is outside both allowed trees.
