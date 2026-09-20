@@ -85,3 +85,25 @@ def test_features_handles_missing_land_rent():
     assert feats["land_rent_liability"] == 0.0
     assert feats["land_rent_ratio"] == 0.0
     assert feats["is_leasehold"] == 0.0
+
+
+def test_features_extracts_from_chidaistr_when_chidai_is_none():
+    """chidaiがNoneでもchidaiStrが存在する場合、featuresで自動パースされること"""
+    prop = MockProperty(price=3000, chidai=None, chidaiStr="月額 15,000円", tochikenri="賃借権")
+    feats = build_features(prop, "kodate")
+
+    assert feats["monthly_land_rent"] == 1.5
+    assert feats["annual_land_rent"] == 18.0
+    assert abs(feats["land_rent_liability"] - 360.0) < 0.1
+    assert abs(feats["land_rent_ratio"] - (18.0 / 3000.0)) < 0.001
+
+
+def test_features_extracts_from_text_fallback_for_leasehold():
+    """借地権物件でchidai未設定でも、備考テキスト等の正規表現から地代が抽出されること"""
+    prop = MockProperty(price=50000000, chidai=None, chidaiStr="", tochikenri="借地権", biko="地代（月額）3万円、更新料別途")
+    feats = build_features(prop, "kodate")
+
+    assert feats["monthly_land_rent"] == 3.0
+    assert feats["annual_land_rent"] == 36.0
+    assert abs(feats["land_rent_liability"] - 720.0) < 0.1
+

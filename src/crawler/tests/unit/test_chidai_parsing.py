@@ -55,12 +55,23 @@ def test_converter_parse_chidai_various_formats():
     assert converter.parse_chidai("24万円/年") == 20000
     assert converter.parse_chidai("年間240,000円") == 20000
 
-    # 欠損・無効値
+    # 欠損・無効値・相談等
     assert converter.parse_chidai("－") is None
     assert converter.parse_chidai("-") is None
+    assert converter.parse_chidai("―") is None
+    assert converter.parse_chidai("--") is None
     assert converter.parse_chidai("なし") is None
+    assert converter.parse_chidai("無") is None
+    assert converter.parse_chidai("未定") is None
+    assert converter.parse_chidai("相談") is None
+    assert converter.parse_chidai("0円") is None
     assert converter.parse_chidai("") is None
     assert converter.parse_chidai(None) is None
+    assert converter.parse_chidai("無効な文字列") is None
+
+    # 数字のみフォールバック
+    assert converter.parse_chidai("30000") == 30000
+    assert converter.parse_chidai("360000/年") == 30000
 
 
 def test_parser_base_parse_chidai_from_specs():

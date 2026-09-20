@@ -150,6 +150,32 @@ def parse_rent(rent_str):
     return parse_yen(rent_str)
 
 
+def _extract_chidai_amount(s: str) -> int | None:
+    """地代文字列から円単位の基本数値を抽出する内部ヘルパー"""
+    man_match = re.search(r'(\d+(?:\.\d+)?)\s*万(?:円)?', s)
+    if man_match:
+        try:
+            return int(float(man_match.group(1)) * 10000)
+        except (ValueError, TypeError):
+            pass
+
+    yen_match = re.search(r'(\d[\d,]*)\s*円', s)
+    if yen_match:
+        try:
+            return int(yen_match.group(1).replace(",", "").strip())
+        except (ValueError, TypeError):
+            pass
+
+    clean_num = re.sub(r'\D', '', s)
+    if clean_num:
+        try:
+            return int(clean_num)
+        except (ValueError, TypeError):
+            pass
+
+    return None
+
+
 def parse_chidai(chidai_str: str) -> int | None:
     """
     地代（借地料）文字列を月額円（int）に正規化して変換する。
@@ -167,42 +193,10 @@ def parse_chidai(chidai_str: str) -> int | None:
     if not s or s in ["－", "-", "―", "--", "なし", "無", "未定", "相談"]:
         return None
 
-    is_annual = bool(re.search(r'年額|年間|/年|年あたり', s))
+    amount = _extract_chidai_amount(s)
+    if amount is None or amount <= 0:
+        return None
 
-    # 1. 万円表記の検出 (例: "2.5万円", "月額2万円", "24万円/年")
-    man_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*万(?:\s*円)?', s)
-    if man_match:
-        try:
-            val_man = float(man_match.group(1))
-            val_yen = int(val_man * 10000)
-            if is_annual:
-                return round(val_yen / 12)
-            return val_yen
-        except (ValueError, TypeError):
-            pass
-
-    # 2. 円表記の検出 (例: "20,000円", "20年 20,000円", "120,000円/年")
-    # "20年" などの期間数値を誤検出しないよう、"円"の直前の数値を捕捉
-    yen_match = re.search(r'([0-9,]+)\s*円', s)
-    if yen_match:
-        try:
-            val_str = yen_match.group(1).replace(",", "").strip()
-            val_yen = int(val_str)
-            if is_annual:
-                return round(val_yen / 12)
-            return val_yen
-        except (ValueError, TypeError):
-            pass
-
-    # 3. 数値のみまたはフォールバック
-    clean_num = re.sub(r'[^0-9]', '', s)
-    if clean_num:
-        try:
-            val_yen = int(clean_num)
-            if is_annual:
-                return round(val_yen / 12)
-            return val_yen
-        except (ValueError, TypeError):
-            pass
-
-    return None
+    if re.search(r'年額|年間|/年|年あたり', s):
+        return round(amount / 12)
+    return amount

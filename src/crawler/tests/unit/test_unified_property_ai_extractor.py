@@ -207,3 +207,22 @@ def test_ground_rent_llm_and_fallback_extraction(monkeypatch):
         assert res_llm.rights_economic_conditions.ground_rent_monthly_yen == 20000
         assert res_llm.rights_economic_conditions.land_rights_type == "普通借地権"
 
+
+def test_unified_property_extractor_ground_rent_from_appeals_fallback(monkeypatch):
+    """specsに地代がない場合でもアピール文等の本文から地代が抽出されること"""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    input_data = {
+        "title": "世田谷区 戸建て",
+        "site": "athome",
+        "property_type": "kodate",
+        "specs": {"土地権利": "普通借地権"},
+        "appeals": ["閑静な住宅街。地代 2.5万円要す。"],
+        "features": [],
+        "snippets": []
+    }
+    extractor = SingleUnifiedPropertyExtractor()
+    res = extractor.extract(input_data)
+    assert res.rights_economic_conditions.ground_rent_monthly_yen == 25000
+    assert res.rights_economic_conditions.land_rights_type == "普通借地権"
+
+

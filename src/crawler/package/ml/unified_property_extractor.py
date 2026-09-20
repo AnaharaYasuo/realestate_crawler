@@ -272,6 +272,31 @@ class SingleUnifiedPropertyExtractor:
             return fallback_res
 
 
+    @staticmethod
+    def _detect_leasehold_rights(all_text: str) -> str:
+        """借地権権利関係のルールベース判定"""
+        if not any(term in all_text for term in ["借地権", "賃借権", "地上権", "借地"]):
+            return "所有権"
+        if "定期" in all_text:
+            return "定期借地権"
+        if "普通賃借" in all_text or "普通借地" in all_text:
+            return "普通借地権"
+        return "旧法借地権"
+
+    @staticmethod
+    def _extract_ground_rent(specs_dict: Any, all_text: str) -> int | None:
+        """地代（月額円）のルールベース抽出"""
+        if isinstance(specs_dict, dict):
+            for k, v in specs_dict.items():
+                if any(term in k for term in ["地代", "借地料"]):
+                    val = parse_chidai(str(v))
+                    if val:
+                        return val
+        rent_match = re.search(r'(?:地代|借地料)[^\d\r\n]{0,15}(\d[\d,]*(?:\.\d+)?\s*万?円)', all_text)
+        if rent_match:
+            return parse_chidai(rent_match.group(1))
+        return None
+
     def _rule_based_fallback(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
         """API未設定・失敗時のルールベース高速抽出"""
         all_text = " ".join([
@@ -300,29 +325,8 @@ class SingleUnifiedPropertyExtractor:
         hallway = "内廊下" if "内廊下" in all_text else ("外廊下" if "外廊下" in all_text else None)
         defect = True if "告知事項" in all_text or "心理的瑕疵" in all_text else False
 
-        # 借地権判定
-        rights = "所有権"
-        if any(term in all_text for term in ["借地権", "賃借権", "地上権", "借地"]):
-            if "定期" in all_text:
-                rights = "定期借地権"
-            elif "普通賃借" in all_text or "普通借地" in all_text:
-                rights = "普通借地権"
-            else:
-                rights = "旧法借地権"
-
-        # 地代（月額円）のルールベース抽出
-        ground_rent = None
-        specs_dict = prop_data.get("specs", {})
-        if isinstance(specs_dict, dict):
-            for k, v in specs_dict.items():
-                if any(term in k for term in ["地代", "借地料"]):
-                    ground_rent = parse_chidai(str(v))
-                    if ground_rent:
-                        break
-        if not ground_rent:
-            rent_match = re.search(r'(?:地代|借地料)[^0-9\n]*?([0-9,]+(?:\.[0-9]+)?\s*万?円)', all_text)
-            if rent_match:
-                ground_rent = parse_chidai(rent_match.group(1))
+        rights = self._detect_leasehold_rights(all_text)
+        ground_rent = self._extract_ground_rent(prop_data.get("specs", {}), all_text)
 
         return UnifiedPropertyAttributes(
             property_overview=PropertyOverview(
