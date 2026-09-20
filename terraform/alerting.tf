@@ -5,6 +5,18 @@
 #       Too many connections / MY-010048) など、通常 NOTICE/DEFAULT 扱いされるログを
 #       ログベースメトリクスで捕捉し、重大度 ERROR / CRITICAL のアラートとして即時通知する。
 
+# 0. Pub/Sub 通知チャンネル (Slack / インシデント通知用)
+resource "google_monitoring_notification_channel" "alert_pubsub" {
+  display_name = "Real Estate Incident Alert Pub/Sub (${var.environment})"
+  type         = "pubsub"
+
+  labels = {
+    topic = google_pubsub_topic.budget_alert_topic.id
+  }
+
+  depends_on = [google_project_service.enabled_services]
+}
+
 # 1.1 MySQL 認証拒否ログメトリクス (MY-010926 / Access denied for user)
 resource "google_logging_metric" "mysql_access_denied_metric" {
   name        = "cloudsql/mysql_access_denied_${var.environment}"
@@ -49,7 +61,10 @@ resource "google_monitoring_alert_policy" "mysql_access_denied_alert" {
     }
   }
 
-  notification_channels = var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  notification_channels = concat(
+    [google_monitoring_notification_channel.alert_pubsub.name],
+    var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  )
 
   alert_strategy {
     auto_close = "1800s" # 30分で自動クローズ
@@ -62,7 +77,8 @@ resource "google_monitoring_alert_policy" "mysql_access_denied_alert" {
 
   depends_on = [
     google_project_service.enabled_services,
-    google_logging_metric.mysql_access_denied_metric
+    google_logging_metric.mysql_access_denied_metric,
+    google_monitoring_notification_channel.alert_pubsub
   ]
 }
 
@@ -110,7 +126,10 @@ resource "google_monitoring_alert_policy" "mysql_error_log_alert" {
     }
   }
 
-  notification_channels = var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  notification_channels = concat(
+    [google_monitoring_notification_channel.alert_pubsub.name],
+    var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  )
 
   alert_strategy {
     auto_close = "1800s"
@@ -123,7 +142,8 @@ resource "google_monitoring_alert_policy" "mysql_error_log_alert" {
 
   depends_on = [
     google_project_service.enabled_services,
-    google_logging_metric.mysql_error_log_metric
+    google_logging_metric.mysql_error_log_metric,
+    google_monitoring_notification_channel.alert_pubsub
   ]
 }
 
@@ -171,7 +191,10 @@ resource "google_monitoring_alert_policy" "mysql_too_many_connections_alert" {
     }
   }
 
-  notification_channels = var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  notification_channels = concat(
+    [google_monitoring_notification_channel.alert_pubsub.name],
+    var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  )
 
   alert_strategy {
     auto_close = "1800s"
@@ -184,7 +207,8 @@ resource "google_monitoring_alert_policy" "mysql_too_many_connections_alert" {
 
   depends_on = [
     google_project_service.enabled_services,
-    google_logging_metric.mysql_too_many_connections_metric
+    google_logging_metric.mysql_too_many_connections_metric,
+    google_monitoring_notification_channel.alert_pubsub
   ]
 }
 
@@ -197,7 +221,7 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
   conditions {
     display_name = "ProxySQL MIG Unhealthy Instances > 0"
     condition_threshold {
-      filter          = "metric.type=\"compute.googleapis.com/instance_group/unhealthy_instances\" AND resource.type=\"instance_group\" AND resource.label.instance_group_name=monitoring.regex.full_match(\"proxysql-mig.*\")"
+      filter          = "metric.type=\"compute.googleapis.com/instance_group/unhealthy_instances\" AND resource.type=\"gce_instance_group_manager\" AND resource.label.instance_group_manager_name=monitoring.regex.full_match(\"proxysql-mig.*\")"
       duration        = "120s"
       comparison      = "COMPARISON_GT"
       threshold_value = 0
@@ -213,7 +237,10 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
     }
   }
 
-  notification_channels = var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  notification_channels = concat(
+    [google_monitoring_notification_channel.alert_pubsub.name],
+    var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  )
 
   alert_strategy {
     auto_close = "1800s"
@@ -226,6 +253,7 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
 
   depends_on = [
     google_project_service.enabled_services,
-    google_compute_region_instance_group_manager.proxysql_mig
+    google_compute_region_instance_group_manager.proxysql_mig,
+    google_monitoring_notification_channel.alert_pubsub
   ]
 }

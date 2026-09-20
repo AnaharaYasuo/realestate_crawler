@@ -80,6 +80,7 @@ class UrlMatcher:
                     return item
             return None
         except Exception as e:
-            logger.error(f"UrlMatcher query error on {field_name}={url}: {e}", exc_info=True)
+            logger.exception(f"UrlMatcher query error on {field_name}={url}: {e}")
             return None
+
 

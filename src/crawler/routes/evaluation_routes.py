@@ -741,7 +741,7 @@ async def _execute_predict_by_url(
         try:
             eval_record = PropertyEvaluation.objects.filter(UrlMatcher.build_db_filter("property_url", url)).first()
         except Exception as e:
-            logging.error(f"PropertyEvaluation cache query failed: {e}", exc_info=True)
+            logging.exception(f"PropertyEvaluation cache query failed: {e}")
 
         if eval_record and eval_record.first_stage_predicted_price is not None:
             prop_info = {}
@@ -754,7 +754,8 @@ async def _execute_predict_by_url(
                     if existing_item:
                         prop_info = _extract_property_info(existing_item)
                 except Exception as e:
-                    logging.error(f"Failed to fetch model info for cached eval: {e}", exc_info=True)
+                    logging.exception(f"Failed to fetch model info for cached eval: {e}")
+
 
 
             first_pred = int(eval_record.first_stage_predicted_price)

@@ -9,11 +9,12 @@ def test_url_matcher_query_error_logs_error():
     mock_qs = MagicMock()
     mock_qs.filter.side_effect = Exception("DB Connection Lost / Query Error")
 
-    with patch("package.utils.url_matcher.logger.error") as mock_err:
+    with patch("package.utils.url_matcher.logger.exception") as mock_err:
         result = UrlMatcher.find_match_in_queryset(mock_qs, "pageUrl", "https://example.com/item/1")
         assert result is None
         mock_err.assert_called_once()
         log_msg = mock_err.call_args[0][0]
         assert "UrlMatcher query error" in log_msg
         assert "DB Connection Lost" in log_msg
+
 

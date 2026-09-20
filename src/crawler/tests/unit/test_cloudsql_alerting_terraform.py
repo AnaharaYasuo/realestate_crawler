@@ -43,10 +43,12 @@ def test_mysql_access_denied_metric_and_alert_defined():
         "Logging metric filter must target cloudsql_database resource."
 
     # 2. アラートポリシー (Severity: ERROR)
-    assert 'resource "google_monitoring_alert_policy" "mysql_access_denied_alert"' in content, \
-        "alerting.tf must define alert policy for MySQL access denied."
-    assert 'severity = "ERROR"' in content or "severity = 'ERROR'" in content or 'severity' in content, \
-        "Alert policy must have severity specified."
+    match = re.search(r'resource\s+"google_monitoring_alert_policy"\s+"mysql_access_denied_alert"\s*{(.*?)\n}\n', content, re.DOTALL)
+    assert match, "alerting.tf must define alert policy for MySQL access denied."
+    block = match.group(1)
+    assert re.search(r'severity\s*=\s*"ERROR"', block), \
+        "mysql_access_denied_alert resource block must specify severity = 'ERROR'."
+
 
 
 def test_mysql_error_log_metric_and_alert_defined():
