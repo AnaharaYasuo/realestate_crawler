@@ -3,6 +3,7 @@ import asyncio
 from decimal import Decimal
 import logging
 import re
+from typing import Optional
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -58,6 +59,24 @@ class KenbiyaParserBase(ParserBase):
     def getCharset(self):
         return "utf-8"
 
+    async def _handle_response(self, response: aiohttp.ClientResponse, url: str, attempt: int, max_timeouts: int) -> Optional[bytes]:
+        status = response.status
+        if status == 200:
+            self.consecutive_timeouts = 0
+            return await response.read()
+        if status in (404, 410):
+            raise ListingEndedException(f"Property page returned HTTP status {status}: {url}")
+        if status in (500, 502, 503, 504):
+            raise ServerBusyException(f"Property page returned HTTP status {status}: {url}")
+        if status == 429:
+            backoff = min(30, 2 ** (attempt + 1))
+            logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {backoff}s")
+            if attempt == max_timeouts - 1:
+                raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
+            await asyncio.sleep(backoff)
+            return None
+        raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -75,22 +94,9 @@ class KenbiyaParserBase(ParserBase):
             try:
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                     last_status = response.status
-                    if response.status == 200:
-                        self.consecutive_timeouts = 0
-                        return await response.read()
-                    elif response.status in (404, 410):
-                        raise ListingEndedException(f"Property page returned HTTP status {response.status}: {url}")
-                    elif response.status in (500, 502, 503, 504):
-                        raise ServerBusyException(f"Property page returned HTTP status {response.status}: {url}")
-                    elif response.status == 429:
-                        backoff = min(30, 2 ** (attempt + 1))
-                        logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {backoff}s")
-                        if attempt == max_timeouts - 1:
-                            raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
-                        await asyncio.sleep(backoff)
-                        continue
-                    else:
-                        raise LoadPropertyPageException(f"Failed to fetch {url} with status {response.status}")
+                    content = await self._handle_response(response, url, attempt, max_timeouts)
+                    if content is not None:
+                        return content
             except (RateLimitedException, ListingEndedException, ServerBusyException, LoadPropertyPageException, ServerDownException):
                 raise
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
