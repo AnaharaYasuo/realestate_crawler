@@ -25,11 +25,13 @@ class RateLimitMiddleware(CrawlerMiddleware):
         self.delay = delay
     
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+        """リクエスト送信前に指定秒数ウェイトします。"""
         logger.debug(f"RateLimitMiddleware: sleeping {self.delay}s for {request_context.get('url')}")
         await asyncio.sleep(self.delay)
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+        """レスポンスコンテキストをそのまま返却します。"""
         return response_context
 
 class RetryMiddleware(CrawlerMiddleware):
@@ -40,9 +42,11 @@ class RetryMiddleware(CrawlerMiddleware):
         self.retry_delay = retry_delay
     
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+        """リクエスト送信前の前処理を行います。"""
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+        """5xxサーバーエラー時にリトライ判定を行います。"""
         status = response_context.get('status')
         if status and status >= 500:
             retry_count = response_context.get('retry_count', 0)
@@ -57,6 +61,7 @@ class LoggingMiddleware(CrawlerMiddleware):
     """ログ記録ミドルウェア（リクエスト・レスポンスの送受信ペイロードを出力）"""
     
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+        """リクエスト送信内容をINFOログに出力します。"""
         method = request_context.get('method')
         url = request_context.get('url')
         payload = (
@@ -69,9 +74,17 @@ class LoggingMiddleware(CrawlerMiddleware):
         return None
     
     async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+        """レスポンスステータスに応じて適切な重大度 (2xx/3xx: INFO, 4xx: WARNING, 5xx: ERROR) でログ出力します。"""
         status = response_context.get('status')
         url = response_context.get('url')
         data = response_context.get('data') or response_context.get('text')
         data_preview = str(data)[:1000] if data is not None else None
-        logger.info(f"Middleware Response: {status} {url} | Body: {data_preview}")
+        log_msg = f"Middleware Response: {status} {url} | Body: {data_preview}"
+        if status and status >= 500:
+            logger.error(log_msg)
+        elif status and status >= 400:
+            logger.warning(log_msg)
+        else:
+            logger.info(log_msg)
         return response_context
+

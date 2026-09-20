@@ -48,8 +48,10 @@ resource "google_project_service" "enabled_services" {
     "servicenetworking.googleapis.com",
     "compute.googleapis.com",
     "billingbudgets.googleapis.com",
-    "monitoring.googleapis.com"
+    "monitoring.googleapis.com",
+    "logging.googleapis.com"
   ])
+
 
   service                    = each.key
   disable_dependent_services = false

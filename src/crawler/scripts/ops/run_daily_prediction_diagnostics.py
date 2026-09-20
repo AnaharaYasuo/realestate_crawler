@@ -280,8 +280,9 @@ def _collect_diagnostics_data(eval_records: list) -> list:
             if item:
                 diagnostics_data.append(item)
         except Exception as e:
-            logger.debug(f"Error extracting property {ev.property_url}: {e}")
+            logger.warning(f"Error extracting property {ev.property_url}: {e}")
             continue
+
     return diagnostics_data
 
 
