@@ -22,7 +22,8 @@ resource "random_id" "db_suffix" {
 #tfsec:ignore:google-sql-encrypt-in-transit
 #trivy:ignore:AVD-GCP-0015
 resource "google_sql_database_instance" "mysql_instance" {
-  # checkov:skip=CKV_GCP_60: "VPC internal private IP only; unencrypted connections allowed inside VPC"
+  # checkov:skip=CKV_GCP_60:VPC internal private IP only; unencrypted connections allowed inside VPC
+  # checkov:skip=CKV_GCP_6:VPC internal private IP only; ProxySQL terminates connections inside VPC
   name             = "realestate-mysql-${var.environment}-${random_id.db_suffix.hex}"
   database_version = "MYSQL_8_0"
   region           = var.region
@@ -47,9 +48,10 @@ resource "google_sql_database_instance" "mysql_instance" {
     }
 
     backup_configuration {
-      enabled            = true
-      start_time         = "19:00" # JST 04:00 (バッチ完了後)
-      binary_log_enabled = false
+      enabled                        = true
+      start_time                     = "19:00" # JST 04:00 (バッチ完了後)
+      binary_log_enabled             = true
+      transaction_log_retention_days = 7
     }
 
     database_flags {
