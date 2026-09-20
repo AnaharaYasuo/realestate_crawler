@@ -102,6 +102,10 @@ jobs:
               for (const line of lines) {
                 const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
                 if (m) {
+                  // Ignore CodeRabbit interactive radio choices (e.g. optional unit test generation triggers)
+                  if (line.includes('radioGroupId')) {
+                    continue;
+                  }
                   const content = m[2].trim();
                   const clean = content.replace(/<!--.*?-->/g, '').trim();
                   items.push({ source: sourceDesc, text: clean || content || '(No description)' });

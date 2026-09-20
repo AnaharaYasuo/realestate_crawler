@@ -143,7 +143,7 @@ PR本文（`pr.body`）、全レビュー本文（`reviews`）、全PRレビュ�
 const uncheckedRegex = /^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$/gm;
 ```
 
-CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。
+CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。なお、CodeRabbit の選択肢（`radioGroupId` を含む単一選択・単体テスト生成トリガー等のラジオボタン）はタスクではないため除外判定されます。
 
 ### 4.4 CodeRabbit レビューステータス検証ロジック
 最新のレビュー状態を照会し、以下のいずれかに該当する場合はマージ不可と判定します：
