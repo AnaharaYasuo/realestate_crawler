@@ -350,3 +350,38 @@ def test_edge_cases_and_error_paths(monkeypatch):
     res = PropertyTypeDetector.detect_with_ai(title="珍しい形状の住宅", default="mansion")
     assert res == "mansion"
 
+
+def test_property_type_detector_helpers_and_guards():
+    """変異テスト耐性: ヘルパーおよびガード関数の網羅的検証"""
+    # 1. _get_field
+    class SampleObj:
+        senyuMenseki = 72.5
+        tochiMenseki = 0.0
+        kouzou = "RC造"
+
+    obj = SampleObj()
+    assert PropertyTypeDetector._get_field(obj, "senyuMenseki") == 72.5
+    assert PropertyTypeDetector._get_field(obj, "unknown", default="def") == "def"
+    assert PropertyTypeDetector._get_field(None, "senyuMenseki") is None
+
+    # 2. _is_rc_zero_land
+    assert PropertyTypeDetector._is_rc_zero_land(obj) is True
+    assert PropertyTypeDetector._is_rc_zero_land(None) is False
+
+    class NonRcObj:
+        tochiMenseki = 100.0
+        kouzou = "木造"
+
+    assert PropertyTypeDetector._is_rc_zero_land(NonRcObj()) is False
+
+    # 3. _has_yield_signal (正例・負例)
+    assert PropertyTypeDetector._has_yield_signal("表面利回り 6.5%") is True
+    assert PropertyTypeDetector._has_yield_signal("東京都目黒区の閑静な住宅街") is False
+    assert PropertyTypeDetector._has_yield_signal(None) is False
+    assert PropertyTypeDetector._has_yield_signal(123) is False
+
+    # 4. _has_yield_signal_specs (正例・負例)
+    assert PropertyTypeDetector._has_yield_signal_specs({"grossYield": "5.0%"}) is True
+    assert PropertyTypeDetector._has_yield_signal_specs({"間取り": "3LDK", "所在地": "新宿区"}) is False
+
+

@@ -65,6 +65,26 @@ tasks:
     cmds:
       - docker compose exec -T app python Temp/test_slack_dispatch.py
 
+  test-mutation:
+    desc: Run mutation testing (Level 1 Data Mutation + Level 2 Code Mutation)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=all
+
+  test-mutation-data:
+    desc: Run Level 1 Data Mutation testing (100% detection rate on 94 models)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=data
+
+  test-mutation-code:
+    desc: Run Level 2 Code Mutation testing (AST syntax mutations with kill score)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --mode=code
+
+  test-mutation-pr:
+    desc: Run mutation testing on changed files and unit tests for PR
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --pr-mode --threshold=80
+
   snyk:
     desc: Run Snyk security scan (dependencies) locally using Docker
     cmds:

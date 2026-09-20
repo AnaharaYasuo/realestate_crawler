@@ -886,5 +886,71 @@ flowchart TD
 }
 ```
 
+---
 
+## 15. ユニット完全性検証ミューテーションテスト機構設計 (Mutation Testing Architecture)
 
+### 15.1 2層ミューテーション構造
+```mermaid
+flowchart TD
+    subgraph L1["Level 1: ドメイン・データ破損注入 (Data Mutation)"]
+        D1["94モデル・全フィールドスキーマ"] --> D2["故意破損注入 (None/0/空文字/境界値)"]
+        D2 --> D3["パーサー・バリデーション層 (validate_extracted_fields)"]
+        D3 --> D4["100% 破損検知・構造化エラーログ出力 (Kill Rate: 100%)"]
+    end
+
+    subgraph L2["Level 2: コード構文木AST変異 (Code Mutation)"]
+        C1["コアユニット (baseParser, UrlRouter, detector, MLモジュール)"] --> C2["AST変異生成 (演算子反転 / 戻り値破壊 / 条件式否定)"]
+        C2 --> C3["ユニットテスト実行 (pytest)"]
+        C3 --> C4{"テスト結果判定"}
+        C4 -->|FAIL| C5["KILLED (殺傷成功: テスト有効)"]
+        C4 -->|PASS| C6["SURVIVED (生存: テスト盲点・不備)"]
+    end
+
+    subgraph OPS["運用・品質ゲート層"]
+        O1["run_mutation_testing.py / task test:mutation"] --> L1
+        O1 --> L2
+        L1 --> O2["総合Mutation Report (JSON/Console)"]
+        L2 --> O2
+        O2 --> O3{"Mutation Score >= 閾値?"}
+        O3 -->|Yes| O4["CI / 回帰テスト PASS"]
+        O3 -->|No| O5["エラー終了・アラート発報"]
+    end
+```
+
+### 15.2 変異生成ルール（AST Mutation Operators）
+- **比較演算子反転 (`MutateCompareOp`)**:
+  - `==` ↔ `!=`
+  - `<` ↔ `>=`
+  - `>` ↔ `<=`
+  - `in` ↔ `not in`
+  - `is` ↔ `is not`
+- **論理演算子反転 (`MutateBoolOp`)**:
+  - `and` ↔ `or`
+- **戻り値破壊 (`MutateReturn`)**:
+  - `return True` ↔ `return False`
+  - `return obj` ↔ `return None`
+  - `return 0` ↔ `return 1`
+- **条件式反転 (`MutateUnaryOp`)**:
+  - `not x` ↔ `x`
+
+### 15.3 運用コマンドとメトリクス
+```bash
+# 両方のミューテーションテストを一括実行
+task test:mutation
+
+# データ故意破損注入テストのみ実行
+task test:mutation-data
+
+# コードAST変異テストのみ実行
+task test:mutation-code
+
+# CLIスクリプト直接実行（閾値指定）
+python src/crawler/scripts/run_mutation_testing.py --mode=all --threshold=85
+```
+
+- **Mutation Score (キル率)**:
+  $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \times 100\%$$
+- **品質ゲート基準**:
+  - Level 1 (Data Mutation): **100%** (1件の取りこぼしも許容しない)
+  - Level 2 (Code Mutation): **85%以上** (コアユニットにおいて未検証ロジックを排除)
