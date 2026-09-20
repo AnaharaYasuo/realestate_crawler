@@ -125,10 +125,11 @@ def test_base_parser_xpath_starts_with_and_not_contains():
     </body></html>'''
     soup = BeautifulSoup(html, "html.parser")
     async def run():
-        return [u async for u in p._parsePageCore(soup, xpath)]
+        return [u async for u in p._parsePageCore(soup, xpath_fn=lambda: xpath, dest_url_fn=lambda h: h)]
     urls = asyncio.run(run())
     assert len(urls) == 1
     assert "/buy/mansion/tokyo/" in urls[0]
+
 
 
 
