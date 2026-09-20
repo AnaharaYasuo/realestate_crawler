@@ -251,8 +251,8 @@ def _evaluate_query_list(q_list, ptype: str, api_base_url: str):
                     total_e += 1
                 if err is not None:
                     errs.append(err)
-            except Exception as e:
-                logging.error(f"Failed to evaluate property: {e}")
+            except Exception:
+                logging.exception("Failed to evaluate property")
     return total_p, total_e, errs
 
 
@@ -260,8 +260,8 @@ def main():
     def post_slack(msg):
         try:
             asyncio.run(send_dev_report(msg))
-        except Exception as se:
-            logging.error(f"Failed to post Slack status: {se}")
+        except Exception:
+            logging.exception("Failed to post Slack status")
 
     logging.info("Starting batch property estimation and investment evaluation via API...")
     post_slack("🚀 【価格推定開始】 データベースに登録されている全物件の一括価格推定と投資評価を開始します。(API版)")
