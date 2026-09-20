@@ -403,6 +403,18 @@ task stop
 #### FR-021: 誤分類・パース外れ値防御（Data Anomaly & Misclassification Guards）
 - 敷地権のない1K投資用区分所有が戸建てテーブルに混入した場合、自動的に区分マンション評価へリルートすること。また、価格値が面積カラムへ混入するパース異常（マンション面積500㎡超等）を上限キャップし、築年数欠損（`builtYear=None`）に対して適正な築年数をインピュートすること。
 
+### 2.8 CI/CD 自動コードレビュー・マージブロック要件（CodeRabbit Review & Merge Gate）
+
+#### FR-022: CodeRabbit 自動コードレビューの PR 実行
+- 各 Pull Request（`master` および `production` 宛て）の作成・更新時、CodeRabbit による AI 自動コードレビューを自動実行すること。
+- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
+- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
+- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
+
+#### FR-023: 未解決レビューコメントによるマージブロック強制
+- CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
+- CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。
+
 ---
 
 ## 3. 非機能要件
@@ -459,6 +471,10 @@ task stop
 - **変更差分による自動スキップ (Path Filtering)**: `dorny/paths-filter` を導入し、`docs/**`, `*.md` のみの変更時はテスト・Dockerビルドを完全スキップ（即時Pass）、`terraform/**` のみの変更時はアプリテストをスキップして Terraform Plan のみ実行すること
 - **SonarCloud 別系統・先行化**: SonarCloud スキャンを別系統として先行起動し、外部ライブ到達テストを除外したモック中心のカバレッジ計測により所要時間を短縮すること
 - **Production PR 完全並列化**: `master` ➔ `production` へのリリースPRにおいて、ゲートチェック、Terraform Plan、テスト、セキュリティスキャンを待ち時間ゼロで完全同時並行実行すること
+
+#### NFR-011: レビュー品質ゲートおよび未解決コメント防止要件
+- コードレビューにおける指摘事項（潜在バグ・型不整合・規約違反・セキュリティリスク）の放置をゼロにし、高品質なコードベースを維持すること。
+- 未解決のスレッド（Unresolved threads）が存在する場合、GitHub UI および CI 双方で明確にマージ不能状態を表示し、修正箇所のファイル名および行番号を開発者に迅速にフィードバックすること。
 
 ### 3.4 拡張性要件
 

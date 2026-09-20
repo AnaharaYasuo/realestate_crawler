@@ -817,5 +817,48 @@ sequenceDiagram
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
 
+---
+
+## 15. CodeRabbit 自動コードレビュー ＆ 未解決レビューコメント解決マージゲートアーキテクチャ (CodeRabbit Review & Conversation Resolution Gate)
+
+PR作成・更新時に CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。
+
+```mermaid
+flowchart TD
+    A[Pull Request 作成 / コミットPush] --> B[CodeRabbit 自動レビュー起動<br/>(.coderabbit.yaml / profile: chill)]
+    A --> C[Review Conversation Gate CI起動<br/>(.github/workflows/review-gate.yml)]
+    
+    B --> D{改善指摘・懸念点あり?}
+    D -- YES --> E[インラインレビューコメント投稿<br/>PRステータス: Changes Requested]
+    D -- NO --> F[PRステータス: Approved]
+    
+    E --> G[開発者がコード修正 & コメント返答]
+    G --> H[コメントスレッドの解決<br/>(Resolve conversation)]
+    
+    C --> I[GitHub GraphQL API で未解決スレッド照会]
+    I --> J{未解決の会話スレッド存在?}
+    J -- YES --> K[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
+    J -- NO --> L[CI Check: SUCCESS]
+    
+    H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
+    M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]
+    M -- 全スレッド解決済み & CI ALL PASS --> O[master / production へのマージ許可]
+```
+
+### 15.1 二重マージブロック機構 (Dual Merge Blocking Mechanism)
+1. **第1防壁: GitHub ネイティブ ブランチ保護 (`required_conversation_resolution: true`)**
+   - `master` および `production` ブランチの保護ルールとして有効化。
+   - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
+2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
+   - GitHub Actions 上で PR の会話スレッドを走査。
+   - 未解決のスレッドが存在する場合、CI ジョブ「Review Conversation Gate」が FAILED となり、ステータスチェック単位でもブロックされる。
+   - 解決が必要なコメントの所在（ファイル名・行番号・コメント抜粋）が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
+
+### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
+- **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
+- **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
+- **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
+- **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）、`markdownlint`（ドキュメント検証）を同時走査。
+
 
 
