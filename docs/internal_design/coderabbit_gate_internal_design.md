@@ -72,7 +72,11 @@ GitHub ネイティブのブランチ保護機能。
   {
     "required_status_checks": {
       "strict": true,
-      "contexts": ["test", "Snyk Analysis"]
+      "contexts": [
+        "test",
+        "Snyk Analysis",
+        "Verify All Review Conversations Resolved"
+      ]
     },
     "enforce_admins": true,
     "required_pull_request_reviews": null,
@@ -87,17 +91,24 @@ GitHub ネイティブのブランチ保護機能。
 ## 4. CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)
 
 ### 4.1 トリガー仕様
-- **イベント**: `pull_request` (`types: [opened, edited, synchronize, reopened]`)
-- **対象ブランチ**: `master`, `production`
+- **イベント**:
+  - `pull_request`: `types: [opened, edited, synchronize, reopened]`, `branches: [master, production]`
+  - `pull_request_review`: `types: [submitted]`
+  - `pull_request_review_comment`: `types: [created, edited, deleted]`
+- **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
-### 4.2 未解決スレッド検出ロジック (GraphQL API)
-GitHub GraphQL API の `reviewThreads` フィールドを利用し、未解決スレッド（`isResolved: false`）を抽出します。
+### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
+GitHub GraphQL API の `reviewThreads` Connection を利用し、`pageInfo`（`hasNextPage`, `endCursor`）によるカーソルベースのページネーションループですべてのレビュー会話スレッドを走査・収集した上で未解決スレッド（`isResolved: false`）を抽出します。
 
 ```graphql
-query($owner: String!, $repo: String!, $prNumber: Int!) {
+query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $prNumber) {
-      reviewThreads(first: 100) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
         nodes {
           id
           isResolved

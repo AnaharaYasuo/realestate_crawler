@@ -31,11 +31,21 @@ jobs:
               return;
             }
 
+            const targetBranch = pr.base && pr.base.ref;
+            if (targetBranch !== 'master' && targetBranch !== 'production') {
+              core.info(`Target branch is '${targetBranch}'. Skipping review gate.`);
+              return;
+            }
+
             const query = `
-              query($owner: String!, $repo: String!, $prNumber: Int!) {
+              query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $prNumber) {
-                    reviewThreads(first: 100) {
+                    reviewThreads(first: 100, after: $cursor) {
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
                       nodes {
                         id
                         isResolved
@@ -56,21 +66,32 @@ jobs:
               }
             `;
 
-            const variables = {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              prNumber: pr.number
-            };
+            let hasNextPage = true;
+            let cursor = null;
+            const allThreads = [];
 
-            const result = await github.graphql(query, variables);
-            const threads = result.repository.pullRequest.reviewThreads.nodes;
-            const unresolved = threads.filter(t => !t.isResolved);
+            while (hasNextPage) {
+              const variables = {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                prNumber: pr.number,
+                cursor: cursor
+              };
+
+              const result = await github.graphql(query, variables);
+              const connection = result.repository.pullRequest.reviewThreads;
+              allThreads.push(...connection.nodes);
+              hasNextPage = connection.pageInfo.hasNextPage;
+              cursor = connection.pageInfo.endCursor;
+            }
+
+            const unresolved = allThreads.filter(t => !t.isResolved);
 
             if (unresolved.length === 0) {
               console.log('✅ すべてのレビュー会話スレッドが解決済みです。マージ可能です。');
               core.summary
                 .addHeading('✅ Review Conversations Check Passed')
-                .addRaw('すべてのレビュー会話スレッドが解決されています。')
+                .addRaw(`すべてのレビュー会話スレッド（走査対象: ${allThreads.length}件）が解決されています。`)
                 .write();
               return;
             }
