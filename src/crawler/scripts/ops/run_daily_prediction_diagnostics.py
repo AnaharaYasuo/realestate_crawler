@@ -29,7 +29,7 @@ realestateSettings.configure()
 
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message
+from package.utils.slack import send_slack_message, send_dev_report
 
 try:
     import google.generativeai as genai
@@ -82,90 +82,56 @@ def calculate_metrics(y_true, y_pred) -> dict:
     }
 
 
+def _classify_over_prediction(text: str, features: dict) -> list:
+    causes = []
+    if re.search(r"借地|地上権|定期借地|地代", text):
+        causes.append("leasehold")
+    if re.search(r"再建築不可|市街化調整|建築不可|セットバック要", text):
+        causes.append("unbuildable")
+    if re.search(r"告知事項|心理的瑕疵|事故|特別募集", text):
+        causes.append("hazard_stigma")
+
+    maguchi = float(features.get("maguchi") or 0.0)
+    road_width = float(features.get("roadWidth") or features.get("road_width") or 0.0)
+    if 0 < maguchi < 2.0 or 0 < road_width < 4.0:
+        causes.append("shape_penalty")
+
+    if not causes:
+        causes.append("unclassified_over")
+    return causes
+
+
+def _classify_under_prediction(text: str, features: dict) -> list:
+    causes = []
+    if re.search(r"リノベ|リフォーム|内装一新|水回り新|改装済", text):
+        causes.append("renovated")
+
+    floor = int(features.get("floor_number") or features.get("floor") or 0)
+    total_floors = int(features.get("total_floors") or 0)
+    if total_floors >= 20 or (floor > 0 and floor == total_floors) or re.search(r"タワー|最上階|角部屋|ルーフバルコニー", text):
+        causes.append("premium_tower")
+
+    if not causes:
+        causes.append("unclassified_under")
+    return causes
+
+
 def classify_error_cause(error_ratio: float, text: str = "", ptype: str = "", features: dict = None) -> list:
     """
     乖離率および物件テキスト・属性から、ズレの主要因を自動推定（タギング）する。
     error_ratio = (predicted - actual) / actual
     """
-    causes = []
     text = text or ""
     features = features or {}
 
     if error_ratio >= 0.20:
-        # 上方乖離（推論 > 実価格）
-        if re.search(r"借地|地上権|定期借地|地代", text):
-            causes.append("leasehold")
-        if re.search(r"再建築不可|市街化調整|建築不可|セットバック要", text):
-            causes.append("unbuildable")
-        if re.search(r"告知事項|心理的瑕疵|事故|特別募集", text):
-            causes.append("hazard_stigma")
-        
-        maguchi = float(features.get("maguchi") or 0.0)
-        road_width = float(features.get("roadWidth") or features.get("road_width") or 0.0)
-        if 0 < maguchi < 2.0 or 0 < road_width < 4.0:
-            causes.append("shape_penalty")
-
-        if not causes:
-            causes.append("unclassified_over")
-
+        return _classify_over_prediction(text, features)
     elif error_ratio <= -0.20:
-        # 下方乖離（推論 < 実価格）
-        if re.search(r"リノベ|リフォーム|内装一新|水回り新|改装済", text):
-            causes.append("renovated")
-        
-        floor = int(features.get("floor_number") or features.get("floor") or 0)
-        total_floors = int(features.get("total_floors") or 0)
-        if total_floors >= 20 or (floor > 0 and floor == total_floors) or re.search(r"タワー|最上階|角部屋|ルーフバルコニー", text):
-            causes.append("premium_tower")
-
-        if not causes:
-            causes.append("unclassified_under")
-    else:
-        causes.append("within_tolerance")
-
-    return causes
+        return _classify_under_prediction(text, features)
+    return ["within_tolerance"]
 
 
-def generate_ai_diagnostics_insight(worst_items: list) -> str:
-    """
-    AI (Gemini Flash) を用いて、乖離ワースト物件の原因分析および即日改善アクションを生成する。
-    APIキー未設定時や障害時はルールベースのサマリーにフォールバック。
-    """
-    if not worst_items:
-        return "ワースト乖離物件はありませんでした。"
-
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key and genai:
-        try:
-            genai.configure(api_key=api_key)
-            # コスト効率の高い Flash モデルを使用 (プロジェクト共通開発ルール準拠)
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            
-            sample_texts = []
-            for i, item in enumerate(worst_items[:6], 1):
-                direction = "過大評価 (推論 > 実売出)" if item.get("type") == "over_prediction" else "過小評価 (推論 < 実売出)"
-                sample_texts.append(
-                    f"【物件{i}】種別: {item.get('property_type')}, 方向: {direction}, "
-                    f"実売出: {item.get('actual_price_man')}万円, 推論: {item.get('predicted_price_man')}万円, "
-                    f"乖離率: {item.get('error_percent')}, 自動判定タグ: {', '.join(item.get('causes', []))}\n"
-                    f"物件概要・テキスト: {item.get('text', '')[:200]}"
-                )
-            
-            prompt = (
-                "あなたは不動産鑑定士および機械学習データエンジニアです。以下の価格推定乖離ワースト物件を分析し、\n"
-                "1. 乖離の主因（なぜモデルがこの価格を推論したか、何を見落としているか）\n"
-                "2. パーサーまたは特徴量への即日改修アクション（具体的にどのフィールドや正規表現を追加すべきか）\n"
-                "を簡潔な日本語箇条書き（合計4〜6行程度）で出力してください。\n\n"
-                + "\n\n".join(sample_texts)
-            )
-            
-            response = model.generate_content(prompt)
-            if response and hasattr(response, "text") and response.text:
-                return response.text.strip()
-        except Exception as e:
-            logger.warning(f"AI diagnostics analysis failed, fallback to rule-based: {e}")
-
-    # ルールベースフォールバック
+def _generate_rule_based_insight(worst_items: list) -> str:
     over_causes = []
     under_causes = []
     for it in worst_items:
@@ -187,6 +153,56 @@ def generate_ai_diagnostics_insight(worst_items: list) -> str:
     return "\n".join(lines)
 
 
+def _generate_gemini_insight(worst_items: list, api_key: str):
+    if not genai:
+        return None
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        sample_texts = []
+        for i, item in enumerate(worst_items[:6], 1):
+            direction = "過大評価 (推論 > 実売出)" if item.get("type") == "over_prediction" else "過小評価 (推論 < 実売出)"
+            sample_texts.append(
+                f"【物件{i}】種別: {item.get('property_type')}, 方向: {direction}, "
+                f"実売出: {item.get('actual_price_man')}万円, 推論: {item.get('predicted_price_man')}万円, "
+                f"乖離率: {item.get('error_percent')}, 自動判定タグ: {', '.join(item.get('causes', []))}\n"
+                f"物件概要・テキスト: {item.get('text', '')[:200]}"
+            )
+
+        prompt = (
+            "あなたは不動産鑑定士および機械学習データエンジニアです。以下の価格推定乖離ワースト物件を分析し、\n"
+            "1. 乖離の主因（なぜモデルがこの価格を推論したか、何を見落としているか）\n"
+            "2. パーサーまたは特徴量への即日改修アクション（具体的にどのフィールドや正規表現を追加すべきか）\n"
+            "を簡潔な日本語箇条書き（合計4〜6行程度）で出力してください。\n\n"
+            + "\n\n".join(sample_texts)
+        )
+
+        response = model.generate_content(prompt)
+        if response and hasattr(response, "text") and response.text:
+            return response.text.strip()
+    except Exception as e:
+        logger.warning(f"AI diagnostics analysis failed, fallback to rule-based: {e}")
+    return None
+
+
+def generate_ai_diagnostics_insight(worst_items: list) -> str:
+    """
+    AI (Gemini Flash) を用いて、乖離ワースト物件の原因分析および即日改善アクションを生成する。
+    APIキー未設定時や障害時はルールベースのサマリーにフォールバック。
+    """
+    if not worst_items:
+        return "ワースト乖離物件はありませんでした。"
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        ai_res = _generate_gemini_insight(worst_items, api_key)
+        if ai_res:
+            return ai_res
+
+    return _generate_rule_based_insight(worst_items)
+
+
 def _get_price_tier(price_man: float) -> str:
     """価格帯セグメント判定"""
     if price_man < 3000:
@@ -199,115 +215,77 @@ def _get_price_tier(price_man: float) -> str:
         return "tier_ultra (3億超)"
 
 
-def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = False, notify: bool = False):
-    """
-    価格推定の最新精度診断を一括実行し、レポートを出力する。
-    """
-    logger.info(f"Starting daily prediction diagnostics (limit={limit}, dry_run={dry_run})...")
-
-    # 1. 評価済みレコードの収集
-    qs = PropertyEvaluation.objects.filter(first_stage_predicted_price__isnull=False)
-    if target_date:
-        qs = qs.filter(analyzed_at__date=target_date)
-    
-    total_evals = qs.count()
-    if total_evals == 0:
-        logger.warning("No evaluated properties found for diagnostics.")
+def _extract_single_eval_item(ev, model_cache: dict):
+    company = ev.company
+    ptype = ev.property_type
+    model_key = f"{company}{ptype}".lower()
+    prop_model = model_cache.get(model_key) or model_cache.get(f"{company}_{ptype}".lower())
+    if not prop_model:
         return None
 
-    # 最新順に取得
-    eval_records = list(qs.order_by("-id")[:limit])
-    logger.info(f"Loaded {len(eval_records)} evaluation records.")
+    prop_obj = prop_model.objects.filter(id=ev.property_id).first()
+    if not prop_obj:
+        return None
 
-    # 2. 元物件モデルから実際の販売価格（price）およびテキストを取得
-    # 各テーブルのキャッシュ用辞書
+    raw_price = getattr(prop_obj, "price", 0)
+    if not raw_price or float(raw_price) <= 0:
+        return None
+
+    raw_p = float(raw_price)
+    actual_price_man = (raw_p / 10000.0) if raw_p >= 100_000.0 else raw_p
+    predicted_price_man = float(ev.first_stage_predicted_price)
+    if actual_price_man <= 0 or predicted_price_man <= 0:
+        return None
+
+    error_ratio = (predicted_price_man - actual_price_man) / actual_price_man
+    biko = str(getattr(prop_obj, "biko", "") or "")
+    title = str(getattr(prop_obj, "propertyName", "") or getattr(prop_obj, "title", "") or "")
+    address = str(getattr(prop_obj, "address", "") or "")
+    text_context = f"{title} {biko} {address}"
+
+    features = {
+        "maguchi": getattr(prop_obj, "maguchi", None),
+        "roadWidth": getattr(prop_obj, "roadWidth", None),
+        "floor_number": getattr(prop_obj, "floorNumber", None) or getattr(prop_obj, "floor", None),
+        "total_floors": getattr(prop_obj, "totalFloors", None)
+    }
+
+    causes = classify_error_cause(error_ratio, text_context, ptype, features)
+
+    return {
+        "url": ev.property_url,
+        "company": company,
+        "property_type": ptype,
+        "address": address,
+        "actual_price_man": actual_price_man,
+        "predicted_price_man": predicted_price_man,
+        "error_ratio": error_ratio,
+        "abs_error_ratio": abs(error_ratio),
+        "causes": causes,
+        "price_tier": _get_price_tier(actual_price_man),
+        "text": text_context
+    }
+
+
+def _collect_diagnostics_data(eval_records: list) -> list:
     model_cache = {}
     app_config = apps.get_app_config("package")
     for m in app_config.get_models():
         model_cache[m.__name__.lower()] = m
 
     diagnostics_data = []
-
     for ev in eval_records:
-        company = ev.company
-        ptype = ev.property_type
-        model_key = f"{company}{ptype}".lower()
-        prop_model = model_cache.get(model_key) or model_cache.get(f"{company}_{ptype}".lower())
-        if not prop_model:
-            continue
-
         try:
-            prop_obj = prop_model.objects.filter(id=ev.property_id).first()
-            if not prop_obj:
-                continue
-
-            raw_price = getattr(prop_obj, "price", 0)
-            if not raw_price or float(raw_price) <= 0:
-                continue
-
-            # 単位同調: 100,000以上は円単位（10万円以上の円表記）、それ未満は万円単位
-            raw_p = float(raw_price)
-            actual_price_man = (raw_p / 10000.0) if raw_p >= 100_000.0 else raw_p
-            predicted_price_man = float(ev.first_stage_predicted_price)
-
-            if actual_price_man <= 0 or predicted_price_man <= 0:
-                continue
-
-            error_ratio = (predicted_price_man - actual_price_man) / actual_price_man
-
-            # 備考・特徴テキストの抽出
-            biko = str(getattr(prop_obj, "biko", "") or "")
-            title = str(getattr(prop_obj, "propertyName", "") or getattr(prop_obj, "title", "") or "")
-            address = str(getattr(prop_obj, "address", "") or "")
-            text_context = f"{title} {biko} {address}"
-
-            features = {
-                "maguchi": getattr(prop_obj, "maguchi", None),
-                "roadWidth": getattr(prop_obj, "roadWidth", None),
-                "floor_number": getattr(prop_obj, "floorNumber", None) or getattr(prop_obj, "floor", None),
-                "total_floors": getattr(prop_obj, "totalFloors", None)
-            }
-
-            causes = classify_error_cause(error_ratio, text_context, ptype, features)
-
-            diagnostics_data.append({
-                "url": ev.property_url,
-                "company": company,
-                "property_type": ptype,
-                "address": address,
-                "actual_price_man": actual_price_man,
-                "predicted_price_man": predicted_price_man,
-                "error_ratio": error_ratio,
-                "abs_error_ratio": abs(error_ratio),
-                "causes": causes,
-                "price_tier": _get_price_tier(actual_price_man),
-                "text": text_context
-            })
+            item = _extract_single_eval_item(ev, model_cache)
+            if item:
+                diagnostics_data.append(item)
         except Exception as e:
             logger.debug(f"Error extracting property {ev.property_url}: {e}")
             continue
+    return diagnostics_data
 
-    if not diagnostics_data:
-        logger.warning("No valid pairs of actual vs predicted prices could be constructed.")
-        return None
 
-    df = pd.DataFrame(diagnostics_data)
-    logger.info(f"Successfully processed {len(df)} diagnostic property samples.")
-
-    # 3. 全体指標の算出
-    overall_metrics = calculate_metrics(df["actual_price_man"].values, df["predicted_price_man"].values)
-
-    # 4. セグメント別集計 (種別別)
-    type_metrics = {}
-    for ptype, group in df.groupby("property_type"):
-        type_metrics[ptype] = calculate_metrics(group["actual_price_man"].values, group["predicted_price_man"].values)
-
-    # 5. 価格帯別集計
-    tier_metrics = {}
-    for tier, group in df.groupby("price_tier"):
-        tier_metrics[tier] = calculate_metrics(group["actual_price_man"].values, group["predicted_price_man"].values)
-
-    # 6. ワースト乖離物件の抽出 (上位5件ずつ)
+def _extract_worst_items(df: pd.DataFrame) -> list:
     worst_over = df.sort_values(by="error_ratio", ascending=False).head(5)
     worst_under = df.sort_values(by="error_ratio", ascending=True).head(5)
 
@@ -334,6 +312,54 @@ def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = 
             "causes": row["causes"],
             "text": str(row.get("text", ""))
         })
+    return worst_items
+
+
+def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = False, notify: bool = False):
+    """
+    価格推定の最新精度診断を一括実行し、レポートを出力する。
+    """
+    logger.info(f"Starting daily prediction diagnostics (limit={limit}, dry_run={dry_run})...")
+
+    # 1. 評価済みレコードの収集
+    qs = PropertyEvaluation.objects.filter(first_stage_predicted_price__isnull=False)
+    if target_date:
+        qs = qs.filter(analyzed_at__date=target_date)
+
+    total_evals = qs.count()
+    if total_evals == 0:
+        logger.warning("No evaluated properties found for diagnostics.")
+        return None
+
+    # 最新順に取得
+    eval_records = list(qs.order_by("-id")[:limit])
+    logger.info(f"Loaded {len(eval_records)} evaluation records.")
+
+    # 2. 元物件モデルから実際の販売価格（price）およびテキストを取得
+    diagnostics_data = _collect_diagnostics_data(eval_records)
+
+    if not diagnostics_data:
+        logger.warning("No valid pairs of actual vs predicted prices could be constructed.")
+        return None
+
+    df = pd.DataFrame(diagnostics_data)
+    logger.info(f"Successfully processed {len(df)} diagnostic property samples.")
+
+    # 3. 全体指標の算出
+    overall_metrics = calculate_metrics(df["actual_price_man"].values, df["predicted_price_man"].values)
+
+    # 4. セグメント別集計 (種別別)
+    type_metrics = {}
+    for ptype, group in df.groupby("property_type"):
+        type_metrics[ptype] = calculate_metrics(group["actual_price_man"].values, group["predicted_price_man"].values)
+
+    # 5. 価格帯別集計
+    tier_metrics = {}
+    for tier, group in df.groupby("price_tier"):
+        tier_metrics[tier] = calculate_metrics(group["actual_price_man"].values, group["predicted_price_man"].values)
+
+    # 6. ワースト乖離物件の抽出 (上位5件ずつ)
+    worst_items = _extract_worst_items(df)
 
     # AI によるワースト物件の乖離要因分析 & アクション提案
     ai_insight = generate_ai_diagnostics_insight(worst_items)
@@ -369,8 +395,8 @@ def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = 
     # 8. Slack 通知
     if notify and not dry_run:
         slack_msg = _format_slack_notification(report)
-        channel = os.getenv("SLACK_CHANNEL_ALERTS_ML") or os.getenv("SLACK_CHANNEL_ID")
-        asyncio.run(send_slack_message(slack_msg, channel=channel))
+        channel = os.getenv("SLACK_DEV_CHANNEL", "dev-agent")
+        asyncio.run(send_dev_report(slack_msg, channel=channel))
         logger.info(f"Slack notification sent to {channel}.")
 
     return report
