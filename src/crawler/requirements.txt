@@ -77,5 +77,5 @@ html2text>=2024.2.26
 ruff>=0.16.8
 minify-html>=0.15.0
 django-db-connection-pool>=1.2.6
-slack-bolt>=1.20.0
+slack-bolt>=1.30.0
 
