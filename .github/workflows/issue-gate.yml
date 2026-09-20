@@ -25,6 +25,13 @@ jobs:
             const title = pr.title || '';
             const body = pr.body || '';
 
+            // Exempt Dependabot PRs from Issue association gate
+            const isDependabot = (pr.user && pr.user.login === 'dependabot[bot]') || branchName.startsWith('dependabot/');
+            if (isDependabot) {
+              console.log('🤖 Dependabot PR detected. Skipping Issue association gate.');
+              return;
+            }
+
             // 1. Extract potential issue numbers from branch, title, or body
             // Regex patterns
             const branchMatch = branchName.match(/(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)/i) 
