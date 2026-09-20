@@ -70,9 +70,9 @@ class DependabotPrInspector:
             if status in ["QUEUED", "IN_PROGRESS"] or state == "PENDING":
                 has_running = True
             elif conclusion in ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"] or state in ["FAILURE", "ERROR"]:
-                # Note: Snyk token context or unmerged-only Code Scanning SARIF baseline errors
-                # should be ignored as they only resolve after merge to master
-                if any(ignorable in name.lower() for ignorable in ["upload-sarif", "code scanning", "security/snyk"]):
+                # Note: Snyk token context, unmerged-only SARIF errors, and Issue Gate
+                # should be ignored as non-blocking for Dependabot PRs
+                if any(ignorable in name.lower() for ignorable in ["upload-sarif", "code scanning", "security/snyk", "verify github issue association"]):
                     logger.warning(f"Ignoring non-blocking or unmerged-dependent check failure: {name}")
                     continue
                 has_failed = True
