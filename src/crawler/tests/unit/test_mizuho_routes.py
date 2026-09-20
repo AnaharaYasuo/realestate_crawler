@@ -1,5 +1,6 @@
 import json
 from unittest.mock import patch, MagicMock
+from flask import Flask
 from routes.mizuho_routes import (
     get_start_url,
     mizuhoMansionStart,
@@ -11,6 +12,8 @@ from routes.mizuho_routes import (
     mizuhoInvestmentStart,
     mizuhoInvestmentDetail
 )
+
+app = Flask(__name__)
 
 
 def test_mizuho_get_start_url_prefecture_level():
@@ -34,14 +37,14 @@ def test_mizuho_mansion_start():
 
 
 def test_mizuho_mansion_detail():
-    with patch("routes.mizuho_routes.request") as mock_req, patch("routes.mizuho_routes.ParseMizuhoMansionDetailFuncAsync") as mock_cls:
-        mock_req.get_json.return_value = json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000001/"})
-        mock_instance = MagicMock()
-        mock_cls.return_value = mock_instance
+    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000001/"})):
+        with patch("routes.mizuho_routes.ParseMizuhoMansionDetailFuncAsync") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
 
-        res = mizuhoMansionDetail()
-        mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000001/")
-        assert res == ("finish", 200)
+            res = mizuhoMansionDetail()
+            mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000001/")
+            assert res == ("finish", 200)
 
 
 def test_mizuho_kodate_start():
@@ -58,14 +61,14 @@ def test_mizuho_kodate_start():
 
 
 def test_mizuho_kodate_detail():
-    with patch("routes.mizuho_routes.request") as mock_req, patch("routes.mizuho_routes.ParseMizuhoKodateDetailFuncAsync") as mock_cls:
-        mock_req.get_json.return_value = json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000002/"})
-        mock_instance = MagicMock()
-        mock_cls.return_value = mock_instance
+    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000002/"})):
+        with patch("routes.mizuho_routes.ParseMizuhoKodateDetailFuncAsync") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
 
-        res = mizuhoKodateDetail()
-        mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000002/")
-        assert res == ("finish", 200)
+            res = mizuhoKodateDetail()
+            mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000002/")
+            assert res == ("finish", 200)
 
 
 def test_mizuho_tochi_start():
@@ -82,14 +85,14 @@ def test_mizuho_tochi_start():
 
 
 def test_mizuho_tochi_detail():
-    with patch("routes.mizuho_routes.request") as mock_req, patch("routes.mizuho_routes.ParseMizuhoTochiDetailFuncAsync") as mock_cls:
-        mock_req.get_json.return_value = json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000003/"})
-        mock_instance = MagicMock()
-        mock_cls.return_value = mock_instance
+    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/buyers/property/000000000003/"})):
+        with patch("routes.mizuho_routes.ParseMizuhoTochiDetailFuncAsync") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
 
-        res = mizuhoTochiDetail()
-        mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000003/")
-        assert res == ("finish", 200)
+            res = mizuhoTochiDetail()
+            mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/buyers/property/000000000003/")
+            assert res == ("finish", 200)
 
 
 def test_mizuho_investment_start():
@@ -106,11 +109,11 @@ def test_mizuho_investment_start():
 
 
 def test_mizuho_investment_detail():
-    with patch("routes.mizuho_routes.request") as mock_req, patch("routes.mizuho_routes.ParseMizuhoInvestmentDetailFuncAsync") as mock_cls:
-        mock_req.get_json.return_value = json.dumps({"url": "https://www.mizuho-re.co.jp/investors/property/000000000004/"})
-        mock_instance = MagicMock()
-        mock_cls.return_value = mock_instance
+    with app.test_request_context(json=json.dumps({"url": "https://www.mizuho-re.co.jp/investors/property/000000000004/"})):
+        with patch("routes.mizuho_routes.ParseMizuhoInvestmentDetailFuncAsync") as mock_cls:
+            mock_instance = MagicMock()
+            mock_cls.return_value = mock_instance
 
-        res = mizuhoInvestmentDetail()
-        mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/investors/property/000000000004/")
-        assert res == ("finish", 200)
+            res = mizuhoInvestmentDetail()
+            mock_instance.main.assert_called_once_with("https://www.mizuho-re.co.jp/investors/property/000000000004/")
+            assert res == ("finish", 200)

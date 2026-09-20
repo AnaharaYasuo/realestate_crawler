@@ -31,7 +31,7 @@ def mizuhoKodateDetail():
 
 @mizuho_bp.route(API_KEY_MIZUHO_TOCHI_START, methods=['POST', 'GET'])
 def mizuhoTochiStart():
-    return None
+    return ParseMizuhoTochiStartAsync().main(get_start_url('Land'))
 
 @mizuho_bp.route(API_KEY_MIZUHO_TOCHI_DETAIL, methods=['POST', 'GET'])
 def mizuhoTochiDetail():
