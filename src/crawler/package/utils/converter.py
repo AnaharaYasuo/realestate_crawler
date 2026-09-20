@@ -6,6 +6,7 @@ import unicodedata
 
 DECIMAL_NUMBER_PATTERN = r'(\d+(?:\.\d+)?)'
 YEN_AMOUNT_PATTERN = r'(\d[\d,]*)\s*円'
+MAN_AMOUNT_PATTERN = r'(\d[\d,]*(?:\.\d+)?)\s*$'
 
 
 def parse_price(price_str):
@@ -156,10 +157,10 @@ def parse_rent(rent_str):
 
 def _extract_man_yen_part(parts: list[str]) -> int | None:
     """万・円併記または万円の数値を抽出する内部ヘルパー"""
-    man_match = re.search(DECIMAL_NUMBER_PATTERN, parts[0])
+    man_match = re.search(MAN_AMOUNT_PATTERN, parts[0])
     if not man_match:
         return None
-    man_val = int(float(man_match.group(1)) * 10000)
+    man_val = int(float(man_match.group(1).replace(",", "")) * 10000)
     if len(parts) > 1 and "円" in parts[1]:
         yen_match = re.search(YEN_AMOUNT_PATTERN, parts[1])
         if yen_match:
