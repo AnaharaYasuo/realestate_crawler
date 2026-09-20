@@ -90,12 +90,16 @@ GitHub ネイティブのブランチ保護機能。
 
 ## 4. CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)
 
-### 4.1 トリガー仕様
+### 4.1 トリガー仕様および再評価機構
 - **イベント**:
   - `pull_request`: `types: [opened, edited, synchronize, reopened]`, `branches: [master, production]`
   - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
-  - `issue_comment`: `types: [created, edited, deleted]`（PRに紐づくコメントイベント時にPR番号・HEAD SHAを特定して再評価）
+  - `issue_comment`: `types: [created, edited, deleted]`
+- **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
+  - GitHub では「会話スレッドの解決（Resolve conversation）」単体での Webhook イベントが存在しない制約があります。
+  - そのため、スレッド解決後やチェックボックス更新時に `issue_comment`（コメント作成・編集・削除）や `pull_request_review` をトリガーとしてワークフローが再実行されます。
+  - ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)

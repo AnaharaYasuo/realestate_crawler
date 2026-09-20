@@ -16,15 +16,24 @@ async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token
     if channel.startswith(("C", "G", "D")) and len(channel) >= 9:
         return channel
     clean_name = channel.lstrip("#").lower()
-    url = "https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200"
+    url = "https://slack.com/api/conversations.list"
     headers = {"Authorization": f"Bearer {token}"}
+    cursor = None
     try:
-        async with session.get(url, headers=headers) as resp:
-            data = await resp.json()
-            if data.get("ok"):
+        while True:
+            params = {"types": "public_channel,private_channel", "limit": "200"}
+            if cursor:
+                params["cursor"] = cursor
+            async with session.get(url, headers=headers, params=params) as resp:
+                data = await resp.json()
+                if not data.get("ok"):
+                    break
                 for ch in data.get("channels", []):
                     if ch.get("name", "").lower() == clean_name:
                         return ch.get("id")
+                cursor = data.get("response_metadata", {}).get("next_cursor")
+                if not cursor:
+                    break
     except Exception:
         pass
     return channel

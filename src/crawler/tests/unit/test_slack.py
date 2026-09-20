@@ -360,3 +360,37 @@ async def test_resolve_channel_id_lookup_fallback():
     result = await resolve_channel_id(mock_session, "unknown-channel", "fake-token")
     assert result == "unknown-channel"
 
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_pagination_success():
+    """複数ページにまたがる conversations.list から2ページ目でIDを解決できることをテスト"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    resp_page1 = AsyncMock()
+    resp_page1.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [{"id": "C0111111111", "name": "general"}],
+        "response_metadata": {"next_cursor": "cursor_page_2"}
+    })
+    get_page1 = MagicMock()
+    get_page1.__aenter__ = AsyncMock(return_value=resp_page1)
+    get_page1.__aexit__ = AsyncMock()
+
+    resp_page2 = AsyncMock()
+    resp_page2.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [{"id": "C0222222222", "name": "dev-agent"}],
+        "response_metadata": {"next_cursor": ""}
+    })
+    get_page2 = MagicMock()
+    get_page2.__aenter__ = AsyncMock(return_value=resp_page2)
+    get_page2.__aexit__ = AsyncMock()
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(side_effect=[get_page1, get_page2])
+
+    result = await resolve_channel_id(mock_session, "dev-agent", "fake-token")
+    assert result == "C0222222222"
+    assert mock_session.get.call_count == 2
+
+

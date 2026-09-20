@@ -17,7 +17,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: read
-  checks: read
+  checks: write
   statuses: read
 
 jobs:
@@ -74,12 +74,13 @@ jobs:
                 return;
               }
 
-              const checkRuns = await github.rest.checks.listForRef({
+              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
-                ref: headSha
+                ref: headSha,
+                per_page: 100
               });
-              const crChecks = checkRuns.data.check_runs.filter(c => c.name.toLowerCase().includes('coderabbit'));
+              const crChecks = checkRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
               const inProgressCheck = crChecks.find(c => c.status !== 'completed');
               if (inProgressCheck) {
                 core.setFailed(`⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`);
@@ -272,6 +273,24 @@ jobs:
                 summaryMd += `- @${cr.user} (Review ID: ${cr.reviewId})\n`;
               }
               summaryMd += '\n';
+            }
+
+            // Sync check run status directly to PR HEAD SHA
+            try {
+              await github.rest.checks.create({
+                owner,
+                repo,
+                name: 'Verify All Review Conversations Resolved',
+                head_sha: headSha,
+                status: 'completed',
+                conclusion: hasFailure ? 'failure' : 'success',
+                output: {
+                  title: hasFailure ? 'Review Conversations & Checkboxes Check Failed' : 'Review Conversations & Checkboxes Check Passed',
+                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス（0件）および変更要求も存在しません。マージ可能です。`
+                }
+              });
+            } catch (err) {
+              core.warning(`Failed to sync check run to HEAD SHA: ${err.message}`);
             }
 
             if (hasFailure) {
