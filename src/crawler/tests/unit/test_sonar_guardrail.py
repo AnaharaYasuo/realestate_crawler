@@ -83,6 +83,38 @@ def complex_func(a, b, c, d, e):
     assert score > 15
 
 
+def test_cognitive_complexity_while_orelse():
+    code = """
+def while_else_func(a):
+    while a:
+        pass
+    else:
+        if a:
+            pass
+"""
+    tree = ast.parse(code)
+    func = tree.body[0]
+    score, details = calculate_cognitive_complexity(func)
+    # while (+1), if in else (+2 because in else block)
+    assert score >= 3
+
+
+def test_cognitive_complexity_nested_function_isolation():
+    code = """
+def outer_func(a):
+    if a:
+        def inner_func(b):
+            if b:
+                pass
+        return inner_func
+"""
+    tree = ast.parse(code)
+    func = tree.body[0]
+    score, _ = calculate_cognitive_complexity(func)
+    # outer_func should only count 'if a' (+1), inner_func should be isolated
+    assert score == 1
+
+
 def test_detect_regex_redos_risks():
     code = r'''
 import re
@@ -101,6 +133,24 @@ safe_match = re.search(r"\d{4}-\d{2}-\d{2}", text)
     assert len(issues) >= 2
     messages = [i["message"] for i in issues]
     assert any("backtracking" in m.lower() or "redos" in m.lower() for m in messages)
+
+
+def test_detect_regex_length_limit():
+    long_pat = "a" * 501
+    code = f'import re\nre.match(pattern="{long_pat}", string="test")'
+    issues = detect_regex_redos_risks(code, filename="dummy.py")
+    assert len(issues) == 1
+    assert "exceeds maximum safe length" in issues[0]["message"]
+
+
+def test_detect_regex_api_variants():
+    code = '''
+import re
+re.fullmatch(r"(x+)+", s)
+re.split(r"(y+)+", s)
+'''
+    issues = detect_regex_redos_risks(code, filename="dummy.py")
+    assert len(issues) == 2
 
 
 def test_scan_source_code_clean():

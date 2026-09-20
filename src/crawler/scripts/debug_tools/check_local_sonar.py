@@ -14,6 +14,7 @@ import sys
 from typing import List, Dict, Tuple, Any, Optional
 
 DEFAULT_MAX_COMPLEXITY = 15
+MAX_REGEX_LENGTH = 500
 
 # Directories and paths excluded from Sonar scan (consistent with sonar-project.properties)
 EXCLUDED_PATTERNS = [
@@ -27,28 +28,34 @@ EXCLUDED_PATTERNS = [
     r"\.git[/\\].*",
 ]
 
+RE_FUNCS = {"compile", "search", "match", "fullmatch", "split", "findall", "finditer", "sub", "subn"}
+
 
 class CognitiveComplexityVisitor(ast.NodeVisitor):
     """Calculates Sonar-compliant Cognitive Complexity for a function or method node."""
 
     def __init__(self):
+        """Initialize complexity score and nesting tracking state."""
         self.complexity = 0
         self.nesting_level = 0
         self.increments: List[Tuple[int, str, int]] = []
 
     def _add_increment(self, node: ast.AST, desc: str, nesting_cost: bool = True):
+        """Add complexity increment with optional nesting penalty."""
         points = 1 + (self.nesting_level if nesting_cost else 0)
         self.complexity += points
         lineno = getattr(node, "lineno", 0)
         self.increments.append((lineno, desc, points))
 
     def _visit_block(self, body: List[ast.stmt]):
+        """Visit a nested block of statements with incremented nesting level."""
         self.nesting_level += 1
         for stmt in body:
             self.visit(stmt)
         self.nesting_level -= 1
 
     def visit_If(self, node: ast.If):
+        """Score if statement, test expression, and elif/else branches."""
         self._add_increment(node, "if statement", nesting_cost=True)
         self.visit(node.test)
         self._visit_block(node.body)
@@ -66,33 +73,48 @@ class CognitiveComplexityVisitor(ast.NodeVisitor):
             self._visit_block(orelse)
 
     def visit_For(self, node: ast.For):
+        """Score for loop and traverse its body."""
         self._add_increment(node, "for loop", nesting_cost=True)
         self.nesting_level += 1
         self.generic_visit(node)
         self.nesting_level -= 1
 
     def visit_AsyncFor(self, node: ast.AsyncFor):
+        """Score async for loop and traverse its body."""
         self._add_increment(node, "async for loop", nesting_cost=True)
         self.nesting_level += 1
         self.generic_visit(node)
         self.nesting_level -= 1
 
     def visit_While(self, node: ast.While):
+        """Score while loop, test condition, body, and orelse block."""
         self._add_increment(node, "while loop", nesting_cost=True)
         self.visit(node.test)
         self._visit_block(node.body)
+        if node.orelse:
+            self._visit_block(node.orelse)
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler):
+        """Score exception handler and traverse its body."""
         self._add_increment(node, "except handler", nesting_cost=True)
         self.nesting_level += 1
         self.generic_visit(node)
         self.nesting_level -= 1
 
     def visit_BoolOp(self, node: ast.BoolOp):
+        """Score each boolean operator (and / or) in a compound expression."""
         op_count = len(node.values) - 1
         for _ in range(op_count):
             self._add_increment(node, f"{node.op.__class__.__name__.lower()} operator", nesting_cost=False)
         self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        """Stop traversing into nested function definitions so each function is scored independently."""
+        pass
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        """Stop traversing into nested async function definitions so each function is scored independently."""
+        pass
 
 
 def calculate_cognitive_complexity(func_node: ast.AST) -> Tuple[int, List[Tuple[int, str, int]]]:
@@ -103,35 +125,56 @@ def calculate_cognitive_complexity(func_node: ast.AST) -> Tuple[int, List[Tuple[
     return visitor.complexity, visitor.increments
 
 
-# Regex patterns that indicate high ReDoS or super-linear backtracking risks (S8786)
-RISKY_REGEX_PATTERNS = [
-    (r"\([^)]*[\+\*]\)[\+\*]", "Nested quantifier e.g. (a+)+ or (x*)* causing exponential backtracking"),
-    (r"\.\*[\?\s]*\(.*?\+.*?\)", "Greedy dot matching with sub-pattern repetition causing polynomial backtracking"),
-    (r"\.\*.*?\.\*", "Multiple unanchored greedy dot wildcards causing catastrophic backtracking"),
-    (r"\.\+.*?\.\+", "Multiple unanchored plus wildcards causing catastrophic backtracking"),
-    (r"\.\*\?.*?\(\\\w\+\)", "Lazy dot with ambiguous token group causing super-linear runtime"),
-]
-
-
 def _extract_regex_pattern_from_call(node: ast.Call) -> Optional[str]:
-    """Extract string pattern literal from a re.* call."""
+    """Extract string pattern literal from a re.* call or imported regex function call."""
     func = node.func
     func_name = getattr(func, "attr", None) or getattr(func, "id", None)
-    if func_name not in ("compile", "search", "match", "findall", "finditer", "sub", "subn"):
+    if func_name not in RE_FUNCS:
         return None
-    if not node.args:
-        return None
-    first_arg = node.args[0]
-    if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-        return first_arg.value
+
+    # Verify if it's an attribute access like re.search or direct call like search
+    if isinstance(func, ast.Attribute):
+        value = func.value
+        # Check module name
+        mod_name = getattr(value, "id", None)
+        if mod_name not in ("re", "regex"):
+            return None
+
+    # Check keyword arguments (pattern="...")
+    for kw in node.keywords:
+        if kw.arg == "pattern" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+            return kw.value.value
+
+    # Check first positional argument
+    if node.args:
+        first_arg = node.args[0]
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            return first_arg.value
+
     return None
 
 
 def _check_pattern_risk(regex_str: str) -> Optional[str]:
-    """Check if regex string triggers any ReDoS risk rule."""
-    for pattern, reason in RISKY_REGEX_PATTERNS:
-        if re.search(pattern, regex_str):
-            return reason
+    """Check if regex string triggers any ReDoS risk rule with input length guards."""
+    if len(regex_str) > MAX_REGEX_LENGTH:
+        return f"Pattern length ({len(regex_str)}) exceeds maximum safe length ({MAX_REGEX_LENGTH})"
+
+    # 1. Nested quantifier e.g. (a+)+ or (x*)*
+    if re.search(r"\([^()]{1,50}[+*]\)[+*]", regex_str):
+        return "Nested quantifier e.g. (a+)+ or (x*)* causing exponential backtracking"
+
+    # 2. Multiple unanchored greedy dot or plus wildcards
+    if regex_str.count(".*") >= 2 or regex_str.count(".+") >= 2:
+        return "Multiple unanchored greedy wildcards causing catastrophic backtracking"
+
+    # 3. Greedy dot with repetition sub-pattern
+    if ".*" in regex_str and re.search(r"\([^()]{1,50}\+[^()]{0,50}\)", regex_str):
+        return "Greedy dot matching with sub-pattern repetition causing polynomial backtracking"
+
+    # 4. Lazy dot with ambiguous token group
+    if ".*?" in regex_str and (r"(\d+)" in regex_str or r"(\w+)" in regex_str):
+        return "Lazy dot with ambiguous token group causing super-linear runtime"
+
     return None
 
 
@@ -298,6 +341,7 @@ def _print_sonar_report(all_issues: List[Dict[str, Any]], scanned_count: int, ma
 
 
 def main() -> int:
+    """Entry point for SonarCloud Local Guardrail CLI scanner."""
     parser = argparse.ArgumentParser(description="SonarCloud Local Guardrail: S3776 & S8786 Fast Static Scanner")
     parser.add_argument("--diff", action="store_true", help="Scan only git changed files against origin/master")
     parser.add_argument("--all", action="store_true", help="Scan all python files under src/")
