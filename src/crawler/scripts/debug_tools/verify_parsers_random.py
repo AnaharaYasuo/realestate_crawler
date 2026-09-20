@@ -117,6 +117,7 @@ async def verify_parser_on_urls(session, model_class, parser_class, label, urls)
     return success_count, total
 
 async def main():
+    """Run live parser checks against up to ten stored URLs per parser."""
     conn = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=conn) as session:
         tasks = []

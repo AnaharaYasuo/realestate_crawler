@@ -45,6 +45,11 @@ def generate_sample_mlit_csv(filepath):
 
 
 def safe_path(path: str) -> str:
+    """Return the canonical path when it is within the working or source tree.
+
+    Raises:
+        ValueError: If the resolved path is outside both allowed trees.
+    """
     resolved = os.path.realpath(path)
     base_dir = os.path.realpath(os.getcwd())
     if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
@@ -55,8 +60,13 @@ def safe_path(path: str) -> str:
 
 
 def import_mlit_stations(csv_path):
-    """
-    国土交通省の駅別乗降客数CSVを読み込み、StationPotentialテーブルにインポートする。
+    """Upsert station passenger volumes from an allowed MLIT CSV path.
+
+    Returns:
+        bool: ``False`` when the file is missing; otherwise ``True``.
+
+    Raises:
+        ValueError: If the resolved CSV path is outside the allowed trees.
     """
     clean_csv = safe_path(csv_path)
     if not os.path.exists(clean_csv):

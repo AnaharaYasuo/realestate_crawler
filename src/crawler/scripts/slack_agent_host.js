@@ -54,6 +54,17 @@ function getDynamicIntervalMs(postCount) {
 }
 
 // 100% 確実に途中ログ ＆ 完了報告を追記連投する絶対信頼エンジン
+/**
+ * Start the configured test command for a Slack event and stream updates to its thread.
+ *
+ * Duplicate events and agent response messages are ignored. The returned promise
+ * resolves after the child-process handlers are registered, before the command exits.
+ *
+ * @param {Function} say Slack Bolt function used to post thread replies.
+ * @param {object} client Slack client supplied by the event handler.
+ * @param {object} event Slack event containing the message and thread metadata.
+ * @returns {Promise<void>}
+ */
 async function processInstruction(say, client, event) {
   const eventId = event.event_ts || event.ts;
 

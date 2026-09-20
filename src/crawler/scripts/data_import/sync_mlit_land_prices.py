@@ -17,6 +17,11 @@ from package.models.evaluation import LandPricePotential
 MLIT_API_URL = "https://www.land.mlit.go.jp/webland/api/TradeListSearch"
 
 def safe_path(path: str) -> str:
+    """Return the canonical path when it is within the working or source tree.
+
+    Raises:
+        ValueError: If the resolved path is outside both allowed trees.
+    """
     resolved = os.path.realpath(path)
     base_dir = os.path.realpath(os.getcwd())
     if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
@@ -27,8 +32,14 @@ def safe_path(path: str) -> str:
 
 
 def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=None):
-    """
-    国土交通省の取引価格情報APIまたはローカルJSONからデータを取得し、市区町村別の平均地価マスタを動的に構築・同期する。
+    """Aggregate MLIT trade data and upsert average land prices by municipality.
+
+    Data is loaded from ``json_path`` when supplied, or from the MLIT API using
+    ``pref_code`` and ``year_quarter`` otherwise.
+
+    Returns:
+        bool: ``True`` after a successful sync; ``False`` on missing data or an
+        API, file, parsing, or database error.
     """
     trade_list = []
     try:

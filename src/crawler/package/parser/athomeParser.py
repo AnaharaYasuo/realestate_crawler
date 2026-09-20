@@ -48,6 +48,7 @@ class AthomeParser(ParserBase):
         return "utf-8"
 
     async def _humanMouseMove(self, page, start_x, start_y, end_x, end_y):
+        """Move a Playwright mouse between two points along a randomized path."""
         prng = secrets.SystemRandom()
         
         # 3次ベジエ曲線の制御点をランダムに生成
@@ -78,6 +79,7 @@ class AthomeParser(ParserBase):
             await asyncio.sleep(delay)
 
     async def _getContent(self, session, url):
+        """Fetch a URL with Playwright, falling back to the base HTTP fetcher."""
         await asyncio.sleep(0.5)
         try:
             from playwright.async_api import async_playwright

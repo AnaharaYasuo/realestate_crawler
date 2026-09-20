@@ -107,6 +107,11 @@ def generate_mock_estat_data():
 
 
 def safe_path(path: str) -> str:
+    """Return the canonical path when it is within the working or source tree.
+
+    Raises:
+        ValueError: If the resolved path is outside both allowed trees.
+    """
     resolved = os.path.realpath(path)
     base_dir = os.path.realpath(os.getcwd())
     if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
@@ -117,6 +122,14 @@ def safe_path(path: str) -> str:
 
 
 def sync_municipalities(csv_path=None):
+    """Upsert municipal statistics from e-Stat or a local fallback CSV.
+
+    Args:
+        csv_path: Optional fallback CSV path.
+
+    Raises:
+        ValueError: If an existing fallback CSV resolves outside the allowed trees.
+    """
     if not csv_path:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
