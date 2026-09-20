@@ -3,6 +3,7 @@ import asyncio
 from decimal import Decimal
 import logging
 import re
+from typing import Optional
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -23,6 +24,7 @@ from package.parser.baseParser import (
     ServerBusyException,
     LoadPropertyPageException,
     ServerDownException,
+    RateLimitedException,
 )
 from package.utils import converter
 
@@ -41,12 +43,42 @@ class KenbiyaParserBase(ParserBase):
     健美家 (Kenbiya) 全種別共通基底パーサー
     共通HTTP通信、429対策ヘッダー、dl > dt / dd パースロジックを集約
     """
+    USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    ]
+    _ua_counter = 0
+
+    @classmethod
+    def _get_next_user_agent(cls) -> str:
+        ua = KenbiyaParserBase.USER_AGENTS[KenbiyaParserBase._ua_counter % len(KenbiyaParserBase.USER_AGENTS)]
+        KenbiyaParserBase._ua_counter += 1
+        return ua
+
     def getCharset(self):
         return "utf-8"
 
+    async def _handle_response(self, response: aiohttp.ClientResponse, url: str, attempt: int, max_timeouts: int) -> Optional[bytes]:
+        status = response.status
+        if status == 200:
+            self.consecutive_timeouts = 0
+            return await response.read()
+        if status in (404, 410):
+            raise ListingEndedException(f"Property page returned HTTP status {status}: {url}")
+        if status in (500, 502, 503, 504):
+            raise ServerBusyException(f"Property page returned HTTP status {status}: {url}")
+        if status == 429:
+            backoff = min(30, 2 ** (attempt + 1))
+            logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {backoff}s")
+            if attempt == max_timeouts - 1:
+                raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
+            await asyncio.sleep(backoff)
+            return None
+        raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
             'Sec-Fetch-Dest': 'document',
@@ -56,27 +88,24 @@ class KenbiyaParserBase(ParserBase):
             'Upgrade-Insecure-Requests': '1',
         }
         max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
+        last_status = None
         for attempt in range(max_timeouts):
+            headers['User-Agent'] = self._get_next_user_agent()
             try:
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                    if response.status == 200:
-                        self.consecutive_timeouts = 0
-                        return await response.read()
-                    elif response.status in (404, 410):
-                        raise ListingEndedException(f"Property page returned HTTP status {response.status}: {url}")
-                    elif response.status in (500, 502, 503, 504):
-                        raise ServerBusyException(f"Property page returned HTTP status {response.status}: {url}")
-                    elif response.status == 429:
-                        logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {attempt + 2}s")
-                        await asyncio.sleep(attempt + 2)
-                        continue
-                    else:
-                        raise LoadPropertyPageException(f"Failed to fetch {url} with status {response.status}")
+                    last_status = response.status
+                    content = await self._handle_response(response, url, attempt, max_timeouts)
+                    if content is not None:
+                        return content
+            except (RateLimitedException, ListingEndedException, ServerBusyException, LoadPropertyPageException, ServerDownException):
+                raise
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
                 self.consecutive_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
                     raise ServerDownException(f"Kenbiya server unresponsive after {self.consecutive_timeouts} consecutive timeouts: {e}")
                 await asyncio.sleep(1)
+        if last_status == 429:
+            raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
         raise LoadPropertyPageException(f"Exceeded max retries for {url}")
 
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:

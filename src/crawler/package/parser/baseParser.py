@@ -46,6 +46,11 @@ class ServerBusyException(SkipPropertyException):
     pass
 
 
+class RateLimitedException(Exception):
+    """Raised when target server returns HTTP 429 Too Many Requests."""
+    pass
+
+
 class ServerDownException(Exception):
     """Raised when target server is down or timing out repeatedly."""
     pass

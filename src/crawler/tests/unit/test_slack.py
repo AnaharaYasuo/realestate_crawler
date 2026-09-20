@@ -243,3 +243,36 @@ async def test_send_crawling_summary_alert_logs_error(monkeypatch):
         assert summary_text in logged_msg
 
 
+@pytest.mark.asyncio
+async def test_send_dev_report_uses_slack_dev_channel(monkeypatch):
+    """send_dev_report が SLACK_DEV_CHANNEL 環境変数で指定されたチャンネルへ投稿することをテスト"""
+    from package.utils.slack import send_dev_report
+
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "📊 【日次価格推定精度診断】 (2026-09-20)"
+        result = await send_dev_report(report_text)
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "C0BKBHWD26T")
+
+
+@pytest.mark.asyncio
+async def test_send_dev_report_default_fallback(monkeypatch):
+    """SLACK_DEV_CHANNEL 未設定時はデフォルトの 'dev-agent' チャンネルへ投稿されることをテスト"""
+    from package.utils.slack import send_dev_report
+
+    monkeypatch.delenv("SLACK_DEV_CHANNEL", raising=False)
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "✅ 【リグレッションテスト完了報告】"
+        result = await send_dev_report(report_text)
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "dev-agent")
+
+
+

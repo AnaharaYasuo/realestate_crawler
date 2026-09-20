@@ -15,7 +15,7 @@ while True:
         break
     _cur = _parent
 
-from package.utils.slack import send_slack_message
+from package.utils.slack import send_dev_report
 
 def main():
     message = (
@@ -29,8 +29,8 @@ def main():
         "🤖 *All tests passed clean. Self-healing & Regression pipeline completed successfully.*"
     )
     
-    print("Posting regression test result to Slack...")
-    success = asyncio.run(send_slack_message(message))
+    print("Posting regression test result to Slack (#dev-agent)...")
+    success = asyncio.run(send_dev_report(message))
     if success:
         print("Successfully posted regression test result to Slack!")
     else:

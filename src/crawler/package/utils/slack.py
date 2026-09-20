@@ -202,3 +202,11 @@ async def send_crawling_summary_alert(summary_message: str) -> bool:
     channel = os.getenv("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
     return await send_slack_message(summary_message, channel)
 
+
+async def send_dev_report(report_message: str, channel: str | None = None) -> bool:
+    """
+    開発報告・診断レポート・テスト結果報告を dev-agent チャンネル（SLACK_DEV_CHANNEL、デフォルトは dev-agent）に送信します。
+    """
+    target_channel = channel or os.getenv("SLACK_DEV_CHANNEL", "dev-agent")
+    return await send_slack_message(report_message, target_channel)
+
