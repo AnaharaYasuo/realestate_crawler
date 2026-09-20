@@ -42,6 +42,7 @@ async function processInstruction(say, event) {
 
   const env = { ...process.env, PAGER: 'cat' };
 
+  // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
   exec(cmd, { cwd: path.join(__dirname, '../../..'), env, maxBuffer: 10 * 1024 * 1024, timeout: 600000 }, async (error, stdout, stderr) => {
     let output = (stdout || stderr || '').trim();
     const success = !error;

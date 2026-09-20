@@ -31,3 +31,7 @@ AVD-GCP-0062
 GCP-0062
 AVD-GCP-0066
 GCP-0066
+
+# Dockerfile: クローラー実行コンテナおよびPlaywrightブラウザサンドボックス・cron常駐要件
+DS-0002
+DS-0026

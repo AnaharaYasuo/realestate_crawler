@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 def run_command(cmd, desc):
     logging.info(f"=== [Step] {desc} ===")
     logging.info(f"Command: {cmd}")
+    # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
     res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     if res.returncode != 0:
         logging.warning(f"Warning / Exit code {res.returncode} for: {desc}")

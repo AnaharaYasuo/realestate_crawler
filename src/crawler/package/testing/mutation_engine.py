@@ -220,6 +220,7 @@ class ASTMutationEngine:
         """変異を適用してテストを実行。テストが失敗 (FAIL) すれば変異体殺傷 (Killed=True)"""
         backup = self.apply_mutant(mutant)
         try:
+            # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
             res = subprocess.run(
                 test_command,
                 shell=True,

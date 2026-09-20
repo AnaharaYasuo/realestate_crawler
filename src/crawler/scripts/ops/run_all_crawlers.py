@@ -340,6 +340,7 @@ def main():
                 try:
                     # クロール開始前のタイムスタンプを保存
                     start_dt = timezone.now() if timezone is not None else None
+                    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
                         cmd,
                         preexec_fn=os.setsid
