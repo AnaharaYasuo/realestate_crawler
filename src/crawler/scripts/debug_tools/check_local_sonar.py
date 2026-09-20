@@ -252,33 +252,25 @@ def is_excluded_file(filepath: str) -> bool:
     return False
 
 
-def _resolve_safe_path(filepath: str) -> Optional[str]:
-    """Resolve filepath to a canonical safe absolute path within allowed directories."""
-    if not filepath or "\0" in filepath:
-        return None
-    try:
-        import tempfile
-        canonical = os.path.realpath(os.path.abspath(filepath))
-        allowed_roots = [
-            os.path.realpath(os.getcwd()),
-            os.path.realpath(tempfile.gettempdir()),
-        ]
-        for root in allowed_roots:
-            if os.path.commonpath([root, canonical]) == root:
-                return canonical
-        return None
-    except Exception:
-        return None
-
-
 def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> List[Dict[str, Any]]:
     """Scan a single Python file for Sonar issues."""
-    safe_path = _resolve_safe_path(filepath)
-    if not safe_path or not os.path.isfile(safe_path) or is_excluded_file(safe_path) or not safe_path.endswith(".py"):
+    if not filepath or "\0" in filepath or ".." in filepath:
         return []
 
     try:
-        with open(safe_path, "r", encoding="utf-8") as f:
+        import tempfile
+        base_dir = os.path.realpath(os.getcwd())
+        tmp_dir = os.path.realpath(tempfile.gettempdir())
+        canonical = os.path.realpath(os.path.abspath(filepath))
+
+        is_under_base = canonical.startswith(base_dir + os.sep) or canonical == base_dir
+        is_under_tmp = canonical.startswith(tmp_dir + os.sep) or canonical == tmp_dir
+        if not (is_under_base or is_under_tmp):
+            return []
+        if not os.path.isfile(canonical) or is_excluded_file(canonical) or not canonical.endswith(".py"):
+            return []
+
+        with open(canonical, "r", encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
         return [{

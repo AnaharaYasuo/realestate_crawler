@@ -41,7 +41,7 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
 
     # 3. Check commit message
     if commit_msg:
-        commit_match = re.search(r"(?:(?:close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#|#|issue[ -]?#?)(\d+)", commit_msg, re.IGNORECASE)
+        commit_match = re.search(r"(?:#|issue[ -]?#?)\s*(\d+)", commit_msg, re.IGNORECASE)
         if commit_match:
             return int(commit_match.group(1))
 
@@ -60,12 +60,18 @@ def parse_acceptance_criteria(body: str) -> Tuple[List[str], List[str]]:
 
     for line in body.splitlines():
         stripped = line.strip()
-        # Match - [ ] or - [x] or * [ ] or * [x]
-        m = re.match(r"^[-*]\s+\[([ xX])\]\s+(.*)$", stripped)
-        if not m:
+        # Check markdown checkbox prefix: '- [ ]' or '* [x]'
+        if not stripped.startswith(("- [", "* [")):
             continue
-        status_char = m.group(1)
-        item_text = m.group(2).strip()
+        if len(stripped) < 6 or stripped[4] != "]":
+            continue
+        status_char = stripped[3]
+        if status_char not in (" ", "x", "X"):
+            continue
+        item_text = stripped[5:].strip()
+        if not item_text:
+            continue
+
         if status_char in ("x", "X"):
             checked.append(item_text)
         else:
@@ -130,9 +136,13 @@ def _fetch_issue_via_api(issue_num: int) -> Optional[Dict[str, Any]]:
 
 def fetch_issue_data(issue_num: int) -> Optional[Dict[str, Any]]:
     """Fetch issue metadata from GitHub using gh CLI with API fallback."""
+    clean_num = str(issue_num).strip()
+    if not clean_num.isdigit() or not re.match(r"^[1-9]\d*$", clean_num):
+        return None
+
     try:
         res = subprocess.run(
-            ["gh", "issue", "view", str(issue_num), "--json", "number,title,body,state"],
+            ["gh", "issue", "view", clean_num, "--json", "number,title,body,state"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -143,7 +153,7 @@ def fetch_issue_data(issue_num: int) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
-    return _fetch_issue_via_api(issue_num)
+    return _fetch_issue_via_api(int(clean_num))
 
 
 def validate_issue_acceptance_criteria(issue_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
