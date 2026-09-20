@@ -86,3 +86,25 @@ def test_property_similarity_and_deduplication():
     eval_b.delete()
     m_a.delete()
     m_b.delete()
+
+
+def test_calculate_property_similarity_get_real_property_exception_logs_warning():
+    """get_real_property で apps.get_model が例外を投げた場合 WARNING でログ出力してNoneを返すことを検証"""
+    from unittest.mock import MagicMock, patch
+    eval_a = MagicMock()
+    eval_a.company = "unknown_company"
+    eval_a.property_type = "mansion"
+    eval_a.id = 999
+    eval_b = MagicMock()
+    eval_b.company = "unknown_company"
+    eval_b.property_type = "mansion"
+    eval_b.id = 998
+
+    with patch("package.utils.deduplication.apps.get_model", side_effect=Exception("Model not found")):
+        with patch("package.utils.deduplication.logger.warning") as mock_warn:
+            result = calculate_property_similarity(eval_a, eval_b)
+            assert result == 0.0
+            assert mock_warn.call_count >= 1
+            log_msg = mock_warn.call_args[0][0]
+            assert "Failed to load real property data" in log_msg
+
