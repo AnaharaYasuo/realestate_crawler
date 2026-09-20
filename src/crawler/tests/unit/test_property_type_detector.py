@@ -385,8 +385,8 @@ def test_property_type_detector_helpers_and_guards():
     assert PropertyTypeDetector._has_yield_signal_specs({"grossYield": "5.0%"}) is True
     assert PropertyTypeDetector._has_yield_signal_specs({"間取り": "3LDK", "所在地": "新宿区"}) is False
 
-    # 5. _derive_cache_key fallback (specs + html_text)
-    cache_key = PropertyTypeDetector._derive_cache_key(
+    # 5. _compute_cache_key fallback (specs + html_text)
+    cache_key = PropertyTypeDetector._compute_cache_key(
         url="",
         title="",
         specs={"a": 1},

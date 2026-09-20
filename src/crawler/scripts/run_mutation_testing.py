@@ -54,19 +54,21 @@ def run_level1_data_mutation(crawler_root: str) -> Dict[str, Any]:
     }
 
 
+DEFAULT_DETECTOR_FILE = "property_type_detector.py"
+
+
 def run_level2_code_mutation(
     crawler_root: str,
     target_file: Optional[str] = None,
     test_file: Optional[str] = None,
-    threshold: float = 85.0,
     max_mutants: int = 15,
 ) -> MutationResult:
     """Level 2: コアユニットのASTコード変異テストの実行"""
     logger.info("=== [Level 2: Code Mutation Testing] Starting ===")
     if not target_file:
-        target_file = os.path.join(crawler_root, "package", "utils", "property_type_detector.py")
+        target_file = os.path.join(crawler_root, "package", "utils", DEFAULT_DETECTOR_FILE)
     if not test_file:
-        test_file = os.path.join(crawler_root, "tests", "unit", "test_property_type_detector.py")
+        test_file = os.path.join(crawler_root, "tests", "unit", f"test_{DEFAULT_DETECTOR_FILE}")
 
     if not os.path.isabs(target_file):
         candidate = os.path.join(crawler_root, target_file)
@@ -116,9 +118,9 @@ def run_level2_code_mutation(
                     "mutated": mutant.mutated_source,
                     "ast_change": mutant.ast_node_str,
                 })
-        except Exception as e:
+        except Exception:
             errored += 1
-            logger.error("[%d/%d] ERROR running mutant at line %d: %s", idx, total_mutants, mutant.line_number, e)
+            logger.exception("[%d/%d] ERROR running mutant at line %d", idx, total_mutants, mutant.line_number)
 
     return MutationResult(
         target=os.path.basename(target_file),
@@ -252,7 +254,6 @@ def main():
                 crawler_root=crawler_root,
                 target_file=pair["target"],
                 test_file=pair["test"],
-                threshold=args.threshold,
                 max_mutants=args.max_mutants,
             )
             passed = code_res.is_passed(args.threshold)
@@ -275,7 +276,6 @@ def main():
             crawler_root=crawler_root,
             target_file=args.target,
             test_file=args.test,
-            threshold=args.threshold,
             max_mutants=args.max_mutants,
         )
         passed = code_result.is_passed(args.threshold)
@@ -323,14 +323,14 @@ def main():
     print(f"OVERALL STATUS: {'PASS' if all_passed else 'FAIL'}")
     print("=======================================================\n")
 
-    # Save JSON report
-    report_path = args.report
-    if not report_path:
-        logs_dir = os.path.join(crawler_root, "logs")
-        os.makedirs(logs_dir, exist_ok=True)
-        report_path = os.path.join(logs_dir, "mutation_report.json")
-    else:
-        os.makedirs(os.path.dirname(os.path.abspath(report_path)), exist_ok=True)
+    # Save JSON report (path traversal protected)
+    report_filename = os.path.basename(args.report) if args.report else "mutation_report.json"
+    if not report_filename.endswith(".json"):
+        report_filename = f"{report_filename}.json"
+
+    logs_dir = os.path.join(crawler_root, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    report_path = os.path.join(logs_dir, report_filename)
 
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report_data, f, ensure_ascii=False, indent=2)
