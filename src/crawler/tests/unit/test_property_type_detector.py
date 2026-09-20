@@ -394,8 +394,8 @@ def test_property_type_detector_helpers_and_guards():
     )
     assert cache_key == "{'a': 1}_<div>test_html</div>"
 
-    # 6. _detect_from_fields fallback
-    assert PropertyTypeDetector._detect_from_fields({}) == "mansion"
+    # 6. _detect_from_area_fields fallback
+    assert PropertyTypeDetector._detect_from_area_fields({}) == "mansion"
 
     # 7. is_investment
     assert PropertyTypeDetector.is_investment("apartment") is True
