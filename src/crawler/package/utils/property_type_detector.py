@@ -386,3 +386,15 @@ class PropertyTypeDetector:
         if any(k in text for k in ["ビル", "店舗", "事務所"]):
             return "Building"
         return default
+
+    @classmethod
+    def is_investment(cls, ptype: Optional[str]) -> bool:
+        """
+        物件種別文字列が投資用（apartment / investment / invest）であるかを一元判定。
+        Detector/Routerの標準種別 'apartment' およびパーサー種別 'investment' の両方に対応。
+        """
+        if not ptype:
+            return False
+        ptype_str = str(ptype).lower()
+        return any(k in ptype_str for k in ("apartment", "investment", "invest"))
+

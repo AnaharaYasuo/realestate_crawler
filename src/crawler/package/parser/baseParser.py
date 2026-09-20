@@ -11,6 +11,8 @@ from builtins import Exception
 import asyncio
 from django.db import models
 from package.utils import converter
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.url_router import UrlRouter
 
 
 class ReadPropertyNameException(Exception):
@@ -474,6 +476,7 @@ class ParserBase(metaclass=ABCMeta):
             logging.exception("Failed to save error HTML")
 
     async def parsePropertyDetailPage(self, session, url) -> models.Model:
+        """物件詳細ページを取得・動的種別判定を行い、適切なパーサーでパースしてモデルインスタンスを返却"""
         if url:
             u_lower = str(url).lower()
             if any(p in u_lower for p in ["/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/"]):
@@ -508,10 +511,37 @@ class ParserBase(metaclass=ABCMeta):
                     logging.info(f"Server busy for URL: {url}")
                     raise ServerBusyException()
 
-            item = self._parsePropertyDetailPage(item, soup)
-            item = self.clean_parsed_item(item)
+            # 物件詳細到着時の動的種別判定およびパーサー自己切り替え
+            specs = self._get_specs(soup)
+            detected_type = PropertyTypeDetector.detect(
+                url=url,
+                title=title,
+                html_text=soup.get_text()[:2000],
+                specs=specs,
+                default=self.property_type
+            )
+            parser_to_use = self
+            if detected_type and self.property_type and detected_type != self.property_type:
+                target_parser = UrlRouter.create_parser(
+                    url=url,
+                    title=title,
+                    html_text=soup.get_text()[:2000],
+                    specs=specs,
+                    property_type=detected_type
+                )
+                if target_parser and target_parser.__class__ != self.__class__:
+                    logging.info(
+                        f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) "
+                        f"-> detected '{detected_type}' ({target_parser.__class__.__name__})"
+                    )
+                    parser_to_use = target_parser
+                    item = target_parser.createEntity()
+                    item.pageUrl = url
+
+            item = parser_to_use._parsePropertyDetailPage(item, soup)
+            item = parser_to_use.clean_parsed_item(item)
             item._soup = soup
-            self.validate_required_fields(item)
+            parser_to_use.validate_required_fields(item)
         except SkipPropertyException as e:
             raise e
         except (LoadPropertyPageException, TimeoutError) as e:

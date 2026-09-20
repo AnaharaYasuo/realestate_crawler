@@ -770,4 +770,52 @@ sequenceDiagram
    - `4xx`: `WARNING`（不正リクエスト・バリデーションエラー）
    - `5xx`: `ERROR`（サーバー内部障害）
 
+---
+
+## 14. 物件詳細ページ到着時の動的種別判定およびパーサー自己切り替えアーキテクチャ (Dynamic Property Type Detection & Parser Self-Switching Architecture)
+
+物件一覧ページの巡回や初期URLルーティング時点での想定種別と、実際に取得した物件詳細ページの種別が異なるケース（例: マンション巡回中に戸建てや投資用物件のURLが混入・参照された場合）において、詳細ページ到着時に自動で種別を正しく判定し、適切なパーサーおよびモデルエンティティに切り替えて抽出を継続するアーキテクチャです。
+
+```mermaid
+sequenceDiagram
+    participant Crawler as Crawler Engine / API
+    participant InitialParser as BaseParser (e.g. MansionParser)
+    participant Detector as PropertyTypeDetector
+    participant Router as UrlRouter
+    participant TargetParser as TargetParser (e.g. KodateParser)
+
+    Crawler->>InitialParser: parsePropertyDetailPage(session, url)
+    InitialParser->>InitialParser: _getContent(session, url) (HTTP GET 1回のみ)
+    InitialParser->>InitialParser: soup = BeautifulSoup(content)
+    InitialParser->>Detector: detect(url, title, soup.text, specs, default=self.property_type)
+    Detector-->>InitialParser: detected_type (e.g. 'kodate')
+
+    alt detected_type != self.property_type
+        Note over InitialParser: 種別不一致検知: 動的パーサー切り替え
+        InitialParser->>Router: create_parser(url, title, soup.text, specs, property_type=detected_type)
+        Router-->>InitialParser: target_parser (KodateParser)
+        Note over InitialParser: [PropertyTypeSwitch] ログ出力 & item差し替え
+        InitialParser->>TargetParser: _parsePropertyDetailPage(kodate_item, soup)
+        TargetParser-->>InitialParser: parsed_item (Kodate)
+        InitialParser->>TargetParser: clean_parsed_item(parsed_item)
+        InitialParser->>TargetParser: validate_required_fields(parsed_item)
+        InitialParser-->>Crawler: Return target_item (Kodate Model)
+    else detected_type == self.property_type
+        Note over InitialParser: 通常時: 自パーサーでそのまま高速パース
+        InitialParser->>InitialParser: _parsePropertyDetailPage(item, soup)
+        InitialParser-->>Crawler: Return item
+    end
+```
+
+### 14.1 設計原則
+1. **ネットワーク再取得ゼロ (Zero Re-fetch Overhead)**:
+   - 既に `_getContent` で取得済みの生HTML / BeautifulSoup オブジェクトをそのまま `target_parser` に引き渡すため、追加のHTTP通信オーバーヘッドは一切発生しない。
+2. **Yield Guard 最優先判定**:
+   - `PropertyTypeDetector` の優先度（利回りシグナル最優先 > スペック表 > タイトル > 本文テキスト > URL）に従い、投資用物件と居住用物件（マンション・戸建て・土地）の取り違えを確実に防止する。
+3. **エンティティ整合性とDB同期**:
+   - 切り替え後の `target_parser.createEntity()` により、正しいテーブルモデル（`SumifuKodate`, `MitsuiInvestApartment` 等）がインスタンス化され、種別特有のバリデーションを通過して正しいDBテーブルに永続化される。
+4. **追跡可能性 (Traceability)**:
+   - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
+
+
 

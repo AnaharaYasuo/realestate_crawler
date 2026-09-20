@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import re
+import importlib
+import logging
 from typing import Optional, Dict, Any
 
 from package.utils.property_type_detector import PropertyTypeDetector
@@ -388,3 +390,35 @@ class UrlRouter:
 
         # 4. 種別指定なし、または該当なしの場合は先頭の一致ルートを返却
         return matched_routes[0]
+
+    @classmethod
+    def create_parser(
+        cls,
+        url: str,
+        title: Optional[str] = None,
+        html_text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+        property_type: Optional[str] = None
+    ) -> Optional[Any]:
+        """
+        URLおよび動的判定情報（title, html_text, specs, property_type）から
+        適切なパーサーを解決し、インスタンス化して返却
+        """
+        route = cls.resolve(
+            url=url,
+            title=title,
+            html_text=html_text,
+            specs=specs,
+            property_type=property_type
+        )
+        if not route or not route.get("parser_module") or not route.get("parser_cls"):
+            return None
+
+        try:
+            mod = importlib.import_module(route["parser_module"])
+            parser_cls = getattr(mod, route["parser_cls"])
+            return parser_cls()
+        except Exception as e:
+            logging.exception(f"Failed to instantiate parser {route.get('parser_cls')} from {route.get('parser_module')}: {e}")
+            return None
+
