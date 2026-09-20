@@ -20,6 +20,16 @@ const app = new App({
 
 const agyPath = 'C:\\Users\\weare\\AppData\\Local\\agy\\bin\\agy.exe';
 
+/**
+ * Run the configured agent for a Slack message and post its result to the thread.
+ *
+ * Bot events, messages without a user, and empty messages are ignored. The
+ * returned promise resolves after the completion callback is registered.
+ *
+ * @param {Function} say Slack Bolt function used to post thread replies.
+ * @param {object} event Slack event containing the message and thread metadata.
+ * @returns {Promise<void>}
+ */
 async function processInstruction(say, event) {
   const userId = event.user;
   const text = (event.text || '').trim();

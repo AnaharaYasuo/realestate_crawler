@@ -12,6 +12,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 def run_command(cmd, desc):
+    """Run a shell command, log its result, and return success with its output."""
     logging.info(f"=== [Step] {desc} ===")
     logging.info(f"Command: {cmd}")
     # nosemgrep: python.lang.security.audit.subprocess-shell-true.subprocess-shell-true
