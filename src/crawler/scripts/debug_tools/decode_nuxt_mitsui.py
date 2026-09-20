@@ -3,23 +3,20 @@
 Nuxt3 Devalue 形式の salePropertyData を正確にデコードして実データを表示する
 """
 import urllib.request
-import re
 import json
+from bs4 import BeautifulSoup
 
 url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/F7BBRA06"
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
 req = urllib.request.Request(url, headers=headers)
 html = urllib.request.urlopen(req).read().decode('utf-8')
 
-# window.__NUXT__ の全体スクリプトを抽出
-match = re.search(r'<script[^>]*>\s*\(function\(\)\{var [^<]*window\.__NUXT__=(.*?);<\/script[^>]*>', html, re.DOTALL | re.IGNORECASE)
-if not match:
-    # 別のパターン
-    match = re.search(r'window\.__NUXT__\s*=\s*(.*?);?\s*<\/script[^>]*>', html, re.DOTALL | re.IGNORECASE)
+soup = BeautifulSoup(html, 'html.parser')
 
 # JSON配列としてロードを試みる
 script_content = None
-for s in re.findall(r'<script[^>]*>(.*?)</script[^>]*>', html, re.DOTALL | re.IGNORECASE):
+for s_tag in soup.find_all('script'):
+    s = s_tag.string or s_tag.get_text() or ""
     if 'salePropertyData' in s and s.strip().startswith('['):
         script_content = s.strip()
         break

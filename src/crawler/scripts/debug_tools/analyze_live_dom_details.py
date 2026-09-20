@@ -38,7 +38,7 @@ def analyze_page(name, url):
     print(f"TITLE: {title}")
 
     # 2. Nuxt / JSON データ内のプロパティ探索（三井などの場合）
-    nuxt_matches = re.findall(r'<script[^>]*>(.*?)</script[^>]*>', html, re.DOTALL | re.IGNORECASE)
+    nuxt_matches = [s.get_text() for s in soup.find_all('script')]
     for s in nuxt_matches:
         if 'window.__NUXT__' in s or 'salePropertyData' in s:
             # 文字列リテラルを抽出
