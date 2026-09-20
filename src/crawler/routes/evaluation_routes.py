@@ -19,7 +19,7 @@ from package.utils.singleflight import SingleflightGroup
 from package.utils.rate_limiter import SlidingWindowRateLimiter, LockoutManager
 from package.models.evaluation import PropertyEvaluation
 from package.models.candidate import CandidatePropertyUrl
-from package.parser.baseParser import ListingEndedException, LoadPropertyPageException
+from package.parser.baseParser import ListingEndedException, LoadPropertyPageException, RateLimitedException
 
 evaluation_bp = Blueprint('evaluation', __name__)
 
@@ -863,13 +863,14 @@ async def _execute_predict_by_url(
     # Tier 3: 存在しない（または force_refresh）の場合はリアルタイム取得
     # -------------------------------------------------------------
     if target_item is None:
+        clean_url = UrlMatcher.normalize(url)
         try:
             parser_mod = importlib.import_module(route["parser_module"])
             parser_cls = getattr(parser_mod, route["parser_cls"])
             parser = parser_cls()
         except Exception as e:
             logging.error(
-                f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {url}: {e}",
+                f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {clean_url}: {e}",
                 exc_info=True
             )
             return {
@@ -884,7 +885,7 @@ async def _execute_predict_by_url(
             connector = aiohttp.TCPConnector(ssl=False)
             timeout = aiohttp.ClientTimeout(total=15)
             async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                target_item = await parser.parsePropertyDetailPage(session, url)
+                target_item = await parser.parsePropertyDetailPage(session, clean_url)
         except ListingEndedException:
             return {
                 "success": False,
@@ -893,6 +894,15 @@ async def _execute_predict_by_url(
                 "error_code": "LISTING_ENDED",
                 "message": "物件の掲載が終了しているか、削除されています。"
             }, 410
+        except RateLimitedException as e:
+            logging.warning(f"Target site rate limited for {clean_url}: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "data_source": None,
+                "error_code": "TARGET_SITE_RATE_LIMITED",
+                "message": f"対象サイトのアクセス制限(429)に到達しました: {str(e)}"
+            }, 429
         except (LoadPropertyPageException, asyncio.TimeoutError):
             return {
                 "success": False,
@@ -921,7 +931,6 @@ async def _execute_predict_by_url(
             }, 422
 
         # 物件テーブルへの Upsert (正規化URLで保存)
-        clean_url = UrlMatcher.normalize(url)
         try:
             target_model_cls = target_item.__class__
             property_type = PropertyTypeDetector.detect_from_object(target_item)

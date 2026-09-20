@@ -645,4 +645,72 @@ def test_predict_by_url_kenbiya_support(client, monkeypatch):
     assert data["prediction"]["first_stage_predicted_price"] == 58000000
 
 
+def test_predict_by_url_rate_limited_returns_429(client, monkeypatch):
+    """対象サイトから429 RateLimitedExceptionが送出された場合、HTTP 429 TARGET_SITE_RATE_LIMITED が返却されること"""
+    from package.parser.baseParser import RateLimitedException
+
+    async def mock_parse_rate_limited(self, session, url):
+        raise RateLimitedException("Kenbiya rate limited (429)")
+
+    monkeypatch.setattr("package.parser.kenbiyaParser.KenbiyaInvestmentApartmentParser.parsePropertyDetailPage", mock_parse_rate_limited)
+
+    target_url = "https://www.kenbiya.com/pp2/s/tokyo/setagaya-ku/re_4721854dw3/"
+    res = client.post(
+        '/api/evaluation/predict-by-url',
+        data=json.dumps({
+            "url": target_url,
+            "force_refresh": True
+        }),
+        content_type='application/json'
+    )
+
+    assert res.status_code == 429
+    data = res.get_json()
+    assert data["success"] is False
+    assert data["error_code"] == "TARGET_SITE_RATE_LIMITED"
+    assert "429" in data["message"]
+
+
+def test_predict_by_url_normalizes_tracking_url_for_live_crawl(client, monkeypatch):
+    """ライブ取得時にトラッキングパラメータ（utm_*等）が除去された正規化URLでパーサーが実行されること"""
+    from package.models.kenbiya import KenbiyaInvestmentApartment
+    import datetime
+    from decimal import Decimal
+
+    received_urls = []
+
+    async def mock_parse(self, session, url):
+        received_urls.append(url)
+        item = KenbiyaInvestmentApartment()
+        item.pageUrl = url
+        item.price = 59800000
+        item.propertyName = "世田谷区桜2丁目アパート"
+        item.address = "東京都世田谷区桜2-7"
+        item.tatemonoMenseki = Decimal("99.02")
+        item.kouzou = "木造2階建"
+        item.chikunengetsu = datetime.date(1990, 6, 1)
+        return item
+
+    monkeypatch.setattr("package.parser.kenbiyaParser.KenbiyaInvestmentApartmentParser.parsePropertyDetailPage", mock_parse)
+
+    tracking_url = "https://www.kenbiya.com/pp2/s/tokyo/setagaya-ku/re_4721854dw3/?utm_source=newmail&utm_medium=email"
+    with patch('routes.evaluation_routes.predict_first_stage_local', return_value=58000000), \
+         patch('routes.evaluation_routes.predict_second_stage_local', return_value=58500000):
+        res = client.post(
+            '/api/evaluation/predict-by-url',
+            data=json.dumps({
+                "url": tracking_url,
+                "force_refresh": True
+            }),
+            content_type='application/json'
+        )
+
+    assert res.status_code == 200
+    assert len(received_urls) == 1
+    # トラッキングパラメータが除去されてクリーンなURLになっていること
+    assert "utm_source" not in received_urls[0]
+    assert received_urls[0] == "https://www.kenbiya.com/pp2/s/tokyo/setagaya-ku/re_4721854dw3/"
+
+
+
 
