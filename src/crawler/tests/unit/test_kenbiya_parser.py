@@ -2,6 +2,7 @@
 import datetime
 from decimal import Decimal
 import inspect
+import pytest
 from bs4 import BeautifulSoup
 
 from package.parser.baseParser import InvestmentParserBase
@@ -285,5 +286,70 @@ def test_kenbiya_parser_edge_cases():
     t_parser = KenbiyaTochiParser()
     assert t_parser._parseMaguchi(None, {"接道状況": "間口 8.5m 公道"}) == Decimal("8.5")
     assert t_parser._parseMaguchi(None, {}) is None
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_get_content_429_rate_limited():
+    """HTTP 429が連続した場合、RateLimitedException が送出されること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.parser.baseParser import RateLimitedException
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    parser.MAX_CONSECUTIVE_TIMEOUTS = 2
+
+    mock_resp = MagicMock()
+    mock_resp.status = 429
+
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock()
+
+    with pytest.raises(RateLimitedException) as excinfo:
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test")
+
+    assert "rate limited (429)" in str(excinfo.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_user_agent_rotation():
+    """リトライ毎に異なる最新ブラウザの User-Agent が適用されること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    parser.MAX_CONSECUTIVE_TIMEOUTS = 3
+
+    recorded_uas = []
+
+    def mock_get(url, headers=None, timeout=None):
+        recorded_uas.append(headers.get("User-Agent"))
+        mock_resp = MagicMock()
+        mock_resp.status = 429
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_resp)
+        cm.__aexit__ = AsyncMock()
+        return cm
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    try:
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test")
+    except Exception:
+        pass
+
+    assert len(recorded_uas) == 3
+    assert len(set(recorded_uas)) > 1
+    assert any("Chrome/13" in ua for ua in recorded_uas)
+
 
 

@@ -23,3 +23,14 @@ def test_dynamic_root_discovery():
             break
         cur = parent
     assert found is True
+
+
+def test_db_pool_options_has_pre_ping_and_recycle():
+    """realestateSettings の POOL_OPTIONS に PRE_PING: True と短縮リサイクルが設定されていること"""
+    import realestateSettings
+    import inspect
+
+    src = inspect.getsource(realestateSettings.configure)
+    assert "'PRE_PING': True" in src
+    assert "300" in src
+

@@ -384,6 +384,10 @@ graph TD
   - `task pr-check`: カレントブランチの Issue 受入基準をローカル検証。
   - `task pr-create`: 受入基準全件充足を事前検証した上で `gh pr create` を安全に起動。
 
+### 6.22 DBコネクションプールPre-Pingおよび短縮リサイクル原則
+- **QueuePoolのアイドル切断防止**: `realestateSettings.py` における `dj_db_conn_pool` の `POOL_OPTIONS` に `'PRE_PING': True` を設定し、チェックアウト時に `SELECT 1` 等の死活検証を自動実行。Cloud SQL や MySQL サーバー側で切断されたゾンビコネクションを透過的に再作成し、`MySQLdb.OperationalError: (2013, 'Lost connection to server during query')` を根絶する。
+- **リサイクル間隔の短縮**: `RECYCLE` 設定を従来の 1800秒（30分）から 300秒（5分）へ短縮し、Cloud Run のスケーリング・アイドル環境下でもタイムアウト超過前のクリーンなコネクション更新を担保する。
+
 ---
 
 ## 7. 参照ドキュメント
