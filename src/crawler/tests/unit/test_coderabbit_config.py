@@ -1,0 +1,92 @@
+"""
+CodeRabbit 設定および未解決レビューコメント判定ロジックの単体テスト。
+Issue #215: feat: CodeRabbit 自動コードレビュー導入と未解決レビューコメントのマージブロック強制
+"""
+import os
+import yaml
+import pytest
+
+
+def get_repo_root():
+    """リポジトリルートディレクトリを探索して返す"""
+    cur = os.path.abspath(os.path.dirname(__file__))
+    for _ in range(6):
+        if os.path.exists(os.path.join(cur, "src")) and (
+            os.path.exists(os.path.join(cur, ".git")) or os.path.exists(os.path.join(cur, ".coderabbit.yaml")) or os.path.exists(os.path.join(cur, "Taskfile.yml"))
+        ):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    # フォールバック
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
+
+
+def test_coderabbit_yaml_exists_and_valid():
+    """リポジトリルートに .coderabbit.yaml が存在し、YAMLとして正常にパースできることを検証"""
+    repo_root = get_repo_root()
+    config_path = os.path.join(repo_root, ".coderabbit.yaml")
+    
+    assert os.path.exists(config_path), f".coderabbit.yaml が存在しません: {config_path}"
+    
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    
+    assert isinstance(config, dict), ".coderabbit.yaml の内容が辞書形式ではありません"
+    
+    # 必須パラメータの検証
+    assert config.get("language") == "ja-JP", "language は ja-JP に設定されている必要があります"
+    
+    reviews = config.get("reviews", {})
+    assert reviews.get("profile") == "chill", "reviews.profile は chill に設定されている必要があります"
+    assert reviews.get("request_changes_workflow") is True, "reviews.request_changes_workflow は true に設定されている必要があります"
+    
+    auto_review = reviews.get("auto_review", {})
+    assert auto_review.get("enabled") is True, "reviews.auto_review.enabled は true に設定されている必要があります"
+    
+    base_branches = auto_review.get("base_branches", [])
+    assert "master" in base_branches, "auto_review.base_branches に master が含まれている必要があります"
+    assert "production" in base_branches, "auto_review.base_branches に production が含まれている必要があります"
+    
+    tone = config.get("tone_instructions", "")
+    assert len(tone) > 0, "tone_instructions が設定されている必要があります"
+
+
+def test_review_thread_evaluation_logic():
+    """未解決レビュースレッド判定ロジックの検証"""
+    def evaluate_threads(threads):
+        """
+        GraphQL reviewThreads ノードのリストを受け取り、
+        未解決の会話が存在するかどうかを評価する。
+        """
+        unresolved = [t for t in threads if not t.get("isResolved", False)]
+        return {
+            "can_merge": len(unresolved) == 0,
+            "unresolved_count": len(unresolved),
+            "unresolved_threads": unresolved,
+        }
+
+    # 1. 全て解決済みのケース
+    all_resolved = [
+        {"id": "t1", "isResolved": True, "path": "src/api.py", "line": 10},
+        {"id": "t2", "isResolved": True, "path": "src/parser.py", "line": 50},
+    ]
+    res1 = evaluate_threads(all_resolved)
+    assert res1["can_merge"] is True
+    assert res1["unresolved_count"] == 0
+
+    # 2. 未解決の指摘が残っているケース
+    has_unresolved = [
+        {"id": "t1", "isResolved": True, "path": "src/api.py", "line": 10},
+        {"id": "t2", "isResolved": False, "path": "src/parser.py", "line": 50},
+    ]
+    res2 = evaluate_threads(has_unresolved)
+    assert res2["can_merge"] is False
+    assert res2["unresolved_count"] == 1
+    assert res2["unresolved_threads"][0]["id"] == "t2"
+
+    # 3. コメントが0件のケース
+    res3 = evaluate_threads([])
+    assert res3["can_merge"] is True
+    assert res3["unresolved_count"] == 0
