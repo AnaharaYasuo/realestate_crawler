@@ -83,10 +83,11 @@ jobs:
 
               for (const line of lines) {
                 const trimmed = line.trim();
-                const match = trimmed.match(/^[-*]\s+\[([ xX])\]\s+(.*)$/);
+                const match = trimmed.match(/^[-*]\s*\[([ xX])\]\s*(.*)$/);
                 if (match) {
                   const status = match[1];
                   const item = match[2].trim();
+                  if (!item) continue;
                   if (status === 'x' || status === 'X') {
                     checked.push(item);
                   } else {

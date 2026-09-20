@@ -124,6 +124,8 @@ def _fetch_issue_via_api(issue_num: int) -> Optional[Dict[str, Any]]:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+            if "pull_request" in data:
+                return None
             return {
                 "number": data.get("number"),
                 "title": data.get("title", ""),

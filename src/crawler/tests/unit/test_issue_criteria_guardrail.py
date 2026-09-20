@@ -51,6 +51,18 @@ def test_parse_acceptance_criteria_mixed():
     assert "【基準4】本番検証完了" in unchecked
 
 
+def test_parse_acceptance_criteria_no_space():
+    body = """
+- [x]完了項目
+* [ ]未完了項目
+"""
+    checked, unchecked = parse_acceptance_criteria(body)
+    assert len(checked) == 1
+    assert checked[0] == "完了項目"
+    assert len(unchecked) == 1
+    assert unchecked[0] == "未完了項目"
+
+
 def test_validate_issue_acceptance_criteria_all_checked():
     issue_data = {
         "number": 100,

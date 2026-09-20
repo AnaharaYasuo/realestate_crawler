@@ -254,7 +254,7 @@ def is_excluded_file(filepath: str) -> bool:
 
 def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> List[Dict[str, Any]]:
     """Scan a single Python file for Sonar issues."""
-    if not filepath or "\0" in filepath or ".." in filepath:
+    if not filepath or "\0" in filepath:
         return []
 
     try:
