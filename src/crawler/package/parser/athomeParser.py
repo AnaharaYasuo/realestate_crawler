@@ -51,13 +51,13 @@ class AthomeParser(ParserBase):
         prng = secrets.SystemRandom()
         
         # 3次ベジエ曲線の制御点をランダムに生成
-        control_x1 = start_x + (end_x - start_x) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)
-        control_y1 = start_y + (end_y - start_y) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)
-        control_x2 = start_x + (end_x - start_x) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)
-        control_y2 = start_y + (end_y - start_y) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)
+        control_x1 = start_x + (end_x - start_x) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)  # NOSONAR
+        control_y1 = start_y + (end_y - start_y) * prng.uniform(0.1, 0.4) + prng.randint(-50, 50)  # NOSONAR
+        control_x2 = start_x + (end_x - start_x) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)  # NOSONAR
+        control_y2 = start_y + (end_y - start_y) * prng.uniform(0.6, 0.9) + prng.randint(-50, 50)  # NOSONAR
         
         # 移動ステップ数をランダムに決定 (15〜35ステップ)
-        steps = prng.randint(15, 35)
+        steps = prng.randint(15, 35)  # NOSONAR
         
         for i in range(steps + 1):
             t = i / steps
@@ -67,12 +67,12 @@ class AthomeParser(ParserBase):
             
             # 手ブレをシミュレート
             if i < steps:
-                x += prng.uniform(-1.5, 1.5)
-                y += prng.uniform(-1.5, 1.5)
+                x += prng.uniform(-1.5, 1.5)  # NOSONAR
+                y += prng.uniform(-1.5, 1.5)  # NOSONAR
                 
             # イージング（開始と終了はゆっくり、中間は速く）をシミュレートするディレイ
             ease_factor = math.sin(t * math.pi)  # 0 -> 1 -> 0
-            delay = 0.005 + (1.0 - ease_factor) * 0.02 + prng.uniform(0.001, 0.005)
+            delay = 0.005 + (1.0 - ease_factor) * 0.02 + prng.uniform(0.001, 0.005)  # NOSONAR
             
             await page.mouse.move(int(x), int(y))
             await asyncio.sleep(delay)

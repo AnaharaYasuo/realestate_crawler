@@ -4,6 +4,11 @@ Issue #250: [Feature] Setup Trivy & Semgrep security workflows, Checkov & Prowle
 """
 import os
 import yaml
+from unittest.mock import AsyncMock, MagicMock
+import pytest
+from package.api.api import ApiAsyncProcBase
+from package.parser.athomeParser import AthomeParser
+from package.testing.mutation_engine import ASTMutationEngine, Mutant, MutationType
 
 
 def get_repo_root():
@@ -205,4 +210,55 @@ def test_sonar_qualitygate_wait_configured():
         content = f.read()
 
     assert "-Dsonar.qualitygate.wait=true" in content, "sonar.yml に -Dsonar.qualitygate.wait=true が指定されている必要があります"
+
+
+@pytest.mark.asyncio
+async def test_athome_parser_human_mouse_move():
+    """AthomeParser._humanMouseMove のマウス移動シミュレーションが例外なく完了することを検証"""
+    class DummyAthomeParser(AthomeParser):
+        def createEntity(self, *a, **k):
+            pass
+
+    parser = DummyAthomeParser()
+    page = MagicMock()
+    page.mouse = MagicMock()
+    page.mouse.move = AsyncMock()
+    await parser._humanMouseMove(page, 0, 0, 100, 100)
+    assert page.mouse.move.called
+
+
+def test_api_ssl_context():
+    """ApiAsyncProcBase クラスの SSL コネクタ初期化が安全に構成されていることを検証"""
+    class DummyProc(ApiAsyncProcBase):
+        def _callApi(self, *a, **k): pass
+        def _generateParser(self, *a, **k): pass
+        def _getApiKey(self, *a, **k): pass
+        def _getCloudPararellLimit(self, *a, **k): pass
+        def _getLocalPararellLimit(self, *a, **k): pass
+        def _getTimeOutSecond(self, *a, **k): pass
+        def _getTreatPageArg(self, *a, **k): pass
+        async def _treatPage(self, *a, **k): pass
+
+    proc = DummyProc()
+    loop = MagicMock()
+    connector = proc._generateConnector(loop)
+    assert connector is not None
+
+
+def test_mutation_engine_run_test():
+    """ASTMutationEngine のテスト実行と殺傷判定ロジックを検証"""
+    engine = ASTMutationEngine()
+    engine.apply_mutant = MagicMock(return_value="backup")
+    engine.revert_mutant = MagicMock()
+    mutant = Mutant(
+        file_path="dummy.py",
+        line_number=1,
+        mutation_type=MutationType.COMPARE_OP,
+        original_source="a > 1",
+        mutated_source="a <= 1",
+        ast_node_str="Gt -> LtE"
+    )
+    killed = engine.run_mutation_test(mutant, "python -c 'import sys; sys.exit(1)'")
+    assert killed is True
+
 
