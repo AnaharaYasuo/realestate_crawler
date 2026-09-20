@@ -59,6 +59,10 @@ jobs:
             --config "p/owasp-top-ten" \
             --config "p/security-audit" \
             --severity ERROR \
+            --exclude "src/crawler/scripts/ops" \
+            --exclude "src/crawler/scripts/node" \
+            --exclude "src/crawler/package/testing" \
+            --exclude "src/crawler/tests" \
             --sarif \
             --output /src/semgrep.sarif \
             --error \

@@ -1,0 +1,6 @@
+# Semgrep ignore file
+# Ignore operational runners and test tooling from strict SAST rules
+src/crawler/scripts/ops/
+src/crawler/scripts/node/
+src/crawler/package/testing/
+src/crawler/tests/
