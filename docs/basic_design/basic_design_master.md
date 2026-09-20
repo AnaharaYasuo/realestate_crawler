@@ -835,10 +835,14 @@ flowchart TD
     E --> G[開発者がコード修正 & コメント返答]
     G --> H[コメントスレッドの解決<br/>(Resolve conversation)]
     
-    C --> I[GitHub GraphQL API で未解決スレッド照会]
-    I --> J{未解決の会話スレッド存在?}
-    J -- YES --> K[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
-    J -- NO --> L[CI Check: SUCCESS]
+    C --> I[GitHub API / GraphQL で総合検証照会]
+    I --> J1{CodeRabbit実行中 or CHANGES_REQUESTED?}
+    J1 -- YES --> K1[CI Check: FAILED<br/>CodeRabbit完了または承認待ち<br/>マージブロック]
+    J1 -- NO --> J2{未完了チェックボックス - [ ] 存在?}
+    J2 -- YES --> K2[CI Check: FAILED<br/>残存チェックボックス一覧警告<br/>マージブロック]
+    J2 -- NO --> J3{未解決の会話スレッド存在?}
+    J3 -- YES --> K3[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
+    J3 -- NO --> L[CI Check: SUCCESS]
     
     H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
     M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]

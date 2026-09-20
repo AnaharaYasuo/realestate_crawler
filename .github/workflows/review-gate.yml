@@ -7,8 +7,10 @@ on:
       - master
       - production
   pull_request_review:
-    types: [submitted]
+    types: [submitted, edited, dismissed]
   pull_request_review_comment:
+    types: [created, edited, deleted]
+  issue_comment:
     types: [created, edited, deleted]
 
 permissions:
@@ -27,7 +29,21 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = context.payload.pull_request;
+            let pr = context.payload.pull_request;
+            if (!pr && context.payload.issue && context.payload.issue.pull_request) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.issue.number
+                });
+                pr = prRes.data;
+              } catch (err) {
+                core.setFailed(`Failed to fetch pull request for issue #${context.payload.issue.number}: ${err.message}`);
+                return;
+              }
+            }
+
             if (!pr) {
               core.info('No pull request found in context. Skipping.');
               return;
@@ -42,32 +58,36 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const prNumber = pr.number;
+            const headSha = pr.head && pr.head.sha;
 
             // 1. Check CodeRabbit In-Progress / Pending Status
             try {
               const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
                 owner,
                 repo,
-                ref: pr.head.sha
+                ref: headSha
               });
-              const crStatus = combinedStatus.data.statuses.find(s => s.context.toLowerCase().includes('coderabbit'));
-              if (crStatus && crStatus.state === 'pending') {
-                core.setFailed(`⛔ CodeRabbit review is still pending (${crStatus.state}). Please wait for CodeRabbit to complete.`);
+              const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
+              const pendingStatus = crStatuses.find(s => s.state === 'pending');
+              if (pendingStatus) {
+                core.setFailed(`⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`);
                 return;
               }
 
               const checkRuns = await github.rest.checks.listForRef({
                 owner,
                 repo,
-                ref: pr.head.sha
+                ref: headSha
               });
-              const crCheck = checkRuns.data.check_runs.find(c => c.name.toLowerCase().includes('coderabbit'));
-              if (crCheck && crCheck.status !== 'completed') {
-                core.setFailed(`⛔ CodeRabbit review check is in progress (${crCheck.status}). Please wait for CodeRabbit to finish.`);
+              const crChecks = checkRuns.data.check_runs.filter(c => c.name.toLowerCase().includes('coderabbit'));
+              const inProgressCheck = crChecks.find(c => c.status !== 'completed');
+              if (inProgressCheck) {
+                core.setFailed(`⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`);
                 return;
               }
             } catch (err) {
-              core.warning(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
+              core.setFailed(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
+              return;
             }
 
             // 2. Scan for Unchecked Checkboxes (- [ ])
@@ -106,7 +126,8 @@ jobs:
                 uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
               }
             } catch (err) {
-              core.warning(`Failed to list PR reviews: ${err.message}`);
+              core.setFailed(`Failed to list PR reviews: ${err.message}`);
+              return;
             }
 
             // 2c. Issue Comments
@@ -121,7 +142,8 @@ jobs:
                 uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
               }
             } catch (err) {
-              core.warning(`Failed to list Issue comments: ${err.message}`);
+              core.setFailed(`Failed to list Issue comments: ${err.message}`);
+              return;
             }
 
             // 2d. Review Comments (Inline)
@@ -136,7 +158,8 @@ jobs:
                 uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
               }
             } catch (err) {
-              core.warning(`Failed to list Review comments: ${err.message}`);
+              core.setFailed(`Failed to list Review comments: ${err.message}`);
+              return;
             }
 
             // 3. Scan Unresolved Review Threads via GraphQL
@@ -171,18 +194,23 @@ jobs:
             let cursor = null;
             const allThreads = [];
 
-            while (hasNextPage) {
-              const variables = { owner, repo, prNumber, cursor };
-              const result = await github.graphql(threadQuery, variables);
-              const connection = result.repository.pullRequest.reviewThreads;
-              allThreads.push(...connection.nodes);
-              const hasMorePages = connection.pageInfo.hasNextPage;
-              const nextCursor = connection.pageInfo.endCursor;
-              if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
-                throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+            try {
+              while (hasNextPage) {
+                const variables = { owner, repo, prNumber, cursor };
+                const result = await github.graphql(threadQuery, variables);
+                const connection = result.repository.pullRequest.reviewThreads;
+                allThreads.push(...connection.nodes);
+                const hasMorePages = connection.pageInfo.hasNextPage;
+                const nextCursor = connection.pageInfo.endCursor;
+                if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
+                  throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+                }
+                hasNextPage = hasMorePages;
+                cursor = nextCursor;
               }
-              hasNextPage = hasMorePages;
-              cursor = nextCursor;
+            } catch (err) {
+              core.setFailed(`Failed to fetch review threads via GraphQL: ${err.message}`);
+              return;
             }
 
             const unresolved = allThreads.filter(t => !t.isResolved);

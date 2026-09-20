@@ -93,8 +93,9 @@ GitHub ネイティブのブランチ保護機能。
 ### 4.1 トリガー仕様
 - **イベント**:
   - `pull_request`: `types: [opened, edited, synchronize, reopened]`, `branches: [master, production]`
-  - `pull_request_review`: `types: [submitted]`
+  - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
+  - `issue_comment`: `types: [created, edited, deleted]`（PRに紐づくコメントイベント時にPR番号・HEAD SHAを特定して再評価）
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
