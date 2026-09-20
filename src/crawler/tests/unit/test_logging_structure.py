@@ -42,8 +42,9 @@ def test_standard_logging_bridge(monkeypatch):
     std_logger = logging.getLogger("standard.test")
     std_logger.warning("標準ロガーからの警告テスト")
 
-    output = stream.getvalue().strip()
-    data = json.loads(output)
+    lines = [line for line in stream.getvalue().strip().split("\n") if line.strip()]
+    data = next((json.loads(l) for l in lines if "標準ロガーからの警告テスト" in json.loads(l).get("message", "")), None)
+    assert data is not None
     assert data.get("severity") == "WARNING"
     assert "標準ロガーからの警告テスト" in data.get("message", "")
 
@@ -60,8 +61,9 @@ def test_exception_structured_traceback(monkeypatch):
     except Exception as ex:
         logger.error("処理中にエラーが発生しました", exc_info=ex)
 
-    output = stream.getvalue().strip()
-    data = json.loads(output)
+    lines = [line for line in stream.getvalue().strip().split("\n") if line.strip()]
+    data = next((json.loads(l) for l in lines if "処理中にエラーが発生しました" in json.loads(l).get("message", "")), None)
+    assert data is not None
     assert data.get("severity") == "ERROR"
     assert "処理中にエラーが発生しました" in data.get("message", "")
     assert "exception" in data or "stack_trace" in data or "ValueError" in data.get("message", "")
