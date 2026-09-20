@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiohttp
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
+
 from package.utils.slack import send_slack_message
 
 @pytest.mark.asyncio
@@ -393,4 +396,134 @@ async def test_resolve_channel_id_pagination_success():
     assert result == "C0222222222"
     assert mock_session.get.call_count == 2
 
+    first_request = mock_session.get.call_args_list[0]
+    assert first_request.kwargs["headers"] == {"Authorization": "Bearer fake-token"}
+    assert first_request.kwargs["params"] == {
+        "types": "public_channel,private_channel",
+        "limit": "200",
+    }
+    assert mock_session.get.call_args_list[1].kwargs["params"]["cursor"] == "cursor_page_2"
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_channel", [None, ""])
+async def test_resolve_channel_id_empty_value_skips_api_call(empty_channel):
+    """空のチャンネル値はAPI呼び出しをせず、そのまま返すことをテスト。"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_session = MagicMock()
+
+    assert await resolve_channel_id(mock_session, empty_channel, "fake-token") == empty_channel
+    mock_session.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_normalizes_hash_and_case():
+    """チャンネル名は先頭の#と大文字小文字を無視して照合することをテスト。"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_resp = AsyncMock()
+    mock_resp.json = AsyncMock(
+        return_value={
+            "ok": True,
+            "channels": [{"id": "C0999999999", "name": "Dev-Agent"}],
+            "response_metadata": {"next_cursor": ""},
+        }
+    )
+    response_context = MagicMock()
+    response_context.__aenter__ = AsyncMock(return_value=mock_resp)
+    response_context.__aexit__ = AsyncMock()
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=response_context)
+
+    assert await resolve_channel_id(mock_session, "#DEV-AGENT", "fake-token") == "C0999999999"
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_request_exception_falls_back_to_original_name():
+    """Slack APIへの接続例外時にも呼び出し元のチャンネル指定を保持することをテスト。"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_session = MagicMock()
+    mock_session.get.side_effect = aiohttp.ClientError("connection failed")
+
+    assert await resolve_channel_id(mock_session, "dev-agent", "fake-token") == "dev-agent"
+
+
+@pytest.mark.asyncio
+async def test_check_latest_slack_verify_without_token_does_not_open_session(monkeypatch, capsys):
+    """トークン欠損時は明示的に終了し、Slackへ接続しないことをテスト。"""
+    from scripts.debug_tools import check_latest_slack
+
+    monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+
+    with patch.object(check_latest_slack.aiohttp, "ClientSession") as mock_client_session:
+        await check_latest_slack.verify("dev-agent")
+
+    mock_client_session.assert_not_called()
+    assert capsys.readouterr().out == "SLACK_BOT_TOKEN not set.\n"
+
+
+@pytest.mark.asyncio
+async def test_check_latest_slack_verify_resolves_channel_and_prints_messages(monkeypatch, capsys):
+    """指定名をIDに解決し、そのIDで履歴を取得して内容を表示することをテスト。"""
+    from scripts.debug_tools import check_latest_slack
+
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "fake-token")
+    history_response = AsyncMock()
+    history_response.json = AsyncMock(
+        return_value={"ok": True, "messages": [{"ts": "123.456", "text": "latest report"}]}
+    )
+    history_context = MagicMock()
+    history_context.__aenter__ = AsyncMock(return_value=history_response)
+    history_context.__aexit__ = AsyncMock()
+    session = MagicMock()
+    session.get = MagicMock(return_value=history_context)
+    session_context = MagicMock()
+    session_context.__aenter__ = AsyncMock(return_value=session)
+    session_context.__aexit__ = AsyncMock()
+
+    with patch.object(check_latest_slack.aiohttp, "ClientSession", return_value=session_context), patch.object(
+        check_latest_slack,
+        "resolve_channel_id",
+        new=AsyncMock(return_value="C0999999999"),
+    ) as mock_resolve:
+        await check_latest_slack.verify("#dev-agent")
+
+    mock_resolve.assert_awaited_once_with(session, "#dev-agent", "fake-token")
+    session.get.assert_called_once_with(
+        "https://slack.com/api/conversations.history?channel=C0999999999&limit=2",
+        headers={"Authorization": "Bearer fake-token"},
+    )
+    output = capsys.readouterr().out
+    assert "TS: 123.456" in output
+    assert "latest report" in output
+
+
+@pytest.mark.asyncio
+async def test_check_latest_slack_verify_defaults_to_dev_agent(monkeypatch):
+    """チャンネル設定がすべて欠損した場合はdev-agentを解決対象にすることをテスト。"""
+    from scripts.debug_tools import check_latest_slack
+
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "fake-token")
+    monkeypatch.delenv("SLACK_DEV_CHANNEL", raising=False)
+    monkeypatch.delenv("SLACK_CHANNEL_ID", raising=False)
+    history_response = AsyncMock()
+    history_response.json = AsyncMock(return_value={"ok": False, "error": "channel_not_found"})
+    history_context = MagicMock()
+    history_context.__aenter__ = AsyncMock(return_value=history_response)
+    history_context.__aexit__ = AsyncMock()
+    session = MagicMock()
+    session.get = MagicMock(return_value=history_context)
+    session_context = MagicMock()
+    session_context.__aenter__ = AsyncMock(return_value=session)
+    session_context.__aexit__ = AsyncMock()
+
+    with patch.object(check_latest_slack.aiohttp, "ClientSession", return_value=session_context), patch.object(
+        check_latest_slack,
+        "resolve_channel_id",
+        new=AsyncMock(return_value="dev-agent"),
+    ) as mock_resolve:
+        await check_latest_slack.verify()
+
+    mock_resolve.assert_awaited_once_with(session, "dev-agent", "fake-token")
