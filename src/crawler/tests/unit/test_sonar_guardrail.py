@@ -1,6 +1,8 @@
 import ast
 import tempfile
 import os
+from pathlib import Path
+
 import pytest
 try:
     from scripts.debug_tools.check_local_sonar import (
@@ -202,3 +204,52 @@ def high_complexity(a, b, c, d, e):
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+def test_sonar_cpd_excludes_operational_scripts():
+    """Operational scripts are excluded only from duplicate-code analysis."""
+    repo_root = Path(__file__).resolve().parents[4]
+    properties = {}
+    for line in (repo_root / "sonar-project.properties").read_text(
+        encoding="utf-8"
+    ).splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            properties[key] = value
+
+    assert "**/scripts/**" in properties["sonar.cpd.exclusions"].split(",")
+    assert "**/scripts/**" not in properties["sonar.exclusions"].split(",")
+
+
+def test_random_parser_verification_uses_system_random_sampling():
+    repo_root = Path(__file__).resolve().parents[4]
+    script_path = (
+        repo_root
+        / "src"
+        / "crawler"
+        / "scripts"
+        / "debug_tools"
+        / "verify_parsers_random.py"
+    )
+    tree = ast.parse(script_path.read_text(encoding="utf-8"))
+
+    imported_modules = {
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    system_random_samples = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "sample"
+        and isinstance(node.func.value, ast.Call)
+        and isinstance(node.func.value.func, ast.Attribute)
+        and node.func.value.func.attr == "SystemRandom"
+    ]
+
+    assert "secrets" in imported_modules
+    assert "random" not in imported_modules
+    assert len(system_random_samples) == 1

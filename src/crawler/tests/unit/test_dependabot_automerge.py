@@ -134,7 +134,68 @@ class TestDependabotAutomerge(unittest.TestCase):
         self.assertEqual(status, PRStatus.MERGE_READY)
         self.assertIn("All checks passed", reason)
 
+    def test_evaluate_pr_ignores_each_documented_non_blocking_context(self):
+        for check_name in (
+            "Upload-SARIF / Trivy",
+            "Code Scanning Results",
+            "security/snyk (pull_request)",
+        ):
+            with self.subTest(check_name=check_name):
+                status, reason = self.inspector.evaluate_pr_status(
+                    {
+                        "mergeable": "MERGEABLE",
+                        "statusCheckRollup": [
+                            {
+                                "name": check_name,
+                                "status": "COMPLETED",
+                                "conclusion": "FAILURE",
+                            }
+                        ],
+                    }
+                )
+
+                self.assertEqual(status, PRStatus.MERGE_READY)
+                self.assertIn("All checks passed", reason)
+
+    def test_evaluate_pr_does_not_ignore_other_security_failures(self):
+        status, reason = self.inspector.evaluate_pr_status(
+            {
+                "mergeable": "MERGEABLE",
+                "statusCheckRollup": [
+                    {
+                        "name": "Trivy Security Scan",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(status, PRStatus.CI_FAILED)
+        self.assertIn("Trivy Security Scan", reason)
+
+    def test_evaluate_pr_running_check_takes_precedence_over_ignored_failure(self):
+        status, reason = self.inspector.evaluate_pr_status(
+            {
+                "mergeable": "MERGEABLE",
+                "statusCheckRollup": [
+                    {
+                        "name": "upload-sarif",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                    },
+                    {
+                        "name": "unit-tests",
+                        "status": "IN_PROGRESS",
+                        "conclusion": "",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(status, PRStatus.CI_RUNNING)
+        self.assertIn("in progress", reason.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
-

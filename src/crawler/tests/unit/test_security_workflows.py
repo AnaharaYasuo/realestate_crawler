@@ -3,9 +3,13 @@ Trivy, Semgrep, Checkov, Prowler セキュリティ自動スキャンワーク�
 Issue #250: [Feature] Setup Trivy & Semgrep security workflows, Checkov & Prowler GCP audit, and disable Snyk
 """
 import os
+import ssl
 import yaml
-from unittest.mock import AsyncMock, MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from package import api as api_package
 from package.api.api import ApiAsyncProcBase
 from package.parser.athomeParser import AthomeParser
 from package.testing.mutation_engine import ASTMutationEngine, Mutant, MutationType
@@ -245,6 +249,146 @@ def test_api_ssl_context():
     assert connector is not None
 
 
+def test_api_ssl_connector_requires_certificate_and_hostname_validation():
+    """The connector must preserve Python's secure default TLS verification."""
+    proc = object.__new__(ApiAsyncProcBase)
+    loop = MagicMock()
+
+    with patch("package.api.api.aiohttp.TCPConnector") as connector_factory:
+        proc._generateConnector(loop)
+
+    connector_factory.assert_called_once()
+    kwargs = connector_factory.call_args.kwargs
+    context = kwargs["ssl"]
+    assert isinstance(context, ssl.SSLContext)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert kwargs["loop"] is loop
+
+
+def test_api_log_directory_is_project_relative_not_public_tmp():
+    log_path = Path(api_package.log_dir).resolve()
+
+    assert log_path.is_absolute()
+    assert log_path.parts[:2] != ("/", "tmp")
+    assert log_path.parts[-2:] == ("logs", "crawler_logs")
+
+
+def test_security_scan_jobs_are_parallel_and_enforce_findings():
+    """All PR scanners run independently and enforce the documented severity gate."""
+    workflow_path = Path(get_repo_root()) / ".github" / "workflows" / "security-scan.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+
+    assert set(jobs) == {"trivy-scan", "semgrep-scan", "checkov-scan"}
+    assert all("needs" not in job for job in jobs.values())
+
+    trivy_step = next(
+        step
+        for step in jobs["trivy-scan"]["steps"]
+        if "trivy-action" in step.get("uses", "")
+    )
+    assert str(trivy_step["with"]["exit-code"]) == "1"
+    assert set(trivy_step["with"]["severity"].split(",")) == {"HIGH", "CRITICAL"}
+
+    semgrep_step = next(
+        step for step in jobs["semgrep-scan"]["steps"] if "run" in step
+    )
+    assert "--severity ERROR" in semgrep_step["run"]
+    assert "--error" in semgrep_step["run"]
+
+    checkov_step = next(
+        step
+        for step in jobs["checkov-scan"]["steps"]
+        if "checkov-action" in step.get("uses", "")
+    )
+    assert checkov_step["with"]["soft_fail"] is False
+
+
+def test_security_scanners_upload_distinct_sarif_categories():
+    workflow_path = Path(get_repo_root()) / ".github" / "workflows" / "security-scan.yml"
+    jobs = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))["jobs"]
+
+    expected = {
+        "trivy-scan": ("trivy-results.sarif", "trivy"),
+        "semgrep-scan": ("semgrep.sarif", "semgrep"),
+        "checkov-scan": ("results.sarif", "checkov"),
+    }
+    for job_name, (report, category) in expected.items():
+        upload = next(
+            step
+            for step in jobs[job_name]["steps"]
+            if "upload-sarif" in step.get("uses", "")
+        )
+        assert upload["with"]["sarif_file"] == report
+        assert upload["with"]["category"] == category
+        assert "failure()" in upload["if"]
+
+
+def test_dependabot_covers_every_documented_ecosystem_and_schedule():
+    config_path = Path(get_repo_root()) / ".github" / "dependabot.yml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    actual = {
+        update["package-ecosystem"]: (
+            update["directory"],
+            update["schedule"]["interval"],
+        )
+        for update in config["updates"]
+    }
+
+    assert actual == {
+        "pip": ("/src/crawler", "daily"),
+        "terraform": ("/terraform", "weekly"),
+        "npm": ("/", "weekly"),
+        "github-actions": ("/", "weekly"),
+        "docker": ("/", "weekly"),
+    }
+
+
+def test_codeql_scans_python_and_actions_with_separate_categories():
+    workflow_path = Path(get_repo_root()) / ".github" / "workflows" / "codeql.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    analyze = workflow["jobs"]["analyze"]
+
+    assert set(analyze["strategy"]["matrix"]["language"]) == {"python", "actions"}
+    init = next(
+        step for step in analyze["steps"] if "codeql-action/init" in step.get("uses", "")
+    )
+    scan = next(
+        step
+        for step in analyze["steps"]
+        if "codeql-action/analyze" in step.get("uses", "")
+    )
+    assert init["with"]["languages"] == "${{ matrix.language }}"
+    assert scan["with"]["category"] == "/language:${{matrix.language}}"
+
+
+def test_prowler_uses_workload_identity_and_publishes_all_report_formats():
+    workflow_path = Path(get_repo_root()) / ".github" / "workflows" / "prowler-gcp-audit.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["prowler-gcp"]["steps"]
+
+    auth = next(
+        step for step in steps if "google-github-actions/auth" in step.get("uses", "")
+    )
+    assert "GCP_WORKLOAD_IDENTITY_PROVIDER" in auth["with"]["workload_identity_provider"]
+    assert "GCP_SERVICE_ACCOUNT" in auth["with"]["service_account"]
+
+    scan = next(step for step in steps if "prowler gcp" in step.get("run", ""))
+    assert "--output-modes html,csv,json,sarif" in scan["run"]
+
+    assert any("upload-artifact" in step.get("uses", "") for step in steps)
+    assert any("upload-sarif" in step.get("uses", "") for step in steps)
+
+
+def test_review_gate_ignores_both_coderabbit_interactive_control_ids():
+    workflow_path = Path(get_repo_root()) / ".github" / "workflows" / "review-gate.yml"
+    content = workflow_path.read_text(encoding="utf-8")
+
+    assert "line.includes('radioGroupId')" in content
+    assert "line.includes('checkboxId')" in content
+
+
 def test_mutation_engine_run_test():
     """ASTMutationEngine のテスト実行と殺傷判定ロジックを検証"""
     engine = ASTMutationEngine()
@@ -260,5 +404,4 @@ def test_mutation_engine_run_test():
     )
     killed = engine.run_mutation_test(mutant, "python -c 'import sys; sys.exit(1)'")
     assert killed is True
-
 
