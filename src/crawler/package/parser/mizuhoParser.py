@@ -103,8 +103,8 @@ class MizuhoParser(ParserBase):
                 return
             else:
                 logging.warning("Mizuho: Playwright bypass returned 0 links.")
-        except Exception as e:
-            logging.error(f"Mizuho: Playwright bypass failed: {e}.")
+        except Exception:
+            logging.exception("Mizuho: Playwright bypass failed.")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # tdの中の不要なボタン（周辺地図、街の情報、ローンシミュレーションなど）を除去してパースする
