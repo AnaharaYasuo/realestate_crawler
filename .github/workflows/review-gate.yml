@@ -129,6 +129,9 @@ jobs:
               });
               allReviews = reviewsRes;
               for (const r of allReviews) {
+                if (r.state === 'DISMISSED') {
+                  continue;
+                }
                 const author = r.user ? r.user.login : 'unknown';
                 uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
               }
