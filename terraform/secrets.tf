@@ -14,6 +14,45 @@ resource "google_secret_manager_secret_version" "db_password_version" {
   secret_data = random_password.db_password.result
 }
 
+# Secret for Database Monitor User Password
+resource "google_secret_manager_secret" "db_monitor_password_secret" {
+  secret_id = "realestate-db-monitor-password-${var.environment}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.enabled_services]
+}
+
+resource "google_secret_manager_secret_version" "db_monitor_password_version" {
+  secret      = google_secret_manager_secret.db_monitor_password_secret.id
+  secret_data = random_password.db_monitor_password.result
+}
+
+# Random Password for ProxySQL Admin Interface
+resource "random_password" "proxysql_admin_password" {
+  length  = 24
+  special = false
+}
+
+# Secret for ProxySQL Admin Credentials
+resource "google_secret_manager_secret" "proxysql_admin_password_secret" {
+  secret_id = "realestate-proxysql-admin-password-${var.environment}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.enabled_services]
+}
+
+resource "google_secret_manager_secret_version" "proxysql_admin_password_version" {
+  secret      = google_secret_manager_secret.proxysql_admin_password_secret.id
+  secret_data = random_password.proxysql_admin_password.result
+}
+
+
 # Secret for Slack Bot Token (Placeholder version initialized)
 resource "google_secret_manager_secret" "slack_bot_token" {
   secret_id = "realestate-slack-bot-token-${var.environment}"

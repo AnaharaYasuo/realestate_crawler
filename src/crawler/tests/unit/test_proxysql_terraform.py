@@ -158,3 +158,63 @@ def test_app_connection_pool_unrestricted():
     assert "'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', -1))" in content, \
         "App side MAX_OVERFLOW must default to -1 (unlimited overflow) to delegate connection management to ProxySQL."
 
+
+def test_proxysql_monitor_user_configured():
+    """ProxySQL の内部死活監視用 monitor ユーザーおよびパスワードが正しく構成されていることを検証"""
+    proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
+    database_tf = os.path.join(TERRAFORM_DIR, "database.tf")
+    secrets_tf = os.path.join(TERRAFORM_DIR, "secrets.tf")
+
+    with open(proxysql_tf, "r", encoding="utf-8") as f:
+        proxysql_content = f.read()
+
+    with open(database_tf, "r", encoding="utf-8") as f:
+        db_content = f.read()
+
+    with open(secrets_tf, "r", encoding="utf-8") as f:
+        secrets_content = f.read()
+
+    # 1. database.tf に monitor ユーザーとパスワードが定義されていること
+    assert 'resource "random_password" "db_monitor_password"' in db_content, \
+        "database.tf must define random_password.db_monitor_password for health checks."
+    assert 'resource "google_sql_user" "monitor_user"' in db_content, \
+        "database.tf must define google_sql_user.monitor_user for ProxySQL."
+    assert 'name     = "monitor"' in db_content or 'name = "monitor"' in db_content, \
+        "google_sql_user.monitor_user must have name='monitor'."
+
+    # 2. secrets.tf に保管されていること
+    assert 'realestate-db-monitor-password-' in secrets_content, \
+        "secrets.tf must store db_monitor_password in Secret Manager."
+
+    # 3. proxysql.tf の mysql_variables に monitor_username と monitor_password が設定されていること
+    assert 'monitor_username="monitor"' in proxysql_content or 'monitor_username = "monitor"' in proxysql_content, \
+        "proxysql.tf mysql_variables must explicitly configure monitor_username."
+    assert 'monitor_password="${random_password.db_monitor_password.result}"' in proxysql_content or \
+           'monitor_password = "${random_password.db_monitor_password.result}"' in proxysql_content, \
+        "proxysql.tf mysql_variables must configure monitor_password using the random password."
+    assert 'monitor_ping_interval' in proxysql_content, \
+        "proxysql.tf mysql_variables must tune monitor_ping_interval."
+    assert 'monitor_read_only_interval' in proxysql_content, \
+        "proxysql.tf mysql_variables must tune monitor_read_only_interval."
+
+
+def test_proxysql_admin_credentials_not_default():
+    """ProxySQL 管理認証情報がデフォルトの admin:admin ではなくセキュアなランダムパスワードであることを検証"""
+    proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
+    secrets_tf = os.path.join(TERRAFORM_DIR, "secrets.tf")
+
+    with open(proxysql_tf, "r", encoding="utf-8") as f:
+        proxysql_content = f.read()
+
+    with open(secrets_tf, "r", encoding="utf-8") as f:
+        secrets_content = f.read()
+
+    # デフォルトの静的 admin:admin が排除されていること
+    assert 'admin_credentials="admin:admin;radmin:radmin"' not in proxysql_content, \
+        "Default admin:admin;radmin:radmin credentials must not be used in proxysql.cnf."
+    assert 'random_password.proxysql_admin_password' in proxysql_content, \
+        "ProxySQL admin credentials must use dynamic random password."
+    assert 'realestate-proxysql-admin-password-' in secrets_content, \
+        "secrets.tf must store proxysql_admin_password in Secret Manager."
+
+

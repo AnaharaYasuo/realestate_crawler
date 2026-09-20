@@ -20,8 +20,10 @@ terraform/
 ├── cloud_run_job.tf           # Cloud Run Jobs (クローラーバッチ定義, リソース割当, tmpfs)
 ├── cloud_run_service.tf       # Cloud Run Service (Slack Agent 常時受付)
 ├── scheduler.tf               # Cloud Scheduler (日次定期キック)
-└── budget.tf                  # Cloud Billing 予算アラート (50%, 80%, 100%, 120%予測)
+├── budget.tf                  # Cloud Billing 予算アラート (50%, 80%, 100%, 120%予測)
+└── alerting.tf                # Cloud Monitoring & Logging 監視アラート (MySQL認証拒否, サーバエラー, コネクション枯渇)
 ```
+
 
 
 ---
@@ -63,6 +65,9 @@ terraform/
   - パラメータ: `character_set_server = utf8mb4`, `collation_server = utf8mb4_unicode_ci`, `max_connections = 1000`
   - セキュリティフラグ: `cloudsql_iam_authentication = on`, `local_infile = off`, `skip_show_database = on`
   - バックアップ設定: 有効（毎日自動バックアップ）
+- `google_sql_user.db_user`: アプリケーション接続用 MySQL ユーザー (`var.db_user`)
+- `google_sql_user.monitor_user`: ProxySQL ヘルスチェック監視専用 MySQL ユーザー (`name = "monitor"`, 最小 USAGE 権限)
+- `random_password.db_monitor_password`: 監視用ランダムパスワード (24桁、Secret Manager 格納)
 
 ### 3.3 コンピュート (`cloud_run_job.tf`, `cloud_run_service.tf`, `cloud_run_api_service.tf`)
 - `google_cloud_run_v2_job` (クローラーバッチ `crawler_pipeline_job`):
@@ -84,6 +89,8 @@ terraform/
   - OSイメージ: `debian-cloud/debian-12`
   - ネットワーク: `google_compute_subnetwork.subnet.id` (外部IPなし、プライベートIPのみ)
   - タグ: `["proxysql", "allow-health-check"]`
+  - 管理認証情報 (`admin_variables`): `random_password.proxysql_admin_password` により生成されたランダムパスワードを適用（デフォルト固定値の排除）
+  - バックエンド監視設定 (`mysql_variables`): `monitor_username = "monitor"`, `monitor_password = "${random_password.db_monitor_password.result}"`, `monitor_ping_interval = 10000`, `monitor_read_only_interval = 15000` を明示設定し、`Access denied (MY-010926)` を解消
   - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、耐用上限ギリギリ（デフォルト 50 コネクション/台 = 2台で計100）のコネクション多重化設定、ポート 6033/6032 のリスニング開始
 - `google_compute_region_instance_group_manager`:
   - リージョン配置 MIG (2ゾーン分散: `asia-northeast1-a`, `asia-northeast1-c`)
@@ -110,6 +117,19 @@ terraform/
 - `google_compute_firewall`:
   - `allow-proxysql-health-check`: GCP ヘルスチェック IP (`35.191.0.0/16`, `130.211.0.0/22`) からのポート 6032, 6033 アクセス許可
   - `allow-proxysql-internal`: VPC 内部および VPC Connector (`10.0.0.0/24`, `10.8.0.0/28`) からのポート 6033 アクセス許可
+
+### 3.8 ログ監視・アラートポリシー設計 (`alerting.tf`)
+- **ログベースメトリクス (`google_logging_metric`)**:
+  - `mysql_access_denied_metric`: フィルタ `resource.type="cloudsql_database" AND (textPayload =~ "Access denied for user" OR textPayload =~ "MY-010926")`。通常 NOTICE 扱いされる MySQL 認証拒否を数値化
+  - `mysql_error_log_metric`: フィルタ `resource.type="cloudsql_database" AND (severity >= ERROR OR textPayload =~ "\\[ERROR\\]")`。MySQL エラーログ内の致命的エラーを捕捉
+  - `mysql_too_many_connections_metric`: フィルタ `resource.type="cloudsql_database" AND (textPayload =~ "Too many connections" OR textPayload =~ "MY-010048")`。接続上限飽和を即時捕捉
+- **Cloud Monitoring アラートポリシー (`google_monitoring_alert_policy`)**:
+  - `mysql_access_denied_alert`: 重大度 `ERROR`。認証失敗カウント > 0（期間: 60秒）で即時発報
+  - `mysql_error_log_alert`: 重大度 `ERROR`。MySQL サーバエラーログ検知で発報
+  - `mysql_too_many_connections_alert`: 重大度 `CRITICAL`。接続上限到達で発報
+  - `proxysql_unhealthy_alert`: 重大度 `ERROR`。ProxySQL MIG 異常インスタンス発生時に発報
+  - 通知チャンネル: メール (`var.alert_email`) および Pub/Sub トピック (`google_pubsub_topic.budget_alert_topic`) へ集約
+
 
 ---
 

@@ -73,5 +73,12 @@ class LoggingMiddleware(CrawlerMiddleware):
         url = response_context.get('url')
         data = response_context.get('data') or response_context.get('text')
         data_preview = str(data)[:1000] if data is not None else None
-        logger.info(f"Middleware Response: {status} {url} | Body: {data_preview}")
+        log_msg = f"Middleware Response: {status} {url} | Body: {data_preview}"
+        if status and status >= 500:
+            logger.error(log_msg)
+        elif status and status >= 400:
+            logger.warning(log_msg)
+        else:
+            logger.info(log_msg)
         return response_context
+

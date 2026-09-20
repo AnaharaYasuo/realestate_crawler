@@ -91,8 +91,9 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
             model_class = apps.get_model('package', model_name)
             return model_class.objects.filter(id=eval_rec.property_id).first()
         except Exception as e:
-            logger.debug(f"Failed to load real property data for evaluation {eval_rec.id}: {e}")
+            logger.warning(f"Failed to load real property data for evaluation {eval_rec.id}: {e}")
             return None
+
 
     if prop_a is None:
         prop_a = get_real_property(eval_a)

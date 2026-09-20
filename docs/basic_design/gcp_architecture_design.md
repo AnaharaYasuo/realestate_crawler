@@ -71,9 +71,12 @@ flowchart TB
 | **オブジェクトストレージ** | Cloud Storage (GCS) | Standard クラス, リージョン: `asia-northeast1` | 物件画像、エビデンス、モデルアーティファクト保存。MinIOからの完全代替。 |
 | **コンテナレジストリ** | Artifact Registry | Docker リポジトリ (`asia-northeast1`) | クローラーDockerイメージの保存・バージョン管理。 |
 | **送信元IP固定** | Serverless VPC Access + Cloud NAT | e2-micro コネクタ (2~10台), 手動静的外部IP 1本 | クロール先ポータルからのBot検知・IPブロックを回避。 |
-| **シークレット管理** | Secret Manager | レプリケーション: 自動 | DBパスワード、Slack Bot Token、Slack App Token を安全に注入。 |
+| **シークレット管理** | Secret Manager | レプリケーション: 自動 | DBパスワード、ProxySQL監視/管理パスワード、Slack Bot Token、Slack App Token を安全に注入。 |
 | **実行権限** | IAM Service Account | クローラー専用 SA / ProxySQL専用 SA | Cloud SQL クライアント、Storage オブジェクト管理者、Secret アクセサー等を最小権限で付与。 |
 | **予算・請求アラート** | Cloud Billing Budget + Cloud Monitoring | しきい値: 50%, 80%, 100%, 120%(予測) | メール及びPub/Sub通知により、リソース暴走や過大請求を即時防止。 |
+| **ログ重大度昇格 & 監視** | Cloud Logging + Cloud Monitoring | ログベースメトリクス + アラートポリシー (Severity: ERROR / CRITICAL) | MySQL 8.0 ログ `MY-010926` (Access denied) や `[ERROR]`, `MY-010048` (Too many connections) を捕捉し重大度 ERROR として即時アラート発報。 |
+| **ヘルスチェック監視認証** | Cloud SQL User (`monitor`) + ProxySQL | 専用 `monitor` ユーザー (USAGE権限のみ) + ランダムパスワード | ProxySQL の内部死活監視 (`ping`, `read_only`) の認証を正常化し、認証拒否スパムを根絶。 |
+
 
 
 ---

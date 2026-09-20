@@ -64,7 +64,7 @@ resource "google_compute_instance_template" "proxysql_template" {
 
     admin_variables=
     {
-        admin_credentials="admin:admin;radmin:radmin"
+        admin_credentials="admin:${random_password.proxysql_admin_password.result};radmin:${random_password.proxysql_admin_password.result}"
         mysql_ifaces="0.0.0.0:6032"
         refresh_interval=2000
     }
@@ -82,6 +82,10 @@ resource "google_compute_instance_template" "proxysql_template" {
         connect_timeout_server=3000
         free_connections_pct=10
         connection_max_age_ms=1800000
+        monitor_username="monitor"
+        monitor_password="${random_password.db_monitor_password.result}"
+        monitor_ping_interval=10000
+        monitor_read_only_interval=15000
     }
 
     mysql_servers =
@@ -125,17 +129,19 @@ resource "google_compute_instance_template" "proxysql_template" {
 
   depends_on = [
     google_sql_database_instance.mysql_instance,
+    google_sql_user.monitor_user,
     google_compute_subnetwork.subnet
   ]
 }
 
+
 # 3. ProxySQL リージョンヘルスチェック (TCP: 6033)
 resource "google_compute_region_health_check" "proxysql_health_check" {
-  name               = "proxysql-health-check-${var.environment}"
-  region             = var.region
-  check_interval_sec = 10
-  timeout_sec        = 5
-  healthy_threshold  = 2
+  name                = "proxysql-health-check-${var.environment}"
+  region              = var.region
+  check_interval_sec  = 10
+  timeout_sec         = 5
+  healthy_threshold   = 2
   unhealthy_threshold = 3
 
   tcp_health_check {

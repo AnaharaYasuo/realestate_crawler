@@ -106,3 +106,18 @@ resource "google_sql_user" "db_user" {
   host     = "%"
   password = random_password.db_password.result
 }
+
+# Random Password for ProxySQL Monitor User
+resource "random_password" "db_monitor_password" {
+  length  = 24
+  special = false
+}
+
+# MySQL Monitor User for ProxySQL Health Checks
+resource "google_sql_user" "monitor_user" {
+  name     = "monitor"
+  instance = google_sql_database_instance.mysql_instance.name
+  host     = "%"
+  password = random_password.db_monitor_password.result
+}
+
