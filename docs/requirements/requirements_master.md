@@ -438,9 +438,10 @@ task stop
 - プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
 - 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
 
-#### FR-023: 未解決レビューコメントによるマージブロック強制
+#### FR-023: 未解決レビューコメントおよび未完了チェックボックスによるマージブロック強制
 - CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
-- CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。
+- PR 本文、全レビュー本文（CodeRabbit含む）、全レビューコメント、全 PR コメント内に未チェックのチェックボックス（`- [ ]`）が 1 件でも残存している場合、CI レビューゲート（`review-gate.yml`）によりマージを物理的にブロックすること。
+- CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。また、`Changes Requested` の状態、またはレビュー実行中の状態での早期マージを防止・ブロックすること。
 
 ---
 

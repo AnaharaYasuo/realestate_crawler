@@ -275,4 +275,122 @@ async def test_send_dev_report_default_fallback(monkeypatch):
         mock_send.assert_called_once_with(report_text, "dev-agent")
 
 
+@pytest.mark.asyncio
+async def test_send_dev_report_empty_env_fallback(monkeypatch):
+    """SLACK_DEV_CHANNELが空文字の場合でも 'dev-agent' にフォールバックすることをテスト"""
+    from package.utils.slack import send_dev_report
+
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "")
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "✅ 【空文字フォールバックテスト】"
+        result = await send_dev_report(report_text)
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "dev-agent")
+
+
+@pytest.mark.asyncio
+async def test_send_dev_report_explicit_channel_override(monkeypatch):
+    """channel 引数が明示された場合は環境変数より優先されることをテスト"""
+    from package.utils.slack import send_dev_report
+
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
+
+    with patch("package.utils.slack.send_slack_message", new_callable=AsyncMock) as mock_send:
+        mock_send.return_value = True
+        report_text = "✅ 【明示指定テスト】"
+        result = await send_dev_report(report_text, channel="custom-channel")
+        assert result is True
+
+        mock_send.assert_called_once_with(report_text, "custom-channel")
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_already_id():
+    """C/G/Dで始まる有効なChannel IDはそのまま返却されることをテスト"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_session = MagicMock()
+    channel_id = "C0BJWUCTRNU"
+    result = await resolve_channel_id(mock_session, channel_id, "fake-token")
+    assert result == channel_id
+    mock_session.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_lookup_success():
+    """チャンネル名が指定された場合に conversations.list から ID を解決することをテスト"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_resp = AsyncMock()
+    mock_resp.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [
+            {"id": "C0111111111", "name": "general"},
+            {"id": "C0999999999", "name": "dev-agent"},
+        ]
+    })
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_get.__aexit__ = AsyncMock()
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_get)
+
+    result = await resolve_channel_id(mock_session, "#dev-agent", "fake-token")
+    assert result == "C0999999999"
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_lookup_fallback():
+    """解決失敗時は元のチャンネル名がフォールバック返却されることをテスト"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    mock_resp = AsyncMock()
+    mock_resp.json = AsyncMock(return_value={"ok": False, "error": "channel_not_found"})
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_get.__aexit__ = AsyncMock()
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(return_value=mock_get)
+
+    result = await resolve_channel_id(mock_session, "unknown-channel", "fake-token")
+    assert result == "unknown-channel"
+
+
+@pytest.mark.asyncio
+async def test_resolve_channel_id_pagination_success():
+    """複数ページにまたがる conversations.list から2ページ目でIDを解決できることをテスト"""
+    from scripts.debug_tools.check_latest_slack import resolve_channel_id
+
+    resp_page1 = AsyncMock()
+    resp_page1.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [{"id": "C0111111111", "name": "general"}],
+        "response_metadata": {"next_cursor": "cursor_page_2"}
+    })
+    get_page1 = MagicMock()
+    get_page1.__aenter__ = AsyncMock(return_value=resp_page1)
+    get_page1.__aexit__ = AsyncMock()
+
+    resp_page2 = AsyncMock()
+    resp_page2.json = AsyncMock(return_value={
+        "ok": True,
+        "channels": [{"id": "C0222222222", "name": "dev-agent"}],
+        "response_metadata": {"next_cursor": ""}
+    })
+    get_page2 = MagicMock()
+    get_page2.__aenter__ = AsyncMock(return_value=resp_page2)
+    get_page2.__aexit__ = AsyncMock()
+
+    mock_session = MagicMock()
+    mock_session.get = MagicMock(side_effect=[get_page1, get_page2])
+
+    result = await resolve_channel_id(mock_session, "dev-agent", "fake-token")
+    assert result == "C0222222222"
+    assert mock_session.get.call_count == 2
+
 

@@ -7,25 +7,43 @@ on:
       - master
       - production
   pull_request_review:
-    types: [submitted]
+    types: [submitted, edited, dismissed]
   pull_request_review_comment:
+    types: [created, edited, deleted]
+  issue_comment:
     types: [created, edited, deleted]
 
 permissions:
   contents: read
   pull-requests: write
   issues: read
+  checks: write
+  statuses: read
 
 jobs:
   verify-conversations-resolved:
     name: Verify All Review Conversations Resolved
     runs-on: ubuntu-latest
     steps:
-      - name: Check unresolved review threads
+      - name: Check unresolved review threads, checkboxes, and review status
         uses: actions/github-script@v7
         with:
           script: |
-            const pr = context.payload.pull_request;
+            let pr = context.payload.pull_request;
+            if (!pr && context.payload.issue && context.payload.issue.pull_request) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.issue.number
+                });
+                pr = prRes.data;
+              } catch (err) {
+                core.setFailed(`Failed to fetch pull request for issue #${context.payload.issue.number}: ${err.message}`);
+                return;
+              }
+            }
+
             if (!pr) {
               core.info('No pull request found in context. Skipping.');
               return;
@@ -37,7 +55,122 @@ jobs:
               return;
             }
 
-            const query = `
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = pr.number;
+            const headSha = pr.head && pr.head.sha;
+
+            // 1. Check CodeRabbit In-Progress / Pending Status
+            const systemErrors = [];
+            let crPending = false;
+            let crPendingMsg = '';
+
+            try {
+              const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
+                owner,
+                repo,
+                ref: headSha
+              });
+              const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
+              const pendingStatus = crStatuses.find(s => s.state === 'pending');
+              if (pendingStatus) {
+                crPending = true;
+                crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
+              }
+
+              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+                owner,
+                repo,
+                ref: headSha,
+                per_page: 100
+              });
+              const crChecks = checkRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
+              const inProgressCheck = crChecks.find(c => c.status !== 'completed');
+              if (inProgressCheck) {
+                crPending = true;
+                crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
+              }
+            } catch (err) {
+              systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
+            }
+
+            // 2. Scan for Unchecked Checkboxes (- [ ])
+            function extractUnchecked(text, sourceDesc) {
+              if (!text) return [];
+              const lines = text.split(/\r?\n/);
+              const items = [];
+              for (const line of lines) {
+                const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
+                if (m) {
+                  // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers)
+                  if (line.includes('radioGroupId') || line.includes('Fix all pre-merge checks with AI')) {
+                    continue;
+                  }
+                  const content = m[2].trim();
+                  const clean = content.replace(/<!--.*?-->/g, '').trim();
+                  items.push({ source: sourceDesc, text: clean || content || '(No description)' });
+                }
+              }
+              return items;
+            }
+
+            const uncheckedList = [];
+
+            // 2a. PR description body
+            uncheckedList.push(...extractUnchecked(pr.body, 'PR 本文 (Description)'));
+
+            // 2b. Pull Request Reviews
+            let allReviews = [];
+            try {
+              const reviewsRes = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+              allReviews = reviewsRes;
+              for (const r of allReviews) {
+                if (r.state === 'DISMISSED') {
+                  continue;
+                }
+                const author = r.user ? r.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
+              }
+            } catch (err) {
+              systemErrors.push(`Failed to list PR reviews: ${err.message}`);
+            }
+
+            // 2c. Issue Comments
+            try {
+              const commentsRes = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: prNumber
+              });
+              for (const c of commentsRes) {
+                const author = c.user ? c.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
+              }
+            } catch (err) {
+              systemErrors.push(`Failed to list Issue comments: ${err.message}`);
+            }
+
+            // 2d. Review Comments (Inline)
+            try {
+              const reviewCommentsRes = await github.paginate(github.rest.pulls.listReviewComments, {
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+              for (const rc of reviewCommentsRes) {
+                const author = rc.user ? rc.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
+              }
+            } catch (err) {
+              systemErrors.push(`Failed to list Review comments: ${err.message}`);
+            }
+
+            // 3. Scan Unresolved Review Threads via GraphQL
+            const threadQuery = `
               query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $prNumber) {
@@ -53,9 +186,7 @@ jobs:
                         line
                         comments(first: 1) {
                           nodes {
-                            author {
-                              login
-                            }
+                            author { login }
                             body
                           }
                         }
@@ -70,52 +201,132 @@ jobs:
             let cursor = null;
             const allThreads = [];
 
-            while (hasNextPage) {
-              const variables = {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                prNumber: pr.number,
-                cursor: cursor
-              };
-
-              const result = await github.graphql(query, variables);
-              const connection = result.repository.pullRequest.reviewThreads;
-              allThreads.push(...connection.nodes);
-              const hasMorePages = connection.pageInfo.hasNextPage;
-              const nextCursor = connection.pageInfo.endCursor;
-              if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
-                throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+            try {
+              while (hasNextPage) {
+                const variables = { owner, repo, prNumber, cursor };
+                const result = await github.graphql(threadQuery, variables);
+                const connection = result.repository.pullRequest.reviewThreads;
+                allThreads.push(...connection.nodes);
+                const hasMorePages = connection.pageInfo.hasNextPage;
+                const nextCursor = connection.pageInfo.endCursor;
+                if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
+                  throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+                }
+                hasNextPage = hasMorePages;
+                cursor = nextCursor;
               }
-              hasNextPage = hasMorePages;
-              cursor = nextCursor;
+            } catch (err) {
+              systemErrors.push(`Failed to fetch review threads via GraphQL: ${err.message}`);
             }
 
             const unresolved = allThreads.filter(t => !t.isResolved);
 
-            if (unresolved.length === 0) {
-              console.log('✅ すべてのレビュー会話スレッドが解決済みです。マージ可能です。');
-              core.summary
-                .addHeading('✅ Review Conversations Check Passed')
-                .addRaw(`すべてのレビュー会話スレッド（走査対象: ${allThreads.length}件）が解決されています。`)
-                .write();
+            // 4. Check for CHANGES_REQUESTED in reviews
+            // Find latest review state per user
+            const latestReviewByUser = new Map();
+            for (const r of allReviews) {
+              if (r.user && r.state && r.state !== 'COMMENTED' && r.state !== 'DISMISSED') {
+                latestReviewByUser.set(r.user.login, r);
+              }
+            }
+
+            const changesRequested = [];
+            for (const [user, r] of latestReviewByUser.entries()) {
+              if (r.state === 'CHANGES_REQUESTED') {
+                changesRequested.push({ user, reviewId: r.id });
+              }
+            }
+
+            // 5. Aggregate Results & Assert
+            let hasFailure = false;
+            let summaryMd = '';
+
+            if (systemErrors.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ システムエラー (${systemErrors.length}件)\n\n`;
+              for (const err of systemErrors) {
+                summaryMd += `- ${err}\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (crPending) {
+              hasFailure = true;
+              summaryMd += `### ⛔ CodeRabbitレビュー実行中\n\n${crPendingMsg}\n\n`;
+            }
+
+            if (unresolved.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ 未解決のレビュー会話スレッド (${unresolved.length}件)\n\n`;
+              summaryMd += `PRをマージするには、CodeRabbitおよびレビュアーからのすべての指摘に対応し、会話スレッドを「**Resolve conversation**」してください。\n\n`;
+              summaryMd += `| ファイル | 行 | レビュアー | コメント抜粋 |\n`;
+              summaryMd += `| :--- | :--- | :--- | :--- |\n`;
+              for (const t of unresolved) {
+                const file = t.path || 'Unknown';
+                const line = t.line || '-';
+                const comment = t.comments.nodes[0] || {};
+                const author = comment.author ? comment.author.login : 'Unknown';
+                const snippet = (comment.body || '').replace(/[\r\n]+/g, ' ').substring(0, 80);
+                summaryMd += `| \`${file}\` | ${line} | @${author} | ${snippet}... |\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (uncheckedList.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ 未完了のチェックボックス (\`- [ ]\`) (${uncheckedList.length}件)\n\n`;
+              summaryMd += `PRをマージするには、PR本文、CodeRabbitレビュー、各種コメント内のすべてのチェックボックスにチェック（\`- [x]\`）を入れてください。\n\n`;
+              summaryMd += `| 検出元 | 項目内容 |\n`;
+              summaryMd += `| :--- | :--- |\n`;
+              for (const u of uncheckedList) {
+                summaryMd += `| ${u.source} | ${u.text} |\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (changesRequested.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ レビュアーからの変更要求 (Changes Requested) (${changesRequested.length}件)\n\n`;
+              summaryMd += `以下のレビュアーによる変更要求が残存しています。指摘に対応して承認（Approved）を得てください。\n\n`;
+              for (const cr of changesRequested) {
+                summaryMd += `- @${cr.user} (Review ID: ${cr.reviewId})\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            // Sync check run status directly to PR HEAD SHA
+            try {
+              await github.rest.checks.create({
+                owner,
+                repo,
+                name: 'Verify All Review Conversations Resolved',
+                head_sha: headSha,
+                status: 'completed',
+                conclusion: hasFailure ? 'failure' : 'success',
+                output: {
+                  title: hasFailure ? 'Review Conversations & Checkboxes Check Failed' : 'Review Conversations & Checkboxes Check Passed',
+                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス（0件）および変更要求も存在しません。マージ可能です。`
+                }
+              });
+            } catch (err) {
+              core.setFailed(`Failed to sync check run to HEAD SHA: ${err.message}`);
               return;
             }
 
-            console.error(`⛔ 未解決のレビュー会話スレッドが ${unresolved.length} 件存在します。`);
-            
-            let summaryText = `### ⛔ マージ不可: 未解決のレビューコメントが存在します (${unresolved.length}件)\n\n`;
-            summaryText += `PRをマージするには、CodeRabbitおよびレビュアーからのすべての指摘に対応し、会話スレッドを「**Resolve conversation**」してください。\n\n`;
-            summaryText += `| ファイル | 行 | レビュアー | コメント抜粋 |\n`;
-            summaryText += `| :--- | :--- | :--- | :--- |\n`;
-
-            for (const t of unresolved) {
-              const file = t.path || 'Unknown';
-              const line = t.line || '-';
-              const comment = t.comments.nodes[0] || {};
-              const author = comment.author ? comment.author.login : 'Unknown';
-              const snippet = (comment.body || '').replace(/[\r\n]+/g, ' ').substring(0, 80);
-              summaryText += `| \`${file}\` | ${line} | @${author} | ${snippet}... |\n`;
+            if (hasFailure) {
+              console.error('⛔ Review Gate Check Failed:');
+              if (systemErrors.length > 0) console.error(`- System errors: ${systemErrors.length}`);
+              if (crPending) console.error(`- CodeRabbit pending: ${crPendingMsg}`);
+              if (unresolved.length > 0) console.error(`- Unresolved threads: ${unresolved.length}`);
+              if (uncheckedList.length > 0) console.error(`- Unchecked checkboxes: ${uncheckedList.length}`);
+              if (changesRequested.length > 0) console.error(`- Changes requested: ${changesRequested.length}`);
+              await core.summary.addRaw(summaryMd).write();
+              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested.`);
+              return;
             }
 
-            await core.summary.addRaw(summaryText).write();
-            core.setFailed(`PR #${pr.number} に未解決のレビューコメントが ${unresolved.length} 件あります。会話を解決（Resolve conversation）してください。`);
+            console.log('✅ すべての会話スレッドが解決済み、すべてのチェックボックスが完了、変更要求なし。マージ可能です。');
+            core.summary
+              .addHeading('✅ Review Conversations & Checkboxes Check Passed')
+              .addRaw(`すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス（0件）および変更要求も存在しません。マージ可能です。`)
+              .write();
