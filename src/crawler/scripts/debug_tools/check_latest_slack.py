@@ -10,9 +10,9 @@ sys.path.insert(0, _crawler_dir)
 
 import aiohttp
 
-async def verify():
+async def verify(target_channel: str | None = None):
     token = os.getenv("SLACK_BOT_TOKEN")
-    channel = os.getenv("SLACK_CHANNEL_ID")
+    channel = target_channel or os.getenv("SLACK_DEV_CHANNEL") or os.getenv("SLACK_CHANNEL_ID")
     url = f"https://slack.com/api/conversations.history?channel={channel}&limit=2"
     headers = {"Authorization": f"Bearer {token}"}
     
@@ -28,4 +28,5 @@ async def verify():
                 print(f"Error: {data.get('error')}")
 
 if __name__ == "__main__":
-    asyncio.run(verify())
+    ch_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    asyncio.run(verify(ch_arg))
