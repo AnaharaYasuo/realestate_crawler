@@ -352,4 +352,39 @@ async def test_kenbiya_user_agent_rotation():
     assert any("Chrome/13" in ua for ua in recorded_uas)
 
 
+@pytest.mark.asyncio
+async def test_kenbiya_user_agent_rotation_across_calls():
+    """複数回の独立した _getContent 呼び出しにおいても User-Agent が切り替わること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    recorded_uas = []
+
+    def mock_get(url, headers=None, timeout=None):
+        recorded_uas.append(headers.get("User-Agent"))
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read = AsyncMock(return_value=b"<html></html>")
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_resp)
+        cm.__aexit__ = AsyncMock()
+        return cm
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    for _ in range(3):
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test")
+
+    assert len(recorded_uas) == 3
+    # 呼び出しを跨いでも3回すべて異なるUAが選択されること
+    assert len(set(recorded_uas)) == 3
+
+
+
 

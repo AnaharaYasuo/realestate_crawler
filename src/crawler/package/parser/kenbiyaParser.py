@@ -47,13 +47,19 @@ class KenbiyaParserBase(ParserBase):
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
     ]
+    _ua_counter = 0
+
+    @classmethod
+    def _get_next_user_agent(cls) -> str:
+        ua = cls.USER_AGENTS[cls._ua_counter % len(cls.USER_AGENTS)]
+        cls._ua_counter += 1
+        return ua
 
     def getCharset(self):
         return "utf-8"
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
-            'User-Agent': self.USER_AGENTS[0],
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
             'Sec-Fetch-Dest': 'document',
@@ -65,7 +71,7 @@ class KenbiyaParserBase(ParserBase):
         max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
         last_status = None
         for attempt in range(max_timeouts):
-            headers['User-Agent'] = self.USER_AGENTS[attempt % len(self.USER_AGENTS)]
+            headers['User-Agent'] = self._get_next_user_agent()
             try:
                 async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                     last_status = response.status
@@ -77,10 +83,11 @@ class KenbiyaParserBase(ParserBase):
                     elif response.status in (500, 502, 503, 504):
                         raise ServerBusyException(f"Property page returned HTTP status {response.status}: {url}")
                     elif response.status == 429:
-                        logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {attempt + 2}s")
+                        backoff = min(30, 2 ** (attempt + 1))
+                        logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {backoff}s")
                         if attempt == max_timeouts - 1:
                             raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
-                        await asyncio.sleep(attempt + 2)
+                        await asyncio.sleep(backoff)
                         continue
                     else:
                         raise LoadPropertyPageException(f"Failed to fetch {url} with status {response.status}")
