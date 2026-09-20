@@ -9,11 +9,15 @@ _scripts_dir = os.path.dirname(_current_dir)
 _crawler_dir = os.path.dirname(_scripts_dir)
 sys.path.insert(0, _crawler_dir)
 
+def _find_channel_id_in_list(channels: list[dict], clean_name: str) -> str | None:
+    for ch in channels:
+        if ch.get("name", "").lower() == clean_name:
+            return ch.get("id")
+    return None
+
 async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token: str) -> str:
     """チャンネル名（例: dev-agent）が指定された場合、Slack APIでConversation IDに解決する。"""
-    if not channel:
-        return channel
-    if channel.startswith(("C", "G", "D")) and len(channel) >= 9:
+    if not channel or (channel.startswith(("C", "G", "D")) and len(channel) >= 9):
         return channel
     clean_name = channel.lstrip("#").lower()
     url = "https://slack.com/api/conversations.list"
@@ -28,9 +32,9 @@ async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token
                 data = await resp.json()
                 if not data.get("ok"):
                     break
-                for ch in data.get("channels", []):
-                    if ch.get("name", "").lower() == clean_name:
-                        return ch.get("id")
+                found_id = _find_channel_id_in_list(data.get("channels", []), clean_name)
+                if found_id:
+                    return found_id
                 cursor = data.get("response_metadata", {}).get("next_cursor")
                 if not cursor:
                     break
