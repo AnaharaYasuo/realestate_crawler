@@ -285,7 +285,10 @@ class SingleUnifiedPropertyExtractor:
 
     @staticmethod
     def _extract_ground_rent(specs_dict: Any, all_text: str) -> int | None:
-        """地代（月額円）のルールベース抽出"""
+        """Return monthly ground rent in yen from specifications or listing text.
+
+        Matching specification fields take precedence over the text fallback.
+        """
         if isinstance(specs_dict, dict):
             for k, v in specs_dict.items():
                 if any(term in k for term in ["地代", "借地料"]):
@@ -298,7 +301,10 @@ class SingleUnifiedPropertyExtractor:
         return None
 
     def _rule_based_fallback(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
-        """API未設定・失敗時のルールベース高速抽出"""
+        """Build structured attributes from listing text without using the API.
+
+        The fallback includes inferred land-rights and normalized ground-rent data.
+        """
         all_text = " ".join([
             prop_data.get("title", ""),
             str(prop_data.get("specs", {})),
@@ -352,7 +358,11 @@ class SingleUnifiedPropertyExtractor:
         )
 
     def _dict_to_attributes(self, data: dict, fallback: UnifiedPropertyAttributes) -> UnifiedPropertyAttributes:
-        """JSON辞書をデータクラスにマッピング"""
+        """Map an extracted JSON mapping to attributes with selected fallbacks.
+
+        Missing rule-derived values, including land rights and ground rent, are
+        preserved from ``fallback`` where the mapping does not supply them.
+        """
         overview_dict = data.get("property_overview", {})
         bld_dict = data.get("building_master", {})
         unit_dict = data.get("unit_specs", {})

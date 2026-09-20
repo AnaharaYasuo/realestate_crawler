@@ -204,8 +204,10 @@ async def send_crawling_summary_alert(summary_message: str) -> bool:
 
 
 async def send_dev_report(report_message: str, channel: str | None = None) -> bool:
-    """
-    開発報告・診断レポート・テスト結果報告を dev-agent チャンネル（SLACK_DEV_CHANNEL、デフォルトは dev-agent）に送信します。
+    """Send a development report to the explicitly configured or default channel.
+
+    An explicit ``channel`` takes precedence over ``SLACK_DEV_CHANNEL``; blank or
+    missing values fall back to ``dev-agent``. The delivery result is returned.
     """
     target_channel = channel or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
     return await send_slack_message(report_message, target_channel)

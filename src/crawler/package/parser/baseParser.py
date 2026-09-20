@@ -198,7 +198,7 @@ class ParserBase(metaclass=ABCMeta):
         return item
 
     def _parseChidaiStr(self, response: BeautifulSoup, specs=None) -> str:
-        """地代（文字列）の抽出"""
+        """Return the first ground-rent value found in specifications or labels."""
         specs = specs or self._get_specs(response)
         # 優先キー
         for key in ["借地期間・地代（月額）", "借地期間・地代", "地代（月額）", "地代等", "地代", "借地料（月額）", "借地料", "月額地代", "土地地代"]:
@@ -214,7 +214,7 @@ class ParserBase(metaclass=ABCMeta):
         return ""
 
     def _parseChidai(self, response: BeautifulSoup, specs=None) -> int | None:
-        """地代（月額・数値円）の抽出"""
+        """Return the parsed monthly ground rent in yen, or ``None`` if absent."""
         chidai_str = self._parseChidaiStr(response, specs)
         return converter.parse_chidai(chidai_str)
 
@@ -588,6 +588,12 @@ class ParserBase(metaclass=ABCMeta):
         )
 
     def clean_parsed_item(self, item: models.Model) -> models.Model:
+        """Validate, normalize, and return a parsed model instance in place.
+
+        The cleanup logs extraction failures, enforces field-safe string and
+        numeric values, fills missing ground rent from the retained page, and
+        synchronizes equivalent status fields.
+        """
         # Issue #209: 全サイト全項目の抽出結果検証（0補完・欠損隠蔽防止エラーロギング）
         self.validate_extracted_fields(item)
 

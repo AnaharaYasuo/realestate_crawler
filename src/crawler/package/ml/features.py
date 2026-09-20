@@ -762,8 +762,10 @@ _load_all_potential_caches_once = _init_global_caches
 
 
 def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
-    """
-    共通特徴量エンジニアリング関数 (Djangoモデルオブジェクトまたは辞書に対応)
+    """Build valuation features from a Django model instance or mapping.
+
+    Reference-data caches are initialized from Django models as needed. Land-rent
+    amount features in the returned mapping are expressed in ten-thousands of yen.
     """
     
     def get_attr(obj, name, default=None):

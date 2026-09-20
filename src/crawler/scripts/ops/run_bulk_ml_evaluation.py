@@ -48,7 +48,12 @@ def get_all_property_models(skip_portals=False):
 
 
 def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, batch_size=500):
-    """単一モデルの物件群を評価（スレッドセーフ）"""
+    """Evaluate one model's pending properties and persist results in batches.
+
+    Existing predictions are skipped unless ``force`` is true, and
+    ``limit_per_model`` caps selected properties. The function stores normalized
+    ground rent and liability values and returns evaluated and skipped counts.
+    """
     close_old_connections()
     model_name = model.__name__
     company = "unknown"

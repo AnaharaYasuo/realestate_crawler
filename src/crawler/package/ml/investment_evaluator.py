@@ -185,8 +185,11 @@ def calculate_pmt(principal, annual_rate, years):
     return pmt_monthly * 12
 
 def evaluate_investment_property(property_obj, evaluation_record):
-    """
-    投資用物件の収支・融資評価を行い、PropertyEvaluation レコードを更新する。
+    """Populate and return an investment property's evaluation record.
+
+    A positive monthly land rent is deducted from NOI; leaseholds without an
+    explicit rent use the function's estimated rent. Records with an invalid or
+    abnormally low property price are returned unchanged.
     """
     price_man = float(property_obj.price) / 10000.0 if property_obj.price else 0.0
     if price_man <= 0.0:

@@ -1028,6 +1028,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 raise e
 
     async def _treatPage(self, _session, *arg):
+        """Fetch and persist one detail-page item, then run optional inline evaluation.
+
+        The method returns the parsed item, or ``None`` for an unavailable or
+        skipped listing. It also records price changes and, when inline ML is
+        enabled, persists valuation, image-analysis, and notification state.
+        """
 
         async def getItem():
             item = None

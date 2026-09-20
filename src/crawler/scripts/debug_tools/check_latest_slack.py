@@ -10,13 +10,17 @@ _crawler_dir = os.path.dirname(_scripts_dir)
 sys.path.insert(0, _crawler_dir)
 
 def _find_channel_id_in_list(channels: list[dict], clean_name: str) -> str | None:
+    """Return the ID of the case-insensitive channel-name match, if present."""
     for ch in channels:
         if ch.get("name", "").lower() == clean_name:
             return ch.get("id")
     return None
 
 async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token: str) -> str:
-    """チャンネル名（例: dev-agent）が指定された場合、Slack APIでConversation IDに解決する。"""
+    """Resolve a Slack channel name to an ID across conversation-list pages.
+
+    Existing channel IDs and names that cannot be resolved are returned unchanged.
+    """
     if not channel or (channel.startswith(("C", "G", "D")) and len(channel) >= 9):
         return channel
     clean_name = channel.lstrip("#").lower()
@@ -44,7 +48,11 @@ async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token
     return channel
 
 async def verify(target_channel: str | None = None):
-    """指定チャンネルの直近のSlackメッセージを取得して表示する。"""
+    """Print the two most recent messages from the selected Slack channel.
+
+    The channel defaults through the configured development and legacy channel
+    variables to ``dev-agent``. If no bot token is set, a diagnostic is printed.
+    """
     token = os.getenv("SLACK_BOT_TOKEN")
     channel = target_channel or os.getenv("SLACK_DEV_CHANNEL") or os.getenv("SLACK_CHANNEL_ID") or "dev-agent"
     if not token:

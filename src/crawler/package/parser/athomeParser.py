@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 class AthomeParser(ParserBase):
 
     def _get_specs(self, response):
+        """Return detail-page table specifications keyed by their labels."""
         return self._get_specs_table(response)
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -249,6 +250,12 @@ class AthomeParser(ParserBase):
                     logging.warning(f"Error expanding list_link {l_url}: {e}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        """Populate common At Home fields from a property detail page.
+
+        Raises:
+            ListingEndedException: If the page indicates that the listing ended
+                or is unavailable.
+        """
         # 0. 掲載終了・物件不在の早期検知
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
