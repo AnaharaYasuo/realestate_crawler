@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 class AthomeParser(ParserBase):
 
+    def _get_specs(self, response):
+        return self._get_specs_table(response)
+
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
         return specs.get("現況", "") or specs.get("現況状況", "")
@@ -290,6 +293,11 @@ class AthomeParser(ParserBase):
         item.chikunengetsuStr = specs.get("築年月", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
+            
+        # 土地権利および地代
+        item.tochikenri = self._parseRights(response, specs)
+        item.chidaiStr = self._parseChidaiStr(response, specs)
+        item.chidai = self._parseChidai(response, specs)
             
         return item
 

@@ -131,6 +131,14 @@ Snippets: {nuxt_extracted_snippets}
 }
 ```
 
+### 3.1 借地地代（ground_rent_monthly_yen）の相互同期＆フォールバック仕様
+- **スクレイピング ➔ AI抽出の優先順位**:
+  1. パーサーがテーブルから `chidai`（月額地代）を正常取得した場合、それを最優先（正）とする。
+  2. スクレイピングで未取得（`chidai` が NULL/0）の場合、AI抽出器が抽出した `ground_rent_monthly_yen` を `chidai` に補完・同期する。
+  3. APIキー未設定やLLM通信障害時でも、`_rule_based_fallback` の正規表現解析により `specs` やテキストから月額地代を安全にフォールバック抽出する。
+- **価値判定（負債減価）への連携**:
+  - 確定した月額地代（円）は `PropertyEvaluation.monthly_land_rent` に保存され、`land_rent_liability`（負債現在価値）として価格推定およびNOI収支評価に直結する。
+
 ---
 
 ## 4. コスト・パフォーマンス制約

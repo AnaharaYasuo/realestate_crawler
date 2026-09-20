@@ -4,6 +4,11 @@ import datetime
 from decimal import Decimal
 import unicodedata
 
+DECIMAL_NUMBER_PATTERN = r'(\d+(?:\.\d+)?)'
+YEN_AMOUNT_PATTERN = r'(\d[\d,]*)\s*円'
+MAN_AMOUNT_PATTERN = r'(\d[\d,]*(?:\.\d+)?)\s*$'
+
+
 def parse_price(price_str):
     """
     価格文字列を数値に変換する (円単位)
@@ -21,11 +26,11 @@ def parse_price(price_str):
             parts = price_work.split("億")
             oku = float(parts[0]) * 10000.0
             if len(parts) > 1 and parts[1]:
-                man_match = re.search(r'(\d+(?:\.\d+)?)', parts[1])
+                man_match = re.search(DECIMAL_NUMBER_PATTERN, parts[1])
                 if man_match:
                     man = float(man_match.group(1))
         else:
-            man_match = re.search(r'(\d+(?:\.\d+)?)', price_work)
+            man_match = re.search(DECIMAL_NUMBER_PATTERN, price_work)
             if man_match:
                 man = float(man_match.group(1))
         
@@ -148,3 +153,62 @@ def parse_rent(rent_str):
     if "万" in rent_str or "億" in rent_str:
         return parse_price(rent_str)
     return parse_yen(rent_str)
+
+
+def _extract_man_yen_part(parts: list[str]) -> int | None:
+    """万・円併記または万円の数値を抽出する内部ヘルパー"""
+    man_match = re.search(MAN_AMOUNT_PATTERN, parts[0])
+    if not man_match:
+        return None
+    man_val = int(float(man_match.group(1).replace(",", "")) * 10000)
+    if len(parts) > 1 and "円" in parts[1]:
+        yen_match = re.search(YEN_AMOUNT_PATTERN, parts[1])
+        if yen_match:
+            return man_val + int(yen_part_val(yen_match.group(1)))
+    return man_val
+
+
+def yen_part_val(s: str) -> int:
+    """カンマを除去して数値化する"""
+    return int(s.replace(",", ""))
+
+
+def _extract_chidai_amount(s: str) -> int | None:
+    """地代文字列から円単位の基本数値を抽出する内部ヘルパー"""
+    if "万" in s:
+        val = _extract_man_yen_part(s.split("万"))
+        if val is not None:
+            return val
+
+    yen_match = re.search(YEN_AMOUNT_PATTERN, s)
+    if yen_match:
+        return int(yen_match.group(1).replace(",", "").strip())
+
+    clean_num = re.sub(r'\D', '', s)
+    return int(clean_num) if clean_num else None
+
+
+def parse_chidai(chidai_str: str) -> int | None:
+    """
+    地代（借地料）文字列を月額円（int）に正規化して変換する。
+    例:
+      - "20年 20,000円" -> 20000
+      - "20,000円/月" -> 20000
+      - "月額2.5万円" -> 25000
+      - "年額120,000円" -> 10000 (月額換算)
+      - "24万円/年" -> 20000 (月額換算)
+      - "－", "なし" -> None
+    """
+    if not chidai_str:
+        return None
+    s = str(chidai_str).strip()
+    if not s or s in ["－", "-", "―", "--", "なし", "無", "未定", "相談"]:
+        return None
+
+    amount = _extract_chidai_amount(s)
+    if amount is None or amount <= 0:
+        return None
+
+    if re.search(r'年額|年間|/年|年あたり', s):
+        return round(amount / 12)
+    return amount

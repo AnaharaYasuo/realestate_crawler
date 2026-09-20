@@ -44,6 +44,7 @@
 - 面積: `senyuMensekiStr` (例: "81.65㎡") + `senyuMenseki` (例: 81.65)
 - 管理費: `kanrihiStr` + `kanrihi`
 - 修繕積立金: `syuzenTsumitateStr` + `syuzenTsumitate`
+- 地代: `chidaiStr` (例: "20年 20,000円", "20,000円/月") + `chidai` (数値・月額円: 20000)
 - 徒歩分数: `railwayWalkMinute{N}Str` + `railwayWalkMinute{N}`
 
 ### Transportation Fields Pattern
@@ -81,6 +82,19 @@ railwayWalkMinute1 = 5
    - 経過日数に基づく指数減衰重みを学習時に適用し、最新の相場感（価格水準）を優先しつつ過去データの豊富な属性関係（立地・間取り・築年数の係数）を最大限活用。
 3. **欠損値防御 (Defensive Imputation & Missing Indicators)**:
    - 過去データに存在しない新設属性（構造詳細・設備等）の NULL / 空文字を安全にフォールバックし、欠損インジケータとしてモデルに学習させる。
+
+### Land Rent Liability Architecture (借地地代負債評価アーキテクチャ)
+
+借地権物件において、地代（月額・年額）を負債（キャッシュ流出・資産価値低減要因）として正確に評価へ反映するアーキテクチャ。
+
+1. **データ取得の二重防衛（Scraping & AI Extraction）**:
+   - パーサー基底（`ParserBase`）により全サイトのHTMLテーブル/スペックから地代表記（`chidaiStr`）および月額円（`chidai`）を自動抽出。
+   - スクレイピングで拾えない特殊構造ページでも、1物件1AIリクエスト（`SingleUnifiedPropertyExtractor`）により `ground_rent_monthly_yen` を抽出して補完。
+2. **投資用物件における収支反映**:
+   - `investment_evaluator.py`: 実額年間地代（`chidai * 12`）をネット営業純利益（NOI）から直接控除し、収益還元価値およびキャッシュフローを正しく低減。
+3. **実需物件（戸建・マンション・土地）における負債現在価値反映**:
+   - 地代の資本還元現在価値（負債価値）= `(月額地代 × 12) ÷ 0.05`（還元利回り5%仮定）。
+   - ML特徴量（`monthly_land_rent`, `land_rent_liability`）および価格推定ロジックにおいて、所有権相当のベース価格から負債として控除・ディスカウント。
 
 ### Computed and Derived Fields
 

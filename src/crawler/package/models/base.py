@@ -30,6 +30,8 @@ class PropertyBaseModel(models.Model):
     price = models.BigIntegerField(verbose_name="価格（数値）")
     address = models.TextField(verbose_name="住所")
     traffic = models.TextField(blank=True, null=True, verbose_name="交通")
+    chidaiStr = models.TextField(blank=True, default="", verbose_name="地代（文字列）")
+    chidai = models.IntegerField(null=True, blank=True, verbose_name="月額地代（数値・円）")
 
 
 class TransportationMixin(models.Model):
