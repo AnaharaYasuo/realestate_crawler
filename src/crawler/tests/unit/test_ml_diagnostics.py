@@ -177,3 +177,52 @@ class TestAIDiagnostics:
         assert "AI乖離分析" in insight
         assert "借地権" in insight
 
+
+class TestDiagnosticsSlackNotification:
+    """日次精度診断のSlack通知先がdev-agentチャンネルであることを検証するテスト"""
+
+    def test_diagnostics_notify_targets_dev_agent(self, monkeypatch):
+        """run_diagnostics(notify=True) 実行時に send_dev_report が呼ばれ、通知先が SLACK_DEV_CHANNEL であること"""
+        from unittest.mock import patch, MagicMock
+        from scripts.ops.run_daily_prediction_diagnostics import run_diagnostics
+
+        monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
+
+        mock_eval = MagicMock()
+        mock_eval.company = "mitsui"
+        mock_eval.property_type = "mansion"
+        mock_eval.property_id = 1
+        mock_eval.property_url = "http://example.com/prop1"
+        mock_eval.first_stage_predicted_price = 4500.0
+
+        mock_prop = MagicMock()
+        mock_prop.price = 40000000.0
+        mock_prop.biko = ""
+        mock_prop.propertyName = "テストマンション"
+        mock_prop.address = "東京都港区"
+        mock_prop.pageUrl = "http://example.com/prop1"
+
+        mock_qs = MagicMock()
+        mock_qs.count.return_value = 1
+        mock_qs.order_by.return_value = [mock_eval]
+
+        mock_prop_model = MagicMock()
+        mock_prop_model.__name__ = "Mitsuimansion"
+        mock_prop_model.objects.filter.return_value.first.return_value = mock_prop
+
+        mock_app_config = MagicMock()
+        mock_app_config.get_models.return_value = [mock_prop_model]
+
+        with patch("scripts.ops.run_daily_prediction_diagnostics.PropertyEvaluation.objects.filter", return_value=mock_qs), \
+             patch("scripts.ops.run_daily_prediction_diagnostics.apps.get_app_config", return_value=mock_app_config), \
+             patch("scripts.ops.run_daily_prediction_diagnostics.send_dev_report") as mock_send_dev:
+
+            report = run_diagnostics(limit=10, dry_run=False, notify=True)
+            assert report is not None
+
+            mock_send_dev.assert_called_once()
+            called_channel = mock_send_dev.call_args[1].get("channel")
+            assert called_channel == "C0BKBHWD26T"
+
+
+
