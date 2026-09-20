@@ -386,5 +386,72 @@ async def test_kenbiya_user_agent_rotation_across_calls():
     assert len(set(recorded_uas)) == 3
 
 
+@pytest.mark.asyncio
+async def test_kenbiya_get_content_404_listing_ended():
+    """404 / 410 応答時に ListingEndedException が送出されること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.parser.baseParser import ListingEndedException
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    mock_resp = MagicMock()
+    mock_resp.status = 404
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with pytest.raises(ListingEndedException):
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test_404")
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_get_content_500_server_busy():
+    """500 / 503 応答時に ServerBusyException が送出されること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.parser.baseParser import ServerBusyException
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    mock_resp = MagicMock()
+    mock_resp.status = 503
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with pytest.raises(ServerBusyException):
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test_503")
+
+
+@pytest.mark.asyncio
+async def test_kenbiya_get_content_generic_error():
+    """403 などの非対応エラーコード時に LoadPropertyPageException が送出されること"""
+    from package.parser.kenbiyaParser import KenbiyaParserBase
+    from package.parser.baseParser import LoadPropertyPageException
+    from unittest.mock import AsyncMock, MagicMock
+
+    class ConcreteKenbiyaParser(KenbiyaParserBase):
+        def createEntity(self):
+            return None
+
+    parser = ConcreteKenbiyaParser()
+    mock_resp = MagicMock()
+    mock_resp.status = 403
+    mock_session = MagicMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_session.get.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with pytest.raises(LoadPropertyPageException):
+        await parser._getContent(mock_session, "https://www.kenbiya.com/test_403")
+
+
+
 
 
