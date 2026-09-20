@@ -239,23 +239,24 @@ def _run_git_cmd(args: List[str]) -> List[str]:
 
 
 def get_git_diff_files() -> List[str]:
-    """Get modified/added Python files comparing HEAD against origin/master and uncommitted changes."""
+    """Get modified/added Python files comparing HEAD against origin/master and staged changes."""
     files = set()
-    # 1. Diff against origin/master if on branch
-    for line in _run_git_cmd(["git", "diff", "--name-only", "origin/master...HEAD"]):
+    # 1. Primary: Diff of current branch against origin/master (matches SonarCloud PR scope)
+    for line in _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"]):
         if line.strip().endswith(".py"):
             files.add(line.strip())
 
-    # 2. Working tree diff against HEAD
-    for line in _run_git_cmd(["git", "diff", "--name-only", "HEAD"]):
-        if line.strip().endswith(".py"):
-            files.add(line.strip())
+    # 2. If branch diff is empty, check staged files
+    if not files:
+        for line in _run_git_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"]):
+            if line.strip().endswith(".py"):
+                files.add(line.strip())
 
-    # 3. Untracked files (newly created)
-    for line in _run_git_cmd(["git", "status", "--porcelain"]):
-        parts = line.strip().split(maxsplit=1)
-        if len(parts) == 2 and parts[0] in ("??", "A") and parts[1].strip().endswith(".py"):
-            files.add(parts[1].strip())
+    # 3. If still empty, check working tree diff ignoring whitespace/CRLF
+    if not files:
+        for line in _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol"]):
+            if line.strip().endswith(".py"):
+                files.add(line.strip())
 
     return sorted(list(files))
 
