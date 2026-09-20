@@ -50,6 +50,14 @@ class ServerDownException(Exception):
 
 
 class ParserBase(metaclass=ABCMeta):
+    property_type = ''
+
+    EXPECTED_SPEC_FIELDS_BY_TYPE = {
+        'mansion': ['price', 'address', 'senyuMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
+        'kodate': ['price', 'address', 'tochiMenseki', 'tatemonoMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
+        'tochi': ['price', 'address', 'tochiMenseki'],
+        'investment': ['price', 'address', 'grossYield', 'annualRent', 'kouzou'],
+    }
 
     def __init__(self):
         self._specs_cache = {}
@@ -371,7 +379,112 @@ class ParserBase(metaclass=ABCMeta):
                     return nxt
         return None
 
+    def validate_extracted_fields(self, item: models.Model) -> list[dict]:
+        """
+        全サイト全項目のスクレイピング抽出結果検証 (Issue #209)
+        重要・必須スペック項目が未抽出(None/空文字)または不正な0値に補完されていないかを検証し、
+        問題がある場合は [PARSER_EXTRACTION_ERROR] をエラーログとして出力する。
+        """
+        pt = (getattr(self, 'property_type', '') or '').lower()
+        if 'mansion' in pt:
+            prop_type = 'mansion'
+        elif 'kodate' in pt and 'invest' not in pt:
+            prop_type = 'kodate'
+        elif 'tochi' in pt:
+            prop_type = 'tochi'
+        elif 'invest' in pt or 'apartment' in pt:
+            prop_type = 'investment'
+        else:
+            mname = item.__class__.__name__.lower()
+            if 'mansion' in mname or hasattr(item, 'senyuMenseki'):
+                prop_type = 'mansion'
+            elif 'invest' in mname or 'apartment' in mname or hasattr(item, 'grossYield'):
+                prop_type = 'investment'
+            elif 'kodate' in mname or hasattr(item, 'tatemonoMenseki'):
+                prop_type = 'kodate'
+            elif 'tochi' in mname or hasattr(item, 'tochiMenseki'):
+                prop_type = 'tochi'
+            else:
+                prop_type = 'general'
+
+        expected_fields = self.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, ['price', 'address'])
+        errors = []
+        url = getattr(item, 'pageUrl', '') or 'unknown'
+        model_name = item.__class__.__name__
+        company = getattr(self, 'company', '') or getattr(self, '__class__', type(self)).__name__
+
+        for field in expected_fields:
+            if not hasattr(item, field):
+                continue
+            val = getattr(item, field, None)
+            is_invalid = False
+            reason = ""
+
+            if field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
+                if val is None:
+                    is_invalid = True
+                    reason = "value is None"
+                elif isinstance(val, (int, float, Decimal)) and val <= 0:
+                    is_invalid = True
+                    reason = f"invalid non-positive value ({val})"
+                elif isinstance(val, str):
+                    s = val.strip().lower()
+                    if s in ['', 'none', 'null']:
+                        is_invalid = True
+                        reason = "empty string"
+                    else:
+                        try:
+                            if float(s) <= 0:
+                                is_invalid = True
+                                reason = f"invalid non-positive value string ({val})"
+                        except ValueError:
+                            pass
+            elif field == 'annualRent':
+                rent_val = val
+                m_rent = getattr(item, 'monthlyRent', None)
+                has_rent = False
+                if rent_val is not None:
+                    try:
+                        if float(rent_val) > 0:
+                            has_rent = True
+                    except (ValueError, TypeError):
+                        pass
+                if not has_rent and m_rent is not None:
+                    try:
+                        if float(m_rent) > 0:
+                            has_rent = True
+                    except (ValueError, TypeError):
+                        pass
+                if not has_rent:
+                    is_invalid = True
+                    reason = f"annualRent and monthlyRent are both missing or zero (annualRent={rent_val}, monthlyRent={m_rent})"
+            else:
+                if val is None:
+                    is_invalid = True
+                    reason = "value is None"
+                elif isinstance(val, str) and val.strip().lower() in ['', 'none', 'null']:
+                    is_invalid = True
+                    reason = "empty string"
+
+            if is_invalid:
+                errors.append({
+                    "field": field,
+                    "value": val,
+                    "reason": reason,
+                    "url": url,
+                    "model": model_name,
+                })
+                logging.error(
+                    f"[PARSER_EXTRACTION_ERROR] Failed to extract expected field '{field}' from URL: {url} "
+                    f"(Company: {company}, Model: {model_name}, Value: {val})"
+                )
+
+        return errors
+
     def clean_parsed_item(self, item: models.Model) -> models.Model:
+        # Issue #209: 全サイト全項目の抽出結果検証（0補完・欠損隠蔽防止エラーロギング）
+        self.validate_extracted_fields(item)
+
         for field in item._meta.fields:
             val = getattr(item, field.name, None)
             if isinstance(field, (models.CharField, models.TextField)):
@@ -591,6 +704,8 @@ class MansionParserBase(ParserBase):
     """
     マンション用基底パーサークラス
     """
+    property_type = 'mansion'
+
     @abstractmethod
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -689,6 +804,8 @@ class KodateParserBase(ParserBase):
     """
     戸建て用基底パーサークラス
     """
+    property_type = 'kodate'
+
     @abstractmethod
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -779,6 +896,8 @@ class TochiParserBase(ParserBase):
     """
     土地用基底パーサークラス
     """
+    property_type = 'tochi'
+
     @abstractmethod
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -862,6 +981,8 @@ class InvestmentParserBase(ParserBase):
     """
     投資用物件用基底パーサークラス
     """
+    property_type = 'investment'
+
     @abstractmethod
     def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)

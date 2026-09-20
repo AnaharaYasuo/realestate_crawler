@@ -12,10 +12,17 @@ tasks:
       - docker compose down
 
   init:
-    desc: Build and start the application with DB setup
+    desc: Build and start the application with DB setup and git hooks
     cmds:
+      - git config core.hooksPath .githooks
       - docker compose up -d --build
       - docker compose exec -T app python src/crawler/db_setup.py
+
+  setup-hooks:
+    desc: Configure local git hooks to enforce GitHub Issue checks before pushing
+    cmds:
+      - git config core.hooksPath .githooks
+
 
   logs:
     desc: Tail the application logs

@@ -817,5 +817,39 @@ sequenceDiagram
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
 
+---
+
+## 15. パーサー項目抽出検証・欠損隠蔽防止アーキテクチャ (Parser Extraction Validation & Concealment Prevention Architecture)
+
+クローリング時、セレクター指定ミスやHTML構造の変化によって項目が取得できなかった場合、`clean_parsed_item` による 0 や空文字でのフォールバック補完によって欠損が隠蔽されてしまう問題を防止し、全サイト全項目に対して正しく値が抽出できたかを自動検証して明確なエラーログを出力します。
+
+```mermaid
+flowchart TD
+    A["生HTML取得 (Soup)"] --> B["各社パーサー詳細パース (_parsePropertyDetailPage)"]
+    B --> C["抽出検証 (validate_extracted_fields)"]
+    C --> D{"必須・重要項目の抽出状態判定"}
+    D -- "致命的欠損 (price / address)" --> E["LoadPropertyPageException 送出<br/>エラーHTML保存 ＆ アラート発報"]
+    D -- "重要スペック欠損 (0/None/空文字)" --> F["logging.error 出力<br/>[PARSER_EXTRACTION_ERROR]"]
+    D -- "任意項目欠損" --> G["logging.warning 出力<br/>[PARSER_EXTRACTION_WARN]"]
+    D -- "正常抽出" --> H["次ステップへ"]
+    F --> I["データサニタイズ (clean_parsed_item)"]
+    G --> I
+    H --> I
+    I --> J["1物件1AIリクエスト (未取得項目の自動レスキュー補完)"]
+    J --> K["DB永続化"]
+```
+
+### 15.1 物件種別別 期待フィールドマッピング
+| 物件種別 | 必須項目 (Fatal: 欠損時例外) | 重要スペック項目 (Error: 欠損・0補完時エラーログ) | 任意項目 (Warn) |
+|---|---|---|---|
+| **マンション (Mansion)** | `price`, `address` | `senyuMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `kaisu`, `propertyName`, `traffic` | `kanrihi`, `syuzenTsumitate`, `soukosu`, `balconyMenseki` |
+| **戸建 (Kodate)** | `price`, `address` | `tochiMenseki`, `tatemonoMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `chidai` |
+| **土地 (Tochi)** | `price`, `address` | `tochiMenseki`, `tochikenri`, `chimoku`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `maguchi`, `roadWidth` |
+| **投資用 (Investment)** | `price`, `address` | `annualRent` (または `monthlyRent`), `grossYield`, `kouzou`, `propertyName`, `traffic` | `chikunengetsuStr`, `soukosu`, `tochikenri` |
+
+### 15.2 エラーログフォーマット
+```text
+[PARSER_EXTRACTION_ERROR] Failed to extract expected field '{field}' from URL: {url} (Company: {company}, Model: {model_name}, Value: {raw_value})
+```
 
 
