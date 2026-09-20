@@ -107,6 +107,12 @@ def generate_mock_estat_data():
 
 
 def safe_path(path: str) -> str:
+    """Return the canonical path when it is within an allowed local directory.
+
+    Raises:
+        ValueError: If the path is outside both the working directory and the
+            repository source tree.
+    """
     resolved = os.path.realpath(path)
     base_dir = os.path.realpath(os.getcwd())
     if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
@@ -117,6 +123,12 @@ def safe_path(path: str) -> str:
 
 
 def sync_municipalities(csv_path=None):
+    """Load municipal potentials from e-Stat or CSV and upsert them into Django.
+
+    Raises:
+        ValueError: If a CSV fallback path resolves outside the allowed
+            directories.
+    """
     if not csv_path:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))

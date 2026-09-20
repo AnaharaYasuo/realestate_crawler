@@ -43,6 +43,13 @@ class DependabotPrInspector:
             return []
 
     def evaluate_pr_status(self, pr_data: Dict[str, Any]) -> Tuple[PRStatus, str]:
+        """Classify a Dependabot PR from its mergeability and check-rollup state.
+
+        Known non-blocking Snyk and code-scanning/SARIF failures are ignored.
+
+        Returns:
+            tuple: The resulting status and a human-readable reason.
+        """
         mergeable = pr_data.get("mergeable", "UNKNOWN")
         if mergeable == "CONFLICTING":
             return PRStatus.NEED_REBASE, "PR has merge conflicts with base branch"

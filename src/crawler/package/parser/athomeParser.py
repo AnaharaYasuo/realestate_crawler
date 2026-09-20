@@ -48,6 +48,7 @@ class AthomeParser(ParserBase):
         return "utf-8"
 
     async def _humanMouseMove(self, page, start_x, start_y, end_x, end_y):
+        """Move a Playwright mouse along a randomized, delayed cubic Bezier path."""
         prng = secrets.SystemRandom()
         
         # 3次ベジエ曲線の制御点をランダムに生成

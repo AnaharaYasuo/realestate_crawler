@@ -53,7 +53,11 @@ function getDynamicIntervalMs(postCount) {
   return 60000;
 }
 
-// 100% 確実に途中ログ ＆ 完了報告を追記連投する絶対信頼エンジン
+/**
+ * Run the configured crawler tests for a Slack event and post progress and
+ * completion messages to its thread. Duplicate events and agent responses are
+ * ignored.
+ */
 async function processInstruction(say, client, event) {
   const eventId = event.event_ts || event.ts;
 

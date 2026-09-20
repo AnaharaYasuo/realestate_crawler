@@ -562,6 +562,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return self._loop
 
     def _generateConnector(self, _loop):
+        """Create a connection-limited HTTP connector with default TLS validation."""
         # SSL Context with secure defaults
         ctx = ssl.create_default_context()
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)

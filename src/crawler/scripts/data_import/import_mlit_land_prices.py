@@ -54,6 +54,12 @@ def generate_sample_land_price_csv(filepath):
 
 
 def safe_path(path: str) -> str:
+    """Return the canonical path when it is within an allowed local directory.
+
+    Raises:
+        ValueError: If the path is outside both the working directory and the
+            repository source tree.
+    """
     resolved = os.path.realpath(path)
     base_dir = os.path.realpath(os.getcwd())
     if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
@@ -64,8 +70,14 @@ def safe_path(path: str) -> str:
 
 
 def import_land_prices(csv_path):
-    """
-    地価公示CSVを読み込み、平均地価テーブルに同期（洗い替え）する。
+    """Upsert land-price potentials from an allowed local CSV file.
+
+    Returns:
+        bool: ``True`` after processing an existing file, or ``False`` when
+        the file does not exist.
+
+    Raises:
+        ValueError: If ``csv_path`` resolves outside the allowed directories.
     """
     clean_csv = safe_path(csv_path)
     if not os.path.exists(clean_csv):
