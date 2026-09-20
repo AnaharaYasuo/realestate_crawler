@@ -974,11 +974,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         # Update parser dynamically based on current URL
         try:
             from package.utils.url_router import UrlRouter
-            resolved = UrlRouter.resolve(_url)
-            if resolved and resolved.parser_class:
-                self.parser = resolved.parser_class()
-            else:
-                self.parser = self._generateParser()
+            self.parser = UrlRouter.create_parser(_url) or self._generateParser()
         except Exception:
             self.parser = self._generateParser()
         _loop = self._getActiveEventLoop()

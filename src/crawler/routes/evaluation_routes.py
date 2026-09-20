@@ -923,13 +923,15 @@ async def _execute_predict_by_url(
         # 物件テーブルへの Upsert (正規化URLで保存)
         clean_url = UrlMatcher.normalize(url)
         try:
-            model_fields = [f.name for f in model_cls._meta.fields if f.name not in ('id', 'created_at', 'updated_at', 'inputDate')]
+            target_model_cls = target_item.__class__
+            property_type = PropertyTypeDetector.detect_from_object(target_item)
+            model_fields = [f.name for f in target_model_cls._meta.fields if f.name not in ('id', 'created_at', 'updated_at', 'inputDate')]
             defaults_dict = {}
             for f in model_fields:
                 val = getattr(target_item, f, None)
                 if val is not None:
                     defaults_dict[f] = val
-            saved_item, _ = model_cls.objects.update_or_create(pageUrl=clean_url, defaults=defaults_dict)
+            saved_item, _ = target_model_cls.objects.update_or_create(pageUrl=clean_url, defaults=defaults_dict)
             target_item = saved_item
         except Exception as e:
             logging.warning(f"Failed to upsert property item to DB for {url}: {e}")

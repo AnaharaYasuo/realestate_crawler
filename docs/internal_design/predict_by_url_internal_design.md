@@ -96,7 +96,30 @@ URL_ROUTES = [
 ]
 ```
 
+### 3.1 動的パーサー生成 (`UrlRouter.create_parser`)
+詳細ページ到着時のHTML解析（`PropertyTypeDetector.detect`）によって判明した物件種別に基づき、対応するパーサーインスタンスを安全に生成して切り替える。
+
+```python
+@classmethod
+def create_parser(
+    cls,
+    url: str,
+    title: Optional[str] = None,
+    html_text: Optional[str] = None,
+    specs: Optional[Dict[str, Any]] = None,
+    property_type: Optional[str] = None
+) -> Optional[Any]:
+    route = cls.resolve(url=url, title=title, html_text=html_text, specs=specs, property_type=property_type)
+    if not route:
+        return None
+    import importlib
+    parser_mod = importlib.import_module(route["parser_module"])
+    parser_cls = getattr(parser_mod, route["parser_cls"])
+    return parser_cls()
+```
+
 ---
+
 
 ## 4. Singleflight（リクエスト合流制御）設計
 
