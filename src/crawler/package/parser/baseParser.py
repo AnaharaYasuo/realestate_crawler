@@ -565,7 +565,8 @@ class ParserBase(metaclass=ABCMeta):
                     else:
                         setattr(item, field.name, "")
                 else:
-                    setattr(item, field.name, val_str)
+                    val_cleaned = re.sub(r'\s+', ' ', val_str)
+                    setattr(item, field.name, val_cleaned)
 
         # 数値フィールドの数値検証・NOT NULL制約ガード・オーバーフロー防止
         for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen']:
