@@ -58,20 +58,28 @@ do
         exit 1
     fi
 
-    # 3. Check if the issue exists on GitHub using gh CLI if available
-    if command -v gh >/dev/null 2>&1; then
-        echo "🔍 Issue #$issue_num の存在を検証中..."
-        if ! gh issue view "$issue_num" >/dev/null 2>&1; then
-            echo ""
-            echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] Issue #$issue_num は GitHub 上に存在しません。"
-            echo "GitHub Issues で該当の Issue を作成してからプッシュしてください。"
-            echo "================================================================================"
-            echo ""
-            exit 1
-        fi
-        echo "✅ Issue #$issue_num の存在を確認しました。"
+    # 3. Check if the issue exists on GitHub using gh CLI
+    if ! command -v gh >/dev/null 2>&1; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] 'gh' (GitHub CLI) がインストールされていないか、PATHに存在しません。"
+        echo "Issue存在確認をバイパスすることは許可されていません。'gh' CLI を導入してください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
     fi
+
+    echo "🔍 Issue #$issue_num の存在を検証中..."
+    if ! gh issue view "$issue_num" >/dev/null 2>&1; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] Issue #$issue_num は GitHub 上に存在しません。"
+        echo "GitHub Issues で該当の Issue を作成してからプッシュしてください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+    echo "✅ Issue #$issue_num の存在を確認しました。"
 done
 
 exit 0

@@ -527,7 +527,7 @@ class ParserBase(metaclass=ABCMeta):
 
         # 物件単位でまとめて1件の構造化エラーログを出力 (重複防止ガード付き)
         if errors and not getattr(item, '_extraction_error_logged', False):
-            setattr(item, '_extraction_error_logged', True)
+            item._extraction_error_logged = True
             selectors = getattr(self, 'selectors', {}) or {}
             log_payload = {
                 "event": "PARSER_EXTRACTION_ERROR",
@@ -564,9 +564,8 @@ class ParserBase(metaclass=ABCMeta):
                         setattr(item, field.name, None)
                     else:
                         setattr(item, field.name, "")
-                    continue
-                val_cleaned = re.sub(r'\s+', ' ', val_str)
-                setattr(item, field.name, val_cleaned)
+                else:
+                    setattr(item, field.name, val_str)
 
         # 数値フィールドの数値検証・NOT NULL制約ガード・オーバーフロー防止
         for int_field_name in ['price', 'annualRent', 'monthlyRent', 'soukosu', 'chikunen']:
@@ -619,8 +618,10 @@ class ParserBase(metaclass=ABCMeta):
 
     def validate_required_fields(self, item: models.Model):
         errors = []
-        if hasattr(item, 'price') and item.price is None:
-            errors.append("price is None")
+        if hasattr(item, 'price'):
+            p_val = getattr(item, 'price', None)
+            if p_val is None or (isinstance(p_val, (int, float, Decimal)) and p_val <= 0):
+                errors.append(f"price is invalid or non-positive ({p_val})")
         if hasattr(item, 'address') and not getattr(item, 'address', ''):
             errors.append("address is empty")
 
