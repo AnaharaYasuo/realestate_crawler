@@ -4,6 +4,10 @@ import datetime
 from decimal import Decimal
 import unicodedata
 
+DECIMAL_NUMBER_PATTERN = r'(\d+(?:\.\d+)?)'
+YEN_AMOUNT_PATTERN = r'(\d[\d,]*)\s*円'
+
+
 def parse_price(price_str):
     """
     価格文字列を数値に変換する (円単位)
@@ -21,11 +25,11 @@ def parse_price(price_str):
             parts = price_work.split("億")
             oku = float(parts[0]) * 10000.0
             if len(parts) > 1 and parts[1]:
-                man_match = re.search(r'(\d+(?:\.\d+)?)', parts[1])
+                man_match = re.search(DECIMAL_NUMBER_PATTERN, parts[1])
                 if man_match:
                     man = float(man_match.group(1))
         else:
-            man_match = re.search(r'(\d+(?:\.\d+)?)', price_work)
+            man_match = re.search(DECIMAL_NUMBER_PATTERN, price_work)
             if man_match:
                 man = float(man_match.group(1))
         
@@ -150,37 +154,37 @@ def parse_rent(rent_str):
     return parse_yen(rent_str)
 
 
+def _extract_man_yen_part(parts: list[str]) -> int | None:
+    """万・円併記または万円の数値を抽出する内部ヘルパー"""
+    man_match = re.search(DECIMAL_NUMBER_PATTERN, parts[0])
+    if not man_match:
+        return None
+    man_val = int(float(man_match.group(1)) * 10000)
+    if len(parts) > 1 and "円" in parts[1]:
+        yen_match = re.search(YEN_AMOUNT_PATTERN, parts[1])
+        if yen_match:
+            return man_val + int(yen_part_val(yen_match.group(1)))
+    return man_val
+
+
+def yen_part_val(s: str) -> int:
+    """カンマを除去して数値化する"""
+    return int(s.replace(",", ""))
+
+
 def _extract_chidai_amount(s: str) -> int | None:
     """地代文字列から円単位の基本数値を抽出する内部ヘルパー"""
     if "万" in s:
-        parts = s.split("万")
-        man_match = re.search(r'(\d+(?:\.\d+)?)', parts[0])
-        if man_match:
-            try:
-                man_val = int(float(man_match.group(1)) * 10000)
-                if len(parts) > 1 and "円" in parts[1]:
-                    yen_part = re.search(r'(\d[\d,]*)\s*円', parts[1])
-                    if yen_part:
-                        return man_val + int(yen_part.group(1).replace(",", ""))
-                return man_val
-            except (ValueError, TypeError):
-                pass
+        val = _extract_man_yen_part(s.split("万"))
+        if val is not None:
+            return val
 
-    yen_match = re.search(r'(\d[\d,]*)\s*円', s)
+    yen_match = re.search(YEN_AMOUNT_PATTERN, s)
     if yen_match:
-        try:
-            return int(yen_match.group(1).replace(",", "").strip())
-        except (ValueError, TypeError):
-            pass
+        return int(yen_match.group(1).replace(",", "").strip())
 
     clean_num = re.sub(r'\D', '', s)
-    if clean_num:
-        try:
-            return int(clean_num)
-        except (ValueError, TypeError):
-            pass
-
-    return None
+    return int(clean_num) if clean_num else None
 
 
 def parse_chidai(chidai_str: str) -> int | None:
