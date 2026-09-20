@@ -312,10 +312,15 @@
 
 #### FR-007-VAL: 全サイト全項目抽出検証・0補完隠蔽防止エラーロギング (Extraction Field Validation & Zero-Coercion Concealment Prevention)
 - **暗黙0補完の隠蔽排除**: `clean_parsed_item` による未取得数値の 0 や未取得文字列の空文字への自動補完を行う前に、各パーサーが意図通り全項目を抽出できたかの完全性検証（`validate_extracted_fields`）を全物件で実行すること。
-- **欠損・セレクター不整合の即時検知**: セレクター指定ミスやHTML要素欠落によって、本来取得されるべき重要スペック項目（面積、間取り、築年月、構造、権利、利回り等）が `None`, 空文字, または不正な `0` となっている場合、単に隠蔽・握りつぶさず、URL・会社・物件種別・欠落フィールド名を含む明示的な `[PARSER_EXTRACTION_ERROR]` ログ（`logging.error`）を出力すること。
+- **1物件1構造化エラーログ集約原則 (Single Structured Log Per Property)**:
+  - 1つの物件で複数の項目不備（欠損・不正0値）が検出された場合でも、項目ごとにログを乱発せず、**物件単位でまとめて1件の構造化ログ（JSONペイロード付き `[PARSER_EXTRACTION_ERROR]`）**を出力すること。
+  - **調査・デバッグ用コンテキストの保持**:
+    - ログペイロードには、物件URL (`url`)、物件名 (`propertyName`)、会社名 (`company`)、モデル名 (`model`)、物件種別 (`property_type`) を含めること。
+    - 不備項目一覧 (`failed_fields`)、不備詳細 (`details`: フィールド名、抽出された生値、検出理由、該当フィールドのセレクタ情報) を含めること。
+    - パーサーに設定されている全セレクタ情報 (`selectors`) を含め、後続のセレクタ修正・自律修復（Auto-Heal）に即座に活用できるようにすること。
 - **項目重要度別ハンドリング**:
   - **致命的必須項目 (`price`, `address`)**: 欠損時は `LoadPropertyPageException` を送出して処理を中断し、エラーHTML保存およびアラート発報。
-  - **重要スペック項目 (`menseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `grossYield` 等)**: `[PARSER_EXTRACTION_ERROR]` ログを記録し、後続のAIフォールバック補完へ連携。
+  - **重要スペック項目 (`menseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `grossYield` 等)**: `[PARSER_EXTRACTION_ERROR]` 構造化ログを記録し、後続のAIフォールバック補完へ連携。
   - **任意・付加項目 (`kanrihi`, `syuzenTsumitate`, `kaisu`, `setsudou` 等)**: `[PARSER_EXTRACTION_WARN]` を記録。
 
 ### 2.3 テスト・品質保証機能

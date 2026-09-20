@@ -118,7 +118,9 @@ def _parseSenyuMenseki(self, response):
   - **投資用**: `price`, `address`, `grossYield`, `annualRent`, `kouzou`
 - **検知条件**:
   - 値が `None`、空文字 `""`、または本来正数であるべき項目（面積・価格・賃料・利回り等）での `0`（`Decimal('0.0')` 含む）。
-- **エラーロギング**:
-  - 未抽出・不正0値を検知した場合、`logging.error("[PARSER_EXTRACTION_ERROR] Failed to extract expected field ...")` を出力し、0補完による欠損隠蔽を防止します。
+- **エラーロギング（1物件1集約・構造化ログ原則）**:
+  - 複数項目の不備が検出された場合でもログは物件単位で1件に集約。
+  - URL、物件名、会社名、モデル名、種別、不備件数、不備詳細（項目名、生値、判定理由、個別セレクタ）、および全セレクタ辞書（`self.selectors`）を含めた構造化JSONペイロード形式で `[PARSER_EXTRACTION_ERROR]` を記録し、0補完による欠損隠蔽を防止して調査・修復を迅速化します。
+
 
 

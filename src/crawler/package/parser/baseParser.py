@@ -1,6 +1,7 @@
 import chardet
 import aiohttp
 from bs4 import BeautifulSoup
+import json
 import logging
 import re
 
@@ -58,6 +59,56 @@ class ParserBase(metaclass=ABCMeta):
         'tochi': ['price', 'address', 'tochiMenseki'],
         'investment': ['price', 'address', 'grossYield', 'annualRent', 'kouzou'],
     }
+
+    OPTIONAL_OR_METADATA_FIELDS = {
+        'id', 'pageUrl', 'propertyName', 'priceStr', 'traffic', 'transport1',
+        'inputDate', 'inputDateTime', 'updateDateTime',
+        'transfer1', 'railway1', 'station1', 'railwayWalkMinute1Str', 'railwayWalkMinute1', 'busStation1', 'busWalkMinute1Str', 'busWalkMinute1',
+        'transfer2', 'railway2', 'station2', 'railwayWalkMinute2Str', 'railwayWalkMinute2', 'busStation2', 'busWalkMinute2Str', 'busWalkMinute2',
+        'transfer3', 'railway3', 'station3', 'railwayWalkMinute3Str', 'railwayWalkMinute3', 'busStation3', 'busWalkMinute3Str', 'busWalkMinute3',
+        'transfer4', 'railway4', 'station4', 'railwayWalkMinute4Str', 'railwayWalkMinute4', 'busStation4', 'busWalkMinute4Str', 'busWalkMinute4',
+        'transfer5', 'railway5', 'station5', 'railwayWalkMinute5Str', 'railwayWalkMinute5', 'busStation5', 'busWalkMinute5Str', 'busWalkMinute5',
+        'railwayCount', 'busUse1', 'busUse2', 'busUse3', 'busUse4', 'busUse5',
+        'senyuMensekiStr', 'chikunengetsu', 'kanrihiStr', 'kanrihi', 'syuzenTsumitateStr', 'syuzenTsumitate',
+        'balconyMensekiStr', 'balconyMenseki', 'kaisu', 'kaisuStr', 'soukosu', 'soukosuStr',
+        'saikou', 'kanriKeitai', 'kanriKaisya', 'tyusyajo',
+        'tochiMensekiStr', 'tatemonoMensekiStr', 'chikunen', 'genkyo', 'currentStatus', 'tochikenri',
+        'hikiwatashi', 'biko', 'setsudou', 'chimoku', 'youtoChiiki', 'kenpei', 'kenpeiStr', 'youseki', 'yousekiStr',
+        'maguchi', 'maguchiStr', 'okuyuki', 'okuyukiStr', 'roadWidth', 'roadWidthStr', 'roadDirection', 'roadType', 'roadStructure',
+        'monthlyRent', 'propertyType', 'notes', 'rawSpecs', 'chidai', 'chidaiStr', 'douroMuki',
+        'address1', 'address2', 'address3', 'addressKyoto', 'bikeokiba', 'boukaChiiki', 'buildingCondition', 'bunjoKaisya',
+        'chiikiChiku', 'chimokuChisei', 'chisei', 'cityPlanning', 'deliveryDate', 'direction', 'douro', 'douroHaba', 'douroKubun',
+        'facilities', 'floor', 'floorStr', 'floorType_chijo', 'floorType_chika', 'floorType_kai', 'floorType_kouzou',
+        'isSoldout', 'kadobeya', 'kaisuKouzou', 'kakuninBango', 'kanriKeitaiKaisya', 'kanrihi_p_heibei', 'kenchikuJoken',
+        'kenpeiYousekiStr', 'kokudoHou', 'kuiki', 'kyutaishin', 'manager', 'neighborhood', 'nextUpdateAt', 'nextUpdateDate',
+        'otherArea', 'otherFees', 'privateRoadBurden', 'privateRoadFee', 'roofBarukoniMenseki', 'saikenchiku',
+        'saikouKadobeya', 'saikouMuki', 'saikouMukiStr', 'saikouSaiteki', 'saikouSaitekiStr', 'schoolDistrict',
+        'sekouKaisya', 'senyouNiwaMenseki', 'setback', 'setsumen', 'shidoMenseki', 'shidoMensekiStr', 'shuzenTsumitate',
+        'sonotaChiiki', 'sonotaHiyouStr', 'startRoad', 'syuzenTsumitate_p_heibei', 'tatemonoKaisu', 'torihiki',
+        'totalFloor', 'totalFloorStr', 'transactionType', 'updateDate', 'updatedAt', 'urbanPlanning'
+    }
+
+    @classmethod
+    def get_classified_fields(cls, prop_type: str = None) -> set:
+        """検証対象(Fatal/Expected)および任意・メタ項目として分類済みの全フィールド集合"""
+        classified = set(cls.OPTIONAL_OR_METADATA_FIELDS)
+        if prop_type:
+            classified.update(cls.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, []))
+        else:
+            for fields in cls.EXPECTED_SPEC_FIELDS_BY_TYPE.values():
+                classified.update(fields)
+        return classified
+
+    def _get_field_selector(self, selectors: dict, field: str) -> str:
+        if not selectors:
+            return ""
+        if field in selectors:
+            return str(selectors[field])
+        s_name = re.sub(r'(?<!^)(?=[A-Z])', '_', field).lower()
+        for candidate in [s_name, f"{s_name}_key", f"{s_name}_selector", f"{field}_key", f"{field}_selector"]:
+            if candidate in selectors:
+                return str(selectors[candidate])
+        return ""
 
     def __init__(self):
         self._specs_cache = {}
@@ -469,15 +520,30 @@ class ParserBase(metaclass=ABCMeta):
             if is_invalid:
                 errors.append({
                     "field": field,
-                    "value": val,
+                    "value": str(val) if isinstance(val, Decimal) else val,
                     "reason": reason,
-                    "url": url,
-                    "model": model_name,
+                    "selector": self._get_field_selector(getattr(self, 'selectors', {}) or {}, field),
                 })
-                logging.error(
-                    f"[PARSER_EXTRACTION_ERROR] Failed to extract expected field '{field}' from URL: {url} "
-                    f"(Company: {company}, Model: {model_name}, Value: {val})"
-                )
+
+        # 物件単位でまとめて1件の構造化エラーログを出力 (重複防止ガード付き)
+        if errors and not getattr(item, '_extraction_error_logged', False):
+            setattr(item, '_extraction_error_logged', True)
+            selectors = getattr(self, 'selectors', {}) or {}
+            log_payload = {
+                "event": "PARSER_EXTRACTION_ERROR",
+                "url": url,
+                "propertyName": getattr(item, "propertyName", "") or "",
+                "company": company,
+                "model": model_name,
+                "property_type": prop_type,
+                "failed_count": len(errors),
+                "failed_fields": [e["field"] for e in errors],
+                "details": errors,
+                "selectors": selectors,
+            }
+            logging.error(
+                f"[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json.dumps(log_payload, ensure_ascii=False, default=str)}"
+            )
 
         return errors
 

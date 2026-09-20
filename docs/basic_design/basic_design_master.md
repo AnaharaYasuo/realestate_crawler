@@ -890,9 +890,44 @@ flowchart TD
 | **土地 (Tochi)** | `price`, `address` | `tochiMenseki`, `tochikenri`, `chimoku`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `maguchi`, `roadWidth` |
 | **投資用 (Investment)** | `price`, `address` | `annualRent` (または `monthlyRent`), `grossYield`, `kouzou`, `propertyName`, `traffic` | `chikunengetsuStr`, `soukosu`, `tochikenri` |
 
-### 16.2 エラーログフォーマット
+### 16.2 1物件1集約・構造化エラーログフォーマット (Single Structured Error Log Schema)
+1物件内で複数の項目不備が検出された場合でも、ログは物件単位で1件に集約して出力します。調査・自動修復に活用できるよう、URL、セレクタ情報、不備詳細をすべて含めた構造化JSONペイロード形式で記録します。
 ```text
-[PARSER_EXTRACTION_ERROR] Failed to extract expected field '{field}' from URL: {url} (Company: {company}, Model: {model_name}, Value: {raw_value})
+[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json_payload}
 ```
+
+**JSON ペイロードスキーマ:**
+```json
+{
+  "event": "PARSER_EXTRACTION_ERROR",
+  "url": "https://www.example.com/property/12345",
+  "propertyName": "サンプル物件名",
+  "company": "athome",
+  "model": "AthomeKodate",
+  "property_type": "kodate",
+  "failed_count": 2,
+  "failed_fields": ["tochiMenseki", "tatemonoMenseki"],
+  "details": [
+    {
+      "field": "tochiMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tochi-area, #land_area"
+    },
+    {
+      "field": "tatemonoMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tatemono-area"
+    }
+  ],
+  "selectors": {
+    "tochiMenseki": ".tochi-area, #land_area",
+    "tatemonoMenseki": ".tatemono-area",
+    "price": ".price"
+  }
+}
+```
+
 
 
