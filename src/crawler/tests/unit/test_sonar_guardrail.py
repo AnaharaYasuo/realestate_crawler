@@ -150,7 +150,16 @@ re.fullmatch(r"(x+)+", s)
 re.split(r"(y+)+", s)
 '''
     issues = detect_regex_redos_risks(code, filename="dummy.py")
+def test_detect_regex_mixed_wildcards():
+    code = '''
+import re
+re.search(r"foo.*bar.+baz", s)
+re.search(r"foo.+bar.*baz", s)
+'''
+    issues = detect_regex_redos_risks(code, filename="dummy.py")
     assert len(issues) == 2
+    for issue in issues:
+        assert "Multiple unanchored greedy wildcards" in issue["message"]
 
 
 def test_scan_source_code_clean():

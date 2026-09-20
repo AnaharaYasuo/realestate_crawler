@@ -163,8 +163,8 @@ def _check_pattern_risk(regex_str: str) -> Optional[str]:
     if re.search(r"\([^()]{1,50}[+*]\)[+*]", regex_str):
         return "Nested quantifier e.g. (a+)+ or (x*)* causing exponential backtracking"
 
-    # 2. Multiple unanchored greedy dot or plus wildcards
-    if regex_str.count(".*") >= 2 or regex_str.count(".+") >= 2:
+    # 2. Multiple unanchored greedy dot or plus wildcards (including mixed .* and .+)
+    if regex_str.count(".*") + regex_str.count(".+") >= 2:
         return "Multiple unanchored greedy wildcards causing catastrophic backtracking"
 
     # 3. Greedy dot with repetition sub-pattern
@@ -292,34 +292,44 @@ def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> Li
     return scan_source_code(content, filename=filepath, max_complexity=max_complexity)
 
 
-def _run_git_cmd(args: List[str]) -> List[str]:
-    """Execute git command and return list of output lines."""
+def _run_git_cmd(args: List[str]) -> Tuple[bool, List[str], str]:
+    """Execute git command and return (success, stdout_lines, stderr)."""
     try:
         res = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-        return res.stdout.splitlines() if res.returncode == 0 else []
-    except Exception:
-        return []
+        return (res.returncode == 0, res.stdout.splitlines() if res.returncode == 0 else [], res.stderr.strip())
+    except Exception as e:
+        return (False, [], str(e))
 
 
 def get_git_diff_files() -> List[str]:
-    """Get modified/added Python files comparing HEAD against origin/master and staged changes."""
+    """Get modified/added Python files by combining branch diff, staged, and working tree changes."""
     files = set()
-    # 1. Primary: Diff of current branch against origin/master (matches SonarCloud PR scope)
-    for line in _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"]):
+
+    # 1. Primary: Diff of current branch against origin/master
+    success, lines, stderr = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"])
+    if not success and stderr:
+        # Fallback to local master if origin/master ref is unavailable
+        success_m, lines_m, _ = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "master...HEAD"])
+        if success_m:
+            lines = lines_m
+        else:
+            print(f"Warning: Git diff command failed: {stderr}", file=sys.stderr)
+
+    for line in lines:
         if line.strip().endswith(".py"):
             files.add(line.strip())
 
-    # 2. If branch diff is empty, check staged files
-    if not files:
-        for line in _run_git_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"]):
-            if line.strip().endswith(".py"):
-                files.add(line.strip())
+    # 2. Always include staged changes
+    _, staged_lines, _ = _run_git_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"])
+    for line in staged_lines:
+        if line.strip().endswith(".py"):
+            files.add(line.strip())
 
-    # 3. If still empty, check working tree diff ignoring whitespace/CRLF
-    if not files:
-        for line in _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol"]):
-            if line.strip().endswith(".py"):
-                files.add(line.strip())
+    # 3. Always include working tree changes
+    _, wt_lines, _ = _run_git_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol"])
+    for line in wt_lines:
+        if line.strip().endswith(".py"):
+            files.add(line.strip())
 
     return sorted(files)
 
