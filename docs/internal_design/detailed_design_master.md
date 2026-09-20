@@ -332,11 +332,26 @@ graph TD
   - `LoggingMiddleware.process_request`: メソッド・URLに加えてリクエストペイロード（URL, 引数パラメータ）を `INFO` レベルで出力。
   - `LoggingMiddleware.process_response`: ステータス・URLに加えてレスポンスデータプレビューを `INFO` レベルで出力。
 
-### 6.23 SonarCloud事前検証ローカルガードレール内部設計原則 (Local Sonar Guardrail Internals)
+### 6.23 ユニット完全性検証ミューテーションテスト機構原則
+- **Level 1 (ドメイン・データ故意破損注入)**:
+  - 対象: 全94モデルおよび各種別パーサー（マンション・戸建・土地・投資）
+  - 破損パターン: 必須・重要スペック項目（`price`, `address`, `senyuMenseki`, `tochiMenseki`, `tatemonoMenseki`, `madori`, `kouzou`, `grossYield`, `annualRent` 等）に対し、`None`（欠損）、`0 / Decimal(0)`（不正数値）、`""`（空文字）、境界値外データの注入。
+  - アサーション: `validate_extracted_fields` により100%捕捉され、構造化JSONログ (`[PARSER_EXTRACTION_ERROR]`) が出力されることを保証。
+  - 未分類項目防止: `ParserBase.get_classified_fields()` と全モデルフィールドの差分が0件であることを動的照合。
+- **Level 2 (コード構文木AST変異エンジン)**:
+  - クラス: `package.testing.mutation_engine.ASTMutationEngine`
+  - 変異規則: 比較演算子反転（`==` ↔ `!=`, `<` ↔ `>=`, `>` ↔ `<=`, `in` ↔ `not in`）、論理演算反転（`and` ↔ `or`）、戻り値破壊（`return True` ↔ `return False`, `return obj` ↔ `return None`）。
+  - サンドボックス実行: 元ソースをバックアップし、一時的に変異コードを適用 ➔ 該当ユニットテストを実行 ➔ テスト失敗時「KILLED（殺傷成功）」、テスト成功時「SURVIVED（生存：盲点）」として記録 ➔ 即時元ファイルへ復元。
+- **運用スクリプト (`src/crawler/scripts/run_mutation_testing.py`)**:
+  - 引数: `--mode [all|data|code]`, `--threshold [85]`, `--target [module/file]`, `--report [path]`
+  - 出力: 変異体総数、殺傷数、生存数、キル率（Mutation Score）、および生存変異体のソース行・内容。
+  - Taskfile連携: `task test:mutation`, `task test:mutation-data`, `task test:mutation-code`。
+
+### 6.24 SonarCloud事前検証ローカルガードレール内部設計原則 (Local Sonar Guardrail Internals)
 - **高速AST静的解析エンジン (`check_local_sonar.py`)**:
   - Python標準モジュール `ast` を利用し、外部依存なしで実行（1ファイル平均 10〜30ms）。
   - **S3776 認知的複雑度 (Cognitive Complexity) 算定アルゴリズム**:
-    - `If`, `For`, `While`, `ExceptHandler`, `With` を検知時にベーススコア +1、さらにカレントネスト深度（`nesting_level`）を加算。
+    - `If`, `For`, `While`, `ExceptHandler` を検知時にベーススコア +1、さらにカレントネスト深度（`nesting_level`）を加算。
     - ブール演算子（`BoolOp`: `and`, `or`）の出現ごとに +1。
     - 早期リターン（`Return`, `Raise`, `Break`, `Continue`）はネストを浅く保つ設計を推奨するため直接の加算は行わない。
     - 関数・メソッド単位でスコアを累積し、閾値（デフォルト15）を超過した場合は関数名、開始行、超過スコア、および寄与した制御構文を行番号付きで報告。
@@ -365,6 +380,6 @@ graph TD
 ---
 
 **最終更新**: 2026年9月20日  
-**バージョン**: 2.4 (SonarCloud事前検証ローカルガードレール内部設計原則追記)
+**バージョン**: 2.5 (ミューテーションテスト機構原則およびSonarCloudローカルガードレール内部設計原則追記)
 
 

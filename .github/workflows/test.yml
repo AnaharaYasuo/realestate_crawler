@@ -39,17 +39,22 @@ jobs:
         include:
           - group: unit
             name: Unit Tests
-            path: src/crawler/tests/unit/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/unit/
           - group: integration
             name: Integration Tests
-            path: src/crawler/tests/integration/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/
           - group: ml-pipeline
             name: ML & Pipeline Tests
-            path: src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py
+          - group: mutation
+            name: PR Mutation Tests
+            command: docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --pr-mode --threshold=80
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
@@ -72,8 +77,8 @@ jobs:
           docker compose exec -T app python src/crawler/manage.py migrate
 
       - name: Run Tests (${{ matrix.name }})
-        run: |
-          docker compose exec -T app pytest -n auto ${{ matrix.path }}
+        run: ${{ matrix.command }}
+
 
       - name: Stop containers
         if: always()

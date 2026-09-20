@@ -819,7 +819,188 @@ sequenceDiagram
 
 ---
 
-## 15. SonarCloud事前検証ローカルガードレール設計 (Local Sonar Guardrail & Pre-Push Guard)
+## 15. CodeRabbit 自動コードレビュー ＆ 未解決レビューコメント解決マージゲートアーキテクチャ (CodeRabbit Review & Conversation Resolution Gate)
+
+PR作成・更新時に CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。
+
+```mermaid
+flowchart TD
+    A[Pull Request 作成 / コミットPush] --> B[CodeRabbit 自動レビュー起動<br/>(.coderabbit.yaml / profile: chill)]
+    A --> C[Review Conversation Gate CI起動<br/>(.github/workflows/review-gate.yml)]
+    
+    B --> D{改善指摘・懸念点あり?}
+    D -- YES --> E[インラインレビューコメント投稿<br/>PRステータス: Changes Requested]
+    D -- NO --> F[PRステータス: Approved]
+    
+    E --> G[開発者がコード修正 & コメント返答]
+    G --> H[コメントスレッドの解決<br/>(Resolve conversation)]
+    
+    C --> I[GitHub GraphQL API で未解決スレッド照会]
+    I --> J{未解決の会話スレッド存在?}
+    J -- YES --> K[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
+    J -- NO --> L[CI Check: SUCCESS]
+    
+    H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
+    M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]
+    M -- 全スレッド解決済み & CI ALL PASS --> O[master / production へのマージ許可]
+```
+
+### 15.1 二重マージブロック機構 (Dual Merge Blocking Mechanism)
+1. **第1防壁: GitHub ネイティブ ブランチ保護 (`required_conversation_resolution: true`)**
+   - `master` および `production` ブランチの保護ルールとして有効化。
+   - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
+2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
+   - GitHub Actions 上で PR の会話スレッドを走査。
+   - 未解決のスレッドが存在する場合、CI ジョブ「Review Conversation Gate」が FAILED となり、ステータスチェック単位でもブロックされる。
+   - 解決が必要なコメントの所在（ファイル名・行番号・コメント抜粋）が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
+
+### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
+- **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
+- **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
+- **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
+- **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）、`markdownlint`（ドキュメント検証）を同時走査。
+
+---
+
+## 16. パーサー項目抽出検証・欠損隠蔽防止アーキテクチャ (Parser Extraction Validation & Concealment Prevention Architecture)
+
+クローリング時、セレクター指定ミスやHTML構造の変化によって項目が取得できなかった場合、`clean_parsed_item` による 0 や空文字でのフォールバック補完によって欠損が隠蔽されてしまう問題を防止し、全サイト全項目に対して正しく値が抽出できたかを自動検証して明確なエラーログを出力します。
+
+```mermaid
+flowchart TD
+    A["生HTML取得 (Soup)"] --> B["各社パーサー詳細パース (_parsePropertyDetailPage)"]
+    B --> C["抽出検証 (validate_extracted_fields)"]
+    C --> D{"必須・重要項目の抽出状態判定"}
+    D -- "致命的欠損 (price / address)" --> E["LoadPropertyPageException 送出<br/>エラーHTML保存 ＆ アラート発報"]
+    D -- "重要スペック欠損 (0/None/空文字)" --> F["logging.error 出力<br/>[PARSER_EXTRACTION_ERROR]"]
+    D -- "任意項目欠損" --> G["logging.warning 出力<br/>[PARSER_EXTRACTION_WARN]"]
+    D -- "正常抽出" --> H["次ステップへ"]
+    F --> I["データサニタイズ (clean_parsed_item)"]
+    G --> I
+    H --> I
+    I --> J["1物件1AIリクエスト (未取得項目の自動レスキュー補完)"]
+    J --> K["DB永続化"]
+```
+
+### 16.1 物件種別別 期待フィールドマッピング
+| 物件種別 | 必須項目 (Fatal: 欠損時例外) | 重要スペック項目 (Error: 欠損・0補完時エラーログ) | 任意項目 (Warn) |
+|---|---|---|---|
+| **マンション (Mansion)** | `price`, `address` | `senyuMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `kaisu`, `propertyName`, `traffic` | `kanrihi`, `syuzenTsumitate`, `soukosu`, `balconyMenseki` |
+| **戸建 (Kodate)** | `price`, `address` | `tochiMenseki`, `tatemonoMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `chidai` |
+| **土地 (Tochi)** | `price`, `address` | `tochiMenseki`, `tochikenri`, `chimoku`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `maguchi`, `roadWidth` |
+| **投資用 (Investment)** | `price`, `address` | `annualRent` (または `monthlyRent`), `grossYield`, `kouzou`, `propertyName`, `traffic` | `chikunengetsuStr`, `soukosu`, `tochikenri` |
+
+### 16.2 1物件1集約・構造化エラーログフォーマット (Single Structured Error Log Schema)
+1物件内で複数の項目不備が検出された場合でも、ログは物件単位で1件に集約して出力します。調査・自動修復に活用できるよう、URL、セレクタ情報、不備詳細をすべて含めた構造化JSONペイロード形式で記録します。
+```text
+[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json_payload}
+```
+
+**JSON ペイロードスキーマ:**
+```json
+{
+  "event": "PARSER_EXTRACTION_ERROR",
+  "url": "https://www.example.com/property/12345",
+  "propertyName": "サンプル物件名",
+  "company": "athome",
+  "model": "AthomeKodate",
+  "property_type": "kodate",
+  "failed_count": 2,
+  "failed_fields": ["tochiMenseki", "tatemonoMenseki"],
+  "details": [
+    {
+      "field": "tochiMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tochi-area, #land_area"
+    },
+    {
+      "field": "tatemonoMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tatemono-area"
+    }
+  ],
+  "selectors": {
+    "tochiMenseki": ".tochi-area, #land_area",
+    "tatemonoMenseki": ".tatemono-area",
+    "price": ".price"
+  }
+}
+```
+
+---
+
+## 17. ユニット完全性検証ミューテーションテスト機構設計 (Mutation Testing Architecture)
+
+### 17.1 2層ミューテーション構造
+```mermaid
+flowchart TD
+    subgraph L1["Level 1: ドメイン・データ破損注入 (Data Mutation)"]
+        D1["94モデル・全フィールドスキーマ"] --> D2["故意破損注入 (None/0/空文字/境界値)"]
+        D2 --> D3["パーサー・バリデーション層 (validate_extracted_fields)"]
+        D3 --> D4["100% 破損検知・構造化エラーログ出力 (Kill Rate: 100%)"]
+    end
+
+    subgraph L2["Level 2: コード構文木AST変異 (Code Mutation)"]
+        C1["コアユニット (baseParser, UrlRouter, detector, MLモジュール)"] --> C2["AST変異生成 (演算子反転 / 戻り値破壊 / 条件式否定)"]
+        C2 --> C3["ユニットテスト実行 (pytest)"]
+        C3 --> C4{"テスト結果判定"}
+        C4 -->|FAIL| C5["KILLED (殺傷成功: テスト有効)"]
+        C4 -->|PASS| C6["SURVIVED (生存: テスト盲点・不備)"]
+    end
+
+    subgraph OPS["運用・品質ゲート層"]
+        O1["run_mutation_testing.py / task test:mutation"] --> L1
+        O1 --> L2
+        L1 --> O2["総合Mutation Report (JSON/Console)"]
+        L2 --> O2
+        O2 --> O3{"Mutation Score >= 閾値?"}
+        O3 -->|Yes| O4["CI / 回帰テスト PASS"]
+        O3 -->|No| O5["エラー終了・アラート発報"]
+    end
+```
+
+### 17.2 変異生成ルール（AST Mutation Operators）
+- **比較演算子反転 (`MutateCompareOp`)**:
+  - `==` ↔ `!=`
+  - `<` ↔ `>=`
+  - `>` ↔ `<=`
+  - `in` ↔ `not in`
+  - `is` ↔ `is not`
+- **論理演算子反転 (`MutateBoolOp`)**:
+  - `and` ↔ `or`
+- **戻り値破壊 (`MutateReturn`)**:
+  - `return True` ↔ `return False`
+  - `return obj` ↔ `return None`
+  - `return 0` ↔ `return 1`
+- **条件式反転 (`MutateUnaryOp`)**:
+  - `not x` ↔ `x`
+
+### 17.3 運用コマンドとメトリクス
+```bash
+# 両方のミューテーションテストを一括実行
+task test:mutation
+
+# データ故意破損注入テストのみ実行
+task test:mutation-data
+
+# コードAST変異テストのみ実行
+task test:mutation-code
+
+# CLIスクリプト直接実行（閾値指定）
+python src/crawler/scripts/run_mutation_testing.py --mode=all --threshold=85
+```
+
+- **Mutation Score (キル率)**:
+  $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \times 100\%$$
+- **品質ゲート基準**:
+  - Level 1 (Data Mutation): **100%** (1件の取りこぼしも許容しない)
+  - Level 2 (Code Mutation): **85%以上** (コアユニットにおいて未検証ロジックを排除)
+
+---
+
+## 18. SonarCloud事前検証ローカルガードレール設計 (Local Sonar Guardrail & Pre-Push Guard)
 
 CIでのSonarCloudチェック（`python:S3776` 認知的複雑度超過、`python:S8786` 正規表現バックトラッキング・ReDoS、カバレッジ不足）による失敗と手戻りを完全撲滅するための多層防御アーキテクチャ。
 
@@ -845,7 +1026,7 @@ flowchart TD
     Hook -->|違反ゼロ時のみPush許可| GHA
 ```
 
-### 15.1 検証対象ルールと判定基準
+### 18.1 検証対象ルールと判定基準
 1. **`python:S3776` (Cognitive Complexity <= 15)**:
    - Python標準の `ast` モジュールを用いて関数ごとの認知的複雑度を算定。
    - 分岐（`if`, `elif`）、ループ（`for`, `while`）、例外（`except`）、ブール演算（`and`, `or`）、およびネスト深度に応じた加重ペナルティを合計。
@@ -855,6 +1036,5 @@ flowchart TD
    - バックトラッキング爆発を引き起こす危険パターン（ネストした量指定子 `(a+)+`、貪欲マッチの連打 `.*.*`、境界のない曖昧キャプチャ等）を静的パターンマッチで検出。
 3. **差分高速解析 (`--diff`)**:
    - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルのみを抽出し、0.5秒以内で検査完了。全件走査（`--all`）もサポート。
-
 
 

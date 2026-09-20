@@ -310,6 +310,19 @@
 - **Tochi**: `tochiMenseki`, `kenpei`, `youseki`
 - **Investment**: `landArea`, `buildingArea`
 
+#### FR-007-VAL: 全サイト全項目抽出検証・0補完隠蔽防止エラーロギング (Extraction Field Validation & Zero-Coercion Concealment Prevention)
+- **暗黙0補完の隠蔽排除**: `clean_parsed_item` による未取得数値の 0 や未取得文字列の空文字への自動補完を行う前に、各パーサーが意図通り全項目を抽出できたかの完全性検証（`validate_extracted_fields`）を全物件で実行すること。
+- **1物件1構造化エラーログ集約原則 (Single Structured Log Per Property)**:
+  - 1つの物件で複数の項目不備（欠損・不正0値）が検出された場合でも、項目ごとにログを乱発せず、**物件単位でまとめて1件の構造化ログ（JSONペイロード付き `[PARSER_EXTRACTION_ERROR]`）**を出力すること。
+  - **調査・デバッグ用コンテキストの保持**:
+    - ログペイロードには、物件URL (`url`)、物件名 (`propertyName`)、会社名 (`company`)、モデル名 (`model`)、物件種別 (`property_type`) を含めること。
+    - 不備項目一覧 (`failed_fields`)、不備詳細 (`details`: フィールド名、抽出された生値、検出理由、該当フィールドのセレクタ情報) を含めること。
+    - パーサーに設定されている全セレクタ情報 (`selectors`) を含め、後続のセレクタ修正・自律修復（Auto-Heal）に即座に活用できるようにすること。
+- **項目重要度別ハンドリング**:
+  - **致命的必須項目 (`price`, `address`)**: 欠損時は `LoadPropertyPageException` を送出して処理を中断し、エラーHTML保存およびアラート発報。
+  - **重要スペック項目 (`menseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `grossYield` 等)**: `[PARSER_EXTRACTION_ERROR]` 構造化ログを記録し、後続のAIフォールバック補完へ連携。
+  - **任意・付加項目 (`kanrihi`, `syuzenTsumitate`, `kaisu`, `setsudou` 等)**: `[PARSER_EXTRACTION_WARN]` を記録。
+
 ### 2.3 テスト・品質保証機能
 
 #### FR-008: ライブサイト到達・動的パース検証統合テスト
@@ -317,6 +330,13 @@
 - 単なる必須項目（物件名・価格・住所等）だけでなく、そのサイト/モデルで定義されている全取得対象フィールド（価格・住所・面積・間取り・構造・築年・交通・土地面積・建蔽率・容積率・用途地域等）において、適切な値が漏れなく取得できていることを全件網羅検証すること
 - `pytest` による自動テストスイートの一部として常時実行可能であること
 - オフライン環境用に `@pytest.mark.live` によるマーカー制御を提供すること
+
+#### FR-017: ユニット完全性検証ミューテーションテスト機能 (Unit Integrity Mutation Testing)
+- システムは、パーサーやロジックユニット、およびユニットテストの完全性を変異テスト（ミューテーションテスト）によって継続的に検証・保証すること。
+- **Level 1 (Data Mutation / ドメインデータ故意破損注入)**: 全94モデル・全パーサーユニットに対し、必須・重要スペック項目への故意破損（None、0値、空文字、型不整合、境界値超過）を変異体として動的注入し、パーサー・バリデーション層（`validate_extracted_fields`）が変異を100%検知（Kill Rate = 100%）すること。全モデルの全フィールドが検証対象または任意・メタ項目に100%網羅分類されていること。
+- **Level 2 (Code Mutation / コードAST変異テスト)**: コアロジック（基底パーサー、ルーター、種別判定、算出モジュール等）のコード構文木（AST）に対して変異（比較・論理演算子反転、戻り値破壊、定数変異）を動的に注入し、ユニットテストを実行して変異体を殺傷（Killed）できるか検証し、キル率（Mutation Score = Killed / Total）を計測すること。
+- **運用化・閾値アサーション**: `task test:mutation` および `python src/crawler/scripts/run_mutation_testing.py` によりワンコマンドで実行・レポート出力可能とし、品質ゲート閾値を満たさない場合にエラー終了すること。
+
 
 ### 2.4 クローリング制御・障害耐性・アラート要件
 
@@ -403,6 +423,18 @@ task stop
 #### FR-021: 誤分類・パース外れ値防御（Data Anomaly & Misclassification Guards）
 - 敷地権のない1K投資用区分所有が戸建てテーブルに混入した場合、自動的に区分マンション評価へリルートすること。また、価格値が面積カラムへ混入するパース異常（マンション面積500㎡超等）を上限キャップし、築年数欠損（`builtYear=None`）に対して適正な築年数をインピュートすること。
 
+### 2.8 CI/CD 自動コードレビュー・マージブロック要件（CodeRabbit Review & Merge Gate）
+
+#### FR-022: CodeRabbit 自動コードレビューの PR 実行
+- 各 Pull Request（`master` および `production` 宛て）の作成・更新時、CodeRabbit による AI 自動コードレビューを自動実行すること。
+- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
+- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
+- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
+
+#### FR-023: 未解決レビューコメントによるマージブロック強制
+- CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
+- CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。
+
 ---
 
 ## 3. 非機能要件
@@ -460,7 +492,11 @@ task stop
 - **SonarCloud 別系統・先行化**: SonarCloud スキャンを別系統として先行起動し、外部ライブ到達テストを除外したモック中心のカバレッジ計測により所要時間を短縮すること
 - **Production PR 完全並列化**: `master` ➔ `production` へのリリースPRにおいて、ゲートチェック、Terraform Plan、テスト、セキュリティスキャンを待ち時間ゼロで完全同時並行実行すること
 
-#### NFR-011: SonarCloud事前検証ローカルガードレール要件 (Local Sonar Guardrail & Pre-Push Enforcement)
+#### NFR-011: レビュー品質ゲートおよび未解決コメント防止要件
+- コードレビューにおける指摘事項（潜在バグ・型不整合・規約違反・セキュリティリスク）の放置をゼロにし、高品質なコードベースを維持すること。
+- 未解決のスレッド（Unresolved threads）が存在する場合、GitHub UI および CI 双方で明確にマージ不能状態を表示し、修正箇所のファイル名および行番号を開発者に迅速にフィードバックすること。
+
+#### NFR-012: SonarCloud事前検証ローカルガードレール要件 (Local Sonar Guardrail & Pre-Push Enforcement)
 - **課題解消**: PR作成後にCI（SonarCloud）でCognitive Complexity（`python:S3776`）超過や危険正規表現（`python:S8786`）によるチェック失敗・手戻りが発生するサイクルを根絶すること。
 - **高速ローカル検証 (0.5秒以内)**: Git差分（または指定ファイル）に対してPython ASTを用いた静的解析をミリ秒単位で実行し、Cognitive Complexity > 15（S3776準拠）および危険正規表現パターン（S8786準拠のReDoSリスク）を即座に検知・レポートすること。
 - **プッシュ前自動ブロック**: ローカルGitフック（`.githooks/pre-push`）およびTaskコマンド（`task sonar-check`）に組み込み、違反コードが存在する場合はリモートへの `git push` を自動拒否（ブロック）すること。
