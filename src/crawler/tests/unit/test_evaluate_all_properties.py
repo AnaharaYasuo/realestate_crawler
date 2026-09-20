@@ -1,9 +1,10 @@
-# -*- coding: utf-8 -*-
+from types import SimpleNamespace
 from unittest.mock import MagicMock
+
 from scripts.debug_tools.evaluate_all_properties import (
+    _calculate_distribution_stats,
     _extract_area,
     _resolve_company_code,
-    _calculate_distribution_stats
 )
 
 
@@ -42,6 +43,20 @@ class TestExtractArea:
         item.tochiMenseki = None
         assert _extract_area(item) == 0.0
 
+    def test_extract_area_absent_attributes_returns_zero(self):
+        """異なる物件モデルで面積属性自体が存在しなくても統計対象外になること。"""
+        assert _extract_area(SimpleNamespace()) == 0.0
+
+    def test_extract_area_uses_first_available_value_and_converts_to_float(self):
+        """複数の面積がある場合は優先順位を保ち、文字列値も数値化すること。"""
+        item = SimpleNamespace(
+            senyuMenseki="42.5",
+            tatemonoMenseki=88.0,
+            tochiMenseki=120.0,
+        )
+
+        assert _extract_area(item) == 42.5
+
 
 class TestResolveCompanyCode:
     """モデル名からの会社コード解決テスト"""
@@ -66,14 +81,19 @@ class TestDistributionStats:
 
     def test_empty_errors(self):
         """誤差データが空の場合はデータ不足として扱われることを確認する。"""
-        n, mean_err, std_err, skewness, kurtosis, status_str = _calculate_distribution_stats([])
-        assert n == 0
-        assert status_str == "データ不足のため判定不能"
+        assert _calculate_distribution_stats([]) == (
+            0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            "データ不足のため判定不能",
+        )
 
     def test_normal_distribution_stats(self):
         """十分な誤差データから分布統計を計算できることを確認する。"""
         errors = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03]
-        n, mean_err, std_err, skewness, kurtosis, status_str = _calculate_distribution_stats(errors)
+        n, mean_err, _std_err, _skewness, _kurtosis, status_str = _calculate_distribution_stats(errors)
         assert n == 6
         assert abs(mean_err) <= 0.05
         assert "適合" in status_str
