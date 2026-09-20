@@ -4,17 +4,25 @@
 
 ---
 
-## 👑 セントラルドグマ: ドキュメント駆動開発 (Document-Driven Development)
+## 👑 セントラルドグマ: Issue起票 ＆ 仕様駆動開発 (Issue-Driven & Spec-Driven Development)
 
-本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**ドキュメントを最上位 of 正とし、ドキュメントを起点として動く「ドキュメント駆動開発」を絶対的な原則（セントラルドグマ）**とします。
+本プロジェクトにおけるすべての開発行為（設計、実装、テスト、デバッグ）は、**「GitHub Issue起票 ➔ 仕様ドキュメント先行定義 ➔ テスト ➔ 実装」のトップダウンライフサイクルを絶対的な原則（セントラルドグマ）**とします。
 
-1. **ドキュメント・ファースト (Document First)**:
-   - 実装を開始する前に、まず該当する設計ドキュメント（`docs/` 配下）を調査し、必要に応じて変更仕様をドキュメント側へ先に記述しなければならない。
+1. **Issueファースト ＆ 受入基準合意 (Issue-First)**:
+   - 今後修正・追加する内容は、すべて Issue の単位で GitHub Issues に起票する。
+   - ユーザーストーリーおよび「アクセプタンスクライテリア (受入基準)」を定義し、内容に問題がないことを確認・合意した上で実装に着手する。
+   - 有効な Issue 番号を作業ブランチ名（例: `feature/12-auth`, `fix/34-parser`）に含めること。
+2. **プッシュ前・PRゲート自動検証 (Gate Enforcement)**:
+   - Gitフック（`.githooks/pre-push`）により、GitHub Issue の存在しないブランチからの `git push` は即時ブロックされる。
+   - `master` 宛ての PR は GitHub Actions（`issue-gate.yml`）で Issue 紐付けが自動検証され、未紐付けの PR はマージ不可となる。
+3. **ドキュメント・ファースト (Document-First)**:
+   - 仕様マークダウンの構図（要件 ➔ 設計）は維持する。
+   - 実装を開始する前に、まず該当する設計ドキュメント（`docs/requirements/` ➔ `docs/external_design/`, `docs/basic_design/` ➔ `docs/internal_design/`）を先行更新する。
    - 設計に定義されていないコード変更は認めない。
-2. **仕様とコードの同期 (Complete Sync)**:
-   - 実装コードは常に最新のドキュメントの写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
-3. **推測の排除 (No Speculations)**:
-   - 仕様が曖昧な場合は独断で実装せず、ドキュメントを修正して明確な仕様を定めた上でコードを修正する。
+4. **仕様とコードの同期 (Complete Sync)**:
+   - 実装コードは常に最新のドキュメントおよび受入基準の写像でなければならない。コード変更時は速やかにドキュメント側（例: DBスキーマ、API構造など）も更新する。
+5. **推測の排除 (No Speculations)**:
+   - 仕様が曖昧な場合は独断で実装せず、Issueの受入基準および仕様ドキュメントを明確に定めた上でコードを修正する。
 
 ---
 
@@ -33,39 +41,46 @@
 
 ## 2. AI駆動開発の標準ライフサイクル (ADD Lifecycle)
 
-AIエージェントは、以下の5つのフェーズからなる開発サイクルを厳格に実行してください。
+AIエージェントは、以下のフェーズからなる開発サイクルを厳格に実行してください。
 
 ```mermaid
 graph TD
-    A[1. 調査と文脈ロード<br>Related Code & Docs] --> B[2. 実装計画の作成<br>implementation_plan.md]
-    B --> C[3. サンドボックス内実行<br>Docker & Python]
-    C --> D[4. 自己検証とエラー退避<br>pytest & error_pages]
-    D -->|失敗| E[トラブルシューティング<br>HTML分析 & 計画修正]
-    E --> C
-    D -->|成功| F[5. ドキュメント同期<br>DB Schema & README]
+    A[0. GitHub Issue起票<br>ユーザーストーリー & 受入基準合意] --> B[1. ドキュメント先行更新<br>docs/requirements & design]
+    B --> C[2. 受入基準テスト作成<br>pytest TDD]
+    C --> D[3. 最小コード実装<br>Micro-Diff in Docker]
+    D --> E[4. 自己検証 & プッシュ前検証<br>pytest PASS & pre-push check]
+    E -->|失敗| F[トラブルシューティング<br>原因分析 & 修正]
+    F --> D
+    E -->|成功| G[5. PR作成 & Issue基準充足<br>Issue PR Gate, README, Issue完了]
 ```
 
-### 2.1 調査と文脈ロード (Research & Context Loading)
-*   **コードとテストの把握**: 変更対象のコードだけでなく、対応するテストコード（`tests/unit/test_*.py`）を必ず読み込みます。
-*   **エラーHTMLの確認**: 既存のパースエラーを修正する場合は、`tests/error_pages/` に保存されているHTMLを確認し、どのような不整合が起きているか分析します。
+### 2.0 GitHub Issue起票 ＆ 受入基準合意 (Issue-Driven Initiation)
+*   **Issue起票**: 変更・新規開発・バグ修正は必ず Issue 単位で GitHub Issues に起票します。
+*   **受入基準 (AC) の合意**: 概要/ユーザーストーリー、アクセプタンスクライテリア（受入基準）を明記し、内容に問題がないことを確認・合意した上で実装へ進みます。
+*   **ブランチ作成**: 発行された Issue 番号を含むブランチ（例: `feature/12-add-login`, `fix/34-fix-parser`）を作成します。
 
-### 2.2 実装計画の作成 (Implementation Planning)
-*   **計画ファイルの出力**: 大規模な変更や仕様変更を行う場合は、`implementation_plan.md` を作成し、人間（ユーザー）の承認を得てから実行します。
-*   **影響範囲の特定**: 変更がDBスキーマや他サイトのパーサーに及ぼす影響をリストアップします。
+### 2.1 調査・文脈ロード ＆ ドキュメント先行更新 (Research & Spec-First)
+*   **コードとテストの把握**: 変更対象のコードおよび既存テスト（`tests/unit/test_*.py`）を確認します。
+*   **仕様マークダウンの先行更新**: 仕様マークダウンの構図（要件 ➔ 外部設計 ➔ 内部設計）に従い、コード実装前に `docs/` 配下の仕様ドキュメントを更新します。
 
-### 2.3 サンドボックス環境での実行 (Sandbox Execution)
+### 2.2 受入基準に基づくテストコード作成 (TDD)
+*   **テストファースト**: Issueのアクセプタンスクライテリアおよび更新された仕様ドキュメントを満たすテストコード（`pytest`）を、コード実装前に記述します。
+
+### 2.3 サンドボックス環境での最小コード実装 (Sandbox Execution)
+*   **最小限の実装 (Micro-Diff)**: 仕様とテストを満たす最小限の実装を行います。
 *   **Dockerコンテナ内での実行**: 
     Pythonスクリプトやテストの実行は、必ずDockerコンテナ内で行います。ホストOS（Windows）上で直接Pythonコマンドを動かしてはなりません。
-    *   *正しい例*: `docker-compose exec -T app pytest src/crawler/tests/unit/test_mitsui_parser.py`
+    *   *正しい例*: `docker compose exec -T app pytest src/crawler/tests/unit/test_mitsui_parser.py`
     *   *誤った例*: `pytest src/crawler/tests/unit/...`
 
-### 2.4 自己検証とクオリティ保証 (Self-Verification & QA)
-*   **pytestの実行**: 変更後は必ず `task test`（またはコンテナ内での pytest）を実行し、テストがすべてパスすることを確認します。
-*   **再現HTMLの保存**: 新たなエラーを検出した場合は、エラーが発生した物件ページHTMLを `src/crawler/tests/error_pages/{company_type}/{id}.html` に退避させ、それをテストケースに組み込みます。
+### 2.4 自己検証とプッシュ前検証 (Self-Verification & Pre-Push Check)
+*   **pytestの実行**: 変更後は必ずテスト（またはコンテナ内での pytest）を実行し、全件パスすることを確認します。
+*   **プッシュ前自動検証**: `git push` 時に `.githooks/pre-push` フックが走り、ブランチ名/コミットの Issue 番号および GitHub 上の実在が確認されます。
 
-### 2.5 ドキュメントの同期 (Documentation Sync)
-*   **スキーマ情報の更新**: モデル（`package/models/*.py`）を変更した場合、必ず [database_schema.md](../internal_design/database_schema.md) を最新の定義に手動で更新します。
-*   **READMEの更新**: `docs/` 配下にファイルを新設・変更・削除した場合は、必ず [README.md](../../README.md) の「ドキュメント一覧」を更新します。
+### 2.5 PR作成 ＆ Issue受入基準充足確認 (PR Creation & Verification)
+*   **PR作成とゲート検証**: `master` 宛てに PR を作成（`gh pr create`）。`.github/workflows/issue-gate.yml` により自動で Issue 紐付けが検証されます。
+*   **スキーマ・READMEの更新**: モデル変更時は [database_schema.md](../internal_design/database_schema.md)、ドキュメント変更時は [README.md](../../README.md) の「ドキュメント一覧」を同期します。
+*   **Issue受入基準の確認**: 起票した GitHub Issue のアクセプタンスクライテリアがすべて達成されていることを確認します。
 
 ---
 

@@ -1,0 +1,85 @@
+#!/bin/sh
+# .githooks/pre-push
+# Enforce GitHub Issue association before pushing to remote
+
+set -e
+
+zero="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_sha remote_ref remote_sha
+do
+    # Skip branch deletion
+    if [ "$local_sha" = "$zero" ]; then
+        continue
+    fi
+
+    # Extract branch name from ref
+    branch=$(echo "$local_ref" | sed 's#^refs/heads/##')
+
+    # Allow master/production maintenance operations if needed, but enforce for feature/fix branches
+    if [ "$branch" = "production" ]; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] 'production' ブランチへの直接プッシュは禁止されています。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+
+    if [ "$branch" = "master" ]; then
+        continue
+    fi
+
+    # 1. Try extracting issue number from branch name (e.g. feature/12-xxx, fix/issue-34-xxx)
+    issue_num=$(echo "$branch" | grep -oE '(issue[-/_]|#)?([0-9]+)' | grep -oE '[0-9]+' | head -n 1 || true)
+
+    # 2. Try extracting issue number from the commit message
+    if [ -z "$issue_num" ]; then
+        commit_msg=$(git log -1 --pretty=%B "$local_sha" 2>/dev/null || true)
+        issue_num=$(echo "$commit_msg" | grep -oE '(#[0-9]+|issue[ -]#[0-9]+|issue[ -][0-9]+)' | grep -oE '[0-9]+' | head -n 1 || true)
+    fi
+
+    if [ -z "$issue_num" ]; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] GitHub Issue が紐付けられていません。"
+        echo "ブランチ名またはコミットメッセージに有効な Issue 番号を含めてください。"
+        echo ""
+        echo "  対象ブランチ: $branch"
+        echo ""
+        echo "  命名規則の例:"
+        echo "    ブランチ名: feature/<issue_num>-<概要> (例: feature/12-add-login)"
+        echo "                fix/<issue_num>-<概要>     (例: fix/34-fix-parser)"
+        echo "    コミット:   feat: add login (#12)"
+        echo ""
+        echo "GitHub Issues にチケットを起票後、ブランチ名またはコミットを変更して再実行してください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+
+    # 3. Check if the issue exists on GitHub using gh CLI
+    if ! command -v gh >/dev/null 2>&1; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] 'gh' (GitHub CLI) がインストールされていないか、PATHに存在しません。"
+        echo "Issue存在確認をバイパスすることは許可されていません。'gh' CLI を導入してください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+
+    echo "🔍 Issue #$issue_num の存在を検証中..."
+    if ! gh issue view "$issue_num" >/dev/null 2>&1; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] Issue #$issue_num は GitHub 上に存在しません。"
+        echo "GitHub Issues で該当の Issue を作成してからプッシュしてください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+    echo "✅ Issue #$issue_num の存在を確認しました。"
+done
+
+exit 0

@@ -108,3 +108,19 @@ def _parseSenyuMenseki(self, response):
 4. **純処理時間アサーション（1,000ms以内/件）**:
    - ネットワークHTTP通信待ち時間を完全に除外した「純粋なDOM/パース・データ処理時間」を計測し、**1件あたり1,000ms（1秒）を超過した場合はパフォーマンス劣化バグとしてテスト失敗 (FAIL)** と判定する。
 
+## 8. 抽出結果検証 ＆ 欠損・0補完隠蔽防止エラーロギング規約 (Issue #209)
+パーサーのセレクター指定ミスや画面構造変更による項目抽出漏れを早期検知・可視化するため、基底クラス `ParserBase.clean_parsed_item()` の冒頭で `validate_extracted_fields(item)` が自動実行されます。
+
+- **検査対象フィールド（種別別）**:
+  - **マンション**: `price`, `address`, `senyuMenseki`, `madori`, `chikunengetsuStr`, `kouzou`
+  - **戸建**: `price`, `address`, `tochiMenseki`, `tatemonoMenseki`, `madori`, `chikunengetsuStr`, `kouzou`
+  - **土地**: `price`, `address`, `tochiMenseki`
+  - **投資用**: `price`, `address`, `grossYield`, `annualRent`, `kouzou`
+- **検知条件**:
+  - 値が `None`、空文字 `""`、または本来正数であるべき項目（面積・価格・賃料・利回り等）での `0`（`Decimal('0.0')` 含む）。
+- **エラーロギング（1物件1集約・構造化ログ原則）**:
+  - 複数項目の不備が検出された場合でもログは物件単位で1件に集約。
+  - URL、物件名、会社名、モデル名、種別、不備件数、不備詳細（項目名、生値、判定理由、個別セレクタ）、および全セレクタ辞書（`self.selectors`）を含めた構造化JSONペイロード形式で `[PARSER_EXTRACTION_ERROR]` を記録し、0補完による欠損隠蔽を防止して調査・修復を迅速化します。
+
+
+
