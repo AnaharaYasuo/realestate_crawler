@@ -332,16 +332,39 @@ graph TD
   - `LoggingMiddleware.process_request`: メソッド・URLに加えてリクエストペイロード（URL, 引数パラメータ）を `INFO` レベルで出力。
   - `LoggingMiddleware.process_response`: ステータス・URLに加えてレスポンスデータプレビューを `INFO` レベルで出力。
 
+### 6.23 SonarCloud事前検証ローカルガードレール内部設計原則 (Local Sonar Guardrail Internals)
+- **高速AST静的解析エンジン (`check_local_sonar.py`)**:
+  - Python標準モジュール `ast` を利用し、外部依存なしで実行（1ファイル平均 10〜30ms）。
+  - **S3776 認知的複雑度 (Cognitive Complexity) 算定アルゴリズム**:
+    - `If`, `For`, `While`, `ExceptHandler`, `With` を検知時にベーススコア +1、さらにカレントネスト深度（`nesting_level`）を加算。
+    - ブール演算子（`BoolOp`: `and`, `or`）の出現ごとに +1。
+    - 早期リターン（`Return`, `Raise`, `Break`, `Continue`）はネストを浅く保つ設計を推奨するため直接の加算は行わない。
+    - 関数・メソッド単位でスコアを累積し、閾値（デフォルト15）を超過した場合は関数名、開始行、超過スコア、および寄与した制御構文を行番号付きで報告。
+  - **S8786 ReDoS（正規表現バックトラッキング）静的検知アルゴリズム**:
+    - コード中の `re` モジュール呼出し（`re.search`, `re.match`, `re.compile`, `re.findall`, `re.sub` 等）のリテラル引数を抽出。
+    - 以下の危険パターンを正規表現および構文木走査で検出:
+      1. ネストした量指定子: `(a+)+`, `([a-z]*)*` 等
+      2. 貪欲マッチの連打: `.*.*`, `.+.*`, `.*[a-z]+.*` 等の曖昧境界
+      3. 終端・開始の境界が曖昧な広域マッチ
+  - **Git差分検出モード (`--diff`)**:
+    - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルを自動抽出。
+    - `tests/`、`migrations/`、`Temp/` 等の除外ディレクトリは `sonar-project.properties` と同様にスキップ。
+  - **プッシュ前ガード (`.githooks/pre-push`) 統合**:
+    - リモート push 実行時、Issue 番号検証に成功した後、自動的に `python src/crawler/scripts/debug_tools/check_local_sonar.py --diff` を実行。
+    - 違反が1件でもあれば exit code 1 で push を拒否。開発者に修正箇所を即時案内。
+    - バイパス用環境変数 `SKIP_SONAR_CHECK=1` または `git push --no-verify` をサポート。
+
 ---
 
 ## 7. 参照ドキュメント
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
 - [API構造ドキュメント (API Structure)](api_structure.md): エンドポイント構造と処理フロー
+- [SonarGuardrail運用ガイド](../implementation/sonar_guardrail_guide.md): VSCode設定およびコーディングパターン集
 
 ---
 
 **最終更新**: 2026年9月20日  
-**バージョン**: 2.3 (APIリクエスト・レスポンスのペイロード構造化ログ出力原則追記)
+**バージョン**: 2.4 (SonarCloud事前検証ローカルガードレール内部設計原則追記)
 
 

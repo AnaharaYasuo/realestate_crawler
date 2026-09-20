@@ -91,3 +91,13 @@ tasks:
     cmds:
       - docker run --rm --env-file .env -v .:/usr/src sonarsource/sonar-scanner-cli
 
+  sonar-check:
+    desc: Run fast local SonarCloud guardrail (S3776 & S8786 on git diff)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+
+  sonar-check-all:
+    desc: Run fast local SonarCloud guardrail on all Python files under src/
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --all
+

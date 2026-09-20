@@ -817,5 +817,44 @@ sequenceDiagram
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
 
+---
+
+## 15. SonarCloud事前検証ローカルガードレール設計 (Local Sonar Guardrail & Pre-Push Guard)
+
+CIでのSonarCloudチェック（`python:S3776` 認知的複雑度超過、`python:S8786` 正規表現バックトラッキング・ReDoS、カバレッジ不足）による失敗と手戻りを完全撲滅するための多層防御アーキテクチャ。
+
+```mermaid
+flowchart TD
+    subgraph IDE["IDE層 (0秒・リアルタイム)"]
+        VS["VSCode + SonarLint"] -->|Connected Mode| Inline["エディタ内波線警告<br/>(S3776 / S8786 即時ハイライト)"]
+    end
+
+    subgraph Local["ローカルゲート層 (0.5秒)"]
+        CLI["check_local_sonar.py<br/>(Python AST 高速解析)"]
+        Task["task sonar-check<br/>(コミット前・手動確認)"]
+        Hook[".githooks/pre-push<br/>(リモートPush時自動検証)"]
+        CLI --> Task
+        CLI --> Hook
+    end
+
+    subgraph CI["CI層 (GitHub Actions)"]
+        GHA["sonar.yml<br/>(SonarCloud Analysis)"]
+    end
+
+    Inline --> Local
+    Hook -->|違反ゼロ時のみPush許可| GHA
+```
+
+### 15.1 検証対象ルールと判定基準
+1. **`python:S3776` (Cognitive Complexity <= 15)**:
+   - Python標準の `ast` モジュールを用いて関数ごとの認知的複雑度を算定。
+   - 分岐（`if`, `elif`）、ループ（`for`, `while`）、例外（`except`）、ブール演算（`and`, `or`）、およびネスト深度に応じた加重ペナルティを合計。
+   - 閾値 15 を超過する関数が存在する場合、エラー（FAIL）として指摘位置（ファイル・行番号・関数名・現在スコア）を出力。
+2. **`python:S8786` (Regex Backtracking / ReDoS リスク)**:
+   - AST 内の `re.compile`, `re.search`, `re.match`, `re.findall`, `re.sub` 等の正規表現文字列を走査。
+   - バックトラッキング爆発を引き起こす危険パターン（ネストした量指定子 `(a+)+`、貪欲マッチの連打 `.*.*`、境界のない曖昧キャプチャ等）を静的パターンマッチで検出。
+3. **差分高速解析 (`--diff`)**:
+   - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルのみを抽出し、0.5秒以内で検査完了。全件走査（`--all`）もサポート。
+
 
 

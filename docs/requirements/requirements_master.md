@@ -460,6 +460,12 @@ task stop
 - **SonarCloud 別系統・先行化**: SonarCloud スキャンを別系統として先行起動し、外部ライブ到達テストを除外したモック中心のカバレッジ計測により所要時間を短縮すること
 - **Production PR 完全並列化**: `master` ➔ `production` へのリリースPRにおいて、ゲートチェック、Terraform Plan、テスト、セキュリティスキャンを待ち時間ゼロで完全同時並行実行すること
 
+#### NFR-011: SonarCloud事前検証ローカルガードレール要件 (Local Sonar Guardrail & Pre-Push Enforcement)
+- **課題解消**: PR作成後にCI（SonarCloud）でCognitive Complexity（`python:S3776`）超過や危険正規表現（`python:S8786`）によるチェック失敗・手戻りが発生するサイクルを根絶すること。
+- **高速ローカル検証 (0.5秒以内)**: Git差分（または指定ファイル）に対してPython ASTを用いた静的解析をミリ秒単位で実行し、Cognitive Complexity > 15（S3776準拠）および危険正規表現パターン（S8786準拠のReDoSリスク）を即座に検知・レポートすること。
+- **プッシュ前自動ブロック**: ローカルGitフック（`.githooks/pre-push`）およびTaskコマンド（`task sonar-check`）に組み込み、違反コードが存在する場合はリモートへの `git push` を自動拒否（ブロック）すること。
+- **IDEリアルタイム検知**: VSCode拡張機能「SonarLint」によるエディタ上リアルタイム検知設定およびコーディングパターン規約（ガード節、1抽出1関数、安全な正規表現等）を整備すること。
+
 ### 3.4 拡張性要件
 
 #### NFR-007: 新規サイト追加
