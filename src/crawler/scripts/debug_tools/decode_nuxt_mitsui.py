@@ -12,14 +12,14 @@ req = urllib.request.Request(url, headers=headers)
 html = urllib.request.urlopen(req).read().decode('utf-8')
 
 # window.__NUXT__ の全体スクリプトを抽出
-match = re.search(r'<script[^>]*>\s*\(function\(\)\{var [^<]*window\.__NUXT__=(.*?);<\/script>', html, re.DOTALL | re.IGNORECASE)
+match = re.search(r'<script[^>]*>\s*\(function\(\)\{var [^<]*window\.__NUXT__=(.*?);<\/script[^>]*>', html, re.DOTALL | re.IGNORECASE)
 if not match:
     # 別のパターン
-    match = re.search(r'window\.__NUXT__\s*=\s*(.*?);?\s*<\/script>', html, re.DOTALL | re.IGNORECASE)
+    match = re.search(r'window\.__NUXT__\s*=\s*(.*?);?\s*<\/script[^>]*>', html, re.DOTALL | re.IGNORECASE)
 
 # JSON配列としてロードを試みる
 script_content = None
-for s in re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+for s in re.findall(r'<script[^>]*>(.*?)</script[^>]*>', html, re.DOTALL | re.IGNORECASE):
     if 'salePropertyData' in s and s.strip().startswith('['):
         script_content = s.strip()
         break

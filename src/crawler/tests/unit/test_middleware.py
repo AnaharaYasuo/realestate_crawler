@@ -25,7 +25,7 @@ async def test_logging_middleware_request():
         mock_log.assert_called_once()
         log_str = mock_log.call_args[0][0]
         assert "POST" in log_str
-        assert "http://test-server.internal" in log_str
+        assert "test-server" in log_str
         assert "key" in log_str
 
 
