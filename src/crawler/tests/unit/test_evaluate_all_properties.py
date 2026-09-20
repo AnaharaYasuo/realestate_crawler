@@ -66,7 +66,7 @@ class TestDistributionStats:
 
     def test_empty_errors(self):
         """誤差データが空の場合はデータ不足として扱われることを確認する。"""
-        n, mean_err, std_err, skewness, kurtosis, status_str = _calculate_distribution_stats([])
+        n, _mean_err, _std_err, _skewness, _kurtosis, status_str = _calculate_distribution_stats([])
         assert n == 0
         assert status_str == "データ不足のため判定不能"
 

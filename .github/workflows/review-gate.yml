@@ -61,6 +61,10 @@ jobs:
             const headSha = pr.head && pr.head.sha;
 
             // 1. Check CodeRabbit In-Progress / Pending Status
+            const systemErrors = [];
+            let crPending = false;
+            let crPendingMsg = '';
+
             try {
               const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
                 owner,
@@ -70,8 +74,8 @@ jobs:
               const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
               const pendingStatus = crStatuses.find(s => s.state === 'pending');
               if (pendingStatus) {
-                core.setFailed(`⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`);
-                return;
+                crPending = true;
+                crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
               }
 
               const checkRuns = await github.paginate(github.rest.checks.listForRef, {
@@ -83,12 +87,11 @@ jobs:
               const crChecks = checkRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
               const inProgressCheck = crChecks.find(c => c.status !== 'completed');
               if (inProgressCheck) {
-                core.setFailed(`⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`);
-                return;
+                crPending = true;
+                crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
               }
             } catch (err) {
-              core.setFailed(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
-              return;
+              systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
             }
 
             // 2. Scan for Unchecked Checkboxes (- [ ])
@@ -97,8 +100,7 @@ jobs:
               const lines = text.split(/\r?\n/);
               const items = [];
               for (const line of lines) {
-                const trimmed = line.trim();
-                const m = trimmed.match(/^[-*]\s*\[([ ])\]\s*(.*)$/);
+                const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
                 if (m) {
                   const content = m[2].trim();
                   const clean = content.replace(/<!--.*?-->/g, '').trim();
@@ -127,8 +129,7 @@ jobs:
                 uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
               }
             } catch (err) {
-              core.setFailed(`Failed to list PR reviews: ${err.message}`);
-              return;
+              systemErrors.push(`Failed to list PR reviews: ${err.message}`);
             }
 
             // 2c. Issue Comments
@@ -143,8 +144,7 @@ jobs:
                 uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
               }
             } catch (err) {
-              core.setFailed(`Failed to list Issue comments: ${err.message}`);
-              return;
+              systemErrors.push(`Failed to list Issue comments: ${err.message}`);
             }
 
             // 2d. Review Comments (Inline)
@@ -159,8 +159,7 @@ jobs:
                 uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
               }
             } catch (err) {
-              core.setFailed(`Failed to list Review comments: ${err.message}`);
-              return;
+              systemErrors.push(`Failed to list Review comments: ${err.message}`);
             }
 
             // 3. Scan Unresolved Review Threads via GraphQL
@@ -210,8 +209,7 @@ jobs:
                 cursor = nextCursor;
               }
             } catch (err) {
-              core.setFailed(`Failed to fetch review threads via GraphQL: ${err.message}`);
-              return;
+              systemErrors.push(`Failed to fetch review threads via GraphQL: ${err.message}`);
             }
 
             const unresolved = allThreads.filter(t => !t.isResolved);
@@ -235,6 +233,20 @@ jobs:
             // 5. Aggregate Results & Assert
             let hasFailure = false;
             let summaryMd = '';
+
+            if (systemErrors.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ システムエラー (${systemErrors.length}件)\n\n`;
+              for (const err of systemErrors) {
+                summaryMd += `- ${err}\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (crPending) {
+              hasFailure = true;
+              summaryMd += `### ⛔ CodeRabbitレビュー実行中\n\n${crPendingMsg}\n\n`;
+            }
 
             if (unresolved.length > 0) {
               hasFailure = true;
@@ -290,11 +302,14 @@ jobs:
                 }
               });
             } catch (err) {
-              core.warning(`Failed to sync check run to HEAD SHA: ${err.message}`);
+              core.setFailed(`Failed to sync check run to HEAD SHA: ${err.message}`);
+              return;
             }
 
             if (hasFailure) {
               console.error('⛔ Review Gate Check Failed:');
+              if (systemErrors.length > 0) console.error(`- System errors: ${systemErrors.length}`);
+              if (crPending) console.error(`- CodeRabbit pending: ${crPendingMsg}`);
               if (unresolved.length > 0) console.error(`- Unresolved threads: ${unresolved.length}`);
               if (uncheckedList.length > 0) console.error(`- Unchecked checkboxes: ${uncheckedList.length}`);
               if (changesRequested.length > 0) console.error(`- Changes requested: ${changesRequested.length}`);

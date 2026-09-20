@@ -97,9 +97,12 @@ GitHub ネイティブのブランチ保護機能。
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
   - `issue_comment`: `types: [created, edited, deleted]`
 - **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
-  - GitHub では「会話スレッドの解決（Resolve conversation）」単体での Webhook イベントが存在しない制約があります。
-  - そのため、スレッド解決後やチェックボックス更新時に `issue_comment`（コメント作成・編集・削除）や `pull_request_review` をトリガーとしてワークフローが再実行されます。
-  - ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
+  - GitHub では「会話スレッドの解決（Resolve conversation）」単体での GitHub Actions 直接トリガー（Webhookイベント）が存在しない制約があります。
+  - そのため、スレッド解決後やチェックボックス更新時には以下の再評価経路を提供します：
+    1. **PRコメント/レビュー更新トリガー**: `issue_comment`（コメント投稿・編集・削除）または `pull_request_review` の実行。
+    2. **GitHub App Webhook 連携 (将来拡張/推奨)**: スレッド解決Webhookを受信したGitHub Appまたはポーリング機構から `repository_dispatch` を発火してワークフローを再実行。
+    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した `Verify All Review Conversations Resolved` チェックを再実行。
+  - いずれの経路でも、ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
@@ -133,11 +136,11 @@ query($owner: String!, $repo: String!, $prNumber: Int!, $cursor: String) {
 ```
 
 ### 4.3 未完了チェックボックス検出ロジック
-PR本文（`pr.body`）、全レビュー本文（`reviews`）、全PRレビューコメント（`pulls.listReviewComments`）、全PRコメント（`issues.listComments`）を走査し、正規表現 `^[-*]\s*\[\s*\]` に合致する未完了チェックボックス（`- [ ]`）を抽出します。
+PR本文（`pr.body`）、全レビュー本文（`reviews`）、全PRレビューコメント（`pulls.listReviewComments`）、全PRコメント（`issues.listComments`）を走査し、正規表現 `^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$` に合致する未完了チェックボックス（`- [ ]`）を抽出します。先頭のインデント（空白・タブ）やネストされたリスト項目を許容しつつ、水平空白のみに限定して誤検知を防止します。
 
 ```javascript
-// チェックボックス検出正規表現
-const uncheckedRegex = /^[-*]\s*\[\s*\]\s*(.*)$/gm;
+// チェックボックス検出正規表現（ネスト・インデント許容、水平空白限定）
+const uncheckedRegex = /^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$/gm;
 ```
 
 CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。

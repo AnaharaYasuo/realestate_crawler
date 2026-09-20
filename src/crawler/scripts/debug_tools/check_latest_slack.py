@@ -35,9 +35,10 @@ async def resolve_channel_id(session: aiohttp.ClientSession, channel: str, token
                 found_id = _find_channel_id_in_list(data.get("channels", []), clean_name)
                 if found_id:
                     return found_id
-                cursor = data.get("response_metadata", {}).get("next_cursor")
-                if not cursor:
+                next_cursor = data.get("response_metadata", {}).get("next_cursor")
+                if not next_cursor or next_cursor == cursor:
                     break
+                cursor = next_cursor
     except Exception:
         pass
     return channel
