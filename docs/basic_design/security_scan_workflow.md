@@ -8,15 +8,18 @@
 ```text
 【CI: PR / Push 契機】
 .github/workflows/security-scan.yml
- ├── trivy-scan    (SCA: requirements.txt + IaC: terraform/) ──> SARIF ──> GitHub Security
- ├── semgrep-scan  (SAST: src/ Python コード)                ──> SARIF ──> GitHub Security
- └── checkov-scan  (IaC: terraform/ Google Cloud 設定監査)  ──> SARIF ──> GitHub Security
+ ├── trivy-scan    (SCA: requirements.txt + IaC: terraform/) ──> SARIF ──> GitHub Security (FAIL時CI失敗)
+ ├── semgrep-scan  (SAST: src/ Python コード)                ──> SARIF ──> GitHub Security (FAIL時CI失敗)
+ └── checkov-scan  (IaC: terraform/ Google Cloud 設定監査)  ──> SARIF ──> GitHub Security (soft_fail廃止/FAIL時CI失敗)
 
 .github/workflows/codeql.yml
  └── codeql-scan   (GitHub Native SAST: Python & Actions)   ──> CodeQL ──> GitHub Security
 
 .github/workflows/sonar.yml
  └── sonarcloud    (SonarCloud Scan + Quality Gate wait)    ──> Quality Gate 判定 (FAIL時PRブロック)
+
+.github/workflows/review-gate.yml
+ └── verify-conversations-resolved & security-checks        ──> レビュー会話解決 + チェックボックス + セキュリティスキャン合格検証 (FAIL時PRブロック)
 
 【CSPM: 定期 / 手動 契機】
 .github/workflows/prowler-gcp-audit.yml
