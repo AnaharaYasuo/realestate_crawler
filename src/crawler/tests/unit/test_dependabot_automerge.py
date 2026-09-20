@@ -134,7 +134,87 @@ class TestDependabotAutomerge(unittest.TestCase):
         self.assertEqual(status, PRStatus.MERGE_READY)
         self.assertIn("All checks passed", reason)
 
+    def test_evaluate_pr_ignores_each_documented_non_blocking_check(self):
+        """Ignore matching is case-insensitive and covers every configured non-blocking context."""
+        for check_name in [
+            "Upload-SARIF / Trivy",
+            "CODE SCANNING RESULTS",
+            "security/SNYK (pull_request)",
+        ]:
+            with self.subTest(check_name=check_name):
+                status, reason = self.inspector.evaluate_pr_status(
+                    {
+                        "mergeable": "MERGEABLE",
+                        "statusCheckRollup": [
+                            {
+                                "name": check_name,
+                                "status": "COMPLETED",
+                                "conclusion": "FAILURE",
+                            }
+                        ],
+                    }
+                )
+
+                self.assertEqual(status, PRStatus.MERGE_READY)
+                self.assertIn("All checks passed", reason)
+
+    def test_evaluate_pr_does_not_ignore_similarly_named_blocking_failure(self):
+        """A normal security scan failure must remain merge-blocking."""
+        status, reason = self.inspector.evaluate_pr_status(
+            {
+                "mergeable": "MERGEABLE",
+                "statusCheckRollup": [
+                    {
+                        "name": "Trivy Security Scan",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(status, PRStatus.CI_FAILED)
+        self.assertIn("Trivy Security Scan", reason)
+
+    def test_evaluate_pr_ignored_failure_does_not_mask_blocking_failure(self):
+        """An ignored SARIF failure must not hide a separate failing required check."""
+        status, reason = self.inspector.evaluate_pr_status(
+            {
+                "mergeable": "MERGEABLE",
+                "statusCheckRollup": [
+                    {
+                        "name": "upload-sarif",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                    },
+                    {
+                        "context": "pytest",
+                        "state": "ERROR",
+                    },
+                ],
+            }
+        )
+
+        self.assertEqual(status, PRStatus.CI_FAILED)
+        self.assertIn("pytest", reason)
+
+    def test_evaluate_pr_pending_ignored_context_is_still_running(self):
+        """Only terminal failures are ignored; an in-progress SARIF job still blocks merging."""
+        status, reason = self.inspector.evaluate_pr_status(
+            {
+                "mergeable": "MERGEABLE",
+                "statusCheckRollup": [
+                    {
+                        "name": "upload-sarif",
+                        "status": "IN_PROGRESS",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(status, PRStatus.CI_RUNNING)
+        self.assertIn("in progress", reason)
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -3,6 +3,7 @@ Trivy, Semgrep, Checkov, Prowler セキュリティ自動スキャンワーク�
 Issue #250: [Feature] Setup Trivy & Semgrep security workflows, Checkov & Prowler GCP audit, and disable Snyk
 """
 import os
+from pathlib import Path
 import yaml
 from unittest.mock import AsyncMock, MagicMock
 import pytest
@@ -261,4 +262,179 @@ def test_mutation_engine_run_test():
     killed = engine.run_mutation_test(mutant, "python -c 'import sys; sys.exit(1)'")
     assert killed is True
 
+
+def _load_workflow(name):
+    path = Path(get_repo_root()) / ".github" / "workflows" / name
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _workflow_triggers(workflow):
+    """PyYAML 1.1 treats the unquoted GitHub Actions key `on` as boolean True."""
+    return workflow.get("on") or workflow.get(True)
+
+
+def _find_step(job, *, uses=None, name=None):
+    for step in job.get("steps", []):
+        if uses and uses in step.get("uses", ""):
+            return step
+        if name and name.lower() in step.get("name", "").lower():
+            return step
+    raise AssertionError(f"step not found: uses={uses!r}, name={name!r}")
+
+
+def test_security_scan_workflow_matches_issue_250_acceptance_criteria():
+    workflow = _load_workflow("security-scan.yml")
+    triggers = _workflow_triggers(workflow)
+
+    assert set(triggers["push"]["branches"]) >= {"master"}
+    assert set(triggers["pull_request"]["branches"]) >= {"master"}
+    assert set(triggers["pull_request"]["types"]) == {"opened", "synchronize", "reopened"}
+    assert workflow["permissions"] == {
+        "contents": "read",
+        "security-events": "write",
+        "actions": "read",
+    }
+
+    jobs = workflow["jobs"]
+    required_jobs = {"trivy-scan", "semgrep-scan", "checkov-scan"}
+    assert required_jobs <= jobs.keys()
+    assert all("needs" not in jobs[job_name] for job_name in required_jobs)
+
+    trivy = _find_step(jobs["trivy-scan"], uses="aquasecurity/trivy-action")
+    assert trivy["with"] == {
+        "scan-type": "fs",
+        "scan-ref": ".",
+        "scanners": "vuln,misconfig",
+        "severity": "HIGH,CRITICAL",
+        "format": "sarif",
+        "output": "trivy-results.sarif",
+        "trivyignores": ".trivyignore",
+        "exit-code": "1",
+    }
+    trivy_upload = _find_step(jobs["trivy-scan"], uses="upload-sarif")
+    assert trivy_upload["with"] == {
+        "sarif_file": "trivy-results.sarif",
+        "category": "trivy",
+    }
+    assert trivy_upload["continue-on-error"] is True
+
+    semgrep = _find_step(jobs["semgrep-scan"], name="Run Semgrep")
+    command = semgrep["run"]
+    for required_arg in [
+        '--config "p/python"',
+        '--config "p/owasp-top-ten"',
+        '--config "p/security-audit"',
+        "--severity ERROR",
+        "--sarif",
+        "--error",
+        "--output /src/semgrep.sarif",
+    ]:
+        assert required_arg in command
+    semgrep_upload = _find_step(jobs["semgrep-scan"], uses="upload-sarif")
+    assert semgrep_upload["with"]["category"] == "semgrep"
+    assert semgrep_upload["with"]["sarif_file"] == "semgrep.sarif"
+
+    checkov = _find_step(jobs["checkov-scan"], uses="bridgecrewio/checkov-action")
+    assert checkov["with"]["directory"] == "terraform"
+    assert checkov["with"]["framework"] == "terraform"
+    assert "sarif" in checkov["with"]["output_format"]
+    assert "results.sarif" in checkov["with"]["output_file_path"]
+    checkov_upload = _find_step(jobs["checkov-scan"], uses="upload-sarif")
+    assert checkov_upload["with"]["category"] == "checkov"
+    assert checkov_upload["with"]["sarif_file"] == "results.sarif"
+
+
+def test_prowler_workflow_uses_weekly_wif_and_publishes_all_report_formats():
+    workflow = _load_workflow("prowler-gcp-audit.yml")
+    triggers = _workflow_triggers(workflow)
+
+    assert triggers["schedule"] == [{"cron": "0 0 * * 1"}]
+    severity = triggers["workflow_dispatch"]["inputs"]["severity"]
+    assert severity["required"] is False
+    assert severity["default"] == "critical,high"
+    assert workflow["permissions"] == {
+        "contents": "read",
+        "id-token": "write",
+        "security-events": "write",
+    }
+
+    job = workflow["jobs"]["prowler-gcp"]
+    auth = _find_step(job, uses="google-github-actions/auth")
+    assert auth["with"]["workload_identity_provider"] == "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+    assert auth["with"]["service_account"] == "${{ secrets.GCP_SERVICE_ACCOUNT }}"
+    assert "credentials_json" not in auth["with"]
+
+    audit = _find_step(job, name="Run Prowler")
+    for report_format in ["html", "csv", "json", "sarif"]:
+        assert report_format in audit["run"]
+    artifacts = _find_step(job, uses="actions/upload-artifact")
+    assert artifacts["with"]["path"] == "prowler_output/"
+    sarif = _find_step(job, uses="upload-sarif")
+    assert sarif["with"]["category"] == "prowler-gcp"
+    assert sarif["with"]["sarif_file"] == "prowler_output/"
+
+
+def test_dependabot_config_covers_every_required_ecosystem_with_bounded_prs():
+    config_path = Path(get_repo_root()) / ".github" / "dependabot.yml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    updates = {entry["package-ecosystem"]: entry for entry in config["updates"]}
+
+    assert config["version"] == 2
+    assert set(updates) == {"pip", "terraform", "npm", "github-actions", "docker"}
+    assert updates["pip"]["directory"] == "/src/crawler"
+    assert updates["terraform"]["directory"] == "/terraform"
+    assert all(entry["schedule"]["interval"] in {"daily", "weekly"} for entry in updates.values())
+    assert all(0 < entry["open-pull-requests-limit"] <= 10 for entry in updates.values())
+
+
+def test_codeql_workflow_scans_python_and_actions_on_pr_push_and_schedule():
+    workflow = _load_workflow("codeql.yml")
+    triggers = _workflow_triggers(workflow)
+
+    assert "master" in triggers["push"]["branches"]
+    assert "master" in triggers["pull_request"]["branches"]
+    assert triggers["schedule"]
+    analyze = workflow["jobs"]["analyze"]
+    assert set(analyze["strategy"]["matrix"]["language"]) == {"python", "actions"}
+    init = _find_step(analyze, uses="github/codeql-action/init")
+    assert init["with"]["languages"] == "${{ matrix.language }}"
+    run = _find_step(analyze, uses="github/codeql-action/analyze")
+    assert "matrix.language" in run["with"]["category"]
+
+
+def test_local_security_tasks_and_ignore_files_match_ci_scope():
+    repo_root = Path(get_repo_root())
+    taskfile = yaml.safe_load((repo_root / "Taskfile.yml").read_text(encoding="utf-8"))
+    tasks = taskfile["tasks"]
+
+    assert {"trivy", "semgrep", "checkov", "prowler"} <= tasks.keys()
+    assert "trivy fs" in tasks["trivy"]["cmds"][0]
+    assert "--scanners vuln,misconfig" in tasks["trivy"]["cmds"][0]
+    assert "semgrep scan" in tasks["semgrep"]["cmds"][0]
+    assert "terraform/" in tasks["checkov"]["cmds"][0]
+    assert "prowler" in tasks["prowler"]["cmds"][0]
+
+    semgrep_ignored = {
+        line.strip().rstrip("/")
+        for line in (repo_root / ".semgrepignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert semgrep_ignored == {
+        "src/crawler/scripts/ops",
+        "src/crawler/scripts/node",
+        "src/crawler/package/testing",
+        "src/crawler/tests",
+    }
+    trivy_ignore = (repo_root / ".trivyignore").read_text(encoding="utf-8")
+    assert "DS-0002" in trivy_ignore
+    assert "DS-0026" in trivy_ignore
+
+
+def test_review_gate_ignores_coderabbit_checkbox_metadata():
+    review_gate = Path(get_repo_root()) / ".github" / "workflows" / "review-gate.yml"
+    source = review_gate.read_text(encoding="utf-8")
+
+    assert "line.includes('radioGroupId')" in source
+    assert "line.includes('checkboxId')" in source
+    assert "line.includes('Fix all pre-merge checks with AI')" in source
 
