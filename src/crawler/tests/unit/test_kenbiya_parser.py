@@ -452,6 +452,41 @@ async def test_kenbiya_get_content_generic_error():
         await parser._getContent(mock_session, "https://www.kenbiya.com/test_403")
 
 
+@pytest.mark.asyncio
+async def test_kenbiya_user_agent_rotation_across_subclasses():
+    """異なる具象パーサーサブクラス間でも共有カウンターで User-Agent がローテーションすること"""
+    from package.parser.kenbiyaParser import KenbiyaInvestmentApartmentParser, KenbiyaMansionParser
+    from unittest.mock import AsyncMock, MagicMock
+
+    parser1 = KenbiyaInvestmentApartmentParser()
+    parser2 = KenbiyaMansionParser()
+
+    recorded_uas = []
+
+    def mock_get(url, headers=None, timeout=None):
+        recorded_uas.append(headers.get("User-Agent"))
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read = AsyncMock(return_value=b"<html></html>")
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=mock_resp)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    # 1つ目のパーサーで実行
+    await parser1._getContent(mock_session, "https://www.kenbiya.com/test_p1")
+    # 2つ目の異なるパーサーで実行
+    await parser2._getContent(mock_session, "https://www.kenbiya.com/test_p2")
+
+    assert len(recorded_uas) == 2
+    # サブクラスが異なっても直前のUAを引き継がず次の異なるUAが選択されること
+    assert recorded_uas[0] != recorded_uas[1]
+
+
+
 
 
 

@@ -52,8 +52,8 @@ class KenbiyaParserBase(ParserBase):
 
     @classmethod
     def _get_next_user_agent(cls) -> str:
-        ua = cls.USER_AGENTS[cls._ua_counter % len(cls.USER_AGENTS)]
-        cls._ua_counter += 1
+        ua = KenbiyaParserBase.USER_AGENTS[KenbiyaParserBase._ua_counter % len(KenbiyaParserBase.USER_AGENTS)]
+        KenbiyaParserBase._ua_counter += 1
         return ua
 
     def getCharset(self):
