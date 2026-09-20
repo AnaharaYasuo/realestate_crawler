@@ -971,6 +971,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _run(self, _url):
+        """詳細ページURLを受け取り、適切なパーサーでパース・保存を実行"""
         # Update parser dynamically based on current URL
         try:
             from package.utils.url_router import UrlRouter
@@ -1213,7 +1214,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     
                     # 投資用物件の場合は、一次合格の有無にかかわらず、
                     # まずテキスト情報のみから詳細な収支・融資・総合投資スコアの評価を実行
-                    if "investment" in property_type:
+                    if PropertyTypeDetector.is_investment(property_type):
                         from package.ml.investment_evaluator import evaluate_investment_property
                         eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
                         await sync_to_async(eval_record.save)()
@@ -1266,14 +1267,14 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 eval_record.analyzed_at = timezone.now()
                                 
                                 # 投資用物件の場合は、詳細な収支・融資・総合投資スコアの評価を実行
-                                if "investment" in property_type:
+                                if PropertyTypeDetector.is_investment(property_type):
                                     from package.ml.investment_evaluator import evaluate_investment_property
                                     eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
                                 
                                 await sync_to_async(eval_record.save)()
                                 
                                 # 総合投資スコア（投資用以外は従来のinvestment_scoreを使用）
-                                final_score = eval_record.total_investment_score if "investment" in property_type else eval_record.investment_score
+                                final_score = eval_record.total_investment_score if PropertyTypeDetector.is_investment(property_type) else eval_record.investment_score
                                 
                                 logging.info(f"ML: Stage 2 prediction for {item.propertyName}: {price_stage2}万円 (Interior: {interior_score}, Layout: {layout_score}, Score: {final_score or 0.0:.1f})")
                                 

@@ -476,6 +476,7 @@ class ParserBase(metaclass=ABCMeta):
             logging.exception("Failed to save error HTML")
 
     async def parsePropertyDetailPage(self, session, url) -> models.Model:
+        """物件詳細ページを取得・動的種別判定を行い、適切なパーサーでパースしてモデルインスタンスを返却"""
         if url:
             u_lower = str(url).lower()
             if any(p in u_lower for p in ["/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/"]):

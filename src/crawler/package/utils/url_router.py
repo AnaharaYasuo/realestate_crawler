@@ -419,6 +419,6 @@ class UrlRouter:
             parser_cls = getattr(mod, route["parser_cls"])
             return parser_cls()
         except Exception as e:
-            logging.error(f"Failed to instantiate parser {route.get('parser_cls')} from {route.get('parser_module')}: {e}")
+            logging.exception(f"Failed to instantiate parser {route.get('parser_cls')} from {route.get('parser_module')}: {e}")
             return None
 
