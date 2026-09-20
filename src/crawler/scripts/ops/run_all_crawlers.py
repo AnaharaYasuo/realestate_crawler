@@ -33,15 +33,16 @@ from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 
 
-# # CLI 引数のパース (全社一斉並行スタートのためデフォルト上限を35に拡大)
-default_parallel = 35
-default_playwright_parallel = 3
-parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
-parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
-parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
-parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
-parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
-args, _ = parser.parse_known_args()
+def parse_args():
+    """Parse CLI arguments for run_all_crawlers."""
+    default_parallel = 35
+    default_playwright_parallel = 3
+    parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
+    parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
+    parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
+    parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
+    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    return parser.parse_args()
 
 # ポータルサイトおよび Playwright を使用する高メモリ負荷サイトのリスト
 PORTAL_COMPANIES = ["athome", "homes"]
@@ -185,6 +186,7 @@ def main():
 
     Executed runs post Slack and database status and write a dated JSON report.
     """
+    args = parse_args()
     if args.dry_run:
         target_jobs = [j for j in CRAWL_JOBS if not (args.skip_portals and j[0].lower() in PORTAL_COMPANIES)]
         logging.info(f"--- Dry Run Mode: List of Crawling Jobs ({len(target_jobs)} jobs) ---")

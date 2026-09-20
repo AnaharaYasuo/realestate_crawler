@@ -58,14 +58,14 @@ def test_afr_mansion_guard():
         p._parsePropertyDetailPage(entity, soup)
 
 
-def test_afr_tochi_guard():
-    p = AfrTochiParser()
-    # HTML with 建物面積 should raise SkipPropertyException (it's a house, not pure land)
-    html = "<html><body><table><tr><th>建物面積</th><td>100m2</td></tr><tr><th>土地面積</th><td>150m2</td></tr></table></body></html>"
+def test_afr_mansion_wall_core_area():
+    p = AfrMansionParser()
+    # HTML with 壁芯面積 should succeed without SkipPropertyException
+    html = "<html><body><table><tr><th>壁芯面積</th><td>65.4m2</td></tr></table></body></html>"
     soup = BeautifulSoup(html, "html.parser")
     entity = p.createEntity()
-    with pytest.raises(SkipPropertyException):
-        p._parsePropertyDetailPage(entity, soup)
+    res = p._parsePropertyDetailPage(entity, soup)
+    assert res.senyuMensekiStr == "65.4m2"
 
 
 def test_keio_parser_abs_links():
