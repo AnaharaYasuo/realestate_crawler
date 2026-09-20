@@ -117,11 +117,11 @@ def test_base_parser_xpath_starts_with_and_not_contains():
     import asyncio
     p = MitsuiMansionParser()
     # Test _parsePageCore logic with starts-with and not(contains)
-    xpath = "//a[starts-with(@href, '/buy/') and not(contains(@href, '/store/')) and contains(@href, 'mansion')]"
+    xpath = "//a[starts-with(@href, 'https://www.rehouse.co.jp/buy/') and not(contains(@href, '/store/')) and contains(@href, 'mansion')]"
     html = '''<html><body>
-        <a href="/buy/mansion/tokyo/">Tokyo</a>
-        <a href="/buy/mansion/store/123/">Store</a>
-        <a href="/rent/mansion/tokyo/">Rent</a>
+        <a href="https://www.rehouse.co.jp/buy/mansion/tokyo/">Tokyo</a>
+        <a href="https://www.rehouse.co.jp/buy/mansion/store/123/">Store</a>
+        <a href="https://www.rehouse.co.jp/rent/mansion/tokyo/">Rent</a>
     </body></html>'''
     soup = BeautifulSoup(html, "html.parser")
     async def run():
@@ -129,6 +129,7 @@ def test_base_parser_xpath_starts_with_and_not_contains():
     urls = asyncio.run(run())
     assert len(urls) == 1
     assert "/buy/mansion/tokyo/" in urls[0]
+
 
 
 def test_api_middle_page_next_page_fetch():
