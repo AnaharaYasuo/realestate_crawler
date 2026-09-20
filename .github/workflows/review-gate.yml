@@ -81,8 +81,13 @@ jobs:
               const result = await github.graphql(query, variables);
               const connection = result.repository.pullRequest.reviewThreads;
               allThreads.push(...connection.nodes);
-              hasNextPage = connection.pageInfo.hasNextPage;
-              cursor = connection.pageInfo.endCursor;
+              const hasMorePages = connection.pageInfo.hasNextPage;
+              const nextCursor = connection.pageInfo.endCursor;
+              if (hasMorePages && (!nextCursor || nextCursor === cursor)) {
+                throw new Error('GitHub GraphQL reviewThreads pagination did not advance.');
+              }
+              hasNextPage = hasMorePages;
+              cursor = nextCursor;
             }
 
             const unresolved = allThreads.filter(t => !t.isResolved);
