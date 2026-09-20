@@ -363,6 +363,7 @@ def test_property_type_detector_helpers_and_guards():
     assert PropertyTypeDetector._get_field(obj, "senyuMenseki") == 72.5
     assert PropertyTypeDetector._get_field(obj, "unknown", default="def") == "def"
     assert PropertyTypeDetector._get_field(None, "senyuMenseki") is None
+    assert PropertyTypeDetector._get_field(None, "senyuMenseki", default="def_val") == "def_val"
 
     # 2. _is_rc_zero_land
     assert PropertyTypeDetector._is_rc_zero_land(obj) is True
@@ -383,5 +384,25 @@ def test_property_type_detector_helpers_and_guards():
     # 4. _has_yield_signal_specs (正例・負例)
     assert PropertyTypeDetector._has_yield_signal_specs({"grossYield": "5.0%"}) is True
     assert PropertyTypeDetector._has_yield_signal_specs({"間取り": "3LDK", "所在地": "新宿区"}) is False
+
+    # 5. _derive_cache_key fallback (specs + html_text)
+    cache_key = PropertyTypeDetector._derive_cache_key(
+        url="",
+        title="",
+        specs={"a": 1},
+        html_text="<div>test_html</div>"
+    )
+    assert cache_key == "{'a': 1}_<div>test_html</div>"
+
+    # 6. _detect_from_fields fallback
+    assert PropertyTypeDetector._detect_from_fields({}) == "mansion"
+
+    # 7. is_investment
+    assert PropertyTypeDetector.is_investment("apartment") is True
+    assert PropertyTypeDetector.is_investment("investment") is True
+    assert PropertyTypeDetector.is_investment("invest_kodate") is True
+    assert PropertyTypeDetector.is_investment("kodate") is False
+    assert PropertyTypeDetector.is_investment("mansion") is False
+    assert PropertyTypeDetector.is_investment(None) is False
 
 
