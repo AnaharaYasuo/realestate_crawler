@@ -148,7 +148,7 @@ def _extract_area(item) -> float:
         val = getattr(item, attr, None)
         if val is not None:
             return float(val)
-    return 10.0
+    return 0.0
 
 
 def _estimate_single_property(item, ptype: str, company_code: str, api_base_url: str):
