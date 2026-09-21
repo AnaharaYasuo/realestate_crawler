@@ -441,3 +441,191 @@ def test_tokyu_listing_ended_detection():
         parser._parsePropertyDetailPage(item, soup_ended)
 
 
+def test_athome_uncovered_branches():
+    """athomeパーサーのスキーム検証、テキスト次リンク、空HTML例外処理を検証"""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from package.parser.athomeParser import AthomeMansionParser
+
+    parser = AthomeMansionParser()
+
+    # 1. 不正スキーム (javascript, ftp)
+    detail_links = set()
+    list_links = set()
+    ret_url, _ = parser._classify_and_collect_athome_url("javascript:void(0)", detail_links, list_links)
+    assert ret_url is None
+
+    # 2. _find_text_next_tag (クラス指定のない次へリンク)
+    html_text_next = '<div><a href="/next?page=2">次へ &gt;</a></div>'
+    soup_text = BeautifulSoup(html_text_next, "html.parser")
+    next_url = asyncio.run(parser.parseNextPage(soup_text))
+    assert "page=2" in next_url
+
+    # 3. _crawl_single_list_page で空HTML
+    parser._getContent = AsyncMock(return_value="")
+    links, next_page = asyncio.run(parser._crawl_single_list_page("https://www.athome.co.jp/list/", "https://www.athome.co.jp"))
+    assert links == []
+    assert next_page is None
+
+    # 4. _crawl_single_list_page で例外発生
+    parser._getContent = AsyncMock(side_effect=RuntimeError("Network error"))
+    links, next_page = asyncio.run(parser._crawl_single_list_page("https://www.athome.co.jp/list/", "https://www.athome.co.jp"))
+    assert links == []
+    assert next_page is None
+
+
+def test_daiwa_uncovered_branches():
+    """daiwaパーサーのcurrent_page推論(min=2)およびlink_tags判定の各分岐を検証"""
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+
+    # 1. current_pageが取得できないが最小ページが2の場合 (現在ページ=1と推論して2を返す)
+    html_page2 = """
+    <div class="pagination">
+        <a href="/buy/search/alist?page=2">2</a>
+        <a href="/buy/search/alist?page=3">3</a>
+    </div>
+    """
+    soup_page2 = BeautifulSoup(html_page2, "html.parser")
+    next_num = parser._find_next_by_page_number([(2, "/buy/search/alist?page=2", soup_page2.find("a")), (3, "/buy/search/alist?page=3", soup_page2.find_all("a")[1])], soup_page2)
+    assert "page=2" in next_num
+
+    # 2. _find_next_by_link_tags で aria-label="前" をスキップし、aria-label="次" を選択すること
+    html_aria = """
+    <div>
+        <a href="/buy/search/alist?page=1" aria-label="前へ">前</a>
+        <a href="/buy/search/alist?page=3" aria-label="次へ">次</a>
+    </div>
+    """
+    soup_aria = BeautifulSoup(html_aria, "html.parser")
+    tags = soup_aria.find_all("a")
+    page_links = [(1, tags[0]["href"], tags[0]), (3, tags[1]["href"], tags[1])]
+    next_tag = parser._find_next_by_link_tags(page_links)
+    assert "page=3" in next_tag
+
+
+def test_daiwa_pagination_svg_only_fallback_in_parsenextpage():
+    """daiwaParserで数字リンクがなくSVGリンクのみの場合に_find_next_by_link_tags経由で次ページが取得できること"""
+    import asyncio
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+    html = """
+    <div class="pagination">
+        <a href="/buy/search/alist?page=prev" class="prev"><svg></svg></a>
+        <a href="/buy/search/alist?page=next" class="next"><svg></svg></a>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    next_url = asyncio.run(parser.parseNextPage(soup))
+    assert "page=next" in next_url
+
+
+def test_daiwa_find_next_by_page_number_unmatched():
+    """_find_next_by_page_numberで条件に一致しない場合に空文字列を返すこと"""
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+    html = '<div class="pagination"><a href="/buy/search/alist?page=5">5</a></div>'
+    soup = BeautifulSoup(html, "html.parser")
+    a_tag = soup.find("a")
+    res = parser._find_next_by_page_number([(5, "/buy/search/alist?page=5", a_tag)], soup)
+    assert res == ""
+
+
+def test_daiwa_find_next_by_link_tags_branches():
+    """_find_next_by_link_tagsの各条件分岐（前スキップ、次マッチ、クラス文字列／リスト）を検証"""
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+
+    # 1. 前スキップ（文字列クラス）
+    html_prev = '<a href="/prev" class="btn-prev">前</a>'
+    soup_prev = BeautifulSoup(html_prev, "html.parser")
+    a_prev = soup_prev.find("a")
+    assert parser._find_next_by_link_tags([(None, "/prev", a_prev)]) == ""
+
+    # 2. 次マッチ（text="次"）
+    html_next_text = '<a href="/next">次へ</a>'
+    soup_next = BeautifulSoup(html_next_text, "html.parser")
+    a_next = soup_next.find("a")
+    assert "/next" in parser._find_next_by_link_tags([(None, "/next", a_next)])
+
+    # 3. 次マッチ（aria-label="next"）
+    html_next_aria = '<a href="/next-aria" aria-label="next"></a>'
+    soup_aria = BeautifulSoup(html_next_aria, "html.parser")
+    a_aria = soup_aria.find("a")
+    assert "/next-aria" in parser._find_next_by_link_tags([(None, "/next-aria", a_aria)])
+
+
+def test_athome_sequential_numbered_tag_branches():
+    """_find_sequential_numbered_tagの各分岐（curr_tagなし、非数値、次ページ番号なし）を検証"""
+    from package.parser.athomeParser import AthomeMansionParser
+
+    # 1. curr_tagなし -> None
+    soup_no_curr = BeautifulSoup('<div class="pagination__list"><a href="/1">1</a></div>', "html.parser")
+    assert AthomeMansionParser._find_sequential_numbered_tag(soup_no_curr) is None
+
+    # 2. curr_tagが非数値 -> ValueError -> None
+    soup_bad_curr = BeautifulSoup('<div class="pagination__list"><span class="current">ABC</span></div>', "html.parser")
+    assert AthomeMansionParser._find_sequential_numbered_tag(soup_bad_curr) is None
+
+    # 3. 次ページ番号(curr+1)のリンクが存在しない -> None
+    soup_no_next_num = BeautifulSoup('<div class="pagination__list"><span class="current">1</span><a href="/5">5</a></div>', "html.parser")
+    assert AthomeMansionParser._find_sequential_numbered_tag(soup_no_next_num) is None
+
+
+def test_athome_find_text_next_tag_branches():
+    """_find_text_next_tagの各分岐（次、>、»、該当なし）を検証"""
+    from package.parser.athomeParser import AthomeMansionParser
+
+    # 1. text=">"
+    soup_gt = BeautifulSoup('<div><a href="/gt">&gt;</a></div>', "html.parser")
+    assert AthomeMansionParser._find_text_next_tag(soup_gt) is not None
+
+    # 2. text="»"
+    soup_raquo = BeautifulSoup('<div><a href="/raquo">&raquo;</a></div>', "html.parser")
+    assert AthomeMansionParser._find_text_next_tag(soup_raquo) is not None
+
+    # 3. 該当なし -> None
+    soup_none = BeautifulSoup('<div><a href="/other">トップへ</a></div>', "html.parser")
+    assert AthomeMansionParser._find_text_next_tag(soup_none) is None
+
+
+def test_athome_parse_next_page_lxml_input():
+    """parseNextPageにlxmlエレメントが渡された場合の変換分岐を検証"""
+    import asyncio
+    import lxml.html
+    from package.parser.athomeParser import AthomeMansionParser
+
+    parser = AthomeMansionParser()
+    elem = lxml.html.fromstring('<div><div class="pagination__item--next"><a href="/page2">次</a></div></div>')
+    res = asyncio.run(parser.parseNextPage(elem))
+    assert "page2" in res
+
+
+def test_athome_crawl_single_list_page_success():
+    """_crawl_single_list_pageで正常にHTMLが取得され詳細リンクおよび次ページが抽出されること"""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from package.parser.athomeParser import AthomeMansionParser
+
+    parser = AthomeMansionParser()
+    sample_html = '''
+    <html>
+        <body>
+            <a href="/mansion/12345678/">詳細物件</a>
+            <div class="pagination__next"><a href="/list/?page=2">次へ</a></div>
+        </body>
+    </html>
+    '''
+    parser._getContent = AsyncMock(return_value=sample_html)
+    links, next_page = asyncio.run(parser._crawl_single_list_page("https://www.athome.co.jp/list/", "https://www.athome.co.jp"))
+    assert len(links) == 1
+    assert "12345678" in links[0]
+    assert next_page is not None
+    assert "page=2" in next_page
+
+
+
