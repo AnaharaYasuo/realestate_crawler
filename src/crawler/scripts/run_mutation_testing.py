@@ -162,7 +162,7 @@ def _get_git_changed_files(crawler_root: str) -> List[str]:
                         all_files.add(f)
         except Exception:
             continue
-    return sorted(list(all_files))
+    return sorted(all_files)
 
 
 def _resolve_unit_abs_path(crawler_root: str, path: str) -> str:

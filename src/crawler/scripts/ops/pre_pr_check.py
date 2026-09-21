@@ -46,6 +46,14 @@ FORBIDDEN_PATH_PATTERNS = [
     r".*\.pyc$",
 ]
 
+STAGE_GIT_HYGIENE = "Git & ブランチ健全性"
+STAGE_ISSUE_AC = "Issue & 受入基準"
+STAGE_LINTER_SONAR = "Linter & SonarCloud"
+STAGE_TEST_SUITE = "Pytest テストスイート"
+STAGE_MUTATION = "PR Mutation Testing"
+STAGE_SECURITY = "Security & IaC"
+STAGE_METADATA = "PR メタデータ"
+
 
 @dataclass
 class StageResult:
@@ -113,12 +121,10 @@ def validate_pr_metadata_content(body: str, expected_issue: int) -> Tuple[bool, 
     # Check for unchecked checkboxes (- [ ])
     unchecked = []
     for line in body.splitlines():
-        m = re.match(r"^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$", line)
-        if m:
-            content = m.group(2).strip()
-            # Ignore CodeRabbit AI action triggers
-            if "radioGroupId" not in line and "checkboxId" not in line:
-                unchecked.append(content)
+        stripped = line.strip()
+        if (stripped.startswith("- [ ]") or stripped.startswith("* [ ]")) and "radioGroupId" not in line and "checkboxId" not in line:
+            content = stripped[5:].strip()
+            unchecked.append(content)
 
     if unchecked:
         return False, f"PR本文に未完了のチェックボックス (- [ ]) が {len(unchecked)} 件残存しています: {unchecked[:3]}"
@@ -186,7 +192,7 @@ class PrePRChecker:
             for f in stdout.splitlines():
                 if f.strip():
                     files.add(f.strip().replace("\\", "/"))
-        return sorted(list(files))
+        return sorted(files)
 
     def stage1_git_and_branch(self) -> StageResult:
         """Stage 1: Verify Git branch and hygiene."""
@@ -194,16 +200,16 @@ class PrePRChecker:
         branch = self.get_current_branch()
         is_valid, issue_num, msg = validate_branch_name(branch)
         if not is_valid:
-            return StageResult(1, "Git & ブランチ健全性", False, errors=[msg], duration_sec=time.time() - start)
+            return StageResult(1, STAGE_GIT_HYGIENE, False, errors=[msg], duration_sec=time.time() - start)
 
         changed_files = self.get_changed_files()
         forbidden = check_forbidden_files(changed_files)
         if forbidden:
             err = f"危険・不要ファイルが変更/ステージングに含まれています: {forbidden}"
-            return StageResult(1, "Git & ブランチ健全性", False, errors=[err], duration_sec=time.time() - start)
+            return StageResult(1, STAGE_GIT_HYGIENE, False, errors=[err], duration_sec=time.time() - start)
 
         details = f"ブランチ: {branch} (Issue #{issue_num}), 変更ファイル数: {len(changed_files)}"
-        return StageResult(1, "Git & ブランチ健全性", True, details=details, duration_sec=time.time() - start)
+        return StageResult(1, STAGE_GIT_HYGIENE, True, details=details, duration_sec=time.time() - start)
 
     def stage2_issue_acceptance_criteria(self) -> StageResult:
         """Stage 2: Verify GitHub Issue and Acceptance Criteria."""
@@ -211,22 +217,22 @@ class PrePRChecker:
         branch = self.get_current_branch()
         issue_num = extract_issue_number(branch)
         if not issue_num:
-            return StageResult(2, "Issue & 受入基準", False, errors=["Issue番号を特定できません。"], duration_sec=time.time() - start)
+            return StageResult(2, STAGE_ISSUE_AC, False, errors=["Issue番号を特定できません。"], duration_sec=time.time() - start)
 
         issue_data = fetch_issue_data(issue_num)
         if not issue_data:
             err = f"GitHub 上で Issue #{issue_num} を取得できませんでした。"
-            return StageResult(2, "Issue & 受入基準", False, errors=[err], duration_sec=time.time() - start)
+            return StageResult(2, STAGE_ISSUE_AC, False, errors=[err], duration_sec=time.time() - start)
 
         is_valid, msg, details = validate_issue_acceptance_criteria(issue_data)
         if not is_valid:
             errs = [msg]
             for un in details.get("unchecked_items", []):
                 errs.append(f"  [ ] {un}")
-            return StageResult(2, "Issue & 受入基準", False, errors=errs, duration_sec=time.time() - start)
+            return StageResult(2, STAGE_ISSUE_AC, False, errors=errs, duration_sec=time.time() - start)
 
         det = f"Issue #{issue_num} 受入基準全{details.get('total_criteria', 0)}件完了 [x]"
-        return StageResult(2, "Issue & 受入基準", True, details=det, duration_sec=time.time() - start)
+        return StageResult(2, STAGE_ISSUE_AC, True, details=det, duration_sec=time.time() - start)
 
     def _check_python_syntax(self, py_files: List[str]) -> List[str]:
         """Validate Python syntax using ast.parse."""
@@ -288,7 +294,7 @@ class PrePRChecker:
 
         passed = len(errors) == 0
         det = f"検査Pythonファイル数: {len(py_files)}, Sonar違反: {len(sonar_issues)}"
-        return StageResult(3, "Linter & SonarCloud", passed, details=det, warnings=warnings, errors=errors, duration_sec=time.time() - start)
+        return StageResult(3, STAGE_LINTER_SONAR, passed, details=det, warnings=warnings, errors=errors, duration_sec=time.time() - start)
 
     def _is_inside_container(self) -> bool:
         """Check if currently executing inside a Docker container."""
@@ -304,7 +310,7 @@ class PrePRChecker:
         """Stage 4: Run unit and matrix tests."""
         start = time.time()
         if self.skip_tests:
-            return StageResult(4, "Pytest テストスイート", True, details="--skip-tests によりスキップ", duration_sec=0.0)
+            return StageResult(4, STAGE_TEST_SUITE, True, details="--skip-tests によりスキップ", duration_sec=0.0)
 
         # Run unit tests via local pytest or docker compose
         if self._is_inside_container():
@@ -316,24 +322,24 @@ class PrePRChecker:
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             failed_lines = [line_text for line_text in lines if "FAILED" in line_text or "ERROR" in line_text]
-            return StageResult(4, "Pytest テストスイート", False, errors=failed_lines or ["テストが失敗しました。"], duration_sec=time.time() - start)
+            return StageResult(4, STAGE_TEST_SUITE, False, errors=failed_lines or ["テストが失敗しました。"], duration_sec=time.time() - start)
 
-        return StageResult(4, "Pytest テストスイート", True, details="単体テスト全件合格", duration_sec=time.time() - start)
+        return StageResult(4, STAGE_TEST_SUITE, True, details="単体テスト全件合格", duration_sec=time.time() - start)
 
     def stage5_mutation(self) -> StageResult:
         """Stage 5: Run PR Mutation Testing."""
         start = time.time()
         if self.skip_mutation:
-            return StageResult(5, "PR Mutation Testing", True, details="--skip-mutation によりスキップ", duration_sec=0.0)
+            return StageResult(5, STAGE_MUTATION, True, details="--skip-mutation によりスキップ", duration_sec=0.0)
 
         mut_cmd = self._build_python_command(["src/crawler/scripts/run_mutation_testing.py", "--pr-mode", "--threshold=80"])
         code, out, err = self._run_cmd(mut_cmd)
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             err_summary = [line_text for line_text in lines if "FAIL" in line_text or "SCORE" in line_text or "SURVIVED" in line_text][-10:]
-            return StageResult(5, "PR Mutation Testing", False, errors=err_summary or ["ミューテーションスコア未達 (80%未満)"], duration_sec=time.time() - start)
+            return StageResult(5, STAGE_MUTATION, False, errors=err_summary or ["ミューテーションスコア未達 (80%未満)"], duration_sec=time.time() - start)
 
-        return StageResult(5, "PR Mutation Testing", True, details="キル率 >= 80% 合格", duration_sec=time.time() - start)
+        return StageResult(5, STAGE_MUTATION, True, details="キル率 >= 80% 合格", duration_sec=time.time() - start)
 
     def stage6_security(self) -> StageResult:
         """Stage 6: Security and IaC check."""
@@ -346,9 +352,9 @@ class PrePRChecker:
         details = []
 
         if tf_changed:
-            code, out, err = self._run_cmd(["checkov", "--version"])
+            code, _, _ = self._run_cmd(["checkov", "--version"])
             if code == 0:
-                rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
+                rc, _, _ = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
                 if rc != 0:
                     errors.append("Checkov Terraform IaC 検査で違反が検出されました。")
             else:
@@ -359,7 +365,7 @@ class PrePRChecker:
 
         passed = len(errors) == 0
         det = ", ".join(details) or "セキュリティ検査完了"
-        return StageResult(6, "セキュリティ & IaC スキャン", passed, details=det, errors=errors, duration_sec=time.time() - start)
+        return StageResult(6, STAGE_SECURITY, passed, details=det, errors=errors, duration_sec=time.time() - start)
 
     def stage7_pr_metadata(self, title: Optional[str] = None, body: Optional[str] = None) -> StageResult:
         """Stage 7: Verify PR title and body if provided or interactive."""
@@ -367,7 +373,7 @@ class PrePRChecker:
         branch = self.get_current_branch()
         issue_num = extract_issue_number(branch)
         if not issue_num:
-            return StageResult(7, "PR メタデータ検証", False, errors=["Issue番号不明"], duration_sec=time.time() - start)
+            return StageResult(7, STAGE_METADATA, False, errors=["Issue番号不明"], duration_sec=time.time() - start)
 
         errors = []
         if title:
@@ -381,8 +387,8 @@ class PrePRChecker:
                 errors.append(msg_b)
 
         passed = len(errors) == 0
-        det = "PRメタデータ検査合格" if passed else "PRメタデータ不備"
-        return StageResult(7, "PR メタデータ検証", passed, details=det, errors=errors, duration_sec=time.time() - start)
+        det = "PRタイトル・本文メタデータ正常" if passed else "PRメタデータ不備"
+        return StageResult(7, STAGE_METADATA, passed, details=det, errors=errors, duration_sec=time.time() - start)
 
     def run_all(self, title: Optional[str] = None, body: Optional[str] = None) -> bool:
         """Execute full test suite."""
