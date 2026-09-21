@@ -835,12 +835,14 @@ sequenceDiagram
 
 ## 15. CodeRabbit 自動コードレビュー ＆ 未解決レビューコメント解決マージゲートアーキテクチャ (CodeRabbit Review & Conversation Resolution Gate)
 
-PR作成・更新時に CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。
+PR**初回オープン時のみ** CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。後続 push では自動再レビューせず、指摘の連鎖による収束不能を防止します。
 
 ```mermaid
 flowchart TD
-    A[Pull Request 作成 / コミットPush] --> B[CodeRabbit 自動レビュー起動<br/>(.coderabbit.yaml / profile: chill)]
+    A[Pull Request 初回オープン] --> B[CodeRabbit 自動レビュー起動<br/>(auto_incremental_review: false)]
+    A2[後続コミット Push] -.->|自動レビューしない| A2skip[手動 @coderabbitai review のみ可]
     A --> C[Review Conversation Gate CI起動<br/>(.github/workflows/review-gate.yml)]
+    A2 --> C
     
     B --> D{改善指摘・懸念点あり?}
     D -- YES --> E[インラインレビューコメント投稿<br/>PRステータス: Changes Requested]
@@ -876,6 +878,7 @@ flowchart TD
    - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
 
 ### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
+- **初回オープンのみ自動レビュー**: `auto_incremental_review: false` により、PR 作成時の1回のみ自動レビューし、後続 push では自動再レビューしない（収束不能の連鎖指摘を防止）。必要時は `@coderabbitai review` で手動起動。
 - **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
 - **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
 - **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。

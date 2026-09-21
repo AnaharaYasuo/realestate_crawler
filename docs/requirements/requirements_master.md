@@ -449,7 +449,8 @@ task stop
 ### 2.8 CI/CD 自動コードレビュー・マージブロック要件（CodeRabbit Review & Merge Gate）
 
 #### FR-022: CodeRabbit 自動コードレビューの PR 実行
-- 各 Pull Request（`master` および `production` 宛て）の作成・更新時、CodeRabbit による AI 自動コードレビューを自動実行すること。
+- 各 Pull Request（`master` および `production` 宛て）の**初回オープン時のみ**、CodeRabbit による AI 自動コードレビューを自動実行すること。
+- 同一 PR への後続 push（synchronize / コード追加）では自動再レビューを行わないこと（`auto_incremental_review: false`）。追加レビューが必要な場合は手動で `@coderabbitai review` を実行可能とする。
 - レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
 - プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
 - 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
