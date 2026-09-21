@@ -262,7 +262,7 @@ def _collect_docstring_nodes(tree: ast.AST) -> Set[int]:
 
 
 def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
-    """Scan for S7508: sorted(list(...)) or sorted(set(...))."""
+    """Scan for S7508: sorted(list(...))."""
     issues = []
     for node in ast.walk(tree):
         if (
@@ -272,7 +272,7 @@ def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str,
             and node.args
             and isinstance(node.args[0], ast.Call)
             and isinstance(node.args[0].func, ast.Name)
-            and node.args[0].func.id in ("list", "set")
+            and node.args[0].func.id == "list"
         ):
             issues.append({
                 "file": filename,

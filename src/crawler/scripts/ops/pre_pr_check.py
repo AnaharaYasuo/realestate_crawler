@@ -369,7 +369,7 @@ class PrePRChecker:
             details.append("Checkov 未インストール (CIで実行)")
             return errors, details
 
-        rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
+        rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform"])
         if rc != 0:
             errors.append(f"Checkov Terraform IaC 検査で違反が検出されました:\n{cout or cerr}")
         else:
