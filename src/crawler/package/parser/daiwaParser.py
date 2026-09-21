@@ -39,13 +39,38 @@ class DaiwaParser(ParserBase):
         return self.BASE_URL + '/' + linkUrl
 
     async def parseNextPage(self, response: BeautifulSoup):
-        # ページネーションリンク
+        # 1. 従来のページネーションリンク
         for a in response.select(".pagination a, .pager a, .paging a"):
             text = a.get_text()
             if "次" in text or "next" in text.lower() or ">" in text:
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)
+
+        # 2. Tailwind CSS / アイコン型ページネーションリンク (page= を含むリンク群)
+        page_links = []
+        for a in response.find_all("a", href=re.compile(r'[?&]page=\d+')):
+            href = a.get("href")
+            if not href:
+                continue
+            m = re.search(r'[?&]page=(\d+)', href)
+            if m:
+                p_num = int(m.group(1))
+                page_links.append((p_num, href, a))
+
+        if page_links:
+            # SVGを含む「次へ」ボタン、または '>' を含むボタンを探索
+            for _, href, a_tag in page_links:
+                if a_tag.find("svg") or ">" in a_tag.get_text():
+                    return self.getRootDestUrl(href)
+
+            # 現在ページの次番号（最小の page > 1 または順序から特定）
+            # 重複除去し昇順ソート
+            sorted_pages = sorted({(p, h) for p, h, _ in page_links}, key=lambda x: x[0])
+            for p, h in sorted_pages:
+                if p > 1:
+                    return self.getRootDestUrl(h)
+
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):

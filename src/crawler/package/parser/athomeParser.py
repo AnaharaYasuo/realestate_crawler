@@ -112,7 +112,7 @@ class AthomeParser(ParserBase):
                 """)
                 page = await context.new_page()
                 try:
-                    resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await page.wait_for_timeout(2000)
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
                     await page.wait_for_timeout(2000)
@@ -228,9 +228,13 @@ class AthomeParser(ParserBase):
         # 個別詳細が見つからず市区町村リストが見つかった場合は各リストページを取得して本物の詳細物件URLを抽出・yieldする
         if not detail_links and list_links:
             for l_url in list_links:
-                try:
-                    list_html = await self._getContent(None, l_url)
-                    if list_html:
+                curr_l_url = l_url
+                page_depth = 0
+                while curr_l_url and page_depth < 5:
+                    try:
+                        list_html = await self._getContent(None, curr_l_url)
+                        if not list_html:
+                            break
                         sub_soup = BeautifulSoup(list_html, "html.parser")
                         for a in sub_soup.select("a[href]"):
                             sub_href = a.get("href")
@@ -247,8 +251,15 @@ class AthomeParser(ParserBase):
                                 if normalized not in detail_links:
                                     detail_links.add(normalized)
                                     yield normalized
-                except Exception as e:
-                    logging.warning(f"Error expanding list_link {l_url}: {e}")
+                        next_sub_page = await self.parseNextPage(sub_soup)
+                        if next_sub_page and next_sub_page != curr_l_url:
+                            curr_l_url = next_sub_page
+                            page_depth += 1
+                        else:
+                            break
+                    except Exception as e:
+                        logging.warning(f"Error expanding list_link {curr_l_url}: {e}")
+                        break
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 0. 掲載終了・物件不在の早期検知
@@ -571,27 +582,32 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         road_dir = ""
         if road_info:
             dir_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', road_info)
-            if dir_match: road_dir = dir_match.group(1)
+            if dir_match:
+                road_dir = dir_match.group(1)
         elif setsudou_info:
             dir_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', setsudou_info)
-            if dir_match: road_dir = dir_match.group(1)
+            if dir_match:
+                road_dir = dir_match.group(1)
         item.roadDirection = road_dir
         
         # 道路私道区分 (roadType)
         road_type = ""
         if road_info:
             type_match = re.search(r'(公道|私道)', road_info)
-            if type_match: road_type = type_match.group(1)
+            if type_match:
+                road_type = type_match.group(1)
         elif setsudou_info:
             type_match = re.search(r'(公道|私道)', setsudou_info)
-            if type_match: road_type = type_match.group(1)
+            if type_match:
+                road_type = type_match.group(1)
         item.roadType = road_type
         
         # 接道構造（角地など）(roadStructure)
         road_struct = "中間地"
         if setsudou_info:
             struct_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', setsudou_info)
-            if struct_match: road_struct = struct_match.group(1)
+            if struct_match:
+                road_struct = struct_match.group(1)
         item.roadStructure = road_struct
         
         # 奥行き (okuyuki)

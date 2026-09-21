@@ -58,12 +58,27 @@ class DaikyoParser(ParserBase):
 
 
     async def parseNextPage(self, response: BeautifulSoup):
-        for a in response.select(".paging a, .pager a"):
+        # 1. 専門クラス・モダンセレクタ
+        next_tag = response.select_one(".jsPagingNext, a[class*='PagingNext'], .result-pager__next a, a[rel='next']")
+        if next_tag and next_tag.get("href"):
+            return self.getRootDestUrl(next_tag.get("href"))
+
+        # 2. 汎用セレクタ (.paging, .pager, .result-pager)
+        for a in response.select(".paging a, .pager a, .result-pager a"):
             text = a.get_text().strip()
             if "次" in text or ">" in text or "next" in text.lower():
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)
+
+        # 3. page=N パラメータを持つリンク
+        for a in response.find_all("a", href=re.compile(r'[?&]page=\d+')):
+            text = a.get_text().strip()
+            if "次" in text or ">" in text or "next" in text.lower() or "jsPagingNext" in a.get("class", []):
+                href = a.get("href")
+                if href:
+                    return self.getRootDestUrl(href)
+
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
@@ -81,6 +96,38 @@ class DaikyoParser(ParserBase):
                     detail_links.add(normalized)
                     logging.info(f"[Daikyo] Match detail link: {normalized}")
                     yield normalized
+
+        # 全国トップページ等の場合、各都道府県別URL (/buy/{type}/pXX/) を取得して展開
+        if not detail_links:
+            target_slug = "house" if self.property_type == "kodate" else ("land" if self.property_type == "tochi" else "mansion")
+            pref_pattern = re.compile(rf'/buy/{target_slug}/p\d+/?$')
+            pref_urls = set()
+            for a in response.find_all("a", href=pref_pattern):
+                href = a.get("href")
+                if href:
+                    pref_urls.add(self.getRootDestUrl(href))
+
+            if pref_urls:
+                for p_url in sorted(pref_urls):
+                    try:
+                        p_html = await self._getContent(None, p_url)
+                        if p_html:
+                            p_soup = BeautifulSoup(p_html, "html.parser")
+                            for a in p_soup.select('a[href*="detail"]'):
+                                href = a.get("href")
+                                if href:
+                                    full_url = self.getRootDestUrl(href)
+                                    parsed = urllib.parse.urlparse(full_url)
+                                    path = parsed.path
+                                    if not path.endswith('/'):
+                                        path += '/'
+                                    normalized = f"{self.BASE_URL}{path}"
+                                    if normalized not in detail_links:
+                                        detail_links.add(normalized)
+                                        logging.info(f"[Daikyo] Match detail link from {p_url}: {normalized}")
+                                        yield normalized
+                    except Exception as pe:
+                        logging.warning(f"[Daikyo] Failed to fetch pref {p_url}: {pe}")
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}

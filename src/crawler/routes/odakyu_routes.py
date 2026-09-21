@@ -17,8 +17,9 @@ from package.api.odakyu import (
 odakyu_bp = Blueprint('odakyu', __name__)
 
 def get_start_url(property_type='mansion'):
-    # 東京都世田谷区 (JIS: 13112) エリアをデフォルトのスタートURLとする
-    return f"https://www.odakyu-chukai.com/{property_type}/list/a=13112/"
+    # 全エリア（東京・神奈川・小田急沿線全域）一覧URLをスタートURLとする
+    url_type = 'house' if property_type == 'kodate' else ('land' if property_type == 'tochi' else property_type)
+    return f"https://www.odakyu-chukai.com/{url_type}/list/"
 
 @odakyu_bp.route(API_KEY_ODAKYU_MANSION_START, methods=['POST', 'GET'])
 def odakyuMansionStart():
@@ -55,7 +56,7 @@ def odakyuTochiDetail():
 
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_START, methods=['POST', 'GET'])
 def odakyuInvestmentStart():
-    return ParseOdakyuInvestmentStartAsync().main("https://www.odakyu-chukai.com/invest/list/a=13112/")
+    return ParseOdakyuInvestmentStartAsync().main("https://www.odakyu-chukai.com/invest/list/")
 
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_DETAIL, methods=['POST', 'GET'])
 def odakyuInvestmentDetail():

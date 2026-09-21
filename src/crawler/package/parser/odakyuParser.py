@@ -40,8 +40,8 @@ class OdakyuParser(ParserBase):
         return self.BASE_URL + '/' + linkUrl
 
     async def parseNextPage(self, response: BeautifulSoup):
-        # ページネーション内の「次へ」または `paging` 領域内の a タグ
-        for a in response.select(".paging a, .pager a"):
+        # ページネーション内の「次へ」または `paging`, `pagenation-block` 領域内の a タグ
+        for a in response.select(".paging a, .pager a, .pagenation-block a, .pagination a"):
             text = a.get_text()
             if "次" in text or "next" in text.lower() or ">" in text:
                 href = a.get("href")
@@ -51,11 +51,11 @@ class OdakyuParser(ParserBase):
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        # 投資用と居住用でパターン分岐
+        # 投資用と居住用でパターン分岐 (/mansion/detail/, /house/detail/, /land/detail/, /detail/)
         if self.property_type == 'investment':
             pattern = re.compile(r'/detail/[A-Za-z0-9\-]+')
         else:
-            pattern = re.compile(rf'/{self.property_type or "mansion"}/detail/[A-Za-z0-9\-]+')
+            pattern = re.compile(r'/(?:mansion|house|kodate|land|tochi)/detail/[A-Za-z0-9\-]+')
 
         for a in response.find_all("a", href=pattern):
             href = a.get("href")
