@@ -27,6 +27,7 @@ from package.parser.misawaParser import MisawaMansionParser, MisawaKodateParser
 from package.parser.smtrcParser import SmtrcMansionParser
 from package.parser.keioParser import KeioMansionParser
 from package.parser.rearieParser import RearieMansionParser, RearieParser
+from package.parser.baseParser import ListingEndedException
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -252,6 +253,7 @@ async def run_single_site_test(target: dict):
         sample_count = min(len(detail_links), 20)
         test_sample_urls = detail_links[:sample_count]
         parser = parser_cls()
+        parsed_count = 0
 
         for idx, detail_url in enumerate(test_sample_urls, 1):
             if "phfudousan.repros.jp" in detail_url:
@@ -270,9 +272,12 @@ async def run_single_site_test(target: dict):
                 start_parse = time.perf_counter()
                 d_soup = BeautifulSoup(d_html, "html.parser")
                 item = parser.createEntity()
-
-                parsed_item = parser._parsePropertyDetailPage(item, d_soup)
-                cleaned_item = parser.clean_parsed_item(parsed_item)
+                try:
+                    parsed_item = parser._parsePropertyDetailPage(item, d_soup)
+                    cleaned_item = parser.clean_parsed_item(parsed_item)
+                except ListingEndedException as e:
+                    print(f" [{site}] Skipped listing ended page: {detail_url} ({e})")
+                    continue
 
             parse_ms = (time.perf_counter() - start_parse) * 1000.0
             print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")
@@ -280,7 +285,10 @@ async def run_single_site_test(target: dict):
 
             # 全フィールド検証
             assert_full_model_fields(cleaned_item, model_cls, site)
+            parsed_count += 1
             print(f" [{site}] Detail #{idx} SUCCESS: '{cleaned_item.propertyName}' - {cleaned_item.priceStr}")
+
+        assert parsed_count > 0, f"[{site}] No properties successfully parsed (all were skipped or listing ended)"
 
 
 @pytest.mark.live

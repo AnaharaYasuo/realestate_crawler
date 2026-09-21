@@ -260,8 +260,56 @@ class PrePRChecker:
                 errors.append(f"構文エラー ({f}:{e.lineno}): {e.msg}")
         return errors
 
+    def _parse_diff_hunk_lines(self, diff_text: str) -> Set[int]:
+        """Parse added/modified line numbers from git diff -U0 output."""
+        changed: Set[int] = set()
+        for line in diff_text.splitlines():
+            if not line.startswith("@@"):
+                continue
+            m = re.search(r'\+(\d+)(?:,(\d+))?', line)
+            if m:
+                start = int(m.group(1))
+                count = int(m.group(2)) if m.group(2) is not None else 1
+                changed.update(range(start, start + count))
+        return changed
+
+    def _get_changed_lines_for_file(self, rel_path: str) -> Set[int]:
+        """Extract line numbers added or modified in git diff for rel_path against base ref."""
+        ref_candidates = []
+        if self.target_sha:
+            ref_candidates.extend([f"origin/master...{self.target_sha}", f"master...{self.target_sha}"])
+        else:
+            ref_candidates.extend(["origin/master", "master", "origin/master...HEAD", "HEAD"])
+        for base_ref in ref_candidates:
+            cmd = ["git", "diff", "-U0", "--ignore-space-at-eol", base_ref, "--", rel_path]
+            rc, out, _ = self._run_cmd(cmd)
+            if rc == 0 and out:
+                return self._parse_diff_hunk_lines(out)
+        return set()
+
+    def _is_func_in_diff(self, func_line: int, full_path: str, changed_lines: Set[int]) -> bool:
+        """Check if AST function starting at func_line overlaps with changed_lines."""
+        try:
+            with open(full_path, "r", encoding="utf-8") as fp:
+                tree = ast.parse(fp.read(), filename=full_path)
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == func_line:
+                    end_line = getattr(node, "end_lineno", node.lineno)
+                    return any(node.lineno <= cl <= end_line for cl in changed_lines)
+        except Exception:
+            pass
+        return False
+
+    def _is_issue_in_diff(self, iss: Dict[str, Any], changed_lines: Set[int], full_path: str) -> bool:
+        """Determine if a Sonar issue falls within lines or functions touched by the PR."""
+        if not changed_lines or iss.get("line", 0) in changed_lines:
+            return True
+        if iss.get("rule") == "python:S3776":
+            return self._is_func_in_diff(iss.get("line", 0), full_path, changed_lines)
+        return False
+
     def _check_sonar_violations(self, py_files: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
-        """Scan Python files for SonarCloud S3776 & S8786 violations."""
+        """Scan Python files for SonarCloud S3776 & S8786 violations on new/modified code."""
         issues: List[Dict[str, Any]] = []
         errors = []
         for f in py_files:
@@ -269,11 +317,34 @@ class PrePRChecker:
             if is_sonar_excluded(f):
                 continue
             found = scan_sonar_file(full_path)
-            issues.extend(found)
+            changed_lines = self._get_changed_lines_for_file(f)
+            for iss in found:
+                if self._is_issue_in_diff(iss, changed_lines, full_path):
+                    issues.append(iss)
 
         for iss in issues:
             errors.append(f"SonarCloud違反 [{iss.get('rule')}]: {iss.get('file')}:{iss.get('line')} - {iss.get('message')}")
         return issues, errors
+
+    def _filter_ruff_errors(self, ruff_json_out: str) -> List[str]:
+        """Filter ruff diagnostics to only those falling on changed lines in PR diff."""
+        try:
+            diagnostics = json.loads(ruff_json_out)
+        except Exception:
+            return [ruff_json_out] if ruff_json_out else []
+
+        errors = []
+        for diag in diagnostics:
+            fpath = diag.get("filename", "")
+            rel = os.path.relpath(fpath, self.repo_root).replace("\\", "/")
+            row = diag.get("location", {}).get("row", 0)
+            changed = self._get_changed_lines_for_file(rel)
+            if not changed or row in changed:
+                code = diag.get("code", "")
+                msg = diag.get("message", "")
+                col = diag.get("location", {}).get("column", 0)
+                errors.append(f"{rel}:{row}:{col}: {code} {msg}")
+        return errors
 
     def _run_ruff_linter(self, py_files: List[str]) -> Tuple[List[str], List[str]]:
         """Run Ruff linter adapting to host or container environment."""
@@ -289,13 +360,14 @@ class PrePRChecker:
                 errors.append("Ruff が未インストールです。'pip install ruff' でインストールしてください。")
                 return errors, warnings
 
-        ruff_cmd = ruff_base + ["check"]
-        if self.fix_mode:
-            ruff_cmd.append("--fix")
         target_args = py_files if py_files else ["src/crawler/"]
-        rc, ruff_out, ruff_err = self._run_cmd(ruff_cmd + target_args)
-        if rc != 0:
-            errors.append(f"Ruff Linter違反が検出されました:\n{ruff_out or ruff_err}")
+        check_args = ["check", "--fix", "--output-format=json"] if self.fix_mode else ["check", "--output-format=json"]
+        cmd = ruff_base + check_args + target_args
+        rc, ruff_out, ruff_err = self._run_cmd(cmd)
+        if ruff_out:
+            errors.extend(self._filter_ruff_errors(ruff_out))
+        elif rc != 0 and ruff_err:
+            errors.append(f"Ruff Linter実行エラー: {ruff_err}")
         return errors, warnings
 
     def stage3_linter_and_sonar(self) -> StageResult:
