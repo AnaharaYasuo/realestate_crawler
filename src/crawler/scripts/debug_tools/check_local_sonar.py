@@ -240,6 +240,121 @@ def scan_source_code(source_code: str, filename: str = "", max_complexity: int =
 
     # 2. Scan for Regex Backtracking (S8786)
     issues.extend(detect_regex_redos_risks(source_code, filename=filename))
+
+    # 3. Scan for Code Smells: S1192 (duplicated literals) & S7508 (redundant calls)
+    issues.extend(detect_sonar_code_smells(tree, filename=filename))
+    return issues
+
+
+def _collect_docstring_nodes(tree: ast.AST) -> Set[int]:
+    """Collect line numbers of docstrings in AST to exclude from duplicate literal checks."""
+    doc_lines = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if (
+                node.body
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)
+            ):
+                doc_lines.add(getattr(node.body[0].value, "lineno", 0))
+    return doc_lines
+
+
+def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
+    """Scan for S7508: sorted(list(...))."""
+    issues = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "sorted"
+            and node.args
+            and isinstance(node.args[0], ast.Call)
+            and isinstance(node.args[0].func, ast.Name)
+            and node.args[0].func.id == "list"
+        ):
+            issues.append({
+                "file": filename,
+                "line": getattr(node, "lineno", 1),
+                "rule": "python:S7508",
+                "severity": "MINOR",
+                "message": f"Remove redundant call '{node.args[0].func.id}()' before sorted().",
+            })
+    return issues
+
+
+def _extract_chained_string_methods(node: ast.BoolOp) -> List[str]:
+    """Extract string method names from chained Or boolean expression."""
+    if not isinstance(node.op, ast.Or):
+        return []
+    funcs = []
+    for v in node.values:
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr in ("startswith", "endswith"):
+            funcs.append(v.func.attr)
+    return funcs
+
+
+def _check_s8513_chained_startswith(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
+    """Scan for S8513: chained startswith or endswith with or operator."""
+    issues = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BoolOp):
+            continue
+        funcs = _extract_chained_string_methods(node)
+        if len(funcs) >= 2 and len(set(funcs)) == 1:
+            issues.append({
+                "file": filename,
+                "line": getattr(node, "lineno", 1),
+                "rule": "python:S8513",
+                "severity": "MAJOR",
+                "message": f"Replace chained '{funcs[0]}' calls with a single call using a tuple argument.",
+            })
+    return issues
+
+
+def _is_s1192_candidate(val: str) -> bool:
+    """Check if string literal qualifies as S1192 duplication candidate."""
+    if len(val) < 12 or val.startswith(("-", "__")):
+        return False
+    # Only flag multi-word sentences, Japanese phrases, or longer descriptive literals
+    return " " in val or "\n" in val or any(ord(ch) > 0x3000 for ch in val)
+
+
+def _check_s1192_duplicated_literals(tree: ast.AST, filename: str, doc_lines: Set[int]) -> List[Dict[str, Any]]:
+    """Scan for S1192: duplicated human-readable string literals >= 3 times."""
+    if is_excluded_file(filename):
+        return []
+
+    str_counts: Dict[str, List[int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            lineno = getattr(node, "lineno", 0)
+            if lineno in doc_lines:
+                continue
+            val = node.value.strip()
+            if _is_s1192_candidate(val):
+                str_counts.setdefault(val, []).append(lineno)
+
+    issues = []
+    for val, lines in str_counts.items():
+        if len(lines) >= 3:
+            issues.append({
+                "file": filename,
+                "line": lines[0],
+                "rule": "python:S1192",
+                "severity": "CRITICAL",
+                "message": f"Define a constant instead of duplicating this literal '{val[:30]}' {len(lines)} times (lines: {lines[:4]}).",
+            })
+    return issues
+
+
+def detect_sonar_code_smells(tree: ast.AST, filename: str = "") -> List[Dict[str, Any]]:
+    """Detect SonarCloud S1192 (duplicated literals), S7508 (redundant calls), S8513 (chained startswith)."""
+    doc_lines = _collect_docstring_nodes(tree)
+    issues = _check_s7508_redundant_calls(tree, filename)
+    issues.extend(_check_s8513_chained_startswith(tree, filename))
+    issues.extend(_check_s1192_duplicated_literals(tree, filename, doc_lines))
     return issues
 
 

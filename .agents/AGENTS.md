@@ -202,6 +202,17 @@
 - **並行セッションの衝突防止**: 複数のAIエージェントやセッションが同時に稼働する際、同一ワーキングツリー内でのファイル変更・Gitインデックスのバッティングを防ぐため、必ず `git worktree` を用いて独立したワークツリーディレクトリ（例: `../realestate_crawler_<topic>`）を作成して作業すること。
 - **ブランチの独立性**: 各ワークツリーは `master` から分岐した専用の作業ブランチ（`feature/<topic>` または `fix/<topic>`）に紐付け、作業完了後は通常フローに従って PR 作成・マージ後にワークツリーを安全に削除（`git worktree remove`）すること。
 
+## 【プロジェクト普遍ルール】PR提出前ローカル全チェック義務化＆合格検証原則 (Pre-PR Local Verification Gate)
+- **PR提出前のローカル全検査義務**: Pull Request を提出する前、またはリモートへプッシュする前に、必ずローカル環境で `task pr-check`（または `task pr-create`）を実行し、以下の7大検証ステージにおいて **100% 全件合格 (ALL CHECKS PASSED)** することを客観的事実として裏付けなければならない：
+  1. **Git & ブランチ健全性**: ブランチ命名規則（`feature/<issue_num>-...`, `fix/<issue_num>-...`）、未コミット一時ファイル・機密情報の混入検査
+  2. **GitHub Issue & 受入基準**: Issue実在確認および本文の全受入基準チェックボックス（`- [ ]`）がすべて完了（`- [x]`）していることの確認
+  3. **Linter & SonarCloud**: Ruff、SonarCloud（S3776 認知複雑度 <= 15, S8786 ReDoS防止）、Python AST構文検査
+  4. **テストスイート実行**: `pytest -n auto src/crawler/tests/unit/` の全件合格
+  5. **PR Mutation Testing**: `run_mutation_testing.py --pr-mode --threshold=80`（キル率 >= 80%）
+  6. **セキュリティ & IaC スキャン**: Semgrep SAST（Python）、Checkov（Terraform変更時）
+  7. **PRメタデータ事前検査**: PRタイトルフォーマット（`[#<issue_num>] ...`）、本文の `Closes #<issue_num>`、およびPR本文に未完了チェックボックス（`- [ ]`）が存在しないこと
+- **チェック落ちの事前根絶**: 1つでも FAIL が検出された場合は PR 提出を即時中断し、ローカルで問題を完全に解消してから再検証・提出すること。
+
 ## 【プロジェクト普遍ルール】PR作成前のローカル静的解析義務化ルール (Snyk & SonarLint Pre-PR Check)
 - **事前走査の義務化**: コード修正や新機能追加の後、GitHub に Pull Request を作成・プッシュする前に、必ずローカル環境で Snyk によるセキュリティ脆弱性スキャンおよび SonarLint / SonarQube による静的コード解析を実施すること。
 - **指摘事項の解消**: 検出された重大な脆弱性（High/Critical）、Code Smell、型エラー、未解決の指摘はすべて修正してからコミット・PR作成を行うこと。

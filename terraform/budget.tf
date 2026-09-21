@@ -17,6 +17,7 @@ resource "google_monitoring_notification_channel" "budget_email" {
 
 # 2. Slack等への連携用 Pub/Sub トピック (予算通知イベント送信用)
 resource "google_pubsub_topic" "budget_alert_topic" {
+  # checkov:skip=CKV_GCP_83:Use default Google-managed encryption for budget alerts
   name = "budget-alert-topic-${var.environment}"
 
   depends_on = [google_project_service.enabled_services]

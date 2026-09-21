@@ -87,22 +87,34 @@ do
     fi
     echo "✅ Issue #$issue_num の存在を確認しました。"
 
-    # 4. SonarCloud Local Guardrail (S3776 Cognitive Complexity & S8786 ReDoS Regex Defense)
-    if [ "$SKIP_SONAR_CHECK" = "1" ] || [ "$SKIP_SONAR_CHECK" = "true" ]; then
-        echo "⚠️  SKIP_SONAR_CHECK is enabled. Bypassing SonarCloud local guardrail."
+    # 4. GitHub Issue Acceptance Criteria Guardrail
+    echo "🔍 Issue #$issue_num のアクセプタンスクライテリア (受入基準) を検証中..."
+    if ! docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py --issue "$issue_num"; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] Issue #$issue_num のアクセプタンスクライテリア（受入基準）に未完了項目があります。"
+        echo "すべての受入基準を満たし、Issue 本文のチェックボックス (- [x]) を更新してください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    fi
+    echo "✅ Issue #$issue_num のアクセプタンスクライテリア全件充足を確認しました。"
+
+    # 5. Pre-PR Local Guardrail (Linter, SonarCloud, Syntax, Branch Hygiene)
+    if [ "$SKIP_PRE_PR_CHECK" = "1" ] || [ "$SKIP_PRE_PR_CHECK" = "true" ]; then
+        echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
-        echo "🔍 SonarCloud 事前静的解析 (S3776 & S8786) を実行中..."
-        if ! docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff; then
+        echo "🔍 Pre-PR ローカル高速事前検証 (Linter, SonarCloud, 構文) を実行中..."
+        if ! docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$branch" --sha "$local_sha"; then
             echo ""
             echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] SonarCloud ローカルガードレール違反が検出されました。"
-            echo "Cognitive Complexity (S3776 <= 15) または危険な正規表現 (S8786 ReDoS) を修正してください。"
-            echo "詳細は 'docs/implementation/sonar_guardrail_guide.md' を参照してください。"
+            echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check) でエラーが検出されました。"
+            echo "ローカルで問題を解消してから再度プッシュしてください。"
             echo "================================================================================"
             echo ""
             exit 1
         fi
-        echo "✅ SonarCloud 事前静的解析に合格しました。"
+        echo "✅ Pre-PR ローカル高速事前検証に合格しました。"
     fi
 done
 

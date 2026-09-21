@@ -6,6 +6,10 @@ on:
   push:
     branches: [ main, master, production ]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   changes:
     name: Detect Changes
