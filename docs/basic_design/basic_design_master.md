@@ -1110,5 +1110,22 @@ flowchart TD
    - `task pr-check`: カレントブランチの Issue 受入基準のチェック状態を即座に確認。
    - `task pr-create`: 受入基準がすべて満たされているかを自動事前判定し、合格時のみ `gh pr create` を呼び出す。
 
+---
+
+## 20. クローラーURL正規化・階層展開アーキテクチャ (Crawler URL Normalization & Hierarchy Traversal)
+
+### 20.1 概要
+クローラーの巡回およびDB保存において、URLの一意性判定およびマルチ階層展開を堅牢化する設計。
+
+### 20.2 一意識別パラメータ保護 (`UrlMatcher`)
+- 一部の不動産サイト（Panasonic Rearie 等）では、物件詳細が一意のクエリパラメータ（例: `?id=XXXXXX`）で識別される。
+- `UrlMatcher.normalize()` は一般的なトラッキングクエリ（`utm_*`, `session_id` 等）や不要クエリをカットしつつ、物件詳細の必須識別子（`id` 等の特定パラメータ）を維持するホワイトリスト/ドメイン保護ルールを適用する。
+- これにより、DBレコード保存時の URL 衝突（全件同一URLへの上書き現象）を根絶する。
+
+### 20.3 自律HTTPセッション管理 (`DaikyoParser`)
+- 都道府県別・市区町村別など複数階層にドリルダウンして詳細物件URLを収集するパーサー（`DaikyoParser` 等）において、`_getContent` 呼び出し時に渡される `session` が `None` の場合でも、内部で自己完結した非同期セッションを生成・破棄して確実に生HTMLを取得する。
+- 外部オーケストレータ（`ParseMiddlePageAsyncBase`）のセッション引き渡し有無に依存せず、常に安定した階層展開クローリングを保証する。
+
+
 
 

@@ -1,8 +1,14 @@
 import os
 
-from package.api.api import API_KEY_TOKYU_MANSION_DETAIL_GCP, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_AREA_GCP, API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST_GCP, API_KEY_TOKYU_MANSION_LIST, API_KEY_TOKYU_MANSION_START
-from package.api.api import API_KEY_TOKYU_TOCHI_START, API_KEY_TOKYU_TOCHI_AREA, API_KEY_TOKYU_TOCHI_LIST, API_KEY_TOKYU_TOCHI_DETAIL
-from package.api.api import API_KEY_TOKYU_KODATE_START, API_KEY_TOKYU_KODATE_AREA, API_KEY_TOKYU_KODATE_LIST, API_KEY_TOKYU_KODATE_DETAIL, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
+from package.api.api import (
+    API_KEY_TOKYU_MANSION_DETAIL_GCP, API_KEY_TOKYU_MANSION_DETAIL, API_KEY_TOKYU_MANSION_AREA_GCP,
+    API_KEY_TOKYU_MANSION_AREA, API_KEY_TOKYU_MANSION_LIST_GCP, API_KEY_TOKYU_MANSION_LIST, API_KEY_TOKYU_MANSION_START,
+    API_KEY_TOKYU_TOCHI_START, API_KEY_TOKYU_TOCHI_AREA, API_KEY_TOKYU_TOCHI_LIST, API_KEY_TOKYU_TOCHI_DETAIL,
+    API_KEY_TOKYU_TOCHI_AREA_GCP, API_KEY_TOKYU_TOCHI_LIST_GCP, API_KEY_TOKYU_TOCHI_DETAIL_GCP,
+    API_KEY_TOKYU_KODATE_START, API_KEY_TOKYU_KODATE_AREA, API_KEY_TOKYU_KODATE_LIST, API_KEY_TOKYU_KODATE_DETAIL,
+    API_KEY_TOKYU_KODATE_AREA_GCP, API_KEY_TOKYU_KODATE_LIST_GCP, API_KEY_TOKYU_KODATE_DETAIL_GCP,
+    ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase,
+)
 from package.parser.tokyuParser import TokyuMansionParser, TokyuTochiParser, TokyuKodateParser
 
 DEFAULT_PARARELL_LIMIT = 1
@@ -143,6 +149,9 @@ class ParseTokyuTochiListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageParserFunc(self):
         return self.parser.getPropertyListNextPageUrl
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -154,10 +163,14 @@ class ParseTokyuTochiListFuncAsync(ParseMiddlePageAsyncBase):
 
     def _getApiKey(self):
         # TODO: Define specific API keys for Tochi in api.py if needed, effectively using same pattern
-        return "/api/tokyu/tochi/detail" 
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_TOCHI_DETAIL_GCP
+        return API_KEY_TOKYU_TOCHI_DETAIL
     
     def _getNextPageApiKey(self):
-        return "/api/tokyu/tochi/list"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_TOCHI_LIST_GCP
+        return API_KEY_TOKYU_TOCHI_LIST
 
 class ParseTokyuTochiStartAsync(ParseMiddlePageAsyncBase):
 
@@ -167,6 +180,9 @@ class ParseTokyuTochiStartAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parseRootPage
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -177,7 +193,9 @@ class ParseTokyuTochiStartAsync(ParseMiddlePageAsyncBase):
         return 2400
 
     def _getApiKey(self):
-        return "/api/tokyu/tochi/area"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_TOCHI_AREA_GCP
+        return API_KEY_TOKYU_TOCHI_AREA
 
 class ParseTokyuTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -187,6 +205,9 @@ class ParseTokyuTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parseAreaPage
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -197,7 +218,9 @@ class ParseTokyuTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return 2400
 
     def _getApiKey(self):
-        return "/api/tokyu/tochi/list"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_TOCHI_LIST_GCP
+        return API_KEY_TOKYU_TOCHI_LIST
 
 
 ###################################################
@@ -233,6 +256,9 @@ class ParseTokyuKodateListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageParserFunc(self):
         return self.parser.getPropertyListNextPageUrl
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -243,10 +269,14 @@ class ParseTokyuKodateListFuncAsync(ParseMiddlePageAsyncBase):
         return 360
 
     def _getApiKey(self):
-        return "/api/tokyu/kodate/detail"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_KODATE_DETAIL_GCP
+        return API_KEY_TOKYU_KODATE_DETAIL
     
     def _getNextPageApiKey(self):
-        return "/api/tokyu/kodate/list"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_KODATE_LIST_GCP
+        return API_KEY_TOKYU_KODATE_LIST
 
 
 class ParseTokyuKodateStartAsync(ParseMiddlePageAsyncBase):
@@ -257,6 +287,9 @@ class ParseTokyuKodateStartAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parseRootPage
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -267,7 +300,9 @@ class ParseTokyuKodateStartAsync(ParseMiddlePageAsyncBase):
         return 2400
 
     def _getApiKey(self):
-        return "/api/tokyu/kodate/area"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_KODATE_AREA_GCP
+        return API_KEY_TOKYU_KODATE_AREA
 
 class ParseTokyuKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -277,6 +312,9 @@ class ParseTokyuKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parseAreaPage
 
+    def _isBsMiddlePage(self):
+        return False
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -287,7 +325,9 @@ class ParseTokyuKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
         return 2400
 
     def _getApiKey(self):
-        return "/api/tokyu/kodate/list"
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_TOKYU_KODATE_LIST_GCP
+        return API_KEY_TOKYU_KODATE_LIST
 
 from package.api.registry import ApiRegistry
 

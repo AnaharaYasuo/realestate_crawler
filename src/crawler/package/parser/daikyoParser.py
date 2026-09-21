@@ -1,5 +1,7 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
+from typing import Optional
+import aiohttp
 import re
 import logging
 import urllib.parse
@@ -121,27 +123,35 @@ class DaikyoParser(ParserBase):
                 pref_urls.add(self.getRootDestUrl(href))
         return pref_urls
 
-    async def _crawl_pref_url(self, p_url: str, detail_links: set):
+    async def _crawl_pref_url(self, p_url: str, detail_links: set, session: Optional[aiohttp.ClientSession] = None):
         curr_p_url = p_url
         visited_p_urls = {curr_p_url}
-        while curr_p_url:
-            try:
-                p_html = await self._getContent(None, curr_p_url)
-                if not p_html:
-                    break
-                p_soup = BeautifulSoup(p_html, "html.parser")
-                for link in self._extract_detail_links(p_soup, detail_links):
-                    yield link
+        own_session = None
+        if session is None:
+            own_session = aiohttp.ClientSession()
+        s = session or own_session
+        try:
+            while curr_p_url:
+                try:
+                    p_html = await self._getContent(s, curr_p_url)
+                    if not p_html:
+                        break
+                    p_soup = BeautifulSoup(p_html, "html.parser")
+                    for link in self._extract_detail_links(p_soup, detail_links):
+                        yield link
 
-                next_page = await self.parseNextPage(p_soup)
-                if next_page and next_page not in visited_p_urls:
-                    visited_p_urls.add(next_page)
-                    curr_p_url = next_page
-                else:
+                    next_page = await self.parseNextPage(p_soup)
+                    if next_page and next_page not in visited_p_urls:
+                        visited_p_urls.add(next_page)
+                        curr_p_url = next_page
+                    else:
+                        break
+                except Exception as pe:
+                    logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
                     break
-            except Exception as pe:
-                logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
-                break
+        finally:
+            if own_session is not None and not own_session.closed:
+                await own_session.close()
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()

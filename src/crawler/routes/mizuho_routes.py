@@ -6,7 +6,8 @@ mizuho_bp = Blueprint('mizuho', __name__)
 
 def get_start_url(property_type='Mansion'):
     """みずほ不動産販売の指定種別における東京都全域スタートURLを取得する。"""
-    return f'https://www.mizuho-re.co.jp/buyers/search/area/type_{property_type}/pref_13/list/'
+    type_slug = 'Tochi' if property_type.lower() == 'land' or property_type.lower() == 'tochi' else property_type
+    return f'https://www.mizuho-re.co.jp/buyers/search/area/type_{type_slug}/pref_13/list/'
 
 @mizuho_bp.route(API_KEY_MIZUHO_MANSION_START, methods=['POST', 'GET'])
 def mizuhoMansionStart():

@@ -2,7 +2,7 @@
 import re
 import importlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from package.utils.property_type_detector import PropertyTypeDetector
 
@@ -200,7 +200,7 @@ class UrlRouter:
 
         # ミサワホーム (Misawa)
         {
-            "pattern": re.compile(r"realestate\.misawa\.co\.jp/.*bukken_type%5B%5D=9|realestate\.misawa\.co\.jp/.*bukken_type=9"),
+            "pattern": re.compile(r"realestate\.misawa\.co\.jp/[^?]*\?[^#]*bukken_type(?:%5B%5D)?=9"),
             "site": "misawa",
             "property_type": "mansion",
             "parser_module": "package.parser.misawaParser",
@@ -209,7 +209,7 @@ class UrlRouter:
             "model_cls": "MisawaMansion",
         },
         {
-            "pattern": re.compile(r"realestate\.misawa\.co\.jp/.*bukken_type%5B%5D=10|realestate\.misawa\.co\.jp/.*bukken_type=10"),
+            "pattern": re.compile(r"realestate\.misawa\.co\.jp/[^?]*\?[^#]*bukken_type(?:%5B%5D)?=10"),
             "site": "misawa",
             "property_type": "kodate",
             "parser_module": "package.parser.misawaParser",
@@ -257,6 +257,15 @@ class UrlRouter:
         },
 
         # 野村不動産ノムコム (Nomura)
+        {
+            "pattern": re.compile(r"nomu\.com/pro/"),
+            "site": "nomura",
+            "property_type": "apartment",
+            "parser_module": "package.parser.nomuraParser",
+            "parser_cls": "NomuraInvestmentApartmentParser",
+            "model_module": "package.models.nomura",
+            "model_cls": "NomuraInvestmentApartment",
+        },
         {
             "pattern": re.compile(r"nomu\.com/mansion/"),
             "site": "nomura",
@@ -340,7 +349,47 @@ class UrlRouter:
             "model_module": KENBIYA_MODEL_MODULE,
             "model_cls": "KenbiyaInvestmentApartment",
         },
+
+        # パナソニック ホームズ 不動産 (Rearie)
+        {
+            "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/mansion/"),
+            "site": "rearie",
+            "property_type": "mansion",
+            "parser_module": "package.parser.rearieParser",
+            "parser_cls": "RearieMansionParser",
+            "model_module": "package.models.rearie",
+            "model_cls": "RearieMansion",
+        },
+        {
+            "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/house/"),
+            "site": "rearie",
+            "property_type": "kodate",
+            "parser_module": "package.parser.rearieParser",
+            "parser_cls": "RearieKodateParser",
+            "model_module": "package.models.rearie",
+            "model_cls": "RearieKodate",
+        },
+        {
+            "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/land/"),
+            "site": "rearie",
+            "property_type": "tochi",
+            "parser_module": "package.parser.rearieParser",
+            "parser_cls": "RearieTochiParser",
+            "model_module": "package.models.rearie",
+            "model_cls": "RearieTochi",
+        },
     ]
+
+    @classmethod
+    def _find_best_route(cls, matched_routes: List[Dict[str, Any]], target_ptype: str) -> Optional[Dict[str, Any]]:
+        for route in matched_routes:
+            if route["property_type"] == target_ptype:
+                return route
+        matched_site = matched_routes[0]["site"]
+        for route in cls.ROUTES:
+            if route["site"] == matched_site and route["property_type"] == target_ptype:
+                return route
+        return None
 
     @classmethod
     def resolve(
@@ -377,16 +426,9 @@ class UrlRouter:
 
         # 3. 指定・判定された property_type に合致するルートを選択
         if target_ptype:
-            # マッチしたルート群の中から該当種別を探す
-            for route in matched_routes:
-                if route["property_type"] == target_ptype:
-                    return route
-
-            # マッチしたサイトの全ルートの中から該当種別を探す（汎用URLの場合）
-            matched_site = matched_routes[0]["site"]
-            for route in cls.ROUTES:
-                if route["site"] == matched_site and route["property_type"] == target_ptype:
-                    return route
+            best = cls._find_best_route(matched_routes, target_ptype)
+            if best:
+                return best
 
         # 4. 種別指定なし、または該当なしの場合は先頭の一致ルートを返却
         return matched_routes[0]
