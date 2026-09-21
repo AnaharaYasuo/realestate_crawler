@@ -506,20 +506,20 @@ def test_daiwa_uncovered_branches():
 
 
 def test_daiwa_pagination_svg_only_fallback_in_parsenextpage():
-    """daiwaParserで数字リンクがなくSVGリンクのみの場合に_find_next_by_link_tags経由で次ページが取得できること"""
+    """daiwaParserで現在のページ番号が特定できない場合に_find_next_by_link_tags経由で次ページが取得できること"""
     import asyncio
     from package.parser.daiwaParser import DaiwaMansionParser
 
     parser = DaiwaMansionParser()
     html = """
     <div class="pagination">
-        <a href="/buy/search/alist?page=prev" class="prev"><svg></svg></a>
-        <a href="/buy/search/alist?page=next" class="next"><svg></svg></a>
+        <a href="/buy/search/alist?page=1" class="prev"><svg></svg></a>
+        <a href="/buy/search/alist?page=3" class="next"><svg></svg></a>
     </div>
     """
     soup = BeautifulSoup(html, "html.parser")
     next_url = asyncio.run(parser.parseNextPage(soup))
-    assert "page=next" in next_url
+    assert "page=3" in next_url
 
 
 def test_daiwa_find_next_by_page_number_unmatched():
