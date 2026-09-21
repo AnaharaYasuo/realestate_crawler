@@ -225,12 +225,11 @@ class AthomeParser(ParserBase):
                 if normalized not in list_links and normalized != "https://toushi-athome.jp/":
                     list_links.add(normalized)
 
-        # 個別詳細が見つからず市区町村リストが見つかった場合は各リストページを取得して本物の詳細物件URLを抽出・yieldする
         if not detail_links and list_links:
             for l_url in list_links:
                 curr_l_url = l_url
-                page_depth = 0
-                while curr_l_url and page_depth < 5:
+                visited_l_urls = {curr_l_url}
+                while curr_l_url:
                     try:
                         list_html = await self._getContent(None, curr_l_url)
                         if not list_html:
@@ -252,9 +251,9 @@ class AthomeParser(ParserBase):
                                     detail_links.add(normalized)
                                     yield normalized
                         next_sub_page = await self.parseNextPage(sub_soup)
-                        if next_sub_page and next_sub_page != curr_l_url:
+                        if next_sub_page and next_sub_page not in visited_l_urls:
+                            visited_l_urls.add(next_sub_page)
                             curr_l_url = next_sub_page
-                            page_depth += 1
                         else:
                             break
                     except Exception as e:

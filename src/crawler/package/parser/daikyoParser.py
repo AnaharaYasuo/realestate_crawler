@@ -109,9 +109,13 @@ class DaikyoParser(ParserBase):
 
             if pref_urls:
                 for p_url in sorted(pref_urls):
-                    try:
-                        p_html = await self._getContent(None, p_url)
-                        if p_html:
+                    curr_p_url = p_url
+                    visited_p_urls = {curr_p_url}
+                    while curr_p_url:
+                        try:
+                            p_html = await self._getContent(None, curr_p_url)
+                            if not p_html:
+                                break
                             p_soup = BeautifulSoup(p_html, "html.parser")
                             for a in p_soup.select('a[href*="detail"]'):
                                 href = a.get("href")
@@ -124,10 +128,18 @@ class DaikyoParser(ParserBase):
                                     normalized = f"{self.BASE_URL}{path}"
                                     if normalized not in detail_links:
                                         detail_links.add(normalized)
-                                        logging.info(f"[Daikyo] Match detail link from {p_url}: {normalized}")
+                                        logging.info(f"[Daikyo] Match detail link from {curr_p_url}: {normalized}")
                                         yield normalized
-                    except Exception as pe:
-                        logging.warning(f"[Daikyo] Failed to fetch pref {p_url}: {pe}")
+
+                            next_page = await self.parseNextPage(p_soup)
+                            if next_page and next_page not in visited_p_urls:
+                                visited_p_urls.add(next_page)
+                                curr_p_url = next_page
+                            else:
+                                break
+                        except Exception as pe:
+                            logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
+                            break
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}

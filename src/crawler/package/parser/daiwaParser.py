@@ -64,12 +64,25 @@ class DaiwaParser(ParserBase):
                 if a_tag.find("svg") or ">" in a_tag.get_text():
                     return self.getRootDestUrl(href)
 
-            # 現在ページの次番号（最小の page > 1 または順序から特定）
-            # 重複除去し昇順ソート
-            sorted_pages = sorted({(p, h) for p, h, _ in page_links}, key=lambda x: x[0])
-            for p, h in sorted_pages:
-                if p > 1:
-                    return self.getRootDestUrl(h)
+            # 現在ページの検出（aria-current="page", またはアクティブ要素）
+            current_page = None
+            curr_el = response.find(attrs={"aria-current": ["page", "true"]})
+            if curr_el:
+                m_curr = re.search(r'\d+', curr_el.get_text())
+                if m_curr:
+                    current_page = int(m_curr.group(0))
+
+            if current_page is None:
+                for el in response.select(".pagination .active, .pagination .current, .pager .active, [class*='active'], [class*='current']"):
+                    m_curr = re.search(r'^\s*(\d+)\s*$', el.get_text())
+                    if m_curr:
+                        current_page = int(m_curr.group(1))
+                        break
+
+            if current_page is not None:
+                for p_num, href, _ in page_links:
+                    if p_num == current_page + 1:
+                        return self.getRootDestUrl(href)
 
         return ""
 
