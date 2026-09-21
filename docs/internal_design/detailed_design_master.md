@@ -423,7 +423,7 @@ graph TD
 - **背景と課題**:
   - SonarCloud の Quality Gate 状態や未解消課題をリモート API で確認する際、curl コマンド等にタイムアウトが設定されていないため、Windows PowerShell環境やネットワーク遅延時にプロセスが無限待機（ハング）し、バックグラウンドタスクとして滞留し続ける事象が発生していた。
 - **専用検証スクリプト (`src/crawler/scripts/debug_tools/check_sonar_remote.py`)**:
-  - **有限時間タイムアウト保証**: `urllib.request.urlopen` に明示的な `timeout` 引数（デフォルト 10.0 秒、CLI オプション `--timeout` で指定可能）を強制設定。ソケットの接続（connect）および読み取り（read）双方で有限時間内に完了しない場合は `TimeoutError` / `URLError` として即座に終了する。
+  - **ソケット単位の有限時間タイムアウト保証**: `urllib.request.urlopen` に明示的な `timeout` 引数（デフォルト 10.0 秒、CLI オプション `--timeout` で指定可能、最大 10.0 秒まで）を強制設定。ソケットの接続（connect）および読み取り（read）の各操作がそれぞれ指定秒数以内に完了しない場合は `TimeoutError` / `URLError` として即座に終了する。なお、この保証はソケット単位の個別操作に対するものであり、複数の API コールを含む処理全体のエンドツーエンド実行時間を 10 秒以内に収めることを保証するものではない（`_execute_api_get` を複数回呼び出す場合、合計所要時間はタイムアウト値の倍数を超え得る）。
   - **対象指定の柔軟性**: `--pr <pr_number>` または `--branch <branch_name>` を指定することで、対象の Quality Gate ステータス（`project_status`）および未解消課題（`issues/search`）を安全に照会可能。
   - **出力形式とエラーハンドリング**:
     - 通常モードでは人間が視認しやすいフォーマットで Quality Gate の OK / ERROR 判定およびメトリクス一覧を出力。
