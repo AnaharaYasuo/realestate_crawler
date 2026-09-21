@@ -121,20 +121,21 @@ def test_review_gate_production_path_skips_only_coderabbit_pending_checks():
     non_production_block, non_production_end = _extract_braced_block(
         script, "if (targetBranch !== 'production')"
     )
-    production_block, _ = _extract_braced_block(script, "else", non_production_end)
+    trailing = script[non_production_end:].lstrip()
 
     assert "getCombinedStatusForRef" in non_production_block
     assert "listForRef" in non_production_block
     assert "crStatuses" in non_production_block
     assert "crChecks" in non_production_block
 
-    # Check runs still supply review-thread annotations on production PRs, but
-    # CodeRabbit status and in-progress gates must not be evaluated there.
-    assert "listForRef" in production_block
-    assert "Failed to fetch check runs" in production_block
-    assert "getCombinedStatusForRef" not in production_block
-    assert "crStatuses" not in production_block
-    assert "crChecks" not in production_block
+    # production PRs skip CodeRabbit/security gates and do not fetch check runs;
+    # review threads are scanned independently via GraphQL.
+    assert not trailing.startswith("else")
+    assert "Failed to fetch check runs" not in script
+    assert script.count("listForRef") == non_production_block.count("listForRef")
+    assert script.count("getCombinedStatusForRef") == non_production_block.count(
+        "getCombinedStatusForRef"
+    )
 
 
 def test_review_gate_production_path_has_no_required_security_checks():
