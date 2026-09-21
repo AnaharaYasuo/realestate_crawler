@@ -252,7 +252,13 @@ class AthomeParser(ParserBase):
                 links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
                 for normalized in links:
                     yield normalized
-                if next_page and next_page not in visited_l_urls:
+                parsed_next = urllib.parse.urlparse(next_page or "")
+                if (
+                    next_page
+                    and parsed_next.scheme in ("http", "https")
+                    and parsed_next.netloc in self.ATHOME_ALLOWED_HOSTS
+                    and next_page not in visited_l_urls
+                ):
                     visited_l_urls.add(next_page)
                     curr_l_url = next_page
                 else:

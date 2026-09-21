@@ -440,6 +440,13 @@ def test_tokyu_listing_ended_detection():
     with pytest.raises(ListingEndedException):
         parser._parsePropertyDetailPage(item, soup_ended)
 
+    # 投資用パーサーでも同様にListingEndedExceptionが送出されること
+    from package.parser.tokyuParser import TokyuInvestmentApartmentParser
+    inv_parser = TokyuInvestmentApartmentParser()
+    inv_item = inv_parser.createEntity()
+    with pytest.raises(ListingEndedException):
+        inv_parser._parsePropertyDetailPage(inv_item, soup_ended)
+
 
 def test_athome_uncovered_branches():
     """athomeパーサーのスキーム検証、テキスト次リンク、空HTML例外処理を検証"""
@@ -535,24 +542,24 @@ def test_daiwa_find_next_by_page_number_unmatched():
 
 
 def test_daiwa_find_next_by_link_tags_branches():
-    """_find_next_by_link_tagsの各条件分岐（前スキップ、次マッチ、クラス文字列／リスト）を検証"""
+    """_find_next_by_link_tagsの各条件分岐(前スキップ、次マッチ、クラス文字列/リスト)を検証"""
     from package.parser.daiwaParser import DaiwaMansionParser
 
     parser = DaiwaMansionParser()
 
-    # 1. 前スキップ（文字列クラス）
+    # 1. 前スキップ(文字列クラス)
     html_prev = '<a href="/prev" class="btn-prev">前</a>'
     soup_prev = BeautifulSoup(html_prev, "html.parser")
     a_prev = soup_prev.find("a")
     assert parser._find_next_by_link_tags([(None, "/prev", a_prev)]) == ""
 
-    # 2. 次マッチ（text="次"）
+    # 2. 次マッチ(text="次")
     html_next_text = '<a href="/next">次へ</a>'
     soup_next = BeautifulSoup(html_next_text, "html.parser")
     a_next = soup_next.find("a")
     assert "/next" in parser._find_next_by_link_tags([(None, "/next", a_next)])
 
-    # 3. 次マッチ（aria-label="next"）
+    # 3. 次マッチ(aria-label="next")
     html_next_aria = '<a href="/next-aria" aria-label="next"></a>'
     soup_aria = BeautifulSoup(html_next_aria, "html.parser")
     a_aria = soup_aria.find("a")
@@ -560,7 +567,7 @@ def test_daiwa_find_next_by_link_tags_branches():
 
 
 def test_athome_sequential_numbered_tag_branches():
-    """_find_sequential_numbered_tagの各分岐（curr_tagなし、非数値、次ページ番号なし）を検証"""
+    """_find_sequential_numbered_tagの各分岐(curr_tagなし、非数値、次ページ番号なし)を検証"""
     from package.parser.athomeParser import AthomeMansionParser
 
     # 1. curr_tagなし -> None
@@ -577,7 +584,7 @@ def test_athome_sequential_numbered_tag_branches():
 
 
 def test_athome_find_text_next_tag_branches():
-    """_find_text_next_tagの各分岐（次、>、»、該当なし）を検証"""
+    """_find_text_next_tagの各分岐(次、>、»、該当なし)を検証"""
     from package.parser.athomeParser import AthomeMansionParser
 
     # 1. text=">"
@@ -626,6 +633,26 @@ def test_athome_crawl_single_list_page_success():
     assert "12345678" in links[0]
     assert next_page is not None
     assert "page=2" in next_page
+
+
+def test_tokyu_investment_listing_ended_detection():
+    """TokyuInvestmentParserでも掲載終了メッセージ検知時にListingEndedExceptionが送出されること"""
+    import pytest
+    from package.parser.tokyuParser import TokyuInvestmentApartmentParser
+    from package.parser.baseParser import ListingEndedException
+
+    parser = TokyuInvestmentApartmentParser()
+    html_ended = """
+    <html>
+        <head><title>掲載を終了いたしました | 東急リバブル</title></head>
+        <body><div class="message">指定された物件は掲載を終了いたしました。</div></body>
+    </html>
+    """
+    soup_ended = BeautifulSoup(html_ended, "html.parser")
+    item = parser.createEntity()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(item, soup_ended)
+
 
 
 

@@ -22,6 +22,16 @@ from package.utils.selector_loader import SelectorLoader
 
 importlib.reload(sys)
 
+def check_tokyu_listing_ended(response, page_url: str = "unknown"):
+    title_text = response.title.get_text().strip() if response.title else ""
+    body_text = response.body.get_text() if response.body else ""
+    h1_el = response.find("h1")
+    h1_text = h1_el.get_text().strip() if h1_el else ""
+    all_text = f"{title_text} {h1_text} {body_text}"
+    if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
+        raise ListingEndedException(f"Tokyu listing ended: {page_url}")
+
+
 class TokyuParser(ParserBase):
 
     def _get_spec_val(self, specs, key, default=""):
@@ -180,13 +190,7 @@ class TokyuParser(ParserBase):
 
     def _parsePropertyDetailPage(self, item, response):
         # 0. 掲載終了・物件不在の早期検知
-        title_text = response.title.get_text().strip() if response.title else ""
-        body_text = response.body.get_text() if response.body else ""
-        h1_el = response.find("h1")
-        h1_text = h1_el.get_text().strip() if h1_el else ""
-        all_text = f"{title_text} {h1_text} {body_text}"
-        if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
-            raise ListingEndedException(f"Tokyu listing ended: {getattr(item, 'pageUrl', 'unknown')}")
+        check_tokyu_listing_ended(response, getattr(item, 'pageUrl', 'unknown'))
 
         # Pre-fetch specs dictionary once per detail page
         specs = self._scrape_specs(response)
@@ -940,6 +944,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             if href:
                 yield self.BASE_URL + href
     def _getNextJsData(self, response):
+        check_tokyu_listing_ended(response)
         if hasattr(response, '_next_data_json'):
             return response._next_data_json
         

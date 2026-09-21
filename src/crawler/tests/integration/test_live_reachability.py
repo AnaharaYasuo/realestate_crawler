@@ -253,6 +253,7 @@ async def run_single_site_test(target: dict):
         sample_count = min(len(detail_links), 20)
         test_sample_urls = detail_links[:sample_count]
         parser = parser_cls()
+        parsed_count = 0
 
         for idx, detail_url in enumerate(test_sample_urls, 1):
             if "phfudousan.repros.jp" in detail_url:
@@ -284,7 +285,10 @@ async def run_single_site_test(target: dict):
 
             # 全フィールド検証
             assert_full_model_fields(cleaned_item, model_cls, site)
+            parsed_count += 1
             print(f" [{site}] Detail #{idx} SUCCESS: '{cleaned_item.propertyName}' - {cleaned_item.priceStr}")
+
+        assert parsed_count > 0, f"[{site}] No properties successfully parsed (all were skipped or listing ended)"
 
 
 @pytest.mark.live
