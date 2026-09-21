@@ -128,7 +128,7 @@ def test_pre_pr_checker_fix_mode_branch(monkeypatch):
 
     monkeypatch.setattr(checker_fix, "_run_cmd", mock_run_cmd)
     checker_fix._run_ruff_linter(["src/crawler/foo.py"])
-    assert any("check" in cmd and "--fix" in cmd for cmd in called_cmds)
+    assert ["ruff", "check", "--fix", "--output-format=json", "src/crawler/foo.py"] in called_cmds
 
     checker_nofix = PrePRChecker(fix_mode=False)
     called_cmds_nofix = []
@@ -141,5 +141,6 @@ def test_pre_pr_checker_fix_mode_branch(monkeypatch):
 
     monkeypatch.setattr(checker_nofix, "_run_cmd", mock_run_cmd_nofix)
     checker_nofix._run_ruff_linter(["src/crawler/foo.py"])
-    assert any("check" in cmd and "--fix" not in cmd for cmd in called_cmds_nofix)
+    assert ["ruff", "check", "--output-format=json", "src/crawler/foo.py"] in called_cmds_nofix
+    assert all("--fix" not in cmd for cmd in called_cmds_nofix)
 
