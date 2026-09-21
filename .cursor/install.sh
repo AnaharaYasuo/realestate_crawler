@@ -26,6 +26,7 @@ if ! command -v docker >/dev/null 2>&1; then
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     sudo chmod a+r /etc/apt/keyrings/docker.gpg
   fi
+  # shellcheck disable=SC1091
   . /etc/os-release
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
     | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
@@ -84,7 +85,7 @@ sudo sysctl -w net.ipv4.ip_forward=1 net.bridge.bridge-nf-call-iptables=0 >/dev/
 if ! sudo docker info >/dev/null 2>&1; then
   log "Starting dockerd for build-time setup..."
   sudo bash -c 'nohup dockerd >/var/log/dockerd-install.log 2>&1 &'
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     sudo docker info >/dev/null 2>&1 && break
     sleep 2
   done
@@ -96,7 +97,7 @@ sudo docker compose build app
 
 log "Initialising the MySQL schema..."
 sudo docker compose up -d db
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   sudo docker compose exec -T db mysqladmin ping -h localhost -uroot -prootpassword 2>/dev/null | grep -q "is alive" && break
   sleep 5
 done

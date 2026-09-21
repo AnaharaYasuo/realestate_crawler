@@ -26,7 +26,7 @@ sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy >/dev/null 2
 if ! sudo docker info >/dev/null 2>&1; then
   log "Starting dockerd..."
   sudo bash -c 'nohup dockerd >/var/log/dockerd.log 2>&1 &'
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     sudo docker info >/dev/null 2>&1 && break
     sleep 2
   done
@@ -48,7 +48,7 @@ log "Bringing up db, minio and app..."
 sudo docker compose up -d db minio app
 
 # Wait for MySQL to accept connections.
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   sudo docker compose exec -T db mysqladmin ping -h localhost -uroot -prootpassword 2>/dev/null | grep -q "is alive" && break
   sleep 5
 done
