@@ -373,11 +373,11 @@ task sonar-check-all
 ### task pr-check
 
 **説明:**  
-現在の作業ブランチに関連付けられた GitHub Issue のアクセプタンスクライテリア（受入基準チェックボックス: `- [ ]`）がすべて達成・チェック済み（`- [x]`）であるかをローカルで即座に検証します。
+PR提出前にローカルでPR時のCI全ゲート相当（Issue受入基準全件充足、Ruff Linter、SonarCloud S3776/S8786、pytest単体テスト、PRミューテーションテスト、セキュリティ検査、PRメタデータ）を一括自動実行・判定します。100%全件合格しない限りPR提出をブロックします。
 
 **内部動作:**
 ```bash
-docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full
 ```
 
 **使用例:**
@@ -387,14 +387,31 @@ task pr-check
 
 ---
 
-### task pr-create
+### task pr-check-fast
 
 **説明:**  
-Issue のアクセプタンスクライテリアが全件チェック済みであることを自動事前検証し、問題がなければ `gh pr create --base master` を実行して Pull Request を提出します。未チェック項目がある場合は PR 作成を中断し、未完了項目をコンソールに出力します。
+変更差分ファイル（Git diff）のみを対象に、Issue受入基準充足、Ruff Linter、SonarCloud、Python構文を約2〜4秒で超高速検証します。コミットやプッシュ前の即時確認に最適です。
 
 **内部動作:**
 ```bash
-docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff
+```
+
+**使用例:**
+```bash
+task pr-check-fast
+```
+
+---
+
+### task pr-create
+
+**説明:**  
+PR提出前全検査（`pre_pr_check.py --full`）を自動実行し、すべてのチェック（Issue受入基準、Linter、SonarCloud、テスト、ミューテーション、セキュリティ）に100%合格した場合のみ `gh pr create --base master` を安全に呼び出します。1つでも違反がある場合はPR作成を即時中断し、未完了・違反内容をコンソールに出力します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full
 gh pr create --base master
 ```
 

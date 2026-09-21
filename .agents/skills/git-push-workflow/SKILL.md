@@ -30,18 +30,24 @@ description: 開発作業が完了した後に、新しいブランチを作成�
 5. **リモートリポジトリへのプッシュ**
    - 作成したブランチをリモートリポジトリにプッシュする。
    - `git push origin <branch-name>`
+   - ※ `.githooks/pre-push` により、Issue受入基準全件充足 (`check_issue_criteria`) およびローカル高速事前検証 (`pre_pr_check --diff`) が自動検証され、不備がある場合はプッシュが拒否される。
 
-6. **二段階PRマージの実施（Production Gate 遵守）**
+6. **PR提出前ローカル全検証の実施（Pre-PR Gate 必須遵守）**
+   - PR作成前に必ずローカルで `task pr-check` を実行し、Issue受入基準、Ruff Linter、SonarCloud、単体テスト、PRミューテーションテスト、セキュリティスキャンが **100% 合格（ALL CHECKS PASSED）** することを確認する。
+   - エラーが1件でもある場合は、PRを提出せずローカルで完全に修正・解消すること。
+
+7. **二段階PRマージの実施（Production Gate 遵守）**
    - 本リポジトリでは `production` への直接 push および作業ブランチからの直接 PR は GitHub Actions (`production-gate.yml`) でブロックされる。
    - **Step 1: 作業ブランチ ➔ `master` への PR & マージ**
-     - `gh pr create --base master --head <branch-name> --title "[#<issue_num>] ..." --body "Closes #<issue_num>\n..."`
+     - 推奨: `task pr-create`（全チェック通過を自動検証して安全にPR提出）
+     - 手動実行時: `gh pr create --base master --head <branch-name> --title "[#<issue_num>] ..." --body "Closes #<issue_num>\n..."`
      - CI チェック通過後、`master` にマージ (`gh pr merge <PR_NUMBER> --squash --delete-branch`)。
    - **Step 2: `master` ➔ `production` への リリース PR & マージ**
      - ローカルの `master` を最新化: `git checkout master && git pull origin master`
      - `gh pr create --base production --head master --title "release: ..." --body "..."`
      - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。
 
-7. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
+8. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
    - マージ後または作業完了後、`gh issue list --state open` を実行して該当 Issue が正常にクローズ（Closed）されたか確認する。
    - 自動クローズされずにオープン状態のまま残存している場合（閉じ漏れ）は、完了理由を添えて直ちに `gh issue close <issue_num> --comment "..."` を実行してステータスを完了状態へ進めること。
 

@@ -144,13 +144,18 @@ tasks:
       - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --all
 
   pr-check:
-    desc: Verify that all acceptance criteria in the associated GitHub Issue are checked
+    desc: Run comprehensive pre-PR local verification (Issue criteria, Linter, Sonar, Tests, Mutation, Security)
     cmds:
-      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full
+
+  pr-check-fast:
+    desc: Run fast pre-PR diff check on changed files only (Issue criteria, Linter, Sonar, Syntax)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff
 
   pr-create:
-    desc: Verify all issue acceptance criteria, then create Pull Request to master
+    desc: Run full pre-PR verification, and if 100% passed, create Pull Request to master
     cmds:
-      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py
+      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full
       - gh pr create --base master
 
