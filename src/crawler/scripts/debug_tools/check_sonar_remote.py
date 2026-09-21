@@ -98,6 +98,57 @@ def fetch_unresolved_issues(
     return issues, total
 
 
+def _format_target_info(pr: Optional[int], branch: Optional[str]) -> str:
+    """Format human-readable target string."""
+    if pr:
+        return f"PR #{pr}"
+    if branch:
+        return f"Branch '{branch}'"
+    return "Main/Master"
+
+
+def _print_text_summary(
+    project_key: str,
+    target_info: str,
+    timeout: float,
+    qg_status: Dict[str, Any],
+    issues_data: List[Dict[str, Any]],
+    issues_total: int,
+) -> None:
+    """Print formatted Quality Gate report to stdout."""
+    print("=" * 80)
+    print(f" SonarCloud Remote Quality Gate Status (Timeout: {timeout}s)")
+    print("=" * 80)
+    status_str = qg_status.get("status", "UNKNOWN")
+    gate_label = "PASS (OK)" if status_str == "OK" else f"FAIL ({status_str})"
+    print(f" Target: {target_info} ({project_key})")
+    print(f" Quality Gate: {gate_label}")
+
+    conditions = qg_status.get("conditions", [])
+    if conditions:
+        print("\n Quality Gate Conditions:")
+        for c in conditions:
+            c_status = c.get("status")
+            metric = c.get("metricKey")
+            val = c.get("actualValue", "-")
+            thresh = c.get("errorThreshold", "-")
+            mark = "[OK]" if c_status == "OK" else "[ERROR]"
+            print(f"   {mark} {metric}: {val} (threshold: {thresh})")
+
+    if issues_total > 0:
+        print(f"\n Unresolved Issues ({issues_total} total):")
+        for iss in issues_data[:10]:
+            rule = iss.get("rule")
+            comp = iss.get("component")
+            line = iss.get("line", "-")
+            msg = iss.get("message")
+            print(f"   - [{rule}] {comp}:{line} - {msg}")
+        if issues_total > 10:
+            print(f"   ... and {issues_total - 10} more issues.")
+
+    print("=" * 80)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -134,6 +185,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 timeout=args.timeout,
             )
 
+        is_ok = qg_status.get("status") == "OK"
         if args.json:
             out_obj = {
                 "quality_gate": qg_status,
@@ -141,40 +193,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "issues": issues_data,
             }
             print(json.dumps(out_obj, ensure_ascii=False, indent=2))
-            return 0 if qg_status.get("status") == "OK" else 1
+            return 0 if is_ok else 1
 
-        print("=" * 80)
-        print(f" SonarCloud Remote Quality Gate Status (Timeout: {args.timeout}s)")
-        print("=" * 80)
-        status_str = qg_status.get("status", "UNKNOWN")
-        target_info = f"PR #{args.pr}" if args.pr else (f"Branch '{args.branch}'" if args.branch else "Main/Master")
-        print(f" Target: {target_info} ({args.project})")
-        print(f" Quality Gate: {'PASS (OK)' if status_str == 'OK' else f'FAIL ({status_str})'}")
-
-        conditions = qg_status.get("conditions", [])
-        if conditions:
-            print("\n Quality Gate Conditions:")
-            for c in conditions:
-                c_status = c.get("status")
-                metric = c.get("metricKey")
-                val = c.get("actualValue", "-")
-                thresh = c.get("errorThreshold", "-")
-                mark = "[OK]" if c_status == "OK" else "[ERROR]"
-                print(f"   {mark} {metric}: {val} (threshold: {thresh})")
-
-        if issues_total > 0:
-            print(f"\n Unresolved Issues ({issues_total} total):")
-            for iss in issues_data[:10]:
-                rule = iss.get("rule")
-                comp = iss.get("component")
-                line = iss.get("line", "-")
-                msg = iss.get("message")
-                print(f"   - [{rule}] {comp}:{line} - {msg}")
-            if issues_total > 10:
-                print(f"   ... and {issues_total - 10} more issues.")
-
-        print("=" * 80)
-        return 0 if status_str == "OK" else 1
+        target_info = _format_target_info(args.pr, args.branch)
+        _print_text_summary(
+            project_key=args.project,
+            target_info=target_info,
+            timeout=args.timeout,
+            qg_status=qg_status,
+            issues_data=issues_data,
+            issues_total=issues_total,
+        )
+        return 0 if is_ok else 1
 
     except SonarTimeoutException as exc:
         sys.stderr.write(f"\n[TIMEOUT ERROR] {exc}\n")
