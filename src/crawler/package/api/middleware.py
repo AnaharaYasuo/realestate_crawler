@@ -67,7 +67,11 @@ class LoggingMiddleware(CrawlerMiddleware):
         # 改行・連続空白を単一スペースに圧縮して、Cloud Loggingでの複数行分割を防ぐ
         cleaned = " ".join(str(body).split())
         if len(cleaned) > max_len:
-            return cleaned[:max_len] + f"... (truncated, total {len(cleaned)} chars)"
+            suffix = f"... (truncated, total {len(cleaned)} chars)"
+            avail = max_len - len(suffix)
+            if avail > 0:
+                return cleaned[:avail] + suffix
+            return cleaned[:max_len]
         return cleaned
 
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:

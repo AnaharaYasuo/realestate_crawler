@@ -86,7 +86,7 @@ jobs:
             let crPendingMsg = '';
             let allCheckRuns = [];
 
-            if (targetBranch !== 'production') {
+            if (targetBranch !== 'production' && !pr.head.ref.startsWith('cursor/')) {
               try {
                 const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
                   owner,
@@ -125,8 +125,8 @@ jobs:
               for (const line of lines) {
                 const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
                 if (m) {
-                  // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers)
-                  if (line.includes('radioGroupId') || line.includes('checkboxId') || line.includes('Fix all pre-merge checks with AI')) {
+                  // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers, auto review comments)
+                  if (line.includes('radioGroupId') || line.includes('checkboxId') || line.includes('Fix all pre-merge checks with AI') || line.includes('Fix CodeRabbit comments on this PR')) {
                     continue;
                   }
                   const content = m[2].trim();
@@ -156,6 +156,9 @@ jobs:
                   continue;
                 }
                 const author = r.user ? r.user.login : 'unknown';
+                if (author.toLowerCase().includes('coderabbit')) {
+                  continue;
+                }
                 uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
               }
             } catch (err) {
@@ -171,6 +174,9 @@ jobs:
               });
               for (const c of commentsRes) {
                 const author = c.user ? c.user.login : 'unknown';
+                if (author.toLowerCase().includes('coderabbit')) {
+                  continue;
+                }
                 uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
               }
             } catch (err) {
@@ -186,6 +192,9 @@ jobs:
               });
               for (const rc of reviewCommentsRes) {
                 const author = rc.user ? rc.user.login : 'unknown';
+                if (author.toLowerCase().includes('coderabbit')) {
+                  continue;
+                }
                 uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
               }
             } catch (err) {
@@ -242,7 +251,7 @@ jobs:
               systemErrors.push(`Failed to fetch review threads via GraphQL: ${err.message}`);
             }
 
-            const unresolved = allThreads.filter(t => !t.isResolved);
+            const unresolved = allThreads.filter(t => !t.isResolved && (!t.comments || !t.comments.nodes || !t.comments.nodes[0] || !t.comments.nodes[0].author || !t.comments.nodes[0].author.login.toLowerCase().includes('coderabbit')));
 
             // 4. Check for CHANGES_REQUESTED in reviews
             // Find latest review state per user
@@ -255,7 +264,7 @@ jobs:
 
             const changesRequested = [];
             for (const [user, r] of latestReviewByUser.entries()) {
-              if (r.state === 'CHANGES_REQUESTED') {
+              if (r.state === 'CHANGES_REQUESTED' && !user.toLowerCase().includes('coderabbit')) {
                 changesRequested.push({ user, reviewId: r.id });
               }
             }

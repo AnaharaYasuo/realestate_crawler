@@ -80,3 +80,9 @@ async def test_logging_middleware_response():
         assert "</body></html>" in log_str
         assert "<html><head>" in log_str
 
+    # 5. Truncation and length capping test
+    long_body = "x" * 1500
+    sanitized = LoggingMiddleware._sanitize_log_body(long_body, max_len=100)
+    assert len(sanitized) <= 100
+    assert "... (truncated, total 1500 chars)" in sanitized
+

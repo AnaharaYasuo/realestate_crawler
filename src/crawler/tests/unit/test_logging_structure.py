@@ -111,8 +111,13 @@ def test_no_newline_in_message_payload(monkeypatch):
     logger = get_logger("test.sanitization")
     logger.warning("Sanitized Middleware Response", body=sanitized_mw)
 
-    lines = [l for l in stream.getvalue().strip().split("\n") if l.strip()]
+    lines = [line for line in stream.getvalue().strip().split("\n") if line.strip()]
     assert len(lines) == 1
     data = json.loads(lines[0])
     assert data.get("severity") == "WARNING"
     assert data.get("body") == sanitized_mw
+
+    # Truncation and length capping test
+    preview_capped = get_logged_body_preview("y" * 1000, max_len=80)
+    assert len(preview_capped) <= 80
+    assert "... (truncated, total 1000 chars)" in preview_capped

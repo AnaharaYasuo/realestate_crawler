@@ -6,6 +6,16 @@ set -e
 
 zero="0000000000000000000000000000000000000000"
 
+run_pre_pr_check() {
+    target_branch="$1"
+    target_sha="$2"
+    if command -v docker >/dev/null 2>&1; then
+        docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+    else
+        python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+    fi
+}
+
 while read -r local_ref local_sha remote_ref remote_sha
 do
     # Skip branch deletion
@@ -110,12 +120,7 @@ do
         echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
         echo "🔍 Pre-PR ローカル高速事前検証 (Linter, SonarCloud, 構文) を実行中..."
-        if command -v docker >/dev/null 2>&1; then
-            PRE_PR_CMD="docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch $branch --sha $local_sha"
-        else
-            PRE_PR_CMD="python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch $branch --sha $local_sha"
-        fi
-        if ! eval "$PRE_PR_CMD"; then
+        if ! run_pre_pr_check "$branch" "$local_sha"; then
             echo ""
             echo "================================================================================"
             echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check) でエラーが検出されました。"
