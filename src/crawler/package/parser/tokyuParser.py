@@ -1,18 +1,26 @@
 # -*- coding: utf-8 -*-
+import datetime
+from decimal import Decimal
+import importlib
+import logging
+import re
 import sys
 
 from bs4 import BeautifulSoup
-from package.models.tokyu import TokyuMansion, TokyuTochi, TokyuKodate
+from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    ListingEndedException,
+    MansionParserBase,
+    ParserBase,
+    TochiParserBase,
+)
 from package.parser.investmentParser import InvestmentParser
-import re
 from package.utils import converter
-import importlib
-importlib.reload(sys)
-from decimal import Decimal
-import datetime
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
-import logging
 from package.utils.selector_loader import SelectorLoader
+
+importlib.reload(sys)
 
 class TokyuParser(ParserBase):
 
@@ -171,6 +179,15 @@ class TokyuParser(ParserBase):
             yield destUrl
 
     def _parsePropertyDetailPage(self, item, response):
+        # 0. 掲載終了・物件不在の早期検知
+        title_text = response.title.get_text().strip() if response.title else ""
+        body_text = response.body.get_text() if response.body else ""
+        h1_el = response.find("h1")
+        h1_text = h1_el.get_text().strip() if h1_el else ""
+        all_text = f"{title_text} {h1_text} {body_text}"
+        if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
+            raise ListingEndedException(f"Tokyu listing ended: {getattr(item, 'pageUrl', 'unknown')}")
+
         # Pre-fetch specs dictionary once per detail page
         specs = self._scrape_specs(response)
         

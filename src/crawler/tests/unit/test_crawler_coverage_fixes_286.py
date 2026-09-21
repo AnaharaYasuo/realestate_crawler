@@ -341,3 +341,103 @@ def test_all_routes_definitions():
     assert odakyu_start("tochi") == "https://www.odakyu-chukai.com/land/list/"
     assert odakyu_start("other") == "https://www.odakyu-chukai.com/other/list/"
 
+
+def test_athome_sequential_pagination_and_host_check():
+    """アットホームで番号リンクのみ存在する場合に現在ページの直後(current+1)を選択し、外部ホストを拒絶すること"""
+    import asyncio
+    from package.parser.athomeParser import AthomeMansionParser
+
+    parser = AthomeMansionParser()
+
+    # 1. 番号リンクのみの場合に最終リンク(10)ではなく現在ページ+1(2)を選択すること
+    html_numbers = """
+    <div class="pagination">
+        <ul class="pagination__list">
+            <li class="pagination__item--current">1</li>
+            <li><a href="/mansion/chuko/tokyo/list/?page=2">2</a></li>
+            <li><a href="/mansion/chuko/tokyo/list/?page=3">3</a></li>
+            <li><a href="/mansion/chuko/tokyo/list/?page=10">10</a></li>
+        </ul>
+    </div>
+    """
+    soup_numbers = BeautifulSoup(html_numbers, "html.parser")
+    next_url = asyncio.run(parser.parseNextPage(soup_numbers))
+    assert "page=2" in next_url
+
+    # 2. 外部ホストURLの拒絶検証
+    detail_links = set()
+    list_links = set()
+    ret_url, _ = parser._classify_and_collect_athome_url("https://malicious.com/mansion/12345678/", detail_links, list_links)
+    assert ret_url is None
+    assert len(detail_links) == 0
+    assert len(list_links) == 0
+
+
+def test_daikyo_pref_expansion_with_existing_details():
+    """大京で詳細リンクが存在する場合でも都道府県URLがスキップされずに展開されること"""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from package.parser.daikyoParser import DaikyoMansionParser
+
+    parser = DaikyoMansionParser()
+    html_both = """
+    <div>
+        <a href="/buy/mansion/detail/1001/">注目物件1001</a>
+        <a href="/buy/mansion/p13/">東京都一覧</a>
+    </div>
+    """
+    soup_both = BeautifulSoup(html_both, "html.parser")
+    parser._getContent = AsyncMock(return_value='<div><a href="/buy/mansion/detail/2001/">都道府県物件2001</a></div>')
+
+    async def _collect():
+        return [u async for u in parser.parseRootPage(soup_both)]
+
+    results = asyncio.run(_collect())
+    assert any("1001" in u for u in results)
+    assert any("2001" in u for u in results)
+
+
+def test_daiwa_pagination_with_prev_next_svgs():
+    """大和ハウスで前・次両方にSVGが存在する場合に前ページではなく次ページ(current+1)を選択すること"""
+    import asyncio
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+    html = """
+    <div class="pagination">
+        <span class="active">2</span>
+        <a href="/buy/search/alist?page=1"><svg><path></path></svg></a>
+        <a href="/buy/search/alist?page=1">1</a>
+        <a href="/buy/search/alist?page=2">2</a>
+        <a href="/buy/search/alist?page=3">3</a>
+        <a href="/buy/search/alist?page=3"><svg><path></path></svg></a>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    next_url = asyncio.run(parser.parseNextPage(soup))
+    assert next_url is not None
+    assert "page=3" in next_url
+
+
+def test_tokyu_listing_ended_detection():
+    """東急パーサーで掲載終了物件のHTMLが渡された際に早期に ListingEndedException が送出されること"""
+    import pytest
+    from package.parser.tokyuParser import TokyuTochiParser
+    from package.parser.baseParser import ListingEndedException
+
+    parser = TokyuTochiParser()
+    html_ended = """
+    <html>
+        <head><title>東京都港区芝２丁目は掲載終了しました | 東急リバブル</title></head>
+        <body>
+            <h1>東京都港区芝２丁目は掲載終了しました</h1>
+            <div class="message">指定された物件は掲載を終了いたしました。</div>
+        </body>
+    </html>
+    """
+    soup_ended = BeautifulSoup(html_ended, "html.parser")
+    item = parser.createEntity()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(item, soup_ended)
+
+

@@ -27,6 +27,7 @@ from package.parser.misawaParser import MisawaMansionParser, MisawaKodateParser
 from package.parser.smtrcParser import SmtrcMansionParser
 from package.parser.keioParser import KeioMansionParser
 from package.parser.rearieParser import RearieMansionParser, RearieParser
+from package.parser.baseParser import ListingEndedException
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -270,9 +271,12 @@ async def run_single_site_test(target: dict):
                 start_parse = time.perf_counter()
                 d_soup = BeautifulSoup(d_html, "html.parser")
                 item = parser.createEntity()
-
-                parsed_item = parser._parsePropertyDetailPage(item, d_soup)
-                cleaned_item = parser.clean_parsed_item(parsed_item)
+                try:
+                    parsed_item = parser._parsePropertyDetailPage(item, d_soup)
+                    cleaned_item = parser.clean_parsed_item(parsed_item)
+                except ListingEndedException as e:
+                    print(f" [{site}] Skipped listing ended page: {detail_url} ({e})")
+                    continue
 
             parse_ms = (time.perf_counter() - start_parse) * 1000.0
             print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")

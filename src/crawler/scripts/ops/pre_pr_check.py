@@ -361,7 +361,8 @@ class PrePRChecker:
                 return errors, warnings
 
         target_args = py_files if py_files else ["src/crawler/"]
-        cmd = ruff_base + ["check", "--output-format=json"] + target_args
+        check_args = ["check", "--fix", "--output-format=json"] if self.fix_mode else ["check", "--output-format=json"]
+        cmd = ruff_base + check_args + target_args
         rc, ruff_out, ruff_err = self._run_cmd(cmd)
         if ruff_out:
             errors.extend(self._filter_ruff_errors(ruff_out))
