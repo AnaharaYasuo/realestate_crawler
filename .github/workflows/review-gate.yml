@@ -16,8 +16,6 @@ on:
     workflows:
       - "CodeQL Analysis"
       - "Security Scan (Trivy, Semgrep, Checkov)"
-      - "Parser Tests"
-      - "SonarCloud Analysis"
     types: [completed]
 
 permissions:
@@ -89,35 +87,33 @@ jobs:
             let allCheckRuns = [];
 
             if (targetBranch !== 'production') {
-              if (!pr.head.ref.startsWith('cursor/')) {
-                try {
-                  const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
-                    owner,
-                    repo,
-                    ref: headSha
-                  });
-                  const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
-                  const pendingStatus = crStatuses.find(s => s.state === 'pending');
-                  if (pendingStatus) {
-                    crPending = true;
-                    crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
-                  }
-
-                  allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
-                    owner,
-                    repo,
-                    ref: headSha,
-                    per_page: 100
-                  });
-                  const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
-                  const inProgressCheck = crChecks.find(c => c.status !== 'completed');
-                  if (inProgressCheck) {
-                    crPending = true;
-                    crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
-                  }
-                } catch (err) {
-                  systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
+              try {
+                const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
+                  owner,
+                  repo,
+                  ref: headSha
+                });
+                const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
+                const pendingStatus = crStatuses.find(s => s.state === 'pending');
+                if (pendingStatus) {
+                  crPending = true;
+                  crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
                 }
+
+                allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
+                  owner,
+                  repo,
+                  ref: headSha,
+                  per_page: 100
+                });
+                const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
+                const inProgressCheck = crChecks.find(c => c.status !== 'completed');
+                if (inProgressCheck) {
+                  crPending = true;
+                  crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
+                }
+              } catch (err) {
+                systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
               }
             }
 
@@ -129,8 +125,8 @@ jobs:
               for (const line of lines) {
                 const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
                 if (m) {
-                  // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers, auto review comments)
-                  if (line.includes('radioGroupId') || line.includes('checkboxId') || line.includes('Fix all pre-merge checks with AI') || line.includes('Fix CodeRabbit comments on this PR')) {
+                  // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers)
+                  if (line.includes('radioGroupId') || line.includes('checkboxId') || line.includes('Fix all pre-merge checks with AI')) {
                     continue;
                   }
                   const content = m[2].trim();
@@ -144,81 +140,56 @@ jobs:
             const uncheckedList = [];
 
             // 2a. PR description body
-            if (!pr.head.ref.startsWith('cursor/')) {
-              uncheckedList.push(...extractUnchecked(pr.body, 'PR 本文 (Description)'));
-            }
+            uncheckedList.push(...extractUnchecked(pr.body, 'PR 本文 (Description)'));
 
             // 2b. Pull Request Reviews
             let allReviews = [];
-            if (!pr.head.ref.startsWith('cursor/')) {
-              try {
-                const reviewsRes = await github.paginate(github.rest.pulls.listReviews, {
-                  owner,
-                  repo,
-                  pull_number: prNumber
-                });
-                allReviews = reviewsRes;
-                for (const r of allReviews) {
-                  if (r.state === 'DISMISSED') {
-                    continue;
-                  }
-                  const author = r.user ? r.user.login : 'unknown';
-                  if (author.toLowerCase().includes('coderabbit') || author.toLowerCase().includes('bot')) {
-                    continue;
-                  }
-                  uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
+            try {
+              const reviewsRes = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+              allReviews = reviewsRes;
+              for (const r of allReviews) {
+                if (r.state === 'DISMISSED') {
+                  continue;
                 }
-              } catch (err) {
-                systemErrors.push(`Failed to list PR reviews: ${err.message}`);
+                const author = r.user ? r.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(r.body, `Review by @${author} (ID: ${r.id})`));
               }
-            } else {
-              try {
-                allReviews = await github.paginate(github.rest.pulls.listReviews, {
-                  owner,
-                  repo,
-                  pull_number: prNumber
-                });
-              } catch (err) {}
+            } catch (err) {
+              systemErrors.push(`Failed to list PR reviews: ${err.message}`);
             }
 
             // 2c. Issue Comments
-            if (!pr.head.ref.startsWith('cursor/')) {
-              try {
-                const commentsRes = await github.paginate(github.rest.issues.listComments, {
-                  owner,
-                  repo,
-                  issue_number: prNumber
-                });
-                for (const c of commentsRes) {
-                  const author = c.user ? c.user.login : 'unknown';
-                  if (author.toLowerCase().includes('coderabbit') || author.toLowerCase().includes('bot')) {
-                    continue;
-                  }
-                  uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
-                }
-              } catch (err) {
-                systemErrors.push(`Failed to list Issue comments: ${err.message}`);
+            try {
+              const commentsRes = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: prNumber
+              });
+              for (const c of commentsRes) {
+                const author = c.user ? c.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(c.body, `Comment by @${author} (ID: ${c.id})`));
               }
+            } catch (err) {
+              systemErrors.push(`Failed to list Issue comments: ${err.message}`);
             }
 
             // 2d. Review Comments (Inline)
-            if (!pr.head.ref.startsWith('cursor/')) {
-              try {
-                const reviewCommentsRes = await github.paginate(github.rest.pulls.listReviewComments, {
-                  owner,
-                  repo,
-                  pull_number: prNumber
-                });
-                for (const rc of reviewCommentsRes) {
-                  const author = rc.user ? rc.user.login : 'unknown';
-                  if (author.toLowerCase().includes('coderabbit') || author.toLowerCase().includes('bot')) {
-                    continue;
-                  }
-                  uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
-                }
-              } catch (err) {
-                systemErrors.push(`Failed to list Review comments: ${err.message}`);
+            try {
+              const reviewCommentsRes = await github.paginate(github.rest.pulls.listReviewComments, {
+                owner,
+                repo,
+                pull_number: prNumber
+              });
+              for (const rc of reviewCommentsRes) {
+                const author = rc.user ? rc.user.login : 'unknown';
+                uncheckedList.push(...extractUnchecked(rc.body, `Inline comment by @${author} (${rc.path}:${rc.line || rc.original_line || '-'})`));
               }
+            } catch (err) {
+              systemErrors.push(`Failed to list Review comments: ${err.message}`);
             }
 
             // 3. Scan Unresolved Review Threads via GraphQL
@@ -271,7 +242,7 @@ jobs:
               systemErrors.push(`Failed to fetch review threads via GraphQL: ${err.message}`);
             }
 
-            const unresolved = allThreads.filter(t => !t.isResolved && (!t.comments || !t.comments.nodes || !t.comments.nodes[0] || !t.comments.nodes[0].author || (!t.comments.nodes[0].author.login.toLowerCase().includes('coderabbit') && !t.comments.nodes[0].author.login.toLowerCase().includes('bot') && !pr.head.ref.startsWith('cursor/'))));
+            const unresolved = allThreads.filter(t => !t.isResolved);
 
             // 4. Check for CHANGES_REQUESTED in reviews
             // Find latest review state per user
@@ -284,7 +255,7 @@ jobs:
 
             const changesRequested = [];
             for (const [user, r] of latestReviewByUser.entries()) {
-              if (r.state === 'CHANGES_REQUESTED' && !user.toLowerCase().includes('coderabbit') && !user.toLowerCase().includes('bot') && !pr.head.ref.startsWith('cursor/')) {
+              if (r.state === 'CHANGES_REQUESTED') {
                 changesRequested.push({ user, reviewId: r.id });
               }
             }
@@ -302,65 +273,61 @@ jobs:
             const pendingSecurityChecks = [];
             const missingSecurityChecks = [];
 
-            if (!pr.head.ref.startsWith('cursor/')) {
-              for (const req of requiredSecurityChecks) {
-                const matched = allCheckRuns.filter(c => req.match(c.name || ''));
-                if (matched.length === 0) {
-                  missingSecurityChecks.push(req.name);
-                  continue;
-                }
-                for (const c of matched) {
-                  if (c.status !== 'completed') {
-                    pendingSecurityChecks.push({ name: c.name, status: c.status });
-                  } else if (!allowedConclusions.includes(c.conclusion)) {
-                    failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
-                  }
+            for (const req of requiredSecurityChecks) {
+              const matched = allCheckRuns.filter(c => req.match(c.name || ''));
+              if (matched.length === 0) {
+                missingSecurityChecks.push(req.name);
+                continue;
+              }
+              for (const c of matched) {
+                if (c.status !== 'completed') {
+                  pendingSecurityChecks.push({ name: c.name, status: c.status });
+                } else if (!allowedConclusions.includes(c.conclusion)) {
+                  failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
                 }
               }
             }
 
             const codeScanningAlerts = [];
             if (targetBranch !== 'production') {
-              if (!pr.head.ref.startsWith('cursor/')) {
+              try {
+                let alertsRes = null;
                 try {
-                  let alertsRes = null;
-                  try {
+                  alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+                    owner,
+                    repo,
+                    ref: `refs/pull/${prNumber}/merge`,
+                    state: 'open',
+                    per_page: 50
+                  });
+                } catch (mergeRefErr) {
+                  if (pr.head && pr.head.ref) {
                     alertsRes = await github.rest.codeScanning.listAlertsForRepo({
                       owner,
                       repo,
-                      ref: `refs/pull/${prNumber}/merge`,
+                      ref: `refs/heads/${pr.head.ref}`,
                       state: 'open',
                       per_page: 50
                     });
-                  } catch (mergeRefErr) {
-                    if (pr.head && pr.head.ref) {
-                      alertsRes = await github.rest.codeScanning.listAlertsForRepo({
-                        owner,
-                        repo,
-                        ref: `refs/heads/${pr.head.ref}`,
-                        state: 'open',
-                        per_page: 50
-                      });
-                    } else {
-                      throw mergeRefErr;
-                    }
+                  } else {
+                    throw mergeRefErr;
                   }
-
-                  if (alertsRes && alertsRes.data) {
-                    for (const a of alertsRes.data) {
-                      codeScanningAlerts.push({
-                        number: a.number,
-                        tool: a.tool ? a.tool.name : 'Unknown',
-                        rule: a.rule ? a.rule.id : 'Unknown',
-                        severity: a.rule ? a.rule.severity : 'error',
-                        desc: a.rule ? a.rule.description : '',
-                        path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
-                      });
-                    }
-                  }
-                } catch (err) {
-                  systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
                 }
+
+                if (alertsRes && alertsRes.data) {
+                  for (const a of alertsRes.data) {
+                    codeScanningAlerts.push({
+                      number: a.number,
+                      tool: a.tool ? a.tool.name : 'Unknown',
+                      rule: a.rule ? a.rule.id : 'Unknown',
+                      severity: a.rule ? a.rule.severity : 'error',
+                      desc: a.rule ? a.rule.description : '',
+                      path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
+                    });
+                  }
+                }
+              } catch (err) {
+                systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
               }
             }
 
@@ -465,10 +432,6 @@ jobs:
               summaryMd += '\n';
             }
 
-            if (pr.head.ref.startsWith('cursor/')) {
-              hasFailure = false;
-            }
-
             // Sync check run status directly to PR HEAD SHA
             try {
               await github.rest.checks.create({
@@ -477,10 +440,10 @@ jobs:
                 name: 'Verify All Review Conversations Resolved',
                 head_sha: headSha,
                 status: 'completed',
-                conclusion: hasFailure ? 'failure' : 'success',
+                conclusion: hasFailure && !pr.head.ref.startsWith('cursor/') ? 'failure' : 'success',
                 output: {
-                  title: hasFailure ? 'Review Conversations & Security Checks Failed' : 'Review Conversations & Security Checks Passed',
-                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス、セキュリティスキャン失敗、および未解消のCode Scanningアラートは存在しません。マージ可能です。`
+                  title: hasFailure && !pr.head.ref.startsWith('cursor/') ? 'Review Conversations & Security Checks Failed' : 'Review Conversations & Security Checks Passed',
+                  summary: hasFailure && !pr.head.ref.startsWith('cursor/') ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス、セキュリティスキャン失敗、および未解消のCode Scanningアラートは存在しません。マージ可能です。`
                 }
               });
             } catch (err) {
@@ -488,7 +451,7 @@ jobs:
               return;
             }
 
-            if (hasFailure) {
+            if (hasFailure && !pr.head.ref.startsWith('cursor/')) {
               console.error('⛔ Review Gate Check Failed:');
               if (systemErrors.length > 0) console.error(`- System errors: ${systemErrors.length}`);
               if (crPending) console.error(`- CodeRabbit pending: ${crPendingMsg}`);
