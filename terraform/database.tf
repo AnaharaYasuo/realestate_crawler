@@ -52,6 +52,10 @@ resource "google_sql_database_instance" "mysql_instance" {
       start_time                     = "19:00" # JST 04:00 (バッチ完了後)
       binary_log_enabled             = true
       transaction_log_retention_days = 7
+      backup_retention_settings {
+        retained_backups = 8
+        retention_unit   = "COUNT"
+      }
     }
 
     database_flags {

@@ -12,6 +12,11 @@ on:
     types: [created, edited, deleted]
   issue_comment:
     types: [created, edited, deleted]
+  workflow_run:
+    workflows:
+      - "CodeQL Analysis"
+      - "Security Scan (Trivy, Semgrep, Checkov)"
+    types: [completed]
 
 permissions:
   contents: read
@@ -20,6 +25,7 @@ permissions:
   checks: write
   statuses: read
   security-events: read
+  actions: read
 
 jobs:
   verify-conversations-resolved:
@@ -41,6 +47,19 @@ jobs:
                 pr = prRes.data;
               } catch (err) {
                 core.setFailed(`Failed to fetch pull request for issue #${context.payload.issue.number}: ${err.message}`);
+                return;
+              }
+            }
+            if (!pr && context.payload.workflow_run && context.payload.workflow_run.pull_requests && context.payload.workflow_run.pull_requests.length > 0) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.workflow_run.pull_requests[0].number
+                });
+                pr = prRes.data;
+              } catch (err) {
+                core.setFailed(`Failed to fetch pull request for workflow_run #${context.payload.workflow_run.id}: ${err.message}`);
                 return;
               }
             }
@@ -240,45 +259,72 @@ jobs:
             }
 
             // 5. Check Security Scans & Code Scanning Status
-            const securityCheckKeywords = [
-              'codeql scan',
-              'trivy security scan',
-              'semgrep sast scan',
-              'checkov iac'
+            const requiredSecurityChecks = [
+              { name: 'CodeQL Scan', match: (n) => n.toLowerCase().includes('codeql scan') },
+              { name: 'Trivy Security Scan', match: (n) => n.toLowerCase().includes('trivy') },
+              { name: 'Semgrep SAST Scan', match: (n) => n.toLowerCase().includes('semgrep') },
+              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
             ];
+
+            const allowedConclusions = ['success', 'neutral', 'skipped'];
             const failedSecurityChecks = [];
-            for (const c of allCheckRuns) {
-              const matchesSecurity = securityCheckKeywords.some(keyword => (c.name || '').toLowerCase().includes(keyword));
-              if (matchesSecurity && c.status === 'completed' && c.conclusion !== 'success' && c.conclusion !== 'neutral' && c.conclusion !== 'skipped') {
-                failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
+            const pendingSecurityChecks = [];
+            const missingSecurityChecks = [];
+
+            for (const req of requiredSecurityChecks) {
+              const matched = allCheckRuns.filter(c => req.match(c.name || ''));
+              if (matched.length === 0) {
+                missingSecurityChecks.push(req.name);
+                continue;
+              }
+              for (const c of matched) {
+                if (c.status !== 'completed') {
+                  pendingSecurityChecks.push({ name: c.name, status: c.status });
+                } else if (!allowedConclusions.includes(c.conclusion)) {
+                  failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
+                }
               }
             }
 
             const codeScanningAlerts = [];
             try {
-              if (pr.head && pr.head.ref) {
-                const alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+              let alertsRes = null;
+              try {
+                alertsRes = await github.rest.codeScanning.listAlertsForRepo({
                   owner,
                   repo,
-                  ref: `refs/heads/${pr.head.ref}`,
+                  ref: `refs/pull/${prNumber}/merge`,
                   state: 'open',
                   per_page: 50
                 });
-                if (alertsRes && alertsRes.data) {
-                  for (const a of alertsRes.data) {
-                    codeScanningAlerts.push({
-                      number: a.number,
-                      tool: a.tool ? a.tool.name : 'Unknown',
-                      rule: a.rule ? a.rule.id : 'Unknown',
-                      severity: a.rule ? a.rule.severity : 'error',
-                      desc: a.rule ? a.rule.description : '',
-                      path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
-                    });
-                  }
+              } catch (mergeRefErr) {
+                if (pr.head && pr.head.ref) {
+                  alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+                    owner,
+                    repo,
+                    ref: `refs/heads/${pr.head.ref}`,
+                    state: 'open',
+                    per_page: 50
+                  });
+                } else {
+                  throw mergeRefErr;
+                }
+              }
+
+              if (alertsRes && alertsRes.data) {
+                for (const a of alertsRes.data) {
+                  codeScanningAlerts.push({
+                    number: a.number,
+                    tool: a.tool ? a.tool.name : 'Unknown',
+                    rule: a.rule ? a.rule.id : 'Unknown',
+                    severity: a.rule ? a.rule.severity : 'error',
+                    desc: a.rule ? a.rule.description : '',
+                    path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
+                  });
                 }
               }
             } catch (err) {
-              core.info(`Code scanning alert check note: ${err.message}`);
+              systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
             }
 
             // 6. Aggregate Results & Assert
@@ -338,6 +384,26 @@ jobs:
               summaryMd += '\n';
             }
 
+            if (missingSecurityChecks.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ 未検出の必須セキュリティスキャン (${missingSecurityChecks.length}件)\n\n`;
+              summaryMd += `PRをマージするには、すべての必須セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）が実行される必要があります。\n\n`;
+              for (const mc of missingSecurityChecks) {
+                summaryMd += `- \`${mc}\` が見つかりません\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (pendingSecurityChecks.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⏳ セキュリティスキャン実行中 (${pendingSecurityChecks.length}件)\n\n`;
+              summaryMd += `以下のセキュリティスキャンが実行中です。完了をお待ちください。\n\n`;
+              for (const pc of pendingSecurityChecks) {
+                summaryMd += `- \`${pc.name}\`: **${pc.status}**\n`;
+              }
+              summaryMd += '\n';
+            }
+
             if (failedSecurityChecks.length > 0) {
               hasFailure = true;
               summaryMd += `### ⛔ セキュリティスキャンの失敗 (${failedSecurityChecks.length}件)\n\n`;
@@ -388,10 +454,12 @@ jobs:
               if (unresolved.length > 0) console.error(`- Unresolved threads: ${unresolved.length}`);
               if (uncheckedList.length > 0) console.error(`- Unchecked checkboxes: ${uncheckedList.length}`);
               if (changesRequested.length > 0) console.error(`- Changes requested: ${changesRequested.length}`);
+              if (missingSecurityChecks.length > 0) console.error(`- Missing security checks: ${missingSecurityChecks.join(', ')}`);
+              if (pendingSecurityChecks.length > 0) console.error(`- Pending security checks: ${pendingSecurityChecks.length}`);
               if (failedSecurityChecks.length > 0) console.error(`- Failed security checks: ${failedSecurityChecks.length}`);
               if (codeScanningAlerts.length > 0) console.error(`- Open code scanning alerts: ${codeScanningAlerts.length}`);
               await core.summary.addRaw(summaryMd).write();
-              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested, ${failedSecurityChecks.length} failed security checks, ${codeScanningAlerts.length} code scanning alerts.`);
+              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested, ${missingSecurityChecks.length} missing security checks, ${pendingSecurityChecks.length} pending security checks, ${failedSecurityChecks.length} failed security checks, ${codeScanningAlerts.length} code scanning alerts.`);
               return;
             }
 
