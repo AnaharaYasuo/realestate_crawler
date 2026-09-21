@@ -76,3 +76,18 @@
   - プロセスごとのプールサイズ（`DB_POOL_SIZE`）をクローラー特性に合わせて適正化（Job: 2、Service: 5）し、不要なアイドル接続の保持を抑制すること。
   - DBスキーママイグレーション（DDL）を実行する Migrate Job のみ、直接 Cloud SQL（ポート 3306）への接続を維持すること。
 
+### 3.6 データベース監視・ヘルスチェック認証およびログ重大度昇格要件 (Database Monitoring & Log Severity Elevation)
+- **ProxySQL 監視専用ユーザー (`monitor`) の独立プロビジョニング**:
+  - ProxySQL の内部ヘルスチェックモジュール（ping, read_only 判定）が Cloud SQL バックエンドと通信するための専用 MySQL ユーザー (`monitor`) を Cloud SQL 上に安全なランダムパスワードで自動生成・プロビジョニングすること。
+  - 監視パスワードは Secret Manager に安全に保管し、ProxySQL 設定ファイル (`/etc/proxysql.cnf`) 内の `mysql_variables` (`monitor_username`, `monitor_password`) に正確に注入して `Access denied (MY-010926)` による認証拒否・スパムログを完全に根絶すること。
+- **ProxySQL 管理インターフェースのセキュア化**:
+  - デフォルトの管理用認証情報 (`admin:admin`, `radmin:radmin`) の使用を禁止し、Terraform の `random_password` で生成されたセキュアなパスワードを適用して Secret Manager で管理すること。
+- **MySQL ログの重大度昇格 (Log Severity Elevation: Note ➔ ERROR)**:
+  - MySQL 8.0 において通常 `[Note] [MY-010926]` (NOTICE/DEFAULT) として記録される認証拒否・アクセス遮断ログ (`Access denied for user`) を Cloud Logging のログベースメトリクス (`google_logging_metric`) で確実に捕捉すること。
+  - 該当メトリクスを監視する Cloud Monitoring アラートポリシー (`google_monitoring_alert_policy`) を定義し、重大度 `ERROR` として Slack / メールへ即時発報・可視化すること。
+- **包括的 MySQL サーバ障害アラート**:
+  - MySQL `[ERROR]` ログおよび接続上限到達 (`MY-010048` / `Too many connections`)、ProxySQL MIG の異常インスタンス発生を検知し、重大度 `ERROR` / `CRITICAL` で通知すること。
+- **アプリケーションログレベルの適正化**:
+  - 外部通信・ミドルウェアにおける 5xx/4xx レスポンス、DBクエリ例外、キャッシュ取得失敗など、システムの不具合・異常を示す事象を `INFO` や `DEBUG` でサイレントに握りつぶさず、必ず `ERROR` または `WARNING` ログとして出力すること。
+
+

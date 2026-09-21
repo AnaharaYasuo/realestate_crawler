@@ -144,6 +144,7 @@ def _resolve_company_code(model_name: str) -> str:
 
 
 def _extract_area(item) -> float:
+    """物件オブジェクトから専有面積・建物面積・土地面積のいずれかを抽出して返す。見つからない場合は0.0を返す。"""
     for attr in ("senyuMenseki", "tatemonoMenseki", "tochiMenseki"):
         val = getattr(item, attr, None)
         if val is not None:
@@ -258,6 +259,7 @@ def _evaluate_query_list(q_list, ptype: str, api_base_url: str):
 
 def main():
     def post_slack(msg):
+        """Slack開発チャンネルへ非同期でメッセージを送信する。"""
         try:
             asyncio.run(send_dev_report(msg))
         except Exception:

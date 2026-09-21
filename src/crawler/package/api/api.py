@@ -562,16 +562,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return self._loop
 
     def _generateConnector(self, _loop):
-        # SSL Context with Legacy Support
+        """Create a bounded aiohttp connector using the default TLS checks."""
+        # SSL Context with secure defaults
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        try:
-            # OP_LEGACY_SERVER_CONNECT = 0x4
-            ctx.options |= 0x4
-            ctx.set_ciphers('DEFAULT:@SECLEVEL=1')
-        except Exception:
-            pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
     def _generateTimeout(self):
@@ -896,15 +889,10 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 if len(nextPageUrl) > 0:
                     async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
                         try:
-                            task = asyncio.create_task(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
-                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retryTimes=0))  # fire and forget
-                            # task = asyncio.ensure_future(self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl() + self._getNextPageApiKey(), loop=self._getActiveEventLoop()))  # fire and forget
-                            await asyncio.sleep(3)
-                        finally:
-                            if not (task is None or task.cancelled() or task.done()):
-                                task.cancel()
-                            if anotherSession is not None:
-                                await anotherSession.close()
+                            await self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
+                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retryTimes=0)
+                        except Exception as npe:
+                            logging.warning(f"Failed to fetch next page {nextPageUrl}: {npe}")
 
         return detailUrlList
 

@@ -3,7 +3,7 @@ import sys
 import os
 import asyncio
 import aiohttp
-import random
+import secrets
 import logging
 
 # Setup Django environment
@@ -117,6 +117,7 @@ async def verify_parser_on_urls(session, model_class, parser_class, label, urls)
     return success_count, total
 
 async def main():
+    """Run live parser checks against up to ten stored URLs per parser."""
     conn = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=conn) as session:
         tasks = []
@@ -132,7 +133,7 @@ async def main():
             
             # Sample up to 10 random URLs to hit variations
             sample_size = min(10, len(urls))
-            sampled_urls = random.sample(urls, sample_size)
+            sampled_urls = secrets.SystemRandom().sample(urls, sample_size)  # NOSONAR
             
             tasks.append(verify_parser_on_urls(session, model_class, parser_class, label, sampled_urls))
             

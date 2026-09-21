@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
       - name: Path Filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -42,7 +42,7 @@ jobs:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.10.0
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and cache Docker image
         uses: docker/build-push-action@v6
@@ -77,7 +77,7 @@ jobs:
         run: docker compose down
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: 21
           distribution: 'temurin'
@@ -88,9 +88,10 @@ jobs:
         with:
           args: >
             "-Dsonar.sourceEncoding=UTF-8"
+            "-Dsonar.qualitygate.wait=true"
             "-Dsonar.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg"
             "-Dsonar.coverage.exclusions=**/scripts/**"
-            "-Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**"
+            "-Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**,**/scripts/**"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

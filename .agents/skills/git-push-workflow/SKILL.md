@@ -34,10 +34,15 @@ description: 開発作業が完了した後に、新しいブランチを作成�
 6. **二段階PRマージの実施（Production Gate 遵守）**
    - 本リポジトリでは `production` への直接 push および作業ブランチからの直接 PR は GitHub Actions (`production-gate.yml`) でブロックされる。
    - **Step 1: 作業ブランチ ➔ `master` への PR & マージ**
-     - `gh pr create --base master --head <branch-name> --title "..." --body "..."`
+     - `gh pr create --base master --head <branch-name> --title "[#<issue_num>] ..." --body "Closes #<issue_num>\n..."`
      - CI チェック通過後、`master` にマージ (`gh pr merge <PR_NUMBER> --squash --delete-branch`)。
    - **Step 2: `master` ➔ `production` への リリース PR & マージ**
      - ローカルの `master` を最新化: `git checkout master && git pull origin master`
      - `gh pr create --base production --head master --title "release: ..." --body "..."`
      - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。
+
+7. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
+   - マージ後または作業完了後、`gh issue list --state open` を実行して該当 Issue が正常にクローズ（Closed）されたか確認する。
+   - 自動クローズされずにオープン状態のまま残存している場合（閉じ漏れ）は、完了理由を添えて直ちに `gh issue close <issue_num> --comment "..."` を実行してステータスを完了状態へ進めること。
+
 

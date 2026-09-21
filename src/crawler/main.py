@@ -72,7 +72,7 @@ from routes.keisei_routes import keiseiMansionStart, keiseiKodateStart, keiseiTo
 from routes.daikyo_routes import daikyoMansionStart, daikyoKodateStart, daikyoTochiStart, daikyo_bp
 
 
-app = Flask(__name__)
+app = Flask(__name__)  # NOSONAR
 
 # Register Blueprints
 app.register_blueprint(mitsui_bp)

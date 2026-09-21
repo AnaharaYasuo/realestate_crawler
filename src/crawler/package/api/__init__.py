@@ -1,8 +1,10 @@
 import os
 import logging
 
-# Ensure logs directory exists - using /tmp to avoid Flask reloader loop
-log_dir = '/tmp/crawler_logs'
+# Ensure logs directory exists within project directory
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(_current_dir)))
+log_dir = os.path.join(_project_root, 'logs', 'crawler_logs')
 if not os.path.isdir(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 

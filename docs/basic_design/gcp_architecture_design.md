@@ -71,9 +71,12 @@ flowchart TB
 | **オブジェクトストレージ** | Cloud Storage (GCS) | Standard クラス, リージョン: `asia-northeast1` | 物件画像、エビデンス、モデルアーティファクト保存。MinIOからの完全代替。 |
 | **コンテナレジストリ** | Artifact Registry | Docker リポジトリ (`asia-northeast1`) | クローラーDockerイメージの保存・バージョン管理。 |
 | **送信元IP固定** | Serverless VPC Access + Cloud NAT | e2-micro コネクタ (2~10台), 手動静的外部IP 1本 | クロール先ポータルからのBot検知・IPブロックを回避。 |
-| **シークレット管理** | Secret Manager | レプリケーション: 自動 | DBパスワード、Slack Bot Token、Slack App Token を安全に注入。 |
+| **シークレット管理** | Secret Manager | レプリケーション: 自動 | DBパスワード、ProxySQL監視/管理パスワード、Slack Bot Token、Slack App Token を安全に注入。 |
 | **実行権限** | IAM Service Account | クローラー専用 SA / ProxySQL専用 SA | Cloud SQL クライアント、Storage オブジェクト管理者、Secret アクセサー等を最小権限で付与。 |
 | **予算・請求アラート** | Cloud Billing Budget + Cloud Monitoring | しきい値: 50%, 80%, 100%, 120%(予測) | メール及びPub/Sub通知により、リソース暴走や過大請求を即時防止。 |
+| **ログ重大度昇格 & 監視** | Cloud Logging + Cloud Monitoring | ログベースメトリクス + アラートポリシー (Severity: ERROR / CRITICAL) | MySQL 8.0 ログ `MY-010926` (Access denied) や `[ERROR]`, `MY-010048` (Too many connections) を捕捉し重大度 ERROR として即時アラート発報。 |
+| **ヘルスチェック監視認証** | Cloud SQL User (`monitor`) + ProxySQL | 専用 `monitor` ユーザー (USAGE権限のみ) + ランダムパスワード | ProxySQL の内部死活監視 (`ping`, `read_only`) の認証を正常化し、認証拒否スパムを根絶。 |
+
 
 
 ---
@@ -103,5 +106,13 @@ Cloud Tasks のキューイングおよび流量制御機能（`max_dispatches_p
   - `ThreadPoolExecutor`（4〜8並行）により、物件モデル群を並行して一括推論＆DB永続化。直列ループによる処理ボトルネックを解消。
 - **サイト内詳細取得並行度 (`_getCloudPararellLimit`)**:
   - 環境変数 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 5）により、GCP帯域に最適化された並行リクエスト数を安全に設定可能。
+
+### 3.3 クローリング実行状況レポート設計（全体およびジョブ別時間粒度向上）
+- **全体レポート指標**:
+  - バッチ開始日時 (`start_time`)、終了日時 (`end_time`)、合計所要時間 (`duration`: 〇時間〇分〇秒 / `elapsed_seconds`) を計測・出力。
+- **物件種別別粒度指標**:
+  - 過去24時間新規取得件数内訳（会社×種別）および異常ジョブ一覧の各エントリに対し、個別ジョブの `(開始: HH:MM:SS, 終了: HH:MM:SS, 所要: 〇分〇秒)` を付与。
+- **データ不整合防止ガード**:
+  - 単一種別（ストックヘーベル等）のサイトにおいて、不適合種別のデータが混入しないようパーサーレベルで例外スキップ（`SkipPropertyException`）を実行。
 
 

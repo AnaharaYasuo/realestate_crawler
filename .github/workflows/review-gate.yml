@@ -103,7 +103,7 @@ jobs:
                 const m = line.match(/^[ \t]*[-*][ \t]+\[([ ])\][ \t]*(.*)$/);
                 if (m) {
                   // Ignore CodeRabbit interactive action triggers (radio choices, automated CI-fix triggers)
-                  if (line.includes('radioGroupId') || line.includes('Fix all pre-merge checks with AI')) {
+                  if (line.includes('radioGroupId') || line.includes('checkboxId') || line.includes('Fix all pre-merge checks with AI')) {
                     continue;
                   }
                   const content = m[2].trim();

@@ -4,11 +4,11 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 5.30"
+      version = "~> 8.3"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 5.30"
+      version = "~> 8.3"
     }
     random = {
       source  = "hashicorp/random"
@@ -48,8 +48,10 @@ resource "google_project_service" "enabled_services" {
     "servicenetworking.googleapis.com",
     "compute.googleapis.com",
     "billingbudgets.googleapis.com",
-    "monitoring.googleapis.com"
+    "monitoring.googleapis.com",
+    "logging.googleapis.com"
   ])
+
 
   service                    = each.key
   disable_dependent_services = false
