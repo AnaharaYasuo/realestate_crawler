@@ -38,8 +38,7 @@ class DaiwaParser(ParserBase):
             return self.BASE_URL + linkUrl
         return self.BASE_URL + '/' + linkUrl
 
-    async def parseNextPage(self, response: BeautifulSoup):
-        # ページネーションリンク
+    def _find_conventional_next_page(self, response: BeautifulSoup) -> str:
         for a in response.select(".pagination a, .pager a, .paging a"):
             text = a.get_text()
             if "次" in text or "next" in text.lower() or ">" in text:
@@ -47,6 +46,69 @@ class DaiwaParser(ParserBase):
                 if href:
                     return self.getRootDestUrl(href)
         return ""
+
+    def _extract_page_links(self, response: BeautifulSoup) -> list:
+        page_links = []
+        for a in response.find_all("a", href=re.compile(r'[?&]page=\d+')):
+            href = a.get("href")
+            if not href:
+                continue
+            m = re.search(r'[?&]page=(\d+)', href)
+            if m:
+                page_links.append((int(m.group(1)), href, a))
+        return page_links
+
+    def _find_current_page(self, response: BeautifulSoup) -> int | None:
+        curr_el = response.find(attrs={"aria-current": ["page", "true"]})
+        if curr_el:
+            m_curr = re.search(r'\d+', curr_el.get_text())
+            if m_curr:
+                return int(m_curr.group(0))
+
+        for el in response.select(".pagination .active, .pagination .current, .pager .active, [class*='active'], [class*='current']"):
+            m_curr = re.search(r'^\s*(\d+)\s*$', el.get_text())
+            if m_curr:
+                return int(m_curr.group(1))
+        return None
+
+    def _find_next_by_page_number(self, page_links, response: BeautifulSoup) -> str:
+        current_page = self._find_current_page(response)
+        if current_page is None:
+            page_nums = [p for p, _, _ in page_links if p is not None]
+            if page_nums and min(page_nums) == 2:
+                current_page = 1
+
+        if current_page is not None:
+            for p_num, href, _ in page_links:
+                if p_num == current_page + 1:
+                    return self.getRootDestUrl(href)
+        return ""
+
+    def _find_next_by_link_tags(self, page_links) -> str:
+        for _, href, a_tag in page_links:
+            text = a_tag.get_text().strip()
+            aria_label = a_tag.get("aria-label", "")
+            classes = " ".join(a_tag.get("class", [])) if isinstance(a_tag.get("class"), list) else (a_tag.get("class") or "")
+            if any(k in text or k in aria_label or k in classes for k in ["前", "<", "«", "prev"]):
+                continue
+            if a_tag.find("svg") or any(k in text or k in aria_label or k in classes for k in ["次", ">", "»", "next"]):
+                return self.getRootDestUrl(href)
+        return ""
+
+    async def parseNextPage(self, response: BeautifulSoup):
+        conventional = self._find_conventional_next_page(response)
+        if conventional:
+            return conventional
+
+        page_links = self._extract_page_links(response)
+        if not page_links:
+            return ""
+
+        by_number = self._find_next_by_page_number(page_links, response)
+        if by_number:
+            return by_number
+
+        return self._find_next_by_link_tags(page_links)
 
     async def parseRootPage(self, response: BeautifulSoup):
 

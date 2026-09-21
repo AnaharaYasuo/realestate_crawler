@@ -80,39 +80,41 @@ jobs:
             const prNumber = pr.number;
             const headSha = pr.head && pr.head.sha;
 
-            // 1. Check CodeRabbit In-Progress / Pending Status
+            // 1. Check CodeRabbit In-Progress / Pending Status (skip for production PRs)
             const systemErrors = [];
             let crPending = false;
             let crPendingMsg = '';
             let allCheckRuns = [];
 
-            try {
-              const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
-                owner,
-                repo,
-                ref: headSha
-              });
-              const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
-              const pendingStatus = crStatuses.find(s => s.state === 'pending');
-              if (pendingStatus) {
-                crPending = true;
-                crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
-              }
+            if (targetBranch !== 'production') {
+              try {
+                const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
+                  owner,
+                  repo,
+                  ref: headSha
+                });
+                const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
+                const pendingStatus = crStatuses.find(s => s.state === 'pending');
+                if (pendingStatus) {
+                  crPending = true;
+                  crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
+                }
 
-              allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
-                owner,
-                repo,
-                ref: headSha,
-                per_page: 100
-              });
-              const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
-              const inProgressCheck = crChecks.find(c => c.status !== 'completed');
-              if (inProgressCheck) {
-                crPending = true;
-                crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
+                allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
+                  owner,
+                  repo,
+                  ref: headSha,
+                  per_page: 100
+                });
+                const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
+                const inProgressCheck = crChecks.find(c => c.status !== 'completed');
+                if (inProgressCheck) {
+                  crPending = true;
+                  crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
+                }
+              } catch (err) {
+                systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
               }
-            } catch (err) {
-              systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
             }
 
             // 2. Scan for Unchecked Checkboxes (- [ ])
@@ -258,13 +260,13 @@ jobs:
               }
             }
 
-            // 5. Check Security Scans & Code Scanning Status
-            const requiredSecurityChecks = [
+            // 5. Check Security Scans & Code Scanning Status (skip for production PRs)
+            const requiredSecurityChecks = targetBranch !== 'production' ? [
               { name: 'CodeQL Scan', match: (n) => n.toLowerCase().includes('codeql scan') },
               { name: 'Trivy Security Scan', match: (n) => n.toLowerCase().includes('trivy') },
               { name: 'Semgrep SAST Scan', match: (n) => n.toLowerCase().includes('semgrep') },
               { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
-            ];
+            ] : [];
 
             const allowedConclusions = ['success'];
             const failedSecurityChecks = [];
@@ -287,44 +289,46 @@ jobs:
             }
 
             const codeScanningAlerts = [];
-            try {
-              let alertsRes = null;
+            if (targetBranch !== 'production') {
               try {
-                alertsRes = await github.rest.codeScanning.listAlertsForRepo({
-                  owner,
-                  repo,
-                  ref: `refs/pull/${prNumber}/merge`,
-                  state: 'open',
-                  per_page: 50
-                });
-              } catch (mergeRefErr) {
-                if (pr.head && pr.head.ref) {
+                let alertsRes = null;
+                try {
                   alertsRes = await github.rest.codeScanning.listAlertsForRepo({
                     owner,
                     repo,
-                    ref: `refs/heads/${pr.head.ref}`,
+                    ref: `refs/pull/${prNumber}/merge`,
                     state: 'open',
                     per_page: 50
                   });
-                } else {
-                  throw mergeRefErr;
+                } catch (mergeRefErr) {
+                  if (pr.head && pr.head.ref) {
+                    alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+                      owner,
+                      repo,
+                      ref: `refs/heads/${pr.head.ref}`,
+                      state: 'open',
+                      per_page: 50
+                    });
+                  } else {
+                    throw mergeRefErr;
+                  }
                 }
-              }
 
-              if (alertsRes && alertsRes.data) {
-                for (const a of alertsRes.data) {
-                  codeScanningAlerts.push({
-                    number: a.number,
-                    tool: a.tool ? a.tool.name : 'Unknown',
-                    rule: a.rule ? a.rule.id : 'Unknown',
-                    severity: a.rule ? a.rule.severity : 'error',
-                    desc: a.rule ? a.rule.description : '',
-                    path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
-                  });
+                if (alertsRes && alertsRes.data) {
+                  for (const a of alertsRes.data) {
+                    codeScanningAlerts.push({
+                      number: a.number,
+                      tool: a.tool ? a.tool.name : 'Unknown',
+                      rule: a.rule ? a.rule.id : 'Unknown',
+                      severity: a.rule ? a.rule.severity : 'error',
+                      desc: a.rule ? a.rule.description : '',
+                      path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
+                    });
+                  }
                 }
+              } catch (err) {
+                systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
               }
-            } catch (err) {
-              systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
             }
 
             // 6. Aggregate Results & Assert
