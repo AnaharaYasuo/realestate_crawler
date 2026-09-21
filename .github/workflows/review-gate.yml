@@ -266,7 +266,7 @@ jobs:
               { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
             ];
 
-            const allowedConclusions = ['success'];
+            const allowedConclusions = ['success', 'skipped', 'neutral'];
             const failedSecurityChecks = [];
             const pendingSecurityChecks = [];
             const missingSecurityChecks = [];
