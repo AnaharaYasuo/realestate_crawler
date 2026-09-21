@@ -405,6 +405,36 @@ graph TD
   - `AfrMansionParser` において `専有面積` が存在しない物件を `SkipPropertyException` でスキップ。
   - `AfrTochiParser` において `建物面積` / `間取り` が存在する戸建物件を `SkipPropertyException` でスキップ。
 
+### 6.27 広域クローリング巡回およびTailwind CSS/多段ページネーション修復内部設計
+- **大和ハウス (daiwa) ページネーション修復**:
+  - Tailwind CSS化（`.pagination`等の旧クラス完全廃止）に伴い、`parseNextPage` において `a[href*="page="]` や現在のページ番号の次番号リンク、または次へ遷移用コンポーネントを検出する汎用抽出ロジックを実装。全81ページ（1,600件以上）の連続巡回を可能とする。
+- **大京 (daikyo) ページネーション & 広域化修復**:
+  - `parseNextPage` で `.jsPagingNext`, `.result-pager__link`, `a[href*="page="]` をサポートし、2ページ目以降の途絶を解消。
+  - `daikyo_routes.py` において東京都（`p13`）限定指定から、全国主要都道府県リストまたは全国検索URLへのパラメータ展開をサポート。
+- **京王 (keio) HTTP Referer検証対応**:
+  - WP REST API (`get_search_result_sale`) 取得時、CloudFront/WAFの403 Forbiddenを回避するため、`Referer: https://chukai.keiofudosan.co.jp/` をリクエストヘッダに常時設定。
+- **三井 (mitsui) & 東急 (tokyu) エリア多段ドリルダウン修復**:
+  - 三井: 都道府県エリアページ（`/prefecture/XX/`）から市区案内親ページ（`/city/`）ではなく、各市区個別一覧ページ（`/city/XXXXX/`）を直接抽出して展開するようセレクタを是正。
+  - 東急土地: `/select-area/` から愛知県のみでなく、全都道府県の `select-area/` および各市区 `a<city_code>` へ整合性高くドリルダウンするよう修正。
+- **アットホーム (athome) 市区町村別多段ページネーション拡張**:
+  - 市区町村別の一覧ページを展開後、1ページ目のみで終了せず、各市区の次ページリンク（`parseNextPage`）も順次取得・巡回するよう拡張。
+
+### 6.28 SonarCloudリモート検査・外部API呼び出しの有限時間タイムアウト内部設計
+- **背景と課題**:
+  - SonarCloud の Quality Gate 状態や未解消課題をリモート API で確認する際、curl コマンド等にタイムアウトが設定されていないため、Windows PowerShell環境やネットワーク遅延時にプロセスが無限待機（ハング）し、バックグラウンドタスクとして滞留し続ける事象が発生していた。
+- **専用検証スクリプト (`src/crawler/scripts/debug_tools/check_sonar_remote.py`)**:
+  - **有限時間タイムアウト保証**: `urllib.request.urlopen` に明示的な `timeout` 引数（デフォルト 10.0 秒、CLI オプション `--timeout` で指定可能）を強制設定。ソケットの接続（connect）および読み取り（read）双方で有限時間内に完了しない場合は `TimeoutError` / `URLError` として即座に終了する。
+  - **対象指定の柔軟性**: `--pr <pr_number>` または `--branch <branch_name>` を指定することで、対象の Quality Gate ステータス（`project_status`）および未解消課題（`issues/search`）を安全に照会可能。
+  - **出力形式とエラーハンドリング**:
+    - 通常モードでは人間が視認しやすいフォーマットで Quality Gate の OK / ERROR 判定およびメトリクス一覧を出力。
+    - `--json` フラグにより構造化 JSON 出力をサポート。
+    - タイムアウト発生時、HTTP エラー時、または Quality Gate 不合格時は適切なエラーメッセージを出力し非ゼロの終了コードで終了。終了コード対応表:
+      - `Exit Code 0`: 成功（Quality Gate PASS / OK）
+      - `Exit Code 1`: Quality Gate 不合格（FAIL / ERROR）または HTTP / API 接続エラー
+      - `Exit Code 2`: タイムアウト発生（SonarTimeoutException）
+  - **curl コマンド実行規約の制定**:
+    - シェルから直接 curl を呼び出す場合は必ず `--max-time 10 --connect-timeout 5` を付与することを義務付け、生 curl のタイムアウトなし実行を禁止。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -416,7 +446,7 @@ graph TD
 ---
 
 **最終更新**: 2026年9月21日  
-**バージョン**: 2.7 (クローリング実行状況レポート時間粒度拡張および異常クローラー修復内部設計追記)
+**バージョン**: 2.9 (SonarCloudリモート検査・外部API呼び出しの有限時間タイムアウト内部設計追記)
 
 
 

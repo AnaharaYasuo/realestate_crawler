@@ -16,8 +16,8 @@ daikyo_bp = Blueprint('daikyo', __name__)
 
 @daikyo_bp.route(API_KEY_DAIKYO_MANSION_START, methods=['POST', 'GET'])
 def daikyoMansionStart():
-    # 東京都の中古マンション（エリア別一覧）
-    return ParseDaikyoMansionStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/mansion/p13/")
+    # 全国の中古マンション
+    return ParseDaikyoMansionStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/mansion/")
 
 @daikyo_bp.route(API_KEY_DAIKYO_MANSION_DETAIL, methods=['POST', 'GET'])
 def daikyoMansionDetail():
@@ -28,8 +28,8 @@ def daikyoMansionDetail():
 
 @daikyo_bp.route(API_KEY_DAIKYO_KODATE_START, methods=['POST', 'GET'])
 def daikyoKodateStart():
-    # 東京都の中古戸建（エリア別一覧）
-    return ParseDaikyoKodateStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/house/p13/")
+    # 全国の中古戸建
+    return ParseDaikyoKodateStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/house/")
 
 @daikyo_bp.route(API_KEY_DAIKYO_KODATE_DETAIL, methods=['POST', 'GET'])
 def daikyoKodateDetail():
@@ -40,8 +40,8 @@ def daikyoKodateDetail():
 
 @daikyo_bp.route(API_KEY_DAIKYO_TOCHI_START, methods=['POST', 'GET'])
 def daikyoTochiStart():
-    # 東京都の土地（エリア別一覧）
-    return ParseDaikyoTochiStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/land/p13/")
+    # 全国の土地
+    return ParseDaikyoTochiStartAsync().main("https://www.daikyo-anabuki.co.jp/buy/land/")
 
 
 @daikyo_bp.route(API_KEY_DAIKYO_TOCHI_DETAIL, methods=['POST', 'GET'])

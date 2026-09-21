@@ -6,8 +6,8 @@ mansion:
   # Price and Address will be retrieved via Label in _scrape_specs
   address_link_selector: "a"
   
-  root_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/select-area')]/@href"
-  area_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/a')]/@href"
+  root_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/select-area') and not(contains(@href, 'select-map'))]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/chuko-mansion/') and contains(@href, '/a') and not(contains(@href, 'select-')) and not(contains(@href, 'payment'))]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
   saikou_key: "向き"
   property_links_xpath: "//a[contains(@href,\"/mansion/C\")]/@href"
@@ -31,8 +31,8 @@ kodate:
   title: "h1"
   address_link_selector: "a"
   
-  root_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/select-area')]/@href"
-  area_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/a')]/@href"
+  root_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/select-area') and not(contains(@href, 'select-map'))]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/kodate/') and contains(@href, '/a') and not(contains(@href, 'select-')) and not(contains(@href, 'payment'))]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
   property_links_xpath: "//a[contains(@href,\"/kodate/C\")]/@href"
   table:
@@ -46,8 +46,8 @@ tochi:
   title: "h1"
   address_link_selector: "a"
   
-  root_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/select-area')]/@href"
-  area_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/a')]/@href"
+  root_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/select-area') and not(contains(@href, 'select-map'))]/@href"
+  area_xpath: "//a[contains(@href, '/kounyu/tochi/') and contains(@href, '/a') and not(contains(@href, 'select-')) and not(contains(@href, 'payment'))]/@href"
   next_page_xpath: "(//div[@class=\"m-page-navigation__inner\"])[1]/a[@class=\"m-page-navigation__next iconfont-livable-arrow_right\"]/@href"
   property_links_xpath: "//a[contains(@href,\"/tochi/C\")]/@href"
   table:
