@@ -33,15 +33,16 @@ from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 
 
-# # CLI 引数のパース (全社一斉並行スタートのためデフォルト上限を35に拡大)
-default_parallel = 35
-default_playwright_parallel = 3
-parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
-parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
-parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
-parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
-parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
-args = parser.parse_args()
+def parse_args():
+    """Parse CLI arguments for run_all_crawlers."""
+    default_parallel = 35
+    default_playwright_parallel = 3
+    parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
+    parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
+    parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
+    parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
+    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    return parser.parse_args()
 
 # ポータルサイトおよび Playwright を使用する高メモリ負荷サイトのリスト
 PORTAL_COMPANIES = ["athome", "homes"]
@@ -169,11 +170,23 @@ def clean_zombies():
     if cleaned > 0:
         logging.info(f"過去のゾンビプロセス {cleaned} 件を一掃しました。")
 
+def format_duration(seconds: int) -> str:
+    """Format duration seconds to readable string."""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}時間{m}分{s}秒"
+    elif m > 0:
+        return f"{m}分{s}秒"
+    else:
+        return f"{s}秒"
+
 def main():
     """Run or list crawler jobs and report execution results.
 
     Executed runs post Slack and database status and write a dated JSON report.
     """
+    args = parse_args()
     if args.dry_run:
         target_jobs = [j for j in CRAWL_JOBS if not (args.skip_portals and j[0].lower() in PORTAL_COMPANIES)]
         logging.info(f"--- Dry Run Mode: List of Crawling Jobs ({len(target_jobs)} jobs) ---")
@@ -246,6 +259,8 @@ def main():
     
     global active_processes
 
+    batch_start_dt = datetime.datetime.now()
+
     while job_queue or active_processes:
         now = time.time()
         
@@ -258,30 +273,36 @@ def main():
                 status = "success" if exit_code == 0 else "failed"
                 error_msg = "" if exit_code == 0 else f"Job exited with code {exit_code}"
                 elapsed = now - start_t
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
+                duration_job_str = format_duration(int(elapsed))
                 
-                logging.info(f"[{idx}] Crawl job finished for {company} - {ptype}. Status: {status}, Code: {exit_code}, Time: {int(elapsed)}s")
+                scraped_cnt = 0
+                if exit_code == 0:
+                    scraped_cnt = get_count_for_job(company, ptype, start_dt)
+                    if scraped_cnt > 0:
+                        post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {duration_job_str}")
+                    else:
+                        status = "failed"
+                        error_msg = "0 items scraped (Zero count failure)"
+                        post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
+                else:
+                    post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
+
+                logging.info(f"[{idx}] Crawl job finished for {company} - {ptype}. Status: {status}, Code: {exit_code}, Time: {duration_job_str}")
                 results.append({
                     "index": idx,
                     "company": company,
                     "property_type": ptype,
                     "status": status,
                     "exit_code": exit_code,
+                    "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else "",
+                    "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S") if end_dt else "",
+                    "duration": duration_job_str,
                     "elapsed_seconds": int(elapsed),
+                    "items_count": scraped_cnt,
                     "error_message": error_msg
                 })
-                
-                if exit_code == 0:
-                    scraped_cnt = get_count_for_job(company, ptype, start_dt)
-                    if scraped_cnt > 0:
-                        post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {int(elapsed)}秒")
-                    else:
-                        results[-1]["status"] = "failed"
-                        results[-1]["error_message"] = "0 items scraped (Zero count failure)"
-                        post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {int(elapsed)}秒 (データが1件も取得できていません)")
-                else:
-                    post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {int(elapsed)}秒")
 
-                    
                 del active_processes[idx]
                 
             elif timeout_sec > 0 and now - start_t > timeout_sec:
@@ -295,13 +316,19 @@ def main():
                     logging.error(f"Failed to kill: {ke}")
                 
                 elapsed = now - start_t
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
+                duration_job_str = format_duration(int(elapsed))
                 results.append({
                     "index": idx,
                     "company": company,
                     "property_type": ptype,
                     "status": "timeout",
                     "exit_code": -1,
+                    "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else "",
+                    "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S") if end_dt else "",
+                    "duration": duration_job_str,
                     "elapsed_seconds": int(elapsed),
+                    "items_count": 0,
                     "error_message": f"Timeout expired ({timeout_sec}s)"
                 })
                 post_slack(f"❌ 【タイムアウト】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 制限時間 {timeout_sec}秒超過")
@@ -359,7 +386,11 @@ def main():
                         "property_type": ptype,
                         "status": "error",
                         "exit_code": -1,
+                        "start_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "end_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "duration": "0秒",
                         "elapsed_seconds": 0,
+                        "items_count": 0,
                         "error_message": str(e)
                     })
                 
@@ -371,8 +402,16 @@ def main():
         time.sleep(1)
             
     # レポート保存
+    batch_end_dt = datetime.datetime.now()
+    elapsed_delta = batch_end_dt - batch_start_dt
+    duration_str = format_duration(int(elapsed_delta.total_seconds()))
+
     summary = {
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": batch_end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "start_time": batch_start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "end_time": batch_end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "duration": duration_str,
+        "elapsed_seconds": int(elapsed_delta.total_seconds()),
         "total_jobs": len(CRAWL_JOBS),
         "success_jobs": sum(1 for r in results if r["status"] == "success"),
         "failed_jobs": sum(1 for r in results if r["status"] in ["failed", "timeout", "error"]),
@@ -435,14 +474,29 @@ def main():
                 
         # Format Slack Message
         msg_lines = ["📢 【クローリング実行状況レポート】"]
-        msg_lines.append(f"日時: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        msg_lines.append(f"開始時間: {batch_start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        msg_lines.append(f"終了時間: {batch_end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        msg_lines.append(f"所要時間: {duration_str}")
         msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
         
+        # Build lookup from results for job timings
+        job_timings = {}
+        for r in results:
+            key = (r["company"].lower(), r["property_type"].lower())
+            job_timings[key] = r
+
         msg_lines.append("\n▼ 過去24時間の新規取得件数内訳:")
         has_new_items = False
         for comp, ptype, cnt in sorted(db_summary):
             if cnt > 0:
-                msg_lines.append(f"• {comp} - {ptype}: {cnt} 件")
+                timing = job_timings.get((comp.lower(), ptype.lower()))
+                timing_str = ""
+                if timing and timing.get("start_time") and timing.get("end_time"):
+                    st = timing["start_time"].split(" ")[-1]
+                    et = timing["end_time"].split(" ")[-1]
+                    dur = timing.get("duration", format_duration(timing.get("elapsed_seconds", 0)))
+                    timing_str = f" (開始: {st}, 終了: {et}, 所要: {dur})"
+                msg_lines.append(f"• {comp} - {ptype}: {cnt} 件{timing_str}")
                 has_new_items = True
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
@@ -451,7 +505,11 @@ def main():
         if failed_list:
             msg_lines.append("\n⚠️ 異常が発生したクローラー:")
             for f in failed_list:
-                msg_lines.append(f"• {f['company']} - {f['property_type']}: {f['status']} (Code: {f['exit_code']})")
+                st = f.get("start_time", "").split(" ")[-1]
+                et = f.get("end_time", "").split(" ")[-1]
+                dur = f.get("duration", format_duration(f.get("elapsed_seconds", 0)))
+                timing_str = f" (開始: {st}, 終了: {et}, 所要: {dur})" if st and et else ""
+                msg_lines.append(f"• {f['company']} - {f['property_type']}: {f['status']} (Code: {f['exit_code']}){timing_str}")
         else:
             msg_lines.append("\n✅ すべてのクローラーが正常終了しました。")
             

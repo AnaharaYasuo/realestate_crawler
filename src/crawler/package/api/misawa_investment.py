@@ -1,20 +1,36 @@
 
 import asyncio
-from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase, \
-    API_KEY_MISAWA_INVEST_APARTMENT_LIST, API_KEY_MISAWA_INVEST_APARTMENT_DETAIL, \
-    API_KEY_MISAWA_INVEST_KODATE_LIST, API_KEY_MISAWA_INVEST_KODATE_DETAIL, \
+import ssl
+import aiohttp
+from package.api.api import (
+    ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase,
+    TCP_CONNECTOR_LIMIT,
+    API_KEY_MISAWA_INVEST_APARTMENT_LIST, API_KEY_MISAWA_INVEST_APARTMENT_DETAIL,
+    API_KEY_MISAWA_INVEST_KODATE_LIST, API_KEY_MISAWA_INVEST_KODATE_DETAIL,
     API_KEY_MISAWA_INVEST_START
-
+)
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
 DEFAULT_PARARELL_LIMIT = 1
 
+
+class MisawaInvestmentConnectorMixin:
+    """Provides legacy TLS compatibility for Misawa's legacy servers."""
+    def _generateConnector(self, _loop):  # NOSONAR
+        ctx = ssl.create_default_context()
+        try:
+            ctx.set_ciphers('DEFAULT@SECLEVEL=1')  # NOSONAR
+        except Exception:
+            pass
+        return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
+
+
 # ==========================================
 # Investment (Type 4 -> Misawa Type 4)
 # ==========================================
 
-class ParseMisawaInvestmentApartmentDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMisawaInvestmentApartmentDetailFuncAsync(MisawaInvestmentConnectorMixin, ParseDetailPageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentApartmentParser
         return MisawaInvestmentApartmentParser()
@@ -31,7 +47,7 @@ class ParseMisawaInvestmentApartmentDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getApiKey(self):
         return ""
 
-class ParseMisawaInvestmentApartmentListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMisawaInvestmentApartmentListFuncAsync(MisawaInvestmentConnectorMixin, ParseMiddlePageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentApartmentParser
         return MisawaInvestmentApartmentParser()
@@ -60,7 +76,7 @@ class ParseMisawaInvestmentApartmentListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self):
         return API_KEY_MISAWA_INVEST_APARTMENT_LIST
 
-class ParseMisawaInvestmentKodateDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMisawaInvestmentKodateDetailFuncAsync(MisawaInvestmentConnectorMixin, ParseDetailPageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentKodateParser
         return MisawaInvestmentKodateParser()
@@ -77,7 +93,7 @@ class ParseMisawaInvestmentKodateDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getApiKey(self):
         return ""
 
-class ParseMisawaInvestmentKodateListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMisawaInvestmentKodateListFuncAsync(MisawaInvestmentConnectorMixin, ParseMiddlePageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentKodateParser
         return MisawaInvestmentKodateParser()
@@ -106,9 +122,9 @@ class ParseMisawaInvestmentKodateListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self):
         return API_KEY_MISAWA_INVEST_KODATE_LIST
 
-class ParseMisawaInvestmentStartAsync(ApiAsyncProcBase):
-    # Investment = Type 4 (Web ID)
-    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=4"]
+class ParseMisawaInvestmentStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
+    # Investment = Type 9 (Web ID)
+    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
 
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentApartmentParser

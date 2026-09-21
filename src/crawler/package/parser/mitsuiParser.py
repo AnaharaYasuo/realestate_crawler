@@ -57,9 +57,10 @@ class MitsuiParser(ParserBase):
             return ""
         if linkUrl.startswith("http"):
             return linkUrl
-        if not linkUrl.startswith("/"):
-            linkUrl = "/" + linkUrl
-        return self.BASE_URL + linkUrl
+        if linkUrl.startswith("/"):
+            return self.BASE_URL + linkUrl
+        section = "tohshi" if self.property_type == "investment" else self.property_type
+        return f"{self.BASE_URL}/buy/{section}/{linkUrl}"
 
     async def parseRootPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
