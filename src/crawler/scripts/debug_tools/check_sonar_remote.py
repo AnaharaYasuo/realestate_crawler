@@ -172,6 +172,11 @@ def _positive_finite_float(val_str: str) -> float:
         raise argparse.ArgumentTypeError(f"Invalid float value: '{val_str}'") from exc
     if not math.isfinite(val) or val <= 0:
         raise argparse.ArgumentTypeError(f"Timeout must be a positive finite number, got '{val_str}'")
+    if val > 10.0:
+        raise argparse.ArgumentTypeError(
+            f"Timeout must be 10 seconds or less (got '{val_str}'). "
+            "Values exceeding 10s violate the External API Finite Timeout policy (NFR-021)."
+        )
     return val
 
 
