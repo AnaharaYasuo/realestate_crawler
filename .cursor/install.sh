@@ -16,8 +16,10 @@ log() { echo "[install] $*"; }
 # ---------------------------------------------------------------------------
 # 1. System dependencies (Docker Engine + Compose plugin + fuse-overlayfs)
 # ---------------------------------------------------------------------------
-if ! command -v docker >/dev/null 2>&1; then
-  log "Installing Docker Engine and the Compose plugin..."
+if ! command -v docker >/dev/null 2>&1 \
+   || ! docker compose version >/dev/null 2>&1 \
+   || ! command -v fuse-overlayfs >/dev/null 2>&1; then
+  log "Installing Docker Engine, the Compose plugin and fuse-overlayfs..."
   sudo install -m 0755 -d /etc/apt/keyrings
   export DEBIAN_FRONTEND=noninteractive
   sudo apt-get update -qq
@@ -35,7 +37,7 @@ if ! command -v docker >/dev/null 2>&1; then
     docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin fuse-overlayfs \
     >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a --force-confold
 else
-  log "Docker already installed: $(docker --version)"
+  log "Docker, Compose plugin and fuse-overlayfs already present: $(docker --version)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -68,11 +70,15 @@ echo '{ "firewall-backend": "iptables" }' | sudo tee /etc/docker/daemon.json >/d
 # 4. Local environment file (Compose requires .env to exist).
 # Uses the committed .env.example defaults; real secrets (Slack, Gemini) can be
 # supplied via Cloud Agent secrets and are optional for core crawling.
+# DB_PASSWORD is intentionally left blank so docker-compose's own default (or a
+# DB_PASSWORD Cloud Agent secret, which takes precedence during substitution)
+# applies to both the MySQL service and the app — no credential literal is
+# stored in this script.
 # ---------------------------------------------------------------------------
 if [ ! -f .env ]; then
   log "Creating .env from .env.example..."
   cp .env.example .env
-  sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=mayumimayumi0413/; s/^DB_HOST=.*/DB_HOST=db/; s/^DB_PORT=.*/DB_PORT=3306/' .env
+  sed -i 's/^DB_HOST=.*/DB_HOST=db/; s/^DB_PORT=.*/DB_PORT=3306/; s/^DB_PASSWORD=.*/DB_PASSWORD=/' .env
 fi
 
 # ---------------------------------------------------------------------------
@@ -95,15 +101,11 @@ sudo docker info >/dev/null 2>&1 || { log "ERROR: dockerd failed to start"; cat 
 log "Building the application image (this can take a few minutes)..."
 sudo docker compose build app
 
-log "Initialising the MySQL schema..."
-sudo docker compose up -d db
-for _ in $(seq 1 30); do
-  sudo docker compose exec -T db mysqladmin ping -h localhost -uroot -prootpassword 2>/dev/null | grep -q "is alive" && break
-  sleep 5
-done
-sudo docker compose up -d app
-# Wait for the app container to be running, then apply migrations.
-sleep 5
+log "Starting core services and initialising the MySQL schema..."
+sudo docker compose up -d db app
+# Wait for the database to accept connections (same readiness check the CI uses),
+# then apply migrations without suppressing failures.
+sudo docker compose exec -T app python src/crawler/scripts/debug_tools/wait_for_db.py
 sudo docker compose exec -T app python src/crawler/manage.py migrate --no-input
 
 log "Stopping build-time containers (images + db volume are retained in the snapshot)..."

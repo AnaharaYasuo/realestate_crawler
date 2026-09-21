@@ -38,7 +38,10 @@ sudo docker info >/dev/null 2>&1 || { log "ERROR: dockerd failed to start"; tail
 # ---------------------------------------------------------------------------
 if [ ! -f .env ]; then
   cp .env.example .env
-  sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=mayumimayumi0413/; s/^DB_HOST=.*/DB_HOST=db/; s/^DB_PORT=.*/DB_PORT=3306/' .env
+  # DB_PASSWORD left blank on purpose: docker-compose's default (or a DB_PASSWORD
+  # Cloud Agent secret, which wins during substitution) applies to both MySQL and
+  # the app, so no credential literal is written here.
+  sed -i 's/^DB_HOST=.*/DB_HOST=db/; s/^DB_PORT=.*/DB_PORT=3306/; s/^DB_PASSWORD=.*/DB_PASSWORD=/' .env
 fi
 
 # ---------------------------------------------------------------------------
@@ -47,13 +50,10 @@ fi
 log "Bringing up db, minio and app..."
 sudo docker compose up -d db minio app
 
-# Wait for MySQL to accept connections.
-for _ in $(seq 1 30); do
-  sudo docker compose exec -T db mysqladmin ping -h localhost -uroot -prootpassword 2>/dev/null | grep -q "is alive" && break
-  sleep 5
-done
-
-# Apply any pending migrations (no-op once the schema exists).
-sudo docker compose exec -T app python src/crawler/manage.py migrate --no-input >/dev/null 2>&1 || true
+# Wait for the database to accept connections (same readiness check the CI uses),
+# then apply migrations. A DB-connection or migration failure fails the start
+# hook rather than silently leaving the app on a stale schema.
+sudo docker compose exec -T app python src/crawler/scripts/debug_tools/wait_for_db.py
+sudo docker compose exec -T app python src/crawler/manage.py migrate --no-input
 
 log "Stack is up. Flask app: http://localhost:8000 (API docs at /docs)."
