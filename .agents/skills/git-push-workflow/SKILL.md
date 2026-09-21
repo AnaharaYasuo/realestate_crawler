@@ -16,7 +16,7 @@ description: 開発作業が完了した後に、新しいブランチを作成�
 2. **作業ブランチの作成と切り替え**
    - 現在の作業内容を適切に表す名前で新しいブランチを作成し、切り替える。
    - `git checkout -b <branch-name>`
-   - 命名規則の例: `feature/add-new-parser`, `fix/login-bug`, `docs/update-readme`, `refactor/models`
+   - 命名規則の例: `feature/280-add-new-parser`, `fix/123-login-bug`, `docs/45-update-readme`, `refactor/89-models`
 
 3. **変更のステージング**
    - 必要なファイルをステージングエリアに追加する。

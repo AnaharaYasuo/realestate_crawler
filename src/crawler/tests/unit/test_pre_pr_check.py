@@ -106,3 +106,10 @@ def test_pre_pr_checker_aggregation():
     checker.results.append(r3)
     assert checker.is_all_passed() is False
     assert checker.exit_code == 1
+
+
+def test_pre_pr_checker_with_branch_and_sha():
+    """PrePRChecker respects explicitly supplied branch and sha arguments."""
+    checker = PrePRChecker(branch="feature/280-custom-branch", sha="abc1234")
+    assert checker.get_current_branch() == "feature/280-custom-branch"
+    assert checker.target_sha == "abc1234"

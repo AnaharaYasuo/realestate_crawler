@@ -145,11 +145,21 @@ def find_repo_root() -> str:
 class PrePRChecker:
     """Pre-PR unified inspection runner."""
 
-    def __init__(self, diff_mode: bool = False, fix_mode: bool = False, skip_tests: bool = False, skip_mutation: bool = False):
+    def __init__(
+        self,
+        diff_mode: bool = False,
+        fix_mode: bool = False,
+        skip_tests: bool = False,
+        skip_mutation: bool = False,
+        branch: Optional[str] = None,
+        sha: Optional[str] = None,
+    ):
         self.diff_mode = diff_mode
         self.fix_mode = fix_mode
         self.skip_tests = skip_tests
         self.skip_mutation = skip_mutation
+        self.target_branch = branch
+        self.target_sha = sha
         self.results: List[StageResult] = []
         self.repo_root = find_repo_root()
 
@@ -176,16 +186,20 @@ class PrePRChecker:
             return 1, "", str(e)
 
     def get_current_branch(self) -> str:
+        if self.target_branch:
+            return self.target_branch
         _, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         return stdout
 
     def get_changed_files(self) -> List[str]:
-        """Get list of changed files against origin/master or master including staged and untracked."""
+        """Get list of changed files against origin/master or master including staged, unstaged, and untracked."""
         files: Set[str] = set()
+        ref = self.target_sha or "HEAD"
         for cmd in [
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"],
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", "master...HEAD"],
+            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"],
+            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"],
             ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
+            ["git", "diff", "--name-only", "--ignore-space-at-eol"],
             ["git", "ls-files", "--others", "--exclude-standard"],
         ]:
             _, stdout, _ = self._run_cmd(cmd)
@@ -262,15 +276,20 @@ class PrePRChecker:
         return issues, errors
 
     def _run_ruff_linter(self, py_files: List[str]) -> Tuple[List[str], List[str]]:
-        """Run Ruff linter if installed."""
+        """Run Ruff linter adapting to host or container environment."""
         errors = []
         warnings = []
+        ruff_base = ["ruff"]
         code, _, _ = self._run_cmd(["ruff", "--version"])
         if code != 0:
-            warnings.append("Ruff がローカル環境に未インストールのため Ruff 検査をスキップしました。")
-            return errors, warnings
+            code, _, _ = self._run_cmd(["docker", "compose", "exec", "-T", "app", "ruff", "--version"])
+            if code == 0:
+                ruff_base = ["docker", "compose", "exec", "-T", "app", "ruff"]
+            else:
+                errors.append("Ruff が未インストールです。'pip install ruff' でインストールしてください。")
+                return errors, warnings
 
-        ruff_cmd = ["ruff", "check"]
+        ruff_cmd = ruff_base + ["check"]
         if self.fix_mode:
             ruff_cmd.append("--fix")
         target_args = py_files if py_files else ["src/crawler/"]
@@ -354,14 +373,24 @@ class PrePRChecker:
         if tf_changed:
             code, _, _ = self._run_cmd(["checkov", "--version"])
             if code == 0:
-                rc, _, _ = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
+                rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
                 if rc != 0:
-                    errors.append("Checkov Terraform IaC 検査で違反が検出されました。")
+                    errors.append(f"Checkov Terraform IaC 検査で違反が検出されました:\n{cout or cerr}")
+                else:
+                    details.append("Checkov Terraform 検査合格")
             else:
                 details.append("Checkov 未インストール (CIで実行)")
 
         if py_changed:
-            details.append("Pythonセキュリティ検査合格 (SonarCloud/S8786)")
+            code, _, _ = self._run_cmd(["semgrep", "--version"])
+            if code == 0:
+                rc, sout, serr = self._run_cmd(["semgrep", "--config", "p/ci", "--error"])
+                if rc != 0:
+                    errors.append(f"Semgrep SAST 検査で違反が検出されました:\n{sout or serr}")
+                else:
+                    details.append("Semgrep SAST 検査合格")
+            else:
+                details.append("Pythonセキュリティ検査合格 (SonarCloud/S8786)")
 
         passed = len(errors) == 0
         det = ", ".join(details) or "セキュリティ検査完了"
@@ -375,13 +404,21 @@ class PrePRChecker:
         if not issue_num:
             return StageResult(7, STAGE_METADATA, False, errors=["Issue番号不明"], duration_sec=time.time() - start)
 
+        if not title and not body:
+            det = "PRメタデータ検証スキップ (PR作成時に --title/--body 検証)"
+            return StageResult(7, STAGE_METADATA, True, details=det, duration_sec=time.time() - start)
+
         errors = []
-        if title:
+        if not title:
+            errors.append("PRタイトル (--title) が指定されていません。")
+        else:
             vt, msg_t = validate_pr_title_content(title, issue_num)
             if not vt:
                 errors.append(msg_t)
 
-        if body:
+        if not body:
+            errors.append("PR本文 (--body) が指定されていません。")
+        else:
             vb, msg_b = validate_pr_metadata_content(body, issue_num)
             if not vb:
                 errors.append(msg_b)
@@ -404,8 +441,8 @@ class PrePRChecker:
             self.results.append(self.stage4_tests())
             self.results.append(self.stage5_mutation())
             self.results.append(self.stage6_security())
-
-        if title or body:
+            self.results.append(self.stage7_pr_metadata(title=title, body=body))
+        elif title or body:
             self.results.append(self.stage7_pr_metadata(title=title, body=body))
 
         return self.is_all_passed()
@@ -443,6 +480,8 @@ def main() -> int:
     parser.add_argument("--fix", action="store_true", help="Auto-fix linter issues")
     parser.add_argument("--skip-tests", action="store_true", help="Skip pytest suite")
     parser.add_argument("--skip-mutation", action="store_true", help="Skip mutation testing")
+    parser.add_argument("--branch", type=str, help="Target git branch name")
+    parser.add_argument("--sha", type=str, help="Target git commit SHA")
     parser.add_argument("--title", type=str, help="PR title to validate")
     parser.add_argument("--body", type=str, help="PR body to validate")
     parser.add_argument("--json", action="store_true", help="Output JSON report")
@@ -456,6 +495,8 @@ def main() -> int:
         fix_mode=args.fix,
         skip_tests=args.skip_tests,
         skip_mutation=args.skip_mutation,
+        branch=args.branch,
+        sha=args.sha,
     )
 
     passed = checker.run_all(title=args.title, body=args.body)

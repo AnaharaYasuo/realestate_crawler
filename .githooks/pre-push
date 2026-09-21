@@ -105,7 +105,7 @@ do
         echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
         echo "🔍 Pre-PR ローカル高速事前検証 (Linter, SonarCloud, 構文) を実行中..."
-        if ! docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff; then
+        if ! docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$branch" --sha "$local_sha"; then
             echo ""
             echo "================================================================================"
             echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check) でエラーが検出されました。"
