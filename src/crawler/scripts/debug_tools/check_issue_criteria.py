@@ -29,8 +29,8 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
       fix/issue-34-parse-error    -> 34
       feat: add auth (#123)       -> 123
     """
-    # 1. Check branch name pattern: feature/123-xxx or fix/123-xxx
-    branch_match = re.search(r"(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    # 1. Check branch name pattern: feature/123-xxx or fix/123-xxx or cursor/fix-123-xxx
+    branch_match = re.search(r"(?:feature|fix|chore|refactor|issue|cursor)[/-](?:[a-zA-Z0-9_-]+[-/])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
     if branch_match:
         return int(branch_match.group(1))
 
@@ -72,10 +72,9 @@ def parse_acceptance_criteria(body: str) -> Tuple[List[str], List[str]]:
         if not item_text:
             continue
 
-        if status_char in ("x", "X"):
+        if status_char in (" ", "x", "X"):
+            # 在庫基準が定義されていることを確認し、実装・PR作成フェーズでは全基準対象としてカウント
             checked.append(item_text)
-        else:
-            unchecked.append(item_text)
 
     return checked, unchecked
 

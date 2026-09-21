@@ -36,7 +36,7 @@ do
         continue
     fi
 
-    # 1. Try extracting issue number from branch name (e.g. feature/12-xxx, fix/issue-34-xxx)
+    # 1. Try extracting issue number from branch name (e.g. feature/12-xxx, fix/issue-34-xxx, cursor/fix-312-xxx-c318)
     issue_num=$(echo "$branch" | grep -oE '(issue[-/_]|#)?([0-9]+)' | grep -oE '[0-9]+' | head -n 1 || true)
 
     # 2. Try extracting issue number from the commit message
@@ -89,7 +89,12 @@ do
 
     # 4. GitHub Issue Acceptance Criteria Guardrail
     echo "🔍 Issue #$issue_num のアクセプタンスクライテリア (受入基準) を検証中..."
-    if ! docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py --issue "$issue_num"; then
+    if command -v docker >/dev/null 2>&1; then
+        CHECK_CRITERIA_CMD="docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py --issue $issue_num"
+    else
+        CHECK_CRITERIA_CMD="python3 src/crawler/scripts/debug_tools/check_issue_criteria.py --issue $issue_num"
+    fi
+    if ! eval "$CHECK_CRITERIA_CMD"; then
         echo ""
         echo "================================================================================"
         echo "⛔ [PRE-PUSH REJECTED] Issue #$issue_num のアクセプタンスクライテリア（受入基準）に未完了項目があります。"
@@ -105,7 +110,12 @@ do
         echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
         echo "🔍 Pre-PR ローカル高速事前検証 (Linter, SonarCloud, 構文) を実行中..."
-        if ! docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$branch" --sha "$local_sha"; then
+        if command -v docker >/dev/null 2>&1; then
+            PRE_PR_CMD="docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch $branch --sha $local_sha"
+        else
+            PRE_PR_CMD="python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch $branch --sha $local_sha"
+        fi
+        if ! eval "$PRE_PR_CMD"; then
             echo ""
             echo "================================================================================"
             echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check) でエラーが検出されました。"

@@ -85,7 +85,7 @@ class RearieParser(ParserBase):
         if "phfudousan.repros.jp" in url:
             async with session.get(url, headers=self.REPROS_HEADERS) as resp:
                 data = await resp.json()
-                soup = BeautifulSoup("<html><body></body></html>", "html.parser")
+                soup = BeautifulSoup("<div id='repros-api-container'></div>", "html.parser")
                 soup._json_data = data.get("data", data)
                 return soup
         return await super().getResponseBs(session, url, charset)

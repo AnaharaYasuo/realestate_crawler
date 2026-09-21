@@ -60,16 +60,27 @@ class RetryMiddleware(CrawlerMiddleware):
 class LoggingMiddleware(CrawlerMiddleware):
     """ログ記録ミドルウェア（リクエスト・レスポンスの送受信ペイロードを出力）"""
     
+    @staticmethod
+    def _sanitize_log_body(body: Any, max_len: int = 1000) -> str | None:
+        if body is None:
+            return None
+        # 改行・連続空白を単一スペースに圧縮して、Cloud Loggingでの複数行分割を防ぐ
+        cleaned = " ".join(str(body).split())
+        if len(cleaned) > max_len:
+            return cleaned[:max_len] + f"... (truncated, total {len(cleaned)} chars)"
+        return cleaned
+
     async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
         """リクエスト送信内容をINFOログに出力します。"""
         method = request_context.get('method')
         url = request_context.get('url')
-        payload = (
+        raw_payload = (
             request_context.get('payload')
             or request_context.get('data')
             or request_context.get('params')
             or request_context.get('detailUrl')
         )
+        payload = self._sanitize_log_body(raw_payload, max_len=1000)
         logger.info(f"Middleware Request: {method} {url} | Payload: {payload}")
         return None
     
@@ -78,7 +89,7 @@ class LoggingMiddleware(CrawlerMiddleware):
         status = response_context.get('status')
         url = response_context.get('url')
         data = response_context.get('data') or response_context.get('text')
-        data_preview = str(data)[:1000] if data is not None else None
+        data_preview = self._sanitize_log_body(data, max_len=1000)
         log_msg = f"Middleware Response: {status} {url} | Body: {data_preview}"
         if status and status >= 500:
             logger.error(log_msg)

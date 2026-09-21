@@ -61,3 +61,22 @@ async def test_logging_middleware_response():
         log_str = mock_err.call_args[0][0]
         assert "500" in log_str
 
+    # 4. Multi-line HTML body (sanitization / single-line test to prevent standalone </body></html>)
+    multiline_html = """
+    <html><head>
+    <title>404 Not Found</title>
+    </head>
+    <body>
+    <h1>Error</h1>
+    </body></html>
+    """
+    context_multiline = {"status": 404, "url": "http://test-server.internal/multiline", "data": multiline_html}
+    with patch("package.api.middleware.logger.warning") as mock_warn:
+        result = await mw.process_response(context_multiline)
+        assert result["status"] == 404
+        mock_warn.assert_called_once()
+        log_str = mock_warn.call_args[0][0]
+        assert "\n" not in log_str
+        assert "</body></html>" in log_str
+        assert "<html><head>" in log_str
+
