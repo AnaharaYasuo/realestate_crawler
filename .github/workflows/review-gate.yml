@@ -115,18 +115,6 @@ jobs:
               } catch (err) {
                 systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
               }
-            } else {
-              // For production PRs, still fetch check runs for thread scanning (no CR/security gates)
-              try {
-                allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
-                  owner,
-                  repo,
-                  ref: headSha,
-                  per_page: 100
-                });
-              } catch (err) {
-                systemErrors.push(`Failed to fetch check runs: ${err.message}`);
-              }
             }
 
             // 2. Scan for Unchecked Checkboxes (- [ ])
