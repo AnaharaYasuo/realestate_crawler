@@ -360,6 +360,38 @@ class PrePRChecker:
 
         return StageResult(5, STAGE_MUTATION, True, details="キル率 >= 80% 合格", duration_sec=time.time() - start)
 
+    def _scan_terraform_iac(self) -> Tuple[List[str], List[str]]:
+        """Run Checkov Terraform scanner if installed."""
+        errors = []
+        details = []
+        code, _, _ = self._run_cmd(["checkov", "--version"])
+        if code != 0:
+            details.append("Checkov 未インストール (CIで実行)")
+            return errors, details
+
+        rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
+        if rc != 0:
+            errors.append(f"Checkov Terraform IaC 検査で違反が検出されました:\n{cout or cerr}")
+        else:
+            details.append("Checkov Terraform 検査合格")
+        return errors, details
+
+    def _scan_python_sast(self) -> Tuple[List[str], List[str]]:
+        """Run Semgrep Python SAST scanner if installed."""
+        errors = []
+        details = []
+        code, _, _ = self._run_cmd(["semgrep", "--version"])
+        if code != 0:
+            details.append("Pythonセキュリティ検査合格 (SonarCloud/S8786)")
+            return errors, details
+
+        rc, sout, serr = self._run_cmd(["semgrep", "--config", "p/ci", "--error"])
+        if rc != 0:
+            errors.append(f"Semgrep SAST 検査で違反が検出されました:\n{sout or serr}")
+        else:
+            details.append("Semgrep SAST 検査合格")
+        return errors, details
+
     def stage6_security(self) -> StageResult:
         """Stage 6: Security and IaC check."""
         start = time.time()
@@ -371,26 +403,14 @@ class PrePRChecker:
         details = []
 
         if tf_changed:
-            code, _, _ = self._run_cmd(["checkov", "--version"])
-            if code == 0:
-                rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform", "--config-file", ".checkov.yaml", "--soft-fail", "false"])
-                if rc != 0:
-                    errors.append(f"Checkov Terraform IaC 検査で違反が検出されました:\n{cout or cerr}")
-                else:
-                    details.append("Checkov Terraform 検査合格")
-            else:
-                details.append("Checkov 未インストール (CIで実行)")
+            tf_errs, tf_dets = self._scan_terraform_iac()
+            errors.extend(tf_errs)
+            details.extend(tf_dets)
 
         if py_changed:
-            code, _, _ = self._run_cmd(["semgrep", "--version"])
-            if code == 0:
-                rc, sout, serr = self._run_cmd(["semgrep", "--config", "p/ci", "--error"])
-                if rc != 0:
-                    errors.append(f"Semgrep SAST 検査で違反が検出されました:\n{sout or serr}")
-                else:
-                    details.append("Semgrep SAST 検査合格")
-            else:
-                details.append("Pythonセキュリティ検査合格 (SonarCloud/S8786)")
+            py_errs, py_dets = self._scan_python_sast()
+            errors.extend(py_errs)
+            details.extend(py_dets)
 
         passed = len(errors) == 0
         det = ", ".join(details) or "セキュリティ検査完了"
