@@ -135,3 +135,14 @@ def test_predict_missing_property_data(client):
     assert response.status_code == 400
     data = response.get_json()
     assert data["success"] is False
+
+
+@patch('routes.evaluation_routes._predict_price_internal', side_effect=Exception("Simulated error"))
+def test_predict_server_error(mock_internal, client):
+    payload = {"property_data": {"price": 1000}}
+    for path in ['/api/evaluation/predict/mansion', '/api/evaluation/predict/kodate', '/api/evaluation/predict/apartment', '/api/evaluation/predict/tochi']:
+        response = client.post(path, data=json.dumps(payload), content_type='application/json')
+        assert response.status_code == 500
+        data = response.get_json()
+        assert data["success"] is False
+        assert data["message"] == "An internal server error occurred."
