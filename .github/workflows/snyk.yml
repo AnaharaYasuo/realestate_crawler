@@ -95,8 +95,6 @@ jobs:
 
   trivy-iac:
     name: Trivy IaC Security Scan
-    needs: changes
-    if: ${{ needs.changes.outputs.iac == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

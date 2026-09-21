@@ -145,22 +145,24 @@ def run_level2_code_mutation(
 
 def _get_git_changed_files(crawler_root: str) -> List[str]:
     diff_cmds = [
-        ["git", "diff", "origin/master...HEAD", "--name-only"],
-        ["git", "diff", "master...HEAD", "--name-only"],
-        ["git", "diff", "HEAD~1", "--name-only"],
-        ["git", "status", "--porcelain"],
+        ["git", "diff", "--ignore-space-at-eol", "origin/master...HEAD", "--name-only"],
+        ["git", "diff", "--ignore-space-at-eol", "master...HEAD", "--name-only"],
+        ["git", "diff", "--ignore-space-at-eol", "--cached", "--name-only"],
+        ["git", "diff", "--ignore-space-at-eol", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
     ]
+    all_files = set()
     for cmd in diff_cmds:
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, cwd=crawler_root)
             if res.returncode == 0 and res.stdout.strip():
-                files = [line.strip().split()[-1] for line in res.stdout.strip().splitlines()]
-                py_files = [f for f in files if f.endswith(".py")]
-                if py_files:
-                    return py_files
+                for line in res.stdout.strip().splitlines():
+                    f = line.strip().split()[-1]
+                    if f.endswith(".py"):
+                        all_files.add(f)
         except Exception:
             continue
-    return []
+    return sorted(all_files)
 
 
 def _resolve_unit_abs_path(crawler_root: str, path: str) -> str:
