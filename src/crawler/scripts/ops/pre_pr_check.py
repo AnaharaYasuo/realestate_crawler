@@ -122,7 +122,7 @@ def validate_pr_metadata_content(body: str, expected_issue: int) -> Tuple[bool, 
     unchecked = []
     for line in body.splitlines():
         stripped = line.strip()
-        if (stripped.startswith("- [ ]") or stripped.startswith("* [ ]")) and "radioGroupId" not in line and "checkboxId" not in line:
+        if stripped.startswith(("- [ ]", "* [ ]")) and "radioGroupId" not in line and "checkboxId" not in line:
             content = stripped[5:].strip()
             unchecked.append(content)
 

@@ -284,9 +284,38 @@ def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str,
     return issues
 
 
+def _extract_chained_string_methods(node: ast.BoolOp) -> List[str]:
+    """Extract string method names from chained Or boolean expression."""
+    if not isinstance(node.op, ast.Or):
+        return []
+    funcs = []
+    for v in node.values:
+        if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr in ("startswith", "endswith"):
+            funcs.append(v.func.attr)
+    return funcs
+
+
+def _check_s8513_chained_startswith(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
+    """Scan for S8513: chained startswith or endswith with or operator."""
+    issues = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.BoolOp):
+            continue
+        funcs = _extract_chained_string_methods(node)
+        if len(funcs) >= 2 and len(set(funcs)) == 1:
+            issues.append({
+                "file": filename,
+                "line": getattr(node, "lineno", 1),
+                "rule": "python:S8513",
+                "severity": "MAJOR",
+                "message": f"Replace chained '{funcs[0]}' calls with a single call using a tuple argument.",
+            })
+    return issues
+
+
 def _is_s1192_candidate(val: str) -> bool:
     """Check if string literal qualifies as S1192 duplication candidate."""
-    if len(val) < 12 or val.startswith("-") or val.startswith("__"):
+    if len(val) < 12 or val.startswith(("-", "__")):
         return False
     # Only flag multi-word sentences, Japanese phrases, or longer descriptive literals
     return " " in val or "\n" in val or any(ord(ch) > 0x3000 for ch in val)
@@ -321,9 +350,10 @@ def _check_s1192_duplicated_literals(tree: ast.AST, filename: str, doc_lines: Se
 
 
 def detect_sonar_code_smells(tree: ast.AST, filename: str = "") -> List[Dict[str, Any]]:
-    """Detect SonarCloud S1192 (duplicated literals) and S7508 (redundant calls)."""
+    """Detect SonarCloud S1192 (duplicated literals), S7508 (redundant calls), S8513 (chained startswith)."""
     doc_lines = _collect_docstring_nodes(tree)
     issues = _check_s7508_redundant_calls(tree, filename)
+    issues.extend(_check_s8513_chained_startswith(tree, filename))
     issues.extend(_check_s1192_duplicated_literals(tree, filename, doc_lines))
     return issues
 
