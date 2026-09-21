@@ -108,6 +108,19 @@ def test_positive_finite_timeout_validation():
             main(["--pr", "287", "--timeout", invalid_val])
 
 
+def test_cli_timeout_upper_bound():
+    """--timeout は 10.0 まで受理し、10.0 超は CLI 入力エラーで拒否すること (NFR-021)"""
+    with patch(
+        "scripts.debug_tools.check_sonar_remote.fetch_quality_gate",
+        return_value={"status": "OK"},
+    ) as mock_fetch:
+        assert main(["--pr", "287", "--timeout", "10"]) == 0
+        assert mock_fetch.call_args.kwargs["timeout"] == 10.0
+
+        with pytest.raises(SystemExit):
+            main(["--pr", "287", "--timeout", "10.1"])
+
+
 def test_non_dict_response_raises_api_exception(capsys):
     """レスポンスがJSON配列等の非dictの場合、SonarApiExceptionが発生しCLIが終了コード1で終了すること"""
     mock_resp = MagicMock()
