@@ -1,12 +1,11 @@
 import pytest
-import datetime
 from bs4 import BeautifulSoup
 
 from scripts.ops.run_all_crawlers import format_duration
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser, MitsuiInvestmentParser
 from package.parser.tokyuParser import TokyuTochiParser
 from package.parser.keioParser import KeioMansionParser
-from package.parser.afrParser import AfrMansionParser, AfrTochiParser, AfrKodateParser
+from package.parser.afrParser import AfrMansionParser
 from package.parser.baseParser import SkipPropertyException
 from package.api.misawa_investment import ParseMisawaInvestmentStartAsync
 

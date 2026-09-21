@@ -113,3 +113,34 @@ def test_pre_pr_checker_with_branch_and_sha():
     checker = PrePRChecker(branch="feature/280-custom-branch", sha="abc1234")
     assert checker.get_current_branch() == "feature/280-custom-branch"
     assert checker.target_sha == "abc1234"
+
+
+def test_pre_pr_checker_fix_mode_branch(monkeypatch):
+    """PrePRChecker passes '--fix' to ruff check when fix_mode=True, and omits it when fix_mode=False."""
+    checker_fix = PrePRChecker(fix_mode=True)
+    called_cmds = []
+
+    def mock_run_cmd(cmd):
+        called_cmds.append(cmd)
+        if cmd == ["ruff", "--version"]:
+            return 0, "0.16.8", ""
+        return 0, "[]", ""
+
+    monkeypatch.setattr(checker_fix, "_run_cmd", mock_run_cmd)
+    checker_fix._run_ruff_linter(["src/crawler/foo.py"])
+    assert ["ruff", "check", "--fix", "--output-format=json", "src/crawler/foo.py"] in called_cmds
+
+    checker_nofix = PrePRChecker(fix_mode=False)
+    called_cmds_nofix = []
+
+    def mock_run_cmd_nofix(cmd):
+        called_cmds_nofix.append(cmd)
+        if cmd == ["ruff", "--version"]:
+            return 0, "0.16.8", ""
+        return 0, "[]", ""
+
+    monkeypatch.setattr(checker_nofix, "_run_cmd", mock_run_cmd_nofix)
+    checker_nofix._run_ruff_linter(["src/crawler/foo.py"])
+    assert ["ruff", "check", "--output-format=json", "src/crawler/foo.py"] in called_cmds_nofix
+    assert all("--fix" not in cmd for cmd in called_cmds_nofix)
+
