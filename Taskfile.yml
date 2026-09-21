@@ -155,7 +155,10 @@ tasks:
 
   pr-create:
     desc: Run full pre-PR verification, and if 100% passed, create Pull Request to master
+    vars:
+      TITLE: '{{.TITLE | default ""}}'
+      BODY: '{{.BODY | default ""}}'
     cmds:
-      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full
-      - gh pr create --base master
+      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
+      - gh pr create --base master {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
 
