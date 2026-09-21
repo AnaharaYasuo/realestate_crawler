@@ -297,9 +297,17 @@ class ParserBase(metaclass=ABCMeta):
                         continue
                     if "/buy/" in str_xpath and "/buy/" not in href:
                         continue
-                # Extract required substrings from xpath contains(@href, '...')
-                required_subs = re.findall(r'contains\s*\(\s*@href\s*,\s*["\']([^"\']+)["\']\s*\)', str_xpath)
+                # Extract negative substrings from xpath not(contains(@href, '...'))
+                excluded_subs = re.findall(r'not\s*\(\s*contains\s*\(\s*@href\s*,\s*["\']([^"\']+)["\']\s*\)\s*\)', str_xpath)
+                if excluded_subs and any(sub in href for sub in excluded_subs):
+                    continue
+                # Extract required positive substrings from xpath (excluding those inside not())
+                clean_xpath = re.sub(r'not\s*\([^)]+\)', '', str_xpath)
+                required_subs = re.findall(r'contains\s*\(\s*@href\s*,\s*["\']([^"\']+)["\']\s*\)', clean_xpath)
                 if required_subs and not all(sub in href for sub in required_subs):
+                    continue
+                starts_with_subs = re.findall(r'starts-with\s*\(\s*@href\s*,\s*["\']([^"\']+)["\']\s*\)', clean_xpath)
+                if starts_with_subs and not any(href.startswith(sub) for sub in starts_with_subs):
                     continue
             try:
                 dest_url = dest_url_fn(href) if callable(dest_url_fn) else href

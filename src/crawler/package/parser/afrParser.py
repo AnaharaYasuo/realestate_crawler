@@ -220,13 +220,12 @@ class AfrMansionParser(AfrParser, MansionParserBase):
         # 間取り
         item.madori = self._parseMadori(response, specs)
 
-        # 専有面積
-        item.senyuMensekiStr = specs.get("専有面積", "") or specs.get("建物面積", "") or specs.get("面積", "")
-        if item.senyuMensekiStr:
-            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
-        else:
+        # 専有面積 (マンション必須)
+        item.senyuMensekiStr = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if not item.senyuMensekiStr:
             from package.parser.baseParser import SkipPropertyException
-            raise SkipPropertyException("AfrMansion: Non-mansion property mixed in search list.")
+            raise SkipPropertyException("AfrMansion: Non-mansion property (no 専有面積).")
+        item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
 
 
@@ -409,6 +408,8 @@ class AfrTochiParser(AfrParser, TochiParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
+
+
 
         # 土地面積
         item.tochiMensekiStr = specs.get("土地面積", "")

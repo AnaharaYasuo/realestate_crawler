@@ -7,7 +7,7 @@ mansion:
   title: "h1.headline1"
   price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
-  root_xpath: "//li/a[contains(@href,'/buy/mansion/prefecture/')]/@href"
+  root_xpath: "//a[contains(@href,'prefecture/') and not(contains(@href,'/store/'))]/@href"
   area_xpath: "//a[contains(@href,'/buy/mansion/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
   property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/mansion/bkdetail/')]/@href"
   next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
@@ -34,7 +34,7 @@ kodate:
   title: "h1.headline1"
   price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
-  root_xpath: "//li/a[contains(@href,'/buy/kodate/prefecture/')]/@href"
+  root_xpath: "//a[contains(@href,'prefecture/') and not(contains(@href,'/store/'))]/@href"
   area_xpath: "//a[contains(@href,'/buy/kodate/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
   property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/kodate/bkdetail/')]/@href"
   next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
@@ -58,7 +58,7 @@ tochi:
   title: "h1.headline1"
   price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths
-  root_xpath: "//li/a[contains(@href,'/buy/tochi/prefecture/')]/@href"
+  root_xpath: "//a[contains(@href,'prefecture/') and not(contains(@href,'/store/'))]/@href"
   area_xpath: "//a[contains(@href,'/buy/tochi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
   property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/buy/tochi/bkdetail/')]/@href"
   next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
@@ -81,7 +81,7 @@ investment:
   title: "h1.headline1"
   price: ".text-price-regular, .price-value, .amount"
   # Navigation XPaths - Corrected to /buy/tohshi/ as per user instruction
-  root_xpath: "//a[starts-with(@href,'prefecture/')]/@href"
+  root_xpath: "//a[contains(@href,'prefecture/') and not(contains(@href,'/store/'))]/@href"
   area_xpath: "//a[contains(@href,'/buy/tohshi/prefecture/') and contains(@href, 'city/') and @class='link']/@href"
   property_list_xpath: "//div[contains(@class,'property-index-card')]//a[contains(@href,'/bkdetail/')]/@href"
   next_page_xpath: "//a[contains(@class, 'pagination-next') or contains(@class, 'is-next')]/@href"
