@@ -79,11 +79,17 @@ jobs:
      - `framework: 'terraform'`
      - `output_format: 'cli,sarif'`
      - `output_file_path: 'console,results.sarif'`
-     - `soft_fail: false`
+     - `config_file: '.checkov.yaml'`
+     - `soft_fail: false` # 誤設定検知時に CI を失敗させてブロック
   3. `github/codeql-action/upload-sarif@v3`:
      - `if: (success() || failure()) && hashFiles('results.sarif') != ''`
      - `sarif_file: 'results.sarif'`
      - `category: 'checkov'`
+
+### 1.5 レビューゲート統合 (`.github/workflows/review-gate.yml`)
+- **検査内容**:
+  - `CodeQL Scan (python/actions)`, `Trivy Security Scan`, `Semgrep SAST Scan`, `Checkov IaC` ジョブの完了・成功状態を検証。
+  - GitHub Code Scanning API（`/repos/{owner}/{repo}/code-scanning/alerts?ref=refs/heads/{head_ref}`）を呼び出し、未解消のアラートが存在する場合に PR マージ判定（`Verify All Review Conversations Resolved`）を失敗させてブロック。
 
 ---
 

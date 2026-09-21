@@ -275,7 +275,7 @@ def test_predict_by_url_unsupported_candidate_logs_error(client, caplog):
             content_type='application/json'
         )
         assert res.status_code == 400
-        assert any("[PARSER_UNAVAILABLE]" in record.message and "unsupported-realtor.com" in record.message for record in caplog.records)
+        assert any("[PARSER_UNAVAILABLE]" in record.message and "unsupported-realtor" in record.message for record in caplog.records)
 
 
 def test_predict_by_url_parser_loading_failure_logs_error(client, caplog):

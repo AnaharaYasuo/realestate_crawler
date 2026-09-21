@@ -51,6 +51,22 @@
 ### FR-SEC-011: 既存 Code Scanning 警告 (21件) の完全解消
 - 過去の SonarCloud / GitHub Code Scanning に残存する全21件の警告（S8707 パスインジェクション、S4830/S5527/S5547 SSL/TLS設定、S4036 PATH解決、S2077 動的SQL、S2245 PRNG乱数、S1313 ハードコードIP、S4502 CSRF、S5443 一時ディレクトリ）を完全解消すること。
 
+### FR-SEC-012: GitHub Code Scanning アラート (30件) の完全解消
+- 現在 GitHub Code Scanning に残存する全30件のアラート（CodeQL: 20件、Checkov: 10件）を完全解消すること。
+  1. `py/stack-trace-exposure`: HTTP 500 エラーハンドラーで例外の生文字列（`str(e)`）を返却せず汎用エラーメッセージに置換。
+  2. `py/reflective-xss`: ユーザー入力パラメータの `html.escape()` サニタイズおよび明示的 `jsonify()` 返却。
+  3. `py/bad-tag-filter`: `<script>` タグ正規表現に大文字小文字無視（`re.IGNORECASE`）を付与。
+  4. `py/incomplete-url-substring-sanitization`: ドメイン誤認を招く `in` 部分一致の判定表現を是正。
+  5. `actions/missing-workflow-permissions`: 各ワークフローに最小限の `permissions:`（`contents: read` 等）を明記。
+  6. Checkov IaC 検出項目: ProxySQL Shielded VM / SSHキー設定、Cloud SQL PITR 有効化、および設計上許容される項目（Google管理AES暗号化、VPC内プライベートIP通信等）のスキップ定義整備。
+
+### FR-SEC-013: PR 時の Code Scanning & Security Scan 自動検証・ブロック機構
+- `security-scan.yml` の Checkov から `soft_fail: true` を撤廃し、未承認の誤設定検知時に CI を確実に失敗させること。
+- PR レビューゲート（`review-gate.yml`）において、セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）の成否および未解消 Code Scanning アラートを自動検証し、違反が存在する PR のマージ判定を確実にブロックすること。
+
+### FR-SEC-014: `.checkov.yaml` によるポリシー・除外項目の一元管理
+- CI およびローカルスキャンにおいて共通の Checkov 設定ファイル（`.checkov.yaml`）を配備し、インフラセキュリティ監査基準を統一・再現可能にすること。
+
 ## 4. 非機能要件
 - **並列性 (Concurrency)**: PR 時の Trivy, Semgrep, Checkov, CodeQL を独立した並列ジョブとして構成すること。
 - **権限最小化 (Least Privilege)**: ワークフローに必要な権限（`security-events: write`, `contents: read`, `id-token: write`）のみを付与すること。

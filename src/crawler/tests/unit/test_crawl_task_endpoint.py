@@ -42,3 +42,17 @@ def test_crawl_task_success(mock_execute, client):
     data = json.loads(response.data)
     assert data["status"] == "success"
     assert data["scraped_count"] == 5
+
+
+@patch("main.execute_crawl_task")
+def test_crawl_task_failed(mock_execute, client):
+    mock_execute.return_value = (False, 0, 0)
+    response = client.post("/api/crawl/task", json={
+        "company": "mitsui",
+        "property_type": "mansion",
+        "execution_date": "2026-09-19"
+    })
+    assert response.status_code == 500
+    data = json.loads(response.data)
+    assert data["status"] == "failed"
+    assert data["error"] == "Crawl execution failed"
