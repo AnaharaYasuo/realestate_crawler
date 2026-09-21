@@ -86,3 +86,15 @@ async def test_logging_middleware_response():
     assert len(sanitized) <= 100
     assert "... (truncated, total 1500 chars)" in sanitized
 
+    # 6. Branch coverage for _sanitize_log_body
+    assert LoggingMiddleware._sanitize_log_body(None) is None
+    short_cap = LoggingMiddleware._sanitize_log_body("long string here", max_len=10)
+    assert len(short_cap) <= 10
+
+    # 7. Coverage for process_request payload
+    context_req = {"method": "GET", "url": "http://test-server.internal", "detailUrl": "http://detail"}
+    with patch("package.api.middleware.logger.info") as mock_info:
+        await mw.process_request(context_req)
+        mock_info.assert_called_once()
+        assert "http://detail" in mock_info.call_args[0][0]
+

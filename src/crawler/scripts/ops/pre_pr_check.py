@@ -24,7 +24,7 @@ if _crawler_root not in sys.path:
 try:
     import setup_env
     setup_env.init_environment()
-except (ImportError, Exception) as env_err:  # noqa: BLE001
+except Exception as env_err:  # noqa: BLE001
     import logging
     logging.getLogger("pre_pr_check").debug("Optional setup_env skipped: %s", env_err)
 

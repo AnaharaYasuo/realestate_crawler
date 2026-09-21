@@ -121,3 +121,15 @@ def test_no_newline_in_message_payload(monkeypatch):
     preview_capped = get_logged_body_preview("y" * 1000, max_len=80)
     assert len(preview_capped) <= 80
     assert "... (truncated, total 1000 chars)" in preview_capped
+
+    # Additional coverage for get_logged_body_preview branches
+    assert get_logged_body_preview(None) is None
+    assert get_logged_body_preview({"user": "john", "password": "secret", "nested": ["data"]}) is not None
+    assert get_logged_body_preview({"long_key": "val " * 500}, max_len=50) is not None
+    assert get_logged_body_preview(b"binary data \n here") == "binary data here"
+    assert get_logged_body_preview(b"b" * 1000, max_len=60) is not None
+    assert get_logged_body_preview(12345) == "12345"
+
+    # Coverage for package.api import
+    import package.api
+    assert package.api.logger is not None
