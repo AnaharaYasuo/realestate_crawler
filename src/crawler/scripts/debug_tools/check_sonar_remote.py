@@ -6,6 +6,7 @@ Issue #299: Ensures finite timeout on all remote SonarCloud API calls to prevent
 """
 import argparse
 import json
+import math
 import os
 import socket
 import sys
@@ -149,6 +150,17 @@ def _print_text_summary(
     print("=" * 80)
 
 
+def _positive_finite_float(val_str: str) -> float:
+    """Validate that input is a positive finite float number."""
+    try:
+        val = float(val_str)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"Invalid float value: '{val_str}'") from exc
+    if not math.isfinite(val) or val <= 0:
+        raise argparse.ArgumentTypeError(f"Timeout must be a positive finite number, got '{val_str}'")
+    return val
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -159,7 +171,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--project", type=str, default=DEFAULT_PROJECT_KEY, help="SonarCloud project key")
     parser.add_argument(
         "--timeout",
-        type=float,
+        type=_positive_finite_float,
         default=DEFAULT_TIMEOUT_SEC,
         help=f"Finite HTTP timeout in seconds (default: {DEFAULT_TIMEOUT_SEC}s)",
     )

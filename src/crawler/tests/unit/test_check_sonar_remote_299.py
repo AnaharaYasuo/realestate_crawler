@@ -99,3 +99,10 @@ def test_main_cli_timeout_handling(capsys):
         assert code == 2
         captured = capsys.readouterr()
         assert "TIMEOUT" in captured.err or "timed out" in captured.err
+
+
+def test_positive_finite_timeout_validation():
+    """不正なタイムアウト（0, 負数, nan, inf, 文字列）はArgumentTypeErrorで拒否されること"""
+    for invalid_val in ["0", "-1", "nan", "inf", "-inf", "abc"]:
+        with pytest.raises(SystemExit):
+            main(["--pr", "287", "--timeout", invalid_val])
