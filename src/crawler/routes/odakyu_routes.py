@@ -18,7 +18,8 @@ odakyu_bp = Blueprint('odakyu', __name__)
 
 def get_start_url(property_type='mansion'):
     # 全エリア（東京・神奈川・小田急沿線全域）一覧URLをスタートURLとする
-    url_type = 'house' if property_type == 'kodate' else ('land' if property_type == 'tochi' else property_type)
+    type_map = {'kodate': 'house', 'tochi': 'land'}
+    url_type = type_map.get(property_type, property_type)
     return f"https://www.odakyu-chukai.com/{url_type}/list/"
 
 @odakyu_bp.route(API_KEY_ODAKYU_MANSION_START, methods=['POST', 'GET'])

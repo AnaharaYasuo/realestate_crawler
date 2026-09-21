@@ -38,16 +38,16 @@ class DaiwaParser(ParserBase):
             return self.BASE_URL + linkUrl
         return self.BASE_URL + '/' + linkUrl
 
-    async def parseNextPage(self, response: BeautifulSoup):
-        # 1. 従来のページネーションリンク
+    def _find_conventional_next_page(self, response: BeautifulSoup) -> str:
         for a in response.select(".pagination a, .pager a, .paging a"):
             text = a.get_text()
             if "次" in text or "next" in text.lower() or ">" in text:
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)
+        return ""
 
-        # 2. Tailwind CSS / アイコン型ページネーションリンク (page= を含むリンク群)
+    def _extract_page_links(self, response: BeautifulSoup) -> list:
         page_links = []
         for a in response.find_all("a", href=re.compile(r'[?&]page=\d+')):
             href = a.get("href")
@@ -55,34 +55,40 @@ class DaiwaParser(ParserBase):
                 continue
             m = re.search(r'[?&]page=(\d+)', href)
             if m:
-                p_num = int(m.group(1))
-                page_links.append((p_num, href, a))
+                page_links.append((int(m.group(1)), href, a))
+        return page_links
 
-        if page_links:
-            # SVGを含む「次へ」ボタン、または '>' を含むボタンを探索
-            for _, href, a_tag in page_links:
-                if a_tag.find("svg") or ">" in a_tag.get_text():
+    def _find_current_page(self, response: BeautifulSoup) -> int | None:
+        curr_el = response.find(attrs={"aria-current": ["page", "true"]})
+        if curr_el:
+            m_curr = re.search(r'\d+', curr_el.get_text())
+            if m_curr:
+                return int(m_curr.group(0))
+
+        for el in response.select(".pagination .active, .pagination .current, .pager .active, [class*='active'], [class*='current']"):
+            m_curr = re.search(r'^\s*(\d+)\s*$', el.get_text())
+            if m_curr:
+                return int(m_curr.group(1))
+        return None
+
+    async def parseNextPage(self, response: BeautifulSoup):
+        conventional = self._find_conventional_next_page(response)
+        if conventional:
+            return conventional
+
+        page_links = self._extract_page_links(response)
+        if not page_links:
+            return ""
+
+        for _, href, a_tag in page_links:
+            if a_tag.find("svg") or ">" in a_tag.get_text():
+                return self.getRootDestUrl(href)
+
+        current_page = self._find_current_page(response)
+        if current_page is not None:
+            for p_num, href, _ in page_links:
+                if p_num == current_page + 1:
                     return self.getRootDestUrl(href)
-
-            # 現在ページの検出（aria-current="page", またはアクティブ要素）
-            current_page = None
-            curr_el = response.find(attrs={"aria-current": ["page", "true"]})
-            if curr_el:
-                m_curr = re.search(r'\d+', curr_el.get_text())
-                if m_curr:
-                    current_page = int(m_curr.group(0))
-
-            if current_page is None:
-                for el in response.select(".pagination .active, .pagination .current, .pager .active, [class*='active'], [class*='current']"):
-                    m_curr = re.search(r'^\s*(\d+)\s*$', el.get_text())
-                    if m_curr:
-                        current_page = int(m_curr.group(1))
-                        break
-
-            if current_page is not None:
-                for p_num, href, _ in page_links:
-                    if p_num == current_page + 1:
-                        return self.getRootDestUrl(href)
 
         return ""
 

@@ -128,3 +128,216 @@ def test_homes_nationwide_routes():
     parser = HomesInvestmentApartmentParser()
     next_page = asyncio.run(parser.parseNextPage(soup))
     assert next_page == "https://toushi.homes.co.jp/bukkensearch/tbg[]=1/?page=2"
+
+
+def test_daikyo_parser_all_branches():
+    """大京パーサーの各ブランチ（ページネーション、詳細URL正規化、都道府県展開）の網羅検証"""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from package.parser.daikyoParser import DaikyoMansionParser, DaikyoKodateParser, DaikyoTochiParser
+
+    parser = DaikyoMansionParser()
+
+    # 1. 汎用 .pager a による次ページ
+    html_pager = '<div class="pager"><a href="/buy/mansion/p13/?page=3">次へ</a></div>'
+    soup_pager = BeautifulSoup(html_pager, "html.parser")
+    assert "page=3" in asyncio.run(parser.parseNextPage(soup_pager))
+
+    # 2. page=N パラメータを持つリンク
+    html_param = '<div><a href="/buy/mansion/p13/?page=4" class="jsPagingNext">4</a></div>'
+    soup_param = BeautifulSoup(html_param, "html.parser")
+    assert "page=4" in asyncio.run(parser.parseNextPage(soup_param))
+
+    # 3. 該当なしで空文字返却
+    html_none = '<div><span>1</span></div>'
+    assert asyncio.run(parser.parseNextPage(BeautifulSoup(html_none, "html.parser"))) == ""
+
+    # 4. _normalize_detail_url
+    assert parser._normalize_detail_url("/buy/mansion/detail/123") == "https://www.daikyo-anabuki.co.jp/buy/mansion/detail/123/"
+    assert parser._normalize_detail_url("https://www.daikyo-anabuki.co.jp/buy/mansion/detail/456/") == "https://www.daikyo-anabuki.co.jp/buy/mansion/detail/456/"
+
+    # 5. _extract_pref_urls (mansion, kodate, tochi)
+    html_top = """
+    <div>
+        <a href="/buy/mansion/p13/">東京都</a>
+        <a href="/buy/mansion/p14/">神奈川県</a>
+        <a href="/buy/house/p13/">東京戸建</a>
+        <a href="/buy/land/p13/">東京土地</a>
+    </div>
+    """
+    soup_top = BeautifulSoup(html_top, "html.parser")
+    m_prefs = parser._extract_pref_urls(soup_top)
+    assert any("p13" in u for u in m_prefs)
+
+    kodate_parser = DaikyoKodateParser()
+    k_prefs = kodate_parser._extract_pref_urls(soup_top)
+    assert any("house/p13" in u for u in k_prefs)
+
+    tochi_parser = DaikyoTochiParser()
+    t_prefs = tochi_parser._extract_pref_urls(soup_top)
+    assert any("land/p13" in u for u in t_prefs)
+
+    # 6. parseRootPage 直接詳細URLがある場合
+    async def _collect(gen):
+        return [x async for x in gen]
+
+    html_direct = '<div><a href="/buy/mansion/detail/789/">詳細789</a></div>'
+    soup_direct = BeautifulSoup(html_direct, "html.parser")
+    direct_links = asyncio.run(_collect(parser.parseRootPage(soup_direct)))
+    assert len(direct_links) == 1
+    assert "detail/789/" in direct_links[0]
+
+    # 7. parseRootPage 都道府県展開クロール (mock _getContent)
+    sub_page_html = '<div><a href="/buy/mansion/detail/sub1/">詳細Sub1</a></div>'
+    parser._getContent = AsyncMock(return_value=sub_page_html)
+    expanded = asyncio.run(_collect(parser.parseRootPage(soup_top)))
+    assert len(expanded) >= 1
+    assert any("sub1" in u for u in expanded)
+
+
+def test_daiwa_parser_all_branches():
+    """大和ハウスパーサーの従来のページネーションおよび各ページ検出の網羅検証"""
+    import asyncio
+    from package.parser.daiwaParser import DaiwaMansionParser
+
+    parser = DaiwaMansionParser()
+
+    # 1. 従来の .pagination a による次ページ
+    html_conv = '<div class="pagination"><a href="/buy/mansion/?page=5">次へ</a></div>'
+    soup_conv = BeautifulSoup(html_conv, "html.parser")
+    assert "page=5" in asyncio.run(parser.parseNextPage(soup_conv))
+
+    # 2. current_page + 1 探索 (aria-current="page")
+    html_curr = """
+    <div class="pagination">
+        <span aria-current="page">2</span>
+        <a href="/buy/mansion/?page=2">2</a>
+        <a href="/buy/mansion/?page=3">3</a>
+    </div>
+    """
+    soup_curr = BeautifulSoup(html_curr, "html.parser")
+    assert "page=3" in asyncio.run(parser.parseNextPage(soup_curr))
+
+    # 3. current_page + 1 探索 (.active)
+    html_active = """
+    <div class="pagination">
+        <span class="active">4</span>
+        <a href="/buy/mansion/?page=4">4</a>
+        <a href="/buy/mansion/?page=5">5</a>
+    </div>
+    """
+    soup_active = BeautifulSoup(html_active, "html.parser")
+    assert "page=5" in asyncio.run(parser.parseNextPage(soup_active))
+
+
+def test_mitsui_parser_all_branches():
+    """三井不動産パーサーの各URL解決・市区町村誘導・エリア展開の網羅検証"""
+    import asyncio
+    from unittest.mock import MagicMock
+    from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiInvestmentParser
+
+    async def _collect(gen):
+        return [x async for x in gen]
+
+    parser = MitsuiMansionParser()
+
+    # 1. getRootDestUrl の各パス分岐
+    assert parser.getRootDestUrl("https://example.com/item") == "https://example.com/item"
+    assert parser.getRootDestUrl("/buy/mansion/p13/") == "https://www.rehouse.co.jp/buy/mansion/p13/"
+    assert parser.getRootDestUrl("relative/path") == "https://www.rehouse.co.jp/buy/mansion/relative/path"
+
+    inv_parser = MitsuiInvestmentParser()
+    assert inv_parser.getRootDestUrl("prefecture/13/") == "https://www.rehouse.co.jp/buy/tohshi/prefecture/13/"
+    assert parser.getRootDestUrl("") == ""
+
+    # 2. getAreaDestUrl
+    assert parser.getAreaDestUrl("") == ""
+    assert parser.getAreaDestUrl("/buy/mansion/prefecture/13/city/") == ""
+    assert parser.getAreaDestUrl("/buy/mansion/prefecture/13/city/13101/") == "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=1000"
+    assert parser.getAreaDestUrl("https://www.rehouse.co.jp/list?foo=bar") == "https://www.rehouse.co.jp/list?foo=bar&limit=1000"
+
+    # 3. parseRootPage 都道府県から市区町村親ページ (/city/) への置換
+    async def fake_parse_page_core(resp, xpath_func, url_func):
+        yield "https://www.rehouse.co.jp/buy/mansion/prefecture/13/"
+        yield "https://www.rehouse.co.jp/buy/mansion/detail/111/"
+        yield ""
+
+    parser._parsePageCore = fake_parse_page_core
+    root_urls = asyncio.run(_collect(parser.parseRootPage(MagicMock())))
+    assert "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/" in root_urls
+    assert "https://www.rehouse.co.jp/buy/mansion/detail/111/" in root_urls
+
+    # 4. parseAreaPage
+    async def fake_area_core(resp, xpath_func, url_func):
+        yield "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=1000"
+        yield ""
+
+    parser._parsePageCore = fake_area_core
+    area_urls = asyncio.run(_collect(parser.parseAreaPage(MagicMock())))
+    assert len(area_urls) == 1
+
+
+def test_athome_parser_all_branches():
+    """アットホームパーサーの戸建て道路属性パースおよびリスト展開の網羅検証"""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from package.parser.athomeParser import AthomeKodateParser
+
+    async def _collect(gen):
+        return [x async for x in gen]
+
+    parser = AthomeKodateParser()
+
+    # 1. 道路情報パース（road_info 優先）
+    html_specs1 = """
+    <table>
+        <tr><th>前面道路</th><td>公道 北東 4.0m</td></tr>
+        <tr><th>接道状況</th><td>角地 私道</td></tr>
+    </table>
+    """
+    soup_specs1 = BeautifulSoup(html_specs1, "html.parser")
+    item1 = parser.createEntity()
+    parser._parsePropertyDetailPage(item1, soup_specs1)
+    assert item1.roadDirection == "北東"
+    assert item1.roadType == "公道"
+    assert item1.roadStructure == "角地"
+
+    # 2. 道路情報パース（setsudou_info フォールバック）
+    html_specs2 = """
+    <table>
+        <tr><th>接道状況</th><td>私道 南西 6.0m 両面道路</td></tr>
+    </table>
+    """
+    soup_specs2 = BeautifulSoup(html_specs2, "html.parser")
+    item2 = parser.createEntity()
+    parser._parsePropertyDetailPage(item2, soup_specs2)
+    assert item2.roadDirection == "南西"
+    assert item2.roadType == "私道"
+    assert item2.roadStructure == "両面道路"
+
+    # 3. parseRootPage list_links 展開
+    html_city_list = """
+    <div>
+        <a href="/kodate/chuko/tokyo/city-list/">市区町村リスト</a>
+    </div>
+    """
+    sub_page_html = """
+    <div>
+        <a href="/kodate/1234567890/">物件1</a>
+    </div>
+    """
+    parser._getContent = AsyncMock(return_value=sub_page_html)
+    soup_list = BeautifulSoup(html_city_list, "html.parser")
+    results = asyncio.run(_collect(parser.parseRootPage(soup_list)))
+    assert len(results) >= 1
+    assert any("1234567890" in r for r in results)
+
+
+def test_all_routes_definitions():
+    """改修対象となった各社ルート関数のスタートURL定義の網羅検証"""
+    from routes.odakyu_routes import get_start_url as odakyu_start
+    assert odakyu_start("mansion") == "https://www.odakyu-chukai.com/mansion/list/"
+    assert odakyu_start("kodate") == "https://www.odakyu-chukai.com/house/list/"
+    assert odakyu_start("tochi") == "https://www.odakyu-chukai.com/land/list/"
+    assert odakyu_start("other") == "https://www.odakyu-chukai.com/other/list/"
+
