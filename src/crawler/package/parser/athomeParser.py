@@ -15,6 +15,9 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
+ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
+ATHOME_LIST_KEYWORDS = ("tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+
 
 class AthomeParser(ParserBase):
 
@@ -191,7 +194,7 @@ class AthomeParser(ParserBase):
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
         if "bkdetail" in href:
             return True
-        pattern = r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?'
+        pattern = r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?'
         return bool(re.search(pattern, path))
 
     def _extract_detail_links_from_soup(self, soup: BeautifulSoup, base_domain: str):
@@ -200,14 +203,14 @@ class AthomeParser(ParserBase):
             if not sub_href:
                 continue
             sub_path = urllib.parse.urlparse(sub_href).path
-            sub_is_nav = any(nav in sub_path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
+            sub_is_nav = any(nav in sub_path for nav in ATHOME_NAV_KEYWORDS)
             if not sub_is_nav and self._is_athome_detail_path(sub_path, sub_href):
                 yield self._normalize_athome_url(sub_href, base_domain)
 
     def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
         if is_list_or_nav or "bklist" in href or "sitemaplist" in path:
             return True
-        return any(kw in path for kw in ["tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other"])
+        return any(kw in path for kw in ATHOME_LIST_KEYWORDS)
 
     async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> Tuple[List[str], Optional[str]]:
         try:
@@ -242,7 +245,7 @@ class AthomeParser(ParserBase):
         path = parsed_url.path
         netloc = parsed_url.netloc or "www.athome.co.jp"
         base = f"{parsed_url.scheme or 'https'}://{netloc}"
-        is_list_or_nav = any(nav in path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
+        is_list_or_nav = any(nav in path for nav in ATHOME_NAV_KEYWORDS)
         normalized = self._normalize_athome_url(href, base)
         
         if not is_list_or_nav and self._is_athome_detail_path(path, href):
