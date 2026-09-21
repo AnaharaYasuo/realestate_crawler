@@ -428,7 +428,10 @@ graph TD
   - **出力形式とエラーハンドリング**:
     - 通常モードでは人間が視認しやすいフォーマットで Quality Gate の OK / ERROR 判定およびメトリクス一覧を出力。
     - `--json` フラグにより構造化 JSON 出力をサポート。
-    - タイムアウト発生時、HTTP エラー時、または Quality Gate 不合格時は適切なエラーメッセージを出力し非ゼロの終了コード（Exit Code 1/2）で終了。
+    - タイムアウト発生時、HTTP エラー時、または Quality Gate 不合格時は適切なエラーメッセージを出力し非ゼロの終了コードで終了。終了コード対応表:
+      - `Exit Code 0`: 成功（Quality Gate PASS / OK）
+      - `Exit Code 1`: Quality Gate 不合格（FAIL / ERROR）または HTTP / API 接続エラー
+      - `Exit Code 2`: タイムアウト発生（SonarTimeoutException）
   - **curl コマンド実行規約の制定**:
     - シェルから直接 curl を呼び出す場合は必ず `--max-time 10 --connect-timeout 5` を付与することを義務付け、生 curl のタイムアウトなし実行を禁止。
 

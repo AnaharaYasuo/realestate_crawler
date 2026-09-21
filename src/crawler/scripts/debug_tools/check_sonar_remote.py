@@ -39,6 +39,8 @@ class SonarApiException(Exception):
 
 def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str, Any]:
     """Execute HTTP GET with strict socket-level finite timeout."""
+    if not url.startswith(("http://", "https://")):
+        raise SonarApiException(f"Invalid URL scheme, only http/https allowed: {url}")
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "RealEstateCrawler-SonarRemoteCheck/1.0", "Accept": "application/json"},
@@ -46,7 +48,10 @@ def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             content = resp.read().decode("utf-8")
-            return json.loads(content)
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                raise SonarApiException(f"Invalid JSON response: expected dict, got {type(data).__name__}")
+            return data
     except (TimeoutError, socket.timeout) as exc:
         raise SonarTimeoutException(f"SonarCloud API request timed out after {timeout}s: {url}") from exc
     except urllib.error.HTTPError as exc:
@@ -55,6 +60,8 @@ def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str
         if isinstance(exc.reason, (socket.timeout, TimeoutError)) or "timed out" in str(exc.reason).lower():
             raise SonarTimeoutException(f"SonarCloud API request timed out after {timeout}s: {url}") from exc
         raise SonarApiException(f"Network error connecting to SonarCloud ({url}): {exc.reason}") from exc
+    except (SonarApiException, SonarTimeoutException):
+        raise
     except Exception as exc:
         raise SonarApiException(f"Failed to parse SonarCloud response ({url}): {exc}") from exc
 
@@ -75,7 +82,10 @@ def fetch_quality_gate(
     query_str = urllib.parse.urlencode(params)
     url = f"{SONARCLOUD_API_BASE}/qualitygates/project_status?{query_str}"
     data = _execute_api_get(url, timeout=timeout)
-    return data.get("projectStatus", {})
+    status_obj = data.get("projectStatus")
+    if not isinstance(status_obj, dict):
+        raise SonarApiException(f"Invalid Quality Gate response: 'projectStatus' is not a dict: {data}")
+    return status_obj
 
 
 def fetch_unresolved_issues(
@@ -94,8 +104,12 @@ def fetch_unresolved_issues(
     query_str = urllib.parse.urlencode(params)
     url = f"{SONARCLOUD_API_BASE}/issues/search?{query_str}"
     data = _execute_api_get(url, timeout=timeout)
-    issues = data.get("issues", [])
+    issues = data.get("issues")
+    if not isinstance(issues, list):
+        raise SonarApiException(f"Invalid Issues response: 'issues' is not a list: {data}")
     total = data.get("total", len(issues))
+    if not isinstance(total, int):
+        raise SonarApiException(f"Invalid Issues response: 'total' is not an integer: {data}")
     return issues, total
 
 
