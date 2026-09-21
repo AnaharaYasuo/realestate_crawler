@@ -127,7 +127,7 @@ terraform/
   - `mysql_access_denied_alert`: 重大度 `ERROR`。認証失敗カウント > 0（期間: 60秒）で即時発報
   - `mysql_error_log_alert`: 重大度 `ERROR`。MySQL サーバエラーログ検知で発報
   - `mysql_too_many_connections_alert`: 重大度 `CRITICAL`。接続上限到達で発報
-  - `proxysql_unhealthy_alert`: 重大度 `ERROR`。ProxySQL MIG 異常インスタンス発生時に発報
+  - `proxysql_unhealthy_alert`: 重大度 `ERROR`。`condition_matched_log` によるログ監視。ProxySQL MIG (`gce_instance_group_manager`) 異常インスタンス検知（UNHEALTHY）時に発報
   - 通知チャンネル: メール (`var.alert_email`) および Pub/Sub トピック (`google_pubsub_topic.budget_alert_topic`) へ集約
 
 

@@ -12,6 +12,11 @@ on:
     types: [created, edited, deleted]
   issue_comment:
     types: [created, edited, deleted]
+  workflow_run:
+    workflows:
+      - "CodeQL Analysis"
+      - "Security Scan (Trivy, Semgrep, Checkov)"
+    types: [completed]
 
 permissions:
   contents: read
@@ -19,6 +24,8 @@ permissions:
   issues: read
   checks: write
   statuses: read
+  security-events: read
+  actions: read
 
 jobs:
   verify-conversations-resolved:
@@ -43,6 +50,19 @@ jobs:
                 return;
               }
             }
+            if (!pr && context.payload.workflow_run && context.payload.workflow_run.pull_requests && context.payload.workflow_run.pull_requests.length > 0) {
+              try {
+                const prRes = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.workflow_run.pull_requests[0].number
+                });
+                pr = prRes.data;
+              } catch (err) {
+                core.setFailed(`Failed to fetch pull request for workflow_run #${context.payload.workflow_run.id}: ${err.message}`);
+                return;
+              }
+            }
 
             if (!pr) {
               core.info('No pull request found in context. Skipping.');
@@ -64,6 +84,7 @@ jobs:
             const systemErrors = [];
             let crPending = false;
             let crPendingMsg = '';
+            let allCheckRuns = [];
 
             try {
               const combinedStatus = await github.rest.repos.getCombinedStatusForRef({
@@ -78,13 +99,13 @@ jobs:
                 crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
               }
 
-              const checkRuns = await github.paginate(github.rest.checks.listForRef, {
+              allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
                 owner,
                 repo,
                 ref: headSha,
                 per_page: 100
               });
-              const crChecks = checkRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
+              const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
               const inProgressCheck = crChecks.find(c => c.status !== 'completed');
               if (inProgressCheck) {
                 crPending = true;
@@ -237,7 +258,76 @@ jobs:
               }
             }
 
-            // 5. Aggregate Results & Assert
+            // 5. Check Security Scans & Code Scanning Status
+            const requiredSecurityChecks = [
+              { name: 'CodeQL Scan', match: (n) => n.toLowerCase().includes('codeql scan') },
+              { name: 'Trivy Security Scan', match: (n) => n.toLowerCase().includes('trivy') },
+              { name: 'Semgrep SAST Scan', match: (n) => n.toLowerCase().includes('semgrep') },
+              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
+            ];
+
+            const allowedConclusions = ['success'];
+            const failedSecurityChecks = [];
+            const pendingSecurityChecks = [];
+            const missingSecurityChecks = [];
+
+            for (const req of requiredSecurityChecks) {
+              const matched = allCheckRuns.filter(c => req.match(c.name || ''));
+              if (matched.length === 0) {
+                missingSecurityChecks.push(req.name);
+                continue;
+              }
+              for (const c of matched) {
+                if (c.status !== 'completed') {
+                  pendingSecurityChecks.push({ name: c.name, status: c.status });
+                } else if (!allowedConclusions.includes(c.conclusion)) {
+                  failedSecurityChecks.push({ name: c.name, conclusion: c.conclusion });
+                }
+              }
+            }
+
+            const codeScanningAlerts = [];
+            try {
+              let alertsRes = null;
+              try {
+                alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+                  owner,
+                  repo,
+                  ref: `refs/pull/${prNumber}/merge`,
+                  state: 'open',
+                  per_page: 50
+                });
+              } catch (mergeRefErr) {
+                if (pr.head && pr.head.ref) {
+                  alertsRes = await github.rest.codeScanning.listAlertsForRepo({
+                    owner,
+                    repo,
+                    ref: `refs/heads/${pr.head.ref}`,
+                    state: 'open',
+                    per_page: 50
+                  });
+                } else {
+                  throw mergeRefErr;
+                }
+              }
+
+              if (alertsRes && alertsRes.data) {
+                for (const a of alertsRes.data) {
+                  codeScanningAlerts.push({
+                    number: a.number,
+                    tool: a.tool ? a.tool.name : 'Unknown',
+                    rule: a.rule ? a.rule.id : 'Unknown',
+                    severity: a.rule ? a.rule.severity : 'error',
+                    desc: a.rule ? a.rule.description : '',
+                    path: a.most_recent_instance && a.most_recent_instance.location ? a.most_recent_instance.location.path : ''
+                  });
+                }
+              }
+            } catch (err) {
+              systemErrors.push(`Failed to fetch code scanning alerts: ${err.message}`);
+            }
+
+            // 6. Aggregate Results & Assert
             let hasFailure = false;
             let summaryMd = '';
 
@@ -294,6 +384,50 @@ jobs:
               summaryMd += '\n';
             }
 
+            if (missingSecurityChecks.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ 未検出の必須セキュリティスキャン (${missingSecurityChecks.length}件)\n\n`;
+              summaryMd += `PRをマージするには、すべての必須セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）が実行される必要があります。\n\n`;
+              for (const mc of missingSecurityChecks) {
+                summaryMd += `- \`${mc}\` が見つかりません\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (pendingSecurityChecks.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⏳ セキュリティスキャン実行中 (${pendingSecurityChecks.length}件)\n\n`;
+              summaryMd += `以下のセキュリティスキャンが実行中です。完了をお待ちください。\n\n`;
+              for (const pc of pendingSecurityChecks) {
+                summaryMd += `- \`${pc.name}\`: **${pc.status}**\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (failedSecurityChecks.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ セキュリティスキャンの失敗 (${failedSecurityChecks.length}件)\n\n`;
+              summaryMd += `PRをマージするには、すべてのセキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）を通過させる必要があります。\n\n`;
+              summaryMd += `| チェック名 | 結果 |\n`;
+              summaryMd += `| :--- | :--- |\n`;
+              for (const fc of failedSecurityChecks) {
+                summaryMd += `| \`${fc.name}\` | **${fc.conclusion}** |\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (codeScanningAlerts.length > 0) {
+              hasFailure = true;
+              summaryMd += `### ⛔ 未解消の Code Scanning アラート (${codeScanningAlerts.length}件)\n\n`;
+              summaryMd += `PRブランチにおいて未解消の Code Scanning アラートが検出されました。マージ前に解消してください。\n\n`;
+              summaryMd += `| # | ツール | ルール | 重大度 | パス | 内容 |\n`;
+              summaryMd += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+              for (const a of codeScanningAlerts) {
+                summaryMd += `| #${a.number} | ${a.tool} | \`${a.rule}\` | ${a.severity} | \`${a.path}\` | ${a.desc} |\n`;
+              }
+              summaryMd += '\n';
+            }
+
             // Sync check run status directly to PR HEAD SHA
             try {
               await github.rest.checks.create({
@@ -304,8 +438,8 @@ jobs:
                 status: 'completed',
                 conclusion: hasFailure ? 'failure' : 'success',
                 output: {
-                  title: hasFailure ? 'Review Conversations & Checkboxes Check Failed' : 'Review Conversations & Checkboxes Check Passed',
-                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス（0件）および変更要求も存在しません。マージ可能です。`
+                  title: hasFailure ? 'Review Conversations & Security Checks Failed' : 'Review Conversations & Security Checks Passed',
+                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス、セキュリティスキャン失敗、および未解消のCode Scanningアラートは存在しません。マージ可能です。`
                 }
               });
             } catch (err) {
@@ -320,8 +454,12 @@ jobs:
               if (unresolved.length > 0) console.error(`- Unresolved threads: ${unresolved.length}`);
               if (uncheckedList.length > 0) console.error(`- Unchecked checkboxes: ${uncheckedList.length}`);
               if (changesRequested.length > 0) console.error(`- Changes requested: ${changesRequested.length}`);
+              if (missingSecurityChecks.length > 0) console.error(`- Missing security checks: ${missingSecurityChecks.join(', ')}`);
+              if (pendingSecurityChecks.length > 0) console.error(`- Pending security checks: ${pendingSecurityChecks.length}`);
+              if (failedSecurityChecks.length > 0) console.error(`- Failed security checks: ${failedSecurityChecks.length}`);
+              if (codeScanningAlerts.length > 0) console.error(`- Open code scanning alerts: ${codeScanningAlerts.length}`);
               await core.summary.addRaw(summaryMd).write();
-              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested.`);
+              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested, ${missingSecurityChecks.length} missing security checks, ${pendingSecurityChecks.length} pending security checks, ${failedSecurityChecks.length} failed security checks, ${codeScanningAlerts.length} code scanning alerts.`);
               return;
             }
 

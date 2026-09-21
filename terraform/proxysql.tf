@@ -44,6 +44,16 @@ resource "google_compute_instance_template" "proxysql_template" {
     scopes = ["https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/monitoring.write"]
   }
 
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
+
+  metadata = {
+    block-project-ssh-keys = "true"
+  }
+
   metadata_startup_script = <<-EOF
     #!/bin/bash
     set -euo pipefail

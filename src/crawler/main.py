@@ -7,8 +7,8 @@ import traceback
 import time
 import inspect
 import asyncio
-import datetime
-from flask import Flask, request
+import html
+from flask import Flask, jsonify, request
 from django.apps import apps
 from django.db.models import Q
 
@@ -356,18 +356,21 @@ def handle_crawl_task():
     prop_type = (data.get("property_type") or data.get("type") or "").lower()
     execution_date = data.get("execution_date")
 
+    safe_company = html.escape(company)
+    safe_prop_type = html.escape(prop_type)
+
     if not company or not prop_type:
-        return {"error": "Missing company or property_type"}, 400
+        return jsonify({"error": "Missing company or property_type"}), 400
 
     dispatch = get_dispatch_map()
     if (company, prop_type) not in dispatch:
-        return {"error": f"Unknown job: {company} - {prop_type}"}, 404
+        return jsonify({"error": f"Unknown job: {safe_company} - {safe_prop_type}"}), 404
 
     success, count, elapsed = execute_crawl_task(company, prop_type, execution_date)
     if success:
-        return {"status": "success", "company": company, "property_type": prop_type, "scraped_count": count, "elapsed_seconds": elapsed}, 200
+        return jsonify({"status": "success", "company": safe_company, "property_type": safe_prop_type, "scraped_count": count, "elapsed_seconds": elapsed}), 200
     else:
-        return {"status": "failed", "company": company, "property_type": prop_type, "error": "Crawl execution failed"}, 500
+        return jsonify({"status": "failed", "company": safe_company, "property_type": safe_prop_type, "error": "Crawl execution failed"}), 500
 
 
 if __name__ == "__main__":

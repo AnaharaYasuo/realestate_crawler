@@ -1,0 +1,18 @@
+# ------------------------------------------------------------------------------
+# Checkov Static Analysis Configuration
+# ------------------------------------------------------------------------------
+directory:
+  - terraform
+
+framework:
+  - terraform
+
+# 設計上のトレードオフおよび Google 推奨アーキテクチャに基づく除外ポリシー
+skip-check:
+  - CKV_GCP_84 # Artifact Registry: Google 管理 AES-256 透過暗号化運用 (高額なKMS費用回避)
+  - CKV_GCP_83 # Pub/Sub Topics: Google 管理 AES-256 透過暗号化運用
+  - CKV_GCP_37 # Compute Engine: CSEK は Google より非推奨化、Google 管理暗号化を使用
+  - CKV_GCP_6  # Cloud SQL: VPC ピアリング内部プライベート IP で ProxySQL が接続終端
+  - CKV_GCP_60 # Cloud SQL: VPC ピアリング内部プライベート IP のみ (パブリック IP なし)
+  - CKV_GCP_62 # Cloud Storage: バケットアクセスログは Cloud Audit Logs にて監査済み
+  - CKV_GCP_78 # Cloud Storage: 公開物件画像バケットのためバージョン管理は不要

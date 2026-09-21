@@ -219,21 +219,16 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
   severity     = "ERROR"
 
   conditions {
-    display_name = "ProxySQL MIG Unhealthy Instances > 0"
-    condition_threshold {
-      filter          = "metric.type=\"compute.googleapis.com/instance_group/unhealthy_instances\" AND resource.type=\"gce_instance_group_manager\" AND resource.label.instance_group_manager_name=monitoring.regex.full_match(\"proxysql-mig.*\")"
-      duration        = "120s"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-
-      trigger {
-        count = 1
-      }
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_MEAN"
-      }
+    display_name = "ProxySQL MIG Unhealthy Instances Detected"
+    condition_matched_log {
+      filter = <<-EOT
+        resource.type="gce_instance_group_manager"
+        AND (
+          jsonPayload.healthCheckProbeResult.healthState="UNHEALTHY"
+          OR jsonPayload.instanceHealthStateChange.healthState="UNHEALTHY"
+          OR textPayload =~ "UNHEALTHY"
+        )
+      EOT
     }
   }
 
@@ -244,6 +239,9 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
 
   alert_strategy {
     auto_close = "1800s"
+    notification_rate_limit {
+      period = "300s"
+    }
   }
 
   documentation {
