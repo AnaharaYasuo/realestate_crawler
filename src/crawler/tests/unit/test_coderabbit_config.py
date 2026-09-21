@@ -1,6 +1,7 @@
 """
 CodeRabbit 設定および未解決レビューコメント判定ロジックの単体テスト。
 Issue #215: feat: CodeRabbit 自動コードレビュー導入と未解決レビューコメントのマージブロック強制
+Issue #311: feat: CodeRabbit 自動レビューを初回PRオープン時のみに制限
 """
 import os
 import yaml
@@ -44,6 +45,10 @@ def test_coderabbit_yaml_exists_and_valid():
     
     auto_review = reviews.get("auto_review", {})
     assert auto_review.get("enabled") is True, "reviews.auto_review.enabled は true に設定されている必要があります"
+    # Issue #311: 後続pushでの再レビュー連鎖を防ぐため、増分自動レビューは無効
+    assert auto_review.get("auto_incremental_review") is False, (
+        "reviews.auto_review.auto_incremental_review は false（初回PRオープンのみ）である必要があります"
+    )
     
     base_branches = auto_review.get("base_branches", [])
     assert "master" in base_branches, "auto_review.base_branches に master が含まれている必要があります"
