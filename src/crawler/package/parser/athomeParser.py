@@ -280,7 +280,7 @@ class AthomeParser(ParserBase):
             if detail_url:
                 yield detail_url
 
-        if not detail_links and list_links:
+        if list_links:
             async for normalized in self._expand_sub_list_pages(list_links, base):
                 if normalized not in detail_links:
                     detail_links.add(normalized)
