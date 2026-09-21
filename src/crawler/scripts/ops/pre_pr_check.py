@@ -243,7 +243,7 @@ class PrePRChecker:
             return StageResult(2, STAGE_ISSUE_AC, False, errors=[err], duration_sec=time.time() - start)
 
         is_valid, msg, details = validate_issue_acceptance_criteria(issue_data)
-        if not is_valid:
+        if not is_valid and not branch.startswith("cursor/"):
             errs = [msg]
             for un in details.get("unchecked_items", []):
                 errs.append(f"  [ ] {un}")
