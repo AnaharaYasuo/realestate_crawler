@@ -27,7 +27,7 @@ def test_daiwa_tailwind_pagination():
     next_url = asyncio.run(parser.parseNextPage(soup))
     assert next_url is not None
     assert "page=2" in next_url
-    assert next_url.startswith("https://www.dh-realestate.co.jp")
+    assert next_url.startswith("https://www.dh-realestate.co.jp/")
 
 
 def test_daikyo_pagination():
@@ -58,7 +58,7 @@ def test_keio_referer_header():
     parser = KeioMansionParser()
     headers = parser._get_request_headers()
     assert "Referer" in headers
-    assert "keiofudosan.co.jp" in headers["Referer"]
+    assert headers["Referer"] == "https://chukai.keiofudosan.co.jp/"
 
 
 def test_mitsui_area_city_drilldown():
