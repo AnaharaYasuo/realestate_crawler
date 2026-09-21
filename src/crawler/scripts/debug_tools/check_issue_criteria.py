@@ -72,9 +72,10 @@ def parse_acceptance_criteria(body: str) -> Tuple[List[str], List[str]]:
         if not item_text:
             continue
 
-        if status_char in (" ", "x", "X"):
-            # 在庫基準が定義されていることを確認し、実装・PR作成フェーズでは全基準対象としてカウント
+        if status_char in ("x", "X"):
             checked.append(item_text)
+        else:
+            unchecked.append(item_text)
 
     return checked, unchecked
 
