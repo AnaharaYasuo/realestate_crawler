@@ -56,11 +56,13 @@ class MitsuiParser(ParserBase):
         if not linkUrl:
             return ""
         if linkUrl.startswith("http"):
-            return linkUrl
-        if linkUrl.startswith("/"):
-            return self.BASE_URL + linkUrl
-        section = "tohshi" if self.property_type == "investment" else self.property_type
-        return f"{self.BASE_URL}/buy/{section}/{linkUrl}"
+            url = linkUrl
+        elif linkUrl.startswith("/"):
+            url = self.BASE_URL + linkUrl
+        else:
+            section = "tohshi" if self.property_type == "investment" else self.property_type
+            url = f"{self.BASE_URL}/buy/{section}/{linkUrl}"
+        return url
 
     async def parseRootPage(self, response):
         async for destUrl in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
@@ -68,6 +70,9 @@ class MitsuiParser(ParserBase):
                 continue
             if not destUrl.startswith("http"):
                 destUrl = self.BASE_URL + ("/" if not destUrl.startswith("/") else "") + destUrl
+            # 都道府県URL (/prefecture/XX/) の場合、市区町村選択親ページ (/city/) へ誘導
+            if re.search(r'/prefecture/\d+/?$', destUrl):
+                destUrl = destUrl.rstrip('/') + '/city/'
             yield destUrl
 
     def getAreaXpath(self):
@@ -75,12 +80,21 @@ class MitsuiParser(ParserBase):
         logging.info(f"[{self.property_type}] area_xpath: {xpath}")
         return xpath
 
-    def getAreaDestUrl(self,linkUrl):
-        return  self.BASE_URL + linkUrl + "?limit=1000"
+    def getAreaDestUrl(self, linkUrl):
+        if not linkUrl:
+            return ""
+        # 親ページ自身 (/city/) はスキップ
+        clean = linkUrl.split("?")[0].rstrip("/")
+        if clean.endswith("/city"):
+            return ""
+        dest = self.BASE_URL + linkUrl if not linkUrl.startswith("http") else linkUrl
+        separator = "&" if "?" in dest else "?"
+        return f"{dest}{separator}limit=1000"
 
     async def parseAreaPage(self, response):        
         async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
-            yield destUrl
+            if destUrl:
+                yield destUrl
 
     def getPropertyListXpath(self):
         xpath = self.selectors.get('property_list_xpath', u'')

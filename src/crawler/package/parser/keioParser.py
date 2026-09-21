@@ -1,7 +1,6 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 import asyncio
-import json
 import re
 import logging
 import urllib.parse
@@ -73,13 +72,17 @@ class KeioParser(ParserBase):
     current_page_num = 1
     current_base_url = ""
 
+    def _get_request_headers(self) -> dict:
+        return {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Referer': 'https://chukai.keiofudosan.co.jp/',
+        }
+
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         self.current_base_url = url
         if "get_search_result_sale" in url:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-            }
+            headers = self._get_request_headers()
             try:
                 resp = await asyncio.to_thread(requests.get, url, headers=headers, timeout=20)
                 data = resp.json()

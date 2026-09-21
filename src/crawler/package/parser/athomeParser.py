@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
@@ -13,6 +14,10 @@ import re
 import urllib.parse
 
 logger = logging.getLogger(__name__)
+
+ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
+ATHOME_LIST_KEYWORDS = ("tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+
 
 class AthomeParser(ParserBase):
 
@@ -112,7 +117,7 @@ class AthomeParser(ParserBase):
                 """)
                 page = await context.new_page()
                 try:
-                    resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await page.wait_for_timeout(2000)
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
                     await page.wait_for_timeout(2000)
@@ -178,77 +183,108 @@ class AthomeParser(ParserBase):
                 return self.getRootDestUrl(href)
         return ""
 
+    def _normalize_athome_url(self, href: str, base_domain: str) -> str:
+        full_url = self.getRootDestUrl(href, base_domain=base_domain)
+        parsed = urllib.parse.urlparse(full_url)
+        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if parsed.query:
+            normalized += f"?{parsed.query}"
+        return normalized
+
+    def _is_athome_detail_path(self, path: str, href: str) -> bool:
+        if "bkdetail" in href:
+            return True
+        pattern = r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?'
+        return bool(re.search(pattern, path))
+
+    def _extract_detail_links_from_soup(self, soup: BeautifulSoup, base_domain: str):
+        for a in soup.select("a[href]"):
+            sub_href = a.get("href")
+            if not sub_href:
+                continue
+            sub_path = urllib.parse.urlparse(sub_href).path
+            sub_is_nav = any(nav in sub_path for nav in ATHOME_NAV_KEYWORDS)
+            if not sub_is_nav and self._is_athome_detail_path(sub_path, sub_href):
+                yield self._normalize_athome_url(sub_href, base_domain)
+
+    def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
+        if is_list_or_nav or "bklist" in href or "sitemaplist" in path:
+            return True
+        return any(kw in path for kw in ATHOME_LIST_KEYWORDS)
+
+    async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> Tuple[List[str], Optional[str]]:
+        try:
+            list_html = await self._getContent(None, curr_l_url)
+            if not list_html:
+                return [], None
+            sub_soup = BeautifulSoup(list_html, "html.parser")
+            links = list(self._extract_detail_links_from_soup(sub_soup, base_domain))
+            next_page = await self.parseNextPage(sub_soup)
+            return links, next_page
+        except Exception as e:
+            logging.warning(f"Error expanding list_link {curr_l_url}: {e}")
+            return [], None
+
+    async def _expand_sub_list_pages(self, list_links, base_domain: str):
+        visited_l_urls = set()
+        for l_url in list_links:
+            curr_l_url = l_url
+            visited_l_urls.add(curr_l_url)
+            while curr_l_url:
+                links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
+                for normalized in links:
+                    yield normalized
+                if next_page and next_page not in visited_l_urls:
+                    visited_l_urls.add(next_page)
+                    curr_l_url = next_page
+                else:
+                    break
+
+    def _classify_and_collect_athome_url(self, href: str, detail_links: set, list_links: set) -> Tuple[Optional[str], Optional[str]]:
+        parsed_url = urllib.parse.urlparse(href)
+        path = parsed_url.path
+        netloc = parsed_url.netloc or "www.athome.co.jp"
+        base = f"{parsed_url.scheme or 'https'}://{netloc}"
+        is_list_or_nav = any(nav in path for nav in ATHOME_NAV_KEYWORDS)
+        normalized = self._normalize_athome_url(href, base)
+        
+        if not is_list_or_nav and self._is_athome_detail_path(path, href):
+            if normalized not in detail_links:
+                detail_links.add(normalized)
+                return normalized, None
+        elif self._is_athome_list_url(path, href, is_list_or_nav):
+            if normalized not in list_links and normalized != "https://toushi-athome.jp/":
+                list_links.add(normalized)
+        return None, base
+
     async def parseRootPage(self, response):
         """
         検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
         """
-        from bs4 import BeautifulSoup
         if not isinstance(response, BeautifulSoup):
             import lxml.etree
             html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
             response = BeautifulSoup(html_str, "html.parser")
 
-        import urllib.parse
-        import re
         detail_links = set()
         list_links = set()
+        base = "https://www.athome.co.jp"
         
         for a in response.select("a[href]"):
             href = a.get("href")
             if not href:
                 continue
-                
-            parsed_url = urllib.parse.urlparse(href)
-            path = parsed_url.path
-            netloc = parsed_url.netloc or "www.athome.co.jp"
-            base = f"{parsed_url.scheme or 'https'}://{netloc}"
-            
-            is_list_or_nav = any(nav in path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
-            
-            # 1. 物件詳細URLの検出 (/buy_other/6991481322/ 等の数字6桁以上IDを含む個別詳細ページ)
-            if not is_list_or_nav and ("bkdetail" in href or re.search(r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?', path)):
-                full_url = self.getRootDestUrl(href, base_domain=base)
-                parsed = urllib.parse.urlparse(full_url)
-                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                if parsed.query:
-                    normalized += f"?{parsed.query}"
+            detail_url, found_base = self._classify_and_collect_athome_url(href, detail_links, list_links)
+            if found_base:
+                base = found_base
+            if detail_url:
+                yield detail_url
+
+        if list_links:
+            async for normalized in self._expand_sub_list_pages(list_links, base):
                 if normalized not in detail_links:
                     detail_links.add(normalized)
                     yield normalized
-            # 2. 一覧・市区町村ページURLの検出 (例: /bklist?ITEM=... , /sitemaplist/ , /tokyo/ , /buy_other/tokyo/chiyoda-city/list/)
-            elif is_list_or_nav or "bklist" in href or "sitemaplist" in path or any(kw in path for kw in ["tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other"]):
-                full_url = self.getRootDestUrl(href, base_domain=base)
-                parsed = urllib.parse.urlparse(full_url)
-                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                if parsed.query:
-                    normalized += f"?{parsed.query}"
-                if normalized not in list_links and normalized != "https://toushi-athome.jp/":
-                    list_links.add(normalized)
-
-        # 個別詳細が見つからず市区町村リストが見つかった場合は各リストページを取得して本物の詳細物件URLを抽出・yieldする
-        if not detail_links and list_links:
-            for l_url in list_links:
-                try:
-                    list_html = await self._getContent(None, l_url)
-                    if list_html:
-                        sub_soup = BeautifulSoup(list_html, "html.parser")
-                        for a in sub_soup.select("a[href]"):
-                            sub_href = a.get("href")
-                            if not sub_href:
-                                continue
-                            sub_path = urllib.parse.urlparse(sub_href).path
-                            sub_is_nav = any(nav in sub_path for nav in ["/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/"])
-                            if not sub_is_nav and ("bkdetail" in sub_href or re.search(r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/[0-9]{6,}/?', sub_path)):
-                                full_url = self.getRootDestUrl(sub_href, base_domain=base)
-                                parsed = urllib.parse.urlparse(full_url)
-                                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                                if parsed.query:
-                                    normalized += f"?{parsed.query}"
-                                if normalized not in detail_links:
-                                    detail_links.add(normalized)
-                                    yield normalized
-                except Exception as e:
-                    logging.warning(f"Error expanding list_link {l_url}: {e}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 0. 掲載終了・物件不在の早期検知
