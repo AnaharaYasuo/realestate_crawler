@@ -30,7 +30,7 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
       feat: add auth (#123)       -> 123
     """
     # 1. Check branch name pattern: feature/123-xxx or fix/123-xxx or cursor/fix-123-xxx
-    branch_match = re.search(r"(?:feature|fix|chore|refactor|issue|cursor)[/-](?:[a-zA-Z0-9_]+[-/])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    branch_match = re.search(r"(?:feature|fix|chore|refactor|issue|cursor)[/-](?:[-\w]+[-/])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
     if branch_match:
         return int(branch_match.group(1))
 
