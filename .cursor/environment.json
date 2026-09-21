@@ -1,0 +1,6 @@
+{
+  "name": "Realestate Crawler",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "ports": [8000, 9000, 9001, 13306]
+}
