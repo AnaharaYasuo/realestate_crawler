@@ -149,8 +149,8 @@ class DaikyoParser(ParserBase):
             yield link
 
         # 全国トップページ等の場合、各都道府県別URL (/buy/{type}/pXX/) を取得して展開
-        if not detail_links:
-            pref_urls = self._extract_pref_urls(response)
+        pref_urls = self._extract_pref_urls(response)
+        if pref_urls:
             for p_url in sorted(pref_urls):
                 async for link in self._crawl_pref_url(p_url, detail_links):
                     yield link

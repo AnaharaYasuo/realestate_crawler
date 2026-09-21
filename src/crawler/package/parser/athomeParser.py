@@ -155,7 +155,30 @@ class AthomeParser(ParserBase):
         joined = urllib.parse.urljoin(base, linkUrl)
         return re.sub(r'(?<!:)//+', '/', joined)
 
-    async def parseNextPage(self, response):
+    @staticmethod
+    def _find_sequential_numbered_tag(response: BeautifulSoup):
+        curr_tag = response.select_one(".pagination__list .current, .pagination__list .is-current, .pagination__item--current")
+        if not curr_tag:
+            return None
+        try:
+            curr_num = int(curr_tag.get_text().strip())
+        except (ValueError, TypeError):
+            return None
+        target_str = str(curr_num + 1)
+        for a in response.select(".pagination__list a"):
+            if a.get_text().strip() == target_str:
+                return a
+        return None
+
+    @staticmethod
+    def _find_text_next_tag(response: BeautifulSoup):
+        for a in response.find_all("a"):
+            text = a.get_text().strip()
+            if "次" in text or text in (">", "»"):
+                return a
+        return None
+
+    async def parseNextPage(self, response, base_domain: Optional[str] = None):
         """
         一覧ページから「次へ」のページリンクを抽出し、絶対URLとして返す
         """
@@ -166,21 +189,14 @@ class AthomeParser(ParserBase):
             response = BeautifulSoup(html_str, "html.parser")
 
         next_tag = (
-            response.select_one(".pagination__item--next a") or 
-            response.select_one(".pagination__next a") or
-            response.select_one(".prg-next a") or
-            response.select_one(".pagination__list a:last-child")
+            response.select_one(".pagination__item--next a")
+            or response.select_one(".pagination__next a")
+            or response.select_one(".prg-next a")
+            or self._find_sequential_numbered_tag(response)
+            or self._find_text_next_tag(response)
         )
-        if not next_tag:
-            for a in response.find_all("a"):
-                text = a.get_text().strip()
-                if "次" in text or text == ">" or text == "»":
-                    next_tag = a
-                    break
-        if next_tag:
-            href = next_tag.get("href")
-            if href:
-                return self.getRootDestUrl(href)
+        if next_tag and next_tag.get("href"):
+            return self.getRootDestUrl(next_tag["href"], base_domain=base_domain)
         return ""
 
     def _normalize_athome_url(self, href: str, base_domain: str) -> str:
@@ -217,9 +233,11 @@ class AthomeParser(ParserBase):
             list_html = await self._getContent(None, curr_l_url)
             if not list_html:
                 return [], None
+            parsed_curr = urllib.parse.urlparse(curr_l_url)
+            page_base = f"{parsed_curr.scheme or 'https'}://{parsed_curr.netloc}" if parsed_curr.netloc else base_domain
             sub_soup = BeautifulSoup(list_html, "html.parser")
-            links = list(self._extract_detail_links_from_soup(sub_soup, base_domain))
-            next_page = await self.parseNextPage(sub_soup)
+            links = list(self._extract_detail_links_from_soup(sub_soup, page_base))
+            next_page = await self.parseNextPage(sub_soup, base_domain=page_base)
             return links, next_page
         except Exception as e:
             logging.warning(f"Error expanding list_link {curr_l_url}: {e}")
@@ -234,14 +252,26 @@ class AthomeParser(ParserBase):
                 links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
                 for normalized in links:
                     yield normalized
-                if next_page and next_page not in visited_l_urls:
+                parsed_next = urllib.parse.urlparse(next_page or "")
+                if (
+                    next_page
+                    and parsed_next.scheme in ("http", "https")
+                    and parsed_next.netloc in self.ATHOME_ALLOWED_HOSTS
+                    and next_page not in visited_l_urls
+                ):
                     visited_l_urls.add(next_page)
                     curr_l_url = next_page
                 else:
                     break
 
+    ATHOME_ALLOWED_HOSTS = ("www.athome.co.jp", "toushi-athome.jp", "athome.co.jp")
+
     def _classify_and_collect_athome_url(self, href: str, detail_links: set, list_links: set) -> Tuple[Optional[str], Optional[str]]:
         parsed_url = urllib.parse.urlparse(href)
+        if parsed_url.netloc and parsed_url.netloc not in self.ATHOME_ALLOWED_HOSTS:
+            return None, None
+        if parsed_url.scheme and parsed_url.scheme not in ("http", "https"):
+            return None, None
         path = parsed_url.path
         netloc = parsed_url.netloc or "www.athome.co.jp"
         base = f"{parsed_url.scheme or 'https'}://{netloc}"
