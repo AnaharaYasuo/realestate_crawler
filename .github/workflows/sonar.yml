@@ -87,6 +87,21 @@ jobs:
           java-version: 21
           distribution: 'temurin'
 
+      - name: Ensure Sonar way Quality Gate (no overall violations=0 trap)
+        if: env.SONAR_TOKEN != ''
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          set -euo pipefail
+          # MyWay (overall violations<=0) blocks every master analysis with historical debt.
+          # Force project association to built-in Sonar way (gateId=9).
+          curl -sS --fail-with-body --max-time 10 -u "${SONAR_TOKEN}:" \
+            -X POST "https://sonarcloud.io/api/qualitygates/select?organization=anaharayasuo&projectKey=AnaharaYasuo_realestate_crawler&gateId=9"
+          echo
+          curl -sS --max-time 10 -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/navigation/component?component=AnaharaYasuo_realestate_crawler&organization=anaharayasuo" \
+            | python -c "import sys,json; print(json.load(sys.stdin).get('qualityGate'))"
+
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@v6
