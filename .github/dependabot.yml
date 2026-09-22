@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # Poetry (pyproject.toml / poetry.lock) — Dependabot pip ecosystem detects Poetry
   - package-ecosystem: "pip"
     directory: "/src/crawler"
     schedule:

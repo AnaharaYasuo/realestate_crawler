@@ -91,8 +91,8 @@ task init
  => [1/5] FROM docker.io/library/python:3.10-slim
  => [2/5] RUN apt-get update && apt-get install -y ...
  => [3/5] WORKDIR /app
- => [4/5] COPY requirements.txt .
- => [5/5] RUN pip install --no-cache-dir -r requirements.txt
+ => [4/5] COPY pyproject.toml poetry.lock .
+ => [5/5] RUN poetry install --no-ansi --no-root
  => exporting to image
  => => exporting layers
  => => writing image sha256:...
