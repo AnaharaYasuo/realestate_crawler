@@ -1,16 +1,22 @@
-# 依存管理（Poetry 移行）
+# 依存管理（Poetry）運用
 
 ## 1. 概要 / ユーザーストーリー
 * **ユーザーとして**、開発者
-* **Dependabot 散在 PR を一本化し、`src/crawler` の依存を Poetry（`pyproject.toml` / `poetry.lock`）へ移行して最新化**したい
-* **なぜなら**、個別 PR のレビュー負荷を下げ、ロックファイルで再現可能な依存管理へ移すため
+* **`poetry update` / lock / export で制約内の上限まで依存を揃え、対応可能な GitHub Actions（Dependabot #350–#352）を一本化**したい
+* **なぜなら**、依存の正を `poetry.lock` に保ちつつ、制約外のメジャー更新ノイズを避けて安全に更新するため
 
 ## 2. アクセプタンスクライテリア (受入基準)
-* [ ] `src/crawler` の依存管理が Poetry（`pyproject.toml` / `poetry.lock`）であること
-* [ ] 旧 `requirements.txt` 由来パッケージが Poetry に取り込まれ、`poetry update` で最新化されていること
-* [ ] Dockerfile / CI / Dependabot / 関連ドキュメントが Poetry 前提であること
-* [ ] オープン中 Dependabot PR（pip / GitHub Actions / npm）の内容が集約 PR に含まれ、個別 PR がクローズされていること
-* [ ] Docker イメージが Poetry 経由で依存インストールできること
+* [x] `poetry update --lock` により `src/crawler/poetry.lock` が制約内上限へ更新されていること
+* [x] `poetry export` により `src/crawler/requirements.txt` が lock と同期されていること
+* [x] `github/codeql-action` が v4 に更新されていること（#350）
+* [x] `google-github-actions/setup-gcloud` が v3 に更新されていること（#351）
+* [x] `actions/github-script` が v9 に更新されていること（#352）
+* [x] 対応不要な Dependabot PR（#347/#348/#349/#353/#354/#355/#356/#357）がクローズされていること
+* [x] 本変更を含む一本化 PR が作成されていること
 
-## 3. 関連 Issue
-* GitHub Issue #339
+## 3. 対象外
+* Python Docker 3.14、および `google-generativeai` 制約（`protobuf<6`）により到達できない Google/protobuf/pydantic-core 単独更新
+
+## 4. 関連 Issue
+* GitHub Issue #358
+* 先行: #339 / PR #344
