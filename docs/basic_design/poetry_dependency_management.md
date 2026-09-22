@@ -12,10 +12,12 @@
 | `Dockerfile` | `poetry install` でランタイム依存を導入 |
 | `.github/dependabot.yml` | `pip` ecosystem は Poetry プロジェクト（同ディレクトリ）を監視 |
 
-## 3. 移行方針
-1. 既存 `requirements.txt` の制約を `poetry add` で取り込む（Python 3.11 で不要な backports は除外）
-2. `poetry update` で最新互換へ更新
-3. 互換ツール向けに `poetry export` で `requirements.txt` を再生成してもよい（ロックと同期）。Poetry 2.x では `poetry export` は `poetry-plugin-export` が提供するため、**CI・開発環境の双方で当該プラグインを明示導入またはピン留め**すること（未導入だと export 失敗し `poetry.lock` と同期できない）
+## 3. 更新方針
+1. `poetry update --lock` で **依存グラフ全体が許す上限**まで更新する（直依存・推移依存のピンが天井）
+2. `poetry install --no-interaction --no-ansi --only main` で lock を検証インストールする（export 前）
+3. `poetry export -f requirements.txt --without-hashes -o requirements.txt` で互換用 `requirements.txt` を lock と同期する（`poetry-plugin-export` 必須）
+4. Dependabot の単独版提案が Poetry 上限より高い場合は、制約衝突（例: `google-generativeai` → `protobuf<6`）であり、SDK 移行など別作業なしでは取り込まない
+5. Poetry 2.x の `poetry export` は `poetry-plugin-export` 必須（`tool.poetry.requires-plugins` で下限 `>=1.8` を要求）
 
 ## 4. 非機能
 - イメージビルドは Poetry 経由であること
