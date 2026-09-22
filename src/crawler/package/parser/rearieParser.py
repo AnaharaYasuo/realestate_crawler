@@ -260,7 +260,10 @@ class RearieParser(ParserBase):
                 item = self.clean_parsed_item(item)
                 self.validate_required_fields(item)
                 return item
-        return await super().parsePropertyDetailPage(session, url)
+        item = await super().parsePropertyDetailPage(session, url)
+        if item is not None and (not item.pageUrl or "detail.html" in url):
+            item.pageUrl = url
+        return item
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = super()._get_specs(response)

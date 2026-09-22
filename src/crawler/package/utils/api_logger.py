@@ -40,23 +40,34 @@ def mask_sensitive_data(data: Any) -> Any:
 def get_logged_body_preview(body: Any, max_len: int = 2000) -> Any:
     """
     長大なレスポンスやバイナリデータをクランプしてプレビュー文字列を返します。
+    改行・連続空白を圧縮して Cloud Logging での複数行分割を防ぎます。
     """
     if body is None:
         return None
 
     if isinstance(body, (dict, list)):
         body_str = str(mask_sensitive_data(body))
+        body_str = " ".join(body_str.split())
         if len(body_str) > max_len:
-            return body_str[:max_len] + f"... (truncated, total {len(body_str)} chars)"
-        return body
+            suffix = f"... (truncated, total {len(body_str)} chars)"
+            avail = max_len - len(suffix)
+            if avail > 0:
+                return body_str[:avail] + suffix
+            return body_str[:max_len]
+        return body_str
 
     if isinstance(body, (str, bytes)):
         text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+        text = " ".join(text.split())
         if len(text) > max_len:
-            return text[:max_len] + f"... (truncated, total {len(text)} chars)"
+            suffix = f"... (truncated, total {len(text)} chars)"
+            avail = max_len - len(suffix)
+            if avail > 0:
+                return text[:avail] + suffix
+            return text[:max_len]
         return text
 
-    return str(body)[:max_len]
+    return " ".join(str(body).split())[:max_len]
 
 
 def _is_skip_path(path: str) -> bool:

@@ -46,7 +46,7 @@
 
 ## 外部API・リモート検査の有限時間タイムアウト保証原則 (External API Finite Timeout)
 - SonarCloud や外部サービスのリモート API 問い合わせ、curl コマンド等を実行する際は、タイムアウト未指定による無限待機（ハング）を防止するため、必ず有限時間（最大10秒等、`--max-time 10` または Python `timeout=10`）を明示的に指定しなければならない。
-- SonarCloud のステータス確認には専用スクリプト（`python src/crawler/scripts/debug_tools/check_sonar_remote.py`）を利用し、タイムアウト未指定の curl 実行によるバックグラウンドプロセスのハングを根絶すること。
+- SonarCloud のステータス確認には専用スクリプト（`python src/crawler/scripts/debug_tools/check_sonar_remote.py`）を利用し、タイムアウト未指定の curl 実行によるバックグラウンドプロセスのハングを根絶すること。`--timeout` オプションには正の有限値かつ **10 秒以下** の値のみ指定可能（NFR-021 上限）。10 秒を超える値はスクリプトが CLI 入力エラーとして即座に拒否する。
 
 ## 0件取得のジョブ失敗分類原則
 - クローリング処理が正常終了（Exit Code 0）した場合であっても、新規取得件数が0件である場合は「成功」とみなさず「0件取得失敗 (Zero-Count Failure)」としてエラーアラート（Slack/ログ）を発報し、失敗ジョブとして記録すること。

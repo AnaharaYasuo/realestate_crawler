@@ -1937,6 +1937,8 @@ WARNING: Skipping save for this property due to validation errors.
 **テーブル名**: `rearie_tochi`
 
 ※各モデルのカラム構成（propertyName, address, price, 交通等）は統一フィールド名および他社（mizuho等）と同一の構造です。
+※Rearieの物件詳細URLは `?id=XXXXXX` のクエリパラメータによって一意に識別されるため、`UrlMatcher` での正規化時にも `id` パラメータが維持され、全物件でユニークなキーとして保存されます。
+
 
 ## 20. Keio (京王不動産 - keio)
 

@@ -24,6 +24,7 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: false
     base_branches:
       - "master"
       - "production"
@@ -53,6 +54,7 @@ chat:
 | `language` | `"ja-JP"` | プロジェクト開発言語・Issue・PRコメントが日本語であるため、日本語で統一。 |
 | `profile` | `"chill"` | 瑣末な書式・個人的嗜好の指摘を排除し、クリティカルな不具合・設計ミスに集中。 |
 | `request_changes_workflow` | `true` | 指摘コメントがある場合に PR に `CHANGES_REQUESTED` を付与し、全指摘が解決（resolved）されると自動で `APPROVED` に遷移させる。 |
+| `auto_review.auto_incremental_review` | `false` | PR 初回オープン時のみ自動レビューし、後続 push での再レビュー連鎖（収束不能）を防止。必要時は `@coderabbitai review` で手動起動。 |
 | `auto_review.base_branches` | `["master", "production"]` | 開発主幹 (`master`) および本番リリース (`production`) 宛て PR を対象に自動起動。 |
 | `tools` | `ast-grep`, `ruff`, etc. | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
 
@@ -164,9 +166,9 @@ CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit co
 ## 5. 開発者運用フロー（レビューコメント対応手順）
 
 1. **CodeRabbit レビューの確認**:
-   - PR 作成・プッシュ後、数分以内に CodeRabbit が PR Summary およびインラインコメントを投稿。
+   - PR **初回オープン後**、数分以内に CodeRabbit が PR Summary およびインラインコメントを投稿（後続 push では自動再レビューされない。`auto_incremental_review: false`）。
 2. **指摘事項への対応**:
-   - コードの修正が必要な場合: コードを修正して PR ブランチへコミット・プッシュ。
+   - コードの修正が必要な場合: コードを修正して PR ブランチへコミット・プッシュ（追加の自動レビューは行われない。再レビューが必要なら `@coderabbitai review` を手動投稿）。
    - 質問や議論がある場合: インラインコメントに返信（CodeRabbit が自動応答）。
 3. **会話スレッドの解決 (Resolve conversation)**:
    - 修正が完了したスレッド、または合意に達したスレッドで「Resolve conversation」ボタンをクリック。

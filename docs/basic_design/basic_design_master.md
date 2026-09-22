@@ -776,9 +776,10 @@ sequenceDiagram
 1. **リクエストログ (`[API Request]`)**:
    - メソッド、リクエストパス、クエリパラメータ、ボディ（JSONまたはForm）。
    - `X-API-KEY`, `Authorization`, `token`, `password`, `secret` 等の機密情報は `***` で自動置換。
-2. **レスポンスログ (`[API Response]`)**:
-   - メソッド、パス、HTTPステータスコード、処理所要時間（ms）、レスポンスボディ。
-   - 長大なレスポンス（>2000文字）は先頭2000文字に自動クランプしログ肥大化を抑止。
+2. **レスポンスログ (`[API Response]` / `Middleware Response`)**:
+   - メソッド、パス/URL、HTTPステータスコード、処理所要時間（ms）、レスポンスボディ。
+   - 長大なレスポンス（>1000〜2000文字）は自動クランプしログ肥大化を抑止。
+   - HTML等の改行コード（`\n`）および連続空白文字は単一スペースへサニタイズ（1行化）し、Google Cloud Logging による意図しない複数行分割（`</body></html>` 等のタグ断片漏洩）を防止。
 3. **ログレベルの動的適用**:
    - `2xx / 3xx`: `INFO`
    - `4xx`: `WARNING`（不正リクエスト・バリデーションエラー）
@@ -835,12 +836,14 @@ sequenceDiagram
 
 ## 15. CodeRabbit 自動コードレビュー ＆ 未解決レビューコメント解決マージゲートアーキテクチャ (CodeRabbit Review & Conversation Resolution Gate)
 
-PR作成・更新時に CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。
+PR**初回オープン時のみ** CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。後続 push では自動再レビューせず、指摘の連鎖による収束不能を防止します。
 
 ```mermaid
 flowchart TD
-    A[Pull Request 作成 / コミットPush] --> B[CodeRabbit 自動レビュー起動<br/>(.coderabbit.yaml / profile: chill)]
+    A[Pull Request 初回オープン] --> B[CodeRabbit 自動レビュー起動<br/>(auto_incremental_review: false)]
+    A2[後続コミット Push] -.->|自動レビューしない| A2skip[手動 @coderabbitai review のみ可]
     A --> C[Review Conversation Gate CI起動<br/>(.github/workflows/review-gate.yml)]
+    A2 --> C
     
     B --> D{改善指摘・懸念点あり?}
     D -- YES --> E[インラインレビューコメント投稿<br/>PRステータス: Changes Requested]
@@ -876,6 +879,7 @@ flowchart TD
    - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
 
 ### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
+- **初回オープンのみ自動レビュー**: `auto_incremental_review: false` により、PR 作成時の1回のみ自動レビューし、後続 push では自動再レビューしない（収束不能の連鎖指摘を防止）。必要時は `@coderabbitai review` で手動起動。
 - **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
 - **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
 - **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
@@ -1106,6 +1110,23 @@ flowchart TD
 4. **ローカルツールと連携**:
    - `task pr-check`: カレントブランチの Issue 受入基準のチェック状態を即座に確認。
    - `task pr-create`: 受入基準がすべて満たされているかを自動事前判定し、合格時のみ `gh pr create` を呼び出す。
+
+---
+
+## 20. クローラーURL正規化・階層展開アーキテクチャ (Crawler URL Normalization & Hierarchy Traversal)
+
+### 20.1 概要
+クローラーの巡回およびDB保存において、URLの一意性判定およびマルチ階層展開を堅牢化する設計。
+
+### 20.2 一意識別パラメータ保護 (`UrlMatcher`)
+- 一部の不動産サイト（Panasonic Rearie 等）では、物件詳細が一意のクエリパラメータ（例: `?id=XXXXXX`）で識別される。
+- `UrlMatcher.normalize()` は一般的なトラッキングクエリ（`utm_*`, `session_id` 等）や不要クエリをカットしつつ、物件詳細の必須識別子（`id` 等の特定パラメータ）を維持するホワイトリスト/ドメイン保護ルールを適用する。
+- これにより、DBレコード保存時の URL 衝突（全件同一URLへの上書き現象）を根絶する。
+
+### 20.3 自律HTTPセッション管理 (`DaikyoParser`)
+- 都道府県別・市区町村別など複数階層にドリルダウンして詳細物件URLを収集するパーサー（`DaikyoParser` 等）において、`_getContent` 呼び出し時に渡される `session` が `None` の場合でも、内部で自己完結した非同期セッションを生成・破棄して確実に生HTMLを取得する。
+- 外部オーケストレータ（`ParseMiddlePageAsyncBase`）のセッション引き渡し有無に依存せず、常に安定した階層展開クローリングを保証する。
+
 
 
 

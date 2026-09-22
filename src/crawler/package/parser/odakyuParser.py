@@ -51,9 +51,6 @@ class OdakyuParser(ParserBase):
         return ""
 
     def _normalize_detail_url(self, href: str) -> Optional[str]:
-        if self.property_type == 'investment':
-            m = re.search(r'/detail/([A-Za-z0-9\-]+)', href)
-            return f"{self.BASE_URL}/detail/{m.group(1)}/" if m else None
         full_url = self.getRootDestUrl(href)
         path = urllib.parse.urlparse(full_url).path
         if not path.endswith('/'):

@@ -491,6 +491,15 @@ def test_url_matcher_normalize_and_same_url():
     assert UrlMatcher.is_same_url(u2, u4) is True
     assert UrlMatcher.is_same_url(u1, u_diff) is False
 
+    # Rearie の ?id= パラメータは保持されること（衝突防止）
+    r1 = "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345&utm_source=test#top"
+    r2 = "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=67890"
+    r1_norm = UrlMatcher.normalize(r1)
+    r2_norm = UrlMatcher.normalize(r2)
+    assert r1_norm == "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345"
+    assert r2_norm == "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=67890"
+    assert UrlMatcher.is_same_url(r1, r2) is False
+
 
 def test_url_matcher_build_db_filter():
     """build_db_filter がクエリパラメータ・末尾スラッシュを網羅するQオブジェクトを生成すること"""
@@ -500,6 +509,12 @@ def test_url_matcher_build_db_filter():
     assert "https://site.com/detail/123/?" in q_str
     assert "https://site.com/detail/123" in q_str
     assert "https://site.com/detail/123?" in q_str
+
+    # クエリ維持サイト（Rearie等）のフィルター生成
+    q_rearie = UrlMatcher.build_db_filter("pageUrl", "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345&utm_source=test")
+    q_rearie_str = str(q_rearie)
+    assert "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345" in q_rearie_str
+    assert "id=12345&" in q_rearie_str
 
 
 def test_predict_by_url_tier1_ignores_query_params(client):

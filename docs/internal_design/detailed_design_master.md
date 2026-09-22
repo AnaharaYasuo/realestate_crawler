@@ -423,7 +423,7 @@ graph TD
 - **背景と課題**:
   - SonarCloud の Quality Gate 状態や未解消課題をリモート API で確認する際、curl コマンド等にタイムアウトが設定されていないため、Windows PowerShell環境やネットワーク遅延時にプロセスが無限待機（ハング）し、バックグラウンドタスクとして滞留し続ける事象が発生していた。
 - **専用検証スクリプト (`src/crawler/scripts/debug_tools/check_sonar_remote.py`)**:
-  - **有限時間タイムアウト保証**: `urllib.request.urlopen` に明示的な `timeout` 引数（デフォルト 10.0 秒、CLI オプション `--timeout` で指定可能）を強制設定。ソケットの接続（connect）および読み取り（read）双方で有限時間内に完了しない場合は `TimeoutError` / `URLError` として即座に終了する。
+  - **ソケット単位の有限時間タイムアウト保証**: `urllib.request.urlopen` に明示的な `timeout` 引数（デフォルト 10.0 秒、CLI オプション `--timeout` で指定可能、最大 10.0 秒まで）を強制設定。ソケットの接続（connect）および読み取り（read）の各操作がそれぞれ指定秒数以内に完了しない場合は `TimeoutError` / `URLError` として即座に終了する。なお、この保証はソケット単位の個別操作に対するものであり、複数の API コールを含む処理全体のエンドツーエンド実行時間を 10 秒以内に収めることを保証するものではない（`_execute_api_get` を複数回呼び出す場合、合計所要時間はタイムアウト値の倍数を超え得る）。
   - **対象指定の柔軟性**: `--pr <pr_number>` または `--branch <branch_name>` を指定することで、対象の Quality Gate ステータス（`project_status`）および未解消課題（`issues/search`）を安全に照会可能。
   - **出力形式とエラーハンドリング**:
     - 通常モードでは人間が視認しやすいフォーマットで Quality Gate の OK / ERROR 判定およびメトリクス一覧を出力。
@@ -434,6 +434,20 @@ graph TD
       - `Exit Code 2`: タイムアウト発生（SonarTimeoutException）
   - **curl コマンド実行規約の制定**:
     - シェルから直接 curl を呼び出す場合は必ず `--max-time 10 --connect-timeout 5` を付与することを義務付け、生 curl のタイムアウトなし実行を禁止。
+
+### 6.29 ログ構造化およびHTMLタグ断片漏洩防止内部設計 (Issue #312)
+- **背景と課題**:
+  - クローラー実行時、レスポンスボディに含まれる改行コード付きの生HTML（404/500エラーページ等）がそのまま出力された結果、Google Cloud Loggingの標準出力パーサーによって複数行に分割され、末尾の `</body></html>` 等のタグ断片が単体ログエントリとして記録される事象が発生していた。
+  - また、一部のモジュール（`package.api.__init__`）でプレーンテキストの二重StreamHandlerがルートロガーに追加され、構造化JSONログとテキストログの重複や非構造化出力が生じていた。
+- **改修内容**:
+  1. **`LoggingMiddleware` のボディサニタイズ (`package.api.middleware`)**:
+     - `_sanitize_log_body` メソッドを新設し、ログ出力前の `data`/`text` について改行・連続空白を単一スペースへ圧縮（1行化）およびクランプ（1000文字）。これによりGCP Cloud Loggingでの複数行分割・タグ単体出力を物理的に根絶。
+  2. **`api_logger.get_logged_body_preview` のサニタイズ強化 (`package.utils.api_logger`)**:
+     - APIリクエスト・レスポンスのプレビュー文字列抽出時、改行・連続空白を圧縮して出力するよう改修。
+  3. **二重ハンドラの排除 (`package.api.__init__`)**:
+     - `package/api/__init__.py` において標準の非構造化 `StreamHandler` / `FileHandler` を追加していた箇所を廃止し、`logging_config.configure_logging()` による統一構造化ロガー設定へ統合。
+  4. **単体・構造化ログテストの拡充 (`tests/unit/test_middleware.py`, `tests/unit/test_logging_structure.py`)**:
+     - 改行を含むHTML文字列が正しく1行化され、複数行分割されないことを担保するアサーションテストを追加。
 
 ---
 
@@ -446,7 +460,7 @@ graph TD
 ---
 
 **最終更新**: 2026年9月21日  
-**バージョン**: 2.9 (SonarCloudリモート検査・外部API呼び出しの有限時間タイムアウト内部設計追記)
+**バージョン**: 3.0 (ログ構造化およびHTMLタグ断片漏洩防止内部設計追記)
 
 
 
