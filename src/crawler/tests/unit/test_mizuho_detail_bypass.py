@@ -112,7 +112,7 @@ async def test_mizuho_repeated_timeouts_raise_server_down():
 
 
 @pytest.mark.asyncio
-async def test_mizuho_410_bypass_runtime_error_is_listing_ended():
+async def test_mizuho_410_bypass_runtime_error_is_load_error():
     parser = MizuhoTochiParser()
     session = _session_with_status(410)
     with patch(
@@ -120,7 +120,7 @@ async def test_mizuho_410_bypass_runtime_error_is_listing_ended():
         new_callable=AsyncMock,
         side_effect=RuntimeError("gone"),
     ):
-        with pytest.raises(ListingEndedException):
+        with pytest.raises(LoadPropertyPageException):
             await parser._getContent(session, "https://www.mizuho-re.co.jp/x/")
 
 

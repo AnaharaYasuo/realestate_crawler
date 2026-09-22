@@ -98,7 +98,10 @@ class UrlMatcher:
                 Q(**{field_name: f"{path_no_slash}?{query_part}"}) |
                 Q(**{field_name: f"{path_with_slash}?{query_part}"}) |
                 Q(**{f"{field_name}__startswith": f"{path_no_slash}?{query_part}&"}) |
-                Q(**{f"{field_name}__startswith": f"{path_with_slash}?{query_part}&"})
+                Q(**{f"{field_name}__startswith": f"{path_with_slash}?{query_part}&"}) |
+                # 追跡パラメータが先頭のDB値も候補にし、is_same_url で再検証する
+                Q(**{f"{field_name}__startswith": f"{path_no_slash}?"}) |
+                Q(**{f"{field_name}__startswith": f"{path_with_slash}?"})
             )
 
         norm_no_slash = norm.rstrip("/")

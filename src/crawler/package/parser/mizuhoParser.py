@@ -47,12 +47,13 @@ class MizuhoParser(ParserBase):
         return self.BASE_URL + '/' + linkUrl
 
     def _ended_or_load_error(self, url: str, status: int, cause: Optional[Exception] = None):
+        # Playwright/WAF 失敗は掲載終了より優先（誤って売止扱いにしない）
+        if cause is not None:
+            raise LoadPropertyPageException(str(cause)) from cause
         if status in (404, 410):
             raise ListingEndedException(
                 f"Property page returned HTTP status {status}: {url}"
-            ) from cause
-        if cause is not None:
-            raise LoadPropertyPageException(str(cause)) from cause
+            )
         raise LoadPropertyPageException(
             f"Mizuho Playwright bypass returned empty for HTTP {status}: {url}"
         )
