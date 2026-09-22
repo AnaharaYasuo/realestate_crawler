@@ -854,13 +854,11 @@ flowchart TD
     H --> C
     
     C --> I[GitHub API / GraphQL で総合検証照会]
-    I --> J1{CodeRabbit実行中 or CHANGES_REQUESTED?}
-    J1 -- YES --> K1[CI Check: FAILED<br/>CodeRabbit完了または承認待ち<br/>マージブロック]
-    J1 -- NO --> J2{未完了チェックボックス - [ ] 存在?}
-    J2 -- YES --> K2[CI Check: FAILED<br/>残存チェックボックス一覧警告<br/>マージブロック]
-    J2 -- NO --> J3{未解決の会話スレッド存在?}
-    J3 -- YES --> K3[CI Check: FAILED<br/>未解決箇所のファイル・行番号を一覧警告<br/>マージブロック]
-    J3 -- NO --> L[CI Check: SUCCESS<br/>head.sha Check Run直接更新]
+    I --> J1{確定違反あり?<br/>未解決スレッド / 未チェック / CHANGES_REQUESTED<br/>スキャンfailure / アラート / システムエラー}
+    J1 -- YES --> K1[必須 Status: FAILURE<br/>マージブロック]
+    J1 -- NO --> J0{CodeRabbit実行中 or セキュリティ未完了?}
+    J0 -- YES --> K0[必須 Status: PENDING<br/>ジョブは成功終了・failureにしない<br/>マージブロックのみ]
+    J0 -- NO --> L[必須 Status: SUCCESS<br/>head.sha の単一 commit status 更新]
     
     H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
     M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]
@@ -873,9 +871,10 @@ flowchart TD
    - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
 2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
    - GitHub Actions 上で PR の会話スレッド、PR本文、全レビュー本文、全コメントを走査。
-   - **未解決スレッド検証**: 未解決の会話スレッドが存在する場合、CI を FAIL。
-   - **未完了チェックボックス検証**: PR本文、CodeRabbitレビュー本文、コメント等に未完了のチェックボックス（`- [ ]`）が残存している場合、CI を FAIL。
-   - **CodeRabbit レビューステータス検証**: レビューが実行中（pending / in-progress）または `CHANGES_REQUESTED` の場合、CI を FAIL。
+   - **必須ステータス一本化**: ジョブ名は `review-gate-runner`（必須チェックにしない）。ブランチ保護の必須 context は `Verify All Review Conversations Resolved` のみとし、`pr.head.sha` への **単一 commit status** で報告する（ジョブ自動チェックとの同名二重報告禁止）。
+   - **待機 ≠ failure**: CodeRabbit 実行中、または必須セキュリティスキャン未開始／実行中は status=`pending`。ジョブ自体は成功終了し、sticky failure を残さない。
+   - **確定違反のみ failure**: 未解決スレッド、未完了チェックボックス、`CHANGES_REQUESTED`、スキャン failure、未解消 Code Scanning アラート。
+   - **Concurrency**: PR 単位で `cancel-in-progress: true` とし、同一 PR の古い Gate 実行をキャンセルする。
    - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
 
 ### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)

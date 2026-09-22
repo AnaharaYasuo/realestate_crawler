@@ -466,6 +466,7 @@ task stop
 - CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
 - PR 本文、全レビュー本文（CodeRabbit含む）、全レビューコメント、全 PR コメント内に未チェックのチェックボックス（`- [ ]`）が 1 件でも残存している場合、CI レビューゲート（`review-gate.yml`）によりマージを物理的にブロックすること。
 - CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。また、`Changes Requested` の状態、またはレビュー実行中の状態での早期マージを防止・ブロックすること。
+- **待機と確定失敗の分離（Review Gate）**: CodeRabbit レビュー未完了、または必須セキュリティスキャン未開始／実行中は、必須ステータス `Verify All Review Conversations Resolved` を **failure にせず pending（待機）** とし、マージのみブロックすること。未解決スレッド・未完了チェックボックス・`CHANGES_REQUESTED`・スキャン failure・未解消 Code Scanning アラートなど **確定違反のみ failure** とすること。必須ステータスの報告経路は PR HEAD に対する単一 context に一本化し、同名のジョブ自動チェックと二重報告してはならない。
 
 ---
 

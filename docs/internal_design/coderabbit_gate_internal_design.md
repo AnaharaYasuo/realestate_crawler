@@ -104,13 +104,19 @@ GitHub ネイティブのブランチ保護機能。
   - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
   - `issue_comment`: `types: [created, edited, deleted]`
+  - `workflow_run`: セキュリティ系ワークフロー完了時（再評価）
+- **Concurrency**: `group: review-gate-pr-<number>` + `cancel-in-progress: true` で同一 PR の古い実行をキャンセルする。
+- **必須ステータス一本化**:
+  - Actions ジョブ名は `review-gate-runner`（ブランチ保護の必須チェックにしない）。
+  - 必須 context 名は `Verify All Review Conversations Resolved` のみ。
+  - 報告は `repos.createCommitStatus` により **常に `pr.head.sha`** へ単一 status を投稿する（ジョブ自動チェックや `checks.create` と同名で二重報告しない）。
+  - 同一 context への再投稿は上書きされるため、後続 success/pending が古い failure を置換し、sticky failure を残さない。
 - **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
   - GitHub では「会話スレッドの解決（Resolve conversation）」単体での GitHub Actions 直接トリガー（Webhookイベント）が存在しない制約があります。
   - そのため、スレッド解決後やチェックボックス更新時には以下の再評価経路を提供します：
     1. **PRコメント/レビュー更新トリガー**: `issue_comment`（コメント投稿・編集・削除）または `pull_request_review` の実行。
-    2. **GitHub App Webhook 連携 (将来拡張/推奨)**: スレッド解決Webhookを受信したGitHub Appまたはポーリング機構から `repository_dispatch` を発火してワークフローを再実行。
-    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した `Verify All Review Conversations Resolved` チェックを再実行。
-  - いずれの経路でも、ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
+    2. **セキュリティスキャン完了トリガー**: `workflow_run`（完了時）による再評価。
+    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した Gate を再実行（通常は不要。pending は自動で上書きされる）。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
@@ -154,18 +160,23 @@ const uncheckedRegex = /^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$/gm;
 CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。なお、無効化済みのレビュー（`state: DISMISSED`）および CodeRabbit の対話型アクションボタン（`radioGroupId` を含む単体テスト生成トリガー、`Fix all pre-merge checks with AI` 等の自動修復トリガー）はタスクではないため除外判定されます。
 
 ### 4.4 CodeRabbit レビューステータス検証ロジック
-最新のレビュー状態を照会し、以下のいずれかに該当する場合はマージ不可と判定します：
-1. レビュー状態が `CHANGES_REQUESTED`（変更要求中）であること。
-2. CodeRabbit のレビュー実行中（ステータスチェックが `pending` または `in_progress`）であり、完了前に早期マージされようとしていること。
+最新のレビュー状態を照会し、以下を区別して扱う：
+1. **待機 (pending)**: CodeRabbit のレビュー実行中（ステータスが `pending` / `in_progress`）。必須 status は `pending`。ジョブは成功終了（failure にしない）。
+2. **確定失敗 (failure)**: 最新レビュー状態が `CHANGES_REQUESTED`（変更要求中）。
 
 ### 4.5 判定基準と出力
-1. **未解決スレッド 0 件 かつ 未完了チェックボックス 0 件 かつ レビュー状態正常（Approved または Commented）の場合**:
-   - ジョブ成功 (`SUCCESS`)。
-   - `✅ All review conversations resolved and all checkboxes checked.` を出力。
-2. **未解決スレッド、未完了チェックボックス、または変更要求が存在する場合**:
-   - ジョブ失敗 (`FAILED`)。
-   - PR のマージを CI ステータスチェック（`Verify All Review Conversations Resolved`）として物理ブロック。
-   - 未解決スレッドおよび未完了チェックボックスの一覧（検出元、ファイル名、行番号、内容）を GitHub Actions ログおよび Job Summary に整形出力。
+判定結果は次の3状態に分類する。必須 context `Verify All Review Conversations Resolved` へ commit status を投稿し、ジョブ `review-gate-runner` は待機・成功時は成功終了、確定失敗時のみ `setFailed` する。
+
+1. **待機 (pending)**: CodeRabbit 実行中、または必須セキュリティスキャン未開始／実行中。
+   - commit status: `pending`
+   - ジョブ: SUCCESS（sticky failure を残さない）
+2. **確定失敗 (failure)**: 未解決スレッド、未完了チェックボックス、`CHANGES_REQUESTED`、スキャン failure、未解消 Code Scanning アラート、システムエラー。
+   - commit status: `failure`
+   - ジョブ: FAILED
+   - 検出一覧を Actions ログおよび Job Summary に出力
+3. **成功 (success)**: 上記いずれにも該当しない。
+   - commit status: `success`
+   - ジョブ: SUCCESS
 
 ---
 

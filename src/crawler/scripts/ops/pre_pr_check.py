@@ -365,7 +365,9 @@ class PrePRChecker:
                 errors.append("Ruff が未インストールです。'pip install ruff' でインストールしてください。")
                 return errors, warnings
 
-        target_args = py_files if py_files else ["src/crawler/"]
+        target_args = py_files
+        if not target_args:
+            return [], ["変更Pythonファイルなし — Ruffスキップ"]
         check_args = ["check", "--fix", "--output-format=json"] if self.fix_mode else ["check", "--output-format=json"]
         cmd = ruff_base + check_args + target_args
         rc, ruff_out, ruff_err = self._run_cmd(cmd)
@@ -380,6 +382,15 @@ class PrePRChecker:
         start = time.time()
         changed = self.get_changed_files()
         py_files = [f for f in changed if f.endswith(".py") and os.path.isfile(os.path.join(self.repo_root, f))]
+
+        if not py_files:
+            return StageResult(
+                3,
+                STAGE_LINTER_SONAR,
+                True,
+                details="変更Pythonファイルなし — Linter/Sonarスキップ",
+                duration_sec=time.time() - start,
+            )
 
         errors = self._check_python_syntax(py_files)
         sonar_issues, sonar_errors = self._check_sonar_violations(py_files)

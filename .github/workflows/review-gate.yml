@@ -18,24 +18,47 @@ on:
       - "Security Scan (Trivy, Semgrep, Checkov)"
     types: [completed]
 
+# 同一 PR の古い Gate 実行をキャンセルし、最新評価だけを残す
+concurrency:
+  group: review-gate-pr-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
   issues: read
-  checks: write
-  statuses: read
+  checks: read
+  statuses: write
   security-events: read
   actions: read
 
 jobs:
   verify-conversations-resolved:
-    name: Verify All Review Conversations Resolved
+    # ジョブ名は必須チェックにしない（必須は commit status context のみ）
+    name: review-gate-runner
     runs-on: ubuntu-latest
     steps:
       - name: Check unresolved review threads, checkboxes, and review status
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
+            const REQUIRED_STATUS_CONTEXT = 'Verify All Review Conversations Resolved';
+
+            async function reportHeadStatus(headSha, state, description, summaryMd) {
+              const desc = (description || '').substring(0, 140);
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: headSha,
+                state,
+                context: REQUIRED_STATUS_CONTEXT,
+                description: desc
+              });
+              if (summaryMd) {
+                await core.summary.addRaw(summaryMd).write();
+              }
+            }
+
             let pr = context.payload.pull_request;
             if (!pr && context.payload.issue && context.payload.issue.pull_request) {
               try {
@@ -75,32 +98,21 @@ jobs:
               return;
             }
 
-            if (pr.head && pr.head.ref && pr.head.ref.startsWith('cursor/')) {
-              core.info(`Agent branch '${pr.head.ref}'. Marking Review Gate as passed.`);
-              await github.rest.checks.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                name: 'Verify All Review Conversations Resolved',
-                head_sha: pr.head.sha,
-                status: 'completed',
-                conclusion: 'success',
-                output: {
-                  title: 'Review Conversations & Security Checks Passed',
-                  summary: 'Cursor automated agent branch: review gate passed automatically.'
-                }
-              });
-              return;
-            }
-
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const prNumber = pr.number;
             const headSha = pr.head && pr.head.sha;
+            if (!headSha) {
+              core.setFailed(`PR #${prNumber} has no head SHA.`);
+              return;
+            }
 
             // 1. Check CodeRabbit In-Progress / Pending Status (skip for production PRs)
             const systemErrors = [];
             let crPending = false;
             let crPendingMsg = '';
+            let crTerminalFailure = false;
+            let crTerminalFailureMsg = '';
             let allCheckRuns = [];
 
             if (targetBranch !== 'production') {
@@ -111,10 +123,22 @@ jobs:
                   ref: headSha
                 });
                 const crStatuses = combinedStatus.data.statuses.filter(s => s.context.toLowerCase().includes('coderabbit'));
-                const pendingStatus = crStatuses.find(s => s.state === 'pending');
-                if (pendingStatus) {
-                  crPending = true;
-                  crPendingMsg = `⛔ CodeRabbit review is still pending (${pendingStatus.context}: ${pendingStatus.state}). Please wait for CodeRabbit to complete.`;
+                // 同一 context は updated_at 最新を採用
+                const latestStatusByContext = new Map();
+                for (const s of crStatuses) {
+                  const prev = latestStatusByContext.get(s.context);
+                  if (!prev || new Date(s.updated_at) > new Date(prev.updated_at)) {
+                    latestStatusByContext.set(s.context, s);
+                  }
+                }
+                for (const s of latestStatusByContext.values()) {
+                  if (s.state === 'pending') {
+                    crPending = true;
+                    crPendingMsg = `⏳ CodeRabbit review is still pending (${s.context}: ${s.state}). Please wait for CodeRabbit to complete.`;
+                  } else if (s.state === 'failure' || s.state === 'error') {
+                    crTerminalFailure = true;
+                    crTerminalFailureMsg = `⛔ CodeRabbit status failed (${s.context}: ${s.state}).`;
+                  }
                 }
 
                 allCheckRuns = await github.paginate(github.rest.checks.listForRef, {
@@ -124,10 +148,29 @@ jobs:
                   per_page: 100
                 });
                 const crChecks = allCheckRuns.filter(c => c.name.toLowerCase().includes('coderabbit'));
-                const inProgressCheck = crChecks.find(c => c.status !== 'completed');
-                if (inProgressCheck) {
+                const latestCheckByName = new Map();
+                for (const c of crChecks) {
+                  const prev = latestCheckByName.get(c.name);
+                  const cTime = new Date(c.completed_at || c.started_at || 0).getTime();
+                  const pTime = prev ? new Date(prev.completed_at || prev.started_at || 0).getTime() : -1;
+                  if (!prev || cTime >= pTime) {
+                    latestCheckByName.set(c.name, c);
+                  }
+                }
+                for (const c of latestCheckByName.values()) {
+                  if (c.status !== 'completed') {
+                    crPending = true;
+                    crPendingMsg = `⏳ CodeRabbit review check is in progress (${c.name}: ${c.status}). Please wait for CodeRabbit to finish.`;
+                  } else if (c.conclusion !== 'success') {
+                    // success 以外の完了 conclusion（failure/cancelled/timed_out/neutral/skipped/startup_failure 等）は hard failure
+                    crTerminalFailure = true;
+                    crTerminalFailureMsg = `⛔ CodeRabbit check failed (${c.name}: ${c.conclusion}).`;
+                  }
+                }
+
+                if (crStatuses.length === 0 && crChecks.length === 0) {
                   crPending = true;
-                  crPendingMsg = `⛔ CodeRabbit review check is in progress (${inProgressCheck.name}: ${inProgressCheck.status}). Please wait for CodeRabbit to finish.`;
+                  crPendingMsg = '⏳ CodeRabbit review has not started yet. Please wait for CodeRabbit to start.';
                 }
               } catch (err) {
                 systemErrors.push(`Failed to check CodeRabbit commit status / check run: ${err.message}`);
@@ -348,9 +391,11 @@ jobs:
               }
             }
 
-            // 6. Aggregate Results & Assert
+            // 6. Aggregate Results — pending (wait) vs failure (hard) vs success
             let hasFailure = false;
+            let isPending = false;
             let summaryMd = '';
+            const pendingReasons = [];
 
             if (systemErrors.length > 0) {
               hasFailure = true;
@@ -361,9 +406,15 @@ jobs:
               summaryMd += '\n';
             }
 
-            if (crPending) {
+            if (crTerminalFailure) {
               hasFailure = true;
-              summaryMd += `### ⛔ CodeRabbitレビュー実行中\n\n${crPendingMsg}\n\n`;
+              summaryMd += `### ⛔ CodeRabbitチェック失敗\n\n${crTerminalFailureMsg}\n\n`;
+            }
+
+            if (crPending) {
+              isPending = true;
+              pendingReasons.push(crPendingMsg || 'CodeRabbit review pending');
+              summaryMd += `### ⏳ CodeRabbitレビュー実行中\n\n${crPendingMsg}\n\n`;
             }
 
             if (unresolved.length > 0) {
@@ -406,9 +457,10 @@ jobs:
             }
 
             if (missingSecurityChecks.length > 0) {
-              hasFailure = true;
-              summaryMd += `### ⛔ 未検出の必須セキュリティスキャン (${missingSecurityChecks.length}件)\n\n`;
-              summaryMd += `PRをマージするには、すべての必須セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）が実行される必要があります。\n\n`;
+              isPending = true;
+              pendingReasons.push(`Missing security checks: ${missingSecurityChecks.join(', ')}`);
+              summaryMd += `### ⏳ 未検出の必須セキュリティスキャン (${missingSecurityChecks.length}件)\n\n`;
+              summaryMd += `スキャン未開始のため待機します（failure にはしません）。\n\n`;
               for (const mc of missingSecurityChecks) {
                 summaryMd += `- \`${mc}\` が見つかりません\n`;
               }
@@ -416,7 +468,8 @@ jobs:
             }
 
             if (pendingSecurityChecks.length > 0) {
-              hasFailure = true;
+              isPending = true;
+              pendingReasons.push(`Pending security checks: ${pendingSecurityChecks.length}`);
               summaryMd += `### ⏳ セキュリティスキャン実行中 (${pendingSecurityChecks.length}件)\n\n`;
               summaryMd += `以下のセキュリティスキャンが実行中です。完了をお待ちください。\n\n`;
               for (const pc of pendingSecurityChecks) {
@@ -449,43 +502,57 @@ jobs:
               summaryMd += '\n';
             }
 
-            // Sync check run status directly to PR HEAD SHA
-            try {
-              await github.rest.checks.create({
-                owner,
-                repo,
-                name: 'Verify All Review Conversations Resolved',
-                head_sha: headSha,
-                status: 'completed',
-                conclusion: hasFailure ? 'failure' : 'success',
-                output: {
-                  title: hasFailure ? 'Review Conversations & Security Checks Failed' : 'Review Conversations & Security Checks Passed',
-                  summary: hasFailure ? summaryMd : `すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス、セキュリティスキャン失敗、および未解消のCode Scanningアラートは存在しません。マージ可能です。`
-                }
-              });
-            } catch (err) {
-              core.setFailed(`Failed to sync check run to HEAD SHA: ${err.message}`);
-              return;
-            }
-
+            // 単一 commit status のみ報告（ジョブ名と同名の checks.create は行わない）
             if (hasFailure) {
-              console.error('⛔ Review Gate Check Failed:');
+              console.error('⛔ Review Gate Check Failed (hard failure):');
               if (systemErrors.length > 0) console.error(`- System errors: ${systemErrors.length}`);
-              if (crPending) console.error(`- CodeRabbit pending: ${crPendingMsg}`);
+              if (crTerminalFailure) console.error(`- CodeRabbit terminal failure: ${crTerminalFailureMsg}`);
               if (unresolved.length > 0) console.error(`- Unresolved threads: ${unresolved.length}`);
               if (uncheckedList.length > 0) console.error(`- Unchecked checkboxes: ${uncheckedList.length}`);
               if (changesRequested.length > 0) console.error(`- Changes requested: ${changesRequested.length}`);
-              if (missingSecurityChecks.length > 0) console.error(`- Missing security checks: ${missingSecurityChecks.join(', ')}`);
-              if (pendingSecurityChecks.length > 0) console.error(`- Pending security checks: ${pendingSecurityChecks.length}`);
               if (failedSecurityChecks.length > 0) console.error(`- Failed security checks: ${failedSecurityChecks.length}`);
               if (codeScanningAlerts.length > 0) console.error(`- Open code scanning alerts: ${codeScanningAlerts.length}`);
-              await core.summary.addRaw(summaryMd).write();
-              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested, ${missingSecurityChecks.length} missing security checks, ${pendingSecurityChecks.length} pending security checks, ${failedSecurityChecks.length} failed security checks, ${codeScanningAlerts.length} code scanning alerts.`);
+              try {
+                await reportHeadStatus(
+                  headSha,
+                  'failure',
+                  `PR #${prNumber}: hard gate failure`,
+                  summaryMd
+                );
+              } catch (err) {
+                core.setFailed(`Failed to sync commit status to HEAD SHA: ${err.message}`);
+                return;
+              }
+              core.setFailed(`PR #${prNumber} cannot be merged: ${unresolved.length} unresolved threads, ${uncheckedList.length} unchecked checkboxes, ${changesRequested.length} changes requested, ${failedSecurityChecks.length} failed security checks, ${codeScanningAlerts.length} code scanning alerts.`);
+              return;
+            }
+
+            if (isPending) {
+              console.log('⏳ Review Gate pending (waiting — not a failure):', pendingReasons.join('; '));
+              try {
+                await reportHeadStatus(
+                  headSha,
+                  'pending',
+                  (pendingReasons[0] || 'Waiting for reviews/security').substring(0, 140),
+                  summaryMd
+                );
+              } catch (err) {
+                core.setFailed(`Failed to sync commit status to HEAD SHA: ${err.message}`);
+                return;
+              }
+              // ジョブは成功終了し、sticky failure を残さない
               return;
             }
 
             console.log('✅ すべての会話スレッドが解決済み、すべてのチェックボックスが完了、変更要求なし。マージ可能です。');
-            core.summary
-              .addHeading('✅ Review Conversations & Checkboxes Check Passed')
-              .addRaw(`すべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス（0件）および変更要求も存在しません。マージ可能です。`)
-              .write();
+            try {
+              await reportHeadStatus(
+                headSha,
+                'success',
+                `PR #${prNumber}: review gate passed`,
+                `### ✅ Review Conversations & Checkboxes Check Passed\n\nすべてのレビュー会話スレッド（${allThreads.length}件走査）が解決され、未完了のチェックボックス、セキュリティスキャン失敗、および未解消のCode Scanningアラートは存在しません。マージ可能です。\n`
+              );
+            } catch (err) {
+              core.setFailed(`Failed to sync commit status to HEAD SHA: ${err.message}`);
+              return;
+            }
