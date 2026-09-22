@@ -8,7 +8,7 @@
 ```text
 【CI: PR / Push 契機】
 .github/workflows/security-scan.yml
- ├── trivy-scan    (SCA: requirements.txt + IaC: terraform/) ──> SARIF ──> GitHub Security (FAIL時CI失敗)
+ ├── trivy-scan    (SCA: poetry.lock/requirements.txt + IaC: terraform/) ──> SARIF ──> GitHub Security (FAIL時CI失敗)
  ├── semgrep-scan  (SAST: src/ Python コード)                ──> SARIF ──> GitHub Security (FAIL時CI失敗)
  └── checkov-scan  (IaC: terraform/ Google Cloud 設定監査)  ──> SARIF ──> GitHub Security (soft_fail廃止/FAIL時CI失敗)
 
@@ -32,7 +32,7 @@
 
 | ツール | 対象 | スキャン種別 | 特徴・監査内容 | 実行タイミング |
 | :--- | :--- | :--- | :--- | :--- |
-| **Trivy** | `src/crawler/requirements.txt`, `terraform/` | SCA + IaC | 既知 CVE 脆弱性、Terraform 構成ミス検出 | PR作成・更新時 (CI) |
+| **Trivy** | `src/crawler/poetry.lock`（互換 `requirements.txt`）, `terraform/` | SCA + IaC | 既知 CVE 脆弱性、Terraform 構成ミス検出 | PR作成・更新時 (CI) |
 | **Semgrep** | `src/` (Python ソースコード) | SAST | OWASP Top 10、SQLi、認証認可、安全でない関数呼び出し | PR作成・更新時 (CI) |
 | **Checkov** | `terraform/` | IaC / GCP設定監査 | CIS GCP Foundation Benchmark、GCP ポリシー違反の事前検知 | PR作成・更新時 (CI) |
 | **Prowler** | Google Cloud 本番環境 | CSPM / ライブ監査 | IAM 過剰権限、KMS 暗号化、Cloud SQL 監査、ログ集約等の実環境監査 | 定期（週次）/ 手動 |

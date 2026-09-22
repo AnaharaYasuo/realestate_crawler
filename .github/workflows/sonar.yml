@@ -21,7 +21,7 @@ jobs:
       app: ${{ steps.filter.outputs.app }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
       - name: Path Filter
         uses: dorny/paths-filter@v4
         id: filter
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
@@ -50,7 +50,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build and cache Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -104,7 +104,7 @@ jobs:
 
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: >
             "-Dsonar.sourceEncoding=UTF-8"
