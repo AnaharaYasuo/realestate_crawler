@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check unresolved review threads, checkboxes, and review status
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             let pr = context.payload.pull_request;
