@@ -17,7 +17,7 @@
 - Prowler GCP 監査は定期スケジュール（週次）および手動起動（`workflow_dispatch`）をサポートすること。
 
 ### FR-SEC-002: Trivy による SCA & IaC 一括スキャン
-- Python 依存関係（`src/crawler/requirements.txt` 等）の CVE 脆弱性と Terraform（`terraform/`）の設定ミスを単一ジョブでまとめて走査すること。
+- Python 依存関係（`src/crawler/poetry.lock` / 互換用 `requirements.txt` 等）の CVE 脆弱性と Terraform（`terraform/`）の設定ミスを単一ジョブでまとめて走査すること。
 - `.trivyignore` を尊重し、HIGH および CRITICAL 検出時に CI を終了コード 1 で落とすこと。
 
 ### FR-SEC-003: Semgrep による Python SAST スキャン
