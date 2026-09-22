@@ -130,11 +130,12 @@ async def get_mizuho_links(url: str) -> list:
 def interpret_mizuho_detail_fetch(url: str, status, title, html_text: str) -> bytes:
     """Playwright詳細取得結果を bytes / 終了 / エラーへ正規化する（単体テスト用に分離）。"""
     logging.info(f"MizuhoBypass: Detail loaded. Title={title!r} Status={status}")
+    # WAF/ブロックを 404/410 空結果より優先（誤掲載終了を防ぐ）
+    if status == 403 or "403" in (title or ""):
+        raise RuntimeError(f"MizuhoBypass: WAF blocked detail ({status}): {url}")
     if status in (404, 410):
         logging.warning(f"MizuhoBypass: Listing ended HTTP {status} for {url}")
         return b""
-    if status == 403 or "403" in (title or ""):
-        raise RuntimeError(f"MizuhoBypass: WAF blocked detail ({status}): {url}")
     if status and status >= 400:
         raise RuntimeError(f"MizuhoBypass: Detail HTTP {status} for {url}")
     return (html_text or "").encode("utf-8", errors="replace")

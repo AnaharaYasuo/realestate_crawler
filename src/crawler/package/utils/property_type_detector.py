@@ -143,10 +143,10 @@ class PropertyTypeDetector:
                     and cls._has_numeric_yield(f"{key_str}{v_str}"))
         if cls._has_yield_signal(v_str):
             return True
+        # キー側ラベル（想定年収等）+ 値側数値を連結して判定
         return (
-            cls._has_yield_signal(key_str)
-            and not cls._is_empty_yield_value(v_str)
-            and any(ch.isdigit() for ch in v_str)
+            not cls._is_empty_yield_value(v_str)
+            and cls._has_numeric_yield(f"{key_str}{v_str}")
         )
 
     @classmethod

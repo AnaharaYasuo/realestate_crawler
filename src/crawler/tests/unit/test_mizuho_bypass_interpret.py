@@ -27,6 +27,12 @@ def test_interpret_403_title_raises():
         interpret_mizuho_detail_fetch("https://x/", 200, "Error 403 Forbidden", "<html/>")
 
 
+def test_interpret_403_title_beats_404_status():
+    """WAFタイトルは 404 空結果より優先する。"""
+    with pytest.raises(RuntimeError, match="WAF blocked"):
+        interpret_mizuho_detail_fetch("https://x/", 404, "403 Forbidden", "<html/>")
+
+
 def test_interpret_other_4xx_raises():
     with pytest.raises(RuntimeError, match="Detail HTTP 418"):
         interpret_mizuho_detail_fetch("https://x/", 418, "teapot", "<html/>")

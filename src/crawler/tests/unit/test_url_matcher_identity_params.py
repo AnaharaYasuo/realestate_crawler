@@ -48,13 +48,69 @@ def test_normalize_fallback_keeps_identity_query():
 
 
 def test_build_db_filter_for_identity_query_covers_slash_variants():
-    q = UrlMatcher.build_db_filter(
-        "pageUrl",
-        "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=33874",
-    )
+    path_no = "https://homes.panasonic.com/rearie/buy/property/land/detail.html"
+    path_yes = path_no + "/"
+    q = UrlMatcher.build_db_filter("pageUrl", f"{path_no}?id=33874")
     assert isinstance(q, Q)
-    q_str = str(q)
-    assert "id=33874" in q_str
+
+    def _flatten(node):
+        pairs = []
+        for child in node.children:
+            if isinstance(child, Q):
+                pairs.extend(_flatten(child))
+            else:
+                pairs.append(child)
+        return pairs
+
+    pairs = _flatten(q)
+    assert ("pageUrl", f"{path_no}?id=33874") in pairs
+    assert ("pageUrl", f"{path_yes}?id=33874") in pairs
+    assert ("pageUrl__startswith", f"{path_no}?id=33874&") in pairs
+    assert ("pageUrl__startswith", f"{path_yes}?id=33874&") in pairs
+    # 追跡パラメータが先頭のDB値用（この2つが無いと回帰する）
+    assert ("pageUrl__startswith", f"{path_no}?") in pairs
+    assert ("pageUrl__startswith", f"{path_yes}?") in pairs
+
+
+def test_find_match_when_db_has_tracking_before_identity():
+    """DBが ?utm...&id= でもリクエスト ?id= と is_same_url で一致する。"""
+    db_url = (
+        "https://homes.panasonic.com/rearie/buy/property/land/detail.html"
+        "?utm_source=mail&id=33874"
+    )
+    req = "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=33874"
+    match = MagicMock(pageUrl=db_url)
+    other = MagicMock(pageUrl="https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=99999")
+
+    class RecordingQuerySet:
+        def __init__(self, rows):
+            self._rows = rows
+            self.last_q = None
+
+        def filter(self, *args, **kwargs):
+            self.last_q = args[0] if args else kwargs
+            # 簡略: startswith path? があれば utm 先頭レコードを候補に含める
+            path_prefix = (
+                "https://homes.panasonic.com/rearie/buy/property/land/detail.html?"
+            )
+            q = self.last_q
+            pairs = []
+            if isinstance(q, Q):
+                for child in q.children:
+                    if isinstance(child, tuple):
+                        pairs.append(child)
+            has_broad = any(
+                k == "pageUrl__startswith" and v == path_prefix for k, v in pairs
+            )
+            if not has_broad:
+                return []
+            return [match, other]
+
+    qs = RecordingQuerySet([match, other])
+    found = UrlMatcher.find_match_in_queryset(qs, "pageUrl", req)
+    assert found is match
+    assert UrlMatcher.is_same_url(db_url, req)
+    assert isinstance(qs.last_q, Q)
 
 
 def test_find_match_in_queryset_uses_is_same_url_on_iterable():
@@ -95,3 +151,5 @@ def test_has_numeric_yield_markers_without_regex():
     assert PropertyTypeDetector._has_numeric_yield("利回り: -") is False
     assert PropertyTypeDetector._spec_entry_has_yield("表面利回り", "8.5%") is True
     assert PropertyTypeDetector._spec_entry_has_yield("表面利回り", "未定") is False
+    assert PropertyTypeDetector._spec_entry_has_yield("想定年収", "120万円") is True
+    assert PropertyTypeDetector.detect(specs={"想定年収": "120万円"}) == "apartment"
