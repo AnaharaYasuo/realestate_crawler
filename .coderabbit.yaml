@@ -9,6 +9,10 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # docs / Markdown はコードレビュー対象外（書式・文言ノイズ防止）。Issue #345
+  path_filters:
+    - "!docs/**"
+    - "!**/*.md"
   auto_review:
     enabled: true
     drafts: false
@@ -25,8 +29,9 @@ reviews:
       enabled: true
     shellcheck:
       enabled: true
+    # Markdown 非対象化に合わせ無効（Issue #345）
     markdownlint:
-      enabled: true
+      enabled: false
 
 tone_instructions: >
   日本の不動産情報クローラーおよび機械学習価格推定プロジェクトです。

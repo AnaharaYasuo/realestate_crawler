@@ -882,9 +882,10 @@ flowchart TD
 - **初回オープンのみ自動レビュー**: `auto_incremental_review: false` により、PR 作成時の1回のみ自動レビューし、後続 push では自動再レビューしない（収束不能の連鎖指摘を防止）。必要時は `@coderabbitai review` で手動起動。
 - **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
 - **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。
+- **ドキュメント除外**: `reviews.path_filters` に `!docs/**` および `!**/*.md` を設定し、仕様・運用ドキュメント（`docs/`）および Markdown 全般をレビュー対象外とする。書式・文言指摘によるマージゲートノイズを排除する。
 - **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
 - **チェックボックス完備**: レビュー本文およびサマリー内のアクション・チェックボックス（`- [ ]`）がすべて完了（`- [x]`）されていることを CI ゲートが自動検証。
-- **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）、`markdownlint`（ドキュメント検証）を同時走査。
+- **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）を同時走査。`markdownlint` は Markdown 非対象化に合わせ無効。
 
 ---
 
