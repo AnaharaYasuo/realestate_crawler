@@ -459,7 +459,8 @@ task stop
 - 同一 PR への後続 push（synchronize / コード追加）では自動再レビューを行わないこと（`auto_incremental_review: false`）。追加レビューが必要な場合は手動で `@coderabbitai review` を実行可能とする。
 - レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
 - プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
-- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
+- レビュー対象から仕様・ドキュメントを除外すること。`.coderabbit.yaml` の `reviews.path_filters` に `!docs/**` および `!**/*.md` を定義し、`docs/` 配下およびリポジトリ内の Markdown ファイルを CodeRabbit のレビュー対象外とすること。
+- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。Markdown はレビュー対象外のため `markdownlint` は無効とすること。
 
 #### FR-023: 未解決レビューコメントおよび未完了チェックボックスによるマージブロック強制
 - CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。

@@ -21,6 +21,10 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # docs / Markdown はコードレビュー対象外（書式・文言ノイズ防止）
+  path_filters:
+    - "!docs/**"
+    - "!**/*.md"
   auto_review:
     enabled: true
     drafts: false
@@ -36,7 +40,7 @@ reviews:
     shellcheck:
       enabled: true
     markdownlint:
-      enabled: true
+      enabled: false
 
 tone_instructions: >
   日本の不動産情報クローラーおよび機械学習価格推定プロジェクトです。
@@ -56,7 +60,9 @@ chat:
 | `request_changes_workflow` | `true` | 指摘コメントがある場合に PR に `CHANGES_REQUESTED` を付与し、全指摘が解決（resolved）されると自動で `APPROVED` に遷移させる。 |
 | `auto_review.auto_incremental_review` | `false` | PR 初回オープン時のみ自動レビューし、後続 push での再レビュー連鎖（収束不能）を防止。必要時は `@coderabbitai review` で手動起動。 |
 | `auto_review.base_branches` | `["master", "production"]` | 開発主幹 (`master`) および本番リリース (`production`) 宛て PR を対象に自動起動。 |
-| `tools` | `ast-grep`, `ruff`, etc. | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
+| `path_filters` | `["!docs/**", "!**/*.md"]` | 仕様ドキュメントと Markdown 全般をレビュー対象外とし、マージゲートのノイズを抑制（Issue #345）。 |
+| `tools.markdownlint` | `false` | Markdown 非対象化に整合。コード向け静的解析（`ast-grep`, `ruff`, `shellcheck`）のみ有効。 |
+| `tools` | `ast-grep`, `ruff`, `shellcheck` | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
 
 ---
 
