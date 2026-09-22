@@ -266,26 +266,33 @@ class LockoutManager:
 ## 8. URL正規化・クエリパラメータ突合モジュール設計 (`UrlMatcher`)
 
 `yarl` ライブラリを採用し、URL正規化、同一性判定、Django ORM検索クエリ生成を一元化。
+追跡・表示制御パラメータのみを除去し、物件識別子クエリ（`id` 等）は保持する（Issue #317 / Rearie 衝突防止）。
 
 ```python
 from yarl import URL
 from django.db.models import Q
 
+TRACKING_QUERY_KEYS = {
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "gclid", "fbclid", "yclid", "_ga", "ref", "from", "sort", "DOWN",
+}
+
 class UrlMatcher:
     @staticmethod
     def normalize(url: str) -> str:
-        """クエリパラメータ・フラグメントを除去し、正規化ベースURLを生成"""
+        """追跡クエリ・フラグメントを除去し、識別子クエリは保持した正規化URLを生成"""
         if not url:
             return ""
         try:
-            u = URL(url).with_query(None).with_fragment(None)
-            return str(u)
+            u = URL(url).with_fragment(None)
+            kept = [(k, v) for k, v in u.query.items() if k.lower() not in {x.lower() for x in TRACKING_QUERY_KEYS}]
+            return str(u.with_query(kept))
         except Exception:
-            return url.split("?")[0].split("#")[0]
+            return url.split("#")[0]
 
     @staticmethod
     def is_same_url(url1: str, url2: str) -> bool:
-        """クエリパラメータ・末尾スラッシュの有無を無視して同一物件URLかを判定"""
+        """追跡クエリ・末尾スラッシュの有無を無視して同一物件URLかを判定（識別子クエリは区別）"""
         if not url1 or not url2:
             return False
         n1 = UrlMatcher.normalize(url1).rstrip("/")
@@ -295,17 +302,12 @@ class UrlMatcher:
     @staticmethod
     def build_db_filter(field_name: str, url: str) -> Q:
         """
-        DB内レコード（クエリ付き/無し/末尾スラッシュ有無）に双方向適合するQオブジェクトを生成
+        正規化後URL（識別子クエリ保持）でDB突合するQオブジェクトを生成。
+        パス末尾スラッシュ差異にも双方向適合する。
         """
         norm = UrlMatcher.normalize(url)
-        norm_no_slash = norm.rstrip("/")
-        norm_with_slash = norm_no_slash + "/"
-        return (
-            Q(**{field_name: norm_with_slash}) |
-            Q(**{f"{field_name}__startswith": norm_with_slash + "?"}) |
-            Q(**{field_name: norm_no_slash}) |
-            Q(**{f"{field_name}__startswith": norm_no_slash + "?"})
-        )
+        # path-only base + exact normalized forms
+        ...
 ```
 
 ---

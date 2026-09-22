@@ -11,7 +11,7 @@ from package.parser.tokyuParser import TokyuInvestmentApartmentParser, TokyuInve
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 1
-DEFAULT_PARARELL_LIMIT = 1
+DEFAULT_PARARELL_LIMIT = DEFAULT_PARALLEL_LIMIT  # legacy alias (cloud path)
 DETAIL_PARALLEL_LIMIT = 1
 
 # ==============================================================================

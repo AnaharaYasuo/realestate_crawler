@@ -51,6 +51,16 @@ class OdakyuParser(ParserBase):
         return ""
 
     def _normalize_detail_url(self, href: str) -> Optional[str]:
+        if self.property_type == 'investment':
+            # 投資一覧は /mansion/detail/ID/ 等を返す。/detail/ID/ へ潰すと 404 になる (Issue #317)
+            full_url = self.getRootDestUrl(href)
+            m = re.search(
+                r'/(?P<kind>mansion|house|kodate|land|tochi|invest)/detail/(?P<id>[A-Za-z0-9\-]+)',
+                full_url,
+            )
+            if not m:
+                return None
+            return f"{self.BASE_URL}/{m.group('kind')}/detail/{m.group('id')}/"
         full_url = self.getRootDestUrl(href)
         path = urllib.parse.urlparse(full_url).path
         if not path.endswith('/'):
@@ -61,7 +71,9 @@ class OdakyuParser(ParserBase):
         detail_links = set()
         # 投資用と居住用でパターン分岐 (/mansion/detail/, /house/detail/, /land/detail/, /detail/)
         if self.property_type == 'investment':
-            pattern = re.compile(r'/detail/[A-Za-z0-9\-]+')
+            pattern = re.compile(
+                r'/(?:mansion|house|kodate|land|tochi|invest)/detail/[A-Za-z0-9\-]+'
+            )
         else:
             pattern = re.compile(r'/(?:mansion|house|kodate|land|tochi)/detail/[A-Za-z0-9\-]+')
 

@@ -4,14 +4,17 @@ import logging
 import os
 import re
 import urllib.parse
+from typing import Optional
 
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, LoadPropertyPageException, ServerBusyException, ServerDownException
 from package.models.mizuho import MizuhoMansion, MizuhoKodate, MizuhoTochi, MizuhoInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.mizuho_bypass import get_mizuho_links
+import asyncio
+import aiohttp
 
 class MizuhoParser(ParserBase):
 
@@ -42,6 +45,77 @@ class MizuhoParser(ParserBase):
         if linkUrl.startswith('/'):
             return self.BASE_URL + linkUrl
         return self.BASE_URL + '/' + linkUrl
+
+    def _ended_or_load_error(self, url: str, status: int, cause: Optional[Exception] = None):
+        # Playwright/WAF 失敗は掲載終了より優先（誤って売止扱いにしない）
+        if cause is not None:
+            raise LoadPropertyPageException(str(cause)) from cause
+        if status in (404, 410):
+            raise ListingEndedException(
+                f"Property page returned HTTP status {status}: {url}"
+            )
+        raise LoadPropertyPageException(
+            f"Mizuho Playwright bypass returned empty for HTTP {status}: {url}"
+        )
+
+    async def _playwright_bypass_or_raise(self, url: str, status: int) -> bytes:
+        from package.utils.mizuho_bypass import get_mizuho_page_html
+
+        try:
+            html = await get_mizuho_page_html(url)
+        except RuntimeError as bypass_err:
+            self._ended_or_load_error(url, status, bypass_err)
+            raise  # pragma: no cover
+        if html:
+            self.consecutive_timeouts = 0
+            return html
+        self._ended_or_load_error(url, status)
+        return b""  # pragma: no cover
+
+    async def _handle_http_status(self, response, url: str) -> bytes:
+        status = response.status
+        if status == 200:
+            self.consecutive_timeouts = 0
+            return await response.read()
+        if status in (403, 404, 410):
+            logging.warning(
+                f"Mizuho: HTTP {status} for {url}. Trying Playwright bypass..."
+            )
+            return await self._playwright_bypass_or_raise(url, status)
+        if status in (500, 502, 503, 504):
+            raise ServerBusyException(
+                f"Property page returned HTTP status {status}: {url}"
+            )
+        raise LoadPropertyPageException(f"HTTP Status {status}: {url}")
+
+    async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
+        """通常取得が 403/404 のとき Playwright でWAF回避して詳細HTMLを取得する。"""
+        headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+        }
+        max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
+        for attempt in range(max_timeouts):
+            try:
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
+                    return await self._handle_http_status(response, url)
+            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
+                self.consecutive_timeouts = cur_timeouts
+                if cur_timeouts >= max_timeouts:
+                    raise ServerDownException(
+                        f"Target server is down or timing out repeatedly ({cur_timeouts} times)"
+                    ) from e
+                if attempt == max_timeouts - 1:
+                    raise LoadPropertyPageException(
+                        f"Timeout after {attempt + 1} attempts for URL: {url}"
+                    ) from e
+                await asyncio.sleep(1 * (attempt + 1))
+        return b""
 
     async def parseNextPage(self, response: BeautifulSoup):
         # 「次へ」のリンクを探索

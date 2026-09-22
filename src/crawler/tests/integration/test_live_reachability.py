@@ -260,13 +260,18 @@ async def run_single_site_test(target: dict):
                 start_parse = time.perf_counter()
                 cleaned_item = await parser.parsePropertyDetailPage(session, detail_url)
             else:
-                async with session.get(detail_url, ssl=ssl_val) as d_resp:
-                    if d_resp.status in (403, 404):
-                        print(f" [{site}] Detail URL HTTP {d_resp.status} (Skipped expired page): {detail_url}")
-                        continue
-                    assert d_resp.status == 200, f"[{site}] Detail page HTTP {d_resp.status}: {detail_url}"
-                    d_bytes = await d_resp.read()
-                    d_html = d_bytes.decode(encoding, errors='replace')
+                try:
+                    async with session.get(detail_url, ssl=ssl_val) as d_resp:
+                        if d_resp.status in (403, 404):
+                            print(f" [{site}] Detail URL HTTP {d_resp.status} (Skipped expired page): {detail_url}")
+                            continue
+                        assert d_resp.status == 200, f"[{site}] Detail page HTTP {d_resp.status}: {detail_url}"
+                        d_bytes = await d_resp.read()
+                        d_html = d_bytes.decode(encoding, errors='replace')
+                except (asyncio.TimeoutError, aiohttp.ClientError, TimeoutError) as e:
+                    # 外部サイトの一時的な無応答はフレークとしてスキップ（他件でカバレッジ確保）
+                    print(f" [{site}] Detail fetch timeout/error skipped: {detail_url} ({e})")
+                    continue
 
                 # 純パース時間計測 & SLA アサーション (ネットワーク待機時間を除外)
                 start_parse = time.perf_counter()

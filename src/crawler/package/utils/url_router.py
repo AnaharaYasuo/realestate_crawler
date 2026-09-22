@@ -198,6 +198,16 @@ class UrlRouter:
             "model_module": "package.models.homes",
             "model_cls": "HomesInvestmentApartment",
         },
+        # 投資ポータル上の土地（tbg[]=5 等）。property_type=tochi 指定時に解決される
+        {
+            "pattern": re.compile(r"toushi\.homes\.co\.jp/bukkendetail/"),
+            "site": "homes",
+            "property_type": "tochi",
+            "parser_module": "package.parser.homesParser",
+            "parser_cls": "HomesTochiParser",
+            "model_module": "package.models.homes",
+            "model_cls": "HomesTochi",
+        },
 
 
         # ミサワホーム (Misawa)
@@ -417,13 +427,14 @@ class UrlRouter:
             return None
 
         # 2. 目的の property_type の特定 (引数指定 > PropertyTypeDetector動的判定)
+        # URLのみでも detect し、同一パターンの複数ルート（例: toushi homes apartment/tochi）を区別する
         target_ptype = property_type
-        if not target_ptype and (title or html_text or specs):
+        if not target_ptype:
             target_ptype = PropertyTypeDetector.detect(
                 url=url,
                 title=title,
                 html_text=html_text,
-                specs=specs
+                specs=specs,
             )
 
         # 3. 指定・判定された property_type に合致するルートを選択

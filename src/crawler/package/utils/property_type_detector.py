@@ -22,9 +22,13 @@ class PropertyTypeDetector:
     RC_STRUCTURE_KEYWORDS = ("RC", "SRC", "鉄筋", "コンクリート", "鉄骨")
 
     # 投資用絶対判定キーワード（最優先ガードレール）
+    SIGNAL_ANNUAL_RENT_EST = "年間予定賃料"
+    SIGNAL_GROSS_INCOME = "想定年収"
+    SIGNAL_FULL_OCCUPANCY = "満室想定"
     INVESTMENT_STRONG_SIGNALS = [
         "表面利回り", "実質利回り", "想定利回り", "現況利回り", "満室利回り", "満室時利回り",
-        "利回り", "オーナーチェンジ", "サブリース", "想定年収", "満室想定", "年間予定賃料", "賃貸中"
+        "利回り", "オーナーチェンジ", "サブリース",
+        SIGNAL_GROSS_INCOME, SIGNAL_FULL_OCCUPANCY, SIGNAL_ANNUAL_RENT_EST, "賃貸中",
     ]
 
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
@@ -50,6 +54,19 @@ class PropertyTypeDetector:
 
     _ai_cache: Dict[str, str] = {}
 
+    _YIELD_MARKERS = (
+        "利回り",
+        SIGNAL_GROSS_INCOME,
+        SIGNAL_FULL_OCCUPANCY,
+        SIGNAL_ANNUAL_RENT_EST,
+        "想定年間収入",
+    )
+    _YIELD_SEP_CHARS = frozenset(" \t　:：=＝約")
+    _YIELD_LABEL_SKIP = (
+        "利回り", "表面利回り", "実質利回り", "想定利回り", "現況利回り",
+        "満室利回り", "満室時利回り",
+        SIGNAL_GROSS_INCOME, SIGNAL_FULL_OCCUPANCY, SIGNAL_ANNUAL_RENT_EST,
+    )
     @classmethod
     def clear_ai_cache(cls) -> None:
         """テストやジョブ間リセット用のAI判定キャッシュクリア"""
@@ -65,28 +82,80 @@ class PropertyTypeDetector:
         return getattr(obj, field_name, default)
 
     @classmethod
+    def _has_numeric_yield(cls, text: str) -> bool:
+        """利回り・想定年収など、数値が伴う収益指標があるか（ReDoS回避の単純走査）。"""
+        for marker in cls._YIELD_MARKERS:
+            start = 0
+            while True:
+                pos = text.find(marker, start)
+                if pos < 0:
+                    break
+                i = pos + len(marker)
+                while i < len(text) and text[i] in cls._YIELD_SEP_CHARS:
+                    i += 1
+                if i < len(text) and text[i].isdigit():
+                    return True
+                start = pos + 1
+        return False
+
+    @classmethod
     def _has_yield_signal(cls, text: Optional[str]) -> bool:
-        """テキスト内に利回り表記や投資用シグナルが存在するか判定（Yield Guard）"""
+        """テキスト内に利回り表記や投資用シグナルが存在するか判定（Yield Guard）
+
+        投資ポータルの共通ナビに「利回り」が含まれるだけの場合は投資確定にしない。
+        利回り系は数値が伴う場合、またはオーナーチェンジ等の強いシグナルのみ True。
+        """
         if not text or not isinstance(text, str):
             return False
+        for sig in ("オーナーチェンジ", "サブリース", "賃貸中"):
+            if sig in text:
+                return True
+        if cls._has_numeric_yield(text):
+            return True
+        # 残りの投資シグナル（利回り単体語を除く）
         for sig in cls.INVESTMENT_STRONG_SIGNALS:
+            if sig in cls._YIELD_LABEL_SKIP:
+                continue
             if sig in text:
                 return True
         return False
 
     @classmethod
+    def _is_empty_yield_value(cls, v_str: str) -> bool:
+        empty_markers = ("", "-", "－", "―", "—", "−", "なし", "非公開", "未定", "－％", "-%")
+        return v_str in empty_markers or v_str.startswith("未定")
+
+    @classmethod
+    def _gross_yield_positive(cls, v_str: str) -> bool:
+        if cls._is_empty_yield_value(v_str):
+            return False
+        try:
+            return float(re.sub(r"[^\d.]", "", v_str)) > 0
+        except (ValueError, TypeError):
+            return False
+
+    @classmethod
+    def _spec_entry_has_yield(cls, key_str: str, v_str: str) -> bool:
+        if "grossYield" in key_str:
+            return cls._gross_yield_positive(v_str)
+        if "利回り" in key_str:
+            return (not cls._is_empty_yield_value(v_str)
+                    and cls._has_numeric_yield(f"{key_str}{v_str}"))
+        if cls._has_yield_signal(v_str):
+            return True
+        # キー側ラベル（想定年収等）+ 値側数値を連結して判定
+        return (
+            not cls._is_empty_yield_value(v_str)
+            and cls._has_numeric_yield(f"{key_str}{v_str}")
+        )
+
+    @classmethod
     def _has_yield_signal_specs(cls, specs: Dict[str, Any]) -> bool:
-        """スペック辞書内に利回り表記やgrossYieldが存在するか判定"""
+        """スペック辞書内に利回り表記やgrossYieldが存在するか判定（空欄・宣伝文の混入は除外）"""
         for k, v in specs.items():
-            if cls._has_yield_signal(str(k)) or cls._has_yield_signal(str(v)):
+            v_str = str(v).strip() if v is not None else ""
+            if cls._spec_entry_has_yield(str(k), v_str):
                 return True
-            if "grossYield" in str(k) or "利回り" in str(k):
-                try:
-                    val = float(re.sub(r"[^\d.]", "", str(v)))
-                    if val > 0:
-                        return True
-                except (ValueError, TypeError):
-                    pass
         return False
 
     @classmethod
@@ -127,30 +196,40 @@ class PropertyTypeDetector:
         return predicted_type
 
     @classmethod
+    def _first_keyword_hit(cls, text: str, keywords) -> Optional[str]:
+        for kw in keywords:
+            if kw in text:
+                return kw
+        return None
+
+    @classmethod
     def _match_keywords(cls, text: str) -> Optional[str]:
-        """テキストからキーワードマッチにより種別を特定（Yield Guard > apartment優先）"""
+        """テキストからキーワードマッチにより種別を特定。
+
+        売地等の土地シグナルがあり数値利回りが無い場合は tochi を優先
+        （投資ポータルの共通文言「収益物件」より物件固有の売地を優先）。
+        """
         if not text or not isinstance(text, str):
             return None
 
+        has_strong_tochi = any(
+            k in text for k in ("売地", "売土地", "売り土地", "建築条件付土地")
+        )
+        # 数値利回り・オーナーチェンジ等の実投資シグナルを売地より優先
         if cls._has_yield_signal(text):
             return "apartment"
+        if has_strong_tochi:
+            return "tochi"
 
-        for kw in cls.APARTMENT_KEYWORDS:
-            if kw in text:
-                return "apartment"
-
-        for kw in cls.KODATE_KEYWORDS:
-            if kw in text:
-                return "kodate"
-
-        for kw in cls.TOCHI_KEYWORDS:
-            if kw in text:
-                return "tochi"
-
-        for kw in cls.MANSION_KEYWORDS:
-            if kw in text:
-                return "mansion"
-
+        keyword_map = (
+            (cls.APARTMENT_KEYWORDS, "apartment"),
+            (cls.KODATE_KEYWORDS, "kodate"),
+            (cls.TOCHI_KEYWORDS, "tochi"),
+            (cls.MANSION_KEYWORDS, "mansion"),
+        )
+        for keywords, ptype in keyword_map:
+            if cls._first_keyword_hit(text, keywords):
+                return ptype
         return None
 
     @classmethod
@@ -198,21 +277,24 @@ class PropertyTypeDetector:
         use_ai: bool = False
     ) -> Optional[str]:
         """
-        優先順位 (Yield Guard > specs > title > html_text > url > AI) に従って物件種別を判定
+        優先順位:
+        数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
+        本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
         if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
             return "apartment"
 
-        if cls._has_yield_signal(title) or cls._has_yield_signal(html_text):
+        # タイトルはページ固有情報が濃いため、HTML全体の利回り表記より先に評価する
+        if title:
+            ptype = cls._match_keywords(title)
+            if ptype:
+                return ptype
+
+        if cls._has_yield_signal(html_text):
             return "apartment"
 
         if specs and isinstance(specs, dict):
             ptype = cls._detect_from_specs(specs)
-            if ptype:
-                return ptype
-
-        if title:
-            ptype = cls._match_keywords(title)
             if ptype:
                 return ptype
 
