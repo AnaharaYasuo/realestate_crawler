@@ -126,5 +126,76 @@ async def get_mizuho_links(url: str) -> list:
 
     return links
 
+
+def interpret_mizuho_detail_fetch(url: str, status, title, html_text: str) -> bytes:
+    """Playwright詳細取得結果を bytes / 終了 / エラーへ正規化する（単体テスト用に分離）。"""
+    logging.info(f"MizuhoBypass: Detail loaded. Title={title!r} Status={status}")
+    if status in (404, 410):
+        logging.warning(f"MizuhoBypass: Listing ended HTTP {status} for {url}")
+        return b""
+    if status == 403 or "403" in (title or ""):
+        raise RuntimeError(f"MizuhoBypass: WAF blocked detail ({status}): {url}")
+    if status and status >= 400:
+        raise RuntimeError(f"MizuhoBypass: Detail HTTP {status} for {url}")
+    return (html_text or "").encode("utf-8", errors="replace")
+
+
+async def get_mizuho_page_html(url: str) -> bytes:
+    """WAF回避用: Playwrightで詳細ページHTMLを取得する（403/404偽装時のフォールバック）。"""
+    logging.info(f"MizuhoBypass: Fetching detail HTML via Playwright: {url}")
+    browser = None
+    context = None
+    try:
+        async with async_playwright() as p:
+            try:
+                browser = await p.chromium.launch(
+                    headless=False,
+                    args=[
+                        '--headless=new',
+                        '--disable-blink-features=AutomationControlled',
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                    ],
+                )
+                context = await browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+                    ),
+                    locale="ja-JP",
+                    timezone_id="Asia/Tokyo",
+                    viewport={"width": 1280, "height": 800},
+                )
+                await context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                """)
+                page = await context.new_page()
+                await page.goto("https://www.mizuho-re.co.jp/", wait_until="networkidle", timeout=20000)
+                await page.wait_for_timeout(1500)
+                response = await page.goto(url, wait_until="networkidle", timeout=30000)
+                await page.wait_for_timeout(2000)
+                status = response.status if response else None
+                title = await page.title()
+                content = await page.content()
+                return interpret_mizuho_detail_fetch(url, status, title, content)
+            finally:
+                if context:
+                    try:
+                        await context.close()
+                    except Exception as close_error:
+                        logging.debug("MizuhoBypass: Failed to close context: %s", close_error, exc_info=True)
+                if browser:
+                    try:
+                        await browser.close()
+                    except Exception as close_error:
+                        logging.debug("MizuhoBypass: Failed to close browser: %s", close_error, exc_info=True)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        logging.exception("MizuhoBypass: Detail HTML fetch failed: %s", e)
+        raise RuntimeError(f"MizuhoBypass: Playwright failed for {url}: {e}") from e
+    return b""
+
+
 # 投資用パーサーとの後方互換性エイリアス
 get_mizuho_investment_links = get_mizuho_links

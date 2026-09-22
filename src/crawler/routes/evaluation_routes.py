@@ -740,7 +740,9 @@ async def _execute_predict_by_url(
     if not force_refresh:
         eval_record = None
         try:
-            eval_record = PropertyEvaluation.objects.filter(UrlMatcher.build_db_filter("property_url", url)).first()
+            eval_record = UrlMatcher.find_match_in_queryset(
+                PropertyEvaluation.objects, "property_url", url
+            )
         except Exception as e:
             logging.exception(f"PropertyEvaluation cache query failed: {e}")
 
@@ -751,7 +753,9 @@ async def _execute_predict_by_url(
                 try:
                     mod = importlib.import_module(route["model_module"])
                     model_cls = getattr(mod, route["model_cls"])
-                    existing_item = model_cls.objects.filter(UrlMatcher.build_db_filter("pageUrl", url)).first()
+                    existing_item = UrlMatcher.find_match_in_queryset(
+                        model_cls.objects, "pageUrl", url
+                    )
                     if existing_item:
                         prop_info = _extract_property_info(existing_item)
                 except Exception as e:
@@ -801,7 +805,9 @@ async def _execute_predict_by_url(
             detected_type = PropertyTypeDetector.detect(url=url, title=page_title)
             parsed_domain = urllib.parse.urlparse(url).netloc
             clean_url = UrlMatcher.normalize(url)
-            cand = CandidatePropertyUrl.objects.filter(UrlMatcher.build_db_filter("url", url)).first()
+            cand = UrlMatcher.find_match_in_queryset(
+                CandidatePropertyUrl.objects, "url", url
+            )
             if cand:
                 cand.request_count += 1
                 cand.save(update_fields=["request_count", "updated_at"])
@@ -857,7 +863,9 @@ async def _execute_predict_by_url(
     # -------------------------------------------------------------
     existing_item = None
     if not force_refresh:
-        existing_item = model_cls.objects.filter(UrlMatcher.build_db_filter("pageUrl", url)).first()
+        existing_item = UrlMatcher.find_match_in_queryset(
+            model_cls.objects, "pageUrl", url
+        )
 
     target_item = existing_item
     data_source = "db_property" if existing_item else "live_crawl"

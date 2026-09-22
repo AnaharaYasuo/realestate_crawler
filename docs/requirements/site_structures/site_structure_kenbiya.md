@@ -8,6 +8,7 @@
 - 物件詳細URL: `https://www.kenbiya.com/pp2/s/<prefecture>/<city>/.../re_<property_id>/`
 - メール通知URL: `https://www.kenbiya.com/.../?utm_source=newmail&utm_medium=email&utm_campaign=newmail`
 - 追跡用クエリパラメータ（`utm_*`, `mail_*` 等）は物件特定には無関係であり、パースおよび保存前に `UrlMatcher.normalize()` により除去・正規化を行う。
+- ただし物件識別子がクエリに載るサイト（Rearie の `?id=` 等）では識別子クエリを保持する（Issue #317）。
 
 ## 3. WAF & レートリミット (HTTP 429) の挙動と対策
 ### 3.1 挙動

@@ -1075,7 +1075,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             existing_record = None
             try:
                 def get_existing():
-                    return model_class.objects.filter(UrlMatcher.build_db_filter("pageUrl", item.pageUrl)).first()
+                    return UrlMatcher.find_match_in_queryset(
+                        model_class.objects, "pageUrl", item.pageUrl
+                    )
                 existing_record = await sync_to_async(get_existing)()
             except Exception as e:
                 logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
@@ -1148,7 +1150,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     
                     # すでに価格推定（一次・二次予測、または一次不合格）が完了している場合は全体をスキップ
                     def get_existing_eval():
-                        return PropertyEvaluation.objects.filter(UrlMatcher.build_db_filter("property_url", item.pageUrl)).order_by("-id").first()
+                        return UrlMatcher.find_match_in_queryset(
+                            PropertyEvaluation.objects.order_by("-id"),
+                            "property_url",
+                            item.pageUrl,
+                        )
                     existing_eval = await sync_to_async(get_existing_eval)()
                     
                     price_stage1 = None
