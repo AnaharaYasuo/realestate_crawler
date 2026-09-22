@@ -227,8 +227,11 @@ class TokyuParser(ParserBase):
         # Header/hero/table price element fallback
         for sel in ['p.price', 'span.price', 'div.price', 'td.price', '.p-detail-hero__price', '.price-text', '.detail-header__price', '.m-status-table__price', '.p-detail-summary__price', 'span.num']:
             el = response.select_one(sel)
-            if el and ('万円' in el.get_text() or '円' in el.get_text()):
-                return el.get_text().strip()
+            if el is None:
+                continue
+            el_text = el.get_text()
+            if '万円' in el_text or '円' in el_text:
+                return el_text.strip()
         # Search elements containing '万円' with price-like structure
         for tag in response.find_all(['span', 'p', 'div', 'td', 'dd']):
             txt = tag.get_text().strip()

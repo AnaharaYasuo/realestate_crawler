@@ -247,8 +247,10 @@ def verify_all_targets():
                 p_price = getattr(cleaned_item, 'price', None)
                 p_addr = getattr(cleaned_item, 'address', None) or getattr(cleaned_item, 'address1', None)
                 
-                assert p_name is not None, f"propertyName is None ({p_name})"
-                assert p_price is not None, f"price is None ({p_price})"
+                if p_name is None:
+                    raise ValueError(f"propertyName is None ({p_name})")
+                if p_price is None:
+                    raise ValueError(f"price is None ({p_price})")
                 
                 success_count += 1
                 print(f"  [{company:8s} - {ptype:16s}] PASS | Class: {parser_class_name:32s} | Pure Time: {elapsed_ms:5.1f}ms | Item: '{p_name}' | Price: {p_price}")

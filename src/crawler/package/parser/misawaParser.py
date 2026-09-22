@@ -37,16 +37,22 @@ class MisawaParser(ParserBase):
 
         for section in sections:
             a_tag = section.select_one('h3 a')
-            if a_tag and a_tag.get('href'):
-                href = a_tag.get('href')
-                full_url = self.getRootDestUrl(href)
-                yield full_url
+            if a_tag is None:
+                continue
+            href = a_tag.get('href')
+            if not href:
+                continue
+            full_url = self.getRootDestUrl(href)
+            yield full_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         next_tag = response.select_one('li.next a')
-        if next_tag and next_tag.get('href'):
-            return self.getRootDestUrl(next_tag.get('href'))
-        return ""
+        if next_tag is None:
+            return ""
+        href = next_tag.get('href')
+        if not href:
+            return ""
+        return self.getRootDestUrl(href)
 
     def getRootXpath(self):
         return self.selectors.get('root_xpath', "//ul[contains(@class, 'bukken-list')]/li/a/@href")

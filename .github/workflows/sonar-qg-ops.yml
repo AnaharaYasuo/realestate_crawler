@@ -1,0 +1,54 @@
+# One-shot / rare ops: align SonarCloud Quality Gate with mergeable defaults.
+# Uses GitHub Actions SONAR_TOKEN (local .env token may be empty).
+name: Sonar Quality Gate Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "select_sonar_way | reset_new_code_30d"
+        required: true
+        default: "select_sonar_way"
+        type: choice
+        options:
+          - select_sonar_way
+          - reset_new_code_30d
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply SonarCloud ops
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          ORG: anaharayasuo
+          PROJECT: AnaharaYasuo_realestate_crawler
+        run: |
+          set -euo pipefail
+          if [ -z "${SONAR_TOKEN}" ]; then
+            echo "SONAR_TOKEN secret is empty" >&2
+            exit 1
+          fi
+          AUTH=(-u "${SONAR_TOKEN}:")
+          case "${{ inputs.action }}" in
+            select_sonar_way)
+              # Built-in Sonar way gate id=9 (no overall violations<=0)
+              curl -sS --fail-with-body --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/qualitygates/select?organization=${ORG}&projectKey=${PROJECT}&gateId=9"
+              echo
+              curl -sS --max-time 10 "${AUTH[@]}" \
+                "https://sonarcloud.io/api/navigation/component?component=${PROJECT}&organization=${ORG}" \
+                | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('qualityGate'))"
+              ;;
+            reset_new_code_30d)
+              # Prefer branch-level new code period when supported
+              code=$(curl -sS -o /tmp/nc.json -w "%{http_code}" --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/new_code_periods/set?organization=${ORG}&project=${PROJECT}&branch=master&type=NUMBER_OF_DAYS&value=30" || true)
+              echo "HTTP ${code}"
+              cat /tmp/nc.json || true
+              echo
+              ;;
+          esac
