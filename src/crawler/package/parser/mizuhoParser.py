@@ -1,14 +1,17 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
+import logging
+import os
+import re
+import urllib.parse
+
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.mizuho import MizuhoMansion, MizuhoKodate, MizuhoTochi, MizuhoInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
-import logging
-import re
-import urllib.parse
+from package.utils.mizuho_bypass import get_mizuho_links
 
 class MizuhoParser(ParserBase):
 
@@ -50,6 +53,54 @@ class MizuhoParser(ParserBase):
                     return self.getRootDestUrl(href)
         return ""
 
+    def _load_temp_links_file(self):
+        # 物件種別ごとに一時ファイルを分離し、他種別ジョブのURL混入を防ぐ
+        prop_type = self.property_type or "mansion"
+        links_file = f"src/crawler/Temp/mizuho_{prop_type}_links.txt"
+        if not os.path.exists(links_file):
+            return []
+        logging.info(f"Mizuho: Loading start URLs from temporary file: {links_file}")
+        try:
+            with open(links_file, "r", encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            logging.error(f"Mizuho: Failed to read temporary URLs file: {e}")
+            return []
+
+    def _extract_static_detail_links(self, response: BeautifulSoup) -> set:
+        detail_links = set()
+        for a in response.find_all("a", href=re.compile(r'/(?:buyers|investors)/(?:property|detail)/\d+')):
+            href = a.get("href")
+            if not href:
+                continue
+            full_url = self.getRootDestUrl(href)
+            parsed = urllib.parse.urlparse(full_url)
+            path = parsed.path
+            if not path.endswith('/'):
+                path += '/'
+            normalized = f"{self.BASE_URL}{path}"
+            detail_links.add(normalized)
+        return detail_links
+
+    async def _execute_playwright_bypass_links(self):
+        logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
+        try:
+            start_urls = {
+                'mansion': "https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/",
+                'kodate': "https://www.mizuho-re.co.jp/buyers/search/area/type_House/pref_13/list/",
+                'tochi': "https://www.mizuho-re.co.jp/buyers/search/area/type_Tochi/pref_13/list/",
+                'investment': "https://www.mizuho-re.co.jp/investors/search/area/all_apartment-building-dormitory-office-store-warehouse-factory-land-other/pref_13/list/",
+            }
+            start_url = getattr(self, '_last_url', None) or start_urls.get(self.property_type, start_urls['mansion'])
+            urls = await get_mizuho_links(start_url)
+            if urls:
+                logging.info(f"Mizuho: Successfully obtained {len(urls)} links via Playwright bypass.")
+                return urls
+            logging.warning("Mizuho: Playwright bypass returned 0 links.")
+        except Exception:
+            logging.exception("Mizuho: Playwright bypass failed.")
+        return []
+
     async def parseRootPage(self, response: BeautifulSoup):
         """
         みずほ不動産販売の一覧ページから物件詳細URLを抽出する。
@@ -57,60 +108,22 @@ class MizuhoParser(ParserBase):
         2. 静的HTMLから正規表現でリンクを抽出
         3. リンクが見つからない場合、PlaywrightによるWAF回避処理を実行
         """
-        # 1. ローカルの一時URLリストファイルがあるかチェックして読み込む (WAF回避のハイブリッド方式)
-        import os
-        links_file = "src/crawler/Temp/mizuho_links.txt"
-        if os.path.exists(links_file):
-            logging.info(f"Mizuho: Loading start URLs from temporary file: {links_file}")
-            try:
-                with open(links_file, "r", encoding="utf-8") as f:
-                    urls = [line.strip() for line in f if line.strip()]
-                logging.info(f"Mizuho: Loaded {len(urls)} URLs from temporary file.")
-                for url in urls:
-                    yield url
-                return
-            except Exception as e:
-                logging.error(f"Mizuho: Failed to read temporary URLs file: {e}")
-
-        # 2. 静的HTMLからのリンク抽出を試みる（リンクが見つかればPlaywrightをスキップ）
-        detail_links = set()
-        for a in response.find_all("a", href=re.compile(r'/(?:buyers|investors)/property/\d{12}')):
-            href = a.get("href")
-            if href:
-                full_url = self.getRootDestUrl(href)
-                parsed = urllib.parse.urlparse(full_url)
-                path = parsed.path
-                if not path.endswith('/'):
-                    path += '/'
-                normalized = f"{self.BASE_URL}{path}"
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield normalized
-
-        if detail_links:
+        temp_urls = self._load_temp_links_file()
+        if temp_urls:
+            logging.info(f"Mizuho: Loaded {len(temp_urls)} URLs from temporary file.")
+            for url in temp_urls:
+                yield url
             return
 
-        # 3. 静的HTMLでリンクが0件（WAF 403ブロックやJS未レンダリング時）の場合、PlaywrightによるWAF回避処理を実行
-        logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
-        try:
-            from package.utils.mizuho_bypass import get_mizuho_links
-            start_urls = {
-                'mansion': "https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/",
-                'kodate': "https://www.mizuho-re.co.jp/buyers/search/area/type_House/pref_13/list/",
-                'tochi': "https://www.mizuho-re.co.jp/buyers/search/area/type_Land/pref_13/list/",
-                'investment': "https://www.mizuho-re.co.jp/investors/search/area/all_apartment-building-dormitory-office-store-warehouse-factory-land-other/pref_13/list/",
-            }
-            start_url = getattr(self, '_last_url', None) or start_urls.get(self.property_type, start_urls['mansion'])
-            urls = await get_mizuho_links(start_url)
-            if urls:
-                logging.info(f"Mizuho: Successfully obtained {len(urls)} links via Playwright bypass.")
-                for url in urls:
-                    yield url
-                return
-            else:
-                logging.warning("Mizuho: Playwright bypass returned 0 links.")
-        except Exception:
-            logging.exception("Mizuho: Playwright bypass failed.")
+        detail_links = self._extract_static_detail_links(response)
+        if detail_links:
+            for url in detail_links:
+                yield url
+            return
+
+        bypass_urls = await self._execute_playwright_bypass_links()
+        for url in bypass_urls:
+            yield url
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # tdの中の不要なボタン（周辺地図、街の情報、ローンシミュレーションなど）を除去してパースする

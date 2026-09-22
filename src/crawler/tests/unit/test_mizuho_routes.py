@@ -17,10 +17,11 @@ app = Flask(__name__)
 
 
 def test_mizuho_get_start_url_prefecture_level():
-    """みずほのスタートURLが404となるcity_13102ではなくpref_13/list/であることを検証"""
+    """みずほのスタートURLが404となるcityではなくpref_13/list/であり、土地はtype_Tochiであることを検証"""
     assert get_start_url('Mansion') == "https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/"
     assert get_start_url('House') == "https://www.mizuho-re.co.jp/buyers/search/area/type_House/pref_13/list/"
-    assert get_start_url('Land') == "https://www.mizuho-re.co.jp/buyers/search/area/type_Land/pref_13/list/"
+    assert get_start_url('Land') == "https://www.mizuho-re.co.jp/buyers/search/area/type_Tochi/pref_13/list/"
+    assert get_start_url('Tochi') == "https://www.mizuho-re.co.jp/buyers/search/area/type_Tochi/pref_13/list/"
 
 
 def test_mizuho_mansion_start():
@@ -84,7 +85,7 @@ def test_mizuho_tochi_start():
 
         res = mizuhoTochiStart()
         mock_instance.main.assert_called_once_with(
-            "https://www.mizuho-re.co.jp/buyers/search/area/type_Land/pref_13/list/"
+            "https://www.mizuho-re.co.jp/buyers/search/area/type_Tochi/pref_13/list/"
         )
         assert res == ["https://www.mizuho-re.co.jp/buyers/property/000000000003/"]
 

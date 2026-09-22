@@ -11,6 +11,7 @@ from package.parser.nomuraParser import NomuraInvestmentKodateParser, NomuraInve
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 1
+DEFAULT_PARARELL_LIMIT = 1
 DETAIL_PARALLEL_LIMIT = 1
 
 # ==============================================================================
