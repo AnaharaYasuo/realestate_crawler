@@ -527,6 +527,15 @@ def calculate_t_score(raw_score: float, mean: float, stddev: float) -> float:
     return 50.0 + 10.0 * (raw_score - mean) / stddev
 
 
+def require_eval_record(eval_record, page_url: str):
+    """ML評価レコード必須チェック。except Exception 内で assert を使わない (S5779)。"""
+    if eval_record is None:
+        raise RuntimeError(
+            f"ML: eval_record is missing after stage-1 handling for {page_url}"
+        )
+    return eval_record
+
+
 class ApiAsyncProcBase(metaclass=ABCMeta):
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
     headersJson = {
@@ -1204,7 +1213,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                             }
                         )
                     
-                    assert eval_record is not None
+                    eval_record = require_eval_record(eval_record, item.pageUrl)
                     
                     # 名寄せロジックによる重複検出
                     from package.utils.deduplication import find_duplicate_property
@@ -1289,7 +1298,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                         import uuid
                                         from package.utils.storage import get_storage_manager
                                         
-                                        resp = requests.get(img["url"], timeout=10)
+                                        resp = await sync_to_async(requests.get)(img["url"], timeout=10)
                                         if resp.status_code == 200:
                                             img_bytes = resp.content
                                             ext = ".jpg"
