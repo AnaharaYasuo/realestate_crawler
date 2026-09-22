@@ -3,6 +3,7 @@
 みずほ不動産販売 パーサー ユニットテスト
 ※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
 """
+import os
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from bs4 import BeautifulSoup
@@ -20,6 +21,30 @@ from package.models.mizuho import (
     MizuhoTochi,
     MizuhoInvestment
 )
+
+
+def test_mizuho_temp_links_file_is_property_type_specific(tmp_path, monkeypatch):
+    """一時URLファイルが物件種別ごとに分離され、他種別のファイルを読まないことを検証。"""
+    temp_dir = tmp_path / "src" / "crawler" / "Temp"
+    temp_dir.mkdir(parents=True)
+    mansion_file = temp_dir / "mizuho_mansion_links.txt"
+    tochi_file = temp_dir / "mizuho_tochi_links.txt"
+    mansion_file.write_text(
+        "https://www.mizuho-re.co.jp/buyers/property/mansion-only/\n",
+        encoding="utf-8",
+    )
+    tochi_file.write_text(
+        "https://www.mizuho-re.co.jp/buyers/property/tochi-only/\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    mansion_urls = MizuhoMansionParser()._load_temp_links_file()
+    tochi_urls = MizuhoTochiParser()._load_temp_links_file()
+
+    assert mansion_urls == ["https://www.mizuho-re.co.jp/buyers/property/mansion-only/"]
+    assert tochi_urls == ["https://www.mizuho-re.co.jp/buyers/property/tochi-only/"]
+    assert not os.path.exists("src/crawler/Temp/mizuho_links.txt")
 
 
 def test_mizuho_mansion_parser():
@@ -90,7 +115,7 @@ async def test_mizuho_parse_root_page_bypass():
         "https://www.mizuho-re.co.jp/buyers/property/000000000001/",
         "https://www.mizuho-re.co.jp/buyers/property/000000000002/",
     ]
-    with patch("package.utils.mizuho_bypass.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
+    with patch("package.parser.mizuhoParser.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
         mock_bypass.return_value = mock_links
         
         extracted = []
@@ -106,7 +131,7 @@ async def test_mizuho_parse_root_page_bypass_zero_links():
     """Playwrightバイパスが0件を返却した場合の挙動を検証。"""
     parser = MizuhoKodateParser()
     empty_soup = BeautifulSoup("<html><head><title>403</title></head><body>WAF Blocked</body></html>", "html.parser")
-    with patch("package.utils.mizuho_bypass.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
+    with patch("package.parser.mizuhoParser.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
         mock_bypass.return_value = []
         extracted = []
         async for link in parser.parseRootPage(empty_soup):
@@ -119,7 +144,7 @@ async def test_mizuho_parse_root_page_bypass_exception():
     """Playwrightバイパス処理中に例外が発生した場合の例外捕捉を検証。"""
     parser = MizuhoKodateParser()
     empty_soup = BeautifulSoup("<html><head><title>403</title></head><body>WAF Blocked</body></html>", "html.parser")
-    with patch("package.utils.mizuho_bypass.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
+    with patch("package.parser.mizuhoParser.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
         mock_bypass.side_effect = RuntimeError("Playwright error")
         extracted = []
         async for link in parser.parseRootPage(empty_soup):

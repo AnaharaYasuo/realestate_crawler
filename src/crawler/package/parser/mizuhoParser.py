@@ -1,14 +1,17 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
+import logging
+import os
+import re
+import urllib.parse
+
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.mizuho import MizuhoMansion, MizuhoKodate, MizuhoTochi, MizuhoInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
-import logging
-import re
-import urllib.parse
+from package.utils.mizuho_bypass import get_mizuho_links
 
 class MizuhoParser(ParserBase):
 
@@ -51,8 +54,9 @@ class MizuhoParser(ParserBase):
         return ""
 
     def _load_temp_links_file(self):
-        import os
-        links_file = "src/crawler/Temp/mizuho_links.txt"
+        # 物件種別ごとに一時ファイルを分離し、他種別ジョブのURL混入を防ぐ
+        prop_type = self.property_type or "mansion"
+        links_file = f"src/crawler/Temp/mizuho_{prop_type}_links.txt"
         if not os.path.exists(links_file):
             return []
         logging.info(f"Mizuho: Loading start URLs from temporary file: {links_file}")
@@ -81,7 +85,6 @@ class MizuhoParser(ParserBase):
     async def _execute_playwright_bypass_links(self):
         logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
         try:
-            from package.utils.mizuho_bypass import get_mizuho_links
             start_urls = {
                 'mansion': "https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/",
                 'kodate': "https://www.mizuho-re.co.jp/buyers/search/area/type_House/pref_13/list/",
