@@ -85,3 +85,51 @@ def test_log_level_filtering(monkeypatch):
     data = json.loads(lines[0])
     assert data.get("severity") == "INFO"
     assert "このインフォメッセージ" in data.get("message", "")
+
+
+def test_no_newline_in_message_payload(monkeypatch):
+    """改行を含むHTMLやテキストがログに出力されても複数行に分割されず、単一JSONログとして出力されることを検証"""
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    stream = io.StringIO()
+    configure_logging(force_reconfigure=True, output_stream=stream, log_format="json", log_level="INFO")
+
+    from package.api.middleware import LoggingMiddleware
+    from package.utils.api_logger import get_logged_body_preview
+
+    raw_html = "<html>\n<head>\n<title>404</title>\n</head>\n<body>\n<h1>Error</h1>\n</body></html>\n"
+    sanitized_mw = LoggingMiddleware._sanitize_log_body(raw_html)
+    sanitized_preview = get_logged_body_preview(raw_html)
+
+    assert "\n" not in sanitized_mw
+    assert "\r" not in sanitized_mw
+    assert "</body></html>" in sanitized_mw
+
+    assert "\n" not in sanitized_preview
+    assert "\r" not in sanitized_preview
+    assert "</body></html>" in sanitized_preview
+
+    logger = get_logger("test.sanitization")
+    logger.warning("Sanitized Middleware Response", body=sanitized_mw)
+
+    lines = [line for line in stream.getvalue().strip().split("\n") if line.strip()]
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data.get("severity") == "WARNING"
+    assert data.get("body") == sanitized_mw
+
+    # Truncation and length capping test
+    preview_capped = get_logged_body_preview("y" * 1000, max_len=80)
+    assert len(preview_capped) <= 80
+    assert "... (truncated, total 1000 chars)" in preview_capped
+
+    # Additional coverage for get_logged_body_preview branches
+    assert get_logged_body_preview(None) is None
+    assert get_logged_body_preview({"user": "john", "password": "secret", "nested": ["data"]}) is not None
+    assert get_logged_body_preview({"long_key": "val " * 500}, max_len=50) is not None
+    assert get_logged_body_preview(b"binary data \n here") == "binary data here"
+    assert get_logged_body_preview(b"b" * 1000, max_len=60) is not None
+    assert get_logged_body_preview(12345) == "12345"
+
+    # Coverage for package.api import
+    import package.api
+    assert package.api.logger is not None

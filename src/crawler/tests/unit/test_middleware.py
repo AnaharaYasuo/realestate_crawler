@@ -61,3 +61,40 @@ async def test_logging_middleware_response():
         log_str = mock_err.call_args[0][0]
         assert "500" in log_str
 
+    # 4. Multi-line HTML body (sanitization / single-line test to prevent standalone </body></html>)
+    multiline_html = """
+    <html><head>
+    <title>404 Not Found</title>
+    </head>
+    <body>
+    <h1>Error</h1>
+    </body></html>
+    """
+    context_multiline = {"status": 404, "url": "http://test-server.internal/multiline", "data": multiline_html}
+    with patch("package.api.middleware.logger.warning") as mock_warn:
+        result = await mw.process_response(context_multiline)
+        assert result["status"] == 404
+        mock_warn.assert_called_once()
+        log_str = mock_warn.call_args[0][0]
+        assert "\n" not in log_str
+        assert "</body></html>" in log_str
+        assert "<html><head>" in log_str
+
+    # 5. Truncation and length capping test
+    long_body = "x" * 1500
+    sanitized = LoggingMiddleware._sanitize_log_body(long_body, max_len=100)
+    assert len(sanitized) <= 100
+    assert "... (truncated, total 1500 chars)" in sanitized
+
+    # 6. Branch coverage for _sanitize_log_body
+    assert LoggingMiddleware._sanitize_log_body(None) is None
+    short_cap = LoggingMiddleware._sanitize_log_body("long string here", max_len=10)
+    assert len(short_cap) <= 10
+
+    # 7. Coverage for process_request payload
+    context_req = {"method": "GET", "url": "http://test-server.internal", "detailUrl": "http://detail"}
+    with patch("package.api.middleware.logger.info") as mock_info:
+        await mw.process_request(context_req)
+        mock_info.assert_called_once()
+        assert "http://detail" in mock_info.call_args[0][0]
+
