@@ -47,7 +47,7 @@ jobs:
           prowler gcp $SEV_ARG --output-modes html,csv,json,sarif --output-directory prowler_output || true
 
       - name: Upload Prowler Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: prowler-gcp-reports
