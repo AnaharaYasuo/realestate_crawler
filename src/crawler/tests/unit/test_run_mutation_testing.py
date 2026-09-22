@@ -2,17 +2,19 @@
 """
 Unit tests for run_mutation_testing.py helper functions
 """
+import argparse
 import os
 import tempfile
 
+from scripts import run_mutation_testing as rmt
 from scripts.run_mutation_testing import (
     DEFAULT_DETECTOR_FILE,
     DEFAULT_DETECTOR_TEST_FILE,
+    _find_matched_source,
     _resolve_paths,
     _resolve_unit_abs_path,
-    _find_matched_source,
-    find_pr_changed_units,
     _save_mutation_report,
+    find_pr_changed_units,
 )
 
 
@@ -59,9 +61,6 @@ def test_find_pr_changed_units_empty_fallback():
 
 def test_run_pr_code_mutations_skips_when_no_pairs(monkeypatch):
     """Issue #345: 変異対象ペアが無い PR では detector フォールバックせずスキップ合格する"""
-    import argparse
-    from scripts import run_mutation_testing as rmt
-
     monkeypatch.setattr(rmt, "find_pr_changed_units", lambda _root: [])
     args = argparse.Namespace(threshold=80.0, max_mutants=15)
     report_data = {"results": {}}
