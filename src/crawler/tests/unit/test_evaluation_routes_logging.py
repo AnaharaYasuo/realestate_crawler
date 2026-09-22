@@ -7,8 +7,11 @@ from routes.evaluation_routes import _execute_predict_by_url
 
 @pytest.mark.asyncio
 async def test_execute_predict_by_url_cache_query_exception_logs():
-    """PropertyEvaluation.objects.filter が例外を投げた場合 logging.exception でログ出力されることを検証"""
-    with patch("routes.evaluation_routes.PropertyEvaluation.objects.filter", side_effect=Exception("cache query failed")):
+    """PropertyEvaluation キャッシュ照会が例外を投げた場合 logging.exception でログ出力されることを検証"""
+    with patch(
+        "routes.evaluation_routes.UrlMatcher.find_match_in_queryset",
+        side_effect=Exception("cache query failed"),
+    ):
         with patch("routes.evaluation_routes.logging") as mock_logging:
             with patch("routes.evaluation_routes.UrlRouter.resolve", return_value=None):
                 with patch(
@@ -38,8 +41,10 @@ async def test_execute_predict_by_url_model_info_fetch_exception_logs():
     mock_eval.property_type = "mansion"
 
     with patch("routes.evaluation_routes.logging") as mock_logging:
-        with patch("routes.evaluation_routes.PropertyEvaluation.objects.filter") as mock_filter:
-            mock_filter.return_value.first.return_value = mock_eval
+        with patch(
+            "routes.evaluation_routes.UrlMatcher.find_match_in_queryset",
+            return_value=mock_eval,
+        ):
             # 存在しないクラス名を指定して getattr で例外を発生させる
             with patch("routes.evaluation_routes.UrlRouter.resolve", return_value={
                 "site": "test_site",

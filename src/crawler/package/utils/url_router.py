@@ -198,6 +198,16 @@ class UrlRouter:
             "model_module": "package.models.homes",
             "model_cls": "HomesInvestmentApartment",
         },
+        # 投資ポータル上の土地（tbg[]=5 等）。property_type=tochi 指定時に解決される
+        {
+            "pattern": re.compile(r"toushi\.homes\.co\.jp/bukkendetail/"),
+            "site": "homes",
+            "property_type": "tochi",
+            "parser_module": "package.parser.homesParser",
+            "parser_cls": "HomesTochiParser",
+            "model_module": "package.models.homes",
+            "model_cls": "HomesTochi",
+        },
 
 
         # ミサワホーム (Misawa)

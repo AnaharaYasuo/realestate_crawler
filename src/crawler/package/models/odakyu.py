@@ -92,19 +92,19 @@ class OdakyuTochi(OdakyuModel):
         db_table = "odakyu_tochi"
 
 class OdakyuInvestment(OdakyuModel):
-    # 投資用共通
+    # 投資用共通（利回り未掲載の区分マンション等が投資一覧に混在するため blank 許可）
     grossYield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    annualRent = models.IntegerField(null=True)
-    monthlyRent = models.IntegerField(null=True)
+    annualRent = models.IntegerField(null=True, blank=True)
+    monthlyRent = models.IntegerField(null=True, blank=True)
     currentStatus = models.TextField(blank=True)
     propertyType = models.TextField(blank=True) # "Apartment", "Mansion", "Building", "Tochi"
 
     # 建物スペック
     kouzou = models.TextField(blank=True)
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     # 面積
