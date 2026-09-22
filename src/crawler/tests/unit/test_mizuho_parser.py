@@ -47,6 +47,28 @@ def test_mizuho_temp_links_file_is_property_type_specific(tmp_path, monkeypatch)
     assert not os.path.exists("src/crawler/Temp/mizuho_links.txt")
 
 
+@pytest.mark.asyncio
+async def test_mizuho_parse_root_page_uses_property_type_temp_file(tmp_path, monkeypatch):
+    """一時ファイルがある場合、静的HTMLやバイパスより先に種別専用ファイルを使うことを検証。"""
+    temp_dir = tmp_path / "src" / "crawler" / "Temp"
+    temp_dir.mkdir(parents=True)
+    (temp_dir / "mizuho_tochi_links.txt").write_text(
+        "https://www.mizuho-re.co.jp/buyers/property/from-temp/\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    parser = MizuhoTochiParser()
+    empty_soup = BeautifulSoup("<html><body></body></html>", "html.parser")
+    with patch("package.parser.mizuhoParser.get_mizuho_links", new_callable=AsyncMock) as mock_bypass:
+        extracted = []
+        async for link in parser.parseRootPage(empty_soup):
+            extracted.append(link)
+
+    assert extracted == ["https://www.mizuho-re.co.jp/buyers/property/from-temp/"]
+    mock_bypass.assert_not_called()
+
+
 def test_mizuho_mansion_parser():
     """みずほマンションパーサーのインスタンス化とエンティティ生成を検証。"""
     parser = MizuhoMansionParser()

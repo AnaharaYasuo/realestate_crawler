@@ -9,6 +9,8 @@ from package.utils.property_type_detector import PropertyTypeDetector
 
 KENBIYA_PARSER_MODULE = "package.parser.kenbiyaParser"
 KENBIYA_MODEL_MODULE = "package.models.kenbiya"
+REARIE_PARSER_MODULE = "package.parser.rearieParser"
+REARIE_MODEL_MODULE = "package.models.rearie"
 
 
 class UrlRouter:
@@ -355,27 +357,27 @@ class UrlRouter:
             "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/mansion/"),
             "site": "rearie",
             "property_type": "mansion",
-            "parser_module": "package.parser.rearieParser",
+            "parser_module": REARIE_PARSER_MODULE,
             "parser_cls": "RearieMansionParser",
-            "model_module": "package.models.rearie",
+            "model_module": REARIE_MODEL_MODULE,
             "model_cls": "RearieMansion",
         },
         {
             "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/house/"),
             "site": "rearie",
             "property_type": "kodate",
-            "parser_module": "package.parser.rearieParser",
+            "parser_module": REARIE_PARSER_MODULE,
             "parser_cls": "RearieKodateParser",
-            "model_module": "package.models.rearie",
+            "model_module": REARIE_MODEL_MODULE,
             "model_cls": "RearieKodate",
         },
         {
             "pattern": re.compile(r"homes\.panasonic\.com/rearie/buy/property/land/"),
             "site": "rearie",
             "property_type": "tochi",
-            "parser_module": "package.parser.rearieParser",
+            "parser_module": REARIE_PARSER_MODULE,
             "parser_cls": "RearieTochiParser",
-            "model_module": "package.models.rearie",
+            "model_module": REARIE_MODEL_MODULE,
             "model_cls": "RearieTochi",
         },
     ]

@@ -102,11 +102,31 @@ def test_daikyo_parser_extract_pref_urls():
 
 def test_url_router_resolves_rearie_and_nomura_pro():
     """UrlRouter が rearie 各種別および nomura pro を正しく解決することを検証"""
-    rearie_tochi_url = "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345"
-    route_rearie = UrlRouter.resolve(rearie_tochi_url)
-    assert route_rearie is not None
-    assert route_rearie["site"] == "rearie"
-    assert route_rearie["property_type"] == "tochi"
+    cases = [
+        (
+            "https://homes.panasonic.com/rearie/buy/property/mansion/detail.html?id=1",
+            "mansion",
+            "RearieMansionParser",
+        ),
+        (
+            "https://homes.panasonic.com/rearie/buy/property/house/detail.html?id=2",
+            "kodate",
+            "RearieKodateParser",
+        ),
+        (
+            "https://homes.panasonic.com/rearie/buy/property/land/detail.html?id=12345",
+            "tochi",
+            "RearieTochiParser",
+        ),
+    ]
+    for url, expected_type, expected_parser in cases:
+        route = UrlRouter.resolve(url)
+        assert route is not None
+        assert route["site"] == "rearie"
+        assert route["property_type"] == expected_type
+        assert route["parser_module"] == "package.parser.rearieParser"
+        assert route["model_module"] == "package.models.rearie"
+        assert route["parser_cls"] == expected_parser
 
     nomura_pro_url = "https://www.nomu.com/pro/detail/A1234567/"
     route_nomura = UrlRouter.resolve(nomura_pro_url)
