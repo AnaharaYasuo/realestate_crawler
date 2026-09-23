@@ -120,6 +120,39 @@ def run_db_migration() -> bool:
     return True
 
 
+def _record_pending_task(today: datetime.date, company: str, prop_type: str) -> None:
+    """DB に初期ステータス PENDING を登録"""
+    try:
+        CrawlerTaskExecution.objects.update_or_create(
+            execution_date=today,
+            task_id=f"{company}_{prop_type}",
+            defaults={
+                "status": "PENDING",
+                "company": company,
+                "property_type": prop_type,
+                "scraped_count": 0,
+                "error_message": "",
+            },
+        )
+    except Exception as e:
+        logger.debug(f"Could not record PENDING status for {company}-{prop_type}: {e}")
+
+
+def _dispatch_task_to_cloud(tasks_client, parent: str, url: str, sa_email: str, payload: dict) -> None:
+    """Cloud Tasks API 経由でタスクを送信"""
+    import json
+    task = {
+        "http_request": {
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": url,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps(payload).encode(),
+            "oidc_token": {"service_account_email": sa_email},
+        }
+    }
+    tasks_client.create_task(request={"parent": parent, "task": task})
+
+
 def enqueue_crawl_tasks(project_id: str | None = None, region: str | None = None, queue_name: str | None = None, worker_url: str | None = None, skip_portals: bool = False, dry_run: bool = False) -> int:
     """全クロールジョブを Cloud Tasks へ登録"""
     project = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
@@ -127,6 +160,7 @@ def enqueue_crawl_tasks(project_id: str | None = None, region: str | None = None
     env = os.getenv("ENVIRONMENT", "prod")
     queue = queue_name or os.getenv("CLOUD_TASKS_QUEUE", f"realestate-crawler-queue-{env}")
     url = worker_url or os.getenv("CRAWLER_WORKER_URL", f"https://realestate-crawler-worker-{env}.run.app/api/crawl/task")
+    sa_email = os.getenv("CRAWLER_RUNNER_SA", f"realestate-crawler-runner@{project}.iam.gserviceaccount.com")
 
     portal_companies = {"homes", "athome"}
     enqueued_count = 0
@@ -135,55 +169,19 @@ def enqueue_crawl_tasks(project_id: str | None = None, region: str | None = None
 
     logger.info(f"Enqueueing crawl tasks to queue '{queue}' targeting {url} (skip_portals={skip_portals})...")
 
-    tasks_client = None
-    if bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")) and tasks_v2 is not None and not dry_run:
-        tasks_client = tasks_v2.CloudTasksClient()
-        parent = tasks_client.queue_path(project, reg, queue)
+    is_cloud = bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB"))
+    tasks_client = tasks_v2.CloudTasksClient() if (is_cloud and tasks_v2 is not None and not dry_run) else None
+    parent = tasks_client.queue_path(project, reg, queue) if tasks_client is not None else ""
 
     for company, prop_type in CRAWL_JOBS:
         if skip_portals and company.lower() in portal_companies:
             continue
 
-        payload = {
-            "company": company,
-            "property_type": prop_type,
-            "execution_date": today_str
-        }
-
-        # DB に初期ステータス PENDING を登録
-        try:
-            CrawlerTaskExecution.objects.update_or_create(
-                execution_date=today,
-                task_id=f"{company}_{prop_type}",
-                defaults={
-                    "status": "PENDING",
-                    "company": company,
-                    "property_type": prop_type,
-                    "scraped_count": 0,
-                    "error_message": ""
-                }
-            )
-        except Exception as e:
-            logger.debug(f"Could not record PENDING status for {company}-{prop_type}: {e}")
+        _record_pending_task(today, company, prop_type)
 
         if tasks_client is not None:
-            import json
-            task = {
-                "http_request": {
-                    "http_method": tasks_v2.HttpMethod.POST,
-                    "url": url,
-                    "headers": {"Content-Type": "application/json"},
-                    "body": json.dumps(payload).encode(),
-                    "oidc_token": {
-                        "service_account_email": os.getenv("CRAWLER_RUNNER_SA", f"realestate-crawler-runner@{project}.iam.gserviceaccount.com")
-                    }
-                }
-            }
-            try:
-                tasks_client.create_task(request={"parent": parent, "task": task})
-            except Exception as e:
-                logger.error(f"Failed to enqueue task {company}-{prop_type}: {e}")
-                raise
+            payload = {"company": company, "property_type": prop_type, "execution_date": today_str}
+            _dispatch_task_to_cloud(tasks_client, parent, url, sa_email, payload)
 
         enqueued_count += 1
 
