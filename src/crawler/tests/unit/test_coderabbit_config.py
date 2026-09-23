@@ -3,6 +3,7 @@ CodeRabbit 設定および未解決レビューコメント判定ロジックの
 Issue #215: feat: CodeRabbit 自動コードレビュー導入と未解決レビューコメントのマージブロック強制
 Issue #311: feat: CodeRabbit 自動レビューを初回PRオープン時のみに制限
 Issue #345: feat: CodeRabbit レビュー対象から docs / *.md を除外
+Issue #363: feat: CodeRabbit に path_instructions を追加しパス別レビュー観点を強化
 """
 import os
 import yaml
@@ -59,6 +60,10 @@ def test_coderabbit_yaml_exists_and_valid():
 
     tone = config.get("tone_instructions", "")
     assert len(tone) > 0, "tone_instructions が設定されている必要があります"
+    # Issue #363: 長期保守・スケーラビリティ観点を tone に含める
+    assert "スケーラビリティ" in tone or "長期保守" in tone, (
+        "tone_instructions にスケーラビリティまたは長期保守の観点が含まれている必要があります"
+    )
 
 
 def test_coderabbit_excludes_docs_and_markdown():
@@ -75,6 +80,30 @@ def test_coderabbit_excludes_docs_and_markdown():
     assert markdownlint.get("enabled") is False, (
         "Markdown 非対象化に合わせ tools.markdownlint.enabled は false である必要があります"
     )
+
+
+def test_coderabbit_path_instructions_cover_critical_areas():
+    """Issue #363: path_instructions がパーサー・テスト・スクリプト向けに定義されていること"""
+    config = _load_coderabbit_config()
+    reviews = config.get("reviews", {})
+    path_instructions = reviews.get("path_instructions", [])
+
+    assert isinstance(path_instructions, list), "path_instructions はリストである必要があります"
+    assert len(path_instructions) >= 3, "path_instructions は少なくとも3件必要です"
+
+    paths = {entry.get("path") for entry in path_instructions if isinstance(entry, dict)}
+    required_paths = {
+        "src/crawler/package/parser/**",
+        "src/crawler/tests/**",
+        "src/crawler/scripts/**",
+    }
+    missing = required_paths - paths
+    assert not missing, f"path_instructions に必須パスが不足しています: {missing}"
+
+    for entry in path_instructions:
+        assert isinstance(entry.get("instructions"), str) and len(entry["instructions"].strip()) > 0, (
+            f"path_instructions の instructions が空です: {entry.get('path')}"
+        )
 
 
 def test_review_thread_evaluation_logic():
