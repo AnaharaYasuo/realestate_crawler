@@ -150,13 +150,15 @@ def test_proxysql_user_authentication():
 
 
 def test_app_connection_pool_unrestricted():
-    """ProxySQL がプーリング・多重化を担うため、アプリ側の MAX_OVERFLOW が -1 (制限なし) に設定されていることを検証"""
+    """ProxySQL がプーリング・多重化を一元管理するため、アプリ側プールを廃止し CONN_MAX_AGE=0 に設定されていることを検証"""
     settings_py = os.path.join(os.path.dirname(TERRAFORM_DIR), "src", "crawler", "realestateSettings.py")
     with open(settings_py, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "'MAX_OVERFLOW': int(os.getenv('DB_MAX_OVERFLOW', -1))" in content, \
-        "App side MAX_OVERFLOW must default to -1 (unlimited overflow) to delegate connection management to ProxySQL."
+    assert "dj_db_conn_pool" not in content, \
+        "App side pooling (dj_db_conn_pool) must be removed to delegate connection management entirely to ProxySQL."
+    assert "'CONN_MAX_AGE': 0" in content, \
+        "App side CONN_MAX_AGE must be set to 0 to prevent connection retention in containers."
 
 
 def test_proxysql_monitor_user_configured():
