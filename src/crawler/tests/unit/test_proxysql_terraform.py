@@ -224,12 +224,28 @@ def test_proxysql_zombie_running_alert_filter():
     with open(alerting_tf, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert 'resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert"' in content, \
-        "alerting.tf must define proxysql_zombie_running_alert policy."
-    assert 'resource.type=\\"instance_group\\"' in content or 'resource.type = \\"instance_group\\"' in content, \
-        "Monitoring metric compute.googleapis.com/instance_group/size must use resource.type='instance_group'."
-    assert 'resource.labels.instance_group_name' in content, \
-        "instance_group resource filter must use resource.labels.instance_group_name."
+    # proxysql_zombie_running_alert リソースブロックを正確に抽出
+    match = re.search(
+        r'resource\s+"google_monitoring_alert_policy"\s+"proxysql_zombie_running_alert"\s*\{(?P<body>[\s\S]+?)\n\}',
+        content,
+    )
+    assert match, "alerting.tf must define proxysql_zombie_running_alert policy."
+    policy_body = match.group("body")
+
+    # filter 属性値を抽出 (HCL: filter = "...")
+    filter_match = re.search(r'filter\s*=\s*"(?P<filter>.*?)"\r?\n', policy_body)
+    assert filter_match, "proxysql_zombie_running_alert must define condition_threshold filter."
+    filter_str = filter_match.group("filter")
+
+    # メトリック型、リソース型、ラベル名、対象MIG参照の一体検証
+    assert r'metric.type=\"compute.googleapis.com/instance_group/size\"' in filter_str, \
+        "filter must query compute.googleapis.com/instance_group/size metric."
+    assert r'resource.type=\"instance_group\"' in filter_str, \
+        "filter must target resource.type='instance_group' (not gce_instance_group_manager)."
+    assert r'resource.labels.instance_group_name=\"${google_compute_region_instance_group_manager.proxysql_mig.name}\"' in filter_str, \
+        "filter must match resource.labels.instance_group_name with proxysql_mig resource."
+
+
 
 
 
