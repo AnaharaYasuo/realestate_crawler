@@ -120,7 +120,7 @@ GitHub ネイティブのブランチ保護機能。
   - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
   - `issue_comment`: `types: [created, edited, deleted]`
-  - `workflow_run`: セキュリティ系ワークフロー完了時（再評価）
+  - `workflow_run`: セキュリティ系ワークフロー（`CodeQL Analysis`, `Security Scan (Trivy, Semgrep, Checkov)`）およびテスト・静的解析ワークフロー（`Parser Tests`, `SonarCloud Analysis`）完了時（再評価）
 - **Concurrency**: `group: review-gate-pr-<number>` + `cancel-in-progress: true` で同一 PR の古い実行をキャンセルする。
 - **必須ステータス一本化**:
   - Actions ジョブ名は `review-gate-runner`（ブランチ保護の必須チェックにしない）。
@@ -129,9 +129,10 @@ GitHub ネイティブのブランチ保護機能。
   - 同一 context への再投稿は上書きされるため、後続 success/pending が古い failure を置換し、sticky failure を残さない。
 - **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
   - GitHub では「会話スレッドの解決（Resolve conversation）」単体での GitHub Actions 直接トリガー（Webhookイベント）が存在しない制約があります。
-  - そのため、スレッド解決後やチェックボックス更新時には以下の再評価経路を提供します：
+  - また、CodeRabbit がコミットステータス（Commit Status）を `success` に更新した際も直接 Webhook イベントが発火しないため、Gate が初期判定で `pending` に設定された後に取り残される（永久 pending スタック）リスクがあります。
+  - そのため、スレッド解決後、チェックボックス更新時、および CodeRabbit レビュー完了後には以下の自動・手動再評価経路を提供します：
     1. **PRコメント/レビュー更新トリガー**: `issue_comment`（コメント投稿・編集・削除）または `pull_request_review` の実行。
-    2. **セキュリティスキャン完了トリガー**: `workflow_run`（完了時）による再評価。
+    2. **テスト・セキュリティスキャン完了トリガー**: `workflow_run`（`CodeQL Analysis`, `Security Scan`, `Parser Tests`, `SonarCloud Analysis` 完了時）による自動再評価。長尺ジョブ（テスト・SonarCloud）の完了時に CodeRabbit のステータス完了（`success`）を検知して Gate を自動更新。
     3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した Gate を再実行（通常は不要。pending は自動で上書きされる）。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 

@@ -1146,6 +1146,31 @@ flowchart TD
 - 都道府県別・市区町村別など複数階層にドリルダウンして詳細物件URLを収集するパーサー（`DaikyoParser` 等）において、`_getContent` 呼び出し時に渡される `session` が `None` の場合でも、内部で自己完結した非同期セッションを生成・破棄して確実に生HTMLを取得する。
 - 外部オーケストレータ（`ParseMiddlePageAsyncBase`）のセッション引き渡し有無に依存せず、常に安定した階層展開クローリングを保証する。
 
+---
+
+## 21. CI/CD高速化・キャッシュ最適化・レビューゲート自律連携アーキテクチャ (CI/CD Acceleration & Review Gate Orchestration)
+
+### 21.1 課題とアーキテクチャ目標
+PR通過の遅延およびレビューゲート滞留を解消し、CI所要時間を **15分 ➔ 3〜4分以内** に短縮する。
+
+### 21.2 Docker レイヤーキャッシュ戦略 (Shift-Left Layer Invalidation)
+- **レイヤー逆転の是正**: `playwright install --with-deps chromium` を `COPY config/` / `COPY src/` より前に配置。
+- **キャッシュ保護**: 頻繁に変更されるアプリケーションソースコード（`src/**`）の変更が、重厚なブラウザ・OS依存パッケージ（apt + chromium）のレイヤーキャッシュを無効化しない構造とする。
+- これにより、コード変更コミット時の Docker ビルドを **5分30秒 ➔ 2〜5秒** に圧縮。
+
+### 21.3 テスト二重実行の排除とカバレッジ共有パイプライン
+- `sonar.yml` による独立した Docker Build / DB 起動 / pytest 重複実行を全廃。
+- `test.yml` で生成したカバレッジ成果物（`coverage.xml`）を GHA Artifact を介して SonarCloud スキャンジョブに引き渡し、SonarCloud ジョブをテスト再実行なしの軽量スキャン（1〜2分）に集約。
+
+### 21.4 マトリクスジョブの DB 起動最適化
+- 実 DB（MySQL）接続を必要としないジョブ（`Unit Tests`, `PR Mutation Tests`）において、MySQL コンテナ起動（`docker compose up -d db`）、ポーリング待機（`wait_for_db.py`）、およびマイグレーション（`manage.py migrate`）をスキップ。
+- 各ジョブの起動オーバーヘッドを約 1分15秒 削減。
+
+### 21.5 レビューゲート自律再評価アーキテクチャ
+- CodeRabbit のレビュー完了後にコミットステータス（`success`）が反映されても、直接の GHA Webhook が発火しない制約に対処。
+- 後続で完了するワークフロー（`Parser Tests`, `SonarCloud Analysis`）の `workflow_run.completed` をトリガーに Review Gate を自律再実行し、最新ステータスを確実に再評価・反映して永久 pending スタックを根絶。
+
+
 
 
 

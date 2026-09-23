@@ -36,12 +36,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y --auto-remove build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
+# ※ ソースコード変更で再実行されないよう、COPY config/src より前に実行してレイヤーキャッシュを保護
+RUN playwright install --with-deps chromium
+
 # 設定ファイルおよびソースコードのコピー
 COPY config/ /app/config/
 COPY src/ /app/src/
-
-# Playwrightとその依存関係（Chromium用OSライブラリ）のインストール
-RUN playwright install --with-deps chromium
 
 # デフォルトのシェルをdashからbashへ変更（disownコマンド等のサポートのため）
 RUN ln -sf bash /bin/sh
