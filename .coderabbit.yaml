@@ -13,6 +13,20 @@ reviews:
   path_filters:
     - "!docs/**"
     - "!**/*.md"
+  # パス別レビュー観点。Issue #363
+  path_instructions:
+    - path: "src/crawler/package/parser/**"
+      instructions: >
+        物件種別別 Base（Mansion/Kodate/Tochi/Investment）継承と抽象メソッド実装漏れ、
+        フィールド名統一、セレクター堅牢性、1物件1AIリクエスト原則違反を優先して指摘すること。
+    - path: "src/crawler/tests/**"
+      instructions: >
+        Issue 受入基準との対応、アサーションの弱さ（存在確認のみ等）、
+        ミューテーション耐性の欠如を優先して指摘すること。
+    - path: "src/crawler/scripts/**"
+      instructions: >
+        外部 API の有限タイムアウト、0件取得失敗分類、パスのハードコード禁止、
+        連続タイムアウト Fast-Fail を優先して指摘すること。
   auto_review:
     enabled: true
     drafts: false
@@ -37,7 +51,7 @@ tone_instructions: >
   日本の不動産情報クローラーおよび機械学習価格推定プロジェクトです。
   AGENTS.mdの開発原則（SDD/TDD原則、物件種別別Baseパーサー階層、1物件1AIリクエスト原則等）を尊重し、
   過剰なスタイルの指摘ではなく、潜在的なバグ、型不整合、境界値・欠損値の例外、パフォーマンス劣化、
-  セキュリティ上の脆弱性を中心に建設的かつ簡潔に指摘してください。
+  セキュリティ上の脆弱性に加え、スケーラビリティと長期保守性を中心に建設的かつ簡潔に指摘してください。
 
 chat:
   auto_reply: true

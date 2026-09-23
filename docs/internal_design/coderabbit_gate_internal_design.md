@@ -25,6 +25,20 @@ reviews:
   path_filters:
     - "!docs/**"
     - "!**/*.md"
+  # パス別レビュー観点（Issue #363）
+  path_instructions:
+    - path: "src/crawler/package/parser/**"
+      instructions: >
+        物件種別別 Base（Mansion/Kodate/Tochi/Investment）継承と抽象メソッド実装漏れ、
+        フィールド名統一、セレクター堅牢性、1物件1AIリクエスト原則違反を優先して指摘すること。
+    - path: "src/crawler/tests/**"
+      instructions: >
+        Issue 受入基準との対応、アサーションの弱さ（存在確認のみ等）、
+        ミューテーション耐性の欠如を優先して指摘すること。
+    - path: "src/crawler/scripts/**"
+      instructions: >
+        外部 API の有限タイムアウト、0件取得失敗分類、パスのハードコード禁止、
+        連続タイムアウト Fast-Fail を優先して指摘すること。
   auto_review:
     enabled: true
     drafts: false
@@ -46,7 +60,7 @@ tone_instructions: >
   日本の不動産情報クローラーおよび機械学習価格推定プロジェクトです。
   AGENTS.mdの開発原則（SDD/TDD原則、物件種別別Baseパーサー階層、1物件1AIリクエスト原則等）を尊重し、
   過剰なスタイルの指摘ではなく、潜在的なバグ、型不整合、境界値・欠損値の例外、パフォーマンス劣化、
-  セキュリティ上の脆弱性を中心に建設的かつ簡潔に指摘してください。
+  セキュリティ上の脆弱性に加え、スケーラビリティと長期保守性を中心に建設的かつ簡潔に指摘してください。
 
 chat:
   auto_reply: true
@@ -56,11 +70,13 @@ chat:
 | パラメータ | 設定値 | 根拠・選定理由 |
 | :--- | :--- | :--- |
 | `language` | `"ja-JP"` | プロジェクト開発言語・Issue・PRコメントが日本語であるため、日本語で統一。 |
-| `profile` | `"chill"` | 瑣末な書式・個人的嗜好の指摘を排除し、クリティカルな不具合・設計ミスに集中。 |
+| `profile` | `"chill"` | 瑣末な書式・個人的嗜好の指摘を排除し、クリティカルな不具合・設計ミスに集中。`assertive` は指摘過多で会話解決ゲートを阻害しやすいため不採用（Issue #363）。 |
+| `path_instructions` | パーサー / テスト / スクリプト | パスごとに重視観点を固定し、一律レビューでは不足しがちなアーキテクチャ・テスト品質・運用安全の指摘を強化（Issue #363）。 |
 | `request_changes_workflow` | `true` | 指摘コメントがある場合に PR に `CHANGES_REQUESTED` を付与し、全指摘が解決（resolved）されると自動で `APPROVED` に遷移させる。 |
 | `auto_review.auto_incremental_review` | `false` | PR 初回オープン時のみ自動レビューし、後続 push での再レビュー連鎖（収束不能）を防止。必要時は `@coderabbitai review` で手動起動。 |
 | `auto_review.base_branches` | `["master", "production"]` | 開発主幹 (`master`) および本番リリース (`production`) 宛て PR を対象に自動起動。 |
 | `path_filters` | `["!docs/**", "!**/*.md"]` | 仕様ドキュメントと Markdown 全般をレビュー対象外とし、マージゲートのノイズを抑制（Issue #345）。 |
+| `tone_instructions` | バグ＋長期保守 | 既存の欠陥重視にスケーラビリティ・長期保守性を追加し、フィードバックの質を上げる（Issue #363）。 |
 | `tools.markdownlint` | `false` | Markdown 非対象化に整合。コード向け静的解析（`ast-grep`, `ruff`, `shellcheck`）のみ有効。 |
 | `tools` | `ast-grep`, `ruff`, `shellcheck` | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
 

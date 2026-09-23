@@ -457,8 +457,9 @@ task stop
 #### FR-022: CodeRabbit 自動コードレビューの PR 実行
 - 各 Pull Request（`master` および `production` 宛て）の**初回オープン時のみ**、CodeRabbit による AI 自動コードレビューを自動実行すること。
 - 同一 PR への後続 push（synchronize / コード追加）では自動再レビューを行わないこと（`auto_incremental_review: false`）。追加レビューが必要な場合は手動で `@coderabbitai review` を実行可能とする。
-- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
-- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
+- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること（`assertive` は指摘量増加によるマージゲート阻害リスクが高いため採用しない）。
+- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、潜在バグ・型不整合・境界値・性能・セキュリティに加え、長期保守性・スケーラビリティを優先した指摘を行うこと。
+- パス別にレビュー観点を固定すること。`.coderabbit.yaml` の `reviews.path_instructions` に、少なくともパーサー（`src/crawler/package/parser/**`）、テスト（`src/crawler/tests/**`）、運用スクリプト（`src/crawler/scripts/**`）向けの指示を定義すること。
 - レビュー対象から仕様・ドキュメントを除外すること。`.coderabbit.yaml` の `reviews.path_filters` に `!docs/**` および `!**/*.md` を定義し、`docs/` 配下およびリポジトリ内の Markdown ファイルを CodeRabbit のレビュー対象外とすること。
 - 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。Markdown はレビュー対象外のため `markdownlint` は無効とすること。
 
