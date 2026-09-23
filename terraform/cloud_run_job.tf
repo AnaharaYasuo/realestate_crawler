@@ -258,7 +258,7 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
       max_retries     = 1
 
       containers {
-        image   = "python:3.11-slim"
+        image   = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_registry_repo_name}/crawler:${var.crawler_image_tag}"
         command = ["python", "src/crawler/scripts/ensure_resources_stopped.py", "--project-id", var.project_id, "--region", var.region, "--mig-name", google_compute_region_instance_group_manager.proxysql_mig.name]
 
         resources {

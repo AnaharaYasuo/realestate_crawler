@@ -100,3 +100,33 @@ def test_proxysql_leaked_dry_run(mock_compute_client, mock_slack):
     assert result.forced_stop is False
     mock_instance.resize.assert_not_called()
     mock_slack.assert_called_once()
+
+
+def test_proxysql_rest_fallback_success(mock_slack):
+    """When compute_v1 is None, successfully queries and resizes MIG via REST API."""
+    mock_resp_get = MagicMock()
+    mock_resp_get.status_code = 200
+    mock_resp_get.json.return_value = {"targetSize": 3}
+
+    mock_resp_post = MagicMock()
+    mock_resp_post.status_code = 200
+
+    with patch(f"{_MODULE_PATH}.compute_v1", None), \
+         patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value="fake-token"), \
+         patch(f"{_MODULE_PATH}.requests.get", return_value=mock_resp_get) as mock_get, \
+         patch(f"{_MODULE_PATH}.requests.post", return_value=mock_resp_post) as mock_post:
+
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            dry_run=False,
+        )
+
+        assert result.was_leaked is True
+        assert result.forced_stop is True
+        assert result.leaked_size == 3
+        mock_get.assert_called_once()
+        mock_post.assert_called_once()
+        mock_slack.assert_called_once()
+

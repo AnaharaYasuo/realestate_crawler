@@ -20,10 +20,18 @@ while True:
         break
     _cur = _parent
 
+import requests
+
 try:
     from google.cloud import compute_v1
 except ImportError:
     compute_v1 = None
+
+try:
+    import google.auth
+    import google.auth.transport.requests
+except ImportError:
+    google = None
 
 try:
     from package.utils.slack import send_slack_message
@@ -53,6 +61,86 @@ def send_slack_alert(message: str, channel: str | None = None) -> None:
         logger.info(f"[Slack Alert Placeholder ({target_channel})]: {message}")
 
 
+def _get_gcp_access_token() -> str | None:
+    if google is not None:
+        try:
+            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/compute"])
+            req = google.auth.transport.requests.Request()
+            credentials.refresh(req)
+            if credentials.token:
+                return str(credentials.token)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"google.auth default credentials not available: {e}")
+
+    try:
+        resp = requests.get(
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return str(resp.json().get("access_token"))
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Metadata server token not available: {e}")
+    return None
+
+
+def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str]:
+    if compute_v1 is not None:
+        try:
+            client = compute_v1.RegionInstanceGroupManagersClient()
+            igm = client.get(
+                project=project_id,
+                region=region,
+                region_instance_group_manager=mig_name,
+            )
+            return int(igm.target_size or 0), ""
+        except Exception as e:  # noqa: BLE001
+            return -1, str(e)
+
+    token = _get_gcp_access_token()
+    if not token:
+        return -1, "Neither google-cloud-compute nor valid GCP credentials available"
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/regionInstanceGroupManagers/{mig_name}"
+    try:
+        resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code != 200:
+            return -1, f"HTTP {resp.status_code}: {resp.text}"
+        data = resp.json()
+        return int(data.get("targetSize", 0)), ""
+    except Exception as e:  # noqa: BLE001
+        return -1, str(e)
+
+
+def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
+    if compute_v1 is not None:
+        try:
+            client = compute_v1.RegionInstanceGroupManagersClient()
+            client.resize(
+                project=project_id,
+                region=region,
+                region_instance_group_manager=mig_name,
+                size=0,
+            )
+            return ""
+        except Exception as e:  # noqa: BLE001
+            return str(e)
+
+    token = _get_gcp_access_token()
+    if not token:
+        return "Neither google-cloud-compute nor valid GCP credentials available"
+
+    resize_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/regionInstanceGroupManagers/{mig_name}/resize?size=0"
+    try:
+        resp = requests.post(resize_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code not in (200, 204):
+            return f"HTTP {resp.status_code}: {resp.text}"
+        return ""
+    except Exception as e:  # noqa: BLE001
+        return str(e)
+
+
 def check_and_stop_proxysql_mig(
     project_id: str,
     region: str,
@@ -62,23 +150,11 @@ def check_and_stop_proxysql_mig(
     """
     Checks if ProxySQL MIG target_size > 0. If leaked, forcibly resizes to 0 and notifies Slack.
     """
-    if compute_v1 is None:
-        logger.error("google-cloud-compute is not installed. Skipping GCP inspection.")
-        return ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0, details="SDK missing")
+    current_target_size, err = _get_mig_info(project_id, region, mig_name)
+    if err:
+        logger.error(f"Failed to get IGM '{mig_name}' in region '{region}': {err}")
+        return ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0, details=err)
 
-    client = compute_v1.RegionInstanceGroupManagersClient()
-
-    try:
-        igm = client.get(
-            project=project_id,
-            region=region,
-            region_instance_group_manager=mig_name,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Failed to get IGM '{mig_name}' in region '{region}': {e}")
-        return ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0, details=str(e))
-
-    current_target_size = igm.target_size or 0
     logger.info(f"ProxySQL MIG '{mig_name}' current target_size: {current_target_size}")
 
     if current_target_size == 0:
@@ -100,22 +176,17 @@ def check_and_stop_proxysql_mig(
     if dry_run:
         return ResourceInspectionResult(was_leaked=True, forced_stop=False, leaked_size=current_target_size)
 
-    try:
-        client.resize(
-            project=project_id,
-            region=region,
-            region_instance_group_manager=mig_name,
-            size=0,
-        )
+    resize_err = _resize_mig_to_zero(project_id, region, mig_name)
+    if not resize_err:
         logger.info(f"Successfully resized ProxySQL MIG '{mig_name}' to 0.")
         return ResourceInspectionResult(was_leaked=True, forced_stop=True, leaked_size=current_target_size)
-    except Exception as e:  # noqa: BLE001
-        err_msg = f"Failed to resize ProxySQL MIG '{mig_name}' to 0: {e}"
-        logger.error(err_msg)
-        send_slack_alert(f":rotating_light: *【緊急】ProxySQL MIGの強制停止に失敗しました*: {err_msg}")
-        return ResourceInspectionResult(
-            was_leaked=True, forced_stop=False, leaked_size=current_target_size, details=str(e)
-        )
+
+    err_msg = f"Failed to resize ProxySQL MIG '{mig_name}' to 0: {resize_err}"
+    logger.error(err_msg)
+    send_slack_alert(f":rotating_light: *【緊急】ProxySQL MIGの強制停止に失敗しました*: {err_msg}")
+    return ResourceInspectionResult(
+        was_leaked=True, forced_stop=False, leaked_size=current_target_size, details=resize_err
+    )
 
 
 def main() -> int:
