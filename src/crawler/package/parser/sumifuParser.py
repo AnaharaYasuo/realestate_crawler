@@ -325,7 +325,9 @@ class SumifuParser(ParserBase):
                 if not em:
                     continue
                 text = em.get_text(" ", strip=True)
-                if text and "万" not in text and re.search(r"\d", text):
+                if not text:
+                    continue
+                if not any(u in text for u in ("万", "億", "円")) and re.search(r"\d", text):
                     # span.price__number is digits only; unit sits outside the tag.
                     text = f"{text}万円"
                 return text

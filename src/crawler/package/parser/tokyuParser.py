@@ -1174,6 +1174,8 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             item.address = self._parseAddress(response)
         item.transport1 = self._parseAccess(response)
         item.monthlyRent = self._parseMonthlyRent(response)
+        item.annualRent = self._parseAnnualRent(response)
+        item.grossYield = self._parseGrossYield(response)
 
     def _fill_invest_nextjs_areas(self, item, response) -> None:
         self._set_attr_detail(item, 'tochiMensekiStr', response, '土地面積')
@@ -1390,7 +1392,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             if fallback:
                 val_str = fallback
         match = re.search(r"(\d+(\.\d+)?)", val_str or "")
-        return Decimal(match.group(1)) if match else Decimal("0")
+        return Decimal(match.group(1)) if match else Decimal(0)
 
     def _parseAnnualRent(self, response: BeautifulSoup, specs=None) -> int | None:
         if specs is None:

@@ -16,6 +16,8 @@ on:
     workflows:
       - "CodeQL Analysis"
       - "Security Scan (Trivy, Semgrep, Checkov)"
+      - "Parser Tests"
+      - "SonarCloud Analysis"
     types: [completed]
 
 # 同一 PR の古い Gate 実行をキャンセルし、最新評価だけを残す
