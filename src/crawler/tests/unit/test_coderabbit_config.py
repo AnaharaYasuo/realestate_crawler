@@ -60,6 +60,12 @@ def test_coderabbit_yaml_exists_and_valid():
     assert "production" not in base_branches, (
         "Issue #376: auto_review.base_branches から production が除外されている必要があります"
     )
+    # Issue #383: release: PR や自動化 PR に対する完全抑止設定
+    ignore_keywords = auto_review.get("ignore_title_keywords", [])
+    assert "release:" in ignore_keywords, "ignore_title_keywords に release: が含まれている必要があります"
+    ignore_users = auto_review.get("ignore_usernames", [])
+    assert "github-actions[bot]" in ignore_users, "ignore_usernames に github-actions[bot] が含まれている必要があります"
+
 
     tone = config.get("tone_instructions", "")
     assert len(tone) > 0, "tone_instructions が設定されている必要があります"

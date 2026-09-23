@@ -33,7 +33,14 @@ flowchart TD
 - `reviews.auto_review.base_branches`:
   - 変更前: `["master", "production"]`
   - 変更後: `["master"]`
-- 効果: リリースPRに対する重複レビュー・指摘・承認待ちを完全停止。
+- `reviews.auto_review.ignore_title_keywords`:
+  - `["release:", "[skip review]"]` を設定し、リリースPRの自動レビューをスキップ。
+- `reviews.auto_review.ignore_usernames`:
+  - `["github-actions[bot]"]` を設定し、自動作成PRでのレビュー起動を防止。
+- リリースPR本文ディレクティブ:
+  - PR本文先頭に `@coderabbitai ignore` を埋め込み、AIコメント・スレッド作成を完全抑止。
+- 効果: リリースPRに対する重複レビュー・指摘・承認待ち・レビュースレッドブロックを恒久的に完全停止。
+
 
 ### 2.2 テストパイプライン (`.github/workflows/test.yml`)
 - `pull_request.branches`:
