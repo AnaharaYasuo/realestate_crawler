@@ -76,6 +76,7 @@ def test_proxysql_leaked_triggers_forced_stop_and_alert(mock_compute_client, moc
         region="asia-northeast1",
         region_instance_group_manager="proxysql-mig-prod",
         size=0,
+        timeout=10.0,
     )
     mock_slack.assert_called_once()
     assert "ProxySQL" in mock_slack.call_args[0][0]

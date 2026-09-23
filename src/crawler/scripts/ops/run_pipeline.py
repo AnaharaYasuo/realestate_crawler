@@ -5,6 +5,8 @@ import sys
 import subprocess
 import time
 import logging
+import threading
+import json
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -25,7 +27,7 @@ from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
 configure_logging()
 
-def run_command(cmd, desc):
+def run_command(cmd, desc, timeout: float | None = None):
     logging.info(f"=== [START] {desc} ===")
     logging.info(f"Command: {' '.join(cmd)}")
     start_time = time.time()
@@ -40,16 +42,26 @@ def run_command(cmd, desc):
         bufsize=1
     )
     
-    # リアルタイムで子プロセスの出力をログ化
-    if proc.stdout is not None:
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            # scheduler.logやtrain.logなどと競合しないよう、コンソールに出力
-            print(line, end='', flush=True)
-        
-    proc.wait()
+    def _reader():
+        if proc.stdout is not None:
+            for line in iter(proc.stdout.readline, ''):
+                print(line, end='', flush=True)
+            proc.stdout.close()
+
+    reader_thread = threading.Thread(target=_reader, daemon=True)
+    reader_thread.start()
+
+    try:
+        proc.wait(timeout=timeout)
+        reader_thread.join(timeout=2.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        reader_thread.join(timeout=2.0)
+        elapsed = time.time() - start_time
+        logging.error(f"=== [TIMEOUT] {desc} timed out after {timeout}s (elapsed: {int(elapsed)}s) ===")
+        raise TimeoutError(f"Step '{desc}' timed out after {timeout}s")
+
     elapsed = time.time() - start_time
     
     if proc.returncode != 0:
@@ -180,7 +192,6 @@ def main():
         
         # パイプライン全体におけるSlack送信不達チェック
         if os.path.exists(failed_slack_file):
-            import json
             try:
                 with open(failed_slack_file, "r", encoding="utf-8") as f:
                     failed_msgs = json.load(f)
@@ -206,7 +217,7 @@ def main():
                 run_command([
                     sys.executable,
                     os.path.join(scripts_dir, "ensure_resources_stopped.py"),
-                ], "Teardown: Ensure On-Demand Resources Stopped")
+                ], "Teardown: Ensure On-Demand Resources Stopped", timeout=60)
             except Exception as cleanup_err:
                 logging.warning(f"⚠️ [Cleanup Warning] Failed to stop resources in teardown: {cleanup_err}")
 

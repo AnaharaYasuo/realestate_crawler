@@ -99,6 +99,7 @@ def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str
                 project=project_id,
                 region=region,
                 region_instance_group_manager=mig_name,
+                timeout=10.0,
             )
             target_size = int(igm.target_size or 0)
             autoscaler = getattr(getattr(igm, "status", None), "autoscaler", None)
@@ -137,6 +138,7 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
                 region=region,
                 autoscaler=autoscaler_name,
                 autoscaler_resource=resource,
+                timeout=10.0,
             )
             return ""
         except Exception as e:  # noqa: BLE001
@@ -166,6 +168,7 @@ def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
                 region=region,
                 region_instance_group_manager=mig_name,
                 size=0,
+                timeout=10.0,
             )
             return ""
         except Exception as e:  # noqa: BLE001
