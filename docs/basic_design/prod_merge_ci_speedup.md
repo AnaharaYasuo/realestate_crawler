@@ -22,6 +22,7 @@ flowchart TD
         ProdPR -->|Fast-Pass 0秒| ReviewGate[review-gate.yml: Fast-pass Success]
         ProdPR -.->|スキップ| NoCodeRabbit[CodeRabbit除外]
         ProdPR -.->|スキップ| NoDuplicateTests[test.yml除外]
+        ProdPR -.->|スキップ| NoSonar[SonarCloud除外]
         ProdGate & TFPlan & ReviewGate -->|自動マージ実行| ProdBranch[production ブランチ]
         ProdBranch -->|デプロイパイプライン| DeployProd[deploy-production.yml]
     end
@@ -70,3 +71,9 @@ flowchart TD
   - `docker`: `docker-dependencies` (patterns: `["*"]`)
 - スケジュール:
   - `pip` の interval を `daily` から `weekly` に変更（毎週月曜日など週1回のまとめ更新）。
+
+### 2.6 SonarCloud パイプライン (`.github/workflows/sonar.yml`)
+- `pull_request.branches`:
+  - 変更前: 未指定（全ブランチ対象）
+  - 変更後: `[main, master]`
+- 効果: `master` で走査済みの同一コミットに対するSonarCloudスキャンおよびDockerビルド（約8分）の重複実行を抑止。
