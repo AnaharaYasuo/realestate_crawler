@@ -48,22 +48,38 @@ class TotateParser(ParserBase):
                     return self.getRootDestUrl(href)
         return ""
 
+    def _is_totate_detail_path(self, path: str) -> bool:
+        if re.search(r"/(area|list|kanto|kansai|search)(/|$)", path, re.I):
+            return False
+        return bool(
+            re.search(rf"/{self.property_type or 'mansion'}/[A-Za-z0-9_-]*\d", path)
+        )
+
+    def _normalize_totate_detail_url(self, href: str):
+        full_url = self.getRootDestUrl(href)
+        path = urllib.parse.urlparse(full_url).path
+        if not self._is_totate_detail_path(path):
+            return None
+        if not path.endswith('/'):
+            path += '/'
+        return f"{self.BASE_URL}{path}"
+
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        # 物件詳細リンクは /mansion/NFD1C4021/ のような形式
-        re.compile(rf'/{self.property_type or "mansion"}/[A-Za-z0-9]+')
-        for a in response.select(".items .item h4.name a, a[href^='/" + (self.property_type or "mansion") + "/N']"):
+        # 物件詳細リンクは /mansion/NFD1C4021/ や /mansion/DMHF95604/ など英数字ID
+        selectors = (
+            ".items .item h4.name a, "
+            f"a[href^='/{self.property_type or 'mansion'}/N'], "
+            f"a[href*='/{self.property_type or 'mansion'}/']"
+        )
+        for a in response.select(selectors):
             href = a.get("href")
-            if href:
-                full_url = self.getRootDestUrl(href)
-                parsed = urllib.parse.urlparse(full_url)
-                path = parsed.path
-                if not path.endswith('/'):
-                    path += '/'
-                normalized = f"{self.BASE_URL}{path}"
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield normalized
+            if not href:
+                continue
+            normalized = self._normalize_totate_detail_url(href)
+            if normalized and normalized not in detail_links:
+                detail_links.add(normalized)
+                yield normalized
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         for btn in response.find_all(class_=re.compile(r'btn|button|map', re.I)):

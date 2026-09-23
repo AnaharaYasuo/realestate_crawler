@@ -41,7 +41,8 @@ class SumifuParser(ParserBase):
 
     
     def getCharset(self):
-        return None  # Let BeautifulSoup/lxml detect or use chardet
+        # Live pages declare charset=shift_jis; cp932 is the practical decoder.
+        return "cp932"
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return super()._parseTransport1(response, specs)
@@ -139,40 +140,43 @@ class SumifuParser(ParserBase):
 
 
 
+    def _kenpei_youseki_from_labels(self, text):
+        kenpei = youseki = None
+        k_match = re.search(r'建ぺい率(\d+)%', text)
+        if k_match:
+            kenpei = int(k_match.group(1))
+        y_match = re.search(r'容積率(\d+)%', text)
+        if y_match:
+            youseki = int(y_match.group(1))
+        return kenpei, youseki
+
+    def _kenpei_youseki_from_parts(self, text):
+        kenpei = youseki = None
+        parts = re.split(r'[・/]', text)
+        if len(parts) < 2:
+            return kenpei, youseki
+        k_part = parts[0].strip()
+        y_part = parts[1].strip()
+        if "%" in k_part:
+            k_m = re.search(r'(\d+)', k_part)
+            if k_m:
+                kenpei = int(k_m.group(1))
+        if "%" in y_part:
+            y_m = re.search(r'(\d+)', y_part)
+            if y_m:
+                youseki = int(y_m.group(1))
+        return kenpei, youseki
+
     def _parseKenpeiYousekiText(self, text):
         # Example: 建ぺい率60% 容積率200%  OR  60%・200%  OR  60%/200%
-        kenpei = None
-        youseki = None
         if not text:
-             return kenpei, youseki
-             
+            return None, None
         try:
-            # Format 1: Explicit labels
             if "建ぺい率" in text or "容積率" in text:
-                k_match = re.search(r'建ぺい率(\d+)%', text)
-                if k_match:
-                    kenpei = int(k_match.group(1))
-                y_match = re.search(r'容積率(\d+)%', text)
-                if y_match:
-                    youseki = int(y_match.group(1))
-            
-            # Format 2: Split by delimiter (Investment style)
-            # "60%・200%" or "60%/200%"
-            else:
-                 # Try splitting by common delimiters
-                 parts = re.split(r'[・/]', text)
-                 if len(parts) >= 2:
-                      k_part = parts[0].strip()
-                      y_part = parts[1].strip()
-                      if "%" in k_part:
-                           k_m = re.search(r'(\d+)', k_part)
-                           if k_m: kenpei = int(k_m.group(1))
-                      if "%" in y_part:
-                           y_m = re.search(r'(\d+)', y_part)
-                           if y_m: youseki = int(y_m.group(1))
-        except:
-            pass
-        return kenpei, youseki
+                return self._kenpei_youseki_from_labels(text)
+            return self._kenpei_youseki_from_parts(text)
+        except (ValueError, TypeError, AttributeError):
+            return None, None
 
     def _parseChimoku(self, response, specs=None):
         specs = self._get_specs(response)
@@ -316,29 +320,56 @@ class SumifuParser(ParserBase):
         
         price_selector = self.selectors.get('price')
         if price_selector:
-            em = response.select_one(price_selector)
-            if em: return em.get_text(strip=True)
+            for sel in str(price_selector).split(","):
+                em = response.select_one(sel.strip())
+                if not em:
+                    continue
+                text = em.get_text(" ", strip=True)
+                if text and "万" not in text and re.search(r"\d", text):
+                    # span.price__number is digits only; unit sits outside the tag.
+                    text = f"{text}万円"
+                return text
         return ""
 
     def _parsePrice(self, response, specs=None):
         price_str = self._parsePriceStr(response)
         return converter.parse_price(price_str)
 
-    def _parseAddress(self, response, specs=None):
+    def _address_from_table_td(self, response):
         address_key = self.selectors.get('address_key', "所在地")
         address_td = self._getValueFromTable(response, address_key)
-        if address_td:
-            if hasattr(address_td, 'find_all'):
-                for btn in address_td.find_all("button"): btn.decompose()
-                for br in address_td.find_all("br"): br.replace_with(" ")
-            addr = self._getText(address_td)
-            return re.sub(r'地図を開く$', '', addr).strip()
-        
+        if not address_td:
+            return None
+        if hasattr(address_td, 'find_all'):
+            for btn in address_td.find_all("button"):
+                btn.decompose()
+            for br in address_td.find_all("br"):
+                br.replace_with(" ")
+        addr = self._getText(address_td)
+        return re.sub(r'地図を開く$', '', addr).strip()
+
+    def _address_from_selectors(self, response):
         address_selector = self.selectors.get('address')
-        if address_selector:
-            addr_el = response.select_one(address_selector)
-            if addr_el: return addr_el.get_text(strip=True)
+        if not address_selector:
+            return ""
+        for sel in str(address_selector).split(","):
+            addr_el = response.select_one(sel.strip())
+            if not addr_el:
+                continue
+            if getattr(addr_el, "name", "") == "input":
+                val = (addr_el.get("value") or "").strip()
+                if val:
+                    return val
+            text = addr_el.get_text(strip=True)
+            if text:
+                return text
         return ""
+
+    def _parseAddress(self, response, specs=None):
+        from_table = self._address_from_table_td(response)
+        if from_table:
+            return from_table
+        return self._address_from_selectors(response)
 
     def _parseAddressComponents(self, response, specs=None):
         addr = self._parseAddress(response)
@@ -493,34 +524,32 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
     def getPropertyListXpath(self):
         return self.selectors.get('property_list_xpath')
 
+    def _href_matches_property_type(self, href: str) -> bool:
+        if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
+            return False
+        if "/chintai/" in href or "/rent/" in href:
+            return False
+        if self.property_type in ("mansion", "kodate", "tochi"):
+            return f"/{self.property_type}/" in href and "/detail_" in href
+        if self.property_type in ("investment", "invest_apartment", "invest_kodate"):
+            return "/pro/detail_" in href
+        return "/pro/detail_" in href or "/detail_" in href
+
     async def parsePropertyListPage(self, response: BeautifulSoup):
         property_links_selector = self.selectors.get('property_links')
         links = response.select(property_links_selector) if property_links_selector else []
         if not links:
-             # Fallback
-             fallback_selector = self.selectors.get('property_links_fallback')
-             if fallback_selector:
-                 links = response.select(fallback_selector)
-             
+            fallback_selector = self.selectors.get('property_links_fallback')
+            if fallback_selector:
+                links = response.select(fallback_selector)
+
         for link in links:
             href = link.get("href")
-            if href:
-                if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
-                    continue
-                if "/chintai/" in href or "/rent/" in href:
-                    continue
-                if self.property_type in ("mansion", "kodate", "tochi"):
-                    if f"/{self.property_type}/" not in href or "/detail_" not in href:
-                        continue
-                elif self.property_type in ("investment", "invest_apartment", "invest_kodate"):
-                    if "/pro/detail_" not in href:
-                        continue
-                elif "/pro/detail_" not in href and "/detail_" not in href:
-                    continue
-
-                joined_url = urllib.parse.urljoin(self.BASE_URL, href)
-                if "javascript:" not in joined_url and "void(0)" not in joined_url:
-                    yield joined_url
+            if not href or not self._href_matches_property_type(href):
+                continue
+            joined_url = urllib.parse.urljoin(self.BASE_URL, href)
+            if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
@@ -596,17 +625,79 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
         return item
 
+    def _yield_val_from_specs(self, specs):
+        return (
+            specs.get("表面利回り")
+            or specs.get("利回り")
+            or specs.get("想定利回り")
+            or specs.get("予定利回り")
+            or specs.get("実質利回り")
+            or specs.get("満室想定利回り")
+            or ""
+        )
+
+    def _yield_val_from_dom(self, response):
+        # Sumifu invest details put yield in dt/dd + span.info-text-yield.
+        for dt in response.find_all("dt"):
+            key = dt.get_text(" ", strip=True)
+            if "利回り" not in key:
+                continue
+            dd = dt.find_next_sibling("dd")
+            if dd:
+                return dd.get_text(" ", strip=True)
+        span = response.select_one("span.info-text-yield")
+        if span:
+            return span.get_text(" ", strip=True)
+        return ""
+
+    def _decimal_from_yield_str(self, yield_val):
+        if not yield_val or not isinstance(yield_val, str):
+            return Decimal(0)
+        try:
+            m = re.search(r"([\d\.]+)", yield_val.replace("%", ""))
+            if m:
+                return Decimal(m.group(1))
+        except (ValueError, TypeError, ArithmeticError):
+            pass
+        return Decimal(0)
+
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
-        yield_val = specs.get("表面利回り", specs.get("利回り", ""))
-        if yield_val and isinstance(yield_val, str):
-            try: return Decimal(yield_val.replace("%", "").strip())
-            except: pass
-        return Decimal(0)
+        yield_val = self._yield_val_from_specs(specs)
+        if not yield_val and response is not None:
+            yield_val = self._yield_val_from_dom(response)
+        return self._decimal_from_yield_str(yield_val)
+
+    def _rent_val_from_specs(self, specs):
+        return (
+            specs.get("想定年商")
+            or specs.get("想定年間収入")
+            or specs.get("年間想定賃料")
+            or specs.get("満室時想定年収")
+            or specs.get("年間予定賃料収入")
+            or specs.get("満室想定年額賃料")
+            or specs.get("年収")
+            or ""
+        )
+
+    def _rent_val_from_dom(self, response):
+        for dt in response.find_all("dt"):
+            key = dt.get_text(" ", strip=True)
+            if any(tok in key for tok in ("年間想定", "想定年", "年額賃料", "年間収入")):
+                dd = dt.find_next_sibling("dd")
+                if dd:
+                    return dd.get_text(" ", strip=True)
+        for p in response.find_all("p"):
+            t = p.get_text(" ", strip=True)
+            if "満室想定年額" in t or "想定年額賃料" in t:
+                return t
+        return ""
 
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
-        rent_val = specs.get("想定年商", specs.get("想定年間収入", specs.get("年間想定賃料", "")))
+        rent_val = self._rent_val_from_specs(specs)
+        if not rent_val and response is not None:
+            rent_val = self._rent_val_from_dom(response)
         return converter.parse_price(rent_val) if rent_val else 0
 
     def _parseMonthlyRent(self, response, specs=None):
@@ -617,39 +708,52 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         specs = self._get_specs(response)
         return specs.get("現況", "-")
 
+    def _kouzou_from_spans(self, spans):
+        if len(spans) >= 2:
+            return spans[1].get_text(strip=True)
+        if len(spans) == 1:
+            text = spans[0].get_text(strip=True)
+            m = re.search(r'建て(.+)$', text)
+            if m:
+                return m.group(1).strip()
+        return None
+
+    def _kouzou_from_combined_tag(self, combined_tag):
+        if hasattr(combined_tag, "find_all"):
+            spans = combined_tag.find_all("span")
+            from_spans = self._kouzou_from_spans(spans)
+            if from_spans:
+                return from_spans
+            combined = combined_tag.get_text(separator='\n', strip=True)
+            lines = combined.split('\n')
+            if len(lines) >= 2:
+                return lines[1].strip()
+            return None
+        text = str(combined_tag).strip()
+        m = re.search(r'建て(.+)$', text)
+        if m:
+            return m.group(1).strip()
+        lines = [line.strip() for line in text.split() if line.strip()]
+        if len(lines) >= 2:
+            return lines[1]
+        return text
+
     def _parseKouzou(self, response, specs=None):
         specs = self._get_specs(response)
         kouzou = specs.get("構造", "")
         if kouzou:
             return kouzou
-        
+
         # Compatibility with old specialized extraction
         specs_tags = self._get_specs(response)
-        combined_tag = specs_tags.get("所在階構造", specs_tags.get("所在階\n構造", specs_tags.get("階数構造", specs_tags.get("階数\n構造"))))
+        combined_tag = specs_tags.get(
+            "所在階構造",
+            specs_tags.get("所在階\n構造", specs_tags.get("階数構造", specs_tags.get("階数\n構造"))),
+        )
         if combined_tag:
-            if hasattr(combined_tag, "find_all"):
-                spans = combined_tag.find_all("span")
-                if len(spans) >= 2:
-                    return spans[1].get_text(strip=True)
-                elif len(spans) == 1:
-                    text = spans[0].get_text(strip=True)
-                    m = re.search(r'建て(.+)$', text)
-                    if m:
-                        return m.group(1).strip()
-                else:
-                    combined = combined_tag.get_text(separator='\n', strip=True)
-                    lines = combined.split('\n')
-                    if len(lines) >= 2:
-                        return lines[1].strip()
-            else:
-                text = str(combined_tag).strip()
-                m = re.search(r'建て(.+)$', text)
-                if m:
-                    return m.group(1).strip()
-                lines = [line.strip() for line in text.split() if line.strip()]
-                if len(lines) >= 2:
-                    return lines[1]
-                return text
+            parsed = self._kouzou_from_combined_tag(combined_tag)
+            if parsed:
+                return parsed
         return "-"
 
 
@@ -970,16 +1074,41 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
                     val = m_tag.get_text(strip=True)
         return val
 
+    def _senyu_from_specs(self, specs):
+        val = specs.get("専有面積", "") or ""
+        if val:
+            return val
+        for key, value in specs.items():
+            if "専有面積" in str(key):
+                return value
+        return ""
+
+    def _senyu_from_selector(self, response):
+        if not self.selectors:
+            return ""
+        sel = self.selectors.get('senyuMenseki')
+        if not sel:
+            return ""
+        s_tag = response.select_one(sel)
+        if s_tag:
+            return s_tag.get_text(strip=True)
+        return ""
+
+    def _senyu_from_summary_chip(self, response):
+        # 2021+ detail layout: summary chips like "専有面積66.51m² （壁芯)"
+        for span in response.select("span.text"):
+            text = span.get_text(" ", strip=True)
+            if "専有面積" in text:
+                return text
+        return ""
+
     def _parseSenyuMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
-        val = specs.get("専有面積", "")
-        if not val and self.selectors:
-            sel = self.selectors.get('senyuMenseki')
-            if sel:
-                s_tag = response.select_one(sel)
-                if s_tag:
-                    val = s_tag.get_text(strip=True)
-        return val
+        return (
+            self._senyu_from_specs(specs)
+            or self._senyu_from_selector(response)
+            or self._senyu_from_summary_chip(response)
+        )
 
     def _parseSenyuMenseki(self, response, specs=None):
         senyuMensekiStr = self._parseSenyuMensekiStr(response)
@@ -1006,7 +1135,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseBalconyMensekiStr(self, response, specs=None):
         td = self._getValueFromTable(response, "バルコニー", partial_match=True)
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     def _parseBalconyMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
@@ -1126,11 +1255,11 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseBunjoKaisya(self, response, specs=None):
         td = self._getValueFromTable(response, "新築時売主")
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     def _parseSekouKaisya(self, response, specs=None):
         td = self._getValueFromTable(response, "施工会社")
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     # _parseKaisuStr is now defined above to return Location Text.
     # Previous implementation returned Building Height. 
@@ -1327,7 +1456,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             return y
         # Fallback to direct number search in string
         if ky_str:
-            m = re.search(r'容積率.*?(\d+)', ky_str) or re.search(r'(\d+)', ky_str)
+            m = re.search(r'容積率[^0-9]*(\d+)', ky_str) or re.search(r'(\d+)', ky_str)
             if m: return int(m.group(len(m.groups())))
         return None
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -17,6 +17,54 @@ logger = logging.getLogger(__name__)
 
 ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
 ATHOME_LIST_KEYWORDS = ("tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+_ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
+_ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_ATHOME_DIR_WIDTH_RE = (
+    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)'
+)
+_ATHOME_MAGUCHI_RE = r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
+    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+)
+_ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
+_ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
+_ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Just a moment...")
+_ATHOME_PLAYWRIGHT_ARGS = [
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-infobars',
+    '--window-position=0,0',
+    '--ignore-certificate-errors',
+    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+]
+_ATHOME_STEALTH_INIT = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    window.chrome = { runtime: {} };
+"""
+_ATHOME_CONTENT_READY_JS = """() => {
+    const text = document.body ? document.body.innerText : '';
+    if (text.includes('認証中') || text.includes('認証にご協力')) {
+        return false;
+    }
+    const hrefs = Array.from(document.querySelectorAll('a[href]'))
+        .map(a => a.getAttribute('href') || '');
+    const hasDetail = hrefs.some(h =>
+        /\\/(mansion|kodate|tochi|buy_other)\\/\\d{6,}/.test(h)
+        || h.includes('bkdetail')
+    );
+    const hasPriceTable = text.includes('価格')
+        && !!document.querySelector('#detailTitleArea, table');
+    return hasDetail || hasPriceTable;
+}"""
+_ATHOME_LIST_SELECTOR = (
+    "a[href*='bklist'], a[href*='bkdetail'], "
+    "a[href*='tokyo'], .item-list, .building-list, "
+    "#detailTitleArea"
+)
 
 
 class AthomeParser(ParserBase):
@@ -83,68 +131,163 @@ class AthomeParser(ParserBase):
             await page.mouse.move(int(x), int(y))
             await asyncio.sleep(delay)
 
+    async def _athome_scroll_midpage(self, page) -> None:
+        for _ in range(2):
+            try:
+                await page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight / 2)"
+                )
+                break
+            except Exception as scroll_err:
+                logger.debug("Athome scroll retry: %s", scroll_err)
+                await page.wait_for_timeout(400)
+
+    async def _athome_wait_content_ready(self, page) -> None:
+        try:
+            await page.wait_for_function(_ATHOME_CONTENT_READY_JS, timeout=3500)
+        except Exception as wait_err:
+            logger.debug("Athome content-ready wait skipped: %s", wait_err)
+            try:
+                await page.wait_for_selector(_ATHOME_LIST_SELECTOR, timeout=2500)
+            except Exception as sel_err:
+                logger.debug("Athome list selector wait skipped: %s", sel_err)
+
+    async def _athome_settle_page(self, page, url: str) -> None:
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Athome often issues a follow-up navigation; wait for it to settle.
+            try:
+                await page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception as idle_err:
+                logger.debug("Athome networkidle wait skipped: %s", idle_err)
+            await page.wait_for_timeout(400)
+            await self._athome_scroll_midpage(page)
+            await page.wait_for_timeout(400)
+            await self._athome_wait_content_ready(page)
+        except Exception as goto_err:
+            logger.warning("Playwright goto warning for %s: %s", url, goto_err)
+
+    async def _athome_reload_if_challenge(self, page, url: str, content_str: str) -> str:
+        if not any(m in content_str for m in _ATHOME_CHALLENGE_MARKERS):
+            return content_str
+        logger.info("Retrying page load for challenge screen at %s...", url)
+        try:
+            await page.reload(wait_until="domcontentloaded", timeout=20000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception as idle_err:
+                logger.debug("Athome reload networkidle skipped: %s", idle_err)
+            await page.wait_for_timeout(2000)
+            return await page.content()
+        except Exception as reload_err:
+            logger.warning("Playwright reload warning for %s: %s", url, reload_err)
+            return content_str
+
+    async def _athome_fetch_with_playwright(self, url: str) -> bytes:
+        from playwright.async_api import async_playwright
+
+        logger.info("Playwright: fetching URL with stealth: %s...", url)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=_ATHOME_PLAYWRIGHT_ARGS,
+            )
+            context = await browser.new_context(
+                user_agent=(
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                    '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+                ),
+                viewport={'width': 1920, 'height': 1080},
+                locale='ja-JP',
+                timezone_id='Asia/Tokyo',
+            )
+            await context.add_init_script(_ATHOME_STEALTH_INIT)
+            page = await context.new_page()
+            await self._athome_settle_page(page, url)
+            content_str = await page.content()
+            content_str = await self._athome_reload_if_challenge(page, url, content_str)
+            await browser.close()
+            content_bytes = content_str.encode('utf-8')
+            logger.info(
+                "Playwright stealth fetch success: %s bytes for URL: %s",
+                len(content_bytes),
+                url,
+            )
+            return content_bytes
+
     async def _getContent(self, session, url):
         """Fetch a URL with Playwright, falling back to the base HTTP fetcher."""
         await asyncio.sleep(0.5)
         try:
-            from playwright.async_api import async_playwright
-
-            logging.info(f"Playwright: fetching URL with stealth: {url}...")
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-infobars',
-                        '--window-position=0,0',
-                        '--ignore-certificate-errors',
-                        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-                    ]
-                )
-                context = await browser.new_context(
-                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='ja-JP',
-                    timezone_id='Asia/Tokyo'
-                )
-                await context.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                    window.chrome = { runtime: {} };
-                """)
-                page = await context.new_page()
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    await page.wait_for_timeout(2000)
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                    await page.wait_for_timeout(2000)
-                    try:
-                        await page.wait_for_selector("a[href*='bklist'], a[href*='bkdetail'], a[href*='tokyo'], .item-list, .building-list", timeout=5000)
-                    except Exception:
-                        pass
-                except Exception as goto_err:
-                    logging.warning(f"Playwright goto warning for {url}: {goto_err}")
-                
-                content_str = await page.content()
-                if "認証にご協力ください" in content_str or "認証中" in content_str or "Just a moment..." in content_str:
-                    logging.info(f"Retrying page load for challenge screen at {url}...")
-                    try:
-                        await page.reload(wait_until="domcontentloaded", timeout=20000)
-                        await page.wait_for_timeout(3000)
-                        content_str = await page.content()
-                    except Exception as reload_err:
-                        logging.warning(f"Playwright reload warning for {url}: {reload_err}")
-
-                await browser.close()
-                content_bytes = content_str.encode('utf-8')
-                logging.info(f"Playwright stealth fetch success: {len(content_bytes)} bytes for URL: {url}")
-                return content_bytes
+            return await self._athome_fetch_with_playwright(url)
         except Exception as e:
-            logging.error(f"Playwright stealth fetch failed for {url}: {e}")
+            logger.error("Playwright stealth fetch failed for %s: %s", url, e)
             return await super()._getContent(session, url)
+
+    @staticmethod
+    def _athome_parse_maguchi(maguchi_info: str, setsudou_info: str):
+        if maguchi_info:
+            mag_match = re.search(_ATHOME_MAGUCHI_RE, maguchi_info)
+            if mag_match:
+                return Decimal(mag_match.group(1))
+        if setsudou_info:
+            mag_match = re.search(_ATHOME_MAGUCHI_IN_SETSUDOU_RE, setsudou_info)
+            if mag_match:
+                return Decimal(mag_match.group(1))
+        return None
+
+    @staticmethod
+    def _athome_parse_road_width(road_info: str, setsudou_info: str):
+        for text in (road_info, setsudou_info):
+            if not text:
+                continue
+            width_match = re.search(_ATHOME_WIDTH_RE, text)
+            if width_match:
+                return width_match.group(0), Decimal(width_match.group(1))
+            dir_width_match = re.search(_ATHOME_DIR_WIDTH_RE, text)
+            if dir_width_match:
+                return dir_width_match.group(0), Decimal(dir_width_match.group(1))
+        return "", None
+
+    @staticmethod
+    def _athome_first_regex_group(*texts_and_pattern) -> str:
+        *texts, pattern = texts_and_pattern
+        for text in texts:
+            if not text:
+                continue
+            m = re.search(pattern, text)
+            if m:
+                return m.group(1)
+        return ""
+
+    def _athome_apply_road_specs(self, item, specs: dict, *, default_struct: str = "中間地") -> None:
+        road_info = specs.get("前面道路", "")
+        setsudou_info = specs.get("接道状況", "")
+        maguchi_info = specs.get("間口", "") or specs.get("接面", "")
+
+        item.maguchiStr = maguchi_info
+        maguchi = self._athome_parse_maguchi(maguchi_info, setsudou_info)
+        if maguchi is not None:
+            item.maguchi = maguchi
+
+        road_width_str, road_width = self._athome_parse_road_width(road_info, setsudou_info)
+        item.roadWidthStr = road_width_str
+        if road_width is not None:
+            item.roadWidth = road_width
+
+        item.roadDirection = self._athome_first_regex_group(
+            road_info, setsudou_info, _ATHOME_DIRECTION_RE
+        )
+        item.roadType = self._athome_first_regex_group(
+            road_info, setsudou_info, _ATHOME_ROAD_TYPE_RE
+        )
+        struct = self._athome_first_regex_group(setsudou_info, _ATHOME_ROAD_STRUCT_RE)
+        item.roadStructure = struct or default_struct
+
+    def _athome_apply_okuyuki(self, item) -> None:
+        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
 
     def getRootDestUrl(self, linkUrl, base_domain=None):
         if not linkUrl:
@@ -568,15 +711,15 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
-        
+
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
+
         item.tatemonoMensekiStr = specs.get("建物面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-            
+
         item.kaisuStr = specs.get("階建 / 階", "")
         item.tyusyajo = specs.get("駐車場", "")
         item.chimoku = self._parseChimoku(response, specs)
@@ -586,86 +729,10 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         item.youseki = converter.parse_ratio(item.yousekiStr)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
-        
-        # 土地スペックパラメータ抽出（間口、道路幅、方位、私道公道など）
-        road_info = specs.get("前面道路", "")
-        setsudou_info = specs.get("接道状況", "")
-        maguchi_info = specs.get("間口", "") or specs.get("接面", "")
-        
-        # 間口 (maguchi)
-        item.maguchiStr = maguchi_info
-        if maguchi_info:
-            mag_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', maguchi_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchi = Decimal(mag_match.group(1))
-        elif setsudou_info:
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchi = Decimal(mag_match.group(1))
-                
-        # 前面道路幅員 (roadWidth)
-        road_width_str = ""
-        if road_info:
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', road_info)
-            if width_match:
-                road_width_str = width_match.group(0)
-                from decimal import Decimal
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', road_info)
-                if dir_width_match:
-                    road_width_str = dir_width_match.group(0)
-                    from decimal import Decimal
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-        elif setsudou_info:
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if width_match:
-                road_width_str = width_match.group(0)
-                from decimal import Decimal
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', setsudou_info)
-                if dir_width_match:
-                    road_width_str = dir_width_match.group(0)
-                    from decimal import Decimal
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-        item.roadWidthStr = road_width_str
-        
-        # 道路方位 (roadDirection)
-        road_dir = ""
-        if road_info:
-            dir_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', road_info)
-            if dir_match: road_dir = dir_match.group(1)
-        elif setsudou_info:
-            dir_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', setsudou_info)
-            if dir_match: road_dir = dir_match.group(1)
-        item.roadDirection = road_dir
-        
-        # 道路私道区分 (roadType)
-        road_type = ""
-        if road_info:
-            type_match = re.search(r'(公道|私道)', road_info)
-            if type_match: road_type = type_match.group(1)
-        elif setsudou_info:
-            type_match = re.search(r'(公道|私道)', setsudou_info)
-            if type_match: road_type = type_match.group(1)
-        item.roadType = road_type
-        
-        # 接道構造（角地など）(roadStructure)
-        road_struct = "中間地"
-        if setsudou_info:
-            struct_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', setsudou_info)
-            if struct_match: road_struct = struct_match.group(1)
-        item.roadStructure = road_struct
-        
-        # 奥行き (okuyuki)
-        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
-            from decimal import Decimal
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-            
+
+        self._athome_apply_road_specs(item, specs)
+        self._athome_apply_okuyuki(item)
+
         return item
 
 
@@ -724,64 +791,121 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
     def createEntity(self):
         return AthomeInvestmentApartment()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
-        specs = self._get_specs_table(response)
-        shumoku = specs.get("物件種目", "")
-        
-        if shumoku:
-            # 区分マンションの場合のみ、区分用のAthomeMansionParserに委譲する（一棟マンションは一棟アパートと同様に本クラスでそのままパースする）
-            if "マンション" in shumoku and "一棟" not in shumoku:
-                parser = AthomeMansionParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
-            elif "戸建" in shumoku or "テラス" in shumoku:
-                parser = AthomeKodateParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
-            elif "土地" in shumoku:
-                parser = AthomeTochiParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
-                
-        item = super()._parsePropertyDetailPage(item, response)
-        
-        # 投資用固有情報
-        yield_str = specs.get("利回り", "")
-        item.grossYield = converter.parse_ratio(yield_str)
-        
-        rent_str = specs.get("想定賃料", "")
-        item.annualRent = converter.parse_price(rent_str)
-        item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
-        item.genkyo = self._parseCurrentStatus(response, specs)
-        item.currentStatus = item.genkyo
-        
-        # 面積・構造
+    async def parseRootPage(self, response):
+        """Prefer buy_other / bldg / toushi details; skip mansion reco noise on invest hubs."""
+        async for url in super().parseRootPage(response):
+            path = urllib.parse.urlparse(url).path.lower()
+            if any(tok in path for tok in ("/buy_other/", "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
+                yield url
+
+    def _athome_reject_residential_shumoku(self, shumoku: str) -> None:
+        if not shumoku:
+            return
+        # 投資一覧に居住用が混在 — 利回り無しの区分/戸建/土地は次URLへ
+        if "マンション" in shumoku and "一棟" not in shumoku:
+            raise SkipPropertyException(
+                f"Athome invest list mixed residential mansion: {shumoku}"
+            )
+        if (
+            ("戸建" in shumoku or "テラス" in shumoku)
+            and "一棟" not in shumoku
+            and "収益" not in shumoku
+        ):
+            raise SkipPropertyException(
+                f"Athome invest list mixed residential kodate: {shumoku}"
+            )
+        if "土地" in shumoku and "一棟" not in shumoku:
+            raise SkipPropertyException(
+                f"Athome invest list mixed residential tochi: {shumoku}"
+            )
+
+    def _athome_parse_yield_str(self, specs: dict, biko: str) -> str:
+        yield_str = (
+            specs.get("利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("想定利回り", "")
+        )
+        if yield_str:
+            return yield_str
+        m = re.search(r"利回り[：:\s]*([0-9]+(?:\.[0-9]+)?)\s*[％%]?", biko)
+        return (m.group(1) + "%") if m else ""
+
+    def _athome_parse_rent_str(self, specs: dict, biko: str) -> str:
+        rent_str = (
+            specs.get("想定賃料", "")
+            or specs.get("想定年間収入", "")
+            or specs.get("年間想定収入", "")
+            or specs.get("満室想定年収", "")
+            or specs.get("年間想定家賃収入", "")
+        )
+        if rent_str:
+            return rent_str
+        m = re.search(r"年間想定(?:家賃)?収入[：:\s]*([0-9.,]+)\s*万円", biko)
+        return (m.group(1) + "万円") if m else ""
+
+    def _athome_derive_rent_from_yield(self, item) -> None:
+        if not (item.grossYield and item.price and not item.annualRent):
+            return
+        try:
+            gy = float(item.grossYield)
+            if gy <= 0:
+                return
+            rent_val = int(float(item.price) * gy / 100.0)
+            if rent_val > 0:
+                item.annualRent = rent_val
+                item.monthlyRent = rent_val // 12
+        except (TypeError, ValueError) as err:
+            logger.debug("Athome yield→rent derive skipped: %s", err)
+
+    def _athome_fill_invest_areas(self, item, specs: dict) -> None:
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
-        item.tatemonoMensekiStr = specs.get("建物面積", "")
+
+        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("使用部分面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-            
+
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)
         item.kaisuStr = specs.get("階建 / 階", "")
-        
-        # 土地詳細
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
         item.youseki = converter.parse_ratio(item.yousekiStr)
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
+        specs = self._get_specs_table(response)
+        self._athome_reject_residential_shumoku(specs.get("物件種目", ""))
+
+        item = super()._parsePropertyDetailPage(item, response)
+
+        # 投資用固有情報（専用欄が無い場合は備考に利回り・想定家賃が埋まる）
+        biko = specs.get("備考", "") or ""
+        item.grossYield = converter.parse_ratio(self._athome_parse_yield_str(specs, biko))
+        rent_str = self._athome_parse_rent_str(specs, biko)
+        item.annualRent = converter.parse_price(rent_str)
+        item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
+        self._athome_derive_rent_from_yield(item)
+        if not item.grossYield or not item.annualRent:
+            raise SkipPropertyException(
+                f"Athome investment listing missing yield/rent: "
+                f"{(getattr(item, 'propertyName', '') or '')[:60]}"
+            )
+        item.genkyo = self._parseCurrentStatus(response, specs)
+        item.currentStatus = item.genkyo
+        item.kouzou = (
+            specs.get("建物構造", "")
+            or specs.get("構造", "")
+            or getattr(item, "kouzou", "")
+        )
+        self._athome_fill_invest_areas(item, specs)
         item.setsudou = self._parseSetsudou(response, specs)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.tochikenri = self._parseRights(response, specs)
-        
+
         return item
 
 
@@ -837,76 +961,21 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
-        
+
         # 土地面積
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
+
         # 用途地域・建容
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")
         item.youseki = converter.parse_ratio(item.yousekiStr)
-        
+
         item.chimoku = self._parseChimoku(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
-        
-        # 土地スペックパラメータ抽出（間口、道路幅、方位、私道公道など）
-        road_info = specs.get("前面道路", "")
-        setsudou_info = specs.get("接道状況", "")
-        maguchi_info = specs.get("間口", "") or specs.get("接面", "")
-        
-        # 間口 (maguchi)
-        item.maguchiStr = maguchi_info
-        if maguchi_info:
-            mag_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', maguchi_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchi = Decimal(mag_match.group(1))
-        elif setsudou_info:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchi = Decimal(mag_match.group(1))
-                
-        # 前面道路幅員 (roadWidth)
-        road_width_str = ""
-        if road_info:
-            width_match = re.search(r'(?:幅員|幅)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', road_info)
-            if width_match:
-                road_width_str = width_match.group(0)
-                from decimal import Decimal
-                item.roadWidth = Decimal(width_match.group(1))
-        if not item.roadWidth and setsudou_info:
-            width_match = re.search(r'(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if width_match:
-                road_width_str = width_match.group(0)
-                from decimal import Decimal
-                item.roadWidth = Decimal(width_match.group(1))
-        item.roadWidthStr = road_width_str
-        
-        # 接道方位 (roadDirection)
-        direction_match = None
-        if road_info:
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', road_info)
-        if not direction_match and setsudou_info:
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', setsudou_info)
-        item.roadDirection = direction_match.group(1) if direction_match else ""
-        
-        # 道路区分 (roadType: 公道/私道)
-        type_match = None
-        if road_info:
-            type_match = re.search(r'(公道|私道)', road_info)
-        if not type_match and setsudou_info:
-            type_match = re.search(r'(公道|私道)', setsudou_info)
-        item.roadType = type_match.group(1) if type_match else ""
-        
-        # 接道状況 (roadStructure)
-        structure_match = None
-        if setsudou_info:
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', setsudou_info)
-        item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        
+        self._athome_apply_road_specs(item, specs)
+
         return item

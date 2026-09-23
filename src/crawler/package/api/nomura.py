@@ -84,8 +84,8 @@ class ParseNomuraMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraMansionStartAsync(ApiAsyncProcBase):
     urlList = [
-        "https://www.nomu.com/mansion/ensen_tokyo/2171/2171110/",
         "https://www.nomu.com/mansion/ensen_tokyo/2172/2172110/",
+        "https://www.nomu.com/mansion/ensen_tokyo/2171/2171110/",
     ]
     def _generateParser(self): return NomuraMansionParser("")
     def _getLocalPararellLimit(self): return 5

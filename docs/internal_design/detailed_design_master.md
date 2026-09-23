@@ -207,6 +207,23 @@ graph TD
 - **動的詳細URL抽出**: 各不動産サイトのスタート/一覧URLから最新アクティブ物件の詳細URLを自動抽出する。
 - **全定義フィールド検証**: 単一物件パース後、そのモデルで定義された全取得対象フィールド（価格・住所・面積・間取り・構造・築年・交通・建蔽率・容積率等）を取り出し、パース漏れ（意図しない `None` や空文字列）が発生していないかを包括アサーションする。
 
+### 6.6.1 全ジョブクローリング保証テスト設計 (Crawl Guarantee Matrix)
+- **SSOT モジュール**: `package.utils.crawl_jobs.CRAWL_JOBS` を本番一括巡回とテストの共通定義とする。`run_all_crawlers.py` はこれを import して利用する。
+- **カタログ解決**: `package.utils.crawl_job_catalog` が各ジョブの Start API クラス・シードURL・パーサーを実行時解決する。シード優先順位は `urlList` ➔ `SEED_URL` ➔ ルート関数リテラル / `get_start_url()`。
+- **スモークエンジン**: `package.utils.crawl_smoke_engine` が本番パーサー経路で BFS し、詳細URL収集 → 詳細パース → `EXPECTED_SPEC_FIELDS_BY_TYPE` 検証 → `item.save` による DB 永続化確認を行う。独自セレクタによる ad-hoc 抽出は禁止。壁時計 ≤300秒のため会社別バジェットと Playwright 会社間直列＋静的オーバーラップを適用する。
+- **ページング検証**: 一覧取得後に `parseNextPage` を呼び、次URLがあれば取得して `SmokeResult.pages_fetched >= 2`。次URL無しは `paging_exhausted=True`。`paging_ok = (pages_fetched >= 2) or paging_exhausted`。
+- **種別判定検証**: 成功パース後に `PropertyTypeDetector.detect(use_ai=False)` と `expected_detector_type(job, parser)` を照合。不一致は `SkipPropertyException`。`SmokeResult.property_type_ok` をテストで必須アサート。
+- **実行環境別並列プラン (`package.utils.live_parallel`)**:
+  - `detect_live_parallel_mode()`: `CRAWL_LIVE_PARALLEL_MODE` 明示値、なければ `GITHUB_ACTIONS`/`CI` → `ci`、それ以外 → `local`。
+  - `build_live_parallel_plan()`: 選択ジョブを静的バケット（Playwright 以外）と PW 会社バケット（mizuho → sekisui → athome、各 `-n 0`）に分割。
+  - ローカル: 静的 `-n` = `CRAWL_LIVE_XDIST_LOCAL`（既定 `4`）、PW 各社 `-n 0`。
+  - CI: 静的 `-n` = `CRAWL_LIVE_XDIST_CI`（既定 `auto`）、PW 各社 `-n 0`。
+  - 実行器: `scripts/ops/run_live_crawl_guarantee.py` が静的 ∥ (mizuho → (sekisui ∥ athome)) で起動（壁 ≈ max(static, mizuho + max(sekisui, athome))）。スコープ指定（`CRAWL_GUARANTEE_SITES` 等）時は該当ジョブのみでプラン再構成。
+- **命名規約強制**: Start API クラス名は `Parse{Company}{Type}StartAsync` に統一する（例: 京急戸建は `ParseKeikyuKodateStartAsync`）。規約逸脱はカタログ解決テストで FAIL。
+- **テスト配置**:
+  - オフライン: `tests/unit/test_crawl_job_catalog_sync.py`, `tests/unit/test_live_parallel.py`
+  - ライブ: `tests/integration/test_live_crawl_guarantee.py`（`@pytest.mark.live`）
+
 
 ### 6.7 クローラー優先順位制御設計原則 (Smallest-Site-First)
 - `run_all_crawlers.py` の実行リスト構成において、処理データ量の少ない小規模サイト・ハウスメーカー系・電鉄系サイトを先頭に配置する。
@@ -273,12 +290,13 @@ graph TD
 
 ### 6.17 CI並列分散ワークフロー・差分スキップおよび先行実行設計仕様
 - **pytest-xdist マルチプロセス並列化**:
-  - `pytest -n auto` を導入し、CI仮想マシン（4 vCPU）のCPUリソースを自動検出し並列実行する。
+  - 通常の unit / integration（非 live）は `pytest -n auto` で CI ランナーの CPU を自動検出して並列実行する。
+  - ライブ保証（`@pytest.mark.live`）はローカルと CI でワーカー数・バケット方式を分離する（§6.6.1）。PR integration は `-m "not live"`。
   - `pytest-cov` の `--cov` オプションと併用し、並列テスト実行結果からカバレッジをマージして `coverage.xml` を出力する。
 - **test.yml マトリクス並列化および集約ゲート**:
   - `strategy.matrix.test-group`:
     - `unit`: `src/crawler/tests/unit/`（単体テスト群、428件）
-    - `integration`: `src/crawler/tests/integration/`（`test_live_reachability.py`, `test_crawler_pipeline_e2e.py`）
+    - `integration`: `src/crawler/tests/integration/ -m "not live"`（ネットワーク依存ライブ除外）
     - `ml`: `src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py`（ML学習・画像処理テスト）
   - 各マトリクスジョブ（`test-matrix`）が独立した GitHub Actions ランナーで完全並行稼働。
   - 集約ジョブ `test`（`needs: test-matrix`）により、ブランチ保護ルール互換性を維持しつつ全マトリクスの合否を一元判定。

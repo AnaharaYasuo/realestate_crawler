@@ -48,7 +48,7 @@ jobs:
           - group: integration
             name: Integration Tests
             needs_db: true
-            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/ -m "not live"
           - group: ml-pipeline
             name: ML & Pipeline Tests
             needs_db: true

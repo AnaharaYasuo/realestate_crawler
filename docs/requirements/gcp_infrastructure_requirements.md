@@ -52,14 +52,24 @@
 ### 3.3 コスト最適化要件
 - **アイドル時コスト最小化**:
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
+  - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
+- **リソースオンデマンド・ライフサイクル制御**:
+  - 常時課金が発生する ProxySQL MIG（`min_replicas = 0`）および Cloud NAT は、クローリングバッチ稼働時間帯（01:00 JST等）のみオンデマンドで起動・有効化し、処理完了と同時に自動停止（スケールイン `size = 0`）すること。
+- **Direct VPC Egress への統合**:
+  - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台）を廃止し、Cloud Run の Direct VPC Egress 機能を用いて VPC サブネットへ直接接続し、常時固定費を削減すること。
 - **月額費用目安**:
   - Cloud SQL 最小インスタンス（db-f1-micro / db-g1-small）および GCS、Cloud Run Jobs 稼働時間課金を含め、月額数千円〜1万円以内の範囲で運用可能であること。
 
-### 3.4 予算管理 & 予期せぬ過大請求防止要件 (Budget Alerts)
+### 3.4 予算管理 & 予期せぬ過大請求防止要件 (Budget Alerts & Safety Net)
 - **多段階アラート通知**:
   - 月額予算額（初期値: 10,000円）に対し、実費用の 50%, 80%, 100% 到達時、および「月末予測値が120%に達する見込み」の時点で即座にメールおよびPub/Subへアラートを発報すること。
 - **早期警戒 (Forecasted Alert)**:
   - クローラー暴走や不慮のリソース増大が発生した際、月末を待たずに早期検知できること。
+- **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails)**:
+  - バッチ異常終了やクラッシュによって ProxySQL MIG や Cloud NAT が停止しなかった場合に備え、毎朝 05:00 JST にリソース停止状態を自動点検し、稼働中の場合は強制停止 (`size = 0`) して Slack へ警告を発報するデッドマンズスイッチを備えること。
+  - 日中帯（06:00〜24:00 JST）に ProxySQL インスタンスが稼働している場合は、Cloud Monitoring から重大度 ERROR で即時アラートを発報すること。
+- **リソースタグ・ラベル統一による費用分析**:
+  - すべてのインフラリソースに対し、統一されたラベル（`project`, `environment`, `component`, `managed_by` 等）を付与し、BigQuery Billing Export による詳細なコスト内訳分析を可能とすること。
 
 ### 3.5 データベース・コネクションプーリング要件 (ProxySQL Connection Pooling Layer)
 - **多重接続保護 & リソース管理効率化 (Connection Multiplexing & Saturation Prevention)**:

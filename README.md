@@ -372,8 +372,20 @@ Antigravityエージェントのクオータ制限を回避し、バックグラ
 # 全テスト実行（単体テスト＋ライブ到達・全フィールド動的統合テスト）
 task test
 
-# ライブ到達・全フィールドパース統合テストのみ実行
+# 全ジョブ本番経路クローリング保証（ライブ）
+# ローカル: 静的HTMLは -n 4、Playwright会社は順次
+# GitHub Actions: 静的HTMLは -n auto、Playwright会社は順次
 task test-live
+
+# 修正確認など: 対象サイト/ジョブだけライブ検証
+task test-live SITES=sumifu,odakyu
+task test-live SITES=sumifu_mansion,odakyu_investment
+task test-live COMPANY=sumifu TYPE=mansion
+# 強制モード: MODE=ci または MODE=local
+task test-live MODE=ci
+
+# オフライン: CRAWL_JOBS カタログ同期ゲートのみ
+task test-catalog
 
 # 特定のパーサーのみテスト
 docker compose exec -T app pytest src/crawler/tests/unit/test_mitsui_parser.py -v

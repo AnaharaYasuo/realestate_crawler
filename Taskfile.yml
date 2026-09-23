@@ -50,9 +50,39 @@ tasks:
       - docker compose exec -T app pytest src/crawler/tests
 
   test-live:
-    desc: Run live reachability and full-field parsing integration tests
+    desc: 'Live crawl guarantee. Local: -n4 static + PW serial. CI: -n auto static + PW serial. SITES=/COMPANY=/TYPE='
+    vars:
+      SITES: '{{.SITES | default ""}}'
+      COMPANY: '{{.COMPANY | default ""}}'
+      TYPE: '{{.TYPE | default ""}}'
+      MODE: '{{.MODE | default ""}}'
+      SAMPLE: '{{.SAMPLE | default "3"}}'
     cmds:
-      - docker compose exec -T app pytest src/crawler/tests/integration/test_live_reachability.py -v -s
+      - |
+        docker compose exec -T \
+          -e PYTHONPATH=/app/src/crawler \
+          -e PYTHONUNBUFFERED=1 \
+          -e CRAWL_SMOKE_SAMPLE_SIZE={{.SAMPLE}} \
+          -e CRAWL_SMOKE_JOB_BUDGET_SEC=25 \
+          -e CRAWL_GUARANTEE_SITES={{.SITES}} \
+          -e CRAWL_GUARANTEE_COMPANY={{.COMPANY}} \
+          -e CRAWL_GUARANTEE_TYPE={{.TYPE}} \
+          -e CRAWL_LIVE_PARALLEL_MODE={{.MODE}} \
+          -e GITHUB_ACTIONS \
+          -e CI \
+          app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+  test-live-smoke:
+    desc: Same as test-live (alias for crawl guarantee parallel smoke)
+    cmds:
+      - task test-live SITES={{.SITES | default ""}} COMPANY={{.COMPANY | default ""}} TYPE={{.TYPE | default ""}} MODE={{.MODE | default ""}}
+  test-live-sites:
+    desc: 'Alias: task test-live-sites SITES=sumifu,odakyu'
+    cmds:
+      - task test-live SITES={{.SITES}}
+  test-catalog:
+    desc: Offline CRAWL_JOBS catalog sync gate (no network)
+    cmds:
+      - docker compose exec -T app pytest src/crawler/tests/unit/test_crawl_job_catalog_sync.py -v
 
   test-slack:
 

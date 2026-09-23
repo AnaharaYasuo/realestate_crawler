@@ -1,0 +1,42 @@
+# Ruff config for realestate_crawler
+# EXE002: Docker Desktop / 9p bind mounts mark virtually all files mode 777.
+# N999: legacy *Parser.py module names are project convention.
+# Parser modules intentionally use broad except/logging patterns around HTML/WAF noise.
+
+[lint]
+extend-select = []
+
+[lint.per-file-ignores]
+"src/crawler/package/utils/crawl_smoke_engine.py" = [
+  "BLE001",
+  "S110",
+  "S112",
+  "F841",
+  "RUF100",
+]
+"src/crawler/package/utils/mizuho_bypass.py" = [
+  "UP045",
+  "RUF100",
+  "TRY401",
+  "LOG015",
+  "BLE001",
+]
+"src/crawler/package/parser/*.py" = [
+  "N999",
+  "BLE001",
+  "LOG015",
+  "S110",
+  "S112",
+  "B010",
+  "FURB167",
+  "FURB188",
+  "RUF012",
+  "ISC004",
+  "UP045",
+  "I001",
+  "RUF010",
+  "RUF100",
+]
+"src/crawler/scripts/ops/*.py" = ["I001", "RUF100", "BLE001", "S110"]
+"src/crawler/tests/**/*.py" = ["I001", "UP009", "SIM117", "EXE002"]
+"**/*.py" = ["EXE002"]

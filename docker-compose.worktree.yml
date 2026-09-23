@@ -1,0 +1,24 @@
+# Worktree-local compose overlay.
+# Compose merges `ports` lists by default, so we reset then set alternate ports.
+# Usage:
+#   $env:COMPOSE_PROJECT_NAME="realestate_crawler_343"
+#   docker compose -f docker-compose.yml -f docker-compose.worktree.yml up -d db minio app
+services:
+  db:
+    ports: !override
+      - "23306:3306"
+  app:
+    ports: !override
+      - "18000:8000"
+    volumes:
+      # Parent repo .git so worktree gitdir resolves inside the container
+      - ../realestate_crawler/.git:/host-git:ro
+    environment:
+      # Prefer container-local mirror (see Temp/mirror_git.sh); fall back to host mount.
+      GIT_DIR: /var/git-mirror/wt
+      GIT_COMMON_DIR: /var/git-mirror/common
+      GIT_WORK_TREE: /app
+  minio:
+    ports: !override
+      - "19000:9000"
+      - "19001:9001"
