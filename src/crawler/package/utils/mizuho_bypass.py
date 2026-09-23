@@ -2,7 +2,6 @@
 import logging
 import re
 from typing import Optional
-from xml.etree import ElementTree as ET
 
 import aiohttp
 from playwright.async_api import async_playwright
@@ -38,30 +37,22 @@ def infer_mizuho_sitemap_kind(url_or_type: str) -> str:
 
 
 def parse_mizuho_sitemap_locs(xml_text: str) -> list[str]:
-    """Extract <loc> URLs from a Mizuho detail sitemap document."""
+    """Extract <loc> URLs from a Mizuho detail sitemap document.
+
+    Regex-only (no xml.etree) to avoid XXE and satisfy defused-xml policy.
+    """
     if not xml_text:
         return []
-    locs: list[str] = []
-    try:
-        root = ET.fromstring(xml_text)
-        for el in root.iter():
-            if el.tag.endswith("loc") and el.text:
-                url = el.text.strip()
-                if "/property/" in url:
-                    locs.append(url if url.endswith("/") else url + "/")
-    except ET.ParseError:
-        locs = re.findall(r"<loc>\s*(https?://[^<\s]+)\s*</loc>", xml_text)
-        locs = [
-            (u if u.endswith("/") else u + "/")
-            for u in locs
-            if "/property/" in u
-        ]
-    seen = set()
+    locs = re.findall(r"<loc>\s*(https?://[^<\s]+)\s*</loc>", xml_text)
+    seen: set[str] = set()
     out: list[str] = []
-    for u in locs:
-        if u not in seen:
-            seen.add(u)
-            out.append(u)
+    for raw in locs:
+        if "/property/" not in raw:
+            continue
+        url = raw if raw.endswith("/") else raw + "/"
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
     return out
 
 

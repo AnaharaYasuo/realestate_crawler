@@ -128,16 +128,22 @@ def _invest_types_compatible(d: str, e: str) -> bool:
     return e == "apartment" and "invest" in d
 
 
+def _types_pair(d: str, e: str, a: str, b: str) -> bool:
+    """True when {d,e} equals {a,b} (order-independent)."""
+    return (d == a and e == b) or (d == b and e == a)
+
+
 def _company_type_aliases_ok(d: str, e: str, company_l: str) -> bool:
-    pair = {d, e}
     # Detector often labels condominiums as apartment vs mansion job type.
-    if pair == {"mansion", "apartment"}:
+    if _types_pair(d, e, "mansion", "apartment"):
         return True
     # tokyo816 (heim) has no condominium inventory; 建売 is the mansion-job candidate.
-    if company_l == "heim" and pair == {"mansion", "kodate"}:
+    if company_l == "heim" and _types_pair(d, e, "mansion", "kodate"):
         return True
     # sumai1 / seibu / keisei list pages mix 建売用地(土地) under kodate filters.
-    return company_l in ("sumai1", "seibu", "keisei", "heim") and pair == {"kodate", "tochi"}
+    return company_l in ("sumai1", "seibu", "keisei", "heim") and _types_pair(
+        d, e, "kodate", "tochi"
+    )
 
 
 def property_types_compatible(detected: str, expected: str, company: str = "") -> bool:
@@ -464,7 +470,9 @@ def _ssl_for_url(url: str):
     and often incomplete certificate chains.
     """
     if "misawa.co.jp" in url or "keiofudosan" in url:
-        ctx = ssl._create_unverified_context()  # NOSONAR - host uses legacy TLS
+        # Legacy TLS hosts fail default verify; smoke-only path for those sites.
+        # nosemgrep: python.lang.security.unverified-ssl-context.unverified-ssl-context
+        ctx = ssl._create_unverified_context()  # NOSONAR
         try:
             ctx.set_ciphers("DEFAULT:@SECLEVEL=0")  # NOSONAR
         except (ssl.SSLError, ValueError):

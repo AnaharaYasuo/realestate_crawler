@@ -82,7 +82,7 @@ class NomuraParser(InvestmentParser):
                 continue
             title_el = status.select_one(".item_status_title")
             content_el = status.select_one(".item_status_content")
-            if not title_el or not content_el:
+            if title_el is None or content_el is None:
                 continue
             key = (
                 self._clean_key_text(title_el, "span")

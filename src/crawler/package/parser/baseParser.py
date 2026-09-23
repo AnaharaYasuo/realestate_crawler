@@ -262,10 +262,10 @@ class ParserBase(metaclass=ABCMeta):
         for row in response.select(".table-row, div.row, tr.table-row"):
             lbl = row.select_one(".label, .table-header, th, dt")
             val = row.select_one(".content, .table-data")
-            if not val or val == lbl:
-                candidates = [el for el in row.find_all(["td", "dd"]) if el != lbl]
+            if val is None or val is lbl:
+                candidates = [el for el in row.find_all(["td", "dd"]) if el is not lbl]
                 val = candidates[0] if candidates else None
-            if not lbl or not val or lbl == val:
+            if lbl is None or val is None or lbl is val:
                 continue
             k = lbl.get_text(strip=True)
             if k and k not in specs:
