@@ -15,6 +15,8 @@
    - 単体パッケージごとに最大30件のPRが同時起票され、全CIが並列走査されてGitHub Actions runnerを枯渇させ、手動でクローズ・集約する無駄な運用が発生している。
 5. **Review Gate の過剰発火**:
    - コメント追加等のイベントごとにReview Gateが再起動し、大量のキャンセルとキュー待ちを招いている。
+6. **SonarCloud による Production PR 重複実行**:
+   - `master` のコミットは既にSonarCloud静的解析・品質ゲートを通過しているにもかかわらず、`production` 向けPRで再度DockerビルドおよびSonarCloudスキャン（約8分）が走り、マージ完了を著しく遅延させる。
 
 ## 2. 目的とスコープ
 
@@ -22,6 +24,7 @@
 * **スコープ**:
   - `.coderabbit.yaml` のレビュー対象ブランチ最適化
   - `.github/workflows/test.yml` のPRトリガー最適化
+  - `.github/workflows/sonar.yml` のPRトリガー最適化（production除外）
   - `.github/workflows/review-gate.yml` のProduction fast-passおよびイベント抑制
   - `.github/workflows/auto-release-pr.yml` による自動Release PR起票・Auto-merge連携
   - `.github/dependabot.yml` のグループ化（Grouped Version Updates）
@@ -39,6 +42,7 @@
 * **FR-04 (Release PR の自動作成・同期)**: `master` へのプッシュ時に、`production` 向けのオープンなPRが存在しない場合は自動作成し、タイトル・コミット差分サマリー・Issue番号を記載すること。既存PRがある場合は自動で追従・更新されること。
 * **FR-05 (Auto-merge 自動設定)**: 自動作成されたRelease PRに対して GitHub Auto-merge を有効化し、必要なチェックが通過次第自動マージすること。
 * **FR-06 (Dependabot のグループ集約)**: 各パッケージエコシステム（pip, github-actions, terraform, docker）で `groups` を設定し、単体パッケージ別PRの乱発を週1回の集約PRに統合すること。
+* **FR-07 (SonarCloudのProduction除外)**: `.github/workflows/sonar.yml` の `pull_request.branches` は `[main, master]` のみとし、`production` へのPRでSonarCloudスキャンおよびDockerビルドを実行しないこと。
 
 ## 4. 非機能要件 (Non-Functional Requirements)
 
