@@ -109,6 +109,24 @@ jobs:
               return;
             }
 
+            // Fast-pass for Production Release PRs: commits already validated on master
+            const isSameRepo = pr.head && pr.head.repo && pr.head.repo.full_name === `${owner}/${repo}`;
+            const isMasterHead = pr.head && pr.head.ref === 'master';
+            if (targetBranch === 'production') {
+              if (!isSameRepo || !isMasterHead) {
+                core.setFailed(`Production PR must originate from internal master branch. Attempted from: ${pr.head ? pr.head.ref : 'unknown'}`);
+                return;
+              }
+              core.info('🚀 Production PR from master detected: Bypassing review gate (verified on master).');
+              await reportHeadStatus(
+                headSha,
+                'success',
+                'Production release PR: review gate bypassed (verified on master)',
+                '### 🚀 Production PR Gate Bypassed\nThis release PR promotes commits directly from `master`, where all review conversations, checkboxes, and security checks have already been validated.'
+              );
+              return;
+            }
+
             // 1. Check CodeRabbit In-Progress / Pending Status (skip for production PRs)
             const systemErrors = [];
             let crPending = false;
@@ -316,9 +334,40 @@ jobs:
             }
 
             const changesRequested = [];
+            const staleChangesRequested = [];
             for (const [user, r] of latestReviewByUser.entries()) {
               if (r.state === 'CHANGES_REQUESTED') {
-                changesRequested.push({ user, reviewId: r.id });
+                const isCodeRabbit = user.toLowerCase().includes('coderabbit');
+                // CodeRabbit 由来で、かつレビュー時のコミットが最新 HEAD SHA と異なる場合は新コミット後の再評価待ち
+                if (isCodeRabbit && r.commit_id && r.commit_id !== headSha) {
+                  staleChangesRequested.push({ user, reviewId: r.id, commitId: r.commit_id });
+                } else {
+                  changesRequested.push({ user, reviewId: r.id, commitId: r.commit_id });
+                }
+              }
+            }
+
+            // 新コミットプッシュ時に CodeRabbit の未解決指摘または古い変更要求があれば自動で再レビューをリクエスト
+            const hasCodeRabbitUnresolved = unresolved.some(t => {
+              const firstComment = t.comments && t.comments.nodes && t.comments.nodes[0];
+              const author = firstComment && firstComment.author ? firstComment.author.login : '';
+              return author.toLowerCase().includes('coderabbit');
+            });
+
+            if (staleChangesRequested.length > 0 || (hasCodeRabbitUnresolved && context.eventName === 'pull_request' && context.payload.action === 'synchronize')) {
+              const hasRecentTrigger = (allReviews || []).some(r => 
+                (new Date() - new Date(r.submitted_at)) < 180000
+              );
+              try {
+                console.log('🤖 新コミット検知: CodeRabbit の自動再評価をリクエストします。');
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: '@coderabbitai review'
+                });
+              } catch (e) {
+                console.warn('CodeRabbit再レビューの自動リクエストに失敗:', e.message);
               }
             }
 
@@ -454,6 +503,17 @@ jobs:
               summaryMd += `以下のレビュアーによる変更要求が残存しています。指摘に対応して承認（Approved）を得てください。\n\n`;
               for (const cr of changesRequested) {
                 summaryMd += `- @${cr.user} (Review ID: ${cr.reviewId})\n`;
+              }
+              summaryMd += '\n';
+            }
+
+            if (staleChangesRequested.length > 0) {
+              isPending = true;
+              pendingReasons.push(`Waiting for CodeRabbit re-evaluation after new commit (${staleChangesRequested.map(r => '@' + r.user).join(', ')})`);
+              summaryMd += `### ⏳ 新コミットに対する CodeRabbit の再評価待ち (${staleChangesRequested.length}件)\n\n`;
+              summaryMd += `修正コミットがプッシュされたため、CodeRabbit による再レビュー完了を待機しています。\n\n`;
+              for (const scr of staleChangesRequested) {
+                summaryMd += `- @${scr.user} (直前の変更要求: Review ID ${scr.reviewId}, 対象コミット: \`${(scr.commitId || '').substring(0, 7)}\`)\n`;
               }
               summaryMd += '\n';
             }
