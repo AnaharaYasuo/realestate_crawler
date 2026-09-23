@@ -75,7 +75,7 @@ resource "google_cloud_run_v2_service" "crawler_worker_service" {
       # Cloud Storage 画像保存バケット
       env {
         name  = "STORAGE_BUCKET"
-        value = google_storage_bucket.image_bucket.name
+        value = google_storage_bucket.property_images.name
       }
 
       # Secret Manager からのシークレット注入
@@ -83,7 +83,7 @@ resource "google_cloud_run_v2_service" "crawler_worker_service" {
         name = "DB_PASSWORD"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.db_password.secret_id
+            secret  = google_secret_manager_secret.db_password_secret.secret_id
             version = "latest"
           }
         }

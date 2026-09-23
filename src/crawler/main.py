@@ -7,9 +7,11 @@ import traceback
 import time
 import inspect
 import asyncio
+import datetime
 import html
 from flask import Flask, jsonify, request
 from django.apps import apps
+from django.db import close_old_connections
 from django.db.models import Q
 
 import realestateSettings
@@ -351,27 +353,31 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
 
 @app.route('/api/crawl/task', methods=['POST'])
 def handle_crawl_task():
-    data = request.get_json(silent=True) or {}
-    company = data.get("company", "").lower()
-    prop_type = (data.get("property_type") or data.get("type") or "").lower()
-    execution_date = data.get("execution_date")
+    close_old_connections()
+    try:
+        data = request.get_json(silent=True) or {}
+        company = data.get("company", "").lower()
+        prop_type = (data.get("property_type") or data.get("type") or "").lower()
+        execution_date = data.get("execution_date")
 
-    safe_company = html.escape(company)
-    safe_prop_type = html.escape(prop_type)
+        safe_company = html.escape(company)
+        safe_prop_type = html.escape(prop_type)
 
-    if not company or not prop_type:
-        return jsonify({"error": "Missing company or property_type"}), 400
+        if not company or not prop_type:
+            return jsonify({"error": "Missing company or property_type"}), 400
 
-    dispatch = get_dispatch_map()
-    if (company, prop_type) not in dispatch:
-        return jsonify({"error": f"Unknown job: {safe_company} - {safe_prop_type}"}), 404
+        dispatch = get_dispatch_map()
+        if (company, prop_type) not in dispatch:
+            return jsonify({"error": f"Unknown job: {safe_company} - {safe_prop_type}"}), 404
 
-    success, count, elapsed = execute_crawl_task(company, prop_type, execution_date)
-    if success:
-        return jsonify({"status": "success", "company": safe_company, "property_type": safe_prop_type, "scraped_count": count, "elapsed_seconds": elapsed}), 200
-    else:
-        # Cloud Tasks 無限リトライ防止: 0件取得・パース異常・連続タイムアウト等は HTTP 200 でタスク消化
-        return jsonify({"status": "failed", "company": safe_company, "property_type": safe_prop_type, "error": "Crawl execution failed"}), 200
+        success, count, elapsed = execute_crawl_task(company, prop_type, execution_date)
+        if success:
+            return jsonify({"status": "success", "company": safe_company, "property_type": safe_prop_type, "scraped_count": count, "elapsed_seconds": elapsed}), 200
+        else:
+            # Cloud Tasks 無限リトライ防止: 0件取得・パース異常・連続タイムアウト等は HTTP 200 でタスク消化
+            return jsonify({"status": "failed", "company": safe_company, "property_type": safe_prop_type, "error": "Crawl execution failed"}), 200
+    finally:
+        close_old_connections()
 
 
 if __name__ == "__main__":

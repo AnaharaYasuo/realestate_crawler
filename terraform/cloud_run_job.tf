@@ -392,7 +392,7 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
           name = "DB_PASSWORD"
           value_source {
             secret_key_ref {
-              secret  = google_secret_manager_secret.db_password.secret_id
+              secret  = google_secret_manager_secret.db_password_secret.secret_id
               version = "latest"
             }
           }
@@ -488,7 +488,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           name = "DB_PASSWORD"
           value_source {
             secret_key_ref {
-              secret  = google_secret_manager_secret.db_password.secret_id
+              secret  = google_secret_manager_secret.db_password_secret.secret_id
               version = "latest"
             }
           }
