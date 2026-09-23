@@ -109,6 +109,18 @@ jobs:
               return;
             }
 
+            // Fast-pass for Production Release PRs: commits already validated on master
+            if (targetBranch === 'production') {
+              core.info('🚀 Production PR detected: Bypassing review gate (verified on master).');
+              await reportHeadStatus(
+                headSha,
+                'success',
+                'Production release PR: review gate bypassed (verified on master)',
+                '### 🚀 Production PR Gate Bypassed\nThis release PR promotes commits directly from `master`, where all review conversations, checkboxes, and security checks have already been validated.'
+              );
+              return;
+            }
+
             // 1. Check CodeRabbit In-Progress / Pending Status (skip for production PRs)
             const systemErrors = [];
             let crPending = false;

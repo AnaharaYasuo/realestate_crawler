@@ -35,7 +35,6 @@ reviews:
     auto_incremental_review: false
     base_branches:
       - "master"
-      - "production"
   tools:
     ast-grep:
       enabled: true
