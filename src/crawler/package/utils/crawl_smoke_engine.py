@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import ssl
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -1847,6 +1848,15 @@ async def _smoke_crawl_with_session(
     return result
 
 
+def _default_ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    try:
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+    except (ssl.SSLError, ValueError):
+        pass
+    return ctx
+
+
 async def smoke_crawl_target(
     target: CrawlTarget,
     sample_size: int | None = None,
@@ -1866,7 +1876,7 @@ async def smoke_crawl_target(
         return result
 
     timeout = aiohttp.ClientTimeout(total=_http_timeout_sec())
-    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60)
+    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60, ssl=_default_ssl_context())
     force_pw = _needs_playwright(parser, target.company)
 
     try:
