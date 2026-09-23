@@ -41,6 +41,8 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+ERR_NO_COMPUTE_CLIENT: str = "Neither google-cloud-compute nor valid GCP credentials available"
+
 
 @dataclass
 class ResourceInspectionResult:
@@ -109,7 +111,7 @@ def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str
 
     token = _get_gcp_access_token()
     if not token:
-        return -1, "Neither google-cloud-compute nor valid GCP credentials available", None
+        return -1, ERR_NO_COMPUTE_CLIENT, None
 
     url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}"
     try:
@@ -146,7 +148,7 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
 
     token = _get_gcp_access_token()
     if not token:
-        return "Neither google-cloud-compute nor valid GCP credentials available"
+        return ERR_NO_COMPUTE_CLIENT
 
     patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/autoscalers/{autoscaler_name}"
     body = {"autoscalingPolicy": {"minNumReplicas": 0, "maxNumReplicas": 0}}
@@ -176,7 +178,7 @@ def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
 
     token = _get_gcp_access_token()
     if not token:
-        return "Neither google-cloud-compute nor valid GCP credentials available"
+        return ERR_NO_COMPUTE_CLIENT
 
     resize_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}/resize?size=0"
     try:
