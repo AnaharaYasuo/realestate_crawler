@@ -14,7 +14,6 @@ import asyncio
 import logging
 import os
 import re
-import ssl
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -466,23 +465,11 @@ def _fetch_timeout_sec(url: str, deadline: float) -> float:
 def _ssl_for_url(url: str):
     """Return aiohttp ssl= argument.
 
-    misawa/keio need OpenSSL SECLEVEL=0 (SECLEVEL=1 still handshake-fails)
-    and often incomplete certificate chains.
+    Always use default certificate verification. Legacy misawa/keio TLS
+    quirks are handled on the Playwright path, not via unverified SSL.
     """
-    if "misawa.co.jp" not in url and "keiofudosan" not in url:
-        return True
-    # Custom context (avoid ssl._create_unverified_context — Semgrep OSS flags it).
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE  # NOSONAR - legacy host chains for smoke only
-    try:
-        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")  # NOSONAR
-    except (ssl.SSLError, ValueError):
-        try:
-            ctx.set_ciphers("ALL:@SECLEVEL=0")  # NOSONAR
-        except (ssl.SSLError, ValueError) as exc:
-            logger.debug("smoke ssl cipher fallback failed: %s", exc)
-    return ctx
+    _ = url
+    return True
 
 
 def _remaining(deadline: float) -> float:

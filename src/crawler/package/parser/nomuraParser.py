@@ -2,7 +2,7 @@ import re
 from abc import abstractmethod
 from decimal import Decimal, InvalidOperation
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from package.models.nomura import (
     NomuraInvestmentApartment,
@@ -82,14 +82,16 @@ class NomuraParser(InvestmentParser):
                 continue
             title_el = status.select_one(".item_status_title")
             content_el = status.select_one(".item_status_content")
-            if title_el is None or content_el is None:
-                continue
-            key = (
-                self._clean_key_text(title_el, "span")
-                or self._clean_key_text(title_el, "div")
-                or title_el.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
-            )
-            specs[key] = content_el.get_text(strip=True).replace("\xa0", " ")
+            if isinstance(title_el, Tag) and isinstance(content_el, Tag):
+                key = (
+                    self._clean_key_text(title_el, "span")
+                    or self._clean_key_text(title_el, "div")
+                    or title_el.get_text(strip=True)
+                    .replace(" ", "")
+                    .replace("\u3000", "")
+                    .rstrip("：")
+                )
+                specs[key] = content_el.get_text(strip=True).replace("\xa0", " ")
 
     def _scrape_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.select("dl"):

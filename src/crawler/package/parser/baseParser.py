@@ -1,6 +1,6 @@
 import chardet
 import aiohttp
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 import json
 import logging
 import re
@@ -262,14 +262,15 @@ class ParserBase(metaclass=ABCMeta):
         for row in response.select(".table-row, div.row, tr.table-row"):
             lbl = row.select_one(".label, .table-header, th, dt")
             val = row.select_one(".content, .table-data")
-            if val is None or val is lbl:
-                candidates = [el for el in row.find_all(["td", "dd"]) if el is not lbl]
+            if not isinstance(val, Tag) or val is lbl:
+                candidates = [
+                    el for el in row.find_all(["td", "dd"]) if isinstance(el, Tag) and el is not lbl
+                ]
                 val = candidates[0] if candidates else None
-            if lbl is None or val is None or lbl is val:
-                continue
-            k = lbl.get_text(strip=True)
-            if k and k not in specs:
-                specs[k] = val.get_text(strip=True)
+            if isinstance(lbl, Tag) and isinstance(val, Tag) and lbl is not val:
+                k = lbl.get_text(strip=True)
+                if k and k not in specs:
+                    specs[k] = val.get_text(strip=True)
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """HTML内のth/td, dt/dd, .table-rowテーブルを標準解析し辞書として取得"""

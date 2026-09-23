@@ -517,8 +517,8 @@ def test_ssl_for_url_default_true():
     from package.utils.crawl_smoke_engine import _ssl_for_url
 
     assert _ssl_for_url("https://www.sumifu.co.jp/list") is True
-    ctx = _ssl_for_url("https://realestate.misawa.co.jp/x")
-    assert ctx is not True and ctx is not False
+    assert _ssl_for_url("https://realestate.misawa.co.jp/x") is True
+    assert _ssl_for_url("https://www.keiofudosan.co.jp/x") is True
 
 
 @pytest.mark.asyncio
