@@ -36,7 +36,6 @@ def pytest_configure():
 
         cleanup_test_database()
         atexit.register(cleanup_test_database)
-
         settings.configure(
             SECRET_KEY=os.getenv('SECRET_KEY', secrets.token_hex(32)),
             INSTALLED_APPS=[

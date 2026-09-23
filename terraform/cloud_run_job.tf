@@ -240,4 +240,71 @@ resource "google_cloud_run_v2_job" "db_migrate_job" {
   }
 }
 
+# Cloud Run Job for Safety-Net Resource Inspection (ゾンビ課金防止 自動強制停止ジョブ)
+resource "google_cloud_run_v2_job" "resource_safety_net_job" {
+  name     = "realestate-safety-net-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_secret_manager_secret_version.slack_bot_token_version,
+    google_secret_manager_secret_iam_member.secret_accessor
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = "300s"
+      max_retries     = 1
+
+      containers {
+        image   = "python:3.11-slim"
+        command = ["python", "-c", "import sys; print('Initial safety-net job placeholder'); sys.exit(0)"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "LOG_FORMAT"
+          value = "json"
+        }
+        env {
+          name  = "PYTHONIOENCODING"
+          value = "utf-8"
+        }
+        env {
+          name = "SLACK_BOT_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name  = "SLACK_ALERT_PROPERTY_ALERT"
+          value = "property_alert"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].template[0].containers[0].command
+    ]
+  }
+}
+
 

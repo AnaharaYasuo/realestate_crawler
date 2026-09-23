@@ -54,8 +54,8 @@ variable "crawler_memory" {
 
 variable "crawler_timeout" {
   type        = string
-  description = "Execution timeout for Cloud Run Job (up to 24h: 86400s)"
-  default     = "86400s"
+  description = "Execution timeout for Cloud Run Job (up to 1h: 3600s)"
+  default     = "3600s"
 }
 
 variable "crawler_task_count" {
@@ -123,8 +123,8 @@ variable "proxysql_machine_type" {
 
 variable "proxysql_min_replicas" {
   type        = number
-  description = "Minimum instance count for ProxySQL autoscaler (cost optimization at idle)"
-  default     = 1
+  description = "Minimum instance count for ProxySQL autoscaler (0 for on-demand cost optimization at idle)"
+  default     = 0
 }
 
 variable "proxysql_max_replicas" {

@@ -32,6 +32,13 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   member    = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
+# Grant Compute Instance Admin Role (for safety-net and on-demand ProxySQL MIG resizing)
+resource "google_project_iam_member" "crawler_runner_compute_admin" {
+  project = var.project_id
+  role    = "roles/compute.instanceAdmin.v1"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
 # Service Account for Cloud Scheduler
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "scheduler-invoker-${var.environment}"
@@ -43,6 +50,15 @@ resource "google_cloud_run_v2_job_iam_member" "run_invoker" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.crawler_pipeline_job.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
+# Grant Cloud Run Invoker to Scheduler Service Account (Safety net job)
+resource "google_cloud_run_v2_job_iam_member" "safety_net_run_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.resource_safety_net_job.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
