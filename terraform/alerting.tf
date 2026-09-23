@@ -266,7 +266,7 @@ resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert" {
   conditions {
     display_name = "ProxySQL MIG Instance Count > 0"
     condition_threshold {
-      filter          = "metric.type=\"compute.googleapis.com/instance_group/size\" AND resource.type=\"gce_instance_group_manager\" AND resource.label.instance_group_manager_name=\"${google_compute_region_instance_group_manager.proxysql_mig.name}\""
+      filter          = "metric.type=\"compute.googleapis.com/instance_group/size\" AND resource.type=\"instance_group\" AND resource.labels.instance_group_name=\"${google_compute_region_instance_group_manager.proxysql_mig.name}\""
       duration        = "900s" # 15分以上継続して稼働している場合
       comparison      = "COMPARISON_GT"
       threshold_value = 0
