@@ -1,0 +1,84 @@
+name: Auto Release PR
+# master ブランチへの push を契機に、production 宛ての Release PR を自動作成・同期し Auto-merge を有効化する
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  create-or-update-release-pr:
+    name: Ensure Production Release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Ensure release PR exists and enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 1. Check existing open master -> production PR
+          EXISTING_PR=$(gh pr list --base production --head master --state open --json number --jq '.[0].number')
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Release PR #$EXISTING_PR already exists. Ensuring auto-merge is active..."
+            gh pr merge "$EXISTING_PR" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$EXISTING_PR"
+            exit 0
+          fi
+
+          echo "No open release PR found. Creating new release PR from master to production..."
+
+          # 2. Fetch production branch to get diff
+          git fetch origin production:production || true
+
+          # 3. Create PR with gh CLI using file or arguments
+          LATEST_SUBJECT=$(git log -1 --pretty=format:"%s")
+          PR_TITLE="release: ${LATEST_SUBJECT}"
+
+          # Generate PR body safely
+          COMMITS_LOG=$(git log origin/production..HEAD --oneline | head -n 30)
+          PR_BODY_FILE=$(mktemp)
+          cat > "$PR_BODY_FILE" << 'END_BODY'
+          ## Production Release PR
+
+          This PR automatically promotes verified commits from master to production.
+
+          ### Commits Included
+          END_BODY
+          echo '```text' >> "$PR_BODY_FILE"
+          echo "$COMMITS_LOG" >> "$PR_BODY_FILE"
+          echo '```' >> "$PR_BODY_FILE"
+
+          # Extract issue numbers and distinguish explicit closes from mentions
+          CLOSES_ISSUES=$(git log origin/production..HEAD --pretty=format:"%s %b" | grep -ioE "(close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#?[0-9]+" | grep -oE "[0-9]+" | sort -u)
+          ALL_ISSUES=$(git log origin/production..HEAD --pretty=format:"%s %b" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | sort -u)
+
+          if [ -n "$CLOSES_ISSUES" ] || [ -n "$ALL_ISSUES" ]; then
+            echo "" >> "$PR_BODY_FILE"
+            echo "### Related Issues" >> "$PR_BODY_FILE"
+            for iss in $CLOSES_ISSUES; do
+              echo "Closes #${iss}" >> "$PR_BODY_FILE"
+            done
+            for iss in $ALL_ISSUES; do
+              if ! echo "$CLOSES_ISSUES" | grep -qw "$iss"; then
+                echo "Refs #${iss}" >> "$PR_BODY_FILE"
+              fi
+            done
+          fi
+
+          NEW_PR_URL=$(gh pr create --base production --head master --title "$PR_TITLE" --body-file "$PR_BODY_FILE")
+          echo "Created Release PR: $NEW_PR_URL"
+          rm -f "$PR_BODY_FILE"
+
+          NEW_PR_NUM=$(echo "$NEW_PR_URL" | grep -oE "[0-9]+$")
+          if [ -n "$NEW_PR_NUM" ]; then
+            echo "Enabling auto-merge for PR #$NEW_PR_NUM..."
+            gh pr merge "$NEW_PR_NUM" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$NEW_PR_NUM"
+          fi

@@ -56,7 +56,10 @@ def test_coderabbit_yaml_exists_and_valid():
 
     base_branches = auto_review.get("base_branches", [])
     assert "master" in base_branches, "auto_review.base_branches に master が含まれている必要があります"
-    assert "production" in base_branches, "auto_review.base_branches に production が含まれている必要があります"
+    # Issue #376: production 宛てリリースPRでの重複AIレビュー・誤指摘防止のため除外
+    assert "production" not in base_branches, (
+        "Issue #376: auto_review.base_branches から production が除外されている必要があります"
+    )
 
     tone = config.get("tone_instructions", "")
     assert len(tone) > 0, "tone_instructions が設定されている必要があります"
