@@ -59,6 +59,26 @@ def test_test_workflow_excludes_production_pr():
     )
 
 
+def test_sonar_workflow_excludes_production_pr():
+    """Verify that sonar.yml pull_request trigger excludes 'production' (only main, master)."""
+    sonar_yml_path = REPO_ROOT / ".github" / "workflows" / "sonar.yml"
+    assert sonar_yml_path.exists(), f"{sonar_yml_path} does not exist"
+
+    with open(sonar_yml_path, "r", encoding="utf-8") as f:
+        content = f.read()
+        workflow = yaml.safe_load(content)
+
+    on_events = workflow.get("on") or workflow.get(True, {})
+    pr_branches = on_events.get("pull_request", {}).get("branches", [])
+
+    assert "production" not in pr_branches, (
+        f"sonar.yml pull_request.branches must exclude 'production', got {pr_branches}"
+    )
+    assert pr_branches == ["main", "master"], (
+        f"sonar.yml pull_request.branches must strictly be ['main', 'master'], got {pr_branches}"
+    )
+
+
 def test_review_gate_bypasses_production_pr():
     """Verify that review-gate.yml contains early success fast-pass logic for production PRs."""
     rg_path = REPO_ROOT / ".github" / "workflows" / "review-gate.yml"
@@ -112,3 +132,8 @@ def test_auto_release_pr_workflow_exists_and_valid():
     assert "gh pr create" in content, "auto-release-pr.yml must include gh pr create"
     assert "--auto" in content and "--merge" in content, "auto-release-pr.yml must configure auto-merge"
     assert "production" in content, "auto-release-pr.yml must reference production"
+    # Issue #383: CodeRabbit による本番PRのAIコメント抑止ディレクティブ
+    assert "@coderabbitai ignore" in content, (
+        "auto-release-pr.yml must include '@coderabbitai ignore' to prevent automated AI comments on production PR"
+    )
+
