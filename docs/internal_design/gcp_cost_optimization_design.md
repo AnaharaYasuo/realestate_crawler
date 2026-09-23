@@ -42,18 +42,23 @@ sequenceDiagram
 ## 3. ゾンビ課金防止スクリプト (`ensure_resources_stopped.py`)
 
 ### 3.1 役割と責務
-- 毎朝 05:00 JST (20:00 UTC) に Cloud Scheduler 経由でキックされる。
-- Compute Engine API を介して `proxysql-mig` の `target_size` および稼働インスタンス数を取得。
+- 毎朝 05:00 JST (20:00 UTC) に Cloud Scheduler 経由でキックされる（パイプライン異常終了時のセーフティネット）。
+- Compute Engine API / REST API (`instanceGroupManagers`) を介して `proxysql-mig` の `target_size` および稼働インスタンス数を取得。
 - `target_size > 0` または稼働インスタンスが存在する場合：
-  1. `gcloud compute instance-groups managed resize proxysql-mig --size=0` を実行。
+  1. Autoscaler 管理下 MIG の GCP API 制約（直接 `resize` 禁止）に適合させるため、Autoscaler の `min_num_replicas = 0` かつ `max_num_replicas = 0` へ更新（または Autoscaler 一時停止）し、インスタンスを 0 台へ完全削除・縮小。
   2. Slack チャンネル（`#property_alert`）に警告メッセージを発報。
   3. 戻り値としてステータスを返し、監査ログへ記録。
+- **安全側に倒すエラーハンドリング (Fail-Safe)**:
+  - API 通信エラー、404 Not Found、認証エラー等が発生した場合、決して「正常停止中」と偽装せず、緊急 Slack アラート（`:rotating_light:`）を発報し非ゼロ（Exit Code 1）で終了。
 
 ### 3.2 入力引数
 - `--project-id`: GCP プロジェクトID（デフォルト: 環境変数 `GCP_PROJECT` または `sumifu`）
 - `--region`: リージョン（デフォルト: `asia-northeast1`）
 - `--mig-name`: MIG 名（デフォルト: `proxysql-mig-prod`）
 - `--dry-run`: 判定のみ行い停止しないフラグ
+
+### 3.3 パイプライン異常時クリーンアップ (`run_pipeline.py` finally ブロック)
+- パイプラインのステップ（クローリング、データ検証、ML学習等）が途中で例外終了（Exit Code != 0）した場合でも、`try ... finally` ブロックにて確実に ProxySQL MIG の縮小・リソース解放を試行し、ゾンビ残存を根本防止。
 
 ---
 

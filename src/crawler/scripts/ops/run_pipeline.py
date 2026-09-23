@@ -196,10 +196,20 @@ def main():
         logging.info("=============================================================")
         logging.info("PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
         logging.info("=============================================================")
-        
     except Exception as e:
         logging.error(f"Pipeline crashed due to unhandled exception: {e}")
         sys.exit(1)
+    finally:
+        if is_coordinator and os.environ.get("IS_CLOUD"):
+            try:
+                logging.info("🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped...")
+                run_command([
+                    sys.executable,
+                    os.path.join(scripts_dir, "ensure_resources_stopped.py"),
+                ], "Teardown: Ensure On-Demand Resources Stopped")
+            except Exception as cleanup_err:
+                logging.warning(f"⚠️ [Cleanup Warning] Failed to stop resources in teardown: {cleanup_err}")
+
 
 if __name__ == "__main__":
     main()

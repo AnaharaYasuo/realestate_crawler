@@ -85,7 +85,13 @@ def _get_gcp_access_token() -> str | None:
     return None
 
 
-def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str]:
+def _extract_autoscaler_name(autoscaler_url_or_name: str | None) -> str | None:
+    if not autoscaler_url_or_name:
+        return None
+    return autoscaler_url_or_name.rstrip("/").split("/")[-1]
+
+
+def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str, str | None]:
     if compute_v1 is not None:
         try:
             client = compute_v1.RegionInstanceGroupManagersClient()
@@ -94,23 +100,61 @@ def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str
                 region=region,
                 region_instance_group_manager=mig_name,
             )
-            return int(igm.target_size or 0), ""
+            target_size = int(igm.target_size or 0)
+            autoscaler = getattr(getattr(igm, "status", None), "autoscaler", None)
+            return target_size, "", autoscaler
         except Exception as e:  # noqa: BLE001
-            return -1, str(e)
+            return -1, str(e), None
 
     token = _get_gcp_access_token()
     if not token:
-        return -1, "Neither google-cloud-compute nor valid GCP credentials available"
+        return -1, "Neither google-cloud-compute nor valid GCP credentials available", None
 
-    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/regionInstanceGroupManagers/{mig_name}"
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}"
     try:
         resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
         if resp.status_code != 200:
-            return -1, f"HTTP {resp.status_code}: {resp.text}"
+            return -1, f"HTTP {resp.status_code}: {resp.text}", None
         data = resp.json()
-        return int(data.get("targetSize", 0)), ""
+        target_size = int(data.get("targetSize", 0))
+        autoscaler = data.get("status", {}).get("autoscaler") or data.get("autoscaler")
+        return target_size, "", autoscaler
     except Exception as e:  # noqa: BLE001
-        return -1, str(e)
+        return -1, str(e), None
+
+
+def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
+    """Sets autoscaler min_num_replicas and max_num_replicas to 0."""
+    if compute_v1 is not None and hasattr(compute_v1, "RegionAutoscalersClient"):
+        try:
+            auto_client = compute_v1.RegionAutoscalersClient()
+            policy_cls = getattr(compute_v1, "AutoscalingPolicy", None)
+            auto_cls = getattr(compute_v1, "Autoscaler", None)
+            policy = policy_cls(min_num_replicas=0, max_num_replicas=0) if policy_cls else None
+            resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
+            auto_client.patch(
+                project=project_id,
+                region=region,
+                autoscaler=autoscaler_name,
+                autoscaler_resource=resource,
+            )
+            return ""
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to patch autoscaler via compute_v1: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return "Neither google-cloud-compute nor valid GCP credentials available"
+
+    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/autoscalers/{autoscaler_name}"
+    body = {"autoscalingPolicy": {"minNumReplicas": 0, "maxNumReplicas": 0}}
+    try:
+        resp = requests.patch(patch_url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code in (200, 204):
+            return ""
+        return f"HTTP {resp.status_code}: {resp.text}"
+    except Exception as e:  # noqa: BLE001
+        return str(e)
 
 
 def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
@@ -131,7 +175,7 @@ def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
     if not token:
         return "Neither google-cloud-compute nor valid GCP credentials available"
 
-    resize_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/regionInstanceGroupManagers/{mig_name}/resize?size=0"
+    resize_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}/resize?size=0"
     try:
         resp = requests.post(resize_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
         if resp.status_code not in (200, 204):
@@ -148,12 +192,15 @@ def check_and_stop_proxysql_mig(
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
     """
-    Checks if ProxySQL MIG target_size > 0. If leaked, forcibly resizes to 0 and notifies Slack.
+    Checks if ProxySQL MIG target_size > 0. If leaked, forcibly stops it and notifies Slack.
+    Uses autoscaler scale-to-zero when autoscaler is attached, otherwise MIG resize.
     """
-    current_target_size, err = _get_mig_info(project_id, region, mig_name)
+    current_target_size, err, autoscaler = _get_mig_info(project_id, region, mig_name)
     if err:
-        logger.error(f"Failed to get IGM '{mig_name}' in region '{region}': {err}")
-        return ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0, details=err)
+        err_msg = f":rotating_light: *【緊急】ProxySQL MIG状態取得失敗*: {err}"
+        logger.error(err_msg)
+        send_slack_alert(err_msg)
+        return ResourceInspectionResult(was_leaked=True, forced_stop=False, leaked_size=-1, details=err)
 
     logger.info(f"ProxySQL MIG '{mig_name}' current target_size: {current_target_size}")
 
@@ -176,17 +223,24 @@ def check_and_stop_proxysql_mig(
     if dry_run:
         return ResourceInspectionResult(was_leaked=True, forced_stop=False, leaked_size=current_target_size)
 
-    resize_err = _resize_mig_to_zero(project_id, region, mig_name)
-    if not resize_err:
-        logger.info(f"Successfully resized ProxySQL MIG '{mig_name}' to 0.")
+    auto_name = _extract_autoscaler_name(autoscaler)
+    if auto_name:
+        logger.info(f"MIG is managed by autoscaler '{auto_name}'. Scaling autoscaler to 0.")
+        stop_err = _stop_autoscaler(project_id, region, auto_name)
+    else:
+        stop_err = _resize_mig_to_zero(project_id, region, mig_name)
+
+    if not stop_err:
+        logger.info(f"Successfully stopped ProxySQL MIG '{mig_name}'.")
         return ResourceInspectionResult(was_leaked=True, forced_stop=True, leaked_size=current_target_size)
 
-    err_msg = f"Failed to resize ProxySQL MIG '{mig_name}' to 0: {resize_err}"
+    err_msg = f"Failed to stop ProxySQL MIG '{mig_name}': {stop_err}"
     logger.error(err_msg)
     send_slack_alert(f":rotating_light: *【緊急】ProxySQL MIGの強制停止に失敗しました*: {err_msg}")
     return ResourceInspectionResult(
-        was_leaked=True, forced_stop=False, leaked_size=current_target_size, details=resize_err
+        was_leaked=True, forced_stop=False, leaked_size=current_target_size, details=stop_err
     )
+
 
 
 def main() -> int:
