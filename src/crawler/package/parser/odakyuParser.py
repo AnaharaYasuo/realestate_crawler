@@ -2,7 +2,15 @@ from decimal import Decimal
 from typing import Optional
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    ListingEndedException,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.models.odakyu import OdakyuMansion, OdakyuKodate, OdakyuTochi, OdakyuInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -202,7 +210,14 @@ class OdakyuMansionParser(OdakyuParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        raw = (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or specs.get("建物構造・階数", "")
+            or super()._parseKouzou(response, specs)
+        )
+        # "軽量鉄骨 2階建て" / "RC造2階建て" — keep structure token.
+        return str(raw or "").strip()
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -306,7 +321,14 @@ class OdakyuKodateParser(OdakyuParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        raw = (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or specs.get("建物構造・階数", "")
+            or super()._parseKouzou(response, specs)
+        )
+        # "軽量鉄骨 2階建て" / "RC造2階建て" — keep structure token.
+        return str(raw or "").strip()
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -441,6 +463,15 @@ class OdakyuTochiParser(OdakyuParser, TochiParserBase):
 
 
 class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
+    # Site bug (2026-09): invest cards use href="//detail/V…//" which resolves to
+    # host "detail" and all /{kind}/detail/V…/ patterns 404. Yield is only on the
+    # list card (estate-info-catch). List-card parse is the production path until
+    # detail pages are restored. kouzou is rarely on the card → not required here.
+    EXPECTED_SPEC_FIELDS_BY_TYPE = {
+        **getattr(ParserBase, "EXPECTED_SPEC_FIELDS_BY_TYPE", {}),
+        "investment": ["price", "address", "grossYield", "annualRent"],
+    }
+
     def _parseRights(self, response, specs=None):
         return super()._parseRights(response, specs)
 
@@ -496,7 +527,120 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
     def createEntity(self):
         return OdakyuInvestment()
 
+    @staticmethod
+    def _focus_id_from_url(url: str) -> str:
+        if not url:
+            return ""
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        vals = qs.get("focus") or []
+        if not vals:
+            return ""
+        return (vals[0] or "").strip()
+
+    def _estate_block_has_yield(self, block) -> bool:
+        catch = block.select_one(".estate-info-catch")
+        text = (catch.get_text(" ", strip=True) if catch else "") + " " + block.get_text(" ", strip=True)[:200]
+        return any(k in text for k in ("利回", "オーナーチェンジ", "収益", "賃貸中"))
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        """Prefer invest list cards with yield; detail //detail/V* links are broken on-site."""
+        detail_links = set()
+        for block in response.select(".estate-block"):
+            cb = block.select_one('input[name="ids[]"]')
+            if cb is None:
+                continue
+            vid = (cb.get("value") or "").strip()
+            if not vid:
+                continue
+            if not self._estate_block_has_yield(block):
+                continue
+            # V* / B* invest codes — list-card focus URL (detail pages 404).
+            focus_url = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(vid)}"
+            if focus_url not in detail_links:
+                detail_links.add(focus_url)
+                yield focus_url
+        # Fallback: typed detail links (often residential mixed into invest list).
+        pattern = re.compile(
+            r"/(?:mansion|house|kodate|land|tochi|invest)/detail/[A-Za-z0-9\-]+"
+        )
+        for a in response.find_all("a", href=pattern):
+            href = a.get("href")
+            if not href:
+                continue
+            normalized = self._normalize_detail_url(href)
+            if normalized and normalized not in detail_links:
+                detail_links.add(normalized)
+                yield normalized
+
+    def _parse_invest_list_card(self, item, block, focus_id: str = ""):
+        name_el = block.select_one(".estate-block-name a, .estate-block-name")
+        item.propertyName = name_el.get_text(" ", strip=True) if name_el else ""
+        price_el = block.select_one(".estate-price-item")
+        price_str = price_el.get_text(" ", strip=True) if price_el else ""
+        item.priceStr = price_str
+        item.price = converter.parse_price(price_str) or 0
+        addr_dd = None
+        for dl in block.select(".estate-info-list dl.address"):
+            dt = dl.find("dt")
+            if dt and "所在地" in dt.get_text():
+                addr_dd = dl.find("dd")
+                break
+        item.address = addr_dd.get_text(" ", strip=True) if addr_dd else ""
+        if item.address:
+            item.address1, item.address2, item.address3 = self._split_address(item.address)
+        catch = block.select_one(".estate-info-catch")
+        catch_text = catch.get_text(" ", strip=True) if catch else ""
+        gy_m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*％", catch_text)
+        if not gy_m:
+            gy_m = re.search(r"利回り[：:\s]*約?([0-9]+(?:\.[0-9]+)?)", catch_text)
+        if gy_m:
+            item.grossYield = converter.parse_ratio(gy_m.group(1) + "%")
+        # Derive annual rent when listing publishes yield but not rent.
+        if item.grossYield and item.price and not getattr(item, "annualRent", None):
+            try:
+                gy = float(item.grossYield)
+                if gy > 0:
+                    rent_val = int(float(item.price) * gy / 100.0)
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError):
+                pass
+        item.propertyType = PropertyTypeDetector.detect_investment_type(
+            (item.propertyName or "") + " " + catch_text
+        )
+        if focus_id:
+            item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
+        if not item.grossYield or not getattr(item, "annualRent", None):
+            raise SkipPropertyException(
+                f"Odakyu invest list card missing yield/rent: {item.propertyName[:60]}"
+            )
+        return item
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        focus = self._focus_id_from_url(getattr(item, "pageUrl", "") or getattr(self, "_last_url", ""))
+        # List-card path: invest/list HTML with estate-block(+optional focus).
+        blocks = response.select(".estate-block")
+        if blocks:
+            target = None
+            if focus:
+                for block in blocks:
+                    cb = block.select_one('input[name="ids[]"]')
+                    if cb and (cb.get("value") or "").strip() == focus:
+                        target = block
+                        break
+                if target is None:
+                    raise ListingEndedException(
+                        f"Odakyu invest focus id not found on list page: {focus}"
+                    )
+            else:
+                for block in blocks:
+                    if self._estate_block_has_yield(block):
+                        target = block
+                        break
+            if target is not None:
+                return self._parse_invest_list_card(item, target, focus_id=focus)
+
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
@@ -513,9 +657,24 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
                 item.annualRent = rent_val
                 item.monthlyRent = rent_val // 12
 
+        if item.grossYield and item.price and not getattr(item, "annualRent", None):
+            try:
+                gy = float(item.grossYield)
+                if gy > 0:
+                    rent_val = int(float(item.price) * gy / 100.0)
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError):
+                pass
+
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.currentStatus = item.genkyo
-        item.kouzou = self._parseKouzou(response, specs)
+        item.kouzou = (
+            self._parseKouzou(response, specs)
+            or specs.get("建物構造", "")
+            or specs.get("構造", "")
+        )
 
         # 築年月
         item.chikunengetsuStr = specs.get("築年月", "")
@@ -553,5 +712,10 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
 
         # 物件種別（Apartment, Mansion, Building）の判定 (共通化)
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
+
+        if not item.grossYield or not getattr(item, "annualRent", None):
+            raise SkipPropertyException(
+                f"Odakyu investment listing missing yield/rent: {(item.propertyName or '')[:60]}"
+            )
 
         return item

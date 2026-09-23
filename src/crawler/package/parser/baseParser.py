@@ -182,9 +182,12 @@ class ParserBase(metaclass=ABCMeta):
         specs = specs or self._get_specs(response)
         name = specs.get("物件名", "") or specs.get("名称", "") or specs.get("物件名称", "")
         if not name and response:
-            title_el = response.find(["h1", "h2"])
-            if title_el:
-                name = title_el.get_text(strip=True)
+            # Prefer first non-empty heading (some sites render empty <h1> before <h2>).
+            for title_el in response.find_all(["h1", "h2"], limit=5):
+                candidate = title_el.get_text(strip=True)
+                if candidate:
+                    name = candidate
+                    break
         return name
 
     @abstractmethod
@@ -536,6 +539,33 @@ class ParserBase(metaclass=ABCMeta):
         if not hasattr(item, field):
             return None
         val = getattr(item, field, None)
+
+        # Under-construction listings often omit building area / year yet.
+        genkyo = str(
+            getattr(item, "genkyo", "")
+            or getattr(item, "currentStatus", "")
+            or ""
+        )
+        if any(tok in genkyo for tok in ("未完成", "建築中", "新築（未完成）")):
+            if field in ("tatemonoMenseki", "chikunengetsuStr"):
+                return None
+
+        # Numeric specs are often stored first as *Str; reparse Str when numeric is empty.
+        str_fallback = {
+            "senyuMenseki": "senyuMensekiStr",
+            "tochiMenseki": "tochiMensekiStr",
+            "tatemonoMenseki": "tatemonoMensekiStr",
+        }.get(field)
+        if str_fallback and hasattr(item, str_fallback):
+            str_val = getattr(item, str_fallback, None)
+            if isinstance(str_val, str) and str_val.strip():
+                num_invalid, _ = self._validate_numeric_field_val(val)
+                if not num_invalid:
+                    return None
+                parsed = converter.parse_menseki(str_val)
+                if parsed is not None:
+                    setattr(item, field, parsed)
+                    return None
 
         if field in ['price', 'senyuMenseki', 'tochiMenseki', 'tatemonoMenseki', 'grossYield']:
             is_invalid, reason = self._validate_numeric_field_val(val)

@@ -8,7 +8,13 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.daikyo import DaikyoMansion, DaikyoKodate, DaikyoTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -414,7 +420,13 @@ class DaikyoKodateParser(DaikyoParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or specs.get("構造・階建", "")
+            or specs.get("所在階/構造・階建", "")
+            or super()._parseKouzou(response, specs)
+        )
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -441,20 +453,26 @@ class DaikyoKodateParser(DaikyoParser, KodateParserBase):
 
         item.madori = self._parseMadori(response, specs)
 
-        item.tochiMensekiStr = specs.get("土地面積", "") or specs.get("敷地面積", "") or specs.get("土地公簿面積", "") or specs.get("公簿面積", "") or specs.get("区画面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("土地公簿面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("区画面積", "")
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
         else:
-            from package.parser.baseParser import SkipPropertyException
             raise SkipPropertyException("DaikyoKodate: Non-kodate property mixed in search list.")
-
 
         item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-
         item.kouzou = self._parseKouzou(response, specs)
+        if not (item.kouzou or "").strip():
+            raise SkipPropertyException("DaikyoKodate: kouzou empty (skip and try next)")
+
         item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)

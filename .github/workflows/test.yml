@@ -46,7 +46,7 @@ jobs:
             command: docker compose exec -T app pytest -n auto src/crawler/tests/unit/
           - group: integration
             name: Integration Tests
-            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/
+            command: docker compose exec -T app pytest -n auto src/crawler/tests/integration/ -m "not live"
           - group: ml-pipeline
             name: ML & Pipeline Tests
             command: docker compose exec -T app pytest -n auto src/crawler/tests/test_ml_pipeline.py src/crawler/tests/test_image_handler.py

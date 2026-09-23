@@ -2,10 +2,10 @@
 # CSS selectors for parsing Sumifu property pages
 
 mansion:
-  # Basic selectors
+  # Basic selectors (2021+ redesign: price/address moved off legacy dl#s_summaryPrice)
   title: "h1.heading-1" # Fallback: "h1"
-  price: "dl#s_summaryPrice dd p em"
-  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  price: "div.article-header__price .price, span.price__number"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   
   # List page selectors
   next_page: "#searchCondition ul.pagination li:last-child a"
@@ -24,8 +24,8 @@ mansion:
 
 kodate:
   title: "h1.heading-1"
-  price: "dl#s_summaryPrice dd p em"
-  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  price: "div.article-header__price .price, span.price__number"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   next_page: "#searchCondition ul.pagination li:last-child a"
   property_links: "a.property-info-anchor"
   
@@ -41,8 +41,8 @@ kodate:
 
 tochi:
   title: "h1.heading-1"
-  price: "dl#s_summaryPrice dd p em"
-  address: "div#bukkenDetailBlock div.itemInfo dl.address dd"
+  price: "div.article-header__price .price, span.price__number"
+  address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   next_page: "#searchCondition ul.pagination li:last-child a"
   property_links: "a.property-info-anchor"
   

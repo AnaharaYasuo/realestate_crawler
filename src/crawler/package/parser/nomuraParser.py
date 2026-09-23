@@ -1,4 +1,10 @@
-from package.parser.baseParser import MansionParserBase, KodateParserBase, TochiParserBase, InvestmentParserBase
+from package.parser.baseParser import (
+    MansionParserBase,
+    KodateParserBase,
+    TochiParserBase,
+    InvestmentParserBase,
+    SkipPropertyException,
+)
 from bs4 import BeautifulSoup
 from abc import abstractmethod
 import re
@@ -437,8 +443,13 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
     def _parseSenyuMenseki(self, response, specs=None):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if not val:
+            for k, v in specs.items():
+                if ("専有" in str(k) and "面積" in str(k)) or "壁芯" in str(k):
+                    val = v
+                    break
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = re.search(r"([\d.]+)", str(val).replace(",", ""))
             if m:
                 return Decimal(m.group(1))
         # Fallback: scan highlight summary blocks
@@ -447,9 +458,18 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
             if h and ("専有面積" in h.get_text() or "壁芯面積" in h.get_text()):
                 p = inner.select_one("p")
                 if p:
-                    m = re.search(r'([\d\.]+)', p.get_text())
+                    m = re.search(r"([\d.]+)", p.get_text())
                     if m:
                         return Decimal(m.group(1))
+        # Fallback: any element mentioning 専有面積
+        for el in response.select("th, dt, .heading, .c_heading, span, p"):
+            txt = el.get_text(" ", strip=True)
+            if "専有面積" in txt or "壁芯面積" in txt:
+                sib = el.find_next(["td", "dd", "p", "span"])
+                blob = (sib.get_text(" ", strip=True) if sib else "") + " " + txt
+                m = re.search(r"([\d.]+)\s*m", blob, re.I)
+                if m:
+                    return Decimal(m.group(1))
         return super()._parseSenyuMenseki(response, specs)
 
     def _parseMadori(self, response, specs=None) -> str:
@@ -494,7 +514,17 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
     property_type = 'mansion'
     def createEntity(self): return NomuraMansion()
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item.propertyName = self._parsePropertyName(response)
+        name = ""
+        try:
+            name = self._parsePropertyName(response) or ""
+        except Exception:
+            h1 = response.select_one("h1") if response else None
+            name = h1.get_text(" ", strip=True) if h1 else ""
+        if any(tok in str(name) for tok in ("戸建", "一戸建", "土地")) and not any(
+            tok in str(name) for tok in ("マンション", "レジデンス", "タワー", "アパート", "一棟")
+        ):
+            raise SkipPropertyException(f"Non-mansion Nomura listing skipped: {str(name)[:60]}")
+        item.propertyName = name
         item.priceStr = self._parsePriceStr(response)
         item.price = self._parsePrice(response)
         item.address = self._parseAddress(response)
@@ -899,6 +929,19 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
         item.grossYield = self._parseGrossYield(response)
         item.annualRent = self._parseAnnualRent(response)
         item.monthlyRent = self._parseMonthlyRent(response)
+        try:
+            gy = float(item.grossYield or 0)
+        except (TypeError, ValueError):
+            gy = 0.0
+        ar = item.annualRent or item.monthlyRent or 0
+        try:
+            ar_f = float(ar)
+        except (TypeError, ValueError):
+            ar_f = 0.0
+        if gy <= 0 or ar_f <= 0:
+            raise SkipPropertyException(
+                "Nomura invest listing missing published yield/rent"
+            )
         
         item.currentStatus = self._parseCurrentStatus(response)
         item.kouzou = self._parseKouzouInvest(response)
@@ -957,13 +1000,45 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
     
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
-        yield_val = specs.get("利回り", specs.get("表面利回り", ""))
-        return Decimal(yield_val.replace("%", "").strip()) if yield_val else Decimal(0)
-        
+        yield_val = (
+            specs.get("想定利回り")
+            or specs.get("表面利回り")
+            or specs.get("利回り")
+            or specs.get("現行利回り")
+            or ""
+        )
+        if not yield_val:
+            for k, v in specs.items():
+                if "利回" in str(k) and v:
+                    yield_val = v
+                    break
+        text = str(yield_val).replace("%", "").replace("％", "").strip()
+        if not text:
+            return Decimal(0)
+        m = re.search(r"(\d+(?:\.\d+)?)", text)
+        if not m:
+            return Decimal(0)
+        try:
+            return Decimal(m.group(1))
+        except Exception:
+            return Decimal(0)
+
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
-        rent_val = specs.get("想定年商", specs.get("想定年間収入", specs.get("満室時想定年収", "")))
-        return converter.parse_price(rent_val) if rent_val else 0
+        rent_val = (
+            specs.get("想定年間収入")
+            or specs.get("想定年商")
+            or specs.get("満室時想定年収")
+            or specs.get("満室時年収")
+            or specs.get("想定年収")
+            or ""
+        )
+        if not rent_val:
+            for k, v in specs.items():
+                if any(x in str(k) for x in ("年間収入", "想定年収", "想定年商")) and v:
+                    rent_val = v
+                    break
+        return converter.parse_price(str(rent_val)) if rent_val else 0
 
     def _parseMonthlyRent(self, response, specs=None):
         annualRent = self._parseAnnualRent(response)

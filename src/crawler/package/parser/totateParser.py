@@ -50,14 +50,23 @@ class TotateParser(ParserBase):
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        # 物件詳細リンクは /mansion/NFD1C4021/ のような形式
-        re.compile(rf'/{self.property_type or "mansion"}/[A-Za-z0-9]+')
-        for a in response.select(".items .item h4.name a, a[href^='/" + (self.property_type or "mansion") + "/N']"):
+        # 物件詳細リンクは /mansion/NFD1C4021/ や /mansion/DMHF95604/ など英数字ID
+        selectors = (
+            ".items .item h4.name a, "
+            f"a[href^='/{self.property_type or 'mansion'}/N'], "
+            f"a[href*='/{self.property_type or 'mansion'}/']"
+        )
+        for a in response.select(selectors):
             href = a.get("href")
             if href:
                 full_url = self.getRootDestUrl(href)
                 parsed = urllib.parse.urlparse(full_url)
                 path = parsed.path
+                # Skip area/list hubs
+                if re.search(r"/(area|list|kanto|kansai|search)(/|$)", path, re.I):
+                    continue
+                if not re.search(rf"/{self.property_type or 'mansion'}/[A-Za-z0-9_-]*\d", path):
+                    continue
                 if not path.endswith('/'):
                     path += '/'
                 normalized = f"{self.BASE_URL}{path}"

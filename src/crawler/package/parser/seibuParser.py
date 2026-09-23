@@ -94,7 +94,23 @@ class SeibuParser(ParserBase):
                     key = ths[i].get_text().strip().replace("\n", "").replace(" ", "")
                     val = tds[i].get_text().strip()
                     val = re.sub(r'\s+', ' ', val)
-                    specs[key] = val
+                    if key and key not in specs:
+                        specs[key] = val
+        # Some Seibu pages repeat key/value in adjacent cells with empty th pairing.
+        if "間取り" not in specs or "建物構造" not in specs or "土地面積" not in specs:
+            text = response.get_text(" ", strip=True)
+            if "間取り" not in specs:
+                m = re.search(r"間取り\s*([0-9]+[A-Z]*[A-Z0-9]*)", text)
+                if m:
+                    specs["間取り"] = m.group(1)
+            if "建物構造" not in specs and "構造" not in specs:
+                m = re.search(r"建物構造\s*([^\s]{2,40})", text)
+                if m:
+                    specs["建物構造"] = m.group(1)
+            if "土地面積" not in specs:
+                m = re.search(r"土地面積\s*([0-9.]+)\s*㎡", text)
+                if m:
+                    specs["土地面積"] = f"{m.group(1)}㎡"
         return specs
 
     def _split_address(self, address):
@@ -175,7 +191,11 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or super()._parseKouzou(response, specs)
+        )
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -216,9 +236,19 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
 
         item.madori = self._parseMadori(response, specs)
         
-        item.senyuMensekiStr = specs.get("専有面積", "")
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("専有面積（壁芯）", "")
+            or specs.get("建物面積", "")
+        )
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        # Generic marketing H1 — prefer address as property name.
+        name = (getattr(item, "propertyName", "") or "").strip()
+        if (not name) or ("買取" in name and "物件情報" in name):
+            addr = getattr(item, "address", "") or specs.get("所在地", "")
+            if addr:
+                item.propertyName = addr.strip()
 
         # 階数・所在階
         item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")

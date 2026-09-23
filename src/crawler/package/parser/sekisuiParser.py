@@ -209,7 +209,7 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return specs.get("構造", "") or specs.get("構造・階数", "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -257,7 +257,14 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         if item.kaisuStr:
             item.floorType_kai = converter.parse_numeric(item.kaisuStr)
 
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成年月", "") or specs.get("竣工年月", "") or specs.get("築年", "")
+        item.chikunengetsuStr = (
+            specs.get("築年月", "")
+            or specs.get("完成年月", "")
+            or specs.get("竣工年月", "")
+            or specs.get("築年", "")
+            or specs.get("完成時期（築年月）", "")
+            or specs.get("完成時期", "")
+        )
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
@@ -314,7 +321,7 @@ class SekisuiKodateParser(SekisuiParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return specs.get("構造", "") or specs.get("構造・階数", "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -351,7 +358,14 @@ class SekisuiKodateParser(SekisuiParser, KodateParserBase):
         item.madori = self._parseMadori(response, specs)
         item.kouzou = self._parseKouzou(response, specs)
         
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成年月", "") or specs.get("竣工年月", "") or specs.get("築年", "")
+        item.chikunengetsuStr = (
+            specs.get("築年月", "")
+            or specs.get("完成年月", "")
+            or specs.get("竣工年月", "")
+            or specs.get("築年", "")
+            or specs.get("完成時期（築年月）", "")
+            or specs.get("完成時期", "")
+        )
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 

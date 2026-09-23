@@ -1,7 +1,14 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment, HomesTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -512,6 +519,10 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         income_str = income_tag.get_text().strip() if income_tag else ""
         item.annualRent = converter.parse_price(income_str)
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
+        if not item.annualRent and not item.grossYield:
+            raise SkipPropertyException(
+                "Homes invest: missing yield/annualRent on listing (skip and try next)"
+            )
         
         status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
         item.currentStatus = status_tag.get_text().strip() if status_tag else ""

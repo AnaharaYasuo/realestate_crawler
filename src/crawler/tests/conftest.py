@@ -17,8 +17,15 @@ if crawler_path not in sys.path:
 
 def pytest_configure():
     from django.core.management import call_command
+    import tempfile
+
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
     if not settings.configured:
+        # Per-process file so parallel Start-Job / xdist workers do not lock one another.
+        # Avoid :memory: — asyncio.to_thread ORM saves need a shared schema per process.
+        db_path = os.path.join(
+            tempfile.gettempdir(), f"crawl_guarantee_pytest_{os.getpid()}.sqlite3"
+        )
         settings.configure(
             SECRET_KEY=os.getenv('SECRET_KEY', secrets.token_hex(32)),
             INSTALLED_APPS=[
@@ -27,7 +34,10 @@ def pytest_configure():
             DATABASES={
                 'default': {
                     'ENGINE': 'django.db.backends.sqlite3',
-                    'NAME': ':memory:',
+                    'NAME': db_path,
+                    'OPTIONS': {
+                        'timeout': 30,
+                    },
                 }
             },
             MIGRATION_MODULES={
@@ -35,5 +45,5 @@ def pytest_configure():
             }
         )
     django.setup()
-    # メモリDBにテーブルを自動作成
+    # メモリ/ファイルDBにテーブルを自動作成
     call_command('migrate', interactive=False, verbosity=0, run_syncdb=True)

@@ -156,12 +156,22 @@ class ParseMisawaInvestmentStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncPr
     def _getTreatPageArg(self):
         return
 
-class ParseMisawaInvestmentApartmentStartAsync(ParseMisawaInvestmentStartAsync):
-    pass
-
 class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
+    # Invest inventory is type=9 (shared list). Rows include アパート/一棟/戸建貸家;
+    # MisawaInvestmentKodateParser skips non-戸建. Explicit urlList so catalog seed
+    # is not ambiguous with the apartment Start class.
+    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
+
+    def _generateParser(self):
+        from package.parser.misawaParser import MisawaInvestmentKodateParser
+        return MisawaInvestmentKodateParser()
+
     def _getApiKey(self):
         return API_KEY_MISAWA_INVEST_KODATE_LIST
+
+
+class ParseMisawaInvestmentApartmentStartAsync(ParseMisawaInvestmentStartAsync):
+    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
 
 
 # Import missing constants

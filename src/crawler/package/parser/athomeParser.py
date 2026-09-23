@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -118,13 +118,50 @@ class AthomeParser(ParserBase):
                 page = await context.new_page()
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    await page.wait_for_timeout(2000)
-                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                    await page.wait_for_timeout(2000)
+                    # Athome often issues a follow-up navigation; wait for it to settle.
                     try:
-                        await page.wait_for_selector("a[href*='bklist'], a[href*='bkdetail'], a[href*='tokyo'], .item-list, .building-list", timeout=5000)
+                        await page.wait_for_load_state("networkidle", timeout=3000)
                     except Exception:
                         pass
+                    await page.wait_for_timeout(400)
+                    for _ in range(2):
+                        try:
+                            await page.evaluate(
+                                "window.scrollTo(0, document.body.scrollHeight / 2)"
+                            )
+                            break
+                        except Exception:
+                            await page.wait_for_timeout(400)
+                    await page.wait_for_timeout(400)
+                    try:
+                        await page.wait_for_function(
+                            """() => {
+                                const text = document.body ? document.body.innerText : '';
+                                if (text.includes('認証中') || text.includes('認証にご協力')) {
+                                    return false;
+                                }
+                                const hrefs = Array.from(document.querySelectorAll('a[href]'))
+                                    .map(a => a.getAttribute('href') || '');
+                                const hasDetail = hrefs.some(h =>
+                                    /\\/(mansion|kodate|tochi|buy_other)\\/\\d{6,}/.test(h)
+                                    || h.includes('bkdetail')
+                                );
+                                const hasPriceTable = text.includes('価格')
+                                    && !!document.querySelector('#detailTitleArea, table');
+                                return hasDetail || hasPriceTable;
+                            }""",
+                            timeout=3500,
+                        )
+                    except Exception:
+                        try:
+                            await page.wait_for_selector(
+                                "a[href*='bklist'], a[href*='bkdetail'], "
+                                "a[href*='tokyo'], .item-list, .building-list, "
+                                "#detailTitleArea",
+                                timeout=2500,
+                            )
+                        except Exception:
+                            pass
                 except Exception as goto_err:
                     logging.warning(f"Playwright goto warning for {url}: {goto_err}")
                 
@@ -133,7 +170,11 @@ class AthomeParser(ParserBase):
                     logging.info(f"Retrying page load for challenge screen at {url}...")
                     try:
                         await page.reload(wait_until="domcontentloaded", timeout=20000)
-                        await page.wait_for_timeout(3000)
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:
+                            pass
+                        await page.wait_for_timeout(2000)
                         content_str = await page.content()
                     except Exception as reload_err:
                         logging.warning(f"Playwright reload warning for {url}: {reload_err}")
@@ -724,47 +765,82 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
     def createEntity(self):
         return AthomeInvestmentApartment()
 
+    async def parseRootPage(self, response):
+        """Prefer buy_other / bldg / toushi details; skip mansion reco noise on invest hubs."""
+        async for url in super().parseRootPage(response):
+            path = urllib.parse.urlparse(url).path.lower()
+            if any(tok in path for tok in ("/buy_other/", "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
+                yield url
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
         specs = self._get_specs_table(response)
         shumoku = specs.get("物件種目", "")
         
         if shumoku:
-            # 区分マンションの場合のみ、区分用のAthomeMansionParserに委譲する（一棟マンションは一棟アパートと同様に本クラスでそのままパースする）
+            # 投資一覧に居住用が混在 — 利回り無しの区分/戸建/土地は次URLへ
             if "マンション" in shumoku and "一棟" not in shumoku:
-                parser = AthomeMansionParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
-            elif "戸建" in shumoku or "テラス" in shumoku:
-                parser = AthomeKodateParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
-            elif "土地" in shumoku:
-                parser = AthomeTochiParser()
-                new_item = parser.createEntity()
-                new_item.pageUrl = item.pageUrl
-                return parser._parsePropertyDetailPage(new_item, response)
+                raise SkipPropertyException(f"Athome invest list mixed residential mansion: {shumoku}")
+            elif ("戸建" in shumoku or "テラス" in shumoku) and "一棟" not in shumoku and "収益" not in shumoku:
+                raise SkipPropertyException(f"Athome invest list mixed residential kodate: {shumoku}")
+            elif "土地" in shumoku and "一棟" not in shumoku:
+                raise SkipPropertyException(f"Athome invest list mixed residential tochi: {shumoku}")
                 
         item = super()._parsePropertyDetailPage(item, response)
         
-        # 投資用固有情報
-        yield_str = specs.get("利回り", "")
+        # 投資用固有情報（専用欄が無い場合は備考に利回り・想定家賃が埋まる）
+        biko = specs.get("備考", "") or ""
+        yield_str = (
+            specs.get("利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("想定利回り", "")
+        )
+        if not yield_str:
+            m = re.search(r"利回り[：:\s]*([0-9]+(?:\.[0-9]+)?)\s*[％%]?", biko)
+            if m:
+                yield_str = m.group(1) + "%"
         item.grossYield = converter.parse_ratio(yield_str)
         
-        rent_str = specs.get("想定賃料", "")
+        rent_str = (
+            specs.get("想定賃料", "")
+            or specs.get("想定年間収入", "")
+            or specs.get("年間想定収入", "")
+            or specs.get("満室想定年収", "")
+            or specs.get("年間想定家賃収入", "")
+        )
+        if not rent_str:
+            m = re.search(
+                r"年間想定(?:家賃)?収入[：:\s]*([0-9.,]+)\s*万円",
+                biko,
+            )
+            if m:
+                rent_str = m.group(1) + "万円"
         item.annualRent = converter.parse_price(rent_str)
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
+        if item.grossYield and item.price and not item.annualRent:
+            try:
+                gy = float(item.grossYield)
+                if gy > 0:
+                    rent_val = int(float(item.price) * gy / 100.0)
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError):
+                pass
+        if not item.grossYield or not item.annualRent:
+            raise SkipPropertyException(
+                f"Athome investment listing missing yield/rent: {(getattr(item, 'propertyName', '') or '')[:60]}"
+            )
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.currentStatus = item.genkyo
+        item.kouzou = specs.get("建物構造", "") or specs.get("構造", "") or getattr(item, "kouzou", "")
         
         # 面積・構造
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
             
-        item.tatemonoMensekiStr = specs.get("建物面積", "")
+        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("使用部分面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
             

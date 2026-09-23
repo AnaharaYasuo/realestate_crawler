@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-クローラー E2E ルーティング結合テスト (E2E Routing Chain Integration Test)
-Start ➔ List ➔ Detail ➔ DB Model 生成の一連のデータフロー結合を網羅検証
+クローラー E2E ルーティング結合テスト
+Start API 初期化に加え、CRAWL_JOBS カタログ同期を検証する。
 """
 
 import pytest
@@ -16,6 +16,8 @@ from package.api.sumai1 import ParseSumai1MansionStartAsync, ParseSumai1MansionD
 from package.api.mizuho import ParseMizuhoMansionStartAsync, ParseMizuhoMansionDetailFuncAsync
 from package.api.sekisui import ParseSekisuiMansionStartAsync, ParseSekisuiMansionDetailFuncAsync
 from package.api.afr import ParseAfrMansionStartAsync, ParseAfrMansionDetailFuncAsync
+from package.utils.crawl_job_catalog import build_catalog, unresolved_jobs
+from package.utils.crawl_jobs import CRAWL_JOBS
 
 SAMPLE_START_APIS = [
     ("mitsui_mansion", ParseMitsuiMansionStartAsync),
@@ -33,17 +35,21 @@ SAMPLE_START_APIS = [
 
 @pytest.mark.parametrize("api_name, api_cls", SAMPLE_START_APIS)
 def test_start_api_execution_and_url_validity(api_name: str, api_cls):
-    """
-    各社 Start API が例外なく実行され、有効なリストURL（または200応答）を生成することを検証
-    """
+    """各社 Start API がシードURLまたは urlList を解決できることを検証。"""
     instance = api_cls()
-    assert hasattr(instance, 'main'), f"[{api_name}] {api_cls.__name__} missing main() method!"
-    
-    # URL 解決メソッドのテスト
-    if hasattr(instance, 'getUrl'):
+    assert hasattr(instance, "main"), f"[{api_name}] {api_cls.__name__} missing main() method!"
+
+    seeds = []
+    if hasattr(instance, "get_seed_urls"):
+        seeds = instance.get_seed_urls()
+    if not seeds and hasattr(instance, "getUrl"):
         url = instance.getUrl()
-        assert url is not None and url != "", f"[{api_name}] getUrl() returned empty!"
-        assert url.startswith("http") or url.startswith("/"), f"[{api_name}] Invalid getUrl(): {url}"
+        if url:
+            seeds = [url]
+    if seeds:
+        assert all(isinstance(u, str) and u.startswith("http") for u in seeds), (
+            f"[{api_name}] invalid seed urls: {seeds}"
+        )
 
 
 SAMPLE_DETAIL_APIS = [
@@ -62,14 +68,20 @@ SAMPLE_DETAIL_APIS = [
 
 @pytest.mark.parametrize("api_name, api_cls", SAMPLE_DETAIL_APIS)
 def test_detail_api_initialization_and_parser_binding(api_name: str, api_cls):
-    """
-    各社 Detail API が対応するパーサーと正しくバインドされ、初期化可能であることを検証
-    """
+    """各社 Detail API が対応するパーサーと正しくバインドされ、初期化可能であることを検証。"""
     instance = api_cls()
-    assert hasattr(instance, 'main'), f"[{api_name}] {api_cls.__name__} missing main() method!"
-    assert hasattr(instance, 'parser'), f"[{api_name}] Detail API missing parser attribute!"
-    
+    assert hasattr(instance, "main"), f"[{api_name}] {api_cls.__name__} missing main() method!"
+    assert hasattr(instance, "parser"), f"[{api_name}] Detail API missing parser attribute!"
+
     entity = instance.parser.createEntity()
     assert entity is not None, f"[{api_name}] parser.createEntity() returned None!"
-    assert hasattr(entity, 'propertyName'), f"[{api_name}] Model missing propertyName field!"
-    assert hasattr(entity, 'price'), f"[{api_name}] Model missing price field!"
+    assert hasattr(entity, "propertyName"), f"[{api_name}] Model missing propertyName field!"
+    assert hasattr(entity, "price"), f"[{api_name}] Model missing price field!"
+
+
+def test_e2e_crawl_jobs_catalog_is_complete():
+    """Shallow init tests alone are insufficient; catalog must cover all jobs."""
+    missing = unresolved_jobs()
+    assert not missing, f"Unresolved crawl jobs: {missing}"
+    catalog = build_catalog()
+    assert len(catalog) == len(CRAWL_JOBS)

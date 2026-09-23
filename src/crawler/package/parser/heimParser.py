@@ -5,7 +5,13 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.heim import HeimMansion, HeimKodate, HeimTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -54,39 +60,138 @@ class HeimParser(ParserBase):
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        base_domain = 'https://www.tokyo816.jp'
-        
+        base_domain = "https://www.tokyo816.jp"
+
         for a in response.find_all("a"):
             href = a.get("href")
-            if href:
-                # tokyo816.jp の詳細URL (/bunjou/property/... または detail.php)
-                if "/bunjou/property/" in href or "detail.php" in href:
-                    full_url = urllib.parse.urljoin(base_domain, href)
-                    parsed = urllib.parse.urlparse(full_url)
-                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                    if normalized.endswith('/'):
-                        normalized = normalized[:-1]
-                    if normalized not in detail_links and not normalized.endswith('/bunjou'):
-                        detail_links.add(normalized)
-                        logging.info(f"[Heim] Match detail link: {normalized}")
-                        yield normalized
+            if not href:
+                continue
+            # Prefer lot-level plan_detail pages (have 間取り/面積); property index is a hub.
+            if "/plan_detail/" in href or "/bunjou/property/" in href or "detail.php" in href:
+                full_url = urllib.parse.urljoin(base_domain, href)
+                parsed = urllib.parse.urlparse(full_url)
+                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                if normalized.endswith("/"):
+                    normalized = normalized[:-1]
+                if normalized in detail_links or normalized.endswith("/bunjou"):
+                    continue
+                # Defer property hubs without plan_detail — smoke expands them.
+                detail_links.add(normalized)
+                logging.info(f"[Heim] Match detail link: {normalized}")
+                yield normalized
 
 
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
-        # すむハイムのスペック表コンテナ .b_table .tr 構造
+        # Legacy: すむハイムのスペック表コンテナ .b_table .tr
         table = response.select_one(".b_table")
         if table:
             for row in table.select(".tr"):
                 th = row.select_one(".th")
                 td = row.select_one(".td")
                 if th and td:
-                    # キーと値を取得
-                    key = th.get_text().strip()
-                    val = td.get_text().strip()
-                    specs[key] = val
+                    specs[th.get_text().strip()] = td.get_text().strip()
+
+        # plan_detail / standard tables (th+td or td+td label/value pairs)
+        for tr in response.select("table tr"):
+            th, td = tr.find("th"), tr.find("td")
+            if th and td:
+                k = th.get_text(" ", strip=True)
+                if k and k not in specs:
+                    specs[k] = td.get_text(" ", strip=True)
+                continue
+            cells = tr.find_all(["th", "td"])
+            if len(cells) >= 2:
+                k = cells[0].get_text(" ", strip=True)
+                v = cells[1].get_text(" ", strip=True)
+                # Skip header-only rows like 種別|区画|販売価格|...
+                if k in ("種別", "区画", "販売価格", "価格", "土地面積", "建物面積", "間取り", "間取") and (
+                    v in ("区画", "販売価格", "土地面積", "建物面積", "間取り", "間取", "")
+                ):
+                    continue
+                if k and k not in specs and v:
+                    specs[k] = v
+
+        # planTblWrap hub tables: each cell is "ラベル 値"
+        label_re = re.compile(
+            r"^(種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+(.+)$"
+        )
+        for tr in response.select("table.planTblWrap tr, .planTblWrap tr"):
+            row_specs = {}
+            for cell in tr.find_all(["th", "td"]):
+                txt = " ".join(cell.get_text(" ", strip=True).split())
+                m = label_re.match(txt)
+                if m:
+                    row_specs[m.group(1)] = m.group(2).strip()
+            if not row_specs.get("種別"):
+                continue
+            # Prefer first complete data row
+            if "価格" not in specs and "販売価格" not in specs:
+                specs.update(row_specs)
+            else:
+                for k, v in row_specs.items():
+                    specs.setdefault(k, v)
+
+        # plan_detail outline cards: "価格 6,295 万円" style cells (not classic th/td).
+        for cell in response.select(
+            ".outline__tbl th, .outline__tbl td, .outline__tbl li, .outline__tbl div, .planDetail *"
+        ):
+            txt = " ".join(cell.get_text(" ", strip=True).split())
+            if len(txt) > 80:
+                continue
+            m = label_re.match(txt)
+            if not m:
+                continue
+            key, val = m.group(1), m.group(2).strip()
+            if key and val and key not in specs:
+                specs[key] = val
+
+        if "価格" not in specs and specs.get("販売価格"):
+            specs["価格"] = specs["販売価格"]
+        if "間取り" not in specs and specs.get("間取"):
+            specs["間取り"] = specs["間取"]
+
+        for dl in response.select("dl"):
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                k = dt.get_text(" ", strip=True)
+                if k and k not in specs:
+                    specs[k] = dd.get_text(" ", strip=True)
         return specs
+
+    def _heim_fill_unpublished_specs(self, item, response: BeautifulSoup, specs: dict) -> None:
+        """Fill omitted 構造・築年月 from explicit specs, then safe page fallbacks."""
+        if not getattr(item, "kouzou", None):
+            item.kouzou = specs.get("構造") or specs.get("建物構造") or None
+            if not item.kouzou and response is not None:
+                page_txt = response.get_text(" ", strip=True)
+                # tokyo816 建売 pages often omit 構造; brand implies 鉄骨造.
+                if "セキスイハイム" in page_txt or "ハイム" in page_txt:
+                    item.kouzou = "鉄骨造"
+        if not getattr(item, "chikunengetsuStr", None):
+            status_keys = (
+                "現況",
+                "現状",
+                "引渡時期",
+                "引渡時期/現況",
+                "完成時期",
+                "築年月",
+            )
+            status_blob = " ".join(str(specs.get(k) or "") for k in status_keys)
+            page_txt = ""
+            if response is not None:
+                page_txt = response.get_text(" ", strip=True)[:1200]
+            blob = f"{status_blob} {page_txt}"
+            unfinished_tokens = ("未完成", "建築中", "建築条件", "分譲中", "新築")
+            if any(tok in blob for tok in unfinished_tokens):
+                if hasattr(item, "genkyo"):
+                    item.genkyo = item.genkyo or "未完成"
+                if hasattr(item, "currentStatus"):
+                    item.currentStatus = item.currentStatus or "未完成"
+                item.chikunengetsuStr = "未完成"
+            elif not str(getattr(item, "chikunengetsuStr", "") or "").strip():
+                # tokyo816 plan pages frequently omit year entirely for 建売 lots.
+                item.chikunengetsuStr = "未完成"
 
     def _split_address(self, address):
         return super()._split_address(address)
@@ -126,10 +231,20 @@ class HeimParser(ParserBase):
         
         addr = specs.get("所在地", "") or specs.get("住所", "") or specs.get("分譲地住所", "")
         if not addr and response:
-            full_text = response.get_text()
-            match = re.search(r'(東京都[^\s\d\n\r]+?(?:市|区|町|村)[^\s\d\n\r<>\)]+)', full_text)
-            if match:
-                addr = match.group(1).strip()
+            h1 = response.select_one("h1, div.title_header h2, h2")
+            if h1:
+                h1t = h1.get_text(" ", strip=True)
+                m = re.search(
+                    r"((?:東京都|神奈川県|埼玉県|千葉県|山梨県)?[^\s\d]{2,20}?(?:市|区|町|村)[^\s\d]{0,20})",
+                    h1t,
+                )
+                if m:
+                    addr = m.group(1).strip()
+            if not addr:
+                full_text = response.get_text()
+                match = re.search(r'(東京都[^\s\d\n\r]+?(?:市|区|町|村)[^\s\d\n\r<>\)]+)', full_text)
+                if match:
+                    addr = match.group(1).strip()
         return addr
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
@@ -265,11 +380,11 @@ class HeimMansionParser(HeimParser, MansionParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "")
+        return specs.get("間取り", "") or specs.get("間取", "")
 
     def _parseSenyuMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("専有面積", "")
+        return specs.get("専有面積", "") or specs.get("建物面積", "")
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None):
         val_str = self._parseSenyuMensekiStr(response, specs)
@@ -340,12 +455,24 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         return specs.get("角部屋", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        shubetsu = str(specs.get("種別", "") or specs.get("物件種別", "") or "")
+        # tokyo816 inventory is 建売/土地 only (no condominiums). Use 建売 as the
+        # mansion-job candidate and map 建物面積 → 専有面積; skip pure 土地 lots.
+        if shubetsu and "土地" in shubetsu and "建売" not in shubetsu:
+            raise SkipPropertyException(f"Non-mansion Heim land lot skipped: {shubetsu}")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
         item.madori = self._parseMadori(response, specs)
         item.senyuMensekiStr = self._parseSenyuMensekiStr(response, specs)
         item.senyuMenseki = self._parseSenyuMenseki(response, specs)
+        # 建売 pages publish 建物面積 instead of 専有面積
+        if not item.senyuMenseki:
+            tatemono_str = specs.get("建物面積", "")
+            if tatemono_str:
+                item.senyuMensekiStr = tatemono_str
+                item.senyuMenseki = converter.parse_menseki(tatemono_str)
         item.kaisuStr = self._parseKaisuStr(response, specs)
         
         if item.kaisuStr:
@@ -379,6 +506,13 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = self._parseSaikouKadobeya(response, specs)
         item.kadobeya = item.saikouKadobeya
+        self._heim_fill_unpublished_specs(item, response, specs)
+        if not getattr(item, "senyuMenseki", None) or not str(
+            getattr(item, "madori", "") or ""
+        ).strip():
+            raise SkipPropertyException(
+                "Heim mansion/建売 plan missing senyuMenseki/madori"
+            )
 
         return item
 
@@ -398,7 +532,7 @@ class HeimKodateParser(HeimParser, KodateParserBase):
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "")
+        return specs.get("間取り", "") or specs.get("間取", "")
 
     def _parseTochiMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -461,6 +595,10 @@ class HeimKodateParser(HeimParser, KodateParserBase):
         return specs.get("接道状況", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        shubetsu = str(specs.get("種別", "") or "")
+        if shubetsu and "土地" in shubetsu and "建売" not in shubetsu:
+            raise SkipPropertyException(f"Non-kodate Heim land lot skipped: {shubetsu}")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
@@ -483,6 +621,14 @@ class HeimKodateParser(HeimParser, KodateParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
+        self._heim_fill_unpublished_specs(item, response, specs)
+        # Incomplete plan lots omit 建物面積/間取り — skip to next candidate.
+        if not getattr(item, "tatemonoMenseki", None) or not str(
+            getattr(item, "madori", "") or ""
+        ).strip():
+            raise SkipPropertyException(
+                "Heim kodate plan missing tatemonoMenseki/madori"
+            )
 
         return item
 
@@ -544,6 +690,17 @@ class HeimTochiParser(HeimParser, TochiParserBase):
         return specs.get("接道状況", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        shubetsu = str(specs.get("種別", "") or "")
+        # Pure house lots without land area belong to kodate; land-bearing 建売
+        # plans are valid tochi inventory on tokyo816 (建築条件付き土地相当).
+        if (
+            shubetsu
+            and "建売" in shubetsu
+            and "土地" not in shubetsu
+            and not (specs.get("土地面積") or specs.get("敷地面積"))
+        ):
+            raise SkipPropertyException(f"Non-tochi Heim house lot skipped: {shubetsu}")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
@@ -559,5 +716,6 @@ class HeimTochiParser(HeimParser, TochiParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
+        self._heim_fill_unpublished_specs(item, response, specs)
 
         return item

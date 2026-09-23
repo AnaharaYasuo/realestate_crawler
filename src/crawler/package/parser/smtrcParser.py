@@ -290,7 +290,10 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
 
         item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
         item.madori = specs.get("間取り", "")
-        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "")
+        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
+        if "/" in (item.kouzou or "") and not specs.get("構造"):
+            # e.g. "木造/3階建" → structure only
+            item.kouzou = item.kouzou.split("/", 1)[0].strip()
 
         # 都市計画関連
         item.youtoChiiki = specs.get("用途地域", "")
@@ -454,7 +457,10 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
                 item.monthlyRent = rent_val // 12
 
         item.currentStatus = specs.get("現況", "")
-        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "")
+        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
+        if "/" in (item.kouzou or "") and not specs.get("構造"):
+            # e.g. "木造/3階建" → structure only
+            item.kouzou = item.kouzou.split("/", 1)[0].strip()
 
 
         # 総戸数 (「戸数」表記も考慮)

@@ -8,7 +8,7 @@ from package.api.api import (
 )
 from package.api.keikyu import (
     ParseKeikyuMansionStartAsync, ParseKeikyuMansionDetailFuncAsync,
-    ParseKeikyuStartAsync, ParseKeikyuKodateDetailFuncAsync,
+    ParseKeikyuKodateStartAsync, ParseKeikyuKodateDetailFuncAsync,
     ParseKeikyuTochiStartAsync, ParseKeikyuTochiDetailFuncAsync
 )
 
@@ -29,7 +29,7 @@ def keikyuMansionDetail():
 @keikyu_bp.route(API_KEY_KEIKYU_KODATE_START, methods=['POST', 'GET'])
 def keikyuKodateStart():
     # 東京都の中古戸建
-    return ParseKeikyuStartAsync().main("https://www.keikyu-sumai.com/contents/code/search_result?pref_page=13&sltype=1&r_type=2&pref=13&all_pref=1&change_r_type=&sltype=1&mb_myareas=&mb_myareasC=&pref_check%5B%5D=13&pl_13%5B%5D=13111&r_type=2&mb_cost_min=&mb_cost_max=&inv_rate=&mb_land_min=&mb_land_max=&mb_floor_min=&mb_floor_max=&new_arrivals=&by=area&mode=list")
+    return ParseKeikyuKodateStartAsync().main("https://www.keikyu-sumai.com/contents/code/search_result?pref_page=13&sltype=1&r_type=2&pref=13&all_pref=1&change_r_type=&sltype=1&mb_myareas=&mb_myareasC=&pref_check%5B%5D=13&pl_13%5B%5D=13111&r_type=2&mb_cost_min=&mb_cost_max=&inv_rate=&mb_land_min=&mb_land_max=&mb_floor_min=&mb_floor_max=&new_arrivals=&by=area&mode=list")
 
 @keikyu_bp.route(API_KEY_KEIKYU_KODATE_DETAIL, methods=['POST', 'GET'])
 def keikyuKodateDetail():

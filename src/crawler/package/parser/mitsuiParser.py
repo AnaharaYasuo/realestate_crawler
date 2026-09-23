@@ -1086,29 +1086,25 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
 
     def _get_specs(self, soup: BeautifulSoup):
         data = super()._get_specs(soup)
-        
-        if not soup: return data
 
-        # Fallback for tables where headers are td (not th)
-        # Verify valid tables by checking if we found little data
-        # or just run this strategy anyway as addition
+        if not soup:
+            return data
+
+        # Fallback for tables where headers are td (not th).
+        # Store plain text (not Tags) so Decimal/str parsers never see Tag.replace failures.
         for tr in soup.find_all("tr"):
-            # If already processed by base (th/td), skip? 
-            # Base uses th find. If found, it's in data.
-            # But we might have mixed rows.
-            
-            cells = tr.find_all(['th', 'td'])
+            cells = tr.find_all(["th", "td"])
             if len(cells) >= 2:
-                # Assume chunks of 2: Label, Value, Label, Value...
-                # Mitsui tables often have 2 or 4 columns
                 for i in range(0, len(cells), 2):
                     if i + 1 < len(cells):
-                        key = cells[i].get_text(strip=True)
-                        val = cells[i+1] # Keep as Tag for compatibility
-                        
-                        # Only add if not present (prefer th if base found it)
+                        key = re.sub(r"\s+", "", cells[i].get_text(strip=True))
+                        val = cells[i + 1].get_text(strip=True)
                         if key and key not in data:
-                             data[key] = val
+                            data[key] = val
+                        # Also keep spaced form for legacy lookups.
+                        key_spaced = cells[i].get_text(" ", strip=True)
+                        if key_spaced and key_spaced not in data:
+                            data[key_spaced] = val
         return data
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
@@ -1162,22 +1158,56 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
 
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
-        yield_val = specs.get("利回り", specs.get("表面利回り", specs.get("想定利回り", "")))
-        if yield_val:
-            try: return Decimal(yield_val.replace("%", "").strip())
-            except: pass
-        return Decimal(0)
+        yield_val = (
+            specs.get("想定利回り")
+            or specs.get("表面利回り")
+            or specs.get("利回り")
+            or specs.get("現行利回り")
+            or ""
+        )
+        if not yield_val:
+            for k, v in specs.items():
+                if "利回" in str(k) and v:
+                    yield_val = v
+                    break
+        text = str(yield_val).replace("%", "").replace("％", "").strip()
+        if not text:
+            return Decimal(0)
+        m = re.search(r"(\d+(?:\.\d+)?)", text)
+        if not m:
+            return Decimal(0)
+        try:
+            return Decimal(m.group(1))
+        except Exception:
+            return Decimal(0)
 
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
-        rent_val = specs.get("想定年収", specs.get("年間想定賃料", specs.get("想定賃料", specs.get("想定年額", specs.get("想定賃料(年間)", "")))))
-        if not rent_val: return 0
+        rent_val = (
+            specs.get("想定年収")
+            or specs.get("年間想定賃料")
+            or specs.get("想定賃料(年間)")
+            or specs.get("想定賃料（年間）")
+            or specs.get("想定賃料")
+            or specs.get("想定年額")
+            or ""
+        )
+        if not rent_val:
+            for k, v in specs.items():
+                ks = re.sub(r"\s+", "", str(k))
+                if ("想定" in ks and "賃料" in ks) or ("想定" in ks and "年収" in ks):
+                    rent_val = v
+                    break
+        if not rent_val:
+            return 0
+        rent_val = str(rent_val)
         if "円" in rent_val and "万" not in rent_val:
             try:
                 val = rent_val.replace(",", "").replace("円", "")
-                val = re.sub(r'[（\(].*?[）\)]', '', val)
+                val = re.sub(r"[（\(].*?[）\)]", "", val)
                 return int(val)
-            except: return 0
+            except Exception:
+                return 0
         return converter.parse_price(rent_val)
 
     def _parseMonthlyRent(self, response, specs=None):

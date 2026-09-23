@@ -41,21 +41,59 @@ class AfrParser(ParserBase):
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
-        # レンスポンスHTMLに含まれる「MYSERACH.bukken.push」の物件番号を全抽出する
-        html_str = str(response)
-        
-        # 'number': 'BMS09818' のパターンを検索
-        detail_ids = set(re.findall(r"'number':\s*'([^']+)'", html_str))
-        
+        # Prefer raw <script> text — BeautifulSoup str() can mangle JS object literals.
+        scripts = []
+        if hasattr(response, "find_all"):
+            for tag in response.find_all("script"):
+                if tag.string:
+                    scripts.append(tag.string)
+                elif tag.get_text:
+                    scripts.append(tag.get_text())
+        html_str = "\n".join(scripts) if scripts else str(response)
+
+        # Keep first-seen order (sorted() always burned budget on the same Non-mansion IDs).
+        detail_ids: list[str] = []
+        seen: set[str] = set()
+        mansion_ids: list[str] = []
+        for m in re.finditer(r"\{[^{}]{0,1200}'number':\s*'([^']+)'[^{}]{0,1200}\}", html_str):
+            block = m.group(0)
+            bno = m.group(1)
+            if bno in seen:
+                continue
+            seen.add(bno)
+            detail_ids.append(bno)
+            name_m = re.search(r"'bukkenName':\s*'([^']*)'", block)
+            name = name_m.group(1) if name_m else ""
+            if "マンション" in name or "専有" in block:
+                mansion_ids.append(bno)
+
+        # Fallback: nested objects may leave the brace-bounded regex empty.
+        if not detail_ids:
+            for m in re.finditer(r"'number':\s*'([^']+)'", html_str):
+                bno = m.group(1)
+                if bno in seen:
+                    continue
+                seen.add(bno)
+                detail_ids.append(bno)
+
+        # Prefer mansion-like rows for AfrMansionParser (list mixes kodate/tochi/ittou).
+        if self.property_type == "mansion" and mansion_ids:
+            preferred = [bno for bno in mansion_ids if bno in detail_ids]
+            rest = [bno for bno in detail_ids if bno not in preferred]
+            detail_ids = preferred + rest
+        elif self.property_type == "mansion" and len(detail_ids) > 8:
+            # Rotate so we do not always burn the budget on the same leading Non-mansion IDs.
+            rot = 7
+            detail_ids = detail_ids[rot:] + detail_ids[:rot]
+
         logging.info(f"AfrParser: Extracted {len(detail_ids)} property numbers from search list.")
-        
-        next_page = '/stockhebel/purchase/forhome/details.html'
-        if self.property_type == 'investment':
-            next_page = '/stockhebel/purchase/investment/details.html'
-            
-        for bno in sorted(list(detail_ids)):
-            detail_url = f"{self.BASE_URL}{next_page}?bno={bno}"
-            yield detail_url
+
+        next_page = "/stockhebel/purchase/forhome/details.html"
+        if self.property_type == "investment":
+            next_page = "/stockhebel/purchase/investment/details.html"
+
+        for bno in detail_ids:
+            yield f"{self.BASE_URL}{next_page}?bno={bno}"
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
@@ -220,8 +258,18 @@ class AfrMansionParser(AfrParser, MansionParserBase):
         # 間取り
         item.madori = self._parseMadori(response, specs)
 
-        # 専有面積 (マンション必須)
-        item.senyuMensekiStr = specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        # 専有面積 (マンション必須) — 一棟売は「専有面積（最小）/（最大）」表記
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("壁芯面積", "")
+            or specs.get("専有面積（最小）", "")
+            or specs.get("専有面積（最大）", "")
+        )
+        if not item.senyuMensekiStr:
+            for key, value in specs.items():
+                if "専有面積" in str(key) and value:
+                    item.senyuMensekiStr = value
+                    break
         if not item.senyuMensekiStr:
             from package.parser.baseParser import SkipPropertyException
             raise SkipPropertyException("AfrMansion: Non-mansion property (no 専有面積).")

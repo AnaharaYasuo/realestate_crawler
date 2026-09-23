@@ -41,7 +41,8 @@ class SumifuParser(ParserBase):
 
     
     def getCharset(self):
-        return None  # Let BeautifulSoup/lxml detect or use chardet
+        # Live pages declare charset=shift_jis; cp932 is the practical decoder.
+        return "cp932"
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return super()._parseTransport1(response, specs)
@@ -316,8 +317,15 @@ class SumifuParser(ParserBase):
         
         price_selector = self.selectors.get('price')
         if price_selector:
-            em = response.select_one(price_selector)
-            if em: return em.get_text(strip=True)
+            for sel in str(price_selector).split(","):
+                em = response.select_one(sel.strip())
+                if not em:
+                    continue
+                text = em.get_text(" ", strip=True)
+                if text and "万" not in text and re.search(r"\d", text):
+                    # span.price__number is digits only; unit sits outside the tag.
+                    text = f"{text}万円"
+                return text
         return ""
 
     def _parsePrice(self, response, specs=None):
@@ -336,8 +344,17 @@ class SumifuParser(ParserBase):
         
         address_selector = self.selectors.get('address')
         if address_selector:
-            addr_el = response.select_one(address_selector)
-            if addr_el: return addr_el.get_text(strip=True)
+            for sel in str(address_selector).split(","):
+                addr_el = response.select_one(sel.strip())
+                if not addr_el:
+                    continue
+                if getattr(addr_el, "name", "") == "input":
+                    val = (addr_el.get("value") or "").strip()
+                    if val:
+                        return val
+                text = addr_el.get_text(strip=True)
+                if text:
+                    return text
         return ""
 
     def _parseAddressComponents(self, response, specs=None):
@@ -598,15 +615,63 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
-        yield_val = specs.get("表面利回り", specs.get("利回り", ""))
+        yield_val = (
+            specs.get("表面利回り")
+            or specs.get("利回り")
+            or specs.get("想定利回り")
+            or specs.get("予定利回り")
+            or specs.get("実質利回り")
+            or specs.get("満室想定利回り")
+            or ""
+        )
+        if not yield_val and response is not None:
+            # Sumifu invest details put yield in dt/dd + span.info-text-yield.
+            for dt in response.find_all("dt"):
+                key = dt.get_text(" ", strip=True)
+                if "利回り" in key:
+                    dd = dt.find_next_sibling("dd")
+                    if dd:
+                        yield_val = dd.get_text(" ", strip=True)
+                        break
+            if not yield_val:
+                span = response.select_one("span.info-text-yield")
+                if span:
+                    yield_val = span.get_text(" ", strip=True)
         if yield_val and isinstance(yield_val, str):
-            try: return Decimal(yield_val.replace("%", "").strip())
-            except: pass
+            try:
+                m = re.search(r"([\d\.]+)", yield_val.replace("%", ""))
+                if m:
+                    return Decimal(m.group(1))
+            except Exception:
+                pass
         return Decimal(0)
 
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
-        rent_val = specs.get("想定年商", specs.get("想定年間収入", specs.get("年間想定賃料", "")))
+        rent_val = (
+            specs.get("想定年商")
+            or specs.get("想定年間収入")
+            or specs.get("年間想定賃料")
+            or specs.get("満室時想定年収")
+            or specs.get("年間予定賃料収入")
+            or specs.get("満室想定年額賃料")
+            or specs.get("年収")
+            or ""
+        )
+        if not rent_val and response is not None:
+            for dt in response.find_all("dt"):
+                key = dt.get_text(" ", strip=True)
+                if any(tok in key for tok in ("年間想定", "想定年", "年額賃料", "年間収入")):
+                    dd = dt.find_next_sibling("dd")
+                    if dd:
+                        rent_val = dd.get_text(" ", strip=True)
+                        break
+            if not rent_val:
+                for p in response.find_all("p"):
+                    t = p.get_text(" ", strip=True)
+                    if "満室想定年額" in t or "想定年額賃料" in t:
+                        rent_val = t
+                        break
         return converter.parse_price(rent_val) if rent_val else 0
 
     def _parseMonthlyRent(self, response, specs=None):
@@ -972,13 +1037,25 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseSenyuMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
-        val = specs.get("専有面積", "")
+        val = specs.get("専有面積", "") or ""
+        if not val:
+            for key, value in specs.items():
+                if "専有面積" in str(key):
+                    val = value
+                    break
         if not val and self.selectors:
             sel = self.selectors.get('senyuMenseki')
             if sel:
                 s_tag = response.select_one(sel)
                 if s_tag:
                     val = s_tag.get_text(strip=True)
+        # 2021+ detail layout: summary chips like "専有面積66.51m² （壁芯)"
+        if not val:
+            for span in response.select("span.text"):
+                text = span.get_text(" ", strip=True)
+                if "専有面積" in text:
+                    val = text
+                    break
         return val
 
     def _parseSenyuMenseki(self, response, specs=None):
@@ -1006,7 +1083,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseBalconyMensekiStr(self, response, specs=None):
         td = self._getValueFromTable(response, "バルコニー", partial_match=True)
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     def _parseBalconyMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
@@ -1126,11 +1203,11 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseBunjoKaisya(self, response, specs=None):
         td = self._getValueFromTable(response, "新築時売主")
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     def _parseSekouKaisya(self, response, specs=None):
         td = self._getValueFromTable(response, "施工会社")
-        return td.get_text(strip=True) if td else ""
+        return self._getText(td)
 
     # _parseKaisuStr is now defined above to return Location Text.
     # Previous implementation returned Building Height. 

@@ -24,7 +24,7 @@ misawa_bp = Blueprint('misawa', __name__)
 def misawaMansionStart():
     logging.info("Start misawaMansionStart")
     obj = ParseMisawaMansionStartAsync()
-    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=9"
+    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=3"
     try:
         result = obj.main(url)
     except:
@@ -76,7 +76,7 @@ def misawaMansionDetail():
 def misawaKodateStart():
     logging.info("Start misawaKodateStart")
     obj = ParseMisawaKodateStartAsync()
-    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=10"
+    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=2"
     try:
         result = obj.main(url)
     except:
@@ -128,7 +128,7 @@ def misawaKodateDetail():
 def misawaTochiStart():
     logging.info("Start misawaTochiStart")
     obj = ParseMisawaTochiStartAsync()
-    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=11"
+    url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=1"
     try:
         result = obj.main(url)
     except:

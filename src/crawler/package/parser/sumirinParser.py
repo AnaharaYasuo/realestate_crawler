@@ -1,7 +1,14 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.models.sumirin import SumirinMansion, SumirinKodate, SumirinTochi, SumirinInvestment
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
@@ -494,20 +501,48 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
         specs = self._get_specs(response)
 
         # 表面利回り
-        gross_yield_str = specs.get("想定利回り", "") or specs.get("表面利回り", "") or specs.get("利回り", "")
-        if gross_yield_str:
-            item.grossYield = converter.parse_ratio(gross_yield_str)
+        gross_yield_str = (
+            specs.get("想定利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("利回り", "")
+            or specs.get("グロス利回り", "")
+        )
+        if gross_yield_str and str(gross_yield_str).strip() not in ("-", "－", "―"):
+            item.grossYield = converter.parse_ratio(str(gross_yield_str))
 
         # 年間想定賃料
-        annual_rent_str = specs.get("想定年間収入", "") or specs.get("年間想定収入", "") or specs.get("想定収入", "")
-        if annual_rent_str:
-            rent_val = converter.parse_rent(annual_rent_str)
+        annual_rent_str = (
+            specs.get("想定年間収入", "")
+            or specs.get("年間想定収入", "")
+            or specs.get("想定収入", "")
+            or specs.get("年間収入", "")
+        )
+        if annual_rent_str and str(annual_rent_str).strip() not in ("-", "－", "―"):
+            rent_val = converter.parse_rent(str(annual_rent_str))
             if rent_val:
                 item.annualRent = rent_val
                 item.monthlyRent = rent_val // 12
 
+        # Derive annual rent from price × yield when listing omits 年間収入.
+        if (not getattr(item, "annualRent", None)) and item.grossYield and getattr(item, "price", None):
+            try:
+                gy = float(item.grossYield)
+                price = float(item.price)
+                if gy > 0 and price > 0:
+                    rent_val = int(price * gy / 100.0)
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError):
+                pass
+
         item.genkyo = self._parseCurrentStatus(response, specs)
-        item.kouzou = self._parseKouzou(response, specs)
+        item.kouzou = (
+            self._parseKouzou(response, specs)
+            or specs.get("建物構造", "")
+            or specs.get("構造", "")
+            or specs.get("構造・規模", "")
+        )
 
         # 築年月
         item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
@@ -541,6 +576,11 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
 
         # 物件種別の判定 (タイトル等から共通化)
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
+
+        if not item.grossYield or not getattr(item, "annualRent", None):
+            raise SkipPropertyException(
+                f"Sumirin investment listing missing yield/rent: {(item.propertyName or '')[:60]}"
+            )
 
         return item
 

@@ -1321,14 +1321,53 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         return specs.get(u"建物面積", "") or specs.get(u"延床面積", "") or specs.get(u"専有面積", "")
 
     def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal:
-        if specs is None: specs = self._scrape_specs(response)
-        val_str = specs.get(u"利回り", "") or specs.get(u"表面利回り", "")
-        match = re.search(r'(\d+(\.\d+)?)', val_str)
+        if specs is None:
+            specs = self._scrape_specs(response)
+        val_str = (
+            specs.get(u"利回り", "")
+            or specs.get(u"表面利回り", "")
+            or specs.get(u"予定利回り", "")
+            or specs.get(u"想定利回り", "")
+            or specs.get(u"実質利回り", "")
+        )
+        if not val_str:
+            # Next.js / item-data path used by apartment invest pages.
+            try:
+                parsed = self._parseYield(response)
+                if parsed is not None:
+                    return Decimal(str(parsed))
+            except Exception:
+                pass
+            try:
+                raw = self._get_text_value(self._get_item_data(response, "予定利回り"))
+                if raw:
+                    val_str = raw
+            except Exception:
+                pass
+        match = re.search(r"(\d+(\.\d+)?)", val_str or "")
         return Decimal(match.group(1)) if match else Decimal("0")
 
     def _parseAnnualRent(self, response: BeautifulSoup, specs=None) -> int | None:
-        if specs is None: specs = self._scrape_specs(response)
-        return converter.parse_price(specs.get(u"年間予定賃料収入", ""))
+        if specs is None:
+            specs = self._scrape_specs(response)
+        for key in (
+            u"年間予定賃料収入",
+            u"満室時想定年収",
+            u"満室想定年収",
+            u"想定年収",
+            u"年間想定賃料",
+            u"年間収入",
+        ):
+            raw = specs.get(key, "")
+            if raw:
+                return converter.parse_price(raw)
+        try:
+            raw = self._get_text_value(self._get_item_data(response, "年間予定賃料収入"))
+            if raw:
+                return converter.parse_price(raw)
+        except Exception:
+            pass
+        return None
 
     def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)

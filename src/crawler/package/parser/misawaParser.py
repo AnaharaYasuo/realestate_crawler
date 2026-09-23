@@ -23,6 +23,20 @@ class MisawaParser(ParserBase):
     def getCharset(self):
         return None  # Auto-detect
 
+    def _parsePropertyName(self, response, specs=None):
+        # Prefer configured title selector (h2.title); site-wide <h1> is branding only.
+        if response and getattr(self, "selectors", None):
+            for key in ("title", "title_fallback", "title_fallback_2"):
+                sel = self.selectors.get(key)
+                if not sel:
+                    continue
+                el = response.select_one(sel)
+                if el:
+                    text = el.get_text(strip=True)
+                    if text and "不動産検索" not in text:
+                        return text
+        return super()._parsePropertyName(response, specs)
+
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return super()._parseTransport1(response, specs)
 
@@ -428,14 +442,45 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
 
     def _parseSenyuMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('senyu_menseki_key', '専有面積'), '')
+        key = self.selectors.get("senyu_menseki_key", "専有面積")
+        val = specs.get(key, "") or specs.get("専有面積", "") or specs.get("壁芯面積", "")
+        if not val:
+            for k, v in specs.items():
+                if ("専有" in str(k) and "面積" in str(k)) or "壁芯" in str(k):
+                    val = v
+                    break
+        return val or ""
 
     def _parseBalconyMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('balcony_key', 'バルコニー面積'), '')
+        return specs.get(self.selectors.get("balcony_key", "バルコニー面積"), "")
 
     def _parseSenyuMenseki(self, response, specs=None):
-        return converter.parse_menseki(self._parseSenyuMensekiStr(response))
+        raw = self._parseSenyuMensekiStr(response, specs)
+        parsed = converter.parse_menseki(raw) if raw else None
+        if parsed:
+            return parsed
+        # Fallback: scan outline table / body text
+        for el in response.select("th, dt, td, dd, li, p, span"):
+            txt = el.get_text(" ", strip=True)
+            if "専有面積" in txt or "壁芯" in txt:
+                m = re.search(r"([\d.]+)\s*m", txt, re.I)
+                if m:
+                    return Decimal(m.group(1))
+                sib = el.find_next(["td", "dd", "span"])
+                if sib:
+                    m = re.search(r"([\d.]+)", sib.get_text())
+                    if m:
+                        return Decimal(m.group(1))
+        # アパート/一棟: 建物面積・延床を専有の代用
+        specs = specs or self._get_specs(response)
+        for key in ("建物面積", "延床面積", "専有・建物面積"):
+            alt = specs.get(key, "")
+            if alt:
+                parsed = converter.parse_menseki(alt)
+                if parsed:
+                    return parsed
+        return parsed
 
     def _parseBalconyMenseki(self, response, specs=None):
         return converter.parse_menseki(self._parseBalconyMensekiStr(response))
@@ -1001,15 +1046,15 @@ class MisawaInvestmentKodateParser(MisawaInvestmentParser, KodateParserBase):
             item.chimoku = self._parseChimoku(response)
             return item
             
-        # 動的判定ロジック: 「物件種目」ラベルを確認
+        # 動的判定: サイトは「物件種別」（旧キー「物件種目」も許容）
         specs = self._get_specs(response)
-        syumoku = specs.get("物件種目", "")
-        
-        # If not in table, check title/propertyName
-        if not syumoku:
-            # item.propertyName is already parsed by super()
-            syumoku = item.propertyName
-            
+        syumoku = (
+            specs.get("物件種別", "")
+            or specs.get("物件種目", "")
+            or specs.get("種別", "")
+            or (item.propertyName or "")
+        )
+
         if not any(x in syumoku for x in ["戸建", "一戸建て", "借地権付建物"]):
              logging.info(f"[MisawaKodate] Skipping non-kodate property: {syumoku} at {item.pageUrl}")
              from package.parser.baseParser import SkipPropertyException
@@ -1081,15 +1126,16 @@ class MisawaInvestmentApartmentParser(MisawaInvestmentParser, InvestmentParserBa
             item.chimoku = self._parseChimoku(response)
             return item
             
-        # 動的判定ロジック: 「物件種目」ラベルを確認
+        # 動的判定: サイトは「物件種別」（旧キー「物件種目」も許容）
         specs = self._get_specs(response)
-        syumoku = specs.get("物件種目", "")
-        
-        # If not in table, check title/propertyName
-        if not syumoku:
-            syumoku = item.propertyName
-            
-        if not any(x in syumoku for x in ["アパート", "一棟アパート", "一棟マンション", "ビル", "店舗"]):
+        syumoku = (
+            specs.get("物件種別", "")
+            or specs.get("物件種目", "")
+            or specs.get("種別", "")
+            or (item.propertyName or "")
+        )
+
+        if not any(x in syumoku for x in ["アパート", "一棟アパート", "一棟マンション", "マンション", "ビル", "店舗"]):
              logging.info(f"[MisawaApartment] Skipping non-apartment property: {syumoku} at {item.pageUrl}")
              from package.parser.baseParser import SkipPropertyException
              raise SkipPropertyException()
