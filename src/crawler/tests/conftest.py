@@ -1,8 +1,11 @@
+import atexit
 import os
-import sys
 import secrets
+import sys
+import tempfile
 import django
 from django.conf import settings
+from django.core.management import call_command
 
 # Ensure current directory is in path for fetch_snapshot
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,9 +19,6 @@ if crawler_path not in sys.path:
 
 
 def pytest_configure():
-    from django.core.management import call_command
-    import tempfile
-
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
     if not settings.configured:
         # Per-process file so parallel Start-Job / xdist workers do not lock one another.
@@ -26,6 +26,17 @@ def pytest_configure():
         db_path = os.path.join(
             tempfile.gettempdir(), f"crawl_guarantee_pytest_{os.getpid()}.sqlite3"
         )
+
+        def cleanup_test_database():
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                try:
+                    os.remove(db_path + suffix)
+                except FileNotFoundError:
+                    pass
+
+        cleanup_test_database()
+        atexit.register(cleanup_test_database)
+
         settings.configure(
             SECRET_KEY=os.getenv('SECRET_KEY', secrets.token_hex(32)),
             INSTALLED_APPS=[
