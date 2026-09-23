@@ -60,10 +60,9 @@ def test_coderabbit_yaml_exists_and_valid():
 
     tone = config.get("tone_instructions", "")
     assert len(tone) > 0, "tone_instructions が設定されている必要があります"
-    # Issue #363: 長期保守・スケーラビリティ観点を tone に含める
-    assert "スケーラビリティ" in tone or "長期保守" in tone, (
-        "tone_instructions にスケーラビリティまたは長期保守の観点が含まれている必要があります"
-    )
+    # Issue #363: 長期保守・スケーラビリティ観点を tone に両方含める
+    assert "スケーラビリティ" in tone, "tone_instructions にスケーラビリティの観点が含まれている必要があります"
+    assert "長期保守" in tone, "tone_instructions に長期保守の観点が含まれている必要があります"
 
 
 def test_coderabbit_excludes_docs_and_markdown():
@@ -91,19 +90,28 @@ def test_coderabbit_path_instructions_cover_critical_areas():
     assert isinstance(path_instructions, list), "path_instructions はリストである必要があります"
     assert len(path_instructions) >= 3, "path_instructions は少なくとも3件必要です"
 
-    paths = {entry.get("path") for entry in path_instructions if isinstance(entry, dict)}
-    required_paths = {
-        "src/crawler/package/parser/**",
-        "src/crawler/tests/**",
-        "src/crawler/scripts/**",
+    by_path = {
+        entry.get("path"): entry.get("instructions", "")
+        for entry in path_instructions
+        if isinstance(entry, dict)
     }
-    missing = required_paths - paths
+    required_guidance = {
+        "src/crawler/package/parser/**": ("Base", "フィールド名", "セレクター"),
+        "src/crawler/tests/**": ("受入基準", "アサーション", "ミューテーション"),
+        "src/crawler/scripts/**": ("タイムアウト", "0件", "ハードコード"),
+    }
+    missing = set(required_guidance) - set(by_path)
     assert not missing, f"path_instructions に必須パスが不足しています: {missing}"
 
-    for entry in path_instructions:
-        assert isinstance(entry.get("instructions"), str) and len(entry["instructions"].strip()) > 0, (
-            f"path_instructions の instructions が空です: {entry.get('path')}"
+    for path, keywords in required_guidance.items():
+        instructions = by_path[path]
+        assert isinstance(instructions, str) and len(instructions.strip()) > 0, (
+            f"path_instructions の instructions が空です: {path}"
         )
+        for keyword in keywords:
+            assert keyword in instructions, (
+                f"path_instructions[{path}] に '{keyword}' の観点が含まれていません"
+            )
 
 
 def test_review_thread_evaluation_logic():
