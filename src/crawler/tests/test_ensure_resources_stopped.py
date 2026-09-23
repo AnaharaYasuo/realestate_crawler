@@ -95,8 +95,10 @@ def test_proxysql_leaked_with_autoscaler_scales_autoscaler_to_zero(mock_compute_
     mock_autoscaler_client_cls = MagicMock()
     mock_auto_instance = MagicMock()
     mock_autoscaler_client_cls.return_value = mock_auto_instance
+    mock_req_cls = MagicMock(side_effect=lambda **kw: MagicMock(**kw))
 
-    with patch(f"{_MODULE_PATH}.compute_v1.RegionAutoscalersClient", mock_autoscaler_client_cls, create=True):
+    with patch(f"{_MODULE_PATH}.compute_v1.RegionAutoscalersClient", mock_autoscaler_client_cls, create=True), \
+         patch(f"{_MODULE_PATH}.compute_v1.PatchRegionAutoscalerRequest", mock_req_cls, create=True):
         result = check_and_stop_proxysql_mig(
             project_id="test-proj",
             region="asia-northeast1",
@@ -108,6 +110,10 @@ def test_proxysql_leaked_with_autoscaler_scales_autoscaler_to_zero(mock_compute_
         assert result.forced_stop is True
         assert result.leaked_size == 2
         mock_auto_instance.patch.assert_called_once()
+        patch_kwargs = mock_auto_instance.patch.call_args[1]
+        req = patch_kwargs.get("request")
+        if req is not None:
+            assert req.autoscaler == "proxysql-autoscaler-prod"
         mock_slack.assert_called_once()
 
 
@@ -184,7 +190,8 @@ def test_proxysql_rest_fallback_success(mock_slack):
         assert "instanceGroupManagers" in mock_get.call_args[0][0]
         assert "regionInstanceGroupManagers" not in mock_get.call_args[0][0]
         mock_patch.assert_called_once()
-        assert "autoscalers/proxysql-autoscaler-prod" in mock_patch.call_args[0][0]
+        assert mock_patch.call_args[0][0].endswith("/autoscalers")
+        assert mock_patch.call_args[1].get("params") == {"autoscaler": "proxysql-autoscaler-prod"}
         mock_slack.assert_called_once()
 
 

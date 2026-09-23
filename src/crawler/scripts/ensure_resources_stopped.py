@@ -133,15 +133,25 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
             auto_client = compute_v1.RegionAutoscalersClient()
             policy_cls = getattr(compute_v1, "AutoscalingPolicy", None)
             auto_cls = getattr(compute_v1, "Autoscaler", None)
+            request_cls = getattr(compute_v1, "PatchRegionAutoscalerRequest", None)
             policy = policy_cls(min_num_replicas=0, max_num_replicas=0) if policy_cls else None
             resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
-            auto_client.patch(
-                project=project_id,
-                region=region,
-                autoscaler=autoscaler_name,
-                autoscaler_resource=resource,
-                timeout=10.0,
-            )
+            if request_cls is not None:
+                req = request_cls(
+                    project=project_id,
+                    region=region,
+                    autoscaler=autoscaler_name,
+                    autoscaler_resource=resource,
+                )
+                auto_client.patch(request=req, timeout=10.0)
+            else:
+                auto_client.patch(
+                    project=project_id,
+                    region=region,
+                    autoscaler=autoscaler_name,
+                    autoscaler_resource=resource,
+                    timeout=10.0,
+                )
             return ""
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to patch autoscaler via compute_v1: {e}")
@@ -150,10 +160,17 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
     if not token:
         return ERR_NO_COMPUTE_CLIENT
 
-    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/autoscalers/{autoscaler_name}"
+    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/autoscalers"
+    params = {"autoscaler": autoscaler_name}
     body = {"autoscalingPolicy": {"minNumReplicas": 0, "maxNumReplicas": 0}}
     try:
-        resp = requests.patch(patch_url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        resp = requests.patch(
+            patch_url,
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
         if resp.status_code in (200, 204):
             return ""
         return f"HTTP {resp.status_code}: {resp.text}"
