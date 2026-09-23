@@ -28,7 +28,12 @@
 
 ## 3. 機能要件 (Functional Requirements)
 
-* **FR-01 (CodeRabbitのProduction除外)**: `.coderabbit.yaml` の `base_branches` は `["master"]` のみとし、`production` へのPRで自動レビューを実行しないこと。
+* **FR-01 (CodeRabbitのProduction完全除外・抑止)**:
+  - `.coderabbit.yaml` の `base_branches` は `["master"]` のみとすること。
+  - `ignore_title_keywords` に `"release:"` および `"[skip review]"` を設定し、リリースPRの自動レビューをスキップすること。
+  - `ignore_usernames` に `"github-actions[bot]"` を設定し、自動作成PRでのレビュー起動を防止すること。
+  - `auto-release-pr.yml` で生成されるリリースPR本文先頭に `@coderabbitai ignore` ディレクティブを明記し、AIコメント投稿を完全抑止すること。
+
 * **FR-02 (テスト重複実行の防止)**: `test.yml` の `pull_request` トリガーから `production` を除外すること（`push` トリガーは維持）。
 * **FR-03 (Review Gate の Production Fast-Pass)**: `review-gate.yml` は、PRのターゲットブランチが `production` である場合、重い走査をスキップして即座に `success` ステータスを返却すること。
 * **FR-04 (Release PR の自動作成・同期)**: `master` へのプッシュ時に、`production` 向けのオープンなPRが存在しない場合は自動作成し、タイトル・コミット差分サマリー・Issue番号を記載すること。既存PRがある場合は自動で追従・更新されること。
