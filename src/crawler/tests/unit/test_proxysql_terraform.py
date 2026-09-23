@@ -218,3 +218,18 @@ def test_proxysql_admin_credentials_not_default():
         "secrets.tf must store proxysql_admin_password in Secret Manager."
 
 
+def test_proxysql_zombie_running_alert_filter():
+    """ProxySQL ゾンビ稼働監視アラートポリシーの filter が Cloud Monitoring の instance_group ディスクリプタに準拠していることを検証"""
+    alerting_tf = os.path.join(TERRAFORM_DIR, "alerting.tf")
+    with open(alerting_tf, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert 'resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert"' in content, \
+        "alerting.tf must define proxysql_zombie_running_alert policy."
+    assert 'resource.type=\\"instance_group\\"' in content or 'resource.type = \\"instance_group\\"' in content, \
+        "Monitoring metric compute.googleapis.com/instance_group/size must use resource.type='instance_group'."
+    assert 'resource.labels.instance_group_name' in content, \
+        "instance_group resource filter must use resource.labels.instance_group_name."
+
+
+
