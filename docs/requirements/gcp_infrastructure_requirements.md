@@ -82,9 +82,19 @@
 - **負荷分散 & 透過的接続 (Internal Load Balancer)**:
   - 内部TCPロードバランサー (ILB) を配置し、Cloud Run (VPC Access Connector 経由) からは単一のプライベート IP（ポート 6033）に向けて接続可能であること。
 - **Cloud Run / Service からの接続統一 (ProxySQL Direct Routing)**:
-  - クローラー実行用 Cloud Run Job、Slack Agent サービス、価格推定 API サービスは、直接 Cloud SQL への接続を廃止し、ProxySQL ILB（プライベート IP、ポート 6033）へ接続を統一すること。
-  - プロセスごとのプールサイズ（`DB_POOL_SIZE`）をクローラー特性に合わせて適正化（Job: 2、Service: 5）し、不要なアイドル接続の保持を抑制すること。
+  - アプリ（Django）側でのコネクションプーリング（`dj_db_conn_pool` 等）を完全禁止し、`django.db.backends.mysql` かつ `CONN_MAX_AGE = 0` によりクエリ終了時に即時ソケットを切断すること。接続プーリング・多重化は ProxySQL 層に一元集約し、ワーカー急増時の不要なコネクション滞留を排除すること。
   - DBスキーママイグレーション（DDL）を実行する Migrate Job のみ、直接 Cloud SQL（ポート 3306）への接続を維持すること。
+
+### 3.7 サーバーレス分散クローラー ＆ ML パイプライン分離要件 (Distributed Crawler Services & Decoupled ML Jobs)
+- **クローラーワーカーのサービス化 (Cloud Run Service + Cloud Tasks)**:
+  - クローラー処理を単一ジョブ直列実行から、Cloud Tasks キュー経由で起動される Cloud Run サービスワーカー（`/api/crawl/task`）へ移行すること。
+  - 1タスク＝1サイト×1種別に細分化し、Cloud Tasks のレートリミット（`max_dispatches_per_second`）および並列制御（`max_concurrent_dispatches`）により、相手サイトへのアクセス集中（BAN）をインフラ層で抑止すること。
+- **0件取得・パース異常時の無限リトライ防止 (Fast-Fail Task Consumption)**:
+  - 0件取得異常、パースエラー、相手サイト連続タイムアウト等が発生した場合は、Cloud Tasks が同一異常タスクを無駄に再試行しないよう HTTP 200（または再試行不要ステータス）を返却してタスクを消化し、DB のステータスを `FAILED` に記録して Slack アラートを発報すること。
+- **ジョブの二分割 ＆ オンデマンド待機課金ゼロ化 (Two-Phase Decoupled Jobs)**:
+  - 親ジョブを「タスク投入役（Dispatcher Job）」と「学習・推論役（ML Pipeline Job）」の2つに分割すること。
+  - Dispatcher Job はバッチ開始時に ProxySQL MIG をスケールアウト（`size: 0 -> 1`）し、疎通確認後に Cloud Tasks へタスクを投入して即座に終了（プロセス exit 0）し、クローリング中の親ジョブ待機課金を ¥0 とすること。
+  - ML Pipeline Job はクローリング全完了後に起動し、4vCPU / 8GiB の集中リソースで ML モデル再学習・バルク価格推定・お宝物件 Slack 通知を実行し、完了フックで ProxySQL MIG を安全にスケールイン（`size: 1 -> 0`）停止すること。
 
 ### 3.6 データベース監視・ヘルスチェック認証およびログ重大度昇格要件 (Database Monitoring & Log Severity Elevation)
 - **ProxySQL 監視専用ユーザー (`monitor`) の独立プロビジョニング**:

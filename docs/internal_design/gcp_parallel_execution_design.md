@@ -11,34 +11,39 @@
 sequenceDiagram
     autonumber
     participant Sch as Cloud Scheduler
-    participant Disp as Dispatcher (run_pipeline.py)
+    participant Disp as Dispatcher Job (run_dispatcher.py)
+    participant MIG as ProxySQL MIG
     participant CT as Cloud Tasks (crawler-queue)
     participant CR as Cloud Run Workers (/api/crawl/task)
-    participant DB as Cloud SQL (MySQL)
-    participant ML as ML Pipeline (train & eval)
+    participant DB as Cloud SQL (ProxySQL経由)
+    participant ML as ML Pipeline Job (run_ml_pipeline.py)
 
-    Sch->>Disp: Daily Trigger
-    Disp->>DB: Step 0: DB Migration
+    Sch->>Disp: Daily Trigger (01:00 JST)
+    Disp->>MIG: Step 0a: ProxySQL MIG 起動 (size: 0 -> 1)
+    Disp->>DB: Step 0b: DB Migration
     Disp->>CT: Step 1: Enqueue Crawl Tasks (45 jobs, Smallest-Site-First)
+    Note over Disp: Dispatcher 正常終了 (exit 0 / 課金停止)
 
-    par Cloud Tasks Dispatch (Concurrent Workers <= 10)
+    par Cloud Tasks Dispatch (Concurrent Workers <= 10, App Pool=None)
         CT->>CR: POST /api/crawl/task (mitsui - mansion)
         CR->>DB: Crawl & Save Records
         CR->>DB: Record Task Status (COMPLETED)
         CR-->>CT: HTTP 200 OK
     and
         CT->>CR: POST /api/crawl/task (sumifu - kodate)
-        CR->>DB: Crawl & Save Records
-        CR->>DB: Record Task Status (COMPLETED)
-        CR-->>CT: HTTP 200 OK
+        CR-->>CR: 0件取得 or 相手先エラー検知
+        CR->>DB: Record Task Status (FAILED)
+        CR-->>CT: HTTP 200 OK (無限リトライ防止・タスク消化)
     end
 
-    Disp->>DB: Poll for all 45 tasks COMPLETED (Barrier)
-    Note over Disp: All Crawl Tasks Finished
-    Disp->>DB: Step 1.5: Validate & Clean Data
-    Disp->>ML: Step 2: ML Model Re-Training (n_jobs=-1)
-    Disp->>ML: Step 3: Bulk ML Evaluation (ThreadPoolExecutor)
-    Disp->>ML: Step 4: Hot Property Recommendation (Slack)
+    Note over ML: クロール全完了後に起動 (Cloud Workflows 等)
+    ML->>DB: Barrier Check (未完了・失敗率検査)
+    ML->>DB: Step 1.5: Validate & Clean Data
+    ML->>DB: Step 2: ML Model Re-Training (n_jobs=-1)
+    ML->>DB: Step 3: Bulk ML Evaluation (ThreadPoolExecutor)
+    ML->>DB: Step 4: Hot Property Recommendation (Slack)
+    ML->>MIG: Step 5: ProxySQL MIG 停止 (size: 1 -> 0)
+    Note over ML: ML Pipeline Job 正常終了 (exit 0)
 ```
 
 ---
