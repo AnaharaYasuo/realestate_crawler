@@ -370,7 +370,8 @@ def handle_crawl_task():
     if success:
         return jsonify({"status": "success", "company": safe_company, "property_type": safe_prop_type, "scraped_count": count, "elapsed_seconds": elapsed}), 200
     else:
-        return jsonify({"status": "failed", "company": safe_company, "property_type": safe_prop_type, "error": "Crawl execution failed"}), 500
+        # Cloud Tasks 無限リトライ防止: 0件取得・パース異常・連続タイムアウト等は HTTP 200 でタスク消化
+        return jsonify({"status": "failed", "company": safe_company, "property_type": safe_prop_type, "error": "Crawl execution failed"}), 200
 
 
 if __name__ == "__main__":

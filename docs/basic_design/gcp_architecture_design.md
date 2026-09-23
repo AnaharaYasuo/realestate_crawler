@@ -15,7 +15,10 @@ flowchart TB
     end
 
     subgraph Compute ["コンピュート (Serverless)"]
-        CRJ["Cloud Run Jobs\n(Crawler & ML Pipeline)\nPlaywright / tmpfs / 4GB RAM"]
+        CRJ_Disp["Cloud Run Job: Dispatcher\n(MIG起動 & Tasks一括投入)\n1 vCPU / 1GB RAM / ~5秒"]
+        CT["Cloud Tasks\n(crawler-tasks Queue)\nレート & 並列制御"]
+        CRS_Worker["Cloud Run Service: Crawler Worker\n(/api/crawl/task)\n1 vCPU / 2GB RAM / 0-10並列"]
+        CRJ_ML["Cloud Run Job: ML Pipeline\n(学習 & バルク推論 & MIG停止)\n4 vCPU / 8GB RAM / 15分"]
         CRS["Cloud Run Service\n(Slack Agent Host)"]
     end
 
@@ -27,7 +30,7 @@ flowchart TB
     end
 
     subgraph ProxyLayer ["コネクションプーリング層"]
-        MIG["ProxySQL MIG (e2-micro x 2)\nMulti-Zone / Auto-healing"]
+        MIG["ProxySQL MIG (e2-micro x 2)\nオンデマンド (size: 0 <-> 1)\nMulti-Zone / Auto-healing"]
     end
 
     subgraph DataStore ["マネージド永続化層"]
@@ -40,21 +43,27 @@ flowchart TB
         SLACK[Slack API / チャンネル]
     end
 
-    CS -->|Trigger| CRJ
-    CRJ -->|Read Secrets| SM
-    CRJ -->|Egress Route| SVA
-    CRS -->|Read Secrets| SM
+    CS -->|01:00 Trigger| CRJ_Disp
+    CRJ_Disp -->|MIG起動 size:0->1| MIG
+    CRJ_Disp -->|タスク投入| CT
+    CT -->|POST /api/crawl/task| CRS_Worker
 
-    SVA -->|MySQL: 6033| ILB
+    CRS_Worker -->|Egress Route| SVA
+    CRS_Worker -->|Store Images| GCS
+    CRS_Worker -.->|異常・0件検知| SLACK
+
+    CRJ_ML -->|Read Secrets| SM
+    CRJ_ML -->|Egress Route| SVA
+    CRJ_ML -->|Alert / Recommend| SLACK
+    CRJ_ML -->|MIG停止 size:1->0| MIG
+    CRS -->|Socket / Webhook| SLACK
+
+    SVA -->|MySQL: 6033 (No App Pool)| ILB
     ILB -->|TCP Load Balancing| MIG
     MIG -->|Multiplexed DB Conns| CSQL
     SVA -->|Route to Internet| CR
     CR --> NAT
     NAT -->|Fixed IP Access| SITES
-
-    CRJ -->|Store Images| GCS
-    CRJ -->|Alert / Recommend| SLACK
-    CRS -->|Socket / Webhook| SLACK
 ```
 
 ---

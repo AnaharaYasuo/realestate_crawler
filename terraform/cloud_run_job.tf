@@ -307,4 +307,213 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
   }
 }
 
+# Cloud Run Job for Crawler Dispatcher (ProxySQL起動 & Cloud Tasks一括投入用: 実行時間5秒〜1分)
+resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
+  name     = "realestate-crawler-dispatcher-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_sql_database_instance.mysql_instance,
+    google_compute_forwarding_rule.proxysql_forwarding_rule,
+    google_vpc_access_connector.vpc_connector,
+    google_cloud_tasks_queue.crawler_tasks_queue,
+    google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_iam_member.secret_accessor
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = "300s" # 5分
+      max_retries     = 1
+
+      vpc_access {
+        connector = google_vpc_access_connector.vpc_connector.id
+        egress    = "ALL_TRAFFIC"
+      }
+
+      containers {
+        image = "python:3.11-slim"
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "1Gi"
+          }
+        }
+
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "LOG_FORMAT"
+          value = "json"
+        }
+        env {
+          name  = "PYTHONIOENCODING"
+          value = "utf-8"
+        }
+        env {
+          name  = "DB_HOST"
+          value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+        }
+        env {
+          name  = "DB_NAME"
+          value = var.db_name
+        }
+        env {
+          name  = "DB_USER"
+          value = var.db_user
+        }
+        env {
+          name  = "DB_PORT"
+          value = "6033"
+        }
+        env {
+          name  = "CONN_MAX_AGE"
+          value = "0"
+        }
+        env {
+          name  = "PROXYSQL_MIG_NAME"
+          value = google_compute_region_instance_group_manager.proxysql_mig.name
+        }
+        env {
+          name  = "CLOUD_TASKS_QUEUE"
+          value = google_cloud_tasks_queue.crawler_tasks_queue.name
+        }
+        env {
+          name  = "CRAWLER_WORKER_URL"
+          value = "${google_cloud_run_v2_service.crawler_worker_service.uri}/api/crawl/task"
+        }
+
+        env {
+          name = "DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].template[0].containers[0].command
+    ]
+  }
+}
+
+# Cloud Run Job for ML Pipeline (全クロール完了後の学習・バルク推論・ProxySQL停止用: 15〜30分)
+resource "google_cloud_run_v2_job" "ml_pipeline_job" {
+  name     = "realestate-ml-pipeline-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_sql_database_instance.mysql_instance,
+    google_compute_forwarding_rule.proxysql_forwarding_rule,
+    google_vpc_access_connector.vpc_connector,
+    google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_version.slack_bot_token_version,
+    google_secret_manager_secret_iam_member.secret_accessor
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = "7200s" # 2時間
+      max_retries     = 1
+
+      vpc_access {
+        connector = google_vpc_access_connector.vpc_connector.id
+        egress    = "ALL_TRAFFIC"
+      }
+
+      containers {
+        image = "python:3.11-slim"
+
+        resources {
+          limits = {
+            cpu    = "4"
+            memory = "8Gi"
+          }
+        }
+
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "LOG_FORMAT"
+          value = "json"
+        }
+        env {
+          name  = "PYTHONIOENCODING"
+          value = "utf-8"
+        }
+        env {
+          name  = "DB_HOST"
+          value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+        }
+        env {
+          name  = "DB_NAME"
+          value = var.db_name
+        }
+        env {
+          name  = "DB_USER"
+          value = var.db_user
+        }
+        env {
+          name  = "DB_PORT"
+          value = "6033"
+        }
+        env {
+          name  = "CONN_MAX_AGE"
+          value = "0"
+        }
+        env {
+          name  = "PROXYSQL_MIG_NAME"
+          value = google_compute_region_instance_group_manager.proxysql_mig.name
+        }
+
+        env {
+          name = "DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name = "SLACK_BOT_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].template[0].containers[0].command
+    ]
+  }
+}
+
 

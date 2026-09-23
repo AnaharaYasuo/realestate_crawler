@@ -52,7 +52,7 @@ def test_crawl_task_failed(mock_execute, client):
         "property_type": "mansion",
         "execution_date": "2026-09-19"
     })
-    assert response.status_code == 500
+    assert response.status_code == 200
     data = json.loads(response.data)
     assert data["status"] == "failed"
     assert data["error"] == "Crawl execution failed"
