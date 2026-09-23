@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """Offline tests for CRAWL_JOBS site/company filtering (targeted live runs)."""
 import pytest
-
 from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, jobs_from_env
 
 

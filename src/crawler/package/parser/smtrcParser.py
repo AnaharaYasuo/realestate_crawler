@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
+import re
+
 from bs4 import BeautifulSoup
-from package.parser.baseParser import ParserBase, MansionParserBase, KodateParserBase, TochiParserBase, InvestmentParserBase
-from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi, SmtrcInvestment
-from package.utils.selector_loader import SelectorLoader
+
+from package.models.smtrc import SmtrcInvestment, SmtrcKodate, SmtrcMansion, SmtrcTochi
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    TochiParserBase,
+)
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
-import re
+from package.utils.selector_loader import SelectorLoader
+
 
 class SmtrcParser(ParserBase):
 
@@ -443,56 +452,64 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        # 表面利回り
-        gross_yield_str = specs.get("利回り", "") or specs.get("表面利回り", "") or specs.get("想定利回り", "")
+        self._apply_invest_yield_and_rent(item, specs)
+        self._apply_invest_structure_and_counts(item, specs)
+        self._apply_invest_areas_and_ratios(item, specs)
+
+        item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
+        item.chimoku = specs.get("地目", "")
+        item.youtoChiiki = specs.get("用途地域", "")
+        item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
+        return item
+
+    @staticmethod
+    def _apply_invest_yield_and_rent(item, specs: dict) -> None:
+        gross_yield_str = (
+            specs.get("利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("想定利回り", "")
+        )
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
-
-        # 想定年間収入
-        annual_rent_str = specs.get("想定年間収入", "") or specs.get("年間想定収入", "") or specs.get("想定収入", "") or specs.get("現行年間収入", "")
+        annual_rent_str = (
+            specs.get("想定年間収入", "")
+            or specs.get("年間想定収入", "")
+            or specs.get("想定収入", "")
+            or specs.get("現行年間収入", "")
+        )
         if annual_rent_str:
             rent_val = converter.parse_rent(annual_rent_str)
             if rent_val:
                 item.annualRent = rent_val
                 item.monthlyRent = rent_val // 12
 
+    @staticmethod
+    def _apply_invest_structure_and_counts(item, specs: dict) -> None:
         item.currentStatus = specs.get("現況", "")
-        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
+        item.kouzou = (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or specs.get("構造/階建", "")
+        )
         if "/" in (item.kouzou or "") and not specs.get("構造"):
             # e.g. "木造/3階建" → structure only
             item.kouzou = item.kouzou.split("/", 1)[0].strip()
-
-
-        # 総戸数 (「戸数」表記も考慮)
         item.soukosuStr = specs.get("総戸数", "") or specs.get("戸数", "")
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
-
         item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
 
-        # 土地・建物面積
+    @staticmethod
+    def _apply_invest_areas_and_ratios(item, specs: dict) -> None:
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-
         item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-
-        # 建ぺい率・容積率
         item.kenpeiStr = specs.get("建ぺい率", "")
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
         item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
-
-        item.setsudou = specs.get("接道状況", "") or specs.get("接道", "")
-        item.chimoku = specs.get("地目", "")
-        item.youtoChiiki = specs.get("用途地域", "")
-
-        # 物件種別（Apartment, Mansion, Building）の判定 (共通化)
-        item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
-
-        return item

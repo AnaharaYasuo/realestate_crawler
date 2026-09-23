@@ -1,6 +1,8 @@
 
 import asyncio
 import ssl
+from typing import ClassVar
+
 import aiohttp
 from package.api.api import (
     ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase,
@@ -21,7 +23,7 @@ class MisawaInvestmentConnectorMixin:
         ctx = ssl.create_default_context()
         try:
             ctx.set_ciphers('DEFAULT@SECLEVEL=1')  # NOSONAR
-        except Exception:
+        except (ssl.SSLError, ValueError):
             pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
@@ -124,7 +126,9 @@ class ParseMisawaInvestmentKodateListFuncAsync(MisawaInvestmentConnectorMixin, P
 
 class ParseMisawaInvestmentStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
     # Investment = Type 9 (Web ID)
-    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
+    urlList: ClassVar[list[str]] = [
+        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+    ]
 
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentApartmentParser
@@ -160,7 +164,9 @@ class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
     # Invest inventory is type=9 (shared list). Rows include アパート/一棟/戸建貸家;
     # MisawaInvestmentKodateParser skips non-戸建. Explicit urlList so catalog seed
     # is not ambiguous with the apartment Start class.
-    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
+    urlList: ClassVar[list[str]] = [
+        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+    ]
 
     def _generateParser(self):
         from package.parser.misawaParser import MisawaInvestmentKodateParser
@@ -171,7 +177,9 @@ class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
 
 
 class ParseMisawaInvestmentApartmentStartAsync(ParseMisawaInvestmentStartAsync):
-    urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"]
+    urlList: ClassVar[list[str]] = [
+        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+    ]
 
 
 # Import missing constants

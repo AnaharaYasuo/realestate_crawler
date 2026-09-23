@@ -95,7 +95,7 @@ def _run_invocation(
     started = time.monotonic()
     timeout = _remaining_timeout(deadline)
     # New session so timeout can kill the whole pytest-xdist / Chromium tree.
-    proc = subprocess.Popen(cmd, env=env, start_new_session=True)  # noqa: S603
+    proc = subprocess.Popen(cmd, env=env, start_new_session=True)
     try:
         code = int(proc.wait(timeout=timeout))
     except subprocess.TimeoutExpired:
@@ -105,13 +105,52 @@ def _run_invocation(
             proc.kill()
         try:
             proc.wait(timeout=5)
-        except Exception:
+        except subprocess.TimeoutExpired:
             pass
         print(f"FAIL: bucket {label} exceeded shared wall deadline", flush=True)
         code = 124
     elapsed = time.monotonic() - started
     print(f"=== END [{label}] exit={code} elapsed={elapsed:.1f}s ===", flush=True)
     return code
+
+
+def _record_bucket_code(
+    codes_by_label: dict[str, int], label: str, code: int
+) -> None:
+    codes_by_label[label] = code
+    if code != 0:
+        _warn_bucket_failed(label, code)
+
+
+def _run_pw_rest(
+    rest: list[PytestInvocation],
+    extra: list[str],
+    deadline: float,
+    codes_by_label: dict[str, int],
+) -> None:
+    """Run remaining PW companies serially (≤1) or overlapped (>1)."""
+    if len(rest) <= 1:
+        for inv in rest:
+            code = _run_invocation(
+                inv.label, inv.sites_csv, inv.xdist_n, extra, deadline
+            )
+            _record_bucket_code(codes_by_label, inv.label, code)
+        return
+    with ThreadPoolExecutor(max_workers=len(rest)) as pool:
+        futures = {
+            pool.submit(
+                _run_invocation,
+                inv.label,
+                inv.sites_csv,
+                inv.xdist_n,
+                extra,
+                deadline,
+            ): inv
+            for inv in rest
+        }
+        for fut in as_completed(futures):
+            inv = futures[fut]
+            _record_bucket_code(codes_by_label, inv.label, int(fut.result()))
 
 
 def _run_pw_serial(
@@ -133,36 +172,9 @@ def _run_pw_serial(
 
     for inv in mizuho:
         code = _run_invocation(inv.label, inv.sites_csv, inv.xdist_n, extra, deadline)
-        codes_by_label[inv.label] = code
-        if code != 0:
-            _warn_bucket_failed(inv.label, code)
+        _record_bucket_code(codes_by_label, inv.label, code)
 
-    if len(rest) <= 1:
-        for inv in rest:
-            code = _run_invocation(inv.label, inv.sites_csv, inv.xdist_n, extra, deadline)
-            codes_by_label[inv.label] = code
-            if code != 0:
-                _warn_bucket_failed(inv.label, code)
-    elif rest:
-        with ThreadPoolExecutor(max_workers=len(rest)) as pool:
-            futures = {
-                pool.submit(
-                    _run_invocation,
-                    inv.label,
-                    inv.sites_csv,
-                    inv.xdist_n,
-                    extra,
-                    deadline,
-                ): inv
-                for inv in rest
-            }
-            for fut in as_completed(futures):
-                inv = futures[fut]
-                code = int(fut.result())
-                codes_by_label[inv.label] = code
-                if code != 0:
-                    _warn_bucket_failed(inv.label, code)
-
+    _run_pw_rest(rest, extra, deadline, codes_by_label)
     return [codes_by_label.get(inv.label, 1) for inv in invocations]
 
 

@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
 """Offline sync gate: CRAWL_JOBS must resolve to Start API + seed URL + dispatch."""
 from __future__ import annotations
 
 import pytest
-
 from package.utils.crawl_job_catalog import build_catalog, unresolved_jobs
 from package.utils.crawl_jobs import CRAWL_JOBS
 

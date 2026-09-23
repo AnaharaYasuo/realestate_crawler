@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared crawl job definitions (Single Source of Truth for production + tests)."""
 
 CRAWL_JOBS = [
@@ -99,6 +98,91 @@ CRAWL_JOBS = [
 ]
 
 
+def _append_unique_job(
+    job: tuple[str, str],
+    matched: list[tuple[str, str]],
+    seen: set[tuple[str, str]],
+) -> None:
+    if job in seen:
+        return
+    matched.append(job)
+    seen.add(job)
+
+
+def _resolve_colon_slash_job(
+    tok: str, selected: list[tuple[str, str]]
+) -> tuple[str, str]:
+    sep = ":" if ":" in tok else "/"
+    left, _, right = tok.partition(sep)
+    c, p = left.strip().lower(), right.strip().lower()
+    for jc, jp in selected:
+        if jc.lower() == c and jp.lower() == p:
+            return (jc, jp)
+    raise ValueError(f"Unknown crawl job in SITES: {tok!r}")
+
+
+def _match_sites_token(
+    tok: str,
+    selected: list[tuple[str, str]],
+    job_ids: dict[str, tuple[str, str]],
+    by_company: dict[str, list[tuple[str, str]]],
+    matched: list[tuple[str, str]],
+    seen: set[tuple[str, str]],
+) -> None:
+    key = tok.lower().replace("-", "_")
+    if key in job_ids:
+        _append_unique_job(job_ids[key], matched, seen)
+        return
+    if ":" in tok or "/" in tok:
+        _append_unique_job(_resolve_colon_slash_job(tok, selected), matched, seen)
+        return
+    if key in by_company:
+        for job in by_company[key]:
+            _append_unique_job(job, matched, seen)
+        return
+    raise ValueError(
+        f"Unknown site/job token in SITES: {tok!r}. "
+        f"Use company code (e.g. sumifu), job id (sumifu_mansion), "
+        f"or company:type (sumifu:mansion)."
+    )
+
+
+def _apply_sites_filter(
+    selected: list[tuple[str, str]], sites_raw: str
+) -> list[tuple[str, str]]:
+    tokens = [t.strip() for t in sites_raw.split(",") if t.strip()]
+    matched: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    job_ids = {f"{c}_{p}": (c, p) for c, p in selected}
+    by_company: dict[str, list[tuple[str, str]]] = {}
+    for c, p in selected:
+        by_company.setdefault(c.lower(), []).append((c, p))
+    for tok in tokens:
+        _match_sites_token(tok, selected, job_ids, by_company, matched, seen)
+    return matched
+
+
+def _apply_company_type_filter(
+    selected: list[tuple[str, str]],
+    company_l: str,
+    type_l: str,
+    company: str | None,
+    property_type: str | None,
+) -> list[tuple[str, str]]:
+    if not company_l:
+        if type_l:
+            raise ValueError("CRAWL_GUARANTEE_TYPE / TYPE requires COMPANY to be set")
+        return selected
+    selected = [(c, p) for c, p in selected if c.lower() == company_l]
+    if type_l:
+        selected = [(c, p) for c, p in selected if p.lower() == type_l]
+    if not selected:
+        raise ValueError(
+            f"No CRAWL_JOBS match COMPANY={company!r} TYPE={property_type!r}"
+        )
+    return selected
+
+
 def filter_crawl_jobs(
     jobs: list[tuple[str, str]] | None = None,
     *,
@@ -124,63 +208,11 @@ def filter_crawl_jobs(
     type_l = (property_type or "").strip().lower()
 
     if sites_raw:
-        tokens = [t.strip() for t in sites_raw.split(",") if t.strip()]
-        matched: list[tuple[str, str]] = []
-        seen: set[tuple[str, str]] = set()
-        job_ids = {f"{c}_{p}": (c, p) for c, p in selected}
-        by_company: dict[str, list[tuple[str, str]]] = {}
-        for c, p in selected:
-            by_company.setdefault(c.lower(), []).append((c, p))
+        selected = _apply_sites_filter(selected, sites_raw)
 
-        for tok in tokens:
-            key = tok.lower().replace("-", "_")
-            if key in job_ids:
-                job = job_ids[key]
-                if job not in seen:
-                    matched.append(job)
-                    seen.add(job)
-                continue
-            if ":" in tok or "/" in tok:
-                sep = ":" if ":" in tok else "/"
-                left, _, right = tok.partition(sep)
-                c, p = left.strip().lower(), right.strip().lower()
-                cand = (c, p)
-                # preserve original casing from selected
-                for jc, jp in selected:
-                    if jc.lower() == c and jp.lower() == p:
-                        cand = (jc, jp)
-                        break
-                else:
-                    raise ValueError(f"Unknown crawl job in SITES: {tok!r}")
-                if cand not in seen:
-                    matched.append(cand)
-                    seen.add(cand)
-                continue
-            if key in by_company:
-                for job in by_company[key]:
-                    if job not in seen:
-                        matched.append(job)
-                        seen.add(job)
-                continue
-            raise ValueError(
-                f"Unknown site/job token in SITES: {tok!r}. "
-                f"Use company code (e.g. sumifu), job id (sumifu_mansion), "
-                f"or company:type (sumifu:mansion)."
-            )
-        selected = matched
-
-    if company_l:
-        selected = [(c, p) for c, p in selected if c.lower() == company_l]
-        if type_l:
-            selected = [(c, p) for c, p in selected if p.lower() == type_l]
-        if not selected:
-            raise ValueError(
-                f"No CRAWL_JOBS match COMPANY={company!r} TYPE={property_type!r}"
-            )
-    elif type_l:
-        raise ValueError("CRAWL_GUARANTEE_TYPE / TYPE requires COMPANY to be set")
-
-    return selected
+    return _apply_company_type_filter(
+        selected, company_l, type_l, company, property_type
+    )
 
 
 def jobs_from_env(

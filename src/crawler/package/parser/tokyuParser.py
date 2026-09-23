@@ -2,6 +2,7 @@
 import datetime
 from decimal import Decimal
 import importlib
+import json
 import logging
 import re
 import sys
@@ -21,6 +22,8 @@ from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
 importlib.reload(sys)
+
+logger = logging.getLogger(__name__)
 
 def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     title_text = response.title.get_text().strip() if response.title else ""
@@ -69,7 +72,7 @@ class TokyuParser(ParserBase):
         pass
 
     def getRootXpath(self):
-        return u''
+        return ''
 
     def getRootDestUrl(self, linkUrl):
         return self.BASE_URL + linkUrl
@@ -79,7 +82,7 @@ class TokyuParser(ParserBase):
             yield destUrl
 
     def getAreaXpath(self):
-        return u''
+        return ''
 
     def getAreaDestUrl(self, linkUrl):
         return self.BASE_URL + linkUrl
@@ -89,7 +92,7 @@ class TokyuParser(ParserBase):
             yield destUrl
 
     def getPropertyListXpath(self):
-        return u''
+        return ''
 
     def getPropertyListDestUrl(self, linkUrl):
         return self.BASE_URL + linkUrl
@@ -99,7 +102,7 @@ class TokyuParser(ParserBase):
             yield destUrl
 
     async def getPropertyListNextPageUrl(self, response):
-        logging.info("getPropertyListNextPageUrl")
+        logger.info("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
                 next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
@@ -110,8 +113,42 @@ class TokyuParser(ParserBase):
                     href = next_el.get('href')
                     return href if href.startswith('http') else self.BASE_URL + href
         except Exception as e:
-            logging.warning(f"getPropertyListNextPageUrl exception: {e}")
+            logger.warning("getPropertyListNextPageUrl exception: %s", e)
         return ""
+
+    def _scrape_dl_direct_children(self, target_wrapper, specs: dict) -> None:
+        dts = target_wrapper.find_all('dt', recursive=False)
+        for dt in dts:
+            dd = dt.find_next_sibling('dd')
+            if not dd:
+                continue
+            title = dt.get_text(strip=True).rstrip("：").rstrip(":")
+            if title and title not in specs:
+                specs[title] = {
+                    'value': dd.get_text(strip=True),
+                    'element': dd,
+                    'links': [a.text for a in dd.select('a')],
+                    'row_element': target_wrapper,
+                }
+
+    def _scrape_row_dt_dd(self, rows, header_selector, value_selector, specs: dict) -> None:
+        for tr in rows:
+            dds = tr.select(value_selector)
+            dts = tr.select(header_selector)
+            for j, th in enumerate(dts):
+                thTitle = th.get_text(strip=True) if len(th.contents) > 0 else "Unknown"
+                if not thTitle:
+                    thTitle = "Unknown"
+                thTitle = thTitle.rstrip("：").rstrip(":")
+                if len(dds) <= j:
+                    continue
+                if thTitle not in specs or specs[thTitle]['value'] == "":
+                    specs[thTitle] = {
+                        'value': dds[j].get_text(strip=True),
+                        'element': dds[j],
+                        'links': [a.text for a in dds[j].select('a')],
+                        'row_element': tr,
+                    }
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
         """
@@ -127,13 +164,13 @@ class TokyuParser(ParserBase):
             return self._scrape_specs_cache[resp_id]
 
         specs = {}
-
         table_config = self.selectors.get('table', {})
-        table_selector = table_config.get('selector', 'div.m-status-table__wrapper, #propertySummarySection dl')
+        table_selector = table_config.get(
+            'selector', 'div.m-status-table__wrapper, #propertySummarySection dl'
+        )
         row_selector = table_config.get('row_selector', 'div, dl')
         header_selector = table_config.get('header', 'dt')
         value_selector = table_config.get('value', 'dd')
-
 
         wrappers = response.select(table_selector)
         if not wrappers:
@@ -141,39 +178,11 @@ class TokyuParser(ParserBase):
 
         for target_wrapper in wrappers:
             rows = target_wrapper.select(row_selector)
-            
             # Case 1: dt/dd are direct children of dl
             if target_wrapper.name == 'dl' and not rows:
-                 dts = target_wrapper.find_all('dt', recursive=False)
-                 for dt in dts:
-                     dd = dt.find_next_sibling('dd')
-                     if dd:
-                         title = dt.get_text(strip=True).rstrip("：").rstrip(":")
-                         if title and title not in specs:
-                             specs[title] = {
-                                 'value': dd.get_text(strip=True),
-                                 'element': dd,
-                                 'links': [a.text for a in dd.select('a')],
-                                 'row_element': target_wrapper
-                             }
-
+                self._scrape_dl_direct_children(target_wrapper, specs)
             # Case 2: rows (div/dl) contain dt/dd
-            for tr in rows:
-                dds = tr.select(value_selector)
-                dts = tr.select(header_selector)
-                for j, th in enumerate(dts):
-                    thTitle = th.get_text(strip=True) if len(th.contents) > 0 else "Unknown"
-                    if not thTitle: thTitle = "Unknown"
-                    thTitle = thTitle.rstrip("：").rstrip(":")
-                    
-                    if len(dds) > j:
-                        if thTitle not in specs or specs[thTitle]['value'] == "":
-                            specs[thTitle] = {
-                                'value': dds[j].get_text(strip=True),
-                                'element': dds[j],
-                                'links': [a.text for a in dds[j].select('a')],
-                                'row_element': tr
-                            }
+            self._scrape_row_dt_dd(rows, header_selector, value_selector, specs)
 
         self._scrape_specs_cache[resp_id] = specs
         return specs
@@ -221,7 +230,7 @@ class TokyuParser(ParserBase):
     # --- Common Extraction Methods ---
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('price_key', u"価格")
+        key = self.selectors.get('price_key', "価格")
         if key in specs:
              return specs[key]['value']
         # Header/hero/table price element fallback
@@ -244,8 +253,8 @@ class TokyuParser(ParserBase):
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('address_key', u"所在地")
-        val = self._get_spec_val(specs, key) or self._get_spec_val(specs, u"所在地")
+        key = self.selectors.get('address_key', "所在地")
+        val = self._get_spec_val(specs, key) or self._get_spec_val(specs, "所在地")
         if val:
             if "Googleマップ" in val:
                 val = val.split("Googleマップ")[0].strip()
@@ -254,7 +263,7 @@ class TokyuParser(ParserBase):
 
     def _parseAddress1(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('address_key', u"所在地")
+        key = self.selectors.get('address_key', "所在地")
         if key in specs and isinstance(specs[key], dict):
             links = specs[key].get('links', [])
             if len(links) >= 1: return links[0]
@@ -264,7 +273,7 @@ class TokyuParser(ParserBase):
 
     def _parseAddress2(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('address_key', u"所在地")
+        key = self.selectors.get('address_key', "所在地")
         if key in specs and isinstance(specs[key], dict):
             links = specs[key].get('links', [])
             if len(links) >= 2: return links[1]
@@ -274,7 +283,7 @@ class TokyuParser(ParserBase):
 
     def _parseAddress3(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('address_key', u"所在地")
+        key = self.selectors.get('address_key', "所在地")
         if key in specs and isinstance(specs[key], dict):
             links = specs[key].get('links', [])
             if len(links) >= 3: return links[2]
@@ -284,58 +293,58 @@ class TokyuParser(ParserBase):
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('transport_key', u"交通")
+        key = self.selectors.get('transport_key', "交通")
         return self._get_spec_val(specs, key)
 
 
     def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('hikiwatashi_key', u"引渡時")
-        if key not in specs: key = u"引渡"
-        if key not in specs: key = u"引渡時期"
+        key = self.selectors.get('hikiwatashi_key', "引渡時")
+        if key not in specs: key = "引渡"
+        if key not in specs: key = "引渡時期"
         return self._get_spec_val(specs, key)
 
     def _parseGenkyo(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"現況"
-        if key not in specs: key = u"建物現況"
+        key = "現況"
+        if key not in specs: key = "建物現況"
         return self._get_spec_val(specs, key)
 
     def _parseTochikenri(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"土地権利"
+        key = "土地権利"
         return self._get_spec_val(specs, key)
 
     def _parseSonotaHiyouStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"その他費用"
+        key = "その他費用"
         return self._get_spec_val(specs, key)
 
     def _parseTorihiki(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"取引態様"
+        key = "取引態様"
         return self._get_spec_val(specs, key)
 
     def _parseBiko(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"備考"
+        key = "備考"
         return self._get_spec_val(specs, key)
 
 
 
     def _parseMadori(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"間取り"
+        key = "間取り"
         return self._get_spec_val(specs, key)
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建物構造"
+        key = "建物構造"
         return self._get_spec_val(specs, key)
 
     def _parseChikunengetsuStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"築年月"
+        key = "築年月"
         return self._get_spec_val(specs, key)
 
     def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
@@ -344,7 +353,7 @@ class TokyuParser(ParserBase):
 
     def _parseTochiMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"土地面積"
+        key = "土地面積"
         return self._get_spec_val(specs, key)
 
     def _parseTochiMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -353,8 +362,8 @@ class TokyuParser(ParserBase):
 
     def _parseTatemonoMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建物面積"
-        if key not in specs: key = u"延床面積"
+        key = "建物面積"
+        if key not in specs: key = "延床面積"
         return self._get_spec_val(specs, key)
 
     def _parseTatemonoMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -369,12 +378,12 @@ class TokyuParser(ParserBase):
 
     def _parseKenpeiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建ぺい率"
+        key = "建ぺい率"
         return self._get_spec_val(specs, key)
 
     def _parseYousekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"容積率"
+        key = "容積率"
         return self._get_spec_val(specs, key)
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None) -> int:
@@ -397,19 +406,19 @@ class TokyuParser(ParserBase):
 
     def _parseSetsudou(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"接道状況"
+        key = "接道状況"
         if key in specs: return specs[key]['value']
-        key = u"接道"
+        key = "接道"
         return specs[key]['value'] if key in specs else "-"
 
     def _parseDouro(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"接道方向／幅員"
+        key = "接道方向／幅員"
         return self._get_spec_val(specs, key)
 
     def _parseDouroMuki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseDouro(response, specs)
-        match = re.search(u"(北|南|東|西)+", val)
+        match = re.search("(北|南|東|西)+", val)
         return match.group(0) if match else "-"
 
     def _parseDouroHaba(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -420,8 +429,8 @@ class TokyuParser(ParserBase):
 
     def _parseDouroKubun(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseDouro(response, specs)
-        if u"公道" in val: return u"公道"
-        if u"私道" in val: return u"私道"
+        if "公道" in val: return "公道"
+        if "私道" in val: return "私道"
         return "-"
 
     def _parseSetsumen(self, response: BeautifulSoup, specs=None) -> Decimal:
@@ -429,8 +438,8 @@ class TokyuParser(ParserBase):
 
     def _parseChimokuChisei(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"地目（現況）"
-        if key not in specs: key = u"地目"
+        key = "地目（現況）"
+        if key not in specs: key = "地目"
         return self._get_spec_val(specs, key)
 
     def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
@@ -440,13 +449,13 @@ class TokyuParser(ParserBase):
     def _parseChisei(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseChimokuChisei(response, specs)
         if "（" in val:
-            match = re.search(u"（(.*?)）", val)
+            match = re.search("（(.*?)）", val)
             if match: return match.group(1)
         return "-"
 
     def _parseChiikiChiku(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"用途地域等"
+        key = "用途地域等"
         return self._get_spec_val(specs, key)
 
     def _parseKuiki(self, response: BeautifulSoup, specs=None) -> str:
@@ -454,37 +463,37 @@ class TokyuParser(ParserBase):
         if "/" in val:
             return val.split("/")[0].strip()
         if specs is None: specs = self._scrape_specs(response)
-        key = u"都市計画"
+        key = "都市計画"
         return self._get_spec_val(specs, key)
 
     def _parseBoukaChiiki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
-        if u"防火" in val: return u"防火地域級等あり" 
+        if "防火" in val: return "防火地域級等あり" 
         return "-"
 
     def _parseSaikenchiku(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
-        if u"再建築不可" in val: return u"不可"
-        return u"可"
+        if "再建築不可" in val: return "不可"
+        return "可"
 
     def _parseSonotaChiiki(self, response: BeautifulSoup, specs=None) -> str:
         return "-"
 
     def _parseKenchikuJoken(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建築条件"
+        key = "建築条件"
         return specs[key]['value'] if key in specs else "-"
 
 
     def _parseKokudoHou(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
-        if u"国土法" in val: return u"届出要"
-        return u"不要"
+        if "国土法" in val: return "届出要"
+        return "不要"
 
     def _parseSaikou(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"向き"
-        if key not in specs: key = u"開口向き"
+        key = "向き"
+        if key not in specs: key = "開口向き"
         if key in specs: return specs[key]['value']
         # Fallback to douro
         return self._parseDouroMuki(response, specs)
@@ -492,12 +501,12 @@ class TokyuParser(ParserBase):
 
     def _parseParking(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"駐車場"
+        key = "駐車場"
         return self._get_spec_val(specs, key)
 
     def _parseShidoMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"私道面積"
+        key = "私道面積"
         return specs[key]['value'] if key in specs else "0"
 
     def _parseShidoMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -505,7 +514,7 @@ class TokyuParser(ParserBase):
 
     def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建物構造"
+        key = "建物構造"
         return self._get_spec_val(specs, key)
 
 
@@ -605,7 +614,7 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseSenyuMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"専有面積"
+        key = "専有面積"
         return self._get_spec_val(specs, key)
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -613,19 +622,19 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"所在階"
+        key = "所在階"
         return self._get_spec_val(specs, key)
 
     def _parseTatemonoKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"建物構造"
+        key = "建物構造"
         val = self._get_spec_val(specs, key)
         match = re.search(r'地上(\d+)階', val)
         return match.group(0) if match else val
 
     def _parseBalconyMensekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"バルコニー面積"
+        key = "バルコニー面積"
         return self._get_spec_val(specs, key)
 
     def _parseBalconyMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
@@ -633,7 +642,7 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseSoukosu(self, response: BeautifulSoup, specs=None) -> int | None:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"総戸数"
+        key = "総戸数"
         if key in specs:
             match = re.search(r'(\d+)', specs[key]['value'])
             if match: return int(match.group(1))
@@ -641,18 +650,18 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseKanriKaisya(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"管理会社"
+        key = "管理会社"
         return self._get_spec_val(specs, key)
 
     def _parseKanriKeitai(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"管理員の勤務形態"
-        if key not in specs: key = u"管理形態"
+        key = "管理員の勤務形態"
+        if key not in specs: key = "管理形態"
         return self._get_spec_val(specs, key)
 
     def _parseKanrihiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"管理費"
+        key = "管理費"
         return self._get_spec_val(specs, key)
 
     def _parseKanrihi(self, response: BeautifulSoup, specs=None) -> int | None:
@@ -660,7 +669,7 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseSyuzenTsumitateStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"修繕積立金"
+        key = "修繕積立金"
         return self._get_spec_val(specs, key)
 
     def _parseSyuzenTsumitate(self, response: BeautifulSoup, specs=None) -> int | None:
@@ -668,13 +677,13 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseBunjoKaisya(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"分譲会社"
-        if key not in specs: key = u"分譲主"
+        key = "分譲会社"
+        if key not in specs: key = "分譲主"
         return self._get_spec_val(specs, key)
 
     def _parseSekouKaisya(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = u"施工会社"
+        key = "施工会社"
         return self._get_spec_val(specs, key)
 
 
@@ -735,6 +744,57 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
     def createEntity(self):
         return TokyuTochi()
 
+    def _apply_maguchi_from_setsumen(self, item) -> None:
+        if item.setsumen is None:
+            return
+        item.maguchiStr = str(item.setsumen)
+        m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+        if m:
+            item.maguchi = Decimal(m.group(1))
+
+    def _apply_road_width_from_douro(self, item) -> None:
+        if item.douroHaba is None:
+            return
+        item.roadWidthStr = str(item.douroHaba)
+        m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+        if m:
+            item.roadWidth = Decimal(m.group(1))
+
+    def _apply_maguchi_from_setsudou(self, item) -> None:
+        if item.maguchi and item.maguchi != 0:
+            return
+        if not item.setsudou:
+            return
+        mag_match = re.search(
+            r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?',
+            item.setsudou,
+        )
+        if mag_match:
+            item.maguchi = Decimal(mag_match.group(1))
+            item.maguchiStr = mag_match.group(0)
+
+    def _apply_tochi_road_fields(self, item) -> None:
+        self._apply_maguchi_from_setsumen(item)
+        self._apply_road_width_from_douro(item)
+        if item.douroMuki:
+            item.roadDirection = item.douroMuki
+        if item.douroKubun:
+            item.roadType = item.douroKubun
+        if item.setsudou:
+            structure_match = re.search(
+                r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou
+            )
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+        self._apply_maguchi_from_setsudou(item)
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+        else:
+            item.okuyuki = None
+            item.okuyukiStr = ""
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item: TokyuTochi = super()._parsePropertyDetailPage(item, response)
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
@@ -761,47 +821,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         item.sonotaChiiki = self._parseSonotaChiiki(response)
         item.kenchikuJoken = self._parseKenchikuJoken(response)
         item.kokudoHou = self._parseKokudoHou(response)
-
-        # 統一土地評価フィールドのパース ＆ 代入
-        import re
-        if item.setsumen is not None:
-            item.maguchiStr = str(item.setsumen)
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
-            if m:
-                item.maguchi = Decimal(m.group(1))
-                
-        if item.douroHaba is not None:
-            item.roadWidthStr = str(item.douroHaba)
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
-            if m:
-                item.roadWidth = Decimal(m.group(1))
-                
-        if item.douroMuki:
-            item.roadDirection = item.douroMuki
-            
-        if item.douroKubun:
-            item.roadType = item.douroKubun
-            
-        if item.setsudou:
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        # 間口(maguchi)が0またはNoneの場合、接道・道路記述から間口の正規表現マッチを試みる
-        if (not item.maguchi or item.maguchi == 0) and item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchi = Decimal(mag_match.group(1))
-                item.maguchiStr = mag_match.group(0)
-
-        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-        else:
-            item.okuyuki = None
-            item.okuyukiStr = ""
-
+        self._apply_tochi_road_fields(item)
         return item
 
 class TokyuKodateParser(TokyuParser, KodateParserBase):
@@ -927,7 +947,6 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         script = response.find('script', id='__NEXT_DATA__')
         if script:
             try:
-                import json
                 data = json.loads(script.string)
                 pageProps = data.get('props', {}).get('pageProps', {})
                 propertyList = pageProps.get('propertyList', [])
@@ -938,7 +957,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
                             yield self.BASE_URL + detailUrl
                     return
             except Exception as e:
-                logging.error(f"Error parsing __NEXT_DATA__: {e}")
+                logger.error("Error parsing __NEXT_DATA__: %s", e)
 
         # Fallback to selectors
         selector = self.selectors.get('property_links')
@@ -954,12 +973,11 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         script = response.find('script', id='__NEXT_DATA__')
         if script:
             try:
-                import json
                 data = json.loads(script.string)
                 response._next_data_json = data
                 return data
-            except:
-                pass
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+                logger.debug("Tokyu __NEXT_DATA__ parse skipped: %s", exc)
         return None
 
     def _get_item_data(self, response, title):
@@ -1122,86 +1140,81 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
              if match: return int(match.group(1))
         return None
 
-    def _parsePropertyDetailPage(self, item, response):
-        # Override to support Next.js JSON data extraction with fallback
-        next_data = self._getNextJsData(response)
-        if next_data:
-            item.propertyName = self._parsePropertyName(response) or self.selectors.get('property_name_clean') and response.select_one(self.selectors.get('property_name_clean')) and response.select_one(self.selectors.get('property_name_clean')).get_text(strip=True)
-            if not item.propertyName:
-                h1 = response.find("h1")
-                item.propertyName = h1.get_text(strip=True) if h1 else ""
+    def _set_attr_detail(self, item, attr: str, response, label: str, *, menseki=False, ratio=False) -> None:
+        if not hasattr(item, attr):
+            return
+        if menseki:
+            setattr(item, attr, self._parseMenseki(response, label))
+        elif ratio:
+            setattr(item, attr, self._parseKenpeiYouseki(response, label))
+        else:
+            setattr(item, attr, self._parseDetailString(response, label))
 
-            item.price = self._parsePrice(response)
-            if not item.price:
-                item.price = converter.parse_price(self._get_text_value(self._get_item_data(response, '価格')) or self._parsePriceStr(response))
+    def _fill_invest_nextjs_core(self, item, response) -> None:
+        sel = self.selectors.get('property_name_clean')
+        name_from_sel = (
+            response.select_one(sel).get_text(strip=True)
+            if sel and response.select_one(sel)
+            else ""
+        )
+        item.propertyName = self._parsePropertyName(response) or name_from_sel
+        if not item.propertyName:
+            h1 = response.find("h1")
+            item.propertyName = h1.get_text(strip=True) if h1 else ""
 
-            item.yield_rate = self._parseYield(response)
-            item.address = self._parseAddress(response) or self._parseAddress(response)
-            if not item.address:
-                specs = self._scrape_specs(response)
-                item.address = self._parseAddress(response)
-                
-            item.transport1 = self._parseAccess(response)
-            item.monthlyRent = self._parseMonthlyRent(response)
-            
-            if hasattr(item, 'tochiMensekiStr'):
-                item.tochiMensekiStr = self._parseDetailString(response, '土地面積')
-            if hasattr(item, 'tochiMenseki'):
-                item.tochiMenseki = self._parseMenseki(response, '土地面積')
-            
-            if hasattr(item, 'tatemonoMensekiStr'):
-                item.tatemonoMensekiStr = self._parseDetailString(response, '建物面積')
-            if hasattr(item, 'tatemonoMenseki'):
-                item.tatemonoMenseki = self._parseMenseki(response, '建物面積')
-            
-            if hasattr(item, 'madori'):
-                item.madori = self._parseDetailString(response, '間取り')
-            if hasattr(item, 'soukosuStr'):
-                item.soukosuStr = self._parseDetailString(response, '総戸数')
-            if hasattr(item, 'chikunengetsuStr'):
-                item.chikunengetsuStr = self._parseDetailString(response, '築年月')
-            
-            if hasattr(item, 'kenpei'):
-                item.kenpei = self._parseKenpeiYouseki(response, '建ぺい率')
-            if hasattr(item, 'youseki'):
-                item.youseki = self._parseKenpeiYouseki(response, '容積率')
-            if hasattr(item, 'kenpeiStr'):
-                item.kenpeiStr = self._parseDetailString(response, '建ぺい率')
-            if hasattr(item, 'yousekiStr'):
-                item.yousekiStr = self._parseDetailString(response, '容積率')
-            
-            if hasattr(item, 'youtoChiiki'):
-                item.youtoChiiki = self._parseDetailString(response, '用途地域等')
-            
-            setsudou_val = self._parseDetailString(response, '接道状況') + " " + self._parseDetailString(response, '接道方向／幅員')
-            if hasattr(item, 'setsudou'):
-                item.setsudou = setsudou_val
-            elif hasattr(item, 'startRoad'):
-                item.startRoad = setsudou_val
-                
-            if hasattr(item, 'chimoku'):
-                item.chimoku = self._parseDetailString(response, '地目')
-            if hasattr(item, 'genkyo'):
-                item.genkyo = self._parseDetailString(response, '現況')
-            if hasattr(item, 'hikiwatashi'):
-                item.hikiwatashi = self._parseDetailString(response, '引渡可能年月')
-            if hasattr(item, 'torihiki'):
-                item.torihiki = self._parseDetailString(response, '取引態様')
-            if hasattr(item, 'biko'):
-                item.biko = self._parseDetailString(response, '備考')
-            if hasattr(item, 'tochikenri'):
-                item.tochikenri = self._parseDetailString(response, '土地権利')
-            if hasattr(item, 'kanriKeitai'):
-                item.kanriKeitai = self._parseDetailString(response, '管理形態')
+        item.price = self._parsePrice(response)
+        if not item.price:
+            item.price = converter.parse_price(
+                self._get_text_value(self._get_item_data(response, '価格'))
+                or self._parsePriceStr(response)
+            )
+        item.yield_rate = self._parseYield(response)
+        item.address = self._parseAddress(response)
+        if not item.address:
+            item.address = self._parseAddress(response)
+        item.transport1 = self._parseAccess(response)
+        item.monthlyRent = self._parseMonthlyRent(response)
 
-            if hasattr(item, 'transport1') and item.transport1:
-                self._populateTraffic(item, item.transport1)
-            elif hasattr(item, 'traffic') and getattr(item, 'traffic', None):
-                self._populateTraffic(item, item.traffic)
-                
-            return item
+    def _fill_invest_nextjs_areas(self, item, response) -> None:
+        self._set_attr_detail(item, 'tochiMensekiStr', response, '土地面積')
+        self._set_attr_detail(item, 'tochiMenseki', response, '土地面積', menseki=True)
+        self._set_attr_detail(item, 'tatemonoMensekiStr', response, '建物面積')
+        self._set_attr_detail(item, 'tatemonoMenseki', response, '建物面積', menseki=True)
+        self._set_attr_detail(item, 'madori', response, '間取り')
+        self._set_attr_detail(item, 'soukosuStr', response, '総戸数')
+        self._set_attr_detail(item, 'chikunengetsuStr', response, '築年月')
+        self._set_attr_detail(item, 'kenpei', response, '建ぺい率', ratio=True)
+        self._set_attr_detail(item, 'youseki', response, '容積率', ratio=True)
+        self._set_attr_detail(item, 'kenpeiStr', response, '建ぺい率')
+        self._set_attr_detail(item, 'yousekiStr', response, '容積率')
+        self._set_attr_detail(item, 'youtoChiiki', response, '用途地域等')
 
-        # Fallback to HTML Scraping
+    def _fill_invest_nextjs_meta(self, item, response) -> None:
+        setsudou_val = (
+            self._parseDetailString(response, '接道状況')
+            + " "
+            + self._parseDetailString(response, '接道方向／幅員')
+        )
+        if hasattr(item, 'setsudou'):
+            item.setsudou = setsudou_val
+        elif hasattr(item, 'startRoad'):
+            item.startRoad = setsudou_val
+        for attr, label in (
+            ('chimoku', '地目'),
+            ('genkyo', '現況'),
+            ('hikiwatashi', '引渡可能年月'),
+            ('torihiki', '取引態様'),
+            ('biko', '備考'),
+            ('tochikenri', '土地権利'),
+            ('kanriKeitai', '管理形態'),
+        ):
+            self._set_attr_detail(item, attr, response, label)
+        if hasattr(item, 'transport1') and item.transport1:
+            self._populateTraffic(item, item.transport1)
+        elif hasattr(item, 'traffic') and getattr(item, 'traffic', None):
+            self._populateTraffic(item, item.traffic)
+
+    def _fill_invest_html_core(self, item, response) -> None:
         item.propertyName = self._parsePropertyName(response)
         item.priceStr = self._parsePriceStr(response)
         item.price = self._parsePrice(response)
@@ -1216,55 +1229,79 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         item.tatemonoMensekiStr = self._parseBuildingArea(response)
         item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr) or 0
         item.grossYield = self._parseGrossYield(response)
-        if hasattr(item, 'annualRent'): item.annualRent = self._parseAnnualRent(response) or 0
-        if hasattr(item, 'currentStatus'): item.currentStatus = self._parseCurrentStatus(response)
-        if hasattr(item, 'soukosu'): item.soukosu = self._parseSoukosu(response)
-        
+        if hasattr(item, 'annualRent'):
+            item.annualRent = self._parseAnnualRent(response) or 0
+        if hasattr(item, 'currentStatus'):
+            item.currentStatus = self._parseCurrentStatus(response)
+        if hasattr(item, 'soukosu'):
+            item.soukosu = self._parseSoukosu(response)
         if hasattr(item, 'kenpeiStr'):
             item.kenpeiStr = self._parseKenpeiStr(response)
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
         if hasattr(item, 'yousekiStr'):
             item.yousekiStr = self._parseYousekiStr(response)
             item.youseki = converter.parse_ratio(item.yousekiStr)
-            
-        if hasattr(item, 'youtoChiiki'): item.youtoChiiki = self._parseYoutoChiiki(response)
-        
+        if hasattr(item, 'youtoChiiki'):
+            item.youtoChiiki = self._parseYoutoChiiki(response)
+
+    def _apply_invest_road_width(self, item, specs) -> None:
+        douro_haba_str = (
+            specs.get("道路幅員", "")
+            or specs.get("前面道路幅員", "")
+            or specs.get("道路幅", "")
+        )
+        if douro_haba_str:
+            item.roadWidthStr = str(douro_haba_str)
+            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+            return
+        if not item.setsudou:
+            return
+        width_match = re.search(
+            r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?',
+            item.setsudou,
+        )
+        if width_match:
+            item.roadWidth = Decimal(width_match.group(1))
+            return
+        dir_width_match = re.search(
+            r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)',
+            item.setsudou,
+        )
+        if dir_width_match:
+            item.roadWidth = Decimal(dir_width_match.group(1))
+
+    def _fill_invest_html_setsudou(self, item, response) -> None:
         try:
             specs = self._scrape_specs(response)
             item.setsudou = self._parseSetsudou(response, specs)
-            item.setsumen = specs.get(u"接道方向／幅員", specs.get(u"接道", ""))
-            import re
+            item.setsumen = specs.get("接道方向／幅員", specs.get("接道", ""))
             if item.setsumen:
                 item.maguchiStr = str(item.setsumen)
                 m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
                 if m:
                     item.maguchi = Decimal(m.group(1))
-                    
-            douro_haba_str = specs.get(u"道路幅員", "") or specs.get(u"前面道路幅員", "") or specs.get(u"道路幅", "")
-            if douro_haba_str:
-                item.roadWidthStr = str(douro_haba_str)
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
-                if m:
-                    item.roadWidth = Decimal(m.group(1))
-            elif item.setsudou:
-                width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-                if width_match:
-                    item.roadWidth = Decimal(width_match.group(1))
-                else:
-                    dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
-                    if dir_width_match:
-                        item.roadWidth = Decimal(dir_width_match.group(1))
-                        
+            self._apply_invest_road_width(item, specs)
             if getattr(item, 'tochiMenseki', None) and getattr(item, 'maguchi', None) and item.maguchi > 0:
                 item.okuyuki = round(Decimal(item.tochiMenseki) / item.maguchi, 2)
                 item.okuyukiStr = f"{item.okuyuki}m"
-        except Exception as e:
-            logging.error(f"Error parsing setsudou fields: {e}")
-            
+        except (TypeError, ValueError, AttributeError, KeyError) as e:
+            logger.error("Error parsing setsudou fields: %s", e)
+
+    def _parsePropertyDetailPage(self, item, response):
+        # Override to support Next.js JSON data extraction with fallback
+        if self._getNextJsData(response):
+            self._fill_invest_nextjs_core(item, response)
+            self._fill_invest_nextjs_areas(item, response)
+            self._fill_invest_nextjs_meta(item, response)
+            return item
+        self._fill_invest_html_core(item, response)
+        self._fill_invest_html_setsudou(item, response)
         return item
 
     async def parseNextPage(self, response):
-        next_page_text = self.selectors.get('next_page', u"次へ")
+        next_page_text = self.selectors.get('next_page', "次へ")
         next_link = response.find('a', string=re.compile(next_page_text))
         if next_link and next_link.get('href'):
             return self.BASE_URL + next_link.get('href')
@@ -1288,62 +1325,70 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"価格", "")
+        return specs.get("価格", "")
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | None:
         return converter.parse_price(self._parsePriceStr(response, specs))
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"所在地", "")
+        return specs.get("所在地", "")
 
     def _parseTraffic(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"交通", "")
+        return specs.get("交通", "")
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return self._parseTraffic(response, specs)
 
     def _parseStructure(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"建物構造", "")
+        return specs.get("建物構造", "")
 
     def _parseYearBuilt(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"築年月", "")
+        return specs.get("築年月", "")
 
     def _parseLandArea(self, response: BeautifulSoup, specs=None):
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"土地面積", "")
+        return specs.get("土地面積", "")
 
     def _parseBuildingArea(self, response: BeautifulSoup, specs=None):
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"建物面積", "") or specs.get(u"延床面積", "") or specs.get(u"専有面積", "")
+        return specs.get("建物面積", "") or specs.get("延床面積", "") or specs.get("専有面積", "")
+
+    def _gross_yield_from_item_data(self, response: BeautifulSoup):
+        try:
+            parsed = self._parseYield(response)
+            if parsed is not None:
+                return Decimal(str(parsed))
+        except (TypeError, ValueError, AttributeError):
+            pass
+        try:
+            raw = self._get_text_value(self._get_item_data(response, "予定利回り"))
+            if raw:
+                return raw
+        except (TypeError, ValueError, AttributeError):
+            pass
+        return None
 
     def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal:
         if specs is None:
             specs = self._scrape_specs(response)
         val_str = (
-            specs.get(u"利回り", "")
-            or specs.get(u"表面利回り", "")
-            or specs.get(u"予定利回り", "")
-            or specs.get(u"想定利回り", "")
-            or specs.get(u"実質利回り", "")
+            specs.get("利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("予定利回り", "")
+            or specs.get("想定利回り", "")
+            or specs.get("実質利回り", "")
         )
         if not val_str:
             # Next.js / item-data path used by apartment invest pages.
-            try:
-                parsed = self._parseYield(response)
-                if parsed is not None:
-                    return Decimal(str(parsed))
-            except Exception:
-                pass
-            try:
-                raw = self._get_text_value(self._get_item_data(response, "予定利回り"))
-                if raw:
-                    val_str = raw
-            except Exception:
-                pass
+            fallback = self._gross_yield_from_item_data(response)
+            if isinstance(fallback, Decimal):
+                return fallback
+            if fallback:
+                val_str = fallback
         match = re.search(r"(\d+(\.\d+)?)", val_str or "")
         return Decimal(match.group(1)) if match else Decimal("0")
 
@@ -1351,12 +1396,12 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         if specs is None:
             specs = self._scrape_specs(response)
         for key in (
-            u"年間予定賃料収入",
-            u"満室時想定年収",
-            u"満室想定年収",
-            u"想定年収",
-            u"年間想定賃料",
-            u"年間収入",
+            "年間予定賃料収入",
+            "満室時想定年収",
+            "満室想定年収",
+            "想定年収",
+            "年間想定賃料",
+            "年間収入",
         ):
             raw = specs.get(key, "")
             if raw:
@@ -1365,29 +1410,29 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             raw = self._get_text_value(self._get_item_data(response, "年間予定賃料収入"))
             if raw:
                 return converter.parse_price(raw)
-        except Exception:
+        except (TypeError, ValueError, AttributeError):
             pass
         return None
 
     def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"現況", "")
+        return specs.get("現況", "")
 
     def _parseSoukosu(self, response: BeautifulSoup, specs=None) -> int | None:
         if specs is None: specs = self._scrape_specs(response)
-        return converter.parse_numeric(specs.get(u"総戸数", ""))
+        return converter.parse_numeric(specs.get("総戸数", ""))
 
     def _parseKenpeiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"建ぺい率", "")
+        return specs.get("建ぺい率", "")
 
     def _parseYousekiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"容積率", "")
+        return specs.get("容積率", "")
 
     def _parseYoutoChiiki(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return specs.get(u"用途地域", "")
+        return specs.get("用途地域", "")
 
 
 class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase):

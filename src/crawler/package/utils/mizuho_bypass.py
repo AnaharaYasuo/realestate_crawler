@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 import logging
 import re
-from typing import List, Optional
+from typing import Optional
 from xml.etree import ElementTree as ET
 
 import aiohttp
 from playwright.async_api import async_playwright
+
+logger = logging.getLogger(__name__)
 
 # Official detail sitemaps (robots.txt → sitemap_all.xml). WAF-safe discovery.
 _SITEMAP_BY_KIND = {
@@ -35,11 +37,11 @@ def infer_mizuho_sitemap_kind(url_or_type: str) -> str:
     return "mansion"
 
 
-def parse_mizuho_sitemap_locs(xml_text: str) -> List[str]:
+def parse_mizuho_sitemap_locs(xml_text: str) -> list[str]:
     """Extract <loc> URLs from a Mizuho detail sitemap document."""
     if not xml_text:
         return []
-    locs: List[str] = []
+    locs: list[str] = []
     try:
         root = ET.fromstring(xml_text)
         for el in root.iter():
@@ -55,7 +57,7 @@ def parse_mizuho_sitemap_locs(xml_text: str) -> List[str]:
             if "/property/" in u
         ]
     seen = set()
-    out: List[str] = []
+    out: list[str] = []
     for u in locs:
         if u not in seen:
             seen.add(u)
@@ -63,43 +65,53 @@ def parse_mizuho_sitemap_locs(xml_text: str) -> List[str]:
     return out
 
 
+async def _fetch_sitemap_text(session: aiohttp.ClientSession, sm_url: str) -> str | None:
+    try:
+        async with session.get(sm_url, ssl=True) as resp:
+            if resp.status != 200:
+                logger.warning(
+                    "MizuhoBypass: sitemap HTTP %s for %s",
+                    resp.status,
+                    sm_url,
+                )
+                return None
+            return await resp.text(errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "MizuhoBypass: sitemap fetch failed %s: %s", sm_url, exc
+        )
+        return None
+
+
+def _extend_collected(collected: list[str], locs: list[str], limit: int) -> None:
+    for loc in locs:
+        if loc not in collected:
+            collected.append(loc)
+        if len(collected) >= limit:
+            return
+
+
 async def get_mizuho_links_from_sitemap(
     kind_or_url: str, limit: int = 40
-) -> List[str]:
+) -> list[str]:
     """Fetch official detail sitemap(s) for the property kind (aiohttp, no PW)."""
     kind = infer_mizuho_sitemap_kind(kind_or_url)
     sitemap_urls = _SITEMAP_BY_KIND.get(kind, _SITEMAP_BY_KIND["mansion"])
-    collected: List[str] = []
+    collected: list[str] = []
     timeout = aiohttp.ClientTimeout(total=15)
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             for sm_url in sitemap_urls:
                 if len(collected) >= limit:
                     break
-                try:
-                    async with session.get(sm_url, ssl=True) as resp:
-                        if resp.status != 200:
-                            logging.warning(
-                                "MizuhoBypass: sitemap HTTP %s for %s",
-                                resp.status,
-                                sm_url,
-                            )
-                            continue
-                        text = await resp.text(errors="replace")
-                except Exception as exc:  # noqa: BLE001
-                    logging.warning(
-                        "MizuhoBypass: sitemap fetch failed %s: %s", sm_url, exc
-                    )
+                text = await _fetch_sitemap_text(session, sm_url)
+                if not text:
                     continue
-                for loc in parse_mizuho_sitemap_locs(text):
-                    if loc not in collected:
-                        collected.append(loc)
-                    if len(collected) >= limit:
-                        break
+                _extend_collected(collected, parse_mizuho_sitemap_locs(text), limit)
     except Exception as exc:  # noqa: BLE001
-        logging.warning("MizuhoBypass: sitemap session failed: %s", exc)
+        logger.warning("MizuhoBypass: sitemap session failed: %s", exc)
         return []
-    logging.info(
+    logger.info(
         "MizuhoBypass: sitemap kind=%s yielded %d links", kind, len(collected)
     )
     return collected[:limit]
@@ -107,13 +119,14 @@ async def get_mizuho_links_from_sitemap(
 
 async def _extract_links_from_page(page, response) -> list:
     title = await page.title()
-    logging.info(
-        f"MizuhoBypass: Page loaded. Title: {title}, "
-        f"Status: {response.status if response else 'None'}"
+    logger.info(
+        "MizuhoBypass: Page loaded. Title: %s, Status: %s",
+        title,
+        response.status if response else "None",
     )
 
     if "403" in title or (response and response.status == 403):
-        logging.error("MizuhoBypass: Got blocked with 403!")
+        logger.error("MizuhoBypass: Got blocked with 403!")
         return []
 
     hrefs = await page.evaluate("""() => {
@@ -147,8 +160,9 @@ async def _extract_links_from_page(page, response) -> list:
         if full_url not in links:
             links.append(full_url)
 
-    logging.info(
-        f"MizuhoBypass: Successfully extracted {len(links)} detailed links via Playwright."
+    logger.info(
+        "MizuhoBypass: Successfully extracted %d detailed links via Playwright.",
+        len(links),
     )
     return links
 
@@ -158,18 +172,18 @@ async def get_mizuho_links(url: str, limit: Optional[int] = None) -> list:
 
     limit=None: production-scale sitemap fetch. Smoke callers may pass a small limit.
     """
-    logging.info(f"MizuhoBypass: Initializing discovery for URL: {url}")
+    logger.info("MizuhoBypass: Initializing discovery for URL: %s", url)
     kind = infer_mizuho_sitemap_kind(url)
     sitemap_limit = max(1, int(limit)) if limit is not None else 500
     sitemap_links = await get_mizuho_links_from_sitemap(kind, limit=sitemap_limit)
     if sitemap_links:
-        logging.info(
+        logger.info(
             "MizuhoBypass: Using official sitemap (%d links) for kind=%s",
             len(sitemap_links),
             kind,
         )
         return sitemap_links
-    logging.warning(
+    logger.warning(
         "MizuhoBypass: sitemap empty for kind=%s; falling back to Playwright list",
         kind,
     )
@@ -237,7 +251,7 @@ async def _get_mizuho_links_once(url: str) -> list:
                     }
                 )
 
-                logging.info(
+                logger.info(
                     "MizuhoBypass: Navigating to top page first to establish cookies..."
                 )
                 await page.goto(
@@ -249,13 +263,13 @@ async def _get_mizuho_links_once(url: str) -> list:
                 await page.mouse.move(200, 200)
                 await page.wait_for_timeout(200)
 
-                logging.info("MizuhoBypass: Navigating to target list page...")
+                logger.info("MizuhoBypass: Navigating to target list page...")
                 response = await page.goto(
                     url, wait_until="domcontentloaded", timeout=20000
                 )
                 await page.wait_for_timeout(1500)
 
-                logging.info(
+                logger.info(
                     "MizuhoBypass: Executing fake mouse movement and scroll..."
                 )
                 await page.mouse.move(100, 100)
@@ -269,7 +283,7 @@ async def _get_mizuho_links_once(url: str) -> list:
 
                 links = await _extract_links_from_page(page, response)
                 if not links:
-                    logging.warning(
+                    logger.warning(
                         "MizuhoBypass: 0 links after first load; reloading in-session..."
                     )
                     await page.wait_for_timeout(3000)
@@ -290,8 +304,8 @@ async def _get_mizuho_links_once(url: str) -> list:
                 if context:
                     try:
                         await context.close()
-                    except Exception as close_error:
-                        logging.debug(
+                    except Exception as close_error:  # noqa: BLE001
+                        logger.debug(
                             "MizuhoBypass: Failed to close context: %s",
                             close_error,
                             exc_info=True,
@@ -299,25 +313,27 @@ async def _get_mizuho_links_once(url: str) -> list:
                 if browser:
                     try:
                         await browser.close()
-                    except Exception as close_error:
-                        logging.debug(
+                    except Exception as close_error:  # noqa: BLE001
+                        logger.debug(
                             "MizuhoBypass: Failed to close browser: %s",
                             close_error,
                             exc_info=True,
                         )
-    except Exception as e:
-        logging.error(f"MizuhoBypass: Error during Playwright operation: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.error("MizuhoBypass: Error during Playwright operation: %s", e)
 
     return links
 
 
 def interpret_mizuho_detail_fetch(url: str, status, title, html_text: str) -> bytes:
     """Playwright詳細取得結果を bytes / 終了 / エラーへ正規化する（単体テスト用に分離）。"""
-    logging.info(f"MizuhoBypass: Detail loaded. Title={title!r} Status={status}")
+    logger.info(
+        "MizuhoBypass: Detail loaded. Title=%r Status=%s", title, status
+    )
     if status == 403 or "403" in (title or ""):
         raise RuntimeError(f"MizuhoBypass: WAF blocked detail ({status}): {url}")
     if status in (404, 410):
-        logging.warning(f"MizuhoBypass: Listing ended HTTP {status} for {url}")
+        logger.warning("MizuhoBypass: Listing ended HTTP %s for %s", status, url)
         return b""
     if status and status >= 400:
         raise RuntimeError(f"MizuhoBypass: Detail HTTP {status} for {url}")
@@ -326,7 +342,7 @@ def interpret_mizuho_detail_fetch(url: str, status, title, html_text: str) -> by
 
 async def get_mizuho_page_html(url: str) -> bytes:
     """WAF回避用: Playwrightで詳細ページHTMLを取得する（403/404偽装時のフォールバック）。"""
-    logging.info(f"MizuhoBypass: Fetching detail HTML via Playwright: {url}")
+    logger.info("MizuhoBypass: Fetching detail HTML via Playwright: %s", url)
     browser = None
     context = None
     try:
@@ -372,8 +388,8 @@ async def get_mizuho_page_html(url: str) -> bytes:
                 if context:
                     try:
                         await context.close()
-                    except Exception as close_error:
-                        logging.debug(
+                    except Exception as close_error:  # noqa: BLE001
+                        logger.debug(
                             "MizuhoBypass: Failed to close context: %s",
                             close_error,
                             exc_info=True,
@@ -381,16 +397,16 @@ async def get_mizuho_page_html(url: str) -> bytes:
                 if browser:
                     try:
                         await browser.close()
-                    except Exception as close_error:
-                        logging.debug(
+                    except Exception as close_error:  # noqa: BLE001
+                        logger.debug(
                             "MizuhoBypass: Failed to close browser: %s",
                             close_error,
                             exc_info=True,
                         )
     except RuntimeError:
         raise
-    except Exception as e:
-        logging.exception("MizuhoBypass: Detail HTML fetch failed: %s", e)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("MizuhoBypass: Detail HTML fetch failed: %s", e)
         raise RuntimeError(f"MizuhoBypass: Playwright failed for {url}: {e}") from e
     return b""
 

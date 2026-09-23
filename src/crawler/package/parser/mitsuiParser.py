@@ -1,19 +1,29 @@
 # -*- coding: utf-8 -*-
+import importlib
 import sys
+
 # from tokenize import String  # Removed problematic import
 import unicodedata
 
 from bs4 import BeautifulSoup
+
 from package.models.mitsui import MitsuiKodate, MitsuiMansion, MitsuiTochi
-import importlib
+
 importlib.reload(sys)
-from decimal import Decimal
 import datetime
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 import logging
 import re
-from package.utils.selector_loader import SelectorLoader
+from decimal import Decimal, InvalidOperation
+
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    TochiParserBase,
+)
 from package.utils import converter
+from package.utils.selector_loader import SelectorLoader
 
 
 class MitsuiParser(ParserBase):
@@ -120,7 +130,7 @@ class MitsuiParser(ParserBase):
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
                     return href if href.startswith('http') else self.BASE_URL + href
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, KeyError) as e:
             logging.warning(f"getPropertyListNextPageUrl exception: {e}")
         return ""
 
@@ -180,21 +190,18 @@ class MitsuiParser(ParserBase):
 
     def _parseAddress1(self, response, specs=None):
         address = self._parseAddress(response)
-        match = re.match(r'^([^都道府県]+[都道府県])([^市市区町村]+[市区町村])(.*)$', address)
-        if match: return match.group(1)
-        return ""
+        pref, _, _ = self._split_address(address)
+        return pref
 
     def _parseAddress2(self, response, specs=None):
         address = self._parseAddress(response)
-        match = re.match(r'^([^都道府県]+[都道府県])([^市市区町村]+[市区町村])(.*)$', address)
-        if match: return match.group(2)
-        return ""
+        _, city, _ = self._split_address(address)
+        return city
 
     def _parseAddress3(self, response, specs=None):
         address = self._parseAddress(response)
-        match = re.match(r'^([^都道府県]+[都道府県])([^市市区町村]+[市区町村])(.*)$', address)
-        if match: return match.group(3).strip()
-        return ""
+        _, _, town = self._split_address(address)
+        return town.strip() if town else ""
 
     def _parseHikiwatashi(self, response, specs=None):
         specs = self._get_specs(response)
@@ -246,45 +253,59 @@ class MitsuiParser(ParserBase):
 
     def _getTrafficField(self, response, index, field_to_get, default):
         lines = self._parseTrafficLines(response)
-        if index > len(lines): return default
-        
-        line = lines[index-1]
-        
-        if field_to_get == 'transfer':
-            return line
-        elif field_to_get == 'railway':
-            if "「" in line:
-                m = re.search(r'^([^「]+)', line)
-                return m.group(1).strip() if m else ""
-            else:
-                m = re.search(r'^([^\s]+)\s+([^\s]+)駅', line)
-                if m:
-                    return m.group(1).strip()
-                parts = line.split()
-                return parts[0].strip() if parts else ""
-        elif field_to_get == 'station':
-            m = re.search(r'「([^」]+)」|([^\s「」]+)駅', line)
-            if m:
-                return (m.group(1) or m.group(2)).strip()
-            return ""
-        elif field_to_get == 'railwayWalkMinuteStr':
-            m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
-            return str(m_walk.group(1)) if m_walk else default
-        elif field_to_get == 'railwayWalkMinute':
-            m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', line)
-            return int(m_walk.group(1)) if m_walk else 0
-        elif field_to_get == 'busWalkMinuteStr':
-            m_bus = re.search(r'バス\s*(\d+)\s*分', line)
-            return str(m_bus.group(1)) if m_bus else default
-        elif field_to_get == 'busWalkMinute':
-            m_bus = re.search(r'バス\s*(\d+)\s*分', line)
-            return int(m_bus.group(1)) if m_bus else 0
-        elif field_to_get == 'busStation':
-             return default # Mitsui format implies bus station might be in line but parsing logic was simpler before
-        elif field_to_get == 'busUse':
-             return 1 if "バス" in line else 0
-            
-        return default
+        if index > len(lines):
+            return default
+        line = lines[index - 1]
+        handler = {
+            "transfer": lambda: line,
+            "railway": lambda: self._traffic_railway(line),
+            "station": lambda: self._traffic_station(line),
+            "railwayWalkMinuteStr": lambda: self._traffic_walk_str(line, default),
+            "railwayWalkMinute": lambda: self._traffic_walk_int(line),
+            "busWalkMinuteStr": lambda: self._traffic_bus_str(line, default),
+            "busWalkMinute": lambda: self._traffic_bus_int(line),
+            "busStation": lambda: default,
+            "busUse": lambda: 1 if "バス" in line else 0,
+        }.get(field_to_get)
+        return handler() if handler else default
+
+    @staticmethod
+    def _traffic_railway(line: str) -> str:
+        if "「" in line:
+            m = re.search(r"^([^「]+)", line)
+            return m.group(1).strip() if m else ""
+        m = re.search(r"^([^\s]+)\s+([^\s]+)駅", line)
+        if m:
+            return m.group(1).strip()
+        parts = line.split()
+        return parts[0].strip() if parts else ""
+
+    @staticmethod
+    def _traffic_station(line: str) -> str:
+        m = re.search(r"「([^」]+)」|([^\s「」]+)駅", line)
+        if m:
+            return (m.group(1) or m.group(2)).strip()
+        return ""
+
+    @staticmethod
+    def _traffic_walk_str(line: str, default):
+        m_walk = re.search(r"(?:徒歩|停歩)\s*(\d+)\s*分", line)
+        return str(m_walk.group(1)) if m_walk else default
+
+    @staticmethod
+    def _traffic_walk_int(line: str) -> int:
+        m_walk = re.search(r"(?:徒歩|停歩)\s*(\d+)\s*分", line)
+        return int(m_walk.group(1)) if m_walk else 0
+
+    @staticmethod
+    def _traffic_bus_str(line: str, default):
+        m_bus = re.search(r"バス\s*(\d+)\s*分", line)
+        return str(m_bus.group(1)) if m_bus else default
+
+    @staticmethod
+    def _traffic_bus_int(line: str) -> int:
+        m_bus = re.search(r"バス\s*(\d+)\s*分", line)
+        return int(m_bus.group(1)) if m_bus else 0
 
     def _parseTransfer1(self, response, specs=None): return self._getTrafficField(response, 1, 'transfer', "")
     def _parseRailway1(self, response, specs=None): return self._getTrafficField(response, 1, 'railway', "")
@@ -716,64 +737,94 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         item.kuiki = self._parseKuiki(response)
         item.kokudoHou = self._parseKokudoHou(response)
 
-        # 統一土地評価フィールドのパース ＆ 代入
-        import re
-        if item.setsumen is not None:
-            item.maguchiStr = item.setsumen
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
-            if m:
-                item.maguchi = Decimal(m.group(1))
-                
-        if item.douroHaba is not None:
-            item.roadWidthStr = item.douroHaba
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
-            if m:
-                item.roadWidth = Decimal(m.group(1))
+        self._apply_tochi_road_eval_fields(item, response)
+        return item
 
-        # テキスト全体または接道情報からの間口情報のフォールバック抽出
+    def _apply_tochi_road_eval_fields(self, item, response: BeautifulSoup) -> None:
+        """統一土地評価フィールドのパース ＆ 代入"""
+        self._apply_maguchi_from_setsumen(item)
+        self._apply_road_width_from_douro_haba(item)
         full_text = response.get_text()
-        if (getattr(item, 'maguchi', None) is None or item.maguchi == 0):
-            if getattr(item, 'setsudou', None):
-                m_maguchi = re.search(r'(?:約)?\s*([\d\.]+)\s*[mｍ]', item.setsudou)
-                if m_maguchi:
-                    item.maguchi = Decimal(m_maguchi.group(1))
-                    item.maguchiStr = f"{m_maguchi.group(1)}m"
-            if (getattr(item, 'maguchi', None) is None or item.maguchi == 0) and full_text:
-                m_maguchi = re.search(r'(?:接道間口|接面|間口)[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text)
-                if m_maguchi:
-                    item.maguchi = Decimal(m_maguchi.group(1))
-                    item.maguchiStr = f"{m_maguchi.group(1)}m"
+        self._fallback_maguchi_from_text(item, full_text)
+        self._fallback_road_width_from_text(item, full_text)
+        self._apply_road_direction_and_type(item, full_text)
+        self._apply_road_structure_and_okuyuki(item)
 
+    @staticmethod
+    def _apply_maguchi_from_setsumen(item) -> None:
+        if item.setsumen is None:
+            return
+        item.maguchiStr = item.setsumen
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)", str(item.maguchiStr))
+        if m:
+            item.maguchi = Decimal(m.group(1))
 
-        if (getattr(item, 'roadWidth', None) is None or item.roadWidth == 0) and full_text:
-            m_width = re.search(r'幅員[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text) or \
-                      re.search(r'接道[：:]?[^○\n\r\t]*?(?:約)?\s*([\d\.]+)\s*[mｍ]', full_text)
-            if m_width:
-                item.roadWidth = Decimal(m_width.group(1))
-                item.roadWidthStr = f"{m_width.group(1)}m"
+    @staticmethod
+    def _apply_road_width_from_douro_haba(item) -> None:
+        if item.douroHaba is None:
+            return
+        item.roadWidthStr = item.douroHaba
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)", str(item.roadWidthStr))
+        if m:
+            item.roadWidth = Decimal(m.group(1))
 
-        if not getattr(item, 'roadDirection', None) and full_text:
-            m_dir = re.search(r'接道[：:][^○\n\r\t]*?((?:北|東|西|南)+側)', full_text)
+    @staticmethod
+    def _fallback_maguchi_from_text(item, full_text: str) -> None:
+        if getattr(item, "maguchi", None) is not None and item.maguchi != 0:
+            return
+        if getattr(item, "setsudou", None):
+            m_maguchi = re.search(r"(?:約)?\s*([\d\.]+)\s*[mｍ]", item.setsudou)
+            if m_maguchi:
+                item.maguchi = Decimal(m_maguchi.group(1))
+                item.maguchiStr = f"{m_maguchi.group(1)}m"
+                return
+        if not full_text:
+            return
+        if getattr(item, "maguchi", None) is not None and item.maguchi != 0:
+            return
+        m_maguchi = re.search(
+            r"(?:接道間口|接面|間口)[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]", full_text
+        )
+        if m_maguchi:
+            item.maguchi = Decimal(m_maguchi.group(1))
+            item.maguchiStr = f"{m_maguchi.group(1)}m"
+
+    @staticmethod
+    def _fallback_road_width_from_text(item, full_text: str) -> None:
+        if getattr(item, "roadWidth", None) is not None and item.roadWidth != 0:
+            return
+        if not full_text:
+            return
+        m_width = re.search(r"幅員[：:]?\s*(?:約)?\s*([\d\.]+)\s*[mｍ]", full_text) or re.search(
+            r"接道[：:]?[^\n\r\t]*?(?:約)?\s*([\d\.]+)\s*[mｍ]", full_text
+        )
+        if m_width:
+            item.roadWidth = Decimal(m_width.group(1))
+            item.roadWidthStr = f"{m_width.group(1)}m"
+
+    @staticmethod
+    def _apply_road_direction_and_type(item, full_text: str) -> None:
+        if not getattr(item, "roadDirection", None) and full_text:
+            m_dir = re.search(r"接道[：:][^\n\r\t]*?((?:北|東|西|南)+側)", full_text)
             if m_dir:
                 item.roadDirection = m_dir.group(1).replace("側", "")
-                
         if item.douroMuki and not item.roadDirection:
             item.roadDirection = item.douroMuki
-            
         if item.douroKubun and not item.roadType:
             item.roadType = item.douroKubun
-            
+
+    @staticmethod
+    def _apply_road_structure_and_okuyuki(item) -> None:
         if item.setsudou:
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
+            structure_match = re.search(
+                r"(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)", str(item.setsudou)
+            )
             item.roadStructure = structure_match.group(1) if structure_match else "中間地"
         else:
             item.roadStructure = "中間地"
-            
         if item.tochiMenseki and item.maguchi and item.maguchi > 0:
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
             item.okuyukiStr = f"{item.okuyuki}m"
-
-        return item
 
     def _parseTochiMenseki(self, response, specs=None):
         tochiMensekiStr = self._parseTochiMensekiStr(response)
@@ -1086,26 +1137,33 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
 
     def _get_specs(self, soup: BeautifulSoup):
         data = super()._get_specs(soup)
-
         if not soup:
             return data
-
         # Fallback for tables where headers are td (not th).
         # Store plain text (not Tags) so Decimal/str parsers never see Tag.replace failures.
+        self._merge_td_header_specs(soup, data)
+        return data
+
+    @staticmethod
+    def _merge_td_header_specs(soup: BeautifulSoup, data: dict) -> None:
         for tr in soup.find_all("tr"):
             cells = tr.find_all(["th", "td"])
             if len(cells) >= 2:
-                for i in range(0, len(cells), 2):
-                    if i + 1 < len(cells):
-                        key = re.sub(r"\s+", "", cells[i].get_text(strip=True))
-                        val = cells[i + 1].get_text(strip=True)
-                        if key and key not in data:
-                            data[key] = val
-                        # Also keep spaced form for legacy lookups.
-                        key_spaced = cells[i].get_text(" ", strip=True)
-                        if key_spaced and key_spaced not in data:
-                            data[key_spaced] = val
-        return data
+                MitsuiInvestmentParser._merge_cell_pairs(cells, data)
+
+    @staticmethod
+    def _merge_cell_pairs(cells, data: dict) -> None:
+        for i in range(0, len(cells), 2):
+            if i + 1 >= len(cells):
+                continue
+            key = re.sub(r"\s+", "", cells[i].get_text(strip=True))
+            val = cells[i + 1].get_text(strip=True)
+            if key and key not in data:
+                data[key] = val
+            # Also keep spaced form for legacy lookups.
+            key_spaced = cells[i].get_text(" ", strip=True)
+            if key_spaced and key_spaced not in data:
+                data[key_spaced] = val
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
@@ -1178,11 +1236,18 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             return Decimal(0)
         try:
             return Decimal(m.group(1))
-        except Exception:
+        except (InvalidOperation, ValueError, TypeError):
             return Decimal(0)
 
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
+        rent_val = self._lookup_annual_rent_value(specs)
+        if not rent_val:
+            return 0
+        return self._convert_annual_rent(str(rent_val))
+
+    @staticmethod
+    def _lookup_annual_rent_value(specs: dict):
         rent_val = (
             specs.get("想定年収")
             or specs.get("年間想定賃料")
@@ -1192,21 +1257,22 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             or specs.get("想定年額")
             or ""
         )
-        if not rent_val:
-            for k, v in specs.items():
-                ks = re.sub(r"\s+", "", str(k))
-                if ("想定" in ks and "賃料" in ks) or ("想定" in ks and "年収" in ks):
-                    rent_val = v
-                    break
-        if not rent_val:
-            return 0
-        rent_val = str(rent_val)
+        if rent_val:
+            return rent_val
+        for k, v in specs.items():
+            ks = re.sub(r"\s+", "", str(k))
+            if ("想定" in ks and "賃料" in ks) or ("想定" in ks and "年収" in ks):
+                return v
+        return ""
+
+    @staticmethod
+    def _convert_annual_rent(rent_val: str):
         if "円" in rent_val and "万" not in rent_val:
             try:
                 val = rent_val.replace(",", "").replace("円", "")
                 val = re.sub(r"[（\(].*?[）\)]", "", val)
                 return int(val)
-            except Exception:
+            except (ValueError, TypeError):
                 return 0
         return converter.parse_price(rent_val)
 

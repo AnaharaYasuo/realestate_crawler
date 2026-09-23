@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 """Unit tests for crawl smoke engine helpers (offline)."""
 import pytest
-
 from package.utils.crawl_smoke_engine import (
     _job_budget_sec,
     _looks_like_detail,
@@ -50,7 +48,10 @@ def test_looks_like_detail_rejects_list_pages():
 
 def test_soup_looks_blocked_detects_waf_title():
     from bs4 import BeautifulSoup
-    from package.utils.crawl_smoke_engine import _soup_looks_blocked, _soup_usable_for_smoke
+    from package.utils.crawl_smoke_engine import (
+        _soup_looks_blocked,
+        _soup_usable_for_smoke,
+    )
 
     blocked = BeautifulSoup(
         "<html><head><title>403 Forbidden</title></head><body><a href='/a'>a</a>"
@@ -114,6 +115,7 @@ def test_looks_like_detail_odakyu_invest_focus():
 
 def test_fetch_timeout_bumps_keio_json():
     import time
+
     from package.utils.crawl_smoke_engine import _fetch_timeout_sec
 
     deadline = time.monotonic() + 60.0
@@ -270,3 +272,274 @@ def test_all_seeds_prefers_athome_and_homes_deep_lists(monkeypatch):
     homes.seed_url = "https://toushi.homes.co.jp/bukkensearch/?tbg[]=1"
     seeds_h = eng._all_seeds_for_target(homes)
     assert "pref[]=13" in seeds_h[0]
+
+
+def test_expected_detector_type_and_invest_compat():
+    from package.utils.crawl_smoke_engine import (
+        _invest_types_compatible,
+        expected_detector_type,
+    )
+
+    class P:
+        property_type = "kodate"
+
+    assert expected_detector_type("kodate", P(), company="sumifu") == "kodate"
+    assert expected_detector_type("", P(), company="homes") == "apartment"
+    # Empty job+parser type falls back to mansion; non-empty unknown job_pt is kept.
+    assert expected_detector_type("", object(), company="x") == "mansion"
+    assert expected_detector_type("unknown", object(), company="x") == "unknown"
+    assert expected_detector_type("unknown", object(), company="x") is not None
+
+    assert _invest_types_compatible("apartment", "invest_kodate") is True
+    assert _invest_types_compatible("kodate", "mansion") is False
+    assert _invest_types_compatible("apartment", "invest_apartment") is not None
+
+
+def test_company_type_aliases_and_property_compat_not_none():
+    from package.utils.crawl_smoke_engine import (
+        _company_type_aliases_ok,
+        property_types_compatible,
+    )
+
+    assert _company_type_aliases_ok("kodate", "tochi", "sumai1") is True
+    assert _company_type_aliases_ok("kodate", "tochi", "sumai1") is not None
+    assert _company_type_aliases_ok("mansion", "tochi", "nomura") is False
+
+    assert property_types_compatible("kodate", "tochi", company="heim") is True
+    assert property_types_compatible("kodate", "tochi", company="heim") is not None
+    assert property_types_compatible("mansion", "tochi", company="nomura") is False
+
+
+def test_detect_smoke_property_type_via_parser_resolve(monkeypatch):
+    from package.utils import crawl_smoke_engine as eng
+
+    monkeypatch.setattr(
+        eng.PropertyTypeDetector,
+        "detect",
+        staticmethod(lambda **_k: None),
+    )
+
+    class Parser:
+        def _resolve_validation_property_type(self, _item):
+            return "kodate"
+
+    detected = eng._detect_smoke_property_type(
+        Parser(), _DummyItem(), "https://ex/detail/1", "t", "h", {}
+    )
+    assert detected == "kodate"
+    assert detected is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_list_page_for_paging_returns_exc_tuple(monkeypatch):
+    from package.utils import crawl_smoke_engine as eng
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("fetch fail")
+
+    monkeypatch.setattr(eng, "_fetch_soup", boom)
+    monkeypatch.setattr(eng.asyncio, "sleep", eng.asyncio.sleep)  # keep real but short deadline
+
+    result = await eng._fetch_list_page_for_paging(
+        session=None,
+        parser=object(),
+        list_url="https://ex/list",
+        deadline=__import__("time").monotonic() + 0.01,
+        pw=None,
+        force_pw=False,
+    )
+    assert result is not None
+    page, exc = result
+    assert page is None
+    assert exc is not None
+
+
+@pytest.mark.asyncio
+async def test_fetch_list_page_for_paging_returns_tuple(monkeypatch):
+    from package.utils import crawl_smoke_engine as eng
+
+    async def fake_fetch(*_a, **_k):
+        return "PAGE"
+
+    monkeypatch.setattr(eng, "_fetch_soup", fake_fetch)
+    result = await eng._fetch_list_page_for_paging(
+        session=None,
+        parser=object(),
+        list_url="https://ex/list",
+        deadline=__import__("time").monotonic() + 30,
+        pw=None,
+        force_pw=False,
+    )
+    assert result is not None
+    page, exc = result
+    assert page == "PAGE" and exc is None
+
+
+def test_evaluate_paging_result_loop_and_advance():
+    from package.utils.crawl_smoke_engine import evaluate_paging_result
+
+    pages, exhausted, ok = evaluate_paging_result(
+        "https://ex/list", "", next_fetch_ok=False
+    )
+    assert (pages, exhausted, ok) == (1, True, True)
+
+    pages, exhausted, ok = evaluate_paging_result(
+        "https://ex/list", "https://ex/list", next_fetch_ok=True
+    )
+    assert (pages, exhausted, ok) == (1, False, False)
+    assert isinstance(pages, int) and ok is False
+
+    pages, exhausted, ok = evaluate_paging_result(
+        "https://ex/list", "https://ex/list?page=2", next_fetch_ok=True
+    )
+    assert (pages, exhausted, ok) == (2, False, True)
+
+    pages, exhausted, ok = evaluate_paging_result(
+        "https://ex/list", "https://ex/list?page=2", next_fetch_ok=False
+    )
+    assert (pages, exhausted, ok) == (1, False, False)
+
+
+def test_soft_residential_helpers_kill_return_none_mutants():
+    """Assert concrete bool/tuple returns so return->None mutants die."""
+    from package.utils.crawl_smoke_engine import (
+        _page_title_html_specs,
+        _soft_kodate_ok,
+        _soft_mansion_ok,
+        _soft_residential_type_ok,
+        _soft_tochi_ok,
+    )
+
+    mansion_item = _DummyItem(tatemonoMenseki=80.0)
+    assert _soft_mansion_ok("kodate", mansion_item, "heim") is True
+    assert _soft_mansion_ok("kodate", mansion_item, "heim") is not None
+
+    assert _soft_kodate_ok("tochi", _DummyItem(), "sumai1") is True
+
+    tochi_item = _DummyItem(tochiMenseki=100.0)
+    assert _soft_tochi_ok("kodate", tochi_item, {}, "heim") is True
+    assert _soft_tochi_ok("kodate", tochi_item, {}, "heim") is not None
+
+    bare = _DummyItem()
+    assert _soft_residential_type_ok("mansion", "tochi", bare, {}, "nomura") is False
+    # Non residential expected → False (kills final return False -> True).
+    assert _soft_residential_type_ok("kodate", "apartment", bare, {}, "nomura") is False
+
+    class P:
+        def _get_specs(self, _page):
+            return {"種別": "土地"}
+
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup("<html><head><title>T</title></head><body>x</body></html>", "html.parser")
+    title, html_text, specs = _page_title_html_specs(P(), soup)
+    assert (title, html_text, specs) is not None
+    assert title == "T"
+    assert specs == {"種別": "土地"}
+
+
+@pytest.mark.asyncio
+async def test_normalize_next_page_url_absolute_and_relative():
+    from package.utils.crawl_smoke_engine import _normalize_next_page_url
+
+    class P:
+        BASE_URL = "https://example.com/buy/"
+
+    assert await _normalize_next_page_url(P(), "https://example.com/list", None) == ""
+    assert (
+        await _normalize_next_page_url(
+            P(), "https://example.com/list", "https://example.com/list?p=2"
+        )
+        == "https://example.com/list?p=2"
+    )
+    rel = await _normalize_next_page_url(P(), "https://example.com/list", "page/2")
+    assert rel.startswith("https://example.com/")
+    assert "page/2" in rel
+    assert rel  # kills urljoin -> None
+
+
+@pytest.mark.asyncio
+async def test_probe_paging_exhausted_when_no_next(monkeypatch):
+    from bs4 import BeautifulSoup
+    from package.utils import crawl_smoke_engine as eng
+
+    soup = BeautifulSoup("<html><body>list</body></html>", "html.parser")
+
+    async def fake_fetch(*_a, **_k):
+        return soup
+
+    class Parser:
+        async def parseNextPage(self, _page):
+            return ""
+
+    monkeypatch.setattr(eng, "_fetch_soup", fake_fetch)
+    pages, exhausted, ok, err = await eng.probe_paging(
+        session=None,
+        parser=Parser(),
+        list_url="https://example.com/list",
+        deadline=__import__("time").monotonic() + 30,
+    )
+    assert err is None
+    assert (pages, exhausted, ok) == (1, True, True)
+    assert isinstance(pages, int)
+    # Kill return-tuple -> None mutants on probe helpers.
+    assert (pages, exhausted, ok, err) is not None
+
+
+@pytest.mark.asyncio
+async def test_probe_paging_advances_when_next_ok(monkeypatch):
+    from bs4 import BeautifulSoup
+    from package.utils import crawl_smoke_engine as eng
+
+    soup = BeautifulSoup("<html><body>list</body></html>", "html.parser")
+
+    async def fake_fetch(*_a, **_k):
+        return soup
+
+    class Parser:
+        async def parseNextPage(self, _page):
+            return "https://example.com/list?page=2"
+
+    monkeypatch.setattr(eng, "_fetch_soup", fake_fetch)
+    result = await eng.probe_paging(
+        session=None,
+        parser=Parser(),
+        list_url="https://example.com/list",
+        deadline=__import__("time").monotonic() + 30,
+    )
+    assert result is not None
+    pages, exhausted, ok, err = result
+    assert err is None
+    assert pages == 2 and ok is True and exhausted is False
+
+
+def test_ssl_for_url_default_true():
+    from package.utils.crawl_smoke_engine import _ssl_for_url
+
+    assert _ssl_for_url("https://www.sumifu.co.jp/list") is True
+    ctx = _ssl_for_url("https://realestate.misawa.co.jp/x")
+    assert ctx is not True and ctx is not False
+
+
+@pytest.mark.asyncio
+async def test_collect_async_respects_limit_and_skips_empty():
+    from package.utils.crawl_smoke_engine import _collect_async
+
+    async def gen():
+        yield None
+        yield "a"
+        yield "b"
+        yield "c"
+
+    items = await _collect_async(gen(), limit=2)
+    assert items == ["a", "b"]
+    assert items is not None
+    assert len(items) == 2
+
+
+def test_effective_budget_returns_concrete_number():
+    from package.utils.crawl_smoke_engine import _effective_job_budget_sec
+
+    # Unknown company: must return the provided budget (not None).
+    assert _effective_job_budget_sec("unknownco", 22.0) == 22.0
+    assert isinstance(_effective_job_budget_sec("unknownco", 22.0), float)

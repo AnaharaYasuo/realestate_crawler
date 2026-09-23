@@ -8,6 +8,15 @@ from package.utils import converter
 import logging
 import re
 
+logger = logging.getLogger(__name__)
+
+_AFR_NUMBER_BLOCK_RE = re.compile(
+    r"\{[^{}]{0,1200}'number':\s*'([^']+)'[^{}]{0,1200}\}"
+)
+_AFR_NUMBER_FALLBACK_RE = re.compile(r"'number':\s*'([^']+)'")
+_AFR_BUKKEN_NAME_RE = re.compile(r"'bukkenName':\s*'([^']*)'")
+
+
 class AfrParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -40,8 +49,9 @@ class AfrParser(ParserBase):
         # 1回のAjaxで全物件がロードされるため、改ページ巡回は不要です。
         return ""
 
-    async def parseRootPage(self, response: BeautifulSoup):
-        # Prefer raw <script> text — BeautifulSoup str() can mangle JS object literals.
+    @staticmethod
+    def _afr_script_text(response: BeautifulSoup) -> str:
+        """Prefer raw <script> text — BeautifulSoup str() can mangle JS object literals."""
         scripts = []
         if hasattr(response, "find_all"):
             for tag in response.find_all("script"):
@@ -49,49 +59,65 @@ class AfrParser(ParserBase):
                     scripts.append(tag.string)
                 elif tag.get_text:
                     scripts.append(tag.get_text())
-        html_str = "\n".join(scripts) if scripts else str(response)
+        return "\n".join(scripts) if scripts else str(response)
 
-        # Keep first-seen order (sorted() always burned budget on the same Non-mansion IDs).
+    @staticmethod
+    def _afr_collect_detail_ids(html_str: str) -> tuple[list[str], list[str]]:
+        """Keep first-seen order; also track mansion-like IDs for prioritization."""
         detail_ids: list[str] = []
         seen: set[str] = set()
         mansion_ids: list[str] = []
-        for m in re.finditer(r"\{[^{}]{0,1200}'number':\s*'([^']+)'[^{}]{0,1200}\}", html_str):
+        for m in _AFR_NUMBER_BLOCK_RE.finditer(html_str):
             block = m.group(0)
             bno = m.group(1)
             if bno in seen:
                 continue
             seen.add(bno)
             detail_ids.append(bno)
-            name_m = re.search(r"'bukkenName':\s*'([^']*)'", block)
+            name_m = _AFR_BUKKEN_NAME_RE.search(block)
             name = name_m.group(1) if name_m else ""
             if "マンション" in name or "専有" in block:
                 mansion_ids.append(bno)
-
-        # Fallback: nested objects may leave the brace-bounded regex empty.
         if not detail_ids:
-            for m in re.finditer(r"'number':\s*'([^']+)'", html_str):
+            for m in _AFR_NUMBER_FALLBACK_RE.finditer(html_str):
                 bno = m.group(1)
                 if bno in seen:
                     continue
                 seen.add(bno)
                 detail_ids.append(bno)
+        return detail_ids, mansion_ids
 
-        # Prefer mansion-like rows for AfrMansionParser (list mixes kodate/tochi/ittou).
-        if self.property_type == "mansion" and mansion_ids:
+    def _afr_order_detail_ids(
+        self, detail_ids: list[str], mansion_ids: list[str]
+    ) -> list[str]:
+        """Prefer mansion-like rows for AfrMansionParser (list mixes kodate/tochi/ittou)."""
+        if self.property_type != "mansion":
+            return detail_ids
+        if mansion_ids:
             preferred = [bno for bno in mansion_ids if bno in detail_ids]
             rest = [bno for bno in detail_ids if bno not in preferred]
-            detail_ids = preferred + rest
-        elif self.property_type == "mansion" and len(detail_ids) > 8:
+            return preferred + rest
+        if len(detail_ids) > 8:
             # Rotate so we do not always burn the budget on the same leading Non-mansion IDs.
             rot = 7
-            detail_ids = detail_ids[rot:] + detail_ids[:rot]
+            return detail_ids[rot:] + detail_ids[:rot]
+        return detail_ids
 
-        logging.info(f"AfrParser: Extracted {len(detail_ids)} property numbers from search list.")
-
-        next_page = "/stockhebel/purchase/forhome/details.html"
+    def _afr_detail_next_page_path(self) -> str:
         if self.property_type == "investment":
-            next_page = "/stockhebel/purchase/investment/details.html"
+            return "/stockhebel/purchase/investment/details.html"
+        return "/stockhebel/purchase/forhome/details.html"
 
+    async def parseRootPage(self, response: BeautifulSoup):
+        html_str = self._afr_script_text(response)
+        detail_ids, mansion_ids = self._afr_collect_detail_ids(html_str)
+        detail_ids = self._afr_order_detail_ids(detail_ids, mansion_ids)
+
+        logger.info(
+            "AfrParser: Extracted %s property numbers from search list.",
+            len(detail_ids),
+        )
+        next_page = self._afr_detail_next_page_path()
         for bno in detail_ids:
             yield f"{self.BASE_URL}{next_page}?bno={bno}"
 

@@ -117,52 +117,60 @@ class SumirinParser(ParserBase):
                     detail_links.add(normalized)
                     yield normalized
 
-    def _get_specs(self, response: BeautifulSoup):
-        specs = super()._get_specs(response)
-        # 「物件概要」セクションを探す
-        outline_sec = None
+    def _find_outline_section(self, response: BeautifulSoup):
         for sec in response.find_all("section"):
             h2 = sec.find("h2")
             if h2 and "物件概要" in h2.get_text():
-                outline_sec = sec
-                break
-        if not outline_sec:
-            outline_sec = response.find(class_=re.compile(r'outline|summary|spec', re.I)) or response
+                return sec
+        return response.find(class_=re.compile(r'outline|summary|spec', re.I)) or response
 
-        # dl.inner が並ぶ構造
+    def _normalize_spec_key(self, raw: str) -> str:
+        return raw.strip().replace('\n', '').replace(' ', '').replace('\u3000', '').replace("：", "")
+
+    def _ingest_dl_inner_specs(self, outline_sec, specs: dict) -> None:
         for dl in outline_sec.find_all("dl", class_="inner"):
             dt = dl.find("dt", class_="hdg")
             dd = dl.find("dd", class_="dtl")
-            if dt and dd:
-                key = dt.get_text().strip().replace('\n', '').replace(' ', '').replace('\u3000', '')
-                val = dd.get_text().strip().replace('\n', ' ')
-                specs[key] = val
+            if not dt or not dd:
+                continue
+            key = self._normalize_spec_key(dt.get_text())
+            specs[key] = dd.get_text().strip().replace('\n', ' ')
 
-        # 一般的な dl/dt/dd および table/tr/th/td のパース（フォールバック）
+    def _ingest_generic_dl_specs(self, outline_sec, specs: dict) -> None:
         for dl in outline_sec.select("dl"):
             for dt, dd in zip(dl.select("dt"), dl.select("dd")):
-                key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "").replace("：", "")
+                key = self._normalize_spec_key(dt.get_text())
                 if key and key not in specs:
                     specs[key] = dd.get_text().strip()
+
+    def _ingest_table_specs(self, outline_sec, specs: dict) -> None:
         for table in outline_sec.select("table"):
             for tr in table.select("tr"):
                 th = tr.find("th")
                 td = tr.find("td")
-                if th and td:
-                    key = th.get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "")
-                    if key and key not in specs:
-                        specs[key] = td.get_text().strip()
+                if not th or not td:
+                    continue
+                key = self._normalize_spec_key(th.get_text())
+                if key and key not in specs:
+                    specs[key] = td.get_text().strip()
 
-        # キーの表記揺れ標準化
+    def _ingest_dl_table_specs(self, outline_sec, specs: dict) -> None:
+        self._ingest_generic_dl_specs(outline_sec, specs)
+        self._ingest_table_specs(outline_sec, specs)
+
+    def _apply_spec_key_aliases(self, specs: dict) -> None:
         fallback_mappings = {
             "建ぺい率": ["建ペイ率"],
             "容積率": ["容積率"],
             "建ぺい率/容積率": ["建ぺい・容積率", "建ペイ・容積率", "建ペイ率/容積率", "建ぺい率／容積率"],
-            "想定年間収入": ["満室想定年収", "想定年収", "想定賃料(年間)", "想定年間賃料", "年間想定賃料", "年間想定収入", "想定収入"],
+            "想定年間収入": [
+                "満室想定年収", "想定年収", "想定賃料(年間)", "想定年間賃料",
+                "年間想定賃料", "年間想定収入", "想定収入",
+            ],
             "想定利回り": ["表面利回り", "利回り", "グロス利回り", "想定グロス利回り"],
             "総戸数": ["戸数", "総区画", "総戸数/総区画"],
             "建物構造": ["構造", "構造・規模"],
-            "築年月": ["完成時期", "築年"]
+            "築年月": ["完成時期", "築年"],
         }
         for std_key, alt_keys in fallback_mappings.items():
             for alt in alt_keys:
@@ -170,6 +178,13 @@ class SumirinParser(ParserBase):
                     specs[std_key] = specs[alt]
                 if std_key in specs and alt not in specs:
                     specs[alt] = specs[std_key]
+
+    def _get_specs(self, response: BeautifulSoup):
+        specs = super()._get_specs(response)
+        outline_sec = self._find_outline_section(response)
+        self._ingest_dl_inner_specs(outline_sec, specs)
+        self._ingest_dl_table_specs(outline_sec, specs)
+        self._apply_spec_key_aliases(specs)
         return specs
 
     def _split_address(self, address):
@@ -315,40 +330,39 @@ class SumirinMansionParser(SumirinParser, MansionParserBase):
     def createEntity(self):
         return SumirinMansion()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
+    def _apply_mansion_floor_fields(self, item, specs):
+        item.kaisuStr = (
+            specs.get("所在階/階数", "")
+            or specs.get("所在階", "")
+            or specs.get("階数", "")
+            or specs.get("階建", "")
+        )
+        if not item.kaisuStr:
+            return
+        m = re.search(r'(\d+)階', item.kaisuStr)
+        if m:
+            item.floorType_kai = int(m.group(1))
+        m = re.search(r'／(\d+)階建', item.kaisuStr) or re.search(r'(\d+)階建', item.kaisuStr)
+        if m:
+            item.floorType_chijo = int(m.group(1))
+        m = re.search(r'地下(\d+)階', item.kaisuStr)
+        if m:
+            item.floorType_chika = int(m.group(1))
 
-        item.madori = self._parseMadori(response, specs)
-        
+    def _apply_mansion_menseki_fees(self, item, specs):
         item.senyuMensekiStr = specs.get("専有面積", "") or specs.get("面積", "")
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
-
-        # 所在階/階数
-        item.kaisuStr = specs.get("所在階/階数", "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("階建", "")
-        if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            m = re.search(r'／(\d+)階建', item.kaisuStr) or re.search(r'(\d+)階建', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
-
-        # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
-        if item.chikunengetsuStr:
-            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "") or specs.get("バルコニー", "")
         if item.balconyMensekiStr:
             item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
 
-        # 総戸数
-        item.soukosuStr = specs.get("空き物件数/総戸数", "") or specs.get("総戸数", "") or specs.get("戸数", "")
+        item.soukosuStr = (
+            specs.get("空き物件数/総戸数", "")
+            or specs.get("総戸数", "")
+            or specs.get("戸数", "")
+        )
         if item.soukosuStr:
             m = re.search(r'／(\d+)戸', item.soukosuStr)
             if m:
@@ -363,6 +377,18 @@ class SumirinMansionParser(SumirinParser, MansionParserBase):
         item.syuzenTsumitateStr = specs.get("修繕積立金", "") or specs.get("修繕積立金等", "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+
+        item.madori = self._parseMadori(response, specs)
+        self._apply_mansion_menseki_fees(item, specs)
+        self._apply_mansion_floor_fields(item, specs)
+
+        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
+        if item.chikunengetsuStr:
+            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理", "") or specs.get("管理形態", "")
@@ -496,11 +522,7 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
     def createEntity(self):
         return SumirinInvestment()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
-
-        # 表面利回り
+    def _apply_invest_gross_yield(self, item, specs):
         gross_yield_str = (
             specs.get("想定利回り", "")
             or specs.get("表面利回り", "")
@@ -510,31 +532,69 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
         if gross_yield_str and str(gross_yield_str).strip() not in ("-", "－", "―"):
             item.grossYield = converter.parse_ratio(str(gross_yield_str))
 
-        # 年間想定賃料
+    def _apply_invest_annual_rent(self, item, specs):
         annual_rent_str = (
             specs.get("想定年間収入", "")
             or specs.get("年間想定収入", "")
             or specs.get("想定収入", "")
             or specs.get("年間収入", "")
         )
-        if annual_rent_str and str(annual_rent_str).strip() not in ("-", "－", "―"):
-            rent_val = converter.parse_rent(str(annual_rent_str))
-            if rent_val:
+        if not annual_rent_str or str(annual_rent_str).strip() in ("-", "－", "―"):
+            return
+        rent_val = converter.parse_rent(str(annual_rent_str))
+        if rent_val:
+            item.annualRent = rent_val
+            item.monthlyRent = rent_val // 12
+
+    def _derive_annual_rent_from_yield(self, item):
+        if getattr(item, "annualRent", None) or not item.grossYield or not getattr(item, "price", None):
+            return
+        try:
+            gy = float(item.grossYield)
+            price = float(item.price)
+            if gy <= 0 or price <= 0:
+                return
+            rent_val = int(price * gy / 100.0)
+            if rent_val > 0:
                 item.annualRent = rent_val
                 item.monthlyRent = rent_val // 12
+        except (TypeError, ValueError):
+            pass
 
-        # Derive annual rent from price × yield when listing omits 年間収入.
-        if (not getattr(item, "annualRent", None)) and item.grossYield and getattr(item, "price", None):
-            try:
-                gy = float(item.grossYield)
-                price = float(item.price)
-                if gy > 0 and price > 0:
-                    rent_val = int(price * gy / 100.0)
-                    if rent_val > 0:
-                        item.annualRent = rent_val
-                        item.monthlyRent = rent_val // 12
-            except (TypeError, ValueError):
-                pass
+    def _apply_invest_soukosu(self, item, specs):
+        soukosu_str = (
+            specs.get("空き物件数/総戸数", "")
+            or specs.get("総戸数", "")
+            or specs.get("戸数", "")
+        )
+        if not soukosu_str:
+            return
+        m = re.search(r'／(\d+)戸', soukosu_str)
+        if m:
+            item.soukosu = int(m.group(1))
+        else:
+            item.soukosu = converter.parse_numeric(soukosu_str)
+
+    def _apply_invest_areas(self, item, specs):
+        item.tochiMensekiStr = specs.get("土地面積", "") or specs.get("敷地面積", "")
+        if item.tochiMensekiStr:
+            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("延床面積", "")
+            or specs.get("専有面積", "")
+        )
+        if item.tatemonoMensekiStr:
+            item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+
+        self._apply_invest_gross_yield(item, specs)
+        self._apply_invest_annual_rent(item, specs)
+        self._derive_annual_rent_from_yield(item)
 
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.kouzou = (
@@ -544,37 +604,23 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
             or specs.get("構造・規模", "")
         )
 
-        # 築年月
         item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        # 総戸数
-        soukosu_str = specs.get("空き物件数/総戸数", "") or specs.get("総戸数", "") or specs.get("戸数", "")
-        if soukosu_str:
-            m = re.search(r'／(\d+)戸', soukosu_str)
-            if m:
-                item.soukosu = int(m.group(1))
-            else:
-                item.soukosu = converter.parse_numeric(soukosu_str)
-
-        item.kaisuStr = specs.get("所在階/階数", "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("階建", "")
-
-        item.tochiMensekiStr = specs.get("土地面積", "") or specs.get("敷地面積", "")
-        if item.tochiMensekiStr:
-            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "") or specs.get("専有面積", "")
-        if item.tatemonoMensekiStr:
-            item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-
+        self._apply_invest_soukosu(item, specs)
+        item.kaisuStr = (
+            specs.get("所在階/階数", "")
+            or specs.get("所在階", "")
+            or specs.get("階数", "")
+            or specs.get("階建", "")
+        )
+        self._apply_invest_areas(item, specs)
         self._parse_kenpei_youseki(item, specs)
 
         item.setsudou = self._parseSetsudou(response, specs)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-
-        # 物件種別の判定 (タイトル等から共通化)
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
 
         if not item.grossYield or not getattr(item, "annualRent", None):

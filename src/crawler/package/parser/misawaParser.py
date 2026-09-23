@@ -1,3 +1,5 @@
+from typing import Optional
+
 from bs4 import BeautifulSoup
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentApartment, MisawaInvestmentKodate
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
@@ -7,6 +9,20 @@ import logging
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 from decimal import Decimal, ROUND_HALF_UP
+
+logger = logging.getLogger(__name__)
+
+_MISAWA_MAGUCHI_RE = (
+    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+)
+_MISAWA_MAGUCHI_ALT_RE = r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)'
+_MISAWA_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_MISAWA_DIR_WIDTH_RE = (
+    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)'
+)
+_MISAWA_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
+_MISAWA_ROAD_TYPE_RE = r'(公道|私道)'
+_MISAWA_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
 
 
 class MisawaParser(ParserBase):
@@ -22,6 +38,41 @@ class MisawaParser(ParserBase):
 
     def getCharset(self):
         return None  # Auto-detect
+
+    @staticmethod
+    def _misawa_apply_setsudou_details(item) -> None:
+        """統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)."""
+        if not getattr(item, "setsudou", None):
+            item.roadStructure = "中間地"
+            return
+        mag_match = re.search(_MISAWA_MAGUCHI_RE, item.setsudou)
+        if mag_match:
+            item.maguchiStr = mag_match.group(0)
+            item.maguchi = Decimal(mag_match.group(1))
+        else:
+            m = re.search(_MISAWA_MAGUCHI_ALT_RE, item.setsudou)
+            if m:
+                item.maguchiStr = m.group(0)
+                item.maguchi = Decimal(m.group(1))
+
+        width_match = re.search(_MISAWA_WIDTH_RE, item.setsudou)
+        if width_match:
+            item.roadWidthStr = width_match.group(0)
+            item.roadWidth = Decimal(width_match.group(1))
+        else:
+            dir_width_match = re.search(_MISAWA_DIR_WIDTH_RE, item.setsudou)
+            if dir_width_match:
+                item.roadWidthStr = dir_width_match.group(0)
+                item.roadWidth = Decimal(dir_width_match.group(1))
+
+        direction_match = re.search(_MISAWA_DIRECTION_RE, item.setsudou)
+        item.roadDirection = direction_match.group(1) if direction_match else ""
+        type_match = re.search(_MISAWA_ROAD_TYPE_RE, item.setsudou)
+        item.roadType = type_match.group(1) if type_match else ""
+        structure_match = re.search(_MISAWA_ROAD_STRUCT_RE, item.setsudou)
+        item.roadStructure = (
+            structure_match.group(1) if structure_match else "中間地"
+        )
 
     def _parsePropertyName(self, response, specs=None):
         # Prefer configured title selector (h2.title); site-wide <h1> is branding only.
@@ -170,14 +221,21 @@ class MisawaParser(ParserBase):
         norm_traffic = re.sub(r'(\S+?駅)\s*(?=\S)', r'\1 ', norm_traffic)
         norm_traffic = re.sub(r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=\S)', r'\1 ', norm_traffic)
         
-        # Try various patterns
+        # Try various patterns (ReDoS-safe: no nested .*? / (a+)* forms)
         # 1. Standard pattern: 線駅 徒歩/バス分
-        matches = re.findall(r'(\S+?(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール|電気鉄道|急行)?)\s+(\S+駅)\s*(.*?(?:徒歩|停歩|バス)\s*\d+\s*分(?:.*?停歩\s*\d+\s*分)?)', norm_traffic)
-        
+        matches = re.findall(
+            r"(\S+(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール|電気鉄道|急行)?)\s+(\S+駅)\s*"
+            r"((?:徒歩|停歩|バス)\s*\d+\s*分(?:\s*停歩\s*\d+\s*分)?)",
+            norm_traffic,
+        )
+
         if not matches:
-             # 2. Bracketed station name: 線 「駅」 徒歩/バス分
-             matches = re.findall(r'([^「」\s]+(?:線|ライン|ライナー|鉄道)?)\s*「([^「」]+)」\s*(.*?(?:徒歩|停歩|バス)\s*\d+\s*分(?:.*?停歩\s*\d+\s*分)?)', norm_traffic)
-        
+            # 2. Bracketed station name: 線 「駅」 徒歩/バス分
+            matches = re.findall(
+                r'([^「」\s]+(?:線|ライン|ライナー|鉄道)?)\s*「([^「」]+)」\s*'
+                r'((?:徒歩|停歩|バス)\s*\d+\s*分(?:\s*停歩\s*\d+\s*分)?)',
+                norm_traffic,
+            )
         if not matches:
              # 3. Simple sequence: 沿線 駅 徒歩分
              matches = re.findall(r'(\S+)\s+(\S+駅)\s*(徒歩|停歩|バス)\s*(\d+)\s*分', norm_traffic)
@@ -455,31 +513,46 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
         specs = self._get_specs(response)
         return specs.get(self.selectors.get("balcony_key", "バルコニー面積"), "")
 
+    def _misawa_senyu_from_outline(self, response) -> Optional[Decimal]:
+        """Fallback: scan outline table / body text for 専有面積 / 壁芯."""
+        for el in response.select("th, dt, td, dd, li, p, span"):
+            txt = el.get_text(" ", strip=True)
+            if "専有面積" not in txt and "壁芯" not in txt:
+                continue
+            m = re.search(r"([\d.]+)\s*m", txt, re.I)
+            if m:
+                return Decimal(m.group(1))
+            sib = el.find_next(["td", "dd", "span"])
+            if not sib:
+                continue
+            m = re.search(r"([\d.]+)", sib.get_text())
+            if m:
+                return Decimal(m.group(1))
+        return None
+
+    def _misawa_senyu_from_alt_specs(self, response, specs=None) -> Optional[Decimal]:
+        """アパート/一棟: 建物面積・延床を専有の代用."""
+        specs = specs or self._get_specs(response)
+        for key in ("建物面積", "延床面積", "専有・建物面積"):
+            alt = specs.get(key, "")
+            if not alt:
+                continue
+            parsed = converter.parse_menseki(alt)
+            if parsed:
+                return parsed
+        return None
+
     def _parseSenyuMenseki(self, response, specs=None):
         raw = self._parseSenyuMensekiStr(response, specs)
         parsed = converter.parse_menseki(raw) if raw else None
         if parsed:
             return parsed
-        # Fallback: scan outline table / body text
-        for el in response.select("th, dt, td, dd, li, p, span"):
-            txt = el.get_text(" ", strip=True)
-            if "専有面積" in txt or "壁芯" in txt:
-                m = re.search(r"([\d.]+)\s*m", txt, re.I)
-                if m:
-                    return Decimal(m.group(1))
-                sib = el.find_next(["td", "dd", "span"])
-                if sib:
-                    m = re.search(r"([\d.]+)", sib.get_text())
-                    if m:
-                        return Decimal(m.group(1))
-        # アパート/一棟: 建物面積・延床を専有の代用
-        specs = specs or self._get_specs(response)
-        for key in ("建物面積", "延床面積", "専有・建物面積"):
-            alt = specs.get(key, "")
-            if alt:
-                parsed = converter.parse_menseki(alt)
-                if parsed:
-                    return parsed
+        outline = self._misawa_senyu_from_outline(response)
+        if outline is not None:
+            return outline
+        alt = self._misawa_senyu_from_alt_specs(response, specs)
+        if alt is not None:
+            return alt
         return parsed
 
     def _parseBalconyMenseki(self, response, specs=None):
@@ -529,7 +602,7 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
         # Wait, converter.parse_price(val) for "8,680円" -> 8680 * 10000 = 86,800,000
         # This is because it assumes the input is always in "Man-Yen" if no unit.
         if '円' in val and '万' not in val and '億' not in val:
-            num_val = re.search(r'(\d+(?:,\d+)*)', val)
+            num_val = re.search(r'(\d[\d,]*)', val)
             if num_val:
                 return int(num_val.group(1).replace(',', ''))
         return converter.parse_price(val)
@@ -543,7 +616,7 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
         if not val:
             return None
         if '円' in val and '万' not in val and '億' not in val:
-            num_val = re.search(r'(\d+(?:,\d+)*)', val)
+            num_val = re.search(r'(\d[\d,]*)', val)
             if num_val:
                 return int(num_val.group(1).replace(',', ''))
         return converter.parse_price(val)
@@ -603,39 +676,7 @@ class MisawaKodateParser(MisawaParser, KodateParserBase):
         item.setsudou = self._parseSetsudou(response)
         item.tyusyajo = self._parseParkingCount(response)
         
-        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
-                if dir_width_match:
-                    item.roadWidthStr = dir_width_match.group(0)
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
+        self._misawa_apply_setsudou_details(item)
             
         if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
@@ -722,39 +763,7 @@ class MisawaTochiParser(MisawaParser, TochiParserBase):
         item.buildingCondition = self._parseBuildingCondition(response)
         item.currentStatus = self._parseCurrentStatus(response)
         
-        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
-                if dir_width_match:
-                    item.roadWidthStr = dir_width_match.group(0)
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
+        self._misawa_apply_setsudou_details(item)
             
         if item.tochiMenseki and item.maguchi and item.maguchi > 0:
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
@@ -803,39 +812,30 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
         return super()._parsePropertyName(response, specs)
 
     property_type = 'investment'
-    
-    def _parsePropertyDetailPage(self, item, response):
-        if not getattr(self, '_is_delegating', False):
-            specs = self._get_specs(response)
-            shumoku = specs.get("物件種別", specs.get("物件種目", specs.get("種別", "")))
-            
-            is_apartment_parser = self.__class__.__name__ == "MisawaInvestmentApartmentParser"
-            
-            if shumoku:
-                if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
-                    if not is_apartment_parser:
-                        parser = MisawaInvestmentApartmentParser()
-                        parser._is_delegating = True
-                        new_item = parser.createEntity()
-                        new_item.pageUrl = item.pageUrl
-                        return parser._parsePropertyDetailPage(new_item, response)
-                else:
-                    if is_apartment_parser:
-                        parser = MisawaInvestmentKodateParser()
-                        parser._is_delegating = True
-                        new_item = parser.createEntity()
-                        new_item.pageUrl = item.pageUrl
-                        return parser._parsePropertyDetailPage(new_item, response)
 
-        item = super()._parsePropertyDetailPage(item, response)
-        
+    def _misawa_delegate_invest_parser(self, item, response, shumoku: str):
+        """Route apartment vs kodate investment parsers when not already delegating."""
+        is_apartment_parser = self.__class__.__name__ == "MisawaInvestmentApartmentParser"
+        is_apartment_shumoku = any(tok in shumoku for tok in ("アパート", "マンション", "ビル"))
+        if is_apartment_shumoku and not is_apartment_parser:
+            parser = MisawaInvestmentApartmentParser()
+        elif (not is_apartment_shumoku) and is_apartment_parser:
+            parser = MisawaInvestmentKodateParser()
+        else:
+            return None
+        parser._is_delegating = True
+        new_item = parser.createEntity()
+        new_item.pageUrl = item.pageUrl
+        return parser._parsePropertyDetailPage(new_item, response)
+
+    def _misawa_apply_invest_setsudou_details(self, item) -> None:
+        self._misawa_apply_setsudou_details(item)
+
+    def _misawa_fill_invest_common_fields(self, item, response) -> None:
         item.grossYield = self._parseGrossYield(response)
         item.annualRent = self._parseAnnualRent(response)
         item.monthlyRent = self._parseMonthlyRent(response)
-        
         item.currentStatus = self._parseCurrentStatus(response)
-
-        # Required base model fields (override common fields with investment-specific defaults)
         item.tochikenri = self._parseTochikenri_I(response)
         item.youtoChiiki = self._parseYoutoChiiki_I(response)
         item.deliveryDate = self._parseDeliveryDate_I(response)
@@ -844,13 +844,10 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
         item.schoolDistrict = self._parseSchoolDistrict_I(response)
         item.transactionType = self._parseTransactionType_I(response)
         item.biko = self._parseBiko_I(response)
-        
         item.kenpeiStr = self._parseKenpeiStr(response)
         item.kenpei = self._parseKenpei(response)
         item.yousekiStr = self._parseYousekiStr(response)
         item.youseki = self._parseYouseki(response)
-
-        # Common investment fields
         item.kouzou = self._parseKouzou(response)
         item.chikunengetsuStr = self._parseChikunengetsuStr(response)
         item.chikunengetsu = self._parseChikunengetsu(response)
@@ -858,47 +855,29 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
         item.tochiMenseki = self._parseTochiMenseki(response)
         item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
         item.tatemonoMenseki = self._parseTatemonoMenseki(response)
-        
-        # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
+
+    def _parsePropertyDetailPage(self, item, response):
+        if not getattr(self, '_is_delegating', False):
+            specs = self._get_specs(response)
+            shumoku = specs.get(
+                "物件種別", specs.get("物件種目", specs.get("種別", ""))
+            )
+            if shumoku:
+                delegated = self._misawa_delegate_invest_parser(item, response, shumoku)
+                if delegated is not None:
+                    return delegated
+
+        item = super()._parsePropertyDetailPage(item, response)
+        self._misawa_fill_invest_common_fields(item, response)
+
         specs = self._get_specs(response)
         item.setsudou = self._parseSetsudou(response, specs)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口|接道)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', item.setsudou)
-                if dir_width_match:
-                    item.roadWidthStr = dir_width_match.group(0)
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
+        self._misawa_apply_invest_setsudou_details(item)
+
         if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
             item.okuyukiStr = f"{item.okuyuki}m"
-            
+
         return item
 
     def _parseGrossYield(self, response, specs=None):

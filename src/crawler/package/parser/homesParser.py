@@ -17,6 +17,18 @@ import re
 
 logger = logging.getLogger(__name__)
 
+_HOMES_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
+_HOMES_MAGUCHI_RE = (
+    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+)
+_HOMES_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_HOMES_DIR_WIDTH_RE = (
+    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)'
+)
+_HOMES_ROAD_TYPE_RE = r'(公道|私道)'
+_HOMES_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
+
+
 class HomesParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -82,58 +94,66 @@ class HomesParser(ParserBase):
         """
         一覧ページから「次へ」のページリンクを抽出し、絶対URLとして返す
         """
-        if not isinstance(response, BeautifulSoup):
-            import lxml.etree
-            html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
-            response = BeautifulSoup(html_str, "html.parser")
+        response = self._homes_ensure_soup(response)
+        next_url = self._homes_find_next_anchor_url(response)
+        if next_url:
+            return next_url
+        return self._homes_increment_canonical_page(response)
 
-        # 1. ページ内の「次へ」アンカータグを検索
-        next_tag = response.select_one("a.next") or response.select_one(".page-next a") or response.select_one("a[rel='next']")
+    @staticmethod
+    def _homes_ensure_soup(response):
+        if isinstance(response, BeautifulSoup):
+            return response
+        import lxml.etree
+        html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
+        return BeautifulSoup(html_str, "html.parser")
+
+    def _homes_find_next_anchor_url(self, response: BeautifulSoup) -> str:
+        next_tag = (
+            response.select_one("a.next")
+            or response.select_one(".page-next a")
+            or response.select_one("a[rel='next']")
+        )
         if not next_tag:
             for a in response.find_all("a", href=True):
                 text = a.get_text().strip()
                 if "次" in text or text == ">" or text == "»":
                     next_tag = a
                     break
-        if next_tag:
-            href = next_tag.get("href")
-            if href:
-                return self.getRootDestUrl(href)
+        if not next_tag:
+            return ""
+        href = next_tag.get("href")
+        return self.getRootDestUrl(href) if href else ""
 
-        # 2. フォールバック: canonical URLをベースに page パラメータをインクリメント
+    def _homes_increment_canonical_page(self, response: BeautifulSoup) -> str:
+        # フォールバック: canonical URLをベースに page パラメータをインクリメント
         canonical = response.find("link", rel="canonical")
         if not canonical:
             return ""
         current_url = canonical.get("href", "")
         if not current_url:
             return ""
-        
+
         import urllib.parse
         parsed = urllib.parse.urlparse(current_url)
         query = urllib.parse.parse_qs(parsed.query)
-        
+
         page_list = query.get("page", [])
-        if page_list:
-            try:
-                current_page = int(page_list[0])
-            except ValueError:
-                current_page = 1
-        else:
+        try:
+            current_page = int(page_list[0]) if page_list else 1
+        except ValueError:
             current_page = 1
-            
-        next_page = current_page + 1
-        query["page"] = [str(next_page)]
-        
+
+        query["page"] = [str(current_page + 1)]
         new_query = urllib.parse.urlencode(query, doseq=True)
-        next_url = urllib.parse.urlunparse((
+        return urllib.parse.urlunparse((
             parsed.scheme,
             parsed.netloc,
             parsed.path,
             parsed.params,
             new_query,
-            parsed.fragment
+            parsed.fragment,
         ))
-        return next_url
 
 
     async def parseRootPage(self, response):
@@ -189,6 +209,64 @@ class HomesParser(ParserBase):
             return ""
         # 複数行を半角スペースで連結して返す
         return re.sub(r'\s+', ' ', text).strip()
+
+    def _homes_apply_setsudou_details(self, item, setsudou_info: str) -> None:
+        """接道状況テキストから間口・道路幅・方位等を抽出する。"""
+        if not setsudou_info:
+            item.roadStructure = getattr(item, "roadStructure", None) or "中間地"
+            return
+
+        mag_match = re.search(_HOMES_MAGUCHI_RE, setsudou_info)
+        if mag_match:
+            item.maguchiStr = mag_match.group(0)
+            item.maguchi = Decimal(mag_match.group(1))
+
+        width_match = re.search(_HOMES_WIDTH_RE, setsudou_info)
+        if width_match:
+            item.roadWidthStr = width_match.group(0)
+            item.roadWidth = Decimal(width_match.group(1))
+        else:
+            dir_width_match = re.search(_HOMES_DIR_WIDTH_RE, setsudou_info)
+            if dir_width_match:
+                item.roadWidthStr = dir_width_match.group(0)
+                item.roadWidth = Decimal(dir_width_match.group(1))
+
+        direction_match = re.search(_HOMES_DIRECTION_RE, setsudou_info)
+        item.roadDirection = direction_match.group(1) if direction_match else ""
+
+        type_match = re.search(_HOMES_ROAD_TYPE_RE, setsudou_info)
+        item.roadType = type_match.group(1) if type_match else ""
+
+        struct_match = re.search(_HOMES_ROAD_STRUCT_RE, setsudou_info)
+        item.roadStructure = struct_match.group(1) if struct_match else "中間地"
+
+    def _homes_apply_kenpei_youseki(
+        self, item, kenpei_text: str, youseki_text: str
+    ) -> None:
+        if youseki_text and ("／" in youseki_text or "/" in youseki_text) and not kenpei_text:
+            parts = re.split(r'[／/]', youseki_text)
+            if len(parts) >= 2:
+                kenpei_text = parts[0].strip()
+                youseki_text = parts[1].strip()
+        item.kenpeiStr = kenpei_text
+        item.kenpei = converter.parse_ratio(kenpei_text)
+        item.yousekiStr = youseki_text
+        item.youseki = converter.parse_ratio(youseki_text)
+
+    def _homes_apply_okuyuki(self, item) -> None:
+        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
+    def _homes_text_from_selectors(self, response, css_selectors, headers) -> str:
+        tag = None
+        for sel in css_selectors:
+            tag = response.select_one(sel)
+            if tag:
+                break
+        if not tag:
+            tag = self._find_by_table_header(response, headers)
+        return tag.get_text().strip() if tag else ""
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
@@ -375,82 +453,32 @@ class HomesKodateParser(HomesParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
-        
+
         land_tag = response.select_one("td.prg-landAreaTableItem") or self._find_by_table_header(response, ["土地面積", "敷地面積"])
         item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
+
         house_tag = response.select_one("td.prg-houseAreaTableItem") or self._find_by_table_header(response, ["建物面積", "延床面積"])
         item.tatemonoMensekiStr = house_tag.get_text().strip() if house_tag else ""
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-            
-        # 接道状況
-        setsudou_tag = response.select_one("td.prg-setsudouTableItem") or response.select_one("td.prg-roadTableItem") or self._find_by_table_header(response, ["接道状況", "接道"])
-        setsudou_info = setsudou_tag.get_text().strip() if setsudou_tag else ""
+
+        setsudou_info = self._homes_text_from_selectors(
+            response,
+            ("td.prg-setsudouTableItem", "td.prg-roadTableItem"),
+            ["接道状況", "接道"],
+        )
         item.setsudou = setsudou_info
-        
-        # 接道状況テキストから詳細情報を正規表現で切り出し
-        if setsudou_info:
-            # 間口 (maguchi)
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-                
-            # 前面道路幅員 (roadWidth)
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if width_match:
-                from decimal import Decimal
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', setsudou_info)
-                if dir_width_match:
-                    from decimal import Decimal
-                    item.roadWidthStr = dir_width_match.group(0)
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-                
-            # 接道方位 (roadDirection)
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', setsudou_info)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            # 道路区分 (roadType: 公道/私道)
-            type_match = re.search(r'(公道|私道)', setsudou_info)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            # 接道構造（角地など）(roadStructure)
-            struct_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', setsudou_info)
-            item.roadStructure = struct_match.group(1) if struct_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        # 建ぺい率・容積率
+        self._homes_apply_setsudou_details(item, setsudou_info)
+
         ratio_tag = response.select_one("td.prg-floorAreaRatioTableItem") or self._find_by_table_header(response, ["建ぺい率／容積率", "建ぺい率/容積率"])
         kenpei_tag = response.select_one("td.prg-buildingCoverageTableItem") or self._find_by_table_header(response, ["建ぺい率"])
-        
         kenpei_text = kenpei_tag.get_text().strip() if kenpei_tag else ""
         youseki_text = ratio_tag.get_text().strip() if ratio_tag else ""
-        
-        if youseki_text and ("／" in youseki_text or "/" in youseki_text) and not kenpei_text:
-            parts = re.split(r'[／/]', youseki_text)
-            if len(parts) >= 2:
-                kenpei_text = parts[0].strip()
-                youseki_text = parts[1].strip()
-                
-        item.kenpeiStr = kenpei_text
-        item.kenpei = converter.parse_ratio(kenpei_text)
-        item.yousekiStr = youseki_text
-        item.youseki = converter.parse_ratio(youseki_text)
-        
-        # 奥行き (okuyuki)
-        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
-            from decimal import Decimal
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-            
+        self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
+        self._homes_apply_okuyuki(item)
+
         return item
 
 
@@ -508,12 +536,12 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
-        
+
         # 利回り
         yield_tag = response.select_one("span.prg-rimawariTableItem") or self._find_by_table_header(response, ["利回り"])
         yield_str = yield_tag.get_text().strip() if yield_tag else ""
         item.grossYield = converter.parse_ratio(yield_str)
-        
+
         # 想定賃料 (Homesは満室想定年収 prg-annualIncomeTableItem が取れる)
         income_tag = response.select_one("td.prg-annualIncomeTableItem") or self._find_by_table_header(response, ["満室想定年収", "想定年収", "想定賃料"])
         income_str = income_tag.get_text().strip() if income_tag else ""
@@ -523,48 +551,35 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
             raise SkipPropertyException(
                 "Homes invest: missing yield/annualRent on listing (skip and try next)"
             )
-        
+
         status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
         item.currentStatus = status_tag.get_text().strip() if status_tag else ""
-        
-        # 面積
+
         land_tag = response.select_one("td.prg-landAreaTableItem") or self._find_by_table_header(response, ["土地面積", "敷地面積"])
         item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
+
         house_tag = response.select_one("td.prg-houseAreaTableItem") or self._find_by_table_header(response, ["建物面積", "延床面積", "専有面積"])
         item.tatemonoMensekiStr = house_tag.get_text().strip() if house_tag else ""
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
-            
-        # 土地詳細 (建ぺい率・容積率が合体しているケースがあるため両対応)
+
         ratio_tag = response.select_one("td.prg-floorAreaRatioTableItem") or self._find_by_table_header(response, ["建ぺい率／容積率", "建ぺい率/容積率"])
         kenpei_tag = response.select_one("td.prg-buildingCoverageTableItem") or self._find_by_table_header(response, ["建ぺい率"])
-        
         kenpei_text = kenpei_tag.get_text().strip() if kenpei_tag else ""
         youseki_text = ratio_tag.get_text().strip() if ratio_tag else ""
-        
-        if youseki_text and ("／" in youseki_text or "/" in youseki_text) and not kenpei_text:
-            parts = re.split(r'[／/]', youseki_text)
-            if len(parts) >= 2:
-                kenpei_text = parts[0].strip()
-                youseki_text = parts[1].strip()
-                
-        item.kenpeiStr = kenpei_text
-        item.kenpei = converter.parse_ratio(kenpei_text)
-        item.yousekiStr = youseki_text
-        item.youseki = converter.parse_ratio(youseki_text)
-        
+        self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
+
         setsudou_tag = response.select_one("td.prg-roadTableItem") or self._find_by_table_header(response, ["接道状況", "接道"])
         item.setsudou = setsudou_tag.get_text().strip() if setsudou_tag else ""
-        
+
         chimoku_tag = response.select_one("td.prg-landCategoryTableItem") or self._find_by_table_header(response, ["地目"])
         item.chimoku = chimoku_tag.get_text().strip() if chimoku_tag else ""
-        
+
         right_tag = response.select_one("td.prg-rightTableItem") or self._find_by_table_header(response, ["土地権利", "権利"])
         item.tochikenri = right_tag.get_text().strip() if right_tag else ""
-        
+
         return item
 
 
@@ -614,17 +629,10 @@ class HomesTochiParser(HomesParser, TochiParserBase):
     def createEntity(self):
         return HomesTochi()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        
-        # 土地面積
-        land_tag = response.select_one("td.prg-landAreaTableItem") or response.select_one("td.prg-houseAreaTableItem") or self._find_by_table_header(response, ["土地面積", "敷地面積"])
-        item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
-        if item.tochiMensekiStr:
-            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-            
-        # 建ぺい率・容積率 (合体しているケースがあるため両対応)
-        ratio_tag = response.select_one("td.prg-floorAreaRatioTableItem") or self._find_by_table_header(response, ["建ぺい率／容積率", "建ぺい率/容積率"])
+    def _homes_apply_tochi_kenpei_youseki(self, item, response: BeautifulSoup) -> None:
+        ratio_tag = response.select_one("td.prg-floorAreaRatioTableItem") or self._find_by_table_header(
+            response, ["建ぺい率／容積率", "建ぺい率/容積率"]
+        )
         if ratio_tag:
             ratio_text = ratio_tag.get_text().strip()
             parts = ratio_text.split("／")
@@ -636,61 +644,50 @@ class HomesTochiParser(HomesParser, TochiParserBase):
             else:
                 item.yousekiStr = ratio_text
                 item.youseki = converter.parse_ratio(ratio_text)
-                
-        kenpei_tag = response.select_one("td.prg-buildingCoverageTableItem") or self._find_by_table_header(response, ["建ぺい率"])
+
+        kenpei_tag = response.select_one("td.prg-buildingCoverageTableItem") or self._find_by_table_header(
+            response, ["建ぺい率"]
+        )
         if kenpei_tag:
             item.kenpeiStr = kenpei_tag.get_text().strip()
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        
-        # 接道状況
-        setsudou_tag = response.select_one("td.prg-setsudouTableItem") or response.select_one("td.prg-roadTableItem") or self._find_by_table_header(response, ["接道状況", "接道"])
-        setsudou_info = setsudou_tag.get_text().strip() if setsudou_tag else ""
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+
+        land_tag = (
+            response.select_one("td.prg-landAreaTableItem")
+            or response.select_one("td.prg-houseAreaTableItem")
+            or self._find_by_table_header(response, ["土地面積", "敷地面積"])
+        )
+        item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
+        if item.tochiMensekiStr:
+            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+
+        self._homes_apply_tochi_kenpei_youseki(item, response)
+
+        setsudou_info = self._homes_text_from_selectors(
+            response,
+            ("td.prg-setsudouTableItem", "td.prg-roadTableItem"),
+            ["接道状況", "接道"],
+        )
         item.setsudou = setsudou_info
-        
-        # 地目
-        chimoku_tag = response.select_one("td.prg-chimokuTableItem") or response.select_one("td.prg-landCategoryTableItem") or self._find_by_table_header(response, ["地目"])
-        item.chimoku = chimoku_tag.get_text().strip() if chimoku_tag else ""
-        
-        # 土地権利
-        right_tag = response.select_one("td.prg-rightTableItem") or self._find_by_table_header(response, ["土地権利", "権利"])
-        item.tochikenri = right_tag.get_text().strip() if right_tag else ""
-        
-        # 用途地域
-        youto_tag = response.select_one("td.prg-areaTableItem") or response.select_one("td.prg-useDistrictTableItem") or self._find_by_table_header(response, ["用途地域"])
-        item.youtoChiiki = youto_tag.get_text().strip() if youto_tag else ""
-        
-        # 接道状況テキストから詳細情報を正規表現で切り出し
-        if setsudou_info:
-            # 間口 (maguchi)
-            mag_match = re.search(r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if mag_match:
-                from decimal import Decimal
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-                
-            # 前面道路幅員 (roadWidth)
-            width_match = re.search(r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', setsudou_info)
-            if width_match:
-                from decimal import Decimal
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-            else:
-                dir_width_match = re.search(r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)', setsudou_info)
-                if dir_width_match:
-                    from decimal import Decimal
-                    item.roadWidthStr = dir_width_match.group(0)
-                    item.roadWidth = Decimal(dir_width_match.group(1))
-                
-            # 接道方位 (roadDirection)
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', setsudou_info)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            # 道路区分 (roadType: 公道/私道)
-            type_match = re.search(r'(公道|私道)', setsudou_info)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            # 接道状況 (roadStructure)
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', setsudou_info)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-            
+
+        item.chimoku = self._homes_text_from_selectors(
+            response,
+            ("td.prg-chimokuTableItem", "td.prg-landCategoryTableItem"),
+            ["地目"],
+        )
+        item.tochikenri = self._homes_text_from_selectors(
+            response,
+            ("td.prg-rightTableItem",),
+            ["土地権利", "権利"],
+        )
+        item.youtoChiiki = self._homes_text_from_selectors(
+            response,
+            ("td.prg-areaTableItem", "td.prg-useDistrictTableItem"),
+            ["用途地域"],
+        )
+        self._homes_apply_setsudou_details(item, setsudou_info)
+
         return item
