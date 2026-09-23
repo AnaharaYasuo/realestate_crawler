@@ -22,3 +22,28 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
     google_cloud_run_v2_job_iam_member.run_invoker
   ]
 }
+
+# Cloud Scheduler Job for Resource Safety-Net at 05:00 JST (20:00 UTC)
+resource "google_cloud_scheduler_job" "crawler_safety_net_trigger" {
+  name             = "realestate-safety-net-daily-${var.environment}"
+  description      = "Triggers safety net check daily at 05:00 JST (20:00 UTC) to ensure ProxySQL MIG & NAT are stopped"
+  schedule         = "0 20 * * *"
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "300s"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.resource_safety_net_job.name}:run"
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler_invoker.email
+      scope                 = "https://www.googleapis.com/auth/cloud-platform"
+    }
+  }
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_cloud_run_v2_job.resource_safety_net_job,
+    google_cloud_run_v2_job_iam_member.safety_net_run_invoker
+  ]
+}

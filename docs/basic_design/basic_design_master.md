@@ -269,6 +269,19 @@ DETAIL_PARARELL_LIMIT = 10  # 6 → 10に変更
 *   **Slack疎通事前自己チェック (Step 0)**:
     *   クローリングおよびパイプラインの起動前（Step 0）に必ず `check_slack_connection.py` を自動実行し、設定不備（`channel_not_found` 等）による通知不達を未然に防止します。
 
+### 4.4 クローリング保証テスト戦略 (Crawl Guarantee)
+
+単体テスト通過だけでは本番クローリング成功を保証できない（Coverage Illusion）ため、以下の二層で保証する。
+
+*   **オフライン同期ゲート**: `CRAWL_JOBS` 全件がディスパッチマップ・Start API・シードURLに解決できること。
+*   **ライブ本番経路スモーク**: 本番パーサーで詳細URL抽出＋種別期待フィールド検証＋DB保存を全ジョブ検証（`task test-live` / `test_live_crawl_guarantee.py`）。部分ハードコードの別マトリクスは禁止。
+*   **ページング**: `parseNextPage` で次ページへ進めること（次ページ無しは `paging_exhausted` で可）。
+*   **物件種別判定**: 成功パース物件が `PropertyTypeDetector` によりジョブ想定種別と一致すること。
+*   **壁時計 ≤ 300秒**: バケット並列（静的 HTML 群 ∥ Playwright: mizuho → (sekisui ∥ athome)）で実待機時間を担保する。
+*   **ローカル vs CI の並列プラン分離**:
+    *   ローカル: 静的群 `-n 4` ＋ Playwright 各社バケット（`-n 0`）を上記スケジュール。`package.utils.live_parallel` がプランを生成し `run_live_crawl_guarantee.py` が実行。
+    *   GitHub Actions: 静的群 `-n auto` ＋ Playwright 各社バケットを同上。PR integration は `-m "not live"` でネットワーク依存ライブを除外。
+
 ---
 
 ## 5. 各サイト固有の解析ロジック詳細
@@ -700,10 +713,11 @@ graph TD
 
 ### 11.2 並列化・高速化の3本柱
 1. **プロセス内並列化 (`pytest-xdist`)**:
-   - ランナー（4 vCPU）の能力をフル活用するため、`-n auto` オプションを指定し、テストケースをCPUコアに分散実行。
+   - 通常テスト: ランナー（4 vCPU）向けに `-n auto`。
+   - ライブ保証: ローカルは静的群 `-n 4`、CI は静的群 `-n auto`。Playwright 系は両環境とも会社単位バケット（`-n 0`）を静的と並列・会社間直列で起動（`live_parallel`）。
    - `pytest-cov` カバレッジ収集時にも並列セッションを統合。
 2. **ジョブマトリクス並列化 (GitHub Actions Matrix)**:
-   - テストスイートを責務・実行時間特性に応じて3系統（`unit`, `integration`, `ml`）に分割し、別々のGitHub Actions仮想マシンで並列実行。
+   - テストスイートを責務・実行時間特性に応じて3系統（`unit`, `integration`（`-m "not live"`）, `ml`）に分割し、別々のGitHub Actions仮想マシンで並列実行。
    - 実行時間最大のボトルネックを並列分散することで全体の完了待機時間を最短化。
 3. **Docker BuildKit GHA キャッシュ**:
    - `docker/setup-buildx-action` と BuildKit GHA キャッシュ連携を行い、aptパッケージやPython依存ライブラリ（Playwright含む）のレイヤーキャッシュを保存・再利用。

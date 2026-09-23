@@ -585,6 +585,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return "https://us-central1-sumifu.cloudfunctions.net"
         return "http://127.0.0.1:8000"
 
+    def get_seed_urls(self) -> list:
+        """Return crawl seed URLs for smoke/guarantee tests (urlList or SEED_URL)."""
+        url_list = getattr(self, "urlList", None)
+        if url_list:
+            return list(url_list)
+        seed = getattr(type(self), "SEED_URL", None)
+        if isinstance(seed, str) and seed:
+            return [seed]
+        if isinstance(seed, (list, tuple)):
+            return list(seed)
+        return []
+
     def _getApiUrl(self):
         apiUrl = self._getUrl() + (self._getApiKey() or '')
         return apiUrl

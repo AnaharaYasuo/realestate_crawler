@@ -163,7 +163,30 @@ class DaiwaParser(ParserBase):
     def _parsePropertyName(self, response: BeautifulSoup):
         title_el = response.find("h1") or response.select_one(".boxtitle h2")
         if title_el:
-            return title_el.get_text().strip()
+            name = title_el.get_text(" ", strip=True)
+            if name:
+                return name
+        # Land pages often render an empty <h1>; fall back to og/title/address.
+        og = response.select_one("meta[property='og:title']")
+        if og is None:
+            og_content = None
+        else:
+            attrs = getattr(og, "attrs", None) or {}
+            og_content = attrs.get("content")
+        if og_content:
+            raw = str(og_content).strip()
+            # "東京都…｜土地購入｜Livness｜…" → keep address-like head.
+            head = re.split(r"[｜|]", raw)[0].strip()
+            if head:
+                return head
+        if response.title and response.title.string:
+            head = re.split(r"[｜|]", response.title.string.strip())[0].strip()
+            if head:
+                return head
+        specs = self._get_specs(response)
+        addr = specs.get("所在地", "")
+        if addr:
+            return addr.strip()
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup):
@@ -246,7 +269,17 @@ class DaiwaMansionParser(DaiwaParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        raw = (
+            specs.get("建物構造", "")
+            or specs.get("構造", "")
+            or specs.get("構造・工法", "")
+            or specs.get("構造/階建", "")
+            or super()._parseKouzou(response, specs)
+        )
+        if raw and "/" in str(raw):
+            # e.g. "木造 / 3階建"
+            raw = str(raw).split("/", 1)[0].strip()
+        return raw or ""
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -350,7 +383,16 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        raw = (
+            specs.get("建物構造", "")
+            or specs.get("構造", "")
+            or specs.get("構造・工法", "")
+            or specs.get("構造/階建", "")
+            or super()._parseKouzou(response, specs)
+        )
+        if raw and "/" in str(raw):
+            raw = str(raw).split("/", 1)[0].strip()
+        return raw or ""
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)

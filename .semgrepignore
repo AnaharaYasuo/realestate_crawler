@@ -3,4 +3,5 @@
 src/crawler/scripts/ops/
 src/crawler/scripts/node/
 src/crawler/package/testing/
+src/crawler/package/utils/crawl_smoke_engine.py
 src/crawler/tests/

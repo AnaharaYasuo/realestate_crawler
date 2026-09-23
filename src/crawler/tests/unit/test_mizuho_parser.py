@@ -177,82 +177,136 @@ async def test_mizuho_parse_root_page_bypass_exception():
 @pytest.mark.asyncio
 async def test_get_mizuho_links_success():
     """Playwrightバイパス処理によるリンク抽出・正規化・クローズ処理を検証。"""
-    with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
-        mock_p = MagicMock()
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_p
-        mock_ap.return_value = mock_cm
+    with patch(
+        "package.utils.mizuho_bypass.get_mizuho_links_from_sitemap",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
+            mock_p = MagicMock()
+            mock_cm = AsyncMock()
+            mock_cm.__aenter__.return_value = mock_p
+            mock_ap.return_value = mock_cm
 
-        mock_browser = AsyncMock()
-        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+            mock_browser = AsyncMock()
+            mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
 
-        mock_context = AsyncMock()
-        mock_context.add_init_script = AsyncMock()
-        mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_context = AsyncMock()
+            mock_context.add_init_script = AsyncMock()
+            mock_browser.new_context = AsyncMock(return_value=mock_context)
 
-        mock_page = AsyncMock()
-        mock_context.new_page = AsyncMock(return_value=mock_page)
-        mock_page.set_extra_http_headers = AsyncMock()
-        mock_page.wait_for_timeout = AsyncMock()
-        mock_page.mouse.move = AsyncMock()
+            mock_page = AsyncMock()
+            mock_context.new_page = AsyncMock(return_value=mock_page)
+            mock_page.set_extra_http_headers = AsyncMock()
+            mock_page.wait_for_timeout = AsyncMock()
+            mock_page.mouse.move = AsyncMock()
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_page.goto = AsyncMock(return_value=mock_response)
-        mock_page.title = AsyncMock(return_value="みずほ不動産販売")
-        mock_page.evaluate = AsyncMock(return_value=[
-            "/buyers/property/000000000001/",
-            "https://www.mizuho-re.co.jp/buyers/property/000000000002/",
-            "javascript:void(0)"
-        ])
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_page.goto = AsyncMock(return_value=mock_response)
+            mock_page.title = AsyncMock(return_value="みずほ不動産販売")
+            mock_page.evaluate = AsyncMock(return_value=[
+                "/buyers/property/000000000001/",
+                "https://www.mizuho-re.co.jp/buyers/property/000000000002/",
+                "javascript:void(0)"
+            ])
 
-        links = await get_mizuho_links("https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/")
-        assert links == [
-            "https://www.mizuho-re.co.jp/buyers/property/000000000001/",
-            "https://www.mizuho-re.co.jp/buyers/property/000000000002/"
-        ]
-        mock_context.close.assert_called_once()
-        mock_browser.close.assert_called_once()
+            links = await get_mizuho_links("https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/")
+            assert links == [
+                "https://www.mizuho-re.co.jp/buyers/property/000000000001/",
+                "https://www.mizuho-re.co.jp/buyers/property/000000000002/"
+            ]
+            mock_context.close.assert_awaited_once()
+            mock_browser.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_get_mizuho_links_403_and_close_exceptions():
     """Playwrightバイパスで403検出時およびクローズ時例外のハンドリングを検証。"""
-    with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
-        mock_p = MagicMock()
-        mock_cm = AsyncMock()
-        mock_cm.__aenter__.return_value = mock_p
-        mock_ap.return_value = mock_cm
+    with patch(
+        "package.utils.mizuho_bypass.get_mizuho_links_from_sitemap",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
+            mock_p = MagicMock()
+            mock_cm = AsyncMock()
+            mock_cm.__aenter__.return_value = mock_p
+            mock_ap.return_value = mock_cm
 
-        mock_browser = AsyncMock()
-        mock_browser.close = AsyncMock(side_effect=RuntimeError("Browser close fail"))
-        mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
+            mock_browser = AsyncMock()
+            mock_browser.close = AsyncMock(side_effect=RuntimeError("Browser close fail"))
+            mock_p.chromium.launch = AsyncMock(return_value=mock_browser)
 
-        mock_context = AsyncMock()
-        mock_context.close = AsyncMock(side_effect=RuntimeError("Context close fail"))
-        mock_context.add_init_script = AsyncMock()
-        mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_context = AsyncMock()
+            mock_context.close = AsyncMock(side_effect=RuntimeError("Context close fail"))
+            mock_context.add_init_script = AsyncMock()
+            mock_browser.new_context = AsyncMock(return_value=mock_context)
 
-        mock_page = AsyncMock()
-        mock_context.new_page = AsyncMock(return_value=mock_page)
-        mock_page.set_extra_http_headers = AsyncMock()
-        mock_page.wait_for_timeout = AsyncMock()
-        mock_page.mouse.move = AsyncMock()
+            mock_page = AsyncMock()
+            mock_context.new_page = AsyncMock(return_value=mock_page)
+            mock_page.set_extra_http_headers = AsyncMock()
+            mock_page.wait_for_timeout = AsyncMock()
+            mock_page.mouse.move = AsyncMock()
 
-        mock_response = MagicMock()
-        mock_response.status = 403
-        mock_page.goto = AsyncMock(return_value=mock_response)
-        mock_page.title = AsyncMock(return_value="403 Forbidden")
+            mock_response = MagicMock()
+            mock_response.status = 403
+            mock_page.goto = AsyncMock(return_value=mock_response)
+            mock_page.title = AsyncMock(return_value="403 Forbidden")
 
-        links = await get_mizuho_links("https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/")
-        assert links == []
+            links = await get_mizuho_links("https://www.mizuho-re.co.jp/buyers/search/area/type_Mansion/pref_13/list/")
+            assert links == []
+            mock_context.close.assert_awaited_once()
+            mock_browser.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_get_mizuho_links_launch_exception():
     """Playwright初期化時の例外捕捉を検証。"""
-    with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
-        mock_ap.side_effect = RuntimeError("Launch failed")
-        links = await get_mizuho_links("https://www.mizuho-re.co.jp/test")
-        assert links == []
+    with patch(
+        "package.utils.mizuho_bypass.get_mizuho_links_from_sitemap",
+        new_callable=AsyncMock,
+        return_value=[],
+    ):
+        with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
+            mock_ap.side_effect = RuntimeError("Launch failed")
+            links = await get_mizuho_links("https://www.mizuho-re.co.jp/test")
+            assert links == []
+
+
+@pytest.mark.asyncio
+async def test_get_mizuho_links_prefers_sitemap():
+    """公式 sitemap が取れた場合は Playwright 一覧を起動しない。"""
+    sample = ["https://www.mizuho-re.co.jp/buyers/property/001200811796/"]
+    with patch(
+        "package.utils.mizuho_bypass.get_mizuho_links_from_sitemap",
+        new_callable=AsyncMock,
+        return_value=sample,
+    ) as mock_sm:
+        with patch("package.utils.mizuho_bypass.async_playwright") as mock_ap:
+            links = await get_mizuho_links(
+                "https://www.mizuho-re.co.jp/buyers/search/area/type_House/pref_13/list/"
+            )
+            assert links == sample
+            mock_sm.assert_awaited()
+            mock_ap.assert_not_called()
+
+
+def test_parse_mizuho_sitemap_locs_and_infer_kind():
+    from package.utils.mizuho_bypass import (
+        infer_mizuho_sitemap_kind,
+        parse_mizuho_sitemap_locs,
+    )
+
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url><loc>https://www.mizuho-re.co.jp/buyers/property/001200811796</loc></url>
+      <url><loc>https://www.mizuho-re.co.jp/about/</loc></url>
+    </urlset>
+    """
+    locs = parse_mizuho_sitemap_locs(xml)
+    assert locs == ["https://www.mizuho-re.co.jp/buyers/property/001200811796/"]
+    assert infer_mizuho_sitemap_kind("type_House/pref_13/list/") == "house"
+    assert infer_mizuho_sitemap_kind("kodate") == "house"
+    assert infer_mizuho_sitemap_kind("investors/search") == "investment"
 

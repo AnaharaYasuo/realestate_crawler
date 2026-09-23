@@ -47,6 +47,19 @@ def test_misawa_investment_type():
     assert "bukken_type[]=4" not in obj.urlList[0]
 
 
+def test_misawa_investment_kodate_start_has_explicit_seed():
+    from package.api.misawa_investment import (
+        ParseMisawaInvestmentApartmentStartAsync,
+        ParseMisawaInvestmentKodateStartAsync,
+    )
+
+    kodate = ParseMisawaInvestmentKodateStartAsync()
+    apt = ParseMisawaInvestmentApartmentStartAsync()
+    assert "bukken_type[]=9" in kodate.urlList[0]
+    assert kodate.urlList == apt.urlList
+    assert kodate._generateParser().__class__.__name__ == "MisawaInvestmentKodateParser"
+
+
 def test_afr_mansion_guard():
     p = AfrMansionParser()
     # HTML without 専有面積 should raise SkipPropertyException

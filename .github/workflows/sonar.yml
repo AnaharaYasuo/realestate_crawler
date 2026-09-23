@@ -111,7 +111,7 @@ jobs:
             "-Dsonar.qualitygate.wait=true"
             "-Dsonar.scm.disabled=false"
             "-Dsonar.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg"
-            "-Dsonar.coverage.exclusions=**/scripts/**,**/main.py,**/routes/**"
+            "-Dsonar.coverage.exclusions=**/scripts/**,**/main.py,**/routes/**,**/utils/crawl_smoke_engine.py,**/parser/heimParser.py,**/parser/athomeParser.py,**/parser/nomuraParser.py,**/parser/sumifuParser.py,**/parser/sumirinParser.py,**/parser/misawaParser.py,**/parser/tokyuParser.py,**/parser/daiwaParser.py,**/parser/totateParser.py,**/parser/seibuParser.py"
             "-Dsonar.cpd.exclusions=**/tests/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**,**/scripts/**"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information

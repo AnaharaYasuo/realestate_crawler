@@ -16,8 +16,8 @@ seibu_bp = Blueprint('seibu', __name__)
 
 @seibu_bp.route(API_KEY_SEIBU_MANSION_START, methods=['POST', 'GET'])
 def seibuMansionStart():
-    # 東京都の中古マンション
-    return ParseSeibuMansionStartAsync().main("https://sumai.seiburealestate-pm.co.jp/service/property/?type[]=1&pref[]=13")
+    # 全国の中古マンション（在庫が薄いため pref 絞り込みなし）
+    return ParseSeibuMansionStartAsync().main("https://sumai.seiburealestate-pm.co.jp/service/property/?type[]=1")
 
 @seibu_bp.route(API_KEY_SEIBU_MANSION_DETAIL, methods=['POST', 'GET'])
 def seibuMansionDetail():
