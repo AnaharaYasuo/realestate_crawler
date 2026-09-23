@@ -195,12 +195,6 @@ class HeimParser(ParserBase):
         if getattr(item, "kouzou", None):
             return
         item.kouzou = specs.get("構造") or specs.get("建物構造") or None
-        if item.kouzou or response is None:
-            return
-        page_txt = response.get_text(" ", strip=True)
-        # tokyo816 建売 pages often omit 構造; brand implies 鉄骨造.
-        if "セキスイハイム" in page_txt or "ハイム" in page_txt:
-            item.kouzou = "鉄骨造"
 
     def _heim_fill_chikunengetsu_if_missing(
         self, item, response: BeautifulSoup, specs: dict
@@ -208,29 +202,18 @@ class HeimParser(ParserBase):
         if getattr(item, "chikunengetsuStr", None):
             return
         status_keys = (
+            "築年月",
+            "完成時期",
             "現況",
             "現状",
             "引渡時期",
             "引渡時期/現況",
-            "完成時期",
-            "築年月",
         )
-        status_blob = " ".join(str(specs.get(k) or "") for k in status_keys)
-        page_txt = ""
-        if response is not None:
-            page_txt = response.get_text(" ", strip=True)[:1200]
-        blob = f"{status_blob} {page_txt}"
-        unfinished_tokens = ("未完成", "建築中", "建築条件", "分譲中", "新築")
-        if any(tok in blob for tok in unfinished_tokens):
-            if hasattr(item, "genkyo"):
-                item.genkyo = item.genkyo or "未完成"
-            if hasattr(item, "currentStatus"):
-                item.currentStatus = item.currentStatus or "未完成"
-            item.chikunengetsuStr = "未完成"
-            return
-        if not str(getattr(item, "chikunengetsuStr", "") or "").strip():
-            # tokyo816 plan pages frequently omit year entirely for 建売 lots.
-            item.chikunengetsuStr = "未完成"
+        for k in status_keys:
+            val = specs.get(k)
+            if val:
+                item.chikunengetsuStr = str(val).strip()
+                return
 
     def _heim_fill_unpublished_specs(self, item, response: BeautifulSoup, specs: dict) -> None:
         """Fill omitted 構造・築年月 from explicit specs, then safe page fallbacks."""
@@ -313,24 +296,12 @@ class HeimParser(ParserBase):
                 return match.group(1).strip()
         return ""
 
-    def _heim_traffic_from_address_city(self, response: BeautifulSoup, specs) -> str:
-        addr = self._parseAddress(response, specs)
-        if not addr:
-            return ""
-        city_match = re.search(r'(?:東京都)?([^\s\d]+?(?:市|区))', addr)
-        if city_match:
-            return f"{city_match.group(1)}中心駅"
-        return ""
-
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         traffic_str = specs.get("交通", "") or specs.get("アクセス", "")
         if traffic_str or not response:
             return traffic_str
-        traffic_str = self._heim_traffic_from_page_text(response)
-        if traffic_str:
-            return traffic_str
-        return self._heim_traffic_from_address_city(response, specs)
+        return self._heim_traffic_from_page_text(response)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

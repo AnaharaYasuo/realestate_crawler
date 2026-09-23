@@ -265,21 +265,26 @@ class ParserBase(metaclass=ABCMeta):
         return get_text(strip=True)
 
     @staticmethod
+    def _find_row_value_element(row, lbl):
+        val = row.select_one(".content, .table-data")
+        if val is not None and val is not lbl and hasattr(val, "get_text"):
+            return val
+        candidates = [
+            el
+            for el in row.find_all(["td", "dd"])
+            if el is not lbl and hasattr(el, "get_text")
+        ]
+        return candidates[0] if candidates else None
+
+    @staticmethod
     def _ingest_table_row_specs(response: BeautifulSoup, specs: dict) -> None:
         """Parse .table-row / div.row style label-value rows into specs dict."""
         for row in response.select(".table-row, div.row, tr.table-row"):
             lbl = row.select_one(".label, .table-header, th, dt")
-            val = row.select_one(".content, .table-data")
-            if val is None or val is lbl or not hasattr(val, "get_text"):
-                candidates = [
-                    el
-                    for el in row.find_all(["td", "dd"])
-                    if el is not lbl and hasattr(el, "get_text")
-                ]
-                val = candidates[0] if candidates else None
-            if lbl is None or val is None or lbl is val:
+            if lbl is None or not hasattr(lbl, "get_text"):
                 continue
-            if not hasattr(lbl, "get_text") or not hasattr(val, "get_text"):
+            val = ParserBase._find_row_value_element(row, lbl)
+            if val is None or val is lbl:
                 continue
             k = ParserBase._element_text(lbl)
             if k and k not in specs:
