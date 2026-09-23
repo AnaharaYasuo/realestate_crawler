@@ -41,7 +41,7 @@ def test_dockerfile_playwright_layer_cached_before_src_copy():
 
     for idx, line in enumerate(lines):
         clean = line.strip()
-        if clean.startswith("RUN playwright install"):
+        if clean.startswith("RUN playwright install --with-deps chromium"):
             playwright_line = idx
         elif clean.startswith(("COPY src/", "COPY src ")):
             copy_src_line = idx
@@ -61,7 +61,7 @@ def test_dockerfile_playwright_layer_cached_before_src_copy():
 
 
 def test_review_gate_triggers_on_parser_tests_and_sonar():
-    """【基準2】review-gate.yml の workflow_run.workflows に Parser Tests と SonarCloud Analysis が含まれていることを検証"""
+    """【基準2】review-gate.yml の workflow_run.workflows に Parser Tests と SonarCloud Analysis が含まれ types: [completed] であることを検証"""
     repo_root = get_repo_root()
     gate_path = os.path.join(repo_root, ".github/workflows/review-gate.yml")
     assert os.path.exists(gate_path), f"review-gate.yml が存在しません: {gate_path}"
@@ -75,7 +75,9 @@ def test_review_gate_triggers_on_parser_tests_and_sonar():
 
     workflow_run = on_trigger.get("workflow_run", {})
     workflows = workflow_run.get("workflows", [])
+    types = workflow_run.get("types", [])
 
+    assert "completed" in types, "review-gate.yml の on.workflow_run.types に 'completed' が含まれていません"
     assert "Parser Tests" in workflows, (
         "review-gate.yml の on.workflow_run.workflows に 'Parser Tests' が含まれていません"
     )
@@ -85,7 +87,7 @@ def test_review_gate_triggers_on_parser_tests_and_sonar():
 
 
 def test_test_yml_skips_db_for_unit_and_mutation():
-    """【基準4】test.yml において unit および mutation テストが needs_db: false であることを検証"""
+    """【基準4】test.yml において unit および mutation テストが needs_db: false かつ --no-deps で起動されることを検証"""
     repo_root = get_repo_root()
     test_yml_path = os.path.join(repo_root, ".github/workflows/test.yml")
     assert os.path.exists(test_yml_path), f"test.yml が存在しません: {test_yml_path}"
@@ -109,9 +111,16 @@ def test_test_yml_skips_db_for_unit_and_mutation():
     assert matrix_by_group["mutation"].get("needs_db") is False, "group: mutation は needs_db: false である必要があります"
     assert matrix_by_group["integration"].get("needs_db") is True, "group: integration は needs_db: true である必要があります"
 
+    steps = test_matrix.get("steps", [])
+    no_db_step = next((s for s in steps if s.get("name") == "Start app container (no DB)"), None)
+    assert no_db_step is not None, "'Start app container (no DB)' ステップが見つかりません"
+    assert "--no-deps" in no_db_step.get("run", ""), (
+        "DB不要ステップに '--no-deps' オプションが指定されていません"
+    )
+
 
 def test_taskfile_has_ci_precheck():
-    """【基準5】Taskfile.yml にローカル事前検証タスク ci:precheck が定義されていることを検証"""
+    """【基準5】Taskfile.yml にローカル事前検証タスク ci:precheck が定義され、主要検証を含むことを検証"""
     repo_root = get_repo_root()
     taskfile_path = os.path.join(repo_root, "Taskfile.yml")
     assert os.path.exists(taskfile_path), f"Taskfile.yml が存在しません: {taskfile_path}"
@@ -121,3 +130,10 @@ def test_taskfile_has_ci_precheck():
 
     tasks = taskfile.get("tasks", {})
     assert "ci:precheck" in tasks, "Taskfile.yml に 'ci:precheck' タスクが定義されていません"
+
+    cmds = tasks["ci:precheck"].get("cmds", [])
+    cmds_str = " ".join(cmds)
+    assert "ruff check" in cmds_str, "ci:precheck に 'ruff check' が含まれていません"
+    assert "check_local_sonar.py" in cmds_str, "ci:precheck に 'check_local_sonar.py' が含まれていません"
+    assert "pytest" in cmds_str, "ci:precheck に 'pytest' が含まれていません"
+    assert "run_mutation_testing.py" in cmds_str, "ci:precheck に 'run_mutation_testing.py' が含まれていません"

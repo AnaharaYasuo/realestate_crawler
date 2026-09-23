@@ -89,7 +89,7 @@ jobs:
         if: ${{ !matrix.needs_db }}
         run: |
           touch .env
-          docker compose up -d app
+          docker compose up -d --no-deps app
 
       - name: Run Tests (${{ matrix.name }})
         run: ${{ matrix.command }}
