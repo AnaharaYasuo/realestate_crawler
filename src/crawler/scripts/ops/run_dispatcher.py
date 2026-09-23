@@ -65,8 +65,8 @@ def scale_proxysql_mig(target_size: int = 1, project_id: str | None = None, regi
             )
             logger.info(f"Resize operation submitted: {op.name}")
             return True
-        except Exception as e:
-            logger.error(f"Failed to resize ProxySQL MIG via compute_v1: {e}")
+        except Exception:
+            logger.exception("Failed to resize ProxySQL MIG via compute_v1")
             raise
     else:
         cmd = [
@@ -97,7 +97,7 @@ def wait_for_proxysql_health(host: str | None = None, port: int | None = None, t
             with socket.create_connection((target_host, target_port), timeout=2.0):
                 logger.info(f"ProxySQL is healthy and reachable at {target_host}:{target_port}!")
                 return True
-        except (TimeoutError, ConnectionRefusedError, OSError):
+        except OSError:
             time.sleep(2)
 
     logger.warning(f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution.")

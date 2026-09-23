@@ -41,6 +41,9 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 
+SEPARATOR = "============================================================="
+
+
 def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, region: str | None = None, mig_name: str | None = None, dry_run: bool = False) -> bool:
     """ProxySQL MIG のサイズを変更 (バッチ終了時の停止 size: 1 -> 0)"""
     project = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
@@ -63,8 +66,8 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
             )
             logger.info(f"Resize operation submitted: {op.name}")
             return True
-        except Exception as e:
-            logger.error(f"Failed to resize ProxySQL MIG via compute_v1: {e}")
+        except Exception:
+            logger.exception("Failed to resize ProxySQL MIG via compute_v1")
             return False
     else:
         cmd = [
@@ -152,9 +155,9 @@ def main(argv=None):
     maintenance_dir = os.path.join(scripts_dir, "maintenance")
     ops_dir = current_dir
 
-    logger.info("=============================================================")
+    logger.info(SEPARATOR)
     logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals})")
-    logger.info("=============================================================")
+    logger.info(SEPARATOR)
 
     try:
         # Step 1: バリア完了検証
@@ -200,9 +203,9 @@ def main(argv=None):
             "--notify"
         ], "Step 5/5: Daily ML Prediction Diagnostics & AI Insights")
 
-        logger.info("=============================================================")
+        logger.info(SEPARATOR)
         logger.info("ML PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
-        logger.info("=============================================================")
+        logger.info(SEPARATOR)
         return 0
 
     finally:
@@ -210,8 +213,8 @@ def main(argv=None):
         try:
             logger.info("Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)...")
             scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
-        except Exception as te:
-            logger.error(f"Failed to scale in ProxySQL MIG in finally block: {te}")
+        except Exception:
+            logger.exception("Failed to scale in ProxySQL MIG in finally block")
 
 
 if __name__ == "__main__":
