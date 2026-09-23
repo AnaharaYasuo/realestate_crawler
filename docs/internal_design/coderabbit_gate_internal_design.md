@@ -21,6 +21,24 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  # docs / Markdown はコードレビュー対象外（書式・文言ノイズ防止）
+  path_filters:
+    - "!docs/**"
+    - "!**/*.md"
+  # パス別レビュー観点（Issue #363）
+  path_instructions:
+    - path: "src/crawler/package/parser/**"
+      instructions: >
+        物件種別別 Base（Mansion/Kodate/Tochi/Investment）継承と抽象メソッド実装漏れ、
+        フィールド名統一、セレクター堅牢性、1物件1AIリクエスト原則違反を優先して指摘すること。
+    - path: "src/crawler/tests/**"
+      instructions: >
+        Issue 受入基準との対応、アサーションの弱さ（存在確認のみ等）、
+        ミューテーション耐性の欠如を優先して指摘すること。
+    - path: "src/crawler/scripts/**"
+      instructions: >
+        外部 API の有限タイムアウト、0件取得失敗分類、パスのハードコード禁止、
+        連続タイムアウト Fast-Fail を優先して指摘すること。
   auto_review:
     enabled: true
     drafts: false
@@ -36,13 +54,13 @@ reviews:
     shellcheck:
       enabled: true
     markdownlint:
-      enabled: true
+      enabled: false
 
 tone_instructions: >
   日本の不動産情報クローラーおよび機械学習価格推定プロジェクトです。
   AGENTS.mdの開発原則（SDD/TDD原則、物件種別別Baseパーサー階層、1物件1AIリクエスト原則等）を尊重し、
   過剰なスタイルの指摘ではなく、潜在的なバグ、型不整合、境界値・欠損値の例外、パフォーマンス劣化、
-  セキュリティ上の脆弱性を中心に建設的かつ簡潔に指摘してください。
+  セキュリティ上の脆弱性に加え、スケーラビリティと長期保守性を中心に建設的かつ簡潔に指摘してください。
 
 chat:
   auto_reply: true
@@ -52,11 +70,15 @@ chat:
 | パラメータ | 設定値 | 根拠・選定理由 |
 | :--- | :--- | :--- |
 | `language` | `"ja-JP"` | プロジェクト開発言語・Issue・PRコメントが日本語であるため、日本語で統一。 |
-| `profile` | `"chill"` | 瑣末な書式・個人的嗜好の指摘を排除し、クリティカルな不具合・設計ミスに集中。 |
+| `profile` | `"chill"` | 瑣末な書式・個人的嗜好の指摘を排除し、クリティカルな不具合・設計ミスに集中。`assertive` は指摘過多で会話解決ゲートを阻害しやすいため不採用（Issue #363）。 |
+| `path_instructions` | パーサー / テスト / スクリプト | パスごとに重視観点を固定し、一律レビューでは不足しがちなアーキテクチャ・テスト品質・運用安全の指摘を強化（Issue #363）。 |
 | `request_changes_workflow` | `true` | 指摘コメントがある場合に PR に `CHANGES_REQUESTED` を付与し、全指摘が解決（resolved）されると自動で `APPROVED` に遷移させる。 |
 | `auto_review.auto_incremental_review` | `false` | PR 初回オープン時のみ自動レビューし、後続 push での再レビュー連鎖（収束不能）を防止。必要時は `@coderabbitai review` で手動起動。 |
 | `auto_review.base_branches` | `["master", "production"]` | 開発主幹 (`master`) および本番リリース (`production`) 宛て PR を対象に自動起動。 |
-| `tools` | `ast-grep`, `ruff`, etc. | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
+| `path_filters` | `["!docs/**", "!**/*.md"]` | 仕様ドキュメントと Markdown 全般をレビュー対象外とし、マージゲートのノイズを抑制（Issue #345）。 |
+| `tone_instructions` | バグ＋長期保守 | 既存の欠陥重視にスケーラビリティ・長期保守性を追加し、フィードバックの質を上げる（Issue #363）。 |
+| `tools.markdownlint` | `false` | Markdown 非対象化に整合。コード向け静的解析（`ast-grep`, `ruff`, `shellcheck`）のみ有効。 |
+| `tools` | `ast-grep`, `ruff`, `shellcheck` | Python プロジェクト（FastAPI/Flask/Django/Pytest）に適した静的解析を統合。 |
 
 ---
 
@@ -98,13 +120,19 @@ GitHub ネイティブのブランチ保護機能。
   - `pull_request_review`: `types: [submitted, edited, dismissed]`
   - `pull_request_review_comment`: `types: [created, edited, deleted]`
   - `issue_comment`: `types: [created, edited, deleted]`
+  - `workflow_run`: セキュリティ系ワークフロー完了時（再評価）
+- **Concurrency**: `group: review-gate-pr-<number>` + `cancel-in-progress: true` で同一 PR の古い実行をキャンセルする。
+- **必須ステータス一本化**:
+  - Actions ジョブ名は `review-gate-runner`（ブランチ保護の必須チェックにしない）。
+  - 必須 context 名は `Verify All Review Conversations Resolved` のみ。
+  - 報告は `repos.createCommitStatus` により **常に `pr.head.sha`** へ単一 status を投稿する（ジョブ自動チェックや `checks.create` と同名で二重報告しない）。
+  - 同一 context への再投稿は上書きされるため、後続 success/pending が古い failure を置換し、sticky failure を残さない。
 - **同一 HEAD SHA での再評価機構 (Re-evaluation Mechanism)**:
   - GitHub では「会話スレッドの解決（Resolve conversation）」単体での GitHub Actions 直接トリガー（Webhookイベント）が存在しない制約があります。
   - そのため、スレッド解決後やチェックボックス更新時には以下の再評価経路を提供します：
     1. **PRコメント/レビュー更新トリガー**: `issue_comment`（コメント投稿・編集・削除）または `pull_request_review` の実行。
-    2. **GitHub App Webhook 連携 (将来拡張/推奨)**: スレッド解決Webhookを受信したGitHub Appまたはポーリング機構から `repository_dispatch` を発火してワークフローを再実行。
-    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した `Verify All Review Conversations Resolved` チェックを再実行。
-  - いずれの経路でも、ワークフロー完了時には `github.rest.checks.create` を用いて PR の `head.sha` に対するステータスチェック (`Verify All Review Conversations Resolved`) を直接更新・同期し、コミット再プッシュを行わずにマージ可能状態（PASS）へ遷移させます。
+    2. **セキュリティスキャン完了トリガー**: `workflow_run`（完了時）による再評価。
+    3. **GitHub Actions 手動再実行 (Workflow Re-run)**: 開発者が失敗した Gate を再実行（通常は不要。pending は自動で上書きされる）。
 - **ブランチフィルタ**: スクリプト冒頭で `pr.base.ref` を判定し、`master` および `production` 宛て以外のPRでは即座にスキップ実行。
 
 ### 4.2 未解決スレッド検出ロジック (GraphQL API & ページネーション)
@@ -148,18 +176,23 @@ const uncheckedRegex = /^[ \t]*[-*][ \t]+\[ \][ \t]*(.*)$/gm;
 CodeRabbit の自動レビュー内にあるタスク項目（`Fix CodeRabbit comments on this PR` 等）や、PR 概要のタスクリストが未チェックのまま残っている場合、マージ不可対象として記録します。なお、無効化済みのレビュー（`state: DISMISSED`）および CodeRabbit の対話型アクションボタン（`radioGroupId` を含む単体テスト生成トリガー、`Fix all pre-merge checks with AI` 等の自動修復トリガー）はタスクではないため除外判定されます。
 
 ### 4.4 CodeRabbit レビューステータス検証ロジック
-最新のレビュー状態を照会し、以下のいずれかに該当する場合はマージ不可と判定します：
-1. レビュー状態が `CHANGES_REQUESTED`（変更要求中）であること。
-2. CodeRabbit のレビュー実行中（ステータスチェックが `pending` または `in_progress`）であり、完了前に早期マージされようとしていること。
+最新のレビュー状態を照会し、以下を区別して扱う：
+1. **待機 (pending)**: CodeRabbit のレビュー実行中（ステータスが `pending` / `in_progress`）。必須 status は `pending`。ジョブは成功終了（failure にしない）。
+2. **確定失敗 (failure)**: 最新レビュー状態が `CHANGES_REQUESTED`（変更要求中）。
 
 ### 4.5 判定基準と出力
-1. **未解決スレッド 0 件 かつ 未完了チェックボックス 0 件 かつ レビュー状態正常（Approved または Commented）の場合**:
-   - ジョブ成功 (`SUCCESS`)。
-   - `✅ All review conversations resolved and all checkboxes checked.` を出力。
-2. **未解決スレッド、未完了チェックボックス、または変更要求が存在する場合**:
-   - ジョブ失敗 (`FAILED`)。
-   - PR のマージを CI ステータスチェック（`Verify All Review Conversations Resolved`）として物理ブロック。
-   - 未解決スレッドおよび未完了チェックボックスの一覧（検出元、ファイル名、行番号、内容）を GitHub Actions ログおよび Job Summary に整形出力。
+判定結果は次の3状態に分類する。必須 context `Verify All Review Conversations Resolved` へ commit status を投稿し、ジョブ `review-gate-runner` は待機・成功時は成功終了、確定失敗時のみ `setFailed` する。
+
+1. **待機 (pending)**: CodeRabbit 実行中、または必須セキュリティスキャン未開始／実行中。
+   - commit status: `pending`
+   - ジョブ: SUCCESS（sticky failure を残さない）
+2. **確定失敗 (failure)**: 未解決スレッド、未完了チェックボックス、`CHANGES_REQUESTED`、スキャン failure、未解消 Code Scanning アラート、システムエラー。
+   - commit status: `failure`
+   - ジョブ: FAILED
+   - 検出一覧を Actions ログおよび Job Summary に出力
+3. **成功 (success)**: 上記いずれにも該当しない。
+   - commit status: `success`
+   - ジョブ: SUCCESS
 
 ---
 

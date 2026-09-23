@@ -473,14 +473,17 @@ task stop
 #### FR-022: CodeRabbit 自動コードレビューの PR 実行
 - 各 Pull Request（`master` および `production` 宛て）の**初回オープン時のみ**、CodeRabbit による AI 自動コードレビューを自動実行すること。
 - 同一 PR への後続 push（synchronize / コード追加）では自動再レビューを行わないこと（`auto_incremental_review: false`）。追加レビューが必要な場合は手動で `@coderabbitai review` を実行可能とする。
-- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
-- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
-- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
+- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること（`assertive` は指摘量増加によるマージゲート阻害リスクが高いため採用しない）。
+- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、潜在バグ・型不整合・境界値・性能・セキュリティに加え、長期保守性・スケーラビリティを優先した指摘を行うこと。
+- パス別にレビュー観点を固定すること。`.coderabbit.yaml` の `reviews.path_instructions` に、少なくともパーサー（`src/crawler/package/parser/**`）、テスト（`src/crawler/tests/**`）、運用スクリプト（`src/crawler/scripts/**`）向けの指示を定義すること。
+- レビュー対象から仕様・ドキュメントを除外すること。`.coderabbit.yaml` の `reviews.path_filters` に `!docs/**` および `!**/*.md` を定義し、`docs/` 配下およびリポジトリ内の Markdown ファイルを CodeRabbit のレビュー対象外とすること。
+- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。Markdown はレビュー対象外のため `markdownlint` は無効とすること。
 
 #### FR-023: 未解決レビューコメントおよび未完了チェックボックスによるマージブロック強制
 - CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
 - PR 本文、全レビュー本文（CodeRabbit含む）、全レビューコメント、全 PR コメント内に未チェックのチェックボックス（`- [ ]`）が 1 件でも残存している場合、CI レビューゲート（`review-gate.yml`）によりマージを物理的にブロックすること。
 - CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。また、`Changes Requested` の状態、またはレビュー実行中の状態での早期マージを防止・ブロックすること。
+- **待機と確定失敗の分離（Review Gate）**: CodeRabbit レビュー未完了、または必須セキュリティスキャン未開始／実行中は、必須ステータス `Verify All Review Conversations Resolved` を **failure にせず pending（待機）** とし、マージのみブロックすること。未解決スレッド・未完了チェックボックス・`CHANGES_REQUESTED`・スキャン failure・未解消 Code Scanning アラートなど **確定違反のみ failure** とすること。必須ステータスの報告経路は PR HEAD に対する単一 context に一本化し、同名のジョブ自動チェックと二重報告してはならない。
 
 ---
 
