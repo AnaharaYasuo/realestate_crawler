@@ -53,12 +53,16 @@ def _route_http_constants(tree: ast.AST) -> dict[str, str]:
     return constants
 
 
-def _load_get_start_url_ns(tree: ast.AST, path: Path) -> dict[str, Any]:
+def _load_get_start_url_ns(
+    tree: ast.AST, path: Path, constants: dict[str, str] | None = None
+) -> dict[str, Any]:
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or node.name != "get_start_url":
             continue
         helper_src = ast.unparse(node)
         local_ns: dict[str, Any] = {"urllib": __import__("urllib")}
+        if constants:
+            local_ns.update(constants)
         try:
             exec(compile(helper_src, str(path), "exec"), local_ns)  # noqa: S102
             return local_ns
@@ -91,7 +95,7 @@ def _url_from_main_call_arg(
         if arg is None:
             return local_ns["get_start_url"]()
         return local_ns["get_start_url"](arg)
-    except (TypeError, ValueError, KeyError, AttributeError):
+    except (TypeError, ValueError, KeyError, AttributeError, NameError):
         return None
 
 
@@ -121,32 +125,55 @@ def _append_main_call_url(
         urls.append(resolved)
 
 
-def _collect_start_func_urls(
+def _collect_start_func_info(
     node: ast.FunctionDef,
     constants: dict[str, str],
     local_ns: dict[str, Any],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     urls: list[str] = []
+    classes: list[str] = []
     for child in ast.walk(node):
         if isinstance(child, ast.Call):
+            func = child.func
+            cname = None
+            if isinstance(func, ast.Name) and func.id.endswith("StartAsync"):
+                cname = func.id
+            elif isinstance(func, ast.Attribute) and func.attr.endswith("StartAsync"):
+                cname = func.attr
+            elif (
+                isinstance(func, ast.Attribute)
+                and func.attr == "main"
+                and isinstance(func.value, ast.Call)
+            ):
+                caller = func.value.func
+                if isinstance(caller, ast.Name) and caller.id.endswith("StartAsync"):
+                    cname = caller.id
+                elif isinstance(caller, ast.Attribute) and caller.attr.endswith("StartAsync"):
+                    cname = caller.attr
+            if cname and cname not in classes:
+                classes.append(cname)
             _append_main_call_url(child, constants, local_ns, urls)
         elif isinstance(child, ast.Assign):
             _append_url_assign(child, urls)
-    return urls
+    return urls, classes
 
 
-def _extract_route_seeds() -> dict[str, list[str]]:
-    found: dict[str, list[str]] = {}
+def _extract_route_info() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    seeds: dict[str, list[str]] = {}
+    classes: dict[str, list[str]] = {}
     for path in sorted(_ROUTES_DIR.glob("*_routes.py")):
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
         constants = _route_http_constants(tree)
-        local_ns = _load_get_start_url_ns(tree, path)
+        local_ns = _load_get_start_url_ns(tree, path, constants)
         for node in tree.body:
             if not isinstance(node, ast.FunctionDef) or not node.name.endswith("Start"):
                 continue
-            found[node.name] = _collect_start_func_urls(node, constants, local_ns)
-    return found
+            u, c = _collect_start_func_info(node, constants, local_ns)
+            seeds[node.name] = u
+            if c:
+                classes[node.name] = c
+    return seeds, classes
 
 
 def _urls_from_url_list_value(value: ast.AST) -> list[str]:
