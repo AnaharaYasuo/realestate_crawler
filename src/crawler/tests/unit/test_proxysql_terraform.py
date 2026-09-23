@@ -129,14 +129,14 @@ def test_cloud_run_connects_to_proxysql():
     assert '6033' in service_content, \
         "Slack Service DB_PORT must be 6033."
 
-    # 3. Valuation API Service
+    # 3. Valuation API Service (Direct to Cloud SQL per #366 for on-demand cost optimization)
     with open(api_tf, "r", encoding="utf-8") as f:
         api_content = f.read()
 
-    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in api_content, \
-        "Valuation API DB_HOST must route through ProxySQL ILB forwarding rule."
-    assert '6033' in api_content, \
-        "Valuation API DB_PORT must be 6033."
+    assert "google_sql_database_instance.mysql_instance.private_ip_address" in api_content, \
+        "Valuation API DB_HOST must route directly to Cloud SQL private IP per #366."
+    assert '3306' in api_content, \
+        "Valuation API DB_PORT must be 3306."
 
 
 def test_proxysql_user_authentication():
