@@ -29,7 +29,7 @@ jobs:
           EXISTING_PR=$(gh pr list --base production --head master --state open --json number --jq '.[0].number')
           if [ -n "$EXISTING_PR" ]; then
             echo "Release PR #$EXISTING_PR already exists. Ensuring auto-merge is active..."
-            gh pr merge "$EXISTING_PR" --auto --merge || true
+            gh pr merge "$EXISTING_PR" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$EXISTING_PR"
             exit 0
           fi
 
@@ -56,13 +56,20 @@ jobs:
           echo "$COMMITS_LOG" >> "$PR_BODY_FILE"
           echo '```' >> "$PR_BODY_FILE"
 
-          # Extract issue numbers
-          ISSUES=$(git log origin/production..HEAD --pretty=format:"%s %b" | grep -oE "(#|issue[ -]?#?)[0-9]+" | tr -d '#' | sort -u)
-          if [ -n "$ISSUES" ]; then
+          # Extract issue numbers and distinguish explicit closes from mentions
+          CLOSES_ISSUES=$(git log origin/production..HEAD --pretty=format:"%s %b" | grep -ioE "(close[sd]?|fixe?[sd]?|resolve[sd]?)\s+#?[0-9]+" | grep -oE "[0-9]+" | sort -u)
+          ALL_ISSUES=$(git log origin/production..HEAD --pretty=format:"%s %b" | grep -oE "#[0-9]+" | grep -oE "[0-9]+" | sort -u)
+
+          if [ -n "$CLOSES_ISSUES" ] || [ -n "$ALL_ISSUES" ]; then
             echo "" >> "$PR_BODY_FILE"
             echo "### Related Issues" >> "$PR_BODY_FILE"
-            for iss in $ISSUES; do
+            for iss in $CLOSES_ISSUES; do
               echo "Closes #${iss}" >> "$PR_BODY_FILE"
+            done
+            for iss in $ALL_ISSUES; do
+              if ! echo "$CLOSES_ISSUES" | grep -qw "$iss"; then
+                echo "Refs #${iss}" >> "$PR_BODY_FILE"
+              fi
             done
           fi
 
@@ -73,5 +80,5 @@ jobs:
           NEW_PR_NUM=$(echo "$NEW_PR_URL" | grep -oE "[0-9]+$")
           if [ -n "$NEW_PR_NUM" ]; then
             echo "Enabling auto-merge for PR #$NEW_PR_NUM..."
-            gh pr merge "$NEW_PR_NUM" --auto --merge || true
+            gh pr merge "$NEW_PR_NUM" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$NEW_PR_NUM"
           fi

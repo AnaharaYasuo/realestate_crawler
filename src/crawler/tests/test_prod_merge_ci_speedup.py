@@ -51,6 +51,9 @@ def test_test_workflow_excludes_production_pr():
     assert "production" not in pr_branches, (
         f"test.yml pull_request.branches must exclude 'production' to prevent duplicate runs, got {pr_branches}"
     )
+    assert pr_branches == ["main", "master"], (
+        f"test.yml pull_request.branches must strictly be ['main', 'master'], got {pr_branches}"
+    )
     assert "production" in push_branches, (
         f"test.yml push.branches should retain 'production' for deploy verification, got {push_branches}"
     )
@@ -65,8 +68,14 @@ def test_review_gate_bypasses_production_pr():
     assert "targetBranch === 'production'" in content or 'targetBranch === "production"' in content, (
         "review-gate.yml should check for targetBranch === 'production'"
     )
+    assert "isSameRepo" in content and "isMasterHead" in content, (
+        "review-gate.yml must verify that production PR originates from same repo and master ref"
+    )
     assert "Production release PR: review gate bypassed" in content, (
         "review-gate.yml should set commit status description indicating bypass on production"
+    )
+    assert "staleChangesRequested" in content, (
+        "review-gate.yml should handle stale changes requested from older commits as pending"
     )
 
 
@@ -101,4 +110,5 @@ def test_auto_release_pr_workflow_exists_and_valid():
 
     assert "master" in push_branches, "auto-release-pr.yml must trigger on push to master"
     assert "gh pr create" in content, "auto-release-pr.yml must include gh pr create"
+    assert "--auto" in content and "--merge" in content, "auto-release-pr.yml must configure auto-merge"
     assert "production" in content, "auto-release-pr.yml must reference production"
