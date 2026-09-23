@@ -46,6 +46,8 @@ jobs:
           COMMITS_LOG=$(git log origin/production..HEAD --oneline | head -n 30)
           PR_BODY_FILE=$(mktemp)
           cat > "$PR_BODY_FILE" << 'END_BODY'
+          @coderabbitai ignore
+
           ## Production Release PR
 
           This PR automatically promotes verified commits from master to production.
