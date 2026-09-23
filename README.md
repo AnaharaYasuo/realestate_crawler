@@ -499,6 +499,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 | `task crawl` | クローラー実行 | `curl POST http://localhost:8000/...` | `task crawl COMPANY=mitsui TYPE=mansion` |
 | `task logs` | ログ表示 | `docker compose logs -f app` | デバッグ時 |
 | `task test` | テスト実行 | `docker compose exec -T app pytest` | コード変更後 |
+| `task ci:precheck` | プッシュ前CI事前検証 | `ruff check` + `sonar diff` + `pytest unit` + `mutation` | リモートpush前 |
 
 ## 定期クローリングとエラー監視
 

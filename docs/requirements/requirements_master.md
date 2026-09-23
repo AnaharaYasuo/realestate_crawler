@@ -529,6 +529,13 @@ task stop
 #### NFR-011: レビュー品質ゲートおよび未解決コメント防止要件
 - コードレビューにおける指摘事項（潜在バグ・型不整合・規約違反・セキュリティリスク）の放置をゼロにし、高品質なコードベースを維持すること。
 - 未解決のスレッド（Unresolved threads）が存在する場合、GitHub UI および CI 双方で明確にマージ不能状態を表示し、修正箇所のファイル名および行番号を開発者に迅速にフィードバックすること。
+- **CodeRabbit完了後の自律再評価 ＆ 永久pending防止**: CodeRabbit の commit status 完了後に Review Gate が再実行されない問題を防止するため、後続ワークフロー（Parser Tests, SonarCloud Analysis 等）の完了（`workflow_run`）をトリガーとし、最新のレビュー結果およびステータスを確実に再評価・反映すること。
+
+#### NFR-022: CI/CD高速化・Dockerキャッシュ最適化・重複テスト排除要件 (CI Speedup & Deduplication)
+- **Dockerfile レイヤーキャッシュ最適化**: `playwright install --with-deps chromium` をソースコードコピー（`COPY src/`）の直前に配置することを厳禁とし、Poetry依存インストール直後に配置すること。ソースコード変更時にブラウザ・OSライブラリの再DL・再インストールを発生させず、Dockerイメージビルドを5秒以内に完了させること。
+- **重複テスト実行の排除**: `test.yml` と `sonar.yml` で同一テストを二重実行することを廃止し、テスト実行時のカバレッジ成果物（`coverage.xml`）を共有して SonarCloud スキャンを1〜2分以内に完了させること。
+- **不要なDB起動のスキップ**: 実DBを必要としない単体テスト（`Unit Tests`）および AST 変異テスト（`PR Mutation Tests`）において、MySQL コンテナ起動およびマイグレーション処理をスキップし、ジョブ起動オーバーヘッドを削減すること。
+- **ローカル事前チェック（シフトレフト）**: プッシュ前に手元で静的解析・単体テスト・ミューテーションスコアを一括検証するコマンド（`task ci:precheck`）を提供し、リモートCIでの失敗往復手戻りを撲滅すること。
 
 #### NFR-012: SonarCloud事前検証ローカルガードレール要件 (Local Sonar Guardrail & Pre-Push Enforcement)
 - **課題解消**: PR作成後にCI（SonarCloud）でCognitive Complexity（`python:S3776`）超過や危険正規表現（`python:S8786`）によるチェック失敗・手戻りが発生するサイクルを根絶すること。

@@ -162,3 +162,11 @@ tasks:
       - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
       - gh pr create --base master {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
 
+  ci:precheck:
+    desc: Run fast pre-push CI check (Ruff, Sonar diff, Unit tests, PR mutation test)
+    cmds:
+      - docker compose exec -T app ruff check src/
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+      - docker compose exec -T app pytest -n auto src/crawler/tests/unit/
+      - docker compose exec -T app python src/crawler/scripts/run_mutation_testing.py --pr-mode --threshold=80
+

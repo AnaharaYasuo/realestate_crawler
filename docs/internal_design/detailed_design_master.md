@@ -449,6 +449,27 @@ graph TD
   4. **単体・構造化ログテストの拡充 (`tests/unit/test_middleware.py`, `tests/unit/test_logging_structure.py`)**:
      - 改行を含むHTML文字列が正しく1行化され、複数行分割されないことを担保するアサーションテストを追加。
 
+### 6.30 CI/CD高速化・Dockerキャッシュ最適化・重複テスト排除内部設計 (Issue #368)
+- **背景と課題**:
+  - `Dockerfile` のレイヤー順序において `COPY src/` が `RUN playwright install --with-deps chromium` より前に記述されていたため、コード変更コミットごとにブラウザおよび apt 依存パッケージの再インストール（約5分30秒）が GHA マトリクスジョブ全件で重複発生していた。
+  - `sonar.yml` が `test.yml` とは独立して Docker ビルド、DB 起動、全件 pytest を実行しており、SonarCloud ジョブだけで 10〜15 分を消費していた。
+  - `test.yml` の `unit` および `mutation` ジョブにおいて不要な MySQL コンテナ起動・マイグレーション待ち（約1分15秒）が発生していた。
+  - `review-gate.yml` が CodeRabbit の commit status 完了イベントを検知できず、初期判定で `pending` となった Gate が永久放置される事象が発生していた。
+- **改修内容**:
+  1. **`Dockerfile` レイヤーキャッシュ最適化**:
+     - `RUN playwright install --with-deps chromium` を Poetry 依存インストール（`poetry install`）直後に移動し、`COPY config/` および `COPY src/` をその後に配置。
+     - コード変更時にブラウザ依存層がキャッシュヒットし、Docker ビルドを 5秒以内に完了させる。
+  2. **`review-gate.yml` のトリガー拡充**:
+     - `workflow_run.workflows` に `"Parser Tests"` および `"SonarCloud Analysis"` を追加。
+     - 長尺のテストや静的解析が完了した時点で Review Gate が自律再評価され、CodeRabbit 完了状態を検知して Gate を最新化する。
+  3. **`test.yml` と `sonar.yml` のカバレッジ共有と重複排除**:
+     - `test.yml` のテスト実行でカバレッジ成果物（`coverage.xml`）を出力し、GHA アーティファクトとして保存。
+     - `sonar.yml` は重複した Docker ビルド・テスト再実行を廃止し、カバレッジ成果物を読み込んでスキャンのみを実行（所要時間を 1〜2 分に短縮）。
+  4. **マトリクスジョブの DB 起動条件分岐**:
+     - `test.yml` において、`needs_db: true` のジョブ（`integration`, `ml-pipeline` 等）のみ MySQL 起動とマイグレーションを実行し、DB 不要な `unit` および `mutation` では起動をスキップ。
+  5. **ローカルシフトレフトコマンド整備 (`Taskfile.yml`)**:
+     - `task ci:precheck` を新設し、Ruff、Semgrep、Unit Tests、PR Mutation スコア（80%）を手元でワンステップ検証可能にする。
+
 ---
 
 ## 7. 参照ドキュメント
