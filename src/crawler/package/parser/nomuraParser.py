@@ -2,7 +2,7 @@ import re
 from abc import abstractmethod
 from decimal import Decimal, InvalidOperation
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from package.models.nomura import (
     NomuraInvestmentApartment,
@@ -66,6 +66,13 @@ class NomuraParser(InvestmentParser):
         return False
 
     @staticmethod
+    def _element_text(el) -> str:
+        get_text = getattr(el, "get_text", None)
+        if not callable(get_text):
+            return ""
+        return get_text(strip=True)
+
+    @staticmethod
     def _clean_key_text(el, tag_name="th") -> str:
         temp = BeautifulSoup(str(el), "html.parser").find(tag_name)
         if not temp:
@@ -82,16 +89,14 @@ class NomuraParser(InvestmentParser):
                 continue
             title_el = status.select_one(".item_status_title")
             content_el = status.select_one(".item_status_content")
-            if isinstance(title_el, Tag) and isinstance(content_el, Tag):
-                key = (
-                    self._clean_key_text(title_el, "span")
-                    or self._clean_key_text(title_el, "div")
-                    or title_el.get_text(strip=True)
-                    .replace(" ", "")
-                    .replace("\u3000", "")
-                    .rstrip("：")
-                )
-                specs[key] = content_el.get_text(strip=True).replace("\xa0", " ")
+            if not hasattr(title_el, "get_text") or not hasattr(content_el, "get_text"):
+                continue
+            key = (
+                self._clean_key_text(title_el, "span")
+                or self._clean_key_text(title_el, "div")
+                or self._element_text(title_el).replace(" ", "").replace("\u3000", "").rstrip("：")
+            )
+            specs[key] = self._element_text(content_el).replace("\xa0", " ")
 
     def _scrape_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.select("dl"):

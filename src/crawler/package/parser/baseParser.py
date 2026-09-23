@@ -1,6 +1,6 @@
 import chardet
 import aiohttp
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 import json
 import logging
 import re
@@ -257,20 +257,33 @@ class ParserBase(metaclass=ABCMeta):
                     specs[k] = dd.get_text(strip=True)
 
     @staticmethod
+    def _element_text(el) -> str:
+        """Safe BeautifulSoup text extract (satisfies Sonar S8904)."""
+        get_text = getattr(el, "get_text", None)
+        if not callable(get_text):
+            return ""
+        return get_text(strip=True)
+
+    @staticmethod
     def _ingest_table_row_specs(response: BeautifulSoup, specs: dict) -> None:
         """Parse .table-row / div.row style label-value rows into specs dict."""
         for row in response.select(".table-row, div.row, tr.table-row"):
             lbl = row.select_one(".label, .table-header, th, dt")
             val = row.select_one(".content, .table-data")
-            if not isinstance(val, Tag) or val is lbl:
+            if val is None or val is lbl or not hasattr(val, "get_text"):
                 candidates = [
-                    el for el in row.find_all(["td", "dd"]) if isinstance(el, Tag) and el is not lbl
+                    el
+                    for el in row.find_all(["td", "dd"])
+                    if el is not lbl and hasattr(el, "get_text")
                 ]
                 val = candidates[0] if candidates else None
-            if isinstance(lbl, Tag) and isinstance(val, Tag) and lbl is not val:
-                k = lbl.get_text(strip=True)
-                if k and k not in specs:
-                    specs[k] = val.get_text(strip=True)
+            if lbl is None or val is None or lbl is val:
+                continue
+            if not hasattr(lbl, "get_text") or not hasattr(val, "get_text"):
+                continue
+            k = ParserBase._element_text(lbl)
+            if k and k not in specs:
+                specs[k] = ParserBase._element_text(val)
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """HTML内のth/td, dt/dd, .table-rowテーブルを標準解析し辞書として取得"""
