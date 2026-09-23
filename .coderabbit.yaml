@@ -35,6 +35,12 @@ reviews:
     auto_incremental_review: false
     base_branches:
       - "master"
+    ignore_title_keywords:
+      - "release:"
+      - "[skip review]"
+    ignore_usernames:
+      - "github-actions[bot]"
+
   tools:
     ast-grep:
       enabled: true

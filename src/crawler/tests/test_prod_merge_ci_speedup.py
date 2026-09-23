@@ -112,3 +112,8 @@ def test_auto_release_pr_workflow_exists_and_valid():
     assert "gh pr create" in content, "auto-release-pr.yml must include gh pr create"
     assert "--auto" in content and "--merge" in content, "auto-release-pr.yml must configure auto-merge"
     assert "production" in content, "auto-release-pr.yml must reference production"
+    # Issue #383: CodeRabbit による本番PRのAIコメント抑止ディレクティブ
+    assert "@coderabbitai ignore" in content, (
+        "auto-release-pr.yml must include '@coderabbitai ignore' to prevent automated AI comments on production PR"
+    )
+
