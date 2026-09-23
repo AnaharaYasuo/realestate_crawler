@@ -17,8 +17,10 @@ terraform/
 ├── secrets.tf                 # Secret Manager (DB接続情報, Slackトークン)
 ├── artifact_registry.tf       # Artifact Registry Docker リポジトリ
 ├── iam.tf                     # 実行用 Service Account, IAM Role バインディング
-├── cloud_run_job.tf           # Cloud Run Jobs (クローラーバッチ定義, リソース割当, tmpfs)
+├── cloud_run_job.tf           # Cloud Run Jobs (Dispatcher Job, ML Pipeline Job, DB移行, セーフティネット)
 ├── cloud_run_service.tf       # Cloud Run Service (Slack Agent 常時受付)
+├── cloud_run_crawler_service.tf # Cloud Run Service (Crawler Worker 分散スクレイピング)
+├── cloud_tasks.tf             # Cloud Tasks (crawler-tasks Queue, レート・並列制御)
 ├── scheduler.tf               # Cloud Scheduler (日次定期キック)
 ├── budget.tf                  # Cloud Billing 予算アラート (50%, 80%, 100%, 120%予測)
 └── alerting.tf                # Cloud Monitoring & Logging 監視アラート (MySQL認証拒否, サーバエラー, コネクション枯渇)
