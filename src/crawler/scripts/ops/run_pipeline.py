@@ -1,5 +1,4 @@
 # ruff: noqa: E402, F401
-# -*- coding: utf-8 -*-
 import os
 import sys
 import subprocess
@@ -73,6 +72,9 @@ def run_command(cmd, desc, timeout: float | None = None):
     logger.info(f"=== [SUCCESS] {desc} (Time: {int(elapsed)}s) ===")
 
 
+BORDER_LINE = "============================================================="
+
+
 def _check_failed_slack_notifications(failed_slack_file: str) -> None:
     if not os.path.exists(failed_slack_file):
         return
@@ -81,7 +83,11 @@ def _check_failed_slack_notifications(failed_slack_file: str) -> None:
     if failed_msgs:
         logger.critical(f"❌ 【深刻なエラー】 パイプライン中に送信されるべき Slack メッセージが不達となっています（計 {len(failed_msgs)} 件）。")
         for m in failed_msgs:
-            logger.critical(f"  - [{m['timestamp']}] Channel: {m['channel']} | Error: {m['error']} | Preview: {m['message_preview']}")
+            t = str(m.get("timestamp", "")).replace("\r", " ").replace("\n", " ")
+            c = str(m.get("channel", "")).replace("\r", " ").replace("\n", " ")
+            e = str(m.get("error", "")).replace("\r", " ").replace("\n", " ")
+            p = str(m.get("message_preview", "")).replace("\r", " ").replace("\n", " ")
+            logger.critical("  - [%s] Channel: %s | Error: %s | Preview: %s", t, c, e, p)
         raise RuntimeError("Pipeline finished but some Slack notifications were not delivered successfully.")
 
 
@@ -183,11 +189,11 @@ def main():
     is_task_array = task_count > 1 and task_index is not None
     is_coordinator = not is_task_array or task_index == 0
 
-    logger.info("=============================================================")
+    logger.info(BORDER_LINE)
     logger.info(f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})")
     if is_task_array:
         logger.info(f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'})")
-    logger.info("=============================================================")
+    logger.info(BORDER_LINE)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))  # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)               # .../scripts
@@ -240,11 +246,11 @@ def main():
         )
         _check_failed_slack_notifications(failed_slack_file)
 
-        logger.info("=============================================================")
+        logger.info(BORDER_LINE)
         logger.info("PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
-        logger.info("=============================================================")
-    except Exception as e:
-        logger.error(f"Pipeline crashed due to unhandled exception: {e}")
+        logger.info(BORDER_LINE)
+    except Exception:
+        logger.exception("Pipeline crashed due to unhandled exception")
         sys.exit(1)
     finally:
         _execute_safety_teardown(is_coordinator, scripts_dir)
