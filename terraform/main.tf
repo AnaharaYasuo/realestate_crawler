@@ -27,12 +27,24 @@ provider "google" {
   project = var.project_id
   region  = var.region
   zone    = var.zone
+
+  default_labels = {
+    project     = "realestate-crawler"
+    environment = var.environment
+    managed_by  = "terraform"
+  }
 }
 
 provider "google-beta" {
   project = var.project_id
   region  = var.region
   zone    = var.zone
+
+  default_labels = {
+    project     = "realestate-crawler"
+    environment = var.environment
+    managed_by  = "terraform"
+  }
 }
 
 # 必要な Google API サービスの自動有効化

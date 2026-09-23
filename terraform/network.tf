@@ -15,7 +15,7 @@ resource "google_compute_subnetwork" "subnet" {
 
   log_config {
     aggregation_interval = "INTERVAL_10_MIN"
-    flow_sampling        = 0.5
+    flow_sampling        = 0.1 # コスト最適化のためサンプリング間引き (0.5 -> 0.1)
     metadata             = "INCLUDE_ALL_METADATA"
   }
 }

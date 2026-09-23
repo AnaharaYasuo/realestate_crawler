@@ -7,7 +7,6 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_compute_forwarding_rule.proxysql_forwarding_rule,
     google_vpc_access_connector.vpc_connector,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.estimation_api_key_version,
@@ -18,13 +17,13 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
     service_account = google_service_account.crawler_runner.email
 
     scaling {
-      min_instance_count = 0 # アイドル時0台
-      max_instance_count = 5
+      min_instance_count = 0 # アイドル時0台 (待機コスト¥0)
+      max_instance_count = 2 # 過剰スケール防止
     }
 
     vpc_access {
       connector = google_vpc_access_connector.vpc_connector.id
-      egress    = "ALL_TRAFFIC"
+      egress    = "PRIVATE_RANGES_ONLY" # Cloud SQLへのDB通信のみVPC経由。NAT停止時も外部スクレイピング疎通可能
     }
 
     containers {
@@ -32,8 +31,8 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
 
       resources {
         limits = {
-          cpu    = "2"
-          memory = "2Gi"
+          cpu    = "1"
+          memory = "1Gi"
         }
       }
 
@@ -50,9 +49,10 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
         value = "utf-8"
       }
 
+      # データベース接続設定: Gmailチェッカー等常時API呼び出しのため、ProxySQLではなくCloud SQLへ直接接続 (ポート3306)
       env {
         name  = "DB_HOST"
-        value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+        value = google_sql_database_instance.mysql_instance.private_ip_address
       }
       env {
         name  = "DB_NAME"
@@ -64,7 +64,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
       }
       env {
         name  = "DB_PORT"
-        value = "6033"
+        value = "3306"
       }
       env {
         name = "DB_PASSWORD"

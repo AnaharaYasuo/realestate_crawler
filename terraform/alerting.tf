@@ -255,3 +255,51 @@ resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert" {
     google_monitoring_notification_channel.alert_pubsub
   ]
 }
+
+# 5. ProxySQL MIG ゾンビ稼働監視アラートポリシー (Severity: ERROR)
+# 目的: バッチ終了後にも関わらず ProxySQL インスタンスが 0台に縮退せず稼働し続けている場合に早期検知
+resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert" {
+  display_name = "ProxySQL - Unexpected Daytime Instance Running Alert (${var.environment})"
+  combiner     = "OR"
+  severity     = "ERROR"
+
+  conditions {
+    display_name = "ProxySQL MIG Instance Count > 0"
+    condition_threshold {
+      filter          = "metric.type=\"compute.googleapis.com/instance_group/size\" AND resource.type=\"gce_instance_group_manager\" AND resource.label.instance_group_manager_name=\"${google_compute_region_instance_group_manager.proxysql_mig.name}\""
+      duration        = "900s" # 15分以上継続して稼働している場合
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+
+      trigger {
+        count = 1
+      }
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_MEAN"
+        cross_series_reducer = "REDUCE_MAX"
+      }
+    }
+  }
+
+  notification_channels = concat(
+    [google_monitoring_notification_channel.alert_pubsub.name],
+    var.alert_email != "" ? [google_monitoring_notification_channel.budget_email[0].name] : []
+  )
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+
+  documentation {
+    content   = "ProxySQL MIG has running instances (>0) for over 15 minutes. Verify whether a crawler batch is legitimately running or if instances failed to scale in to size=0. Trigger ensure_resources_stopped if leaked."
+    mime_type = "text/markdown"
+  }
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_compute_region_instance_group_manager.proxysql_mig,
+    google_monitoring_notification_channel.alert_pubsub
+  ]
+}
