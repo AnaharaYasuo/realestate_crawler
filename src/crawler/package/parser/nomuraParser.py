@@ -75,13 +75,15 @@ class NomuraParser(InvestmentParser):
     @staticmethod
     def _clean_key_text(el, tag_name="th") -> str:
         temp = BeautifulSoup(str(el), "html.parser").find(tag_name)
-        if not temp:
+        select = getattr(temp, "select", None)
+        get_text = getattr(temp, "get_text", None)
+        if not callable(select) or not callable(get_text):
             return ""
-        for h in temp.select(
+        for h in select(
             ".item_help, .icon_help, .tooltip, .help, [class*='help'], [class*='tooltip']"
         ):
             h.decompose()
-        return temp.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+        return get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
 
     def _scrape_item_status_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for status in response.select(".item_status"):
