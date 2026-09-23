@@ -230,11 +230,26 @@ def _run_pr_code_mutations(
     pr_pairs = find_pr_changed_units(crawler_root)
     logger.info("PR Mode detected %d unit test / target pairs: %s", len(pr_pairs), pr_pairs)
     report_data["results"]["level2_code_mutation_pr"] = []
+    # docs/config のみの PR 等、変異対象のソースが無い場合はデフォルト detector へ
+    # フォールバックしない（無関係ファイル破壊・ノイズを防止）。スキップ=合格。
     if not pr_pairs:
-        pr_pairs = [{
-            "target": os.path.join(crawler_root, "package", "utils", DEFAULT_DETECTOR_FILE),
-            "test": os.path.join(crawler_root, "tests", "unit", DEFAULT_DETECTOR_TEST_FILE),
-        }]
+        logger.info(
+            "PR Mode: no mutable source/test pairs in changed files; "
+            "skipping Level 2 code mutation"
+        )
+        report_data["results"]["level2_code_mutation_pr"].append({
+            "target": "(none)",
+            "test": "(skipped-no-pairs)",
+            "total_mutants": 0,
+            "killed_mutants": 0,
+            "survived_mutants": 0,
+            "errored_mutants": 0,
+            "mutation_score": 100.0,
+            "threshold": args.threshold,
+            "is_passed": True,
+            "survived_details": [],
+        })
+        return True
 
     pr_passed = True
     for pair in pr_pairs:

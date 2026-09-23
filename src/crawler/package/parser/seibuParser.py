@@ -1,14 +1,22 @@
-from decimal import Decimal
+import logging
+
 # -*- coding: utf-8 -*-
 import re
-import logging
 import urllib.parse
+from decimal import Decimal
+
 from bs4 import BeautifulSoup
 
-from package.models.seibu import SeibuMansion, SeibuKodate, SeibuTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.models.seibu import SeibuKodate, SeibuMansion, SeibuTochi
+from package.parser.baseParser import (
+    KodateParserBase,
+    MansionParserBase,
+    ParserBase,
+    TochiParserBase,
+)
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
+
 
 class SeibuParser(ParserBase):
 
@@ -85,6 +93,12 @@ class SeibuParser(ParserBase):
                     yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
+        specs = self._specs_from_tables(response)
+        self._fill_missing_specs_from_text(specs, response)
+        return specs
+
+    @staticmethod
+    def _specs_from_tables(response: BeautifulSoup) -> dict:
         specs = {}
         for table in response.select("table"):
             for tr in table.select("tr"):
@@ -92,10 +106,29 @@ class SeibuParser(ParserBase):
                 tds = tr.find_all("td")
                 for i in range(min(len(ths), len(tds))):
                     key = ths[i].get_text().strip().replace("\n", "").replace(" ", "")
-                    val = tds[i].get_text().strip()
-                    val = re.sub(r'\s+', ' ', val)
-                    specs[key] = val
+                    val = re.sub(r"\s+", " ", tds[i].get_text().strip())
+                    if key and key not in specs:
+                        specs[key] = val
         return specs
+
+    @staticmethod
+    def _fill_missing_specs_from_text(specs: dict, response: BeautifulSoup) -> None:
+        # Some Seibu pages repeat key/value in adjacent cells with empty th pairing.
+        if "間取り" in specs and "建物構造" in specs and "土地面積" in specs:
+            return
+        text = response.get_text(" ", strip=True)
+        if "間取り" not in specs:
+            m = re.search(r"間取り\s*([0-9]+[A-Z]*[A-Z0-9]*)", text)
+            if m:
+                specs["間取り"] = m.group(1)
+        if "建物構造" not in specs and "構造" not in specs:
+            m = re.search(r"建物構造\s*([^\s]{2,40})", text)
+            if m:
+                specs["建物構造"] = m.group(1)
+        if "土地面積" not in specs:
+            m = re.search(r"土地面積\s*([0-9.]+)\s*㎡", text)
+            if m:
+                specs["土地面積"] = f"{m.group(1)}㎡"
 
     def _split_address(self, address):
         return super()._split_address(address)
@@ -175,7 +208,11 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return (
+            specs.get("構造", "")
+            or specs.get("建物構造", "")
+            or super()._parseKouzou(response, specs)
+        )
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -215,25 +252,9 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
         specs = self._get_specs(response)
 
         item.madori = self._parseMadori(response, specs)
-        
-        item.senyuMensekiStr = specs.get("専有面積", "")
-        if item.senyuMensekiStr:
-            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        self._apply_mansion_menseki_and_name(item, specs)
+        self._apply_mansion_kaisu_fields(item, specs)
 
-        # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")
-        if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
-
-        # 築年月
         item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
@@ -242,30 +263,63 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
         if item.balconyMensekiStr:
             item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
 
-        # 総戸数
         item.soukosuStr = specs.get("総戸数", "")
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
+        self._apply_mansion_fees_and_kouzou(item, response, specs)
+        return item
+
+    @staticmethod
+    def _apply_mansion_menseki_and_name(item, specs: dict) -> None:
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("専有面積（壁芯）", "")
+            or specs.get("建物面積", "")
+        )
+        if item.senyuMensekiStr:
+            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        # Generic marketing H1 — prefer address as property name.
+        name = (getattr(item, "propertyName", "") or "").strip()
+        if (not name) or ("買取" in name and "物件情報" in name):
+            addr = getattr(item, "address", "") or specs.get("所在地", "")
+            if addr:
+                item.propertyName = addr.strip()
+
+    @staticmethod
+    def _apply_mansion_kaisu_fields(item, specs: dict) -> None:
+        item.kaisuStr = (
+            specs.get("所在階/構造・階建", "")
+            or specs.get("所在階", "")
+            or specs.get("階数", "")
+        )
+        if not item.kaisuStr:
+            return
+        m = re.search(r"(\d+)階", item.kaisuStr)
+        if m:
+            item.floorType_kai = int(m.group(1))
+        m = re.search(r"地上(\d+)階", item.kaisuStr)
+        if m:
+            item.floorType_chijo = int(m.group(1))
+        m = re.search(r"地下(\d+)階", item.kaisuStr)
+        if m:
+            item.floorType_chika = int(m.group(1))
+
+    def _apply_mansion_fees_and_kouzou(self, item, response, specs: dict) -> None:
         item.kanrihiStr = specs.get("管理費", "")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_rent(item.kanrihiStr)
-
         item.syuzenTsumitateStr = specs.get("修繕積立金", "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
-
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
-        
         item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")
         item.kadobeya = item.saikouKadobeya
-
-        return item
 
 class SeibuKodateParser(SeibuParser, KodateParserBase):
     def _parsePriceStr(self, response, specs=None):

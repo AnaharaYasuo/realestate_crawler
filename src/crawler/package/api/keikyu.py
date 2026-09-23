@@ -39,7 +39,9 @@ class ParseKeikyuKodateDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getTimeOutSecond(self): return 60
     def _getApiKey(self): return ""
 
-class ParseKeikyuStartAsync(ParseMiddlePageAsyncBase):
+class ParseKeikyuKodateStartAsync(ParseMiddlePageAsyncBase):
+    """Kodate start API (renamed from ParseKeikyuStartAsync for catalog discoverability)."""
+
     def _generateParser(self): return KeikyuKodateParser()
     def _getParserFunc(self): return getattr(self.parser, 'parseRootPage')
     def _getNextPageParserFunc(self): return getattr(self.parser, 'parseNextPage')
@@ -49,6 +51,10 @@ class ParseKeikyuStartAsync(ParseMiddlePageAsyncBase):
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self): return API_KEY_KEIKYU_KODATE_DETAIL
     def _getNextPageApiKey(self): return API_KEY_KEIKYU_KODATE_START
+
+
+# Backward-compatible alias
+ParseKeikyuStartAsync = ParseKeikyuKodateStartAsync
 
 # Tochi
 class ParseKeikyuTochiDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -72,7 +78,7 @@ class ParseKeikyuTochiStartAsync(ParseMiddlePageAsyncBase):
 # Register
 ApiRegistry.register(API_KEY_KEIKYU_MANSION_START, ParseKeikyuMansionStartAsync)
 ApiRegistry.register(API_KEY_KEIKYU_MANSION_DETAIL, ParseKeikyuMansionDetailFuncAsync)
-ApiRegistry.register(API_KEY_KEIKYU_KODATE_START, ParseKeikyuStartAsync)
+ApiRegistry.register(API_KEY_KEIKYU_KODATE_START, ParseKeikyuKodateStartAsync)
 ApiRegistry.register(API_KEY_KEIKYU_KODATE_DETAIL, ParseKeikyuKodateDetailFuncAsync)
 ApiRegistry.register(API_KEY_KEIKYU_TOCHI_START, ParseKeikyuTochiStartAsync)
 ApiRegistry.register(API_KEY_KEIKYU_TOCHI_DETAIL, ParseKeikyuTochiDetailFuncAsync)

@@ -1,12 +1,27 @@
-from package.parser.baseParser import MansionParserBase, KodateParserBase, TochiParserBase, InvestmentParserBase
-from bs4 import BeautifulSoup
-from abc import abstractmethod
 import re
+from abc import abstractmethod
+from decimal import Decimal, InvalidOperation
+
+from bs4 import BeautifulSoup
+
+from package.models.nomura import (
+    NomuraInvestmentApartment,
+    NomuraInvestmentKodate,
+    NomuraKodate,
+    NomuraMansion,
+    NomuraTochi,
+)
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    MansionParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.parser.investmentParser import InvestmentParser
-from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, NomuraInvestmentKodate, NomuraInvestmentApartment
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
-from decimal import Decimal
+
 
 class NomuraParser(InvestmentParser):
     property_type = ""
@@ -23,111 +38,143 @@ class NomuraParser(InvestmentParser):
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
+        self._scrape_item_status_specs(response, specs)
+        self._scrape_dl_specs(response, specs)
+        for table in response.select("table"):
+            self._parse_table_element(table, specs, force=False)
+        for table in response.select("table.c_table_spec, table.col4"):
+            self._parse_table_element(table, specs, force=True)
+        return specs
 
-        def is_inside_modal(el):
-            p = getattr(el, "parent", None)
-            while p and getattr(p, "name", None) != '[document]':
-                classes = p.get("class") or []
-                if isinstance(classes, str):
-                    classes = [classes]
-                p_id = p.get("id") or ""
-                if isinstance(p_id, list):
-                    p_id = " ".join(p_id)
-                if any("modal" in str(c).lower() for c in classes) or "fullModal" in classes or "modal" in str(p_id).lower():
-                    return True
-                p = getattr(p, "parent", None)
-            return False
+    @staticmethod
+    def _is_inside_modal(el) -> bool:
+        p = getattr(el, "parent", None)
+        while p and getattr(p, "name", None) != "[document]":
+            classes = p.get("class") or []
+            if isinstance(classes, str):
+                classes = [classes]
+            p_id = p.get("id") or ""
+            if isinstance(p_id, list):
+                p_id = " ".join(p_id)
+            if (
+                any("modal" in str(c).lower() for c in classes)
+                or "fullModal" in classes
+                or "modal" in str(p_id).lower()
+            ):
+                return True
+            p = getattr(p, "parent", None)
+        return False
 
-        def clean_key_text(el, tag_name="th"):
-            temp = BeautifulSoup(str(el), "html.parser").find(tag_name)
-            if not temp:
-                return ""
-            for h in temp.select(".item_help, .icon_help, .tooltip, .help, [class*='help'], [class*='tooltip']"):
-                h.decompose()
-            return temp.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+    @staticmethod
+    def _element_text(el) -> str:
+        get_text = getattr(el, "get_text", None)
+        if not callable(get_text):
+            return ""
+        return get_text(strip=True)
 
-        # 1. Handle .item_status (Traditional/Mansion structure)
-        item_statuses = response.select(".item_status")
-        for status in item_statuses:
-            if is_inside_modal(status):
+    @staticmethod
+    def _clean_key_text(el, tag_name="th") -> str:
+        temp = BeautifulSoup(str(el), "html.parser").find(tag_name)
+        select = getattr(temp, "select", None)
+        get_text = getattr(temp, "get_text", None)
+        if not callable(select) or not callable(get_text):
+            return ""
+        for h in select(
+            ".item_help, .icon_help, .tooltip, .help, [class*='help'], [class*='tooltip']"
+        ):
+            h.decompose()
+        return get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
+
+    def _scrape_item_status_specs(self, response: BeautifulSoup, specs: dict) -> None:
+        for status in response.select(".item_status"):
+            if self._is_inside_modal(status):
                 continue
             title_el = status.select_one(".item_status_title")
             content_el = status.select_one(".item_status_content")
-            if title_el and content_el:
-                key = clean_key_text(title_el, "span") or clean_key_text(title_el, "div") or title_el.get_text(strip=True).replace(" ", "").replace("\u3000", "").rstrip("：")
-                specs[key] = content_el.get_text(strip=True).replace("\xa0", " ")
-                
-        # 2. Handle dl/dt/dd (Detail tables)
+            if not hasattr(title_el, "get_text") or not hasattr(content_el, "get_text"):
+                continue
+            key = (
+                self._clean_key_text(title_el, "span")
+                or self._clean_key_text(title_el, "div")
+                or self._element_text(title_el).replace(" ", "").replace("\u3000", "").rstrip("：")
+            )
+            specs[key] = self._element_text(content_el).replace("\xa0", " ")
+
+    def _scrape_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.select("dl"):
-            if is_inside_modal(dl):
+            if self._is_inside_modal(dl):
                 continue
             current_key = None
             for child in dl.find_all(["dt", "dd"], recursive=False):
                 if child.name == "dt":
-                    current_key = clean_key_text(child, "dt")
+                    current_key = self._clean_key_text(child, "dt")
                 elif child.name == "dd" and current_key:
                     val = child.get_text(strip=True).replace("\xa0", " ")
                     if len(val) < 300:  # Exclude long explanation footnotes
                         specs[current_key] = val
                     current_key = None
 
-        # 3. Handle table/tr/th/td
-        def parse_table_element(table, force=False):
-            if is_inside_modal(table):
-                return
-            for tr in table.select("tr"):
-                ths = tr.select("th")
-                tds = tr.select("td")
-                for th, td in zip(ths, tds):
-                    key = clean_key_text(th, "th")
-                    val = td.get_text(strip=True).replace("\xa0", " ")
-                    if key:
-                        if key == "構造" and val.startswith("#"):
-                            continue
-                        if force:
-                            specs[key] = val
-                        elif key not in specs or len(val) > len(specs.get(key, "")):
-                            specs[key] = val
+    def _parse_table_element(self, table, specs: dict, force: bool = False) -> None:
+        if self._is_inside_modal(table):
+            return
+        self._parse_table_th_td_rows(table, specs, force)
+        self._parse_table_inner_cards(table, specs, force)
 
-            # Also parse card cells: td > div.inner > div.heading + p
-            for inner in table.select("td > div.inner"):
-                h_el = inner.select_one(".heading")
-                p_el = inner.select_one("p")
-                if h_el and p_el:
-                    k = clean_key_text(h_el, "div")
-                    v = p_el.get_text(strip=True).replace("\xa0", " ")
-                    if k and (k not in specs or force):
-                        specs[k] = v
+    def _parse_table_th_td_rows(self, table, specs: dict, force: bool) -> None:
+        for tr in table.select("tr"):
+            ths = tr.select("th")
+            tds = tr.select("td")
+            for th, td in zip(ths, tds):
+                self._store_table_kv(
+                    specs,
+                    self._clean_key_text(th, "th"),
+                    td.get_text(strip=True).replace("\xa0", " "),
+                    force,
+                )
 
-        # First pass: All tables (generic)
-        for table in response.select("table"):
-            parse_table_element(table, force=False)
-            
-        # Second pass: c_table_spec and col4 (canonical details) - Force overwrite
-        for table in response.select("table.c_table_spec, table.col4"):
-            parse_table_element(table, force=True)
-            
-        return specs
+    @staticmethod
+    def _store_table_kv(specs: dict, key: str, val: str, force: bool) -> None:
+        if not key:
+            return
+        if key == "構造" and val.startswith("#"):
+            return
+        if force or key not in specs or len(val) > len(specs.get(key, "")):
+            specs[key] = val
+
+    def _parse_table_inner_cards(self, table, specs: dict, force: bool) -> None:
+        for inner in table.select("td > div.inner"):
+            h_el = inner.select_one(".heading")
+            p_el = inner.select_one("p")
+            if not h_el or not p_el:
+                continue
+            k = self._clean_key_text(h_el, "div")
+            v = p_el.get_text(strip=True).replace("\xa0", " ")
+            if k and (k not in specs or force):
+                specs[k] = v
 
     def _parsePriceStr(self, response, specs=None):
-        selector = self.selectors.get('price', ".price, .item_price")
-        if selector:
-            el = response.select_one(selector)
-            if el:
-                val = el.get_text(strip=True)
-                if val and ("万" in val or "億" in val or "円" in val):
-                    return val
-
-        fallback = self.selectors.get('price_fallback', ".c_price_wrap, .price")
-        if fallback:
-            el = response.select_one(fallback)
-            if el:
-                val = el.get_text(strip=True)
-                if val and ("万" in val or "億" in val or "円" in val):
-                    return val
-
+        val = self._price_from_selector(response, self.selectors.get("price", ".price, .item_price"))
+        if val:
+            return val
+        val = self._price_from_selector(
+            response, self.selectors.get("price_fallback", ".c_price_wrap, .price")
+        )
+        if val:
+            return val
         specs = specs or self._get_specs(response)
         return specs.get("価格", "") or specs.get("販売価格", "") or super()._parsePriceStr(response, specs)
+
+    @staticmethod
+    def _price_from_selector(response, selector) -> str:
+        if not selector:
+            return ""
+        el = response.select_one(selector)
+        if not el:
+            return ""
+        val = el.get_text(strip=True)
+        if val and ("万" in val or "億" in val or "円" in val):
+            return val
+        return ""
 
     def _parsePrice(self, response, specs=None):
         return converter.parse_price(self._parsePriceStr(response))
@@ -432,25 +479,112 @@ class NomuraParser(InvestmentParser):
         specs = self._get_specs(response)
         return specs.get("次回更新予定日", "")
 
+    @staticmethod
+    def _apply_setsudou_road_fields(item) -> None:
+        """Parse maguchi / road attributes from setsudou text onto item."""
+        setsudou = getattr(item, "setsudou", None) or ""
+        if not setsudou:
+            item.roadStructure = "中間地"
+            NomuraParser._apply_okuyuki(item)
+            return
+        NomuraParser._apply_maguchi_from_setsudou(item, setsudou)
+        width_match = re.search(
+            r"(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?", setsudou
+        )
+        if width_match:
+            item.roadWidthStr = width_match.group(0)
+            item.roadWidth = Decimal(width_match.group(1))
+        direction_match = re.search(r"(北東|北西|南東|南西|北|南|東|西)", setsudou)
+        item.roadDirection = direction_match.group(1) if direction_match else ""
+        type_match = re.search(r"(公道|私道)", setsudou)
+        item.roadType = type_match.group(1) if type_match else ""
+        structure_match = re.search(
+            r"(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)", setsudou
+        )
+        item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        NomuraParser._apply_okuyuki(item)
+
+    @staticmethod
+    def _apply_maguchi_from_setsudou(item, setsudou: str) -> None:
+        mag_match = re.search(
+            r"(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?", setsudou
+        )
+        if mag_match:
+            item.maguchiStr = mag_match.group(0)
+            item.maguchi = Decimal(mag_match.group(1))
+            return
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口)", setsudou)
+        if m:
+            item.maguchiStr = m.group(0)
+            item.maguchi = Decimal(m.group(1))
+
+    @staticmethod
+    def _apply_okuyuki(item) -> None:
+        tochi = getattr(item, "tochiMenseki", None)
+        maguchi = getattr(item, "maguchi", None)
+        if tochi and maguchi and maguchi > 0:
+            item.okuyuki = round(tochi / maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
 class NomuraMansionParser(NomuraParser, MansionParserBase):
 
     def _parseSenyuMenseki(self, response, specs=None):
         specs = specs or self._get_specs(response)
+        val = self._senyu_menseki_raw_from_specs(specs)
+        parsed = self._decimal_from_menseki_text(val) if val else None
+        if parsed is not None:
+            return parsed
+        parsed = self._senyu_menseki_from_inner_blocks(response)
+        if parsed is not None:
+            return parsed
+        parsed = self._senyu_menseki_from_labeled_elements(response)
+        if parsed is not None:
+            return parsed
+        return super()._parseSenyuMenseki(response, specs)
+
+    @staticmethod
+    def _senyu_menseki_raw_from_specs(specs: dict):
         val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
-            if m:
-                return Decimal(m.group(1))
-        # Fallback: scan highlight summary blocks
+            return val
+        for k, v in specs.items():
+            if ("専有" in str(k) and "面積" in str(k)) or "壁芯" in str(k):
+                return v
+        return ""
+
+    @staticmethod
+    def _decimal_from_menseki_text(val):
+        m = re.search(r"([\d.]+)", str(val).replace(",", ""))
+        return Decimal(m.group(1)) if m else None
+
+    @staticmethod
+    def _senyu_menseki_from_inner_blocks(response):
         for inner in response.select(".inner"):
             h = inner.select_one(".heading")
-            if h and ("専有面積" in h.get_text() or "壁芯面積" in h.get_text()):
-                p = inner.select_one("p")
-                if p:
-                    m = re.search(r'([\d\.]+)', p.get_text())
-                    if m:
-                        return Decimal(m.group(1))
-        return super()._parseSenyuMenseki(response, specs)
+            if not h:
+                continue
+            if "専有面積" not in h.get_text() and "壁芯面積" not in h.get_text():
+                continue
+            p = inner.select_one("p")
+            if not p:
+                continue
+            m = re.search(r"([\d.]+)", p.get_text())
+            if m:
+                return Decimal(m.group(1))
+        return None
+
+    @staticmethod
+    def _senyu_menseki_from_labeled_elements(response):
+        for el in response.select("th, dt, .heading, .c_heading, span, p"):
+            txt = el.get_text(" ", strip=True)
+            if "専有面積" not in txt and "壁芯面積" not in txt:
+                continue
+            sib = el.find_next(["td", "dd", "p", "span"])
+            blob = (sib.get_text(" ", strip=True) if sib else "") + " " + txt
+            m = re.search(r"([\d.]+)\s*m", blob, re.IGNORECASE)
+            if m:
+                return Decimal(m.group(1))
+        return None
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -494,7 +628,12 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
     property_type = 'mansion'
     def createEntity(self): return NomuraMansion()
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item.propertyName = self._parsePropertyName(response)
+        name = self._safe_property_name(response)
+        if any(tok in str(name) for tok in ("戸建", "一戸建", "土地")) and not any(
+            tok in str(name) for tok in ("マンション", "レジデンス", "タワー", "アパート", "一棟")
+        ):
+            raise SkipPropertyException(f"Non-mansion Nomura listing skipped: {str(name)[:60]}")
+        item.propertyName = name
         item.priceStr = self._parsePriceStr(response)
         item.price = self._parsePrice(response)
         item.address = self._parseAddress(response)
@@ -565,6 +704,13 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
         item.updateDate = self._parseUpdateDate(response)
         item.nextUpdateDate = self._parseNextUpdateDate(response)
         return item
+
+    def _safe_property_name(self, response) -> str:
+        try:
+            return self._parsePropertyName(response) or ""
+        except (AttributeError, TypeError, ValueError):
+            h1 = response.select_one("h1") if response else None
+            return h1.get_text(" ", strip=True) if h1 else ""
 
 
 
@@ -785,37 +931,7 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
         item.nextUpdateDate = self._parseNextUpdateDate(response)
 
         # 統一土地評価フィールドのパース ＆ 代入 (setsudouテキストから切り出し)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
+        NomuraParser._apply_setsudou_road_fields(item)
 
         return item
 
@@ -899,6 +1015,7 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
         item.grossYield = self._parseGrossYield(response)
         item.annualRent = self._parseAnnualRent(response)
         item.monthlyRent = self._parseMonthlyRent(response)
+        self._require_invest_yield_and_rent(item)
         
         item.currentStatus = self._parseCurrentStatus(response)
         item.kouzou = self._parseKouzouInvest(response)
@@ -913,39 +1030,25 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
         
         # 統一土地評価フィールドのパース ＆ 代入
         item.setsudou = self._parseSetsudou(response)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
+        NomuraParser._apply_setsudou_road_fields(item)
             
         return item
+
+    @staticmethod
+    def _require_invest_yield_and_rent(item) -> None:
+        try:
+            gy = float(item.grossYield or 0)
+        except (TypeError, ValueError):
+            gy = 0.0
+        ar = item.annualRent or item.monthlyRent or 0
+        try:
+            ar_f = float(ar)
+        except (TypeError, ValueError):
+            ar_f = 0.0
+        if gy <= 0 or ar_f <= 0:
+            raise SkipPropertyException(
+                "Nomura invest listing missing published yield/rent"
+            )
 
     def _parseHikiwatashiInvest(self, response, specs=None):
         specs = self._get_specs(response)
@@ -957,13 +1060,45 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
     
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
-        yield_val = specs.get("利回り", specs.get("表面利回り", ""))
-        return Decimal(yield_val.replace("%", "").strip()) if yield_val else Decimal(0)
-        
+        yield_val = (
+            specs.get("想定利回り")
+            or specs.get("表面利回り")
+            or specs.get("利回り")
+            or specs.get("現行利回り")
+            or ""
+        )
+        if not yield_val:
+            for k, v in specs.items():
+                if "利回" in str(k) and v:
+                    yield_val = v
+                    break
+        text = str(yield_val).replace("%", "").replace("％", "").strip()
+        if not text:
+            return Decimal(0)
+        m = re.search(r"(\d+(?:\.\d+)?)", text)
+        if not m:
+            return Decimal(0)
+        try:
+            return Decimal(m.group(1))
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal(0)
+
     def _parseAnnualRent(self, response, specs=None):
         specs = self._get_specs(response)
-        rent_val = specs.get("想定年商", specs.get("想定年間収入", specs.get("満室時想定年収", "")))
-        return converter.parse_price(rent_val) if rent_val else 0
+        rent_val = (
+            specs.get("想定年間収入")
+            or specs.get("想定年商")
+            or specs.get("満室時想定年収")
+            or specs.get("満室時年収")
+            or specs.get("想定年収")
+            or ""
+        )
+        if not rent_val:
+            for k, v in specs.items():
+                if any(x in str(k) for x in ("年間収入", "想定年収", "想定年商")) and v:
+                    rent_val = v
+                    break
+        return converter.parse_price(str(rent_val)) if rent_val else 0
 
     def _parseMonthlyRent(self, response, specs=None):
         annualRent = self._parseAnnualRent(response)

@@ -66,53 +66,7 @@ os.makedirs(log_dir, exist_ok=True)
 
 
 # 定義済みの全クロールジョブリスト
-CRAWL_JOBS = [
-    # 主要5社 (居住用)
-    ("mitsui", "mansion"), ("mitsui", "kodate"), ("mitsui", "tochi"),
-    ("sumifu", "mansion"), ("sumifu", "kodate"), ("sumifu", "tochi"),
-    ("tokyu", "mansion"), ("tokyu", "kodate"), ("tokyu", "tochi"),
-    ("nomura", "mansion"), ("nomura", "kodate"), ("nomura", "tochi"),
-    ("misawa", "mansion"), ("misawa", "kodate"), ("misawa", "tochi"),
-    
-    # 信託・銀行系列3社 (居住用)
-    ("smtrc", "mansion"), ("smtrc", "kodate"), ("smtrc", "tochi"),
-    ("sumai1", "mansion"), ("sumai1", "kodate"), ("sumai1", "tochi"),
-    ("mizuho", "mansion"), ("mizuho", "kodate"), ("mizuho", "tochi"),
-
-    # 電鉄・ハウスメーカー・その他系列 (居住用)
-    ("sekisui", "mansion"), ("sekisui", "kodate"), ("sekisui", "tochi"),
-    ("afr", "mansion"), ("afr", "kodate"), ("afr", "tochi"),
-    ("daiwa", "mansion"), ("daiwa", "kodate"), ("daiwa", "tochi"),
-    ("totate", "mansion"), ("totate", "kodate"), ("totate", "tochi"),
-    ("odakyu", "mansion"), ("odakyu", "kodate"), ("odakyu", "tochi"),
-    ("sumirin", "mansion"), ("sumirin", "kodate"), ("sumirin", "tochi"),
-    ("heim", "mansion"), ("heim", "kodate"), ("heim", "tochi"),
-    ("rearie", "mansion"), ("rearie", "kodate"), ("rearie", "tochi"),
-    ("keio", "mansion"), ("keio", "kodate"), ("keio", "tochi"),
-    ("seibu", "mansion"), ("seibu", "kodate"), ("seibu", "tochi"),
-    ("keikyu", "mansion"), ("keikyu", "kodate"), ("keikyu", "tochi"),
-    ("sotetsu", "mansion"), ("sotetsu", "kodate"), ("sotetsu", "tochi"),
-    ("keisei", "mansion"), ("keisei", "kodate"), ("keisei", "tochi"),
-    ("daikyo", "mansion"), ("daikyo", "kodate"), ("daikyo", "tochi"),
-
-    # ポータルサイト (居住用)
-    ("athome", "mansion"), ("athome", "kodate"), ("athome", "tochi"),
-    ("homes", "mansion"), ("homes", "kodate"), ("homes", "tochi"),
-
-    # 投資用・事業用物件
-    ("mitsui", "invest_kodate"), ("mitsui", "invest_apartment"),
-    ("sumifu", "invest_kodate"), ("sumifu", "invest_apartment"),
-    ("tokyu", "invest_kodate"), ("tokyu", "invest_apartment"),
-    ("nomura", "invest_kodate"), ("nomura", "invest_apartment"),
-    ("misawa", "invest_kodate"), ("misawa", "invest_apartment"),
-    ("athome", "invest_apartment"),
-    ("homes", "invest_apartment"),
-    ("smtrc", "investment"),
-    ("sumai1", "investment"),
-    ("mizuho", "investment"),
-    ("odakyu", "investment"),
-    ("sumirin", "investment"),
-]
+from package.utils.crawl_jobs import CRAWL_JOBS  # noqa: E402  — SSOT for production + tests
 
 
 

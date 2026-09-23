@@ -44,11 +44,36 @@ jobs:
                 | python -c "import sys,json; d=json.load(sys.stdin); print(d.get('qualityGate'))"
               ;;
             reset_new_code_30d)
-              # Prefer branch-level new code period when supported
-              code=$(curl -sS -o /tmp/nc.json -w "%{http_code}" --max-time 10 "${AUTH[@]}" \
-                -X POST "https://sonarcloud.io/api/new_code_periods/set?organization=${ORG}&project=${PROJECT}&branch=master&type=NUMBER_OF_DAYS&value=30" || true)
-              echo "HTTP ${code}"
-              cat /tmp/nc.json || true
+              # Manual SPECIFIC_ANALYSIS baseline can point at a deleted analysis and
+              # block all subsequent scans ("Unable to create analysis").
+              # SonarCloud has no api/new_code_periods/* — use project_analyses + VERSION.
+              code=$(curl -sS -o /tmp/nc_unset.json -w "%{http_code}" --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/project_analyses/unset_baseline?project=${PROJECT}&branch=master" || true)
+              echo "unset_baseline HTTP ${code}"
+              cat /tmp/nc_unset.json || true
               echo
+              # Pick the newest analysis as a valid SPECIFIC_ANALYSIS baseline
+              ANALYSIS=$(curl -sS --max-time 10 "${AUTH[@]}" \
+                "https://sonarcloud.io/api/project_analyses/search?project=${PROJECT}&ps=1" \
+                | python -c "import sys,json; print(json.load(sys.stdin)['analyses'][0]['key'])")
+              echo "baseline_analysis=${ANALYSIS}"
+              code=$(curl -sS -o /tmp/nc_set.json -w "%{http_code}" --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/project_analyses/set_baseline?project=${PROJECT}&branch=master&analysis=${ANALYSIS}")
+              echo "set_baseline HTTP ${code}"
+              cat /tmp/nc_set.json || true
+              echo
+              if [ "${code}" != "200" ] && [ "${code}" != "204" ]; then
+                echo "set_baseline failed" >&2
+                exit 1
+              fi
+              # Ensure a VERSION event exists so previous_version / version-named periods work
+              curl -sS --fail-with-body --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/project_analyses/create_event?analysis=${ANALYSIS}&category=VERSION&name=baseline-$(date -u +%Y%m%d)"
+              echo
+              # Clear stale leak.period overrides (do NOT set value=30 — SonarCloud
+              # treats bare numbers as VERSION names when type=previous_version).
+              curl -sS --fail-with-body --max-time 10 "${AUTH[@]}" \
+                -X POST "https://sonarcloud.io/api/settings/reset?keys=sonar.leak.period,sonar.leak.period.type&component=${PROJECT}"
+              echo "reset leak.period done"
               ;;
           esac

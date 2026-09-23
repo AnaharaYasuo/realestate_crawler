@@ -355,6 +355,22 @@
 - `pytest` による自動テストスイートの一部として常時実行可能であること
 - オフライン環境用に `@pytest.mark.live` によるマーカー制御を提供すること
 
+#### FR-008-CRAWL: 全ジョブ本番経路クローリング保証テスト (Crawl Guarantee Matrix)
+- **単一の正（SSOT）**: 本番ジョブ定義 `CRAWL_JOBS`（`package.utils.crawl_jobs`）をクローリング実行・テストマトリクスの唯一の正とする。部分ハードコードの別マトリクスを禁止する。
+- **カタログ同期ゲート（オフライン可）**: 全 `CRAWL_JOBS` について、(1) `get_dispatch_map` に登録済み、(2) Start API クラスが解決可能、(3) シードURL（`urlList` / `SEED_URL` / ルート定義）が解決可能、をユニットテストで検証し、未登録ジョブがあれば FAIL とする。
+- **本番パーサー経路のライブ保証**: 各ジョブについて、独自の ad-hoc リンク抽出ではなく本番パーサー（`parseRootPage` / `parseAreaPage` / `parsePropertyListPage` 等）で詳細URLを抽出し、詳細URLが 0 件なら Zero-Count Failure として FAIL とする。
+- **取得対象フィールド保証**: 種別ごとの `EXPECTED_SPEC_FIELDS_BY_TYPE`（マンション/戸建/土地/投資）および `propertyName` / `price` / `address` が空・不正でないこと。任意／メタ項目は `OPTIONAL_OR_METADATA_FIELDS` に従う。
+- **DB保存保証**: パース成功後に本番同様 `item.save(...)` で永続化し、主キーで再読込できること。保存なしは未成功。
+- **ページング保証**: 各ジョブで本番パーサーの `parseNextPage` を一覧ページに適用する。次ページURLが返る場合は実際に取得して `pages_fetched >= 2` であること。次ページが無いサイトは `paging_exhausted=True` で合格可。`parseNextPage` の例外・同一URLループ・次ページ取得失敗は FAIL。
+- **物件種別判定保証**: 詳細パース成功物件について `PropertyTypeDetector.detect`（AIなし）の判定がジョブ／パーサー想定種別と整合すること（`mansion`/`kodate`/`tochi`/`apartment`。投資系ジョブは `apartment`）。不一致は Skip して次URLへ。成功0件のままなら FAIL（誤種別のDB保存禁止）。
+- **壁時計上限**: 全 `CRAWL_JOBS` ライブ保証の開始〜終了の実待機時間（壁時計）≤ 300 秒。超過は FAIL。Σ実行時間は問わない。Playwright 必須会社は会社内を順次（`-n 0`）とし、スケジュールは mizuho → (sekisui ∥ athome)（静的バケットとはオーバーラップ可。同時 Chromium は最大2社）。
+- **実行環境別の並列数・方式（ローカル vs GitHub Actions）**:
+  - **ローカル**: 静的 HTML 群は `pytest-xdist` のワーカー数を上限付き（既定 `-n 4`、`CRAWL_LIVE_XDIST_LOCAL` で変更可）とし、Playwright 必須会社（athome / mizuho / sekisui）は会社単位バケット（`-n 0`）を上記スケジュールで起動する。
+  - **GitHub Actions (CI)**: 静的 HTML 群はランナーコアを活かす `-n auto`、Playwright 必須会社は同様に会社単位バケットを上記スケジュールで起動する。判定は `GITHUB_ACTIONS` / `CI=true`、または明示上書き `CRAWL_LIVE_PARALLEL_MODE=local|ci`。
+  - PR 通常の integration マトリクスは `@pytest.mark.live` を除外（`-m "not live"`）し、ライブ保証は `task test-live`（環境別プラン）で実行する。
+- **二段階件数**: Phase 1（先頭3件スモーク）➔ Phase 2（最大20件）を環境変数 `CRAWL_SMOKE_SAMPLE_SIZE` で制御可能とする。
+- **実行入口**: `task test-live` および `@pytest.mark.live` 付き統合テスト（`test_live_crawl_guarantee.py`）で実行する。
+
 #### FR-017: ユニット完全性検証ミューテーションテスト機能 (Unit Integrity Mutation Testing)
 - システムは、パーサーやロジックユニット、およびユニットテストの完全性を変異テスト（ミューテーションテスト）によって継続的に検証・保証すること。
 - **Level 1 (Data Mutation / ドメインデータ故意破損注入)**: 全94モデル・全パーサーユニットに対し、必須・重要スペック項目への故意破損（None、0値、空文字、型不整合、境界値超過）を変異体として動的注入し、パーサー・バリデーション層（`validate_extracted_fields`）が変異を100%検知（Kill Rate = 100%）すること。全モデルの全フィールドが検証対象または任意・メタ項目に100%網羅分類されていること。
@@ -457,14 +473,17 @@ task stop
 #### FR-022: CodeRabbit 自動コードレビューの PR 実行
 - 各 Pull Request（`master` および `production` 宛て）の**初回オープン時のみ**、CodeRabbit による AI 自動コードレビューを自動実行すること。
 - 同一 PR への後続 push（synchronize / コード追加）では自動再レビューを行わないこと（`auto_incremental_review: false`）。追加レビューが必要な場合は手動で `@coderabbitai review` を実行可能とする。
-- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること。
-- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、プロジェクト方針に即した指摘を行うこと。
-- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`, `markdownlint`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。
+- レビュー言語は日本語（`ja-JP`）とし、プロファイルは実用的な欠陥・設計・セキュリティに注力する `chill` を適用すること（`assertive` は指摘量増加によるマージゲート阻害リスクが高いため採用しない）。
+- プロジェクト固有の設計原則（SDD/TDD、物件種別別 Base パーサー階層、1物件1AIリクエスト原則等）を指示（`tone_instructions`）に含め、潜在バグ・型不整合・境界値・性能・セキュリティに加え、長期保守性・スケーラビリティを優先した指摘を行うこと。
+- パス別にレビュー観点を固定すること。`.coderabbit.yaml` の `reviews.path_instructions` に、少なくともパーサー（`src/crawler/package/parser/**`）、テスト（`src/crawler/tests/**`）、運用スクリプト（`src/crawler/scripts/**`）向けの指示を定義すること。
+- レビュー対象から仕様・ドキュメントを除外すること。`.coderabbit.yaml` の `reviews.path_filters` に `!docs/**` および `!**/*.md` を定義し、`docs/` 配下およびリポジトリ内の Markdown ファイルを CodeRabbit のレビュー対象外とすること。
+- 静的解析ツール（`ast-grep`, `ruff`, `shellcheck`）と連携し、文法・型・構文エラーをレビューと一体で指摘すること。Markdown はレビュー対象外のため `markdownlint` は無効とすること。
 
 #### FR-023: 未解決レビューコメントおよび未完了チェックボックスによるマージブロック強制
 - CodeRabbit（および人間レビュアー）が PR に投稿したすべてのレビューコメント（インライン指摘・ディスカッションスレッド）に対して、開発者がコード修正や返答を行い「解決（Resolve conversation）」しない限り、ブランチ保護ルール（`required_conversation_resolution: true`）および CI レビューゲート（`review-gate.yml`）により、`master` および `production` へのマージを物理的・論理的にブロックすること。
 - PR 本文、全レビュー本文（CodeRabbit含む）、全レビューコメント、全 PR コメント内に未チェックのチェックボックス（`- [ ]`）が 1 件でも残存している場合、CI レビューゲート（`review-gate.yml`）によりマージを物理的にブロックすること。
 - CodeRabbit 自身の設定（`request_changes_workflow: true`）により、改善を要する指摘が存在する場合は PR レビューステータスを `Changes Requested` とし、全スレッド解決時に自動で `Approved` に遷移させること。また、`Changes Requested` の状態、またはレビュー実行中の状態での早期マージを防止・ブロックすること。
+- **待機と確定失敗の分離（Review Gate）**: CodeRabbit レビュー未完了、または必須セキュリティスキャン未開始／実行中は、必須ステータス `Verify All Review Conversations Resolved` を **failure にせず pending（待機）** とし、マージのみブロックすること。未解決スレッド・未完了チェックボックス・`CHANGES_REQUESTED`・スキャン failure・未解消 Code Scanning アラートなど **確定違反のみ failure** とすること。必須ステータスの報告経路は PR HEAD に対する単一 context に一本化し、同名のジョブ自動チェックと二重報告してはならない。
 
 ---
 

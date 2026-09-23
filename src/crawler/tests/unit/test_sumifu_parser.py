@@ -55,6 +55,42 @@ class TestSumifuParser:
         assert apt_parser.getCharset() == "cp932"
         assert kodate_parser.getCharset() == "cp932"
 
+    def test_residential_charset_is_cp932(self):
+        assert SumifuMansionParser(None).getCharset() == "cp932"
+        assert SumifuKodateParser(None).getCharset() == "cp932"
+        assert SumifuTochiParser(None).getCharset() == "cp932"
+
+    def test_mansion_balcony_str_handles_string_specs(self):
+        """_get_specs は文字列を返す — balcony 抽出で get_text AttributeError にならないこと"""
+        parser = SumifuMansionParser(None)
+        soup = BeautifulSoup(
+            "<table><tr><th>バルコニー</th><td>7.5m²</td></tr>"
+            "<tr><th>所在地</th><td>東京都港区</td></tr>"
+            "<tr><th>価格</th><td>5000万円</td></tr></table>"
+            '<div class="article-header__price"><div class="price">'
+            '<span class="price__number">5,000</span>万円</div></div>',
+            "html.parser",
+        )
+        assert parser._parseBalconyMensekiStr(soup) == "7.5m²"
+        item = parser.createEntity()
+        parsed = parser._parsePropertyDetailPage(item, soup)
+        assert parsed.address
+        assert parsed.price
+
+    def test_mansion_price_from_price_number_span(self):
+        parser = SumifuMansionParser(None)
+        soup = BeautifulSoup(
+            '<div class="article-header__price"><div class="price">'
+            '<span class="price__number">1,580</span>万円</div></div>'
+            "<table><tr><th>所在地</th><td>神奈川県高座郡寒川町一之宮７丁目</td></tr>"
+            "<tr><th>専有面積</th><td>66.51m²</td></tr></table>",
+            "html.parser",
+        )
+        price_str = parser._parsePriceStr(soup)
+        assert "1,580" in price_str
+        assert parser._parsePrice(soup) == 15800000
+        assert "寒川" in parser._parseAddress(soup)
+
     def test_investment_parse_kouzou_string_handling(self):
         """スペック辞書の値が文字列の場合でも例外なく構造が抽出できること"""
         parser = SumifuInvestmentApartmentParser(None)

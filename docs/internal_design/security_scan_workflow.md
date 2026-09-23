@@ -89,7 +89,9 @@ jobs:
 ### 1.5 レビューゲート統合 (`.github/workflows/review-gate.yml`)
 - **検査内容**:
   - `CodeQL Scan (python/actions)`, `Trivy Security Scan`, `Semgrep SAST Scan`, `Checkov IaC` ジョブの完了・成功状態を検証。
-  - GitHub Code Scanning API（`/repos/{owner}/{repo}/code-scanning/alerts?ref=refs/heads/{head_ref}`）を呼び出し、未解消のアラートが存在する場合に PR マージ判定（`Verify All Review Conversations Resolved`）を失敗させてブロック。
+  - 未開始／実行中は必須 status `Verify All Review Conversations Resolved` を **pending**（failure にしない）。スキャン **failure** および未解消 Code Scanning アラートのみ **failure**。
+  - 報告は `pr.head.sha` への単一 commit status に一本化（ジョブ名は `review-gate-runner`）。
+  - GitHub Code Scanning API はまず `ref=refs/pull/{prNumber}/merge` を照会し、API エラー時のみ `ref=refs/heads/{head_ref}` にフォールバックする。未解消アラートがある場合は必須 status を **failure** としてマージをブロックする。
 
 ---
 

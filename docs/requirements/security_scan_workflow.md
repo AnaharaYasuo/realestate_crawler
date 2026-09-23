@@ -62,7 +62,7 @@
 
 ### FR-SEC-013: PR 時の Code Scanning & Security Scan 自動検証・ブロック機構
 - `security-scan.yml` の Checkov から `soft_fail: true` を撤廃し、未承認の誤設定検知時に CI を確実に失敗させること。
-- PR レビューゲート（`review-gate.yml`）において、セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）の成否および未解消 Code Scanning アラートを自動検証し、違反が存在する PR のマージ判定を確実にブロックすること。
+- PR レビューゲート（`review-gate.yml`）において、セキュリティスキャン（CodeQL, Trivy, Semgrep, Checkov）の成否および未解消 Code Scanning アラートを自動検証し、違反が存在する PR のマージ判定を確実にブロックすること。スキャン未開始／実行中は **pending（待機）**、スキャン failure および未解消アラートのみ **failure** とし、待機中の一時 failure が必須チェックに残留してマージを阻害しないこと。
 
 ### FR-SEC-014: `.checkov.yaml` によるポリシー・除外項目の一元管理
 - CI およびローカルスキャンにおいて共通の Checkov 設定ファイル（`.checkov.yaml`）を配備し、インフラセキュリティ監査基準を統一・再現可能にすること。
