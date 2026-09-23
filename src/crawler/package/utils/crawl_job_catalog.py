@@ -342,7 +342,7 @@ def _seed_from_inheritance(api_module: str, start_class: str, url_lists: dict[st
 
 @lru_cache(maxsize=1)
 def build_catalog() -> dict[tuple[str, str], CrawlTarget]:
-    route_seeds = _extract_route_seeds()
+    route_seeds, _ = _extract_route_info()
     url_lists = _extract_url_lists()
     catalog: dict[tuple[str, str], CrawlTarget] = {}
     for company, ptype in CRAWL_JOBS:
