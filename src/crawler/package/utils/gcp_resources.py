@@ -52,6 +52,28 @@ def get_gcp_access_token() -> str | None:
     return None
 
 
+def _resize_via_compute_client(
+    compute_module: Any, project: str, reg: str, mig: str, target_size: int
+) -> bool:
+    if compute_module is None:
+        return False
+    try:
+        client = compute_module.RegionInstanceGroupManagersClient()
+        op = client.resize(
+            project=project,
+            region=reg,
+            instance_group_manager=mig,
+            size=target_size,
+        )
+        logger.info(
+            f"Resize operation submitted via compute_v1: {getattr(op, 'name', op)}"
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to resize ProxySQL MIG via compute_v1: {e}")
+        return False
+
+
 def _resize_mig_via_rest(
     project: str,
     region: str,
@@ -240,21 +262,8 @@ def scale_proxysql_mig(
         return True
 
     # 1. compute_v1 クライアントライブラリ
-    if compute_module is not None:
-        try:
-            client = compute_module.RegionInstanceGroupManagersClient()
-            op = client.resize(
-                project=project,
-                region=reg,
-                instance_group_manager=mig,
-                size=target_size,
-            )
-            logger.info(
-                f"Resize operation submitted via compute_v1: {getattr(op, 'name', op)}"
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to resize ProxySQL MIG via compute_v1: {e}")
+    if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
+        return True
 
     # 2. REST API フォールバック
     token_fn = get_token_callback or get_gcp_access_token

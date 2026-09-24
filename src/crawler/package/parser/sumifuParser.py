@@ -255,7 +255,7 @@ class SumifuParser(ParserBase):
             result['douroMuki'] = muki_match.group(1)
         
         # Width
-        haba_match = re.search(r'(\d+(\.\d+)?)m', text)
+        haba_match = re.search(r'(\d{1,5}(?:\.\d{1,3})?)m', text)
         if haba_match:
             try: result['douroHaba'] = Decimal(haba_match.group(1))
             except Exception: pass
@@ -1178,7 +1178,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
         if td:
              val = self._getText(td)
-             temp = re.split(u'/|／|\n', val)
+             temp = re.split(r'[/／\n]', val)
              return temp[0].strip()
         return ""
 
@@ -1186,7 +1186,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
         if td:
              val = self._getText(td)
-             temp = re.split(u'/|／|\n', val)
+             temp = re.split(r'[/／\n]', val)
              if len(temp) >= 2: return temp[1].strip()
         return ""
 
@@ -1714,7 +1714,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         val = self._parseSpecsCombined(response, "階数")
         if not val: return None
         # Extract number "2" from "地上2階建て"
-        match = re.search(r'(\d+)階', val)
+        match = re.search(r'(\d{1,5})階', val)
         return int(match.group(1)) if match else None
 
     def _parseKouzou(self, response, _specs=None):

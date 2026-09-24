@@ -263,7 +263,7 @@ class SingleUnifiedPropertyExtractor:
             
             # Markdown コードブロックの除去
             cleaned_json = re.sub(r"^```json\s*", "", raw_text)
-            cleaned_json = re.sub(r"\s*```$", "", cleaned_json)
+            cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
 
             data = json.loads(cleaned_json)
             return self._dict_to_attributes(data, fallback_res)
@@ -310,7 +310,7 @@ class SingleUnifiedPropertyExtractor:
         # 価格の簡易抽出
         price_man = None
         price_str = prop_data.get("price_str", "") or prop_data.get("specs", {}).get("価格", "")
-        price_match = re.search(r'([\d,]+(?:\.\d+)?)\s*万円', price_str.replace(",", ""))
+        price_match = re.search(r'(\d{1,10}(?:\.\d{1,4})?)\s*万円', price_str.replace(",", ""))
         if price_match:
             try:
                 price_man = int(float(price_match.group(1)))

@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import urllib.parse
 import importlib
-from typing import Optional
+from typing import Optional, Any, Tuple
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 
@@ -631,56 +631,43 @@ def predict_tochi():
         return jsonify({"success": False, "message": INTERNAL_SERVER_ERROR_MSG}), 500
 
 
+def _clean_int(val):
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except Exception:
+        return None
+
+
+def _clean_float(val):
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except Exception:
+        return None
+
+
 def _extract_property_info(item):
     """モデルオブジェクトまたは辞書から表示用プロパティ辞書を安全に抽出"""
     if not item:
         return {}
 
     def _val(attr, default=None):
-        if isinstance(item, dict):
-            val = item.get(attr, default)
-        else:
-            val = getattr(item, attr, default)
-
-        # MagicMockやMockオブジェクトが自動生成された場合は除外
+        val = item.get(attr, default) if isinstance(item, dict) else getattr(item, attr, default)
         if hasattr(val, '_mock_name') or type(val).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
             return default
         return val
 
-    address = _val("address", "")
-    if not address:
-        a1 = _val("address1", "") or ""
-        a2 = _val("address2", "") or ""
-        address = f"{a1}{a2}".strip()
-
-    price = _val("price", None)
-    if price is not None:
-        try:
-            price = int(price)
-        except Exception:
-            price = None
-
-    walk_minute = _val("railwayWalkMinute1", None)
-    if walk_minute is not None:
-        try:
-            walk_minute = int(walk_minute)
-        except Exception:
-            walk_minute = None
-
-    def _clean_float(v):
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except Exception:
-            return None
+    address = _val("address", "") or f"{_val('address1', '') or ''}{_val('address2', '') or ''}".strip()
 
     info = {
         "propertyName": str(_val("propertyName", "") or ""),
-        "price": price,
+        "price": _clean_int(_val("price", None)),
         "address": str(address or ""),
         "station": str(_val("station1", "") or ""),
-        "walkMinute": walk_minute,
+        "walkMinute": _clean_int(_val("railwayWalkMinute1", None)),
         "senyuMenseki": _clean_float(_val("senyuMenseki", None)),
         "tatemonoMenseki": _clean_float(_val("tatemonoMenseki", None)),
         "tochiMenseki": _clean_float(_val("tochiMenseki", None)),
@@ -734,239 +721,183 @@ async def _execute_predict_by_url(
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
     """
-    # -------------------------------------------------------------
-    # Tier 1: PropertyEvaluation キャッシュ照会
-    # -------------------------------------------------------------
-    if not force_refresh:
-        eval_record = None
-        try:
-            eval_record = UrlMatcher.find_match_in_queryset(
-                PropertyEvaluation.objects, "property_url", url
-            )
-        except Exception as e:
-            logging.exception(f"PropertyEvaluation cache query failed: {e}")
-
-        if eval_record and eval_record.first_stage_predicted_price is not None:
-            prop_info = {}
-            route = UrlRouter.resolve(url, property_type=property_type_hint)
-            if route:
-                try:
-                    mod = importlib.import_module(route["model_module"])
-                    model_cls = getattr(mod, route["model_cls"])
-                    existing_item = UrlMatcher.find_match_in_queryset(
-                        model_cls.objects, "pageUrl", url
-                    )
-                    if existing_item:
-                        prop_info = _extract_property_info(existing_item)
-                except Exception as e:
-                    logging.exception(f"Failed to fetch model info for cached eval: {e}")
-
-
-
-            first_pred = int(eval_record.first_stage_predicted_price)
-            second_pred = int(eval_record.second_stage_predicted_price) if eval_record.second_stage_predicted_price is not None else first_pred
-            asking_price = prop_info.get("price")
-            price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_pred, asking_price)
-
-            site_name = getattr(eval_record, 'company', 'unknown')
-            if hasattr(site_name, '_mock_name') or type(site_name).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
-                site_name = route["site"] if route else "unknown"
-
-            ptype_name = getattr(eval_record, 'property_type', 'mansion')
-            if hasattr(ptype_name, '_mock_name') or type(ptype_name).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
-                ptype_name = route["property_type"] if route else "mansion"
-
-            return {
-                "success": True,
-                "url": url,
-                "data_source": "evaluation_cache",
-                "site": str(site_name),
-                "property_type": str(ptype_name),
-                "property_info": prop_info,
-                "prediction": {
-                    "first_stage_predicted_price": first_pred,
-                    "second_stage_predicted_price": second_pred,
-                    "price_gap": price_gap,
-                    "divergence_ratio": ratio,
-                    "is_bargain": is_bargain
-                },
-                "investment": None,
-                "message": "Estimation completed successfully (Cached)"
-            }, 200
-
-    # -------------------------------------------------------------
-    # 対象サイトの判定
-    # -------------------------------------------------------------
-    route = UrlRouter.resolve(url, property_type=property_type_hint)
+def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
     if not route:
-        # 未対応サイト ➔ 到達性 & 不動産キーワードチェック ➔ CandidatePropertyUrl 登録
-        is_prop, page_title, matched_kws = await UrlSecurityValidator.check_property_content_and_reachability(url)
-        if is_prop:
-            detected_type = PropertyTypeDetector.detect(url=url, title=page_title)
-            parsed_domain = urllib.parse.urlparse(url).netloc
-            clean_url = UrlMatcher.normalize(url)
-            cand = UrlMatcher.find_match_in_queryset(
-                CandidatePropertyUrl.objects, "url", url
-            )
-            if cand:
-                cand.request_count += 1
-                cand.save(update_fields=["request_count", "updated_at"])
-                req_count = cand.request_count
-            else:
-                CandidatePropertyUrl.objects.create(
-                    url=clean_url,
-                    domain=parsed_domain,
-                    title=str(page_title or "")[:300],
-                    matched_keywords=matched_kws,
-                    request_count=1
-                )
-                req_count = 1
-
-            # パーサー未対応サイトとして明示的に ERROR ログを出力（監視・新規パーサー開発対象）
-            type_label = f" (detected_type: {detected_type})" if detected_type else ""
-            logging.error(
-                f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}'{type_label} "
-                f"(URL: {clean_url}, Title: '{page_title}', Keywords: {matched_kws}). "
-                f"Target registered to CandidatePropertyUrl backlog (count={req_count})."
-            )
-
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "UNSUPPORTED_SITE_CANDIDATE_RECORDED",
-                "message": "指定されたサイトは現在未対応ですが、今後のクローリング候補として登録されました。",
-                "details": {
-                    "domain": parsed_domain,
-                    "title": page_title,
-                    "detected_property_type": detected_type,
-                    "matched_keywords": matched_kws,
-                    "candidate_request_count": req_count
-                }
-            }, 400
-        else:
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "UNSUPPORTED_SITE_NOT_PROPERTY",
-                "message": "指定されたURLは未対応のサイトであり、有効な不動産物件ページを確認できませんでした。"
-            }, 400
-
-    site = route["site"]
-    property_type = route["property_type"]
-    model_mod = importlib.import_module(route["model_module"])
-    model_cls = getattr(model_mod, route["model_cls"])
-
-    # -------------------------------------------------------------
-    # Tier 2: 各社物件テーブル既存レコード確認
-    # -------------------------------------------------------------
-    existing_item = None
-    if not force_refresh:
+        return {}
+    try:
+        mod = importlib.import_module(route["model_module"])
+        model_cls = getattr(mod, route["model_cls"])
         existing_item = UrlMatcher.find_match_in_queryset(
             model_cls.objects, "pageUrl", url
         )
+        if existing_item:
+            return _extract_property_info(existing_item)
+    except Exception as e:
+        logging.exception(f"Failed to fetch model info for cached eval: {e}")
+    return {}
 
-    target_item = existing_item
-    data_source = "db_property" if existing_item else "live_crawl"
 
-    # -------------------------------------------------------------
-    # Tier 3: 存在しない（または force_refresh）の場合はリアルタイム取得
-    # -------------------------------------------------------------
+def _resolve_cached_meta(eval_record, route: Optional[dict]) -> Tuple[str, str]:
+    site_name = getattr(eval_record, "company", "unknown")
+    if hasattr(site_name, "_mock_name") or type(site_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        site_name = route["site"] if route else "unknown"
+
+    ptype_name = getattr(eval_record, "property_type", "mansion")
+    if hasattr(ptype_name, "_mock_name") or type(ptype_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        ptype_name = route["property_type"] if route else "mansion"
+    return str(site_name), str(ptype_name)
+
+
+def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: Optional[str]):
+    if force_refresh:
+        return None
+    try:
+        eval_record = UrlMatcher.find_match_in_queryset(
+            PropertyEvaluation.objects, "property_url", url
+        )
+    except Exception as e:
+        logging.exception(f"PropertyEvaluation cache query failed: {e}")
+        return None
+
+    if not eval_record or eval_record.first_stage_predicted_price is None:
+        return None
+
+    route = UrlRouter.resolve(url, property_type=property_type_hint)
+    prop_info = _fetch_cached_property_info(url, route)
+
+    first_pred = int(eval_record.first_stage_predicted_price)
+    second_pred = int(eval_record.second_stage_predicted_price) if eval_record.second_stage_predicted_price is not None else first_pred
+    asking_price = prop_info.get("price")
+    price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_pred, asking_price)
+
+    site_name, ptype_name = _resolve_cached_meta(eval_record, route)
+
+    return {
+        "success": True,
+        "url": url,
+        "data_source": "evaluation_cache",
+        "site": site_name,
+        "property_type": ptype_name,
+        "property_info": prop_info,
+        "prediction": {
+            "first_stage_predicted_price": first_pred,
+            "second_stage_predicted_price": second_pred,
+            "price_gap": price_gap,
+            "divergence_ratio": ratio,
+            "is_bargain": is_bargain
+        },
+        "investment": None,
+        "message": "Estimation completed successfully (Cached)"
+    }, 200
+
+
+async def _handle_unsupported_route(url: str):
+    is_prop, page_title, matched_kws = await UrlSecurityValidator.check_property_content_and_reachability(url)
+    if not is_prop:
+        return {
+            "success": False,
+            "url": url,
+            "data_source": None,
+            "error_code": "UNSUPPORTED_SITE_NOT_PROPERTY",
+            "message": "指定されたURLは未対応のサイトであり、有効な不動産物件ページを確認できませんでした。"
+        }, 400
+
+    detected_type = PropertyTypeDetector.detect(url=url, title=page_title)
+    parsed_domain = urllib.parse.urlparse(url).netloc
+    clean_url = UrlMatcher.normalize(url)
+    cand = UrlMatcher.find_match_in_queryset(
+        CandidatePropertyUrl.objects, "url", url
+    )
+    if cand:
+        cand.request_count += 1
+        cand.save(update_fields=["request_count", "updated_at"])
+        req_count = cand.request_count
+    else:
+        CandidatePropertyUrl.objects.create(
+            url=clean_url,
+            domain=parsed_domain,
+            title=str(page_title or "")[:300],
+            matched_keywords=matched_kws,
+            request_count=1
+        )
+        req_count = 1
+
+    type_label = f" (detected_type: {detected_type})" if detected_type else ""
+    logging.error(
+        f"[PARSER_UNAVAILABLE] No parser implemented for site domain '{parsed_domain}'{type_label} "
+        f"(URL: {clean_url}, Title: '{page_title}', Keywords: {matched_kws}). "
+        f"Target registered to CandidatePropertyUrl backlog (count={req_count})."
+    )
+
+    return {
+        "success": False,
+        "url": url,
+        "data_source": None,
+        "error_code": "UNSUPPORTED_SITE_CANDIDATE_RECORDED",
+        "message": "指定されたサイトは現在未対応ですが、今後のクローリング候補として登録されました。",
+        "details": {
+            "domain": parsed_domain,
+            "title": page_title,
+            "detected_property_type": detected_type,
+            "matched_keywords": matched_kws,
+            "candidate_request_count": req_count
+        }
+    }, 400
+
+
+def _save_live_scraped_item(target_item: Any, clean_url: str) -> None:
+    try:
+        target_model_cls = target_item.__class__
+        model_fields = [f.name for f in target_model_cls._meta.fields if f.name not in ('id', 'created_at', 'updated_at', 'inputDate')]
+        defaults_dict = {f: getattr(target_item, f, None) for f in model_fields if getattr(target_item, f, None) is not None}
+        target_model_cls.objects.update_or_create(pageUrl=clean_url, defaults=defaults_dict)
+    except Exception as e:
+        logging.warning(f"Failed to upsert property item to DB for {clean_url}: {e}")
+
+
+async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optional[Tuple[dict, int]]]:
+    clean_url = UrlMatcher.normalize(url)
+    try:
+        parser_mod = importlib.import_module(route["parser_module"])
+        parser_cls = getattr(parser_mod, route["parser_cls"])
+        parser = parser_cls()
+    except Exception as e:
+        logging.exception(
+            f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {clean_url}: {e}",
+            exc_info=True
+        )
+        return None, ({
+            "success": False,
+            "url": url,
+            "data_source": None,
+            "error_code": "PARSER_NOT_FOUND",
+            "message": f"パーサーの実装が見つかりません: {str(e)}"
+        }, 500)
+
+    try:
+        connector = aiohttp.TCPConnector(ssl=False)
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            target_item = await parser.parsePropertyDetailPage(session, clean_url)
+    except ListingEndedException:
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "LISTING_ENDED", "message": "物件の掲載が終了しているか、削除されています。"}, 410)
+    except RateLimitedException as e:
+        logging.warning(f"Target site rate limited for {clean_url}: {e}")
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "TARGET_SITE_RATE_LIMITED", "message": f"対象サイトのアクセス制限(429)に到達しました: {str(e)}"}, 429)
+    except (LoadPropertyPageException, asyncio.TimeoutError):
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "TARGET_SITE_TIMEOUT", "message": "対象サイトへの接続に失敗したか、タイムアウトしました。"}, 504)
+    except Exception as e:
+        logging.exception(f"Live crawling error for {url}: {e}")
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "PARSE_FAILED", "message": f"物件ページのパースに失敗しました: {str(e)}"}, 422)
+
     if target_item is None:
-        clean_url = UrlMatcher.normalize(url)
-        try:
-            parser_mod = importlib.import_module(route["parser_module"])
-            parser_cls = getattr(parser_mod, route["parser_cls"])
-            parser = parser_cls()
-        except Exception as e:
-            logging.exception(
-                f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {clean_url}: {e}",
-                exc_info=True
-            )
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "PARSER_NOT_FOUND",
-                "message": f"パーサーの実装が見つかりません: {str(e)}"
-            }, 500
+        return None, ({"success": False, "url": url, "data_source": None, "error_code": "PARSE_FAILED", "message": "物件情報の抽出結果が空です。"}, 422)
 
-        try:
-            connector = aiohttp.TCPConnector(ssl=False)
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                target_item = await parser.parsePropertyDetailPage(session, clean_url)
-        except ListingEndedException:
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "LISTING_ENDED",
-                "message": "物件の掲載が終了しているか、削除されています。"
-            }, 410
-        except RateLimitedException as e:
-            logging.warning(f"Target site rate limited for {clean_url}: {e}")
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "TARGET_SITE_RATE_LIMITED",
-                "message": f"対象サイトのアクセス制限(429)に到達しました: {str(e)}"
-            }, 429
-        except (LoadPropertyPageException, asyncio.TimeoutError):
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "TARGET_SITE_TIMEOUT",
-                "message": "対象サイトへの接続に失敗したか、タイムアウトしました。"
-            }, 504
-        except Exception as e:
-            logging.exception(f"Live crawling error for {url}: {e}")
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "PARSE_FAILED",
-                "message": f"物件ページのパースに失敗しました: {str(e)}"
-            }, 422
+    _save_live_scraped_item(target_item, clean_url)
+    return target_item, None
 
-        if target_item is None:
-            return {
-                "success": False,
-                "url": url,
-                "data_source": None,
-                "error_code": "PARSE_FAILED",
-                "message": "物件情報の抽出結果が空です。"
-            }, 422
 
-        # 物件テーブルへの Upsert (正規化URLで保存)
-        try:
-            target_model_cls = target_item.__class__
-            property_type = PropertyTypeDetector.detect_from_object(target_item)
-            model_fields = [f.name for f in target_model_cls._meta.fields if f.name not in ('id', 'created_at', 'updated_at', 'inputDate')]
-            defaults_dict = {}
-            for f in model_fields:
-                val = getattr(target_item, f, None)
-                if val is not None:
-                    defaults_dict[f] = val
-            saved_item, _ = target_model_cls.objects.update_or_create(pageUrl=clean_url, defaults=defaults_dict)
-            target_item = saved_item
-        except Exception as e:
-            logging.warning(f"Failed to upsert property item to DB for {url}: {e}")
-
-    # -------------------------------------------------------------
-    # 特徴量化 & 機械学習推論
-    # -------------------------------------------------------------
-    serialized = _serialize_property(target_item, property_type)
-    first_pred = predict_first_stage_local(serialized)
-    second_pred = predict_second_stage_local(serialized, interior_score, layout_score)
-
-    first_val = int(first_pred or 0)
-    second_val = int(second_pred or first_val)
-
-    # PropertyEvaluation への Upsert (正規化URLで保存)
+def _save_property_evaluation(target_item, url, site, property_type, first_val, second_val, interior_score, layout_score):
     prop_id = getattr(target_item, 'id', 0)
     if hasattr(prop_id, '_mock_name') or type(prop_id).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
         prop_id = 0
@@ -992,6 +923,50 @@ async def _execute_predict_by_url(
     except Exception as e:
         logging.warning(f"Failed to update PropertyEvaluation for {url}: {e}")
 
+
+async def _execute_predict_by_url(
+    url: str,
+    force_refresh: bool,
+    interior_score: float,
+    layout_score: float,
+    property_type_hint: Optional[str] = None
+):
+    """
+    URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
+    """
+    cached_resp = _lookup_cached_evaluation(url, force_refresh, property_type_hint)
+    if cached_resp:
+        return cached_resp
+
+    route = UrlRouter.resolve(url, property_type=property_type_hint)
+    if not route:
+        return await _handle_unsupported_route(url)
+
+    site = route["site"]
+    property_type = route["property_type"]
+    model_mod = importlib.import_module(route["model_module"])
+    model_cls = getattr(model_mod, route["model_cls"])
+
+    existing_item = None if force_refresh else UrlMatcher.find_match_in_queryset(model_cls.objects, "pageUrl", url)
+    if existing_item:
+        target_item = existing_item
+        data_source = "db_property"
+    else:
+        target_item, err_resp = await _fetch_live_property_item(route, url)
+        if err_resp:
+            return err_resp
+        data_source = "live_crawl"
+        property_type = PropertyTypeDetector.detect_from_object(target_item) or property_type
+
+    serialized = _serialize_property(target_item, property_type)
+    first_pred = predict_first_stage_local(serialized)
+    second_pred = predict_second_stage_local(serialized, interior_score, layout_score)
+
+    first_val = int(first_pred or 0)
+    second_val = int(second_pred or first_val)
+
+    _save_property_evaluation(target_item, url, site, property_type, first_val, second_val, interior_score, layout_score)
+
     prop_info = _extract_property_info(target_item)
     asking_price = prop_info.get("price")
     price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_val, asking_price)
@@ -1015,48 +990,35 @@ async def _execute_predict_by_url(
     }, 200
 
 
-@evaluation_bp.route('/api/evaluation/predict-by-url', methods=['POST', 'OPTIONS'])
-def predict_by_url():
-    """
-    物件詳細URL価格推定API
-    """
-    if request.method == 'OPTIONS':
-        return "", 200
+def _check_client_rate_and_lockout(client_ip: str):
+    if is_internal_client():
+        return None
+    is_locked, remaining_sec = lockout_manager.is_locked_out(client_ip)
+    if is_locked:
+        return jsonify({
+            "success": False,
+            "error_code": "IP_LOCKED_OUT",
+            "message": "Too many violations. Access is temporarily blocked. Please retry later.",
+            "retry_after_seconds": remaining_sec
+        }), 403
+    allowed, _ = rate_limiter.is_allowed(client_ip)
+    if not allowed:
+        lockout_manager.record_strike(client_ip)
+        return jsonify({
+            "success": False,
+            "error_code": "RATE_LIMIT_EXCEEDED",
+            "message": "Rate limit exceeded. Please slow down.",
+        }), 429
+    return None
 
-    client_ip = get_client_ip()
 
-    # 内部接続（自作システム、バッチ、正規キー、ローカル接続）は流量制限・ロックアウトをバイパス
-    if not is_internal_client():
-        # 1. ロックアウト確認
-        is_locked, remaining_sec = lockout_manager.is_locked_out(client_ip)
-        if is_locked:
-            return jsonify({
-                "success": False,
-                "error_code": "IP_LOCKED_OUT",
-                "message": "Too many violations. Access is temporarily blocked. Please retry later.",
-                "retry_after_seconds": remaining_sec
-            }), 403
-
-        # 2. 流量制限（レートリミット）確認
-        allowed, _ = rate_limiter.is_allowed(client_ip)
-        if not allowed:
-            lockout_manager.record_strike(client_ip)
-            return jsonify({
-                "success": False,
-                "error_code": "RATE_LIMIT_EXCEEDED",
-                "message": "Rate limit exceeded. Please slow down.",
-            }), 429
-
-    data = request.get_json(silent=True) or {}
-    url = data.get("url", "").strip()
+def _validate_request_url_security(url: str, client_ip: str):
     if not url:
         return jsonify({
             "success": False,
             "error_code": "INVALID_URL",
             "message": "Missing 'url' parameter in request body"
         }), 400
-
-    # 3. URL セキュリティ & SSRF 防御
     is_safe, sec_reason = UrlSecurityValidator.validate_url_security(url)
     if not is_safe:
         if "Blocked" in sec_reason or "SSRF" in sec_reason:
@@ -1066,6 +1028,27 @@ def predict_by_url():
             "error_code": "SECURITY_BLOCKED",
             "message": sec_reason
         }), 400
+    return None
+
+
+@evaluation_bp.route('/api/evaluation/predict-by-url', methods=['POST', 'OPTIONS'])
+def predict_by_url():
+    """
+    物件詳細URL価格推定API
+    """
+    if request.method == 'OPTIONS':
+        return "", 200
+
+    client_ip = get_client_ip()
+    gate_err = _check_client_rate_and_lockout(client_ip)
+    if gate_err:
+        return gate_err
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "").strip()
+    sec_err = _validate_request_url_security(url, client_ip)
+    if sec_err:
+        return sec_err
 
     force_refresh = bool(data.get("force_refresh", False))
     interior_score = float(data.get("interior_score", 3.0))

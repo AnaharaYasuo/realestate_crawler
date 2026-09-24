@@ -37,3 +37,26 @@ SonarCloud API (`https://sonarcloud.io/api/issues/search?componentKeys=AnaharaYa
 - **NFR-001 (リグレッションゼロ)**: 既存の全ユニットテスト（1,138件）が全件パスすること。
 - **NFR-002 (パフォーマンス維持)**: クローリング・パース処理の処理時間が劣化しないこと。
 - **NFR-003 (Quality Gate PASS維持)**: SonarCloud Quality Gate（New Code Gate）が常に PASS を維持すること。
+
+## 5. 第2期拡張要件: 残存オープン課題（151件）の完全ゼロ化 (Issue #421)
+過去の大規模解消後に残存した 151件のオープン課題（`remaining_sonar_issues.json`）を完全ゼロ化する：
+1. **FR-007 (S8786 正規表現バックトラッキング解消 - 48件)**:
+   - 全社パーサー（daikyo, heim, misawa, mitsui, nomura, odakyu, seibu, sotetsu, sumifu, sumirin, tokyu）および `building_resolver`, `features`, `deduplication`, `converter` 内の無制限量指定子（`\d+`、`.+` 等）に対し、有限長境界（`\d{1,5}`、`[^...]{1,20}` 等）の適用または文字列分割（`split` / `replace`）への置換を行い、バックトラックを根絶する。
+2. **FR-008 (S3776 認知的複雑度低減 & スクリプト設定適正化 - 77件)**:
+   - 内部保守・検証ツール群（`scripts/debug_tools/`, `scripts/maintenance/`, `scripts/ops/`, `scripts/data_import/` 等）を `sonar.exclusions` の対象として適正化。
+   - コアロジック（`main.py`, `differential.py`, `building_resolver.py`, `plot_shape_analyzer.py`, 各種パーサー）の認知的複雑度を早期リターンおよびサブ関数抽出により 15 以下へ低減。
+3. **FR-009 (S125 コメントアウトコード削除 - 7件)**:
+   - ルート定義（`mitsui_routes`, `tokyu_routes`）内の旧リクエストJSONパースコメントを完全削除。
+   - `building_resolver`, `sync_all_potentials`, `api.py` のモジュール説明コメントにおけるコード類似表現の是正。
+4. **FR-010 (S8572 ログ例外ハンドリング - 6件)**:
+   - `main.py` および `api.py` 内の `logging.error(..., exc_info=True)` および `logging.error(traceback.format_exc())` を `logging.exception(...)` に統一。
+5. **FR-011 (S2638 メソッドシグネチャ整合 - 4件)**:
+   - `seibuParser`, `sumirinParser` の `_parsePrice`, `_parseAddress` に基底クラス準拠の `specs=None` を追加。
+6. **FR-012 (S5713 / S1481 / S6035 / S3457 / S1172 / S7780 の完全解消 - 9件)**:
+   - S5713 (2件): `tokyuParser` (JSONDecodeError vs ValueError) および `api.py` (ListingEndedException vs SkipPropertyException) の冗長例外キャッチを削除。
+   - S1481 (2件): `api.py` および `sync_estat_municipalities.py` の未使用ローカル変数を `_` に置換。
+   - S6035 (2件): `sumifuParser` 内の `re.split(u'/|／|\n', val)` を文字クラス `r'[/／\n]'` に置換。
+   - S3457 (1件): `resolve_duplicate_evaluations.py` の `100% clean` による `% c` 誤認を `100%%` にエスケープ。
+   - S1172 (1件): `tokyuParser` の未使用引数 `specs` を `_specs=None` に改名。
+   - S7780 (1件): `slack_agent_host.js` の文字列エスケープを `String.raw` に置換。
+

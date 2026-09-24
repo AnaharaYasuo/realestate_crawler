@@ -377,6 +377,74 @@ def calculate_interior_angles(
     return angles, acute_count, reflex_count
 
 
+def _find_best_obb_alignment(pts: np.ndarray, vertices: List[Tuple[float, float]]) -> np.ndarray:
+    n = len(vertices)
+    angles = [0.0]
+    for i in range(n):
+        dx = vertices[(i + 1) % n][0] - vertices[i][0]
+        dy = vertices[(i + 1) % n][1] - vertices[i][1]
+        angles.append(math.atan2(dy, dx))
+
+    min_area = float('inf')
+    best_pts = pts
+    for a in angles:
+        cos_a, sin_a = math.cos(-a), math.sin(-a)
+        rot_mat = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
+        r_pts = np.dot(pts, rot_mat.T)
+        min_xy = np.min(r_pts, axis=0)
+        max_xy = np.max(r_pts, axis=0)
+        span = max_xy - min_xy
+        area = span[0] * span[1]
+        if area < min_area:
+            min_area = area
+            best_pts = r_pts - min_xy
+    return best_pts
+
+
+def _eval_passage_segment(valid: np.ndarray, total_len: float, plot_area: float) -> Tuple[bool, float, float]:
+    max_w = float(np.max(valid))
+    narrow_thresh = min(4.0, max_w * 0.55)
+    is_narrow = valid <= narrow_thresh
+    lead_len = 0
+    for val in is_narrow:
+        if val:
+            lead_len += 1
+        else:
+            break
+    trail_len = 0
+    for val in reversed(is_narrow):
+        if val:
+            trail_len += 1
+        else:
+            break
+
+    chosen_len = max(lead_len, trail_len)
+    seg_ratio = chosen_len / len(valid)
+    passage_len = seg_ratio * total_len
+    if 0.10 <= seg_ratio <= 0.75 and passage_len >= 2.0:
+        p_w = float(np.median(valid[:lead_len])) if lead_len >= trail_len else float(np.median(valid[-trail_len:]))
+        if p_w <= 4.0:
+            return True, round(p_w, 2), round(min(plot_area * 0.8, p_w * passage_len), 2)
+    return False, 0.0, 0.0
+
+
+def _calc_bottleneck_width(row_widths: np.ndarray, col_widths: np.ndarray, is_flagpole: bool, p_width: float) -> float:
+    if is_flagpole and p_width > 0:
+        return p_width
+    valid_rows = row_widths[row_widths > 0.1]
+    valid_cols = col_widths[col_widths > 0.1]
+    if len(valid_rows) > 0 and len(valid_cols) > 0:
+        all_valid = np.concatenate([valid_rows, valid_cols])
+    else:
+        all_valid = valid_rows if len(valid_rows) > 0 else valid_cols
+    if len(all_valid) > 10:
+        trimmed = np.sort(all_valid)
+        return float(trimmed[int(len(trimmed) * 0.05)])
+    if len(all_valid) > 0:
+        return float(np.min(all_valid))
+    return 0.0
+
+
 def calculate_mic_and_bottleneck(
     vertices: List[Tuple[float, float]],
     plot_area: float,
@@ -400,28 +468,7 @@ def calculate_mic_and_bottleneck(
         }
 
     pts = np.array(vertices, dtype=np.float64)
-    n = len(vertices)
-
-    # OBB整列（主軸方向へ回転）
-    angles = [0.0]
-    for i in range(n):
-        dx = vertices[(i + 1) % n][0] - vertices[i][0]
-        dy = vertices[(i + 1) % n][1] - vertices[i][1]
-        angles.append(math.atan2(dy, dx))
-
-    min_area = float('inf')
-    best_pts = None
-    for a in angles:
-        cos_a, sin_a = math.cos(-a), math.sin(-a)
-        rot_mat = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
-        r_pts = np.dot(pts, rot_mat.T)
-        min_xy = np.min(r_pts, axis=0)
-        max_xy = np.max(r_pts, axis=0)
-        span = max_xy - min_xy
-        area = span[0] * span[1]
-        if area < min_area:
-            min_area = area
-            best_pts = r_pts - min_xy
+    best_pts = _find_best_obb_alignment(pts, vertices)
 
     span_x = max(float(np.max(best_pts[:, 0])), 1e-4)
     span_y = max(float(np.max(best_pts[:, 1])), 1e-4)
@@ -455,57 +502,12 @@ def calculate_mic_and_bottleneck(
         valid = widths[widths > 0.1]
         if len(valid) < 5:
             continue
-        max_w = float(np.max(valid))
-        narrow_thresh = min(4.0, max_w * 0.55)
-        is_narrow = valid <= narrow_thresh
+        is_flag, pw, pa = _eval_passage_segment(valid, total_len, plot_area)
+        if is_flag:
+            is_flagpole, p_width, p_area = is_flag, pw, pa
+            break
 
-        lead_len = 0
-        for val in is_narrow:
-            if val:
-                lead_len += 1
-            else:
-                break
-        trail_len = 0
-        for val in reversed(is_narrow):
-            if val:
-                trail_len += 1
-            else:
-                break
-
-        chosen_len = max(lead_len, trail_len)
-        seg_ratio = chosen_len / len(valid)
-        passage_len = seg_ratio * total_len
-        if seg_ratio >= 0.10 and seg_ratio <= 0.75 and passage_len >= 2.0:
-            if lead_len >= trail_len:
-                p_w = float(np.median(valid[:lead_len]))
-            else:
-                p_w = float(np.median(valid[-trail_len:]))
-            if p_w <= 4.0:
-                is_flagpole = True
-                p_width = round(p_w, 2)
-                p_area = round(min(plot_area * 0.8, p_w * passage_len), 2)
-                break
-
-    # ボトルネック幅員
-    if is_flagpole and p_width > 0:
-        bottleneck_w = p_width
-    else:
-        valid_rows = row_widths[row_widths > 0.1]
-        valid_cols = col_widths[col_widths > 0.1]
-        if len(valid_rows) > 0 and len(valid_cols) > 0:
-            all_valid = np.concatenate([valid_rows, valid_cols])
-        elif len(valid_rows) > 0:
-            all_valid = valid_rows
-        else:
-            all_valid = valid_cols
-        if len(all_valid) > 10:
-            trimmed = np.sort(all_valid)
-            bottleneck_w = float(trimmed[int(len(trimmed) * 0.05)])
-        elif len(all_valid) > 0:
-            bottleneck_w = float(np.min(all_valid))
-        else:
-            bottleneck_w = 0.0
-
+    bottleneck_w = _calc_bottleneck_width(row_widths, col_widths, is_flagpole, p_width)
     p_ratio = round(min(1.0, p_area / plot_area), 4) if plot_area > 0 else 0.0
     body_area = round(max(0.0, plot_area - p_area), 2)
 
@@ -520,6 +522,76 @@ def calculate_mic_and_bottleneck(
         "flagpole_passage_width": p_width,
         "flagpole_body_area": body_area,
     }
+
+
+def _compute_penalties_and_score(
+    shadow_area_ratio: float,
+    solidity: float,
+    mir_aspect_ratio: float,
+    is_unagi: bool,
+    vertex_count: int,
+    acute_count: int,
+    is_flagpole: bool,
+    flagpole_passage_ratio: float,
+    bottleneck_width: float,
+    nta_composite: float,
+) -> Tuple[float, float]:
+    shadow_penalty = shadow_area_ratio * 0.35
+    solidity_penalty = (1.0 - solidity) * 0.25
+    aspect_penalty = 0.0
+    if mir_aspect_ratio < 0.50:
+        unagi_bonus = 0.08 if is_unagi else 0.0
+        aspect_penalty = (0.50 - mir_aspect_ratio) * 0.40 + unagi_bonus
+    vertex_penalty = min(0.15, (vertex_count - 6) * 0.02) if vertex_count > 6 else 0.0
+    acute_penalty = min(0.15, acute_count * 0.05)
+    flagpole_penalty = 0.0
+    if is_flagpole:
+        bottleneck_penalty = 0.05 if bottleneck_width < 2.5 else 0.0
+        flagpole_penalty = min(0.20, flagpole_passage_ratio * 0.35 + bottleneck_penalty)
+
+    geometric_penalty = shadow_penalty + solidity_penalty + aspect_penalty + vertex_penalty + acute_penalty + flagpole_penalty
+    geometric_score = max(0.60, min(1.0, 1.0 - geometric_penalty))
+    raw_score = min(geometric_score, nta_composite)
+    if is_unagi:
+        raw_score = min(0.74, raw_score)
+    shape_penalty_score = round(max(0.60, min(1.0, raw_score)), 4)
+    return vertex_penalty, shape_penalty_score
+
+
+def _determine_shape_type_and_grade(
+    is_unagi: bool,
+    is_flagpole: bool,
+    shadow_area_ratio: float,
+    mir_effective_ratio: float,
+    solidity: float,
+    vertex_count: int,
+    acute_count: int,
+    shape_penalty_score: float,
+) -> Tuple[str, str, int, float]:
+    if is_unagi:
+        shape_type = "slender"
+    elif is_flagpole or (shadow_area_ratio > 0.30 and mir_effective_ratio < 0.95):
+        shape_type = "flagpole"
+    elif shadow_area_ratio > 0.15 or solidity < 0.88 or vertex_count > 6 or acute_count > 0:
+        shape_type = "irregular"
+    else:
+        shape_type = "regular"
+
+    if shape_penalty_score >= 0.95:
+        shape_grade = "A"
+    elif shape_penalty_score >= 0.85:
+        shape_grade = "B"
+    elif shape_penalty_score >= 0.75:
+        shape_grade = "C"
+    elif shape_penalty_score >= 0.65:
+        shape_grade = "D"
+    else:
+        shape_grade = "E"
+
+    grade_num_map = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1}
+    shape_grade_num = grade_num_map.get(shape_grade, 5)
+    shape_score_100 = round(shape_penalty_score * 100.0, 1)
+    return shape_type, shape_grade, shape_grade_num, shape_score_100
 
 
 def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
@@ -613,73 +685,15 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
     # 8. 内角解析（鋭角・凹角）
     interior_angles, acute_count, reflex_count = calculate_interior_angles(vertices)
 
-    # 9. ペナルティ算出
-    # かげ地ペナルティ (最大0.35減価)
-    shadow_penalty = shadow_area_ratio * 0.35
-
-    # 凹み・くびれペナルティ (最大0.25減価)
-    solidity_penalty = (1.0 - solidity) * 0.25
-
-    # うなぎの寝床・細長比ペナルティ (最大0.25減価)
-    if mir_aspect_ratio < 0.50:
-        aspect_penalty = (0.50 - mir_aspect_ratio) * 0.40
-        if is_unagi:
-            aspect_penalty += 0.08
-    else:
-        aspect_penalty = 0.0
-
-    # 頂点数ペナルティ (6点超で1点につき0.02減価、最大0.15)
-    if vertex_count > 6:
-        vertex_penalty = min(0.15, (vertex_count - 6) * 0.02)
-    else:
-        vertex_penalty = 0.0
-
-    # 鋭角（デッドスペース）ペナルティ: 60度未満の頂点1箇所につき0.05減価 (最大0.15)
-    acute_penalty = min(0.15, acute_count * 0.05)
-
-    # 旗竿・路地状敷地ペナルティ
-    if is_flagpole:
-        flagpole_penalty = min(0.20, flagpole_passage_ratio * 0.35 + (0.05 if bottleneck_width < 2.5 else 0.0))
-    else:
-        flagpole_penalty = 0.0
-
-    geometric_penalty = shadow_penalty + solidity_penalty + aspect_penalty + vertex_penalty + acute_penalty + flagpole_penalty
-    geometric_score = max(0.60, min(1.0, 1.0 - geometric_penalty))
-
-    # 総合スコア: 幾何ペナルティスコアと国税庁テーブル複合補正の統合
-    raw_score = min(geometric_score, nta_composite)
-    if is_unagi:
-        # うなぎの寝床は最高でもGrade D (0.74以下) に制限
-        raw_score = min(0.74, raw_score)
-
-    shape_penalty_score = round(max(0.60, min(1.0, raw_score)), 4)
-
-
-    # 10. 形状種別の判定
-    if is_unagi:
-        shape_type = "slender"
-    elif is_flagpole or (shadow_area_ratio > 0.30 and mir_effective_ratio < 0.95):
-        shape_type = "flagpole"
-    elif shadow_area_ratio > 0.15 or solidity < 0.88 or vertex_count > 6 or acute_count > 0:
-        shape_type = "irregular"
-    else:
-        shape_type = "regular"
-
-    # 11. 鑑定格付けグレード判定 (A〜E) および連続数値スコア化 (MLモデル用)
-    if shape_penalty_score >= 0.95:
-        shape_grade = "A"
-    elif shape_penalty_score >= 0.85:
-        shape_grade = "B"
-    elif shape_penalty_score >= 0.75:
-        shape_grade = "C"
-    elif shape_penalty_score >= 0.65:
-        shape_grade = "D"
-    else:
-        shape_grade = "E"
-
-    grade_num_map = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1}
-    shape_grade_num = grade_num_map.get(shape_grade, 5)
-    shape_score_100 = round(shape_penalty_score * 100.0, 1)
+    vertex_penalty, shape_penalty_score = _compute_penalties_and_score(
+        shadow_area_ratio, solidity, mir_aspect_ratio, is_unagi,
+        vertex_count, acute_count, is_flagpole, flagpole_passage_ratio,
+        bottleneck_width, nta_composite
+    )
+    shape_type, shape_grade, shape_grade_num, shape_score_100 = _determine_shape_type_and_grade(
+        is_unagi, is_flagpole, shadow_area_ratio, mir_effective_ratio,
+        solidity, vertex_count, acute_count, shape_penalty_score
+    )
 
     return PlotShapeMetrics(
         plot_area=round(plot_area, 2),

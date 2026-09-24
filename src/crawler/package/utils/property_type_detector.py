@@ -267,6 +267,34 @@ class PropertyTypeDetector:
         return None
 
     @classmethod
+    def _detect_rule_based(
+        cls,
+        url: Optional[str] = None,
+        title: Optional[str] = None,
+        html_text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
+            return "apartment"
+        if title:
+            ptype = cls._match_keywords(title)
+            if ptype:
+                return ptype
+        if cls._has_yield_signal(html_text):
+            return "apartment"
+        if specs and isinstance(specs, dict):
+            ptype = cls._detect_from_specs(specs)
+            if ptype:
+                return ptype
+        if html_text:
+            ptype = cls._match_keywords(html_text)
+            if ptype:
+                return ptype
+        if url:
+            return cls._detect_from_url(url)
+        return None
+
+    @classmethod
     def detect(
         cls,
         url: Optional[str] = None,
@@ -281,34 +309,11 @@ class PropertyTypeDetector:
         数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
         本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
-        if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
-            return "apartment"
+        detected = cls._detect_rule_based(url=url, title=title, html_text=html_text, specs=specs)
+        if detected:
+            return detected
 
-        # タイトルはページ固有情報が濃いため、HTML全体の利回り表記より先に評価する
-        if title:
-            ptype = cls._match_keywords(title)
-            if ptype:
-                return ptype
-
-        if cls._has_yield_signal(html_text):
-            return "apartment"
-
-        if specs and isinstance(specs, dict):
-            ptype = cls._detect_from_specs(specs)
-            if ptype:
-                return ptype
-
-        if html_text:
-            ptype = cls._match_keywords(html_text)
-            if ptype:
-                return ptype
-
-        if url:
-            ptype = cls._detect_from_url(url)
-            if ptype:
-                return ptype
-
-        if use_ai and (title or html_text or specs or url):
+        if use_ai and any((title, html_text, specs, url)):
             return cls.detect_with_ai(
                 url=url, title=title, html_text=html_text, specs=specs, default=default or "mansion"
             )

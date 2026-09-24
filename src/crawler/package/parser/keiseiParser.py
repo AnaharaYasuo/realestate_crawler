@@ -10,6 +10,14 @@ from package.parser.baseParser import KodateParserBase, MansionParserBase, Parse
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
+
 class KeiseiParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -224,6 +232,19 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
     def createEntity(self):
         return KeiseiMansion()
 
+    def _parse_floors(self, item, specs):
+        item.kaisuStr = _first_spec(specs, "所在階/構造・階建", "所在階", "階数")
+        if item.kaisuStr:
+            m = re.search(r'(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_kai = int(m.group(1))
+            m = re.search(r'地上(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chijo = int(m.group(1))
+            m = re.search(r'地下(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chika = int(m.group(1))
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -234,21 +255,10 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")
-        if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
+        self._parse_floors(item, specs)
 
         # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
+        item.chikunengetsuStr = _first_spec(specs, "築年月", "完成時期")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
@@ -273,7 +283,7 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         
-        item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
+        item.saikou = _first_spec(specs, "主要採光", "向き")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")

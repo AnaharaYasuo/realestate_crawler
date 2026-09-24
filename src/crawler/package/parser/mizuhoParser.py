@@ -16,6 +16,14 @@ from package.utils.mizuho_bypass import get_mizuho_links
 import asyncio
 import aiohttp
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
+
 class MizuhoParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -638,22 +646,32 @@ class MizuhoInvestmentParser(MizuhoParser, InvestmentParserBase):
     def createEntity(self):
         return MizuhoInvestment()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
-
-        # 表面利回り
-        gross_yield_str = specs.get("利回り", "") or specs.get("表面利回り", "") or specs.get("想定利回り", "")
+    def _parse_investment_yield_and_rent(self, item, specs):
+        gross_yield_str = _first_spec(specs, "利回り", "表面利回り", "想定利回り")
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
 
-        # 想定年間収入
-        annual_rent_str = specs.get("想定年間収入", "") or specs.get("年間想定収入", "") or specs.get("想定収入", "") or specs.get("現行年間収入", "")
+        annual_rent_str = _first_spec(specs, "想定年間収入", "年間想定収入", "想定収入", "現行年間収入")
         if annual_rent_str:
             rent_val = converter.parse_rent(annual_rent_str)
             if rent_val:
                 item.annualRent = rent_val
                 item.monthlyRent = rent_val // 12
+
+    def _parse_investment_soukosu(self, item, specs):
+        item.soukosuStr = _first_spec(specs, "総戸数", "住戸数")
+        if item.soukosuStr:
+            item.soukosu = converter.parse_numeric(item.soukosuStr)
+        if not item.soukosu and item.biko:
+            m = re.search(r'(?:住戸数|総戸数)[:：](\d+)戸', item.biko)
+            if m:
+                item.soukosu = int(m.group(1))
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+
+        self._parse_investment_yield_and_rent(item, specs)
 
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.currentStatus = item.genkyo
@@ -664,24 +682,16 @@ class MizuhoInvestmentParser(MizuhoParser, InvestmentParserBase):
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        # 総戸数
-        item.soukosuStr = specs.get("総戸数", "") or specs.get("住戸数", "")
-        if item.soukosuStr:
-            item.soukosu = converter.parse_numeric(item.soukosuStr)
-        if not item.soukosu and item.biko:
-            # 備考欄から「住戸数：24戸」や「総戸数：12戸」を抽出するフォールバック
-            m = re.search(r'(?:住戸数|総戸数)[:：](\d+)戸', item.biko)
-            if m:
-                item.soukosu = int(m.group(1))
+        self._parse_investment_soukosu(item, specs)
 
-        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
+        item.kaisuStr = _first_spec(specs, "階数", "建物階数")
 
         # 土地・建物面積
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
+        item.tatemonoMensekiStr = _first_spec(specs, "建物面積", "延床面積")
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 

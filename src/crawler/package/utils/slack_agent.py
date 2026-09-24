@@ -10,6 +10,28 @@ logger = logging.getLogger(__name__)
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(CURRENT_DIR)))
 
+
+def _find_agy_bin() -> str:
+    win_path = r"C:\Users\weare\AppData\Local\agy\bin\agy.exe"
+    return shutil.which("agy") or shutil.which("agy.exe") or (win_path if os.path.exists(win_path) else "agy")
+
+
+def _build_agy_cmd(conversation_id: str | None, instruction: str) -> list[str]:
+    cmd = [_find_agy_bin(), "--dangerously-skip-permissions"]
+    if conversation_id:
+        cmd.extend(["--conversation", conversation_id])
+    else:
+        cmd.append("--continue")
+    cmd.extend(["-p", instruction])
+    return cmd
+
+
+def _truncate_text(text: str, max_len: int = 3500) -> str:
+    if len(text) > max_len:
+        return "... [前部省略] ...\n" + text[-3400:]
+    return text
+
+
 class SlackAgent:
     """
     Slack Socket Mode 経由で開発指示を受信し、
@@ -96,24 +118,45 @@ class SlackAgent:
         handler = SocketModeHandler(app, self.app_token)
         handler.start()
 
+    async def _capture_and_stream(self, process, client, channel_id: str, message_ts: str) -> tuple[list[str], int]:
+        output_chunks = []
+        stop_event = asyncio.Event()
+
+        async def update_slack_periodically():
+            while not stop_event.is_set():
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=3)
+                    break
+                except TimeoutError:
+                    pass
+                curr_text = _truncate_text("".join(output_chunks).strip())
+                if curr_text:
+                    try:
+                        client.chat_update(
+                            channel=channel_id,
+                            ts=message_ts,
+                            text=f"⏳ **Antigravity Agent 実行中 (リアルタイム進捗)...**\n\n```\n{curr_text}\n```"
+                        )
+                    except Exception as ex:
+                        logger.exception(f"Failed chat.update: {ex}")
+
+        update_task = asyncio.create_task(update_slack_periodically())
+        while True:
+            line = await process.stdout.readline()
+            if not line:
+                break
+            output_chunks.append(line.decode("utf-8", errors="ignore"))
+
+        await process.wait()
+        stop_event.set()
+        update_task.cancel()
+        return output_chunks, process.returncode
+
     async def run_streaming_agent(self, client, channel_id: str, message_ts: str, instruction: str):
         """
         agy CLI を非同期プロセスとして起動し、標準出力をキャプチャして 3秒おきに chat.update で更新
         """
-        agy_bin = (
-            shutil.which("agy") or 
-            shutil.which("agy.exe") or 
-            (r"C:\Users\weare\AppData\Local\agy\bin\agy.exe" if os.path.exists(r"C:\Users\weare\AppData\Local\agy\bin\agy.exe") else "agy")
-        )
-
-        cmd = [agy_bin, "--dangerously-skip-permissions"]
-        if self.conversation_id:
-            cmd.extend(["--conversation", self.conversation_id])
-        else:
-            cmd.append("--continue")
-
-        cmd.extend(["-p", instruction])
-
+        cmd = _build_agy_cmd(self.conversation_id, instruction)
         env = os.environ.copy()
         env["PAGER"] = "cat"
 
@@ -125,50 +168,9 @@ class SlackAgent:
                 cwd=PROJECT_ROOT,
                 env=env
             )
-
-            output_chunks = []
-            stop_event = asyncio.Event()
-
-            async def update_slack_periodically():
-                while not stop_event.is_set():
-                    try:
-                        await asyncio.wait_for(stop_event.wait(), timeout=3)
-                        break
-                    except TimeoutError:
-                        pass
-                    curr_text = "".join(output_chunks).strip()
-                    if curr_text:
-                        if len(curr_text) > 3500:
-                            curr_text = "... [前部省略] ...\n" + curr_text[-3400:]
-                        try:
-                            client.chat_update(
-                                channel=channel_id,
-                                ts=message_ts,
-                                text=f"⏳ **Antigravity Agent 実行中 (リアルタイム進捗)...**\n\n```\n{curr_text}\n```"
-                            )
-                        except Exception as ex:
-                            logger.exception(f"Failed chat.update: {ex}")
-
-            update_task = asyncio.create_task(update_slack_periodically())
-
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                output_chunks.append(line.decode("utf-8", errors="ignore"))
-
-            await process.wait()
-            stop_event.set()
-            update_task.cancel()
-
-            final_text = "".join(output_chunks).strip()
-            status_emoji = "✅" if process.returncode == 0 else "⚠️"
-
-            if not final_text:
-                final_text = "(Antigravity Agent からの出力はありませんでした。)"
-
-            if len(final_text) > 3500:
-                final_text = "... [前部省略] ...\n" + final_text[-3400:]
+            output_chunks, returncode = await self._capture_and_stream(process, client, channel_id, message_ts)
+            final_text = _truncate_text("".join(output_chunks).strip() or "(Antigravity Agent からの出力はありませんでした。)")
+            status_emoji = "✅" if returncode == 0 else "⚠️"
 
             client.chat_update(
                 channel=channel_id,

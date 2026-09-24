@@ -83,6 +83,42 @@ def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
     return event_dict
 
 
+def _reconfigure_io_streams():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def _determine_log_format(log_format: Optional[str]) -> str:
+    if log_format:
+        return log_format
+    env_format = os.getenv("LOG_FORMAT", "").lower()
+    if env_format in ("json", "console"):
+        return env_format
+    return "json" if _is_cloud_environment() else "console"
+
+
+def _build_processor_formatter(shared_processors: list, log_format: str) -> structlog.stdlib.ProcessorFormatter:
+    if log_format == "json":
+        processors = [
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            add_gcp_cloud_logging_fields,
+            structlog.processors.JSONRenderer(ensure_ascii=False)
+        ]
+    else:
+        processors = [
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.dev.ConsoleRenderer(colors=True)
+        ]
+    return structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
+        processors=processors
+    )
+
+
 def configure_logging(
     force_reconfigure: bool = False,
     output_stream: Any = None,
@@ -96,31 +132,10 @@ def configure_logging(
     if _configured and not force_reconfigure:
         return
 
-    # 標準出力エンコーディングを UTF-8 に再構成（日本語文字化け防止）
-    if hasattr(sys.stdout, "reconfigure"):
-        try:
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-    if hasattr(sys.stderr, "reconfigure"):
-        try:
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
+    _reconfigure_io_streams()
     stream = output_stream or sys.stdout
+    resolved_format = _determine_log_format(log_format)
 
-    # ログフォーマット決定: json または console
-    if log_format is None:
-        env_format = os.getenv("LOG_FORMAT", "").lower()
-        if env_format in ("json", "console"):
-            log_format = env_format
-        elif _is_cloud_environment():
-            log_format = "json"
-        else:
-            log_format = "console"
-
-    # ログレベル決定
     if log_level is None:
         log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -136,23 +151,7 @@ def configure_logging(
         structlog.processors.UnicodeDecoder(),
     ]
 
-    if log_format == "json":
-        formatter = structlog.stdlib.ProcessorFormatter(
-            foreign_pre_chain=shared_processors,
-            processors=[
-                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                add_gcp_cloud_logging_fields,
-                structlog.processors.JSONRenderer(ensure_ascii=False)
-            ]
-        )
-    else:
-        formatter = structlog.stdlib.ProcessorFormatter(
-            foreign_pre_chain=shared_processors,
-            processors=[
-                structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-                structlog.dev.ConsoleRenderer(colors=True)
-            ]
-        )
+    formatter = _build_processor_formatter(shared_processors, resolved_format)
 
     # ルートロガーのハンドラ設定
     root_logger = logging.getLogger()
