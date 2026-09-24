@@ -4,8 +4,28 @@
 ※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
 """
 import pytest
-from package.parser.homesParser import HomesMansionParser, HomesKodateParser
-from package.models.homes import HomesMansion, HomesKodate
+from package.parser.homesParser import HomesMansionParser, HomesKodateParser, HomesInvestmentApartmentParser
+from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment
+
+def test_homes_investment_rent_derivation():
+    from bs4 import BeautifulSoup
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    item.price = 6200000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">620万円</td>
+        <span class="prg-rimawariTableItem">9.48％</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_item = parser._parsePropertyDetailPage(item, soup)
+    assert float(parsed_item.grossYield) == pytest.approx(9.48, rel=1e-2)
+    assert parsed_item.annualRent == 587760
+    assert parsed_item.monthlyRent == 48980
+
 
 def test_homes_mansion_parser():
     parser = HomesMansionParser()

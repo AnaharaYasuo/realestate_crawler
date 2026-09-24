@@ -564,9 +564,19 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         income_str = income_tag.get_text().strip() if income_tag else ""
         item.annualRent = converter.parse_price(income_str)
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
-        if not item.annualRent and not item.grossYield:
+        if not item.annualRent and item.grossYield and getattr(item, "price", None):
+            try:
+                gy = float(item.grossYield)
+                if gy > 0:
+                    rent_val = int(float(item.price) * gy / 100.0)
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError):
+                pass
+        if not item.annualRent:
             raise SkipPropertyException(
-                "Homes invest: missing yield/annualRent on listing (skip and try next)"
+                "Homes invest: missing annualRent on listing (skip and try next)"
             )
 
         status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
