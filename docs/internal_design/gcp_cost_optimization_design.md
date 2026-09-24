@@ -88,3 +88,11 @@ sequenceDiagram
 - `environment`: `prod` / `staging` / `dev`
 - `component`: `pipeline`, `proxy`, `database`, `api`, `networking`, `storage`
 - `managed_by`: `terraform`
+
+### 4.5 Artifact Registry ライフサイクル & デプロイ時プルーニング (`artifact_registry.tf`, `deploy-production.yml`)
+- **Terraform クリーンアップポリシー**:
+  - `realestate-crawler-prod` リポジトリに `keep-recent-3`（最新3世代保持）および `delete-untagged`（UNTAGGED削除）ポリシーを定義。
+- **デプロイ時即時プルーニング**:
+  - GitHub Actions `deploy-production.yml` での Docker push 直後に、最新3世代を超過する古いイメージダイジェストを取得して一括削除。
+  - イメージが push された瞬間に即時削除され、月額約 1,000 円超のストレージ課金（81.6GB）を約 5GB へ圧縮・恒久維持。
+

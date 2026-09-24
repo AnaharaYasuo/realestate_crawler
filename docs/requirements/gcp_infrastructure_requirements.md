@@ -59,6 +59,9 @@
   - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
 - **Direct VPC Egress への統合**:
   - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台）を廃止し、Cloud Run の Direct VPC Egress 機能を用いて VPC サブネットへ直接接続し、常時固定費を削減すること。
+- **Artifact Registry ストレージ最適化 & ライフサイクル制御**:
+  - CI/CD パイプラインによる継続的なコンテナビルドに伴うイメージ蓄積を防止するため、Terraform により最新 3 世代のみを保持（`keep_count = 3`）し、タグなし（UNTAGGED）イメージを自動パージするクリーンアップポリシーを定義すること。
+  - 本番デプロイ時（GitHub Actions `deploy-production.yml`）に、新イメージ push 直後に最新 3 世代を超過した古いイメージを即座に削除（プルーニング）し、ストレージ容量肥大化と保管コストを即時抑止すること。
 - **月額費用目安**:
   - Cloud SQL 最小インスタンス（db-f1-micro / db-g1-small）および GCS、Cloud Run Jobs 稼働時間課金を含め、月額数千円〜1万円以内の範囲で運用可能であること。
 
