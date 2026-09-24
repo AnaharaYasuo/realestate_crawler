@@ -321,3 +321,28 @@ def test_proxysql_resize_compute_v1_error_falls_back_to_rest_api(
             timeout=10,
         )
         mock_slack.assert_called_once()
+
+
+def test_proxysql_rest_invalid_target_size_triggers_alert(mock_slack):
+    """When REST response lacks targetSize or has non-int, it triggers alert instead of treating as stopped."""
+    mock_resp_get = MagicMock()
+    mock_resp_get.status_code = 200
+    mock_resp_get.json.return_value = {"autoscaler": None}  # missing targetSize
+
+    with (
+        patch(f"{_MODULE_PATH}.compute_v1", None),
+        patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value="fake-token"),
+        patch(f"{_MODULE_PATH}.requests.get", return_value=mock_resp_get),
+    ):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            dry_run=False,
+        )
+
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        assert "missing or invalid targetSize" in result.details
+        mock_slack.assert_called_once()
+

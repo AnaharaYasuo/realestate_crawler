@@ -152,7 +152,9 @@ def _get_mig_info(
         if resp.status_code != 200:
             return -1, f"HTTP {resp.status_code}: {resp.text}", None
         data = resp.json()
-        target_size = int(data.get("targetSize", 0))
+        target_size = data.get("targetSize")
+        if not isinstance(target_size, int) or isinstance(target_size, bool):
+            return -1, "REST response has missing or invalid targetSize", None
         autoscaler = data.get("status", {}).get("autoscaler") or data.get("autoscaler")
         return target_size, "", autoscaler
     except Exception as e:  # noqa: BLE001
