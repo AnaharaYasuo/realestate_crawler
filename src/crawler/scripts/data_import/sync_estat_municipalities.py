@@ -162,7 +162,7 @@ def sync_municipalities(csv_path=None):
         
     count = 0
     for m in data:
-        obj, created = MunicipalPotential.objects.update_or_create(
+        _, created = MunicipalPotential.objects.update_or_create(
             prefecture=m["prefecture"],
             city=m["city"],
             defaults={

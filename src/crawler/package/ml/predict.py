@@ -84,56 +84,40 @@ def _load_legacy_model(property_type, algo, stage, model_dir):
             pass
     return None
 
+def _load_single_model(property_type, stage, algo, model_dir):
+    path = os.path.join(model_dir, f"{property_type}_{stage}_{algo}.joblib")
+    if os.path.exists(path):
+        try:
+            model = joblib.load(path)
+            if hasattr(model, "set_params") and hasattr(model, "n_jobs"):
+                try:
+                    model.set_params(n_jobs=1)
+                except Exception:
+                    pass
+            logging.info(f"ML: Loaded {property_type} {stage} {algo} model.")
+            return model
+        except Exception as e:
+            logging.exception(f"ML: Failed to load {property_type} {stage} {algo} model: {e}")
+    return _load_legacy_model(property_type, algo, stage, model_dir)
+
+def _load_stage_models_dict(property_type, stage, model_dir):
+    loaded_dict = {}
+    for algo in ['lgb', 'xgb', 'cat', 'rf']:
+        m = _load_single_model(property_type, stage, algo, model_dir)
+        if m:
+            loaded_dict[algo] = m
+    return loaded_dict
+
 def _load_first_stage_models(property_type, model_dir):
     global _first_stage_models
     if property_type not in _first_stage_models or not _first_stage_models[property_type]:
-        loaded_dict = {}
-        for algo in ['lgb', 'xgb', 'cat', 'rf']:
-            path = os.path.join(model_dir, f"{property_type}_first_stage_{algo}.joblib")
-            if os.path.exists(path):
-                try:
-                    model = joblib.load(path)
-                    if hasattr(model, "set_params") and hasattr(model, "n_jobs"):
-                        try:
-                            model.set_params(n_jobs=1)
-                        except Exception:
-                            pass
-                    loaded_dict[algo] = model
-                    logging.info(f"ML: Loaded {property_type} first stage {algo} model.")
-                    continue
-                except Exception as e:
-                    logging.exception(f"ML: Failed to load {property_type} first stage {algo} model: {e}")
-            
-            legacy_model = _load_legacy_model(property_type, algo, "first_stage", model_dir)
-            if legacy_model:
-                loaded_dict[algo] = legacy_model
-        _first_stage_models[property_type] = loaded_dict
+        _first_stage_models[property_type] = _load_stage_models_dict(property_type, "first_stage", model_dir)
     return _first_stage_models[property_type]
 
 def _load_second_stage_models(property_type, model_dir):
     global _second_stage_models
     if property_type not in _second_stage_models or not _second_stage_models[property_type]:
-        loaded_dict = {}
-        for algo in ['lgb', 'xgb', 'cat', 'rf']:
-            path = os.path.join(model_dir, f"{property_type}_second_stage_{algo}.joblib")
-            if os.path.exists(path):
-                try:
-                    model = joblib.load(path)
-                    if hasattr(model, "set_params") and hasattr(model, "n_jobs"):
-                        try:
-                            model.set_params(n_jobs=1)
-                        except Exception:
-                            pass
-                    loaded_dict[algo] = model
-                    logging.info(f"ML: Loaded {property_type} second stage {algo} model.")
-                    continue
-                except Exception as e:
-                    logging.exception(f"ML: Failed to load {property_type} second stage {algo} model: {e}")
-            
-            legacy_model = _load_legacy_model(property_type, algo, "second_stage", model_dir)
-            if legacy_model:
-                loaded_dict[algo] = legacy_model
-        _second_stage_models[property_type] = loaded_dict
+        _second_stage_models[property_type] = _load_stage_models_dict(property_type, "second_stage", model_dir)
     return _second_stage_models[property_type]
 
 def _get_models_and_master(property_type):
@@ -236,68 +220,48 @@ def _apply_rights_discount(_property_obj, predicted_price: float) -> int:
     """
     return int(predicted_price)
 
-def _align_features(df, model):
-    expected_features = None
-    
-    # getattr を使用して静的解析属性エラーを回避
-    names_in = getattr(model, "feature_names_in_", None)
-    if names_in is None:
-        names_in = getattr(model, "feature_names_", None)
-    if names_in is not None:
+def _extract_from_booster(model):
+    booster = getattr(model, "booster_", None)
+    if booster is not None:
+        bfn = getattr(booster, "feature_name", None)
+        if callable(bfn):
+            try:
+                res = bfn()
+                if isinstance(res, (list, tuple)):
+                    return list(res)
+            except Exception:
+                pass
+    get_booster = getattr(model, "get_booster", None)
+    if callable(get_booster):
         try:
-            expected_features = list(names_in)
+            b_obj = get_booster()
+            b_names = getattr(b_obj, "feature_names", None)
+            if b_names is not None:
+                return list(b_names)
         except Exception:
             pass
-        
-    if not expected_features:
-        name_ = getattr(model, "feature_name_", None)
-        if name_ is not None:
+    return None
+
+def _extract_expected_feature_names(model):
+    for attr in ["feature_names_in_", "feature_names_", "feature_name_", "feature_names"]:
+        val = getattr(model, attr, None)
+        if val is not None:
             try:
-                expected_features = list(name_)
+                return list(val)
             except Exception:
                 pass
-            
-    if not expected_features:
-        names = getattr(model, "feature_names", None)
-        if names is not None:
-            try:
-                expected_features = list(names)
-            except Exception:
-                pass
-            
-    if not expected_features:
-        feature_name_func = getattr(model, "feature_name", None)
-        if feature_name_func is not None and callable(feature_name_func):
-            try:
-                res = feature_name_func()
-                if isinstance(res, (list, tuple)):
-                    expected_features = list(res)
-            except Exception:
-                pass
-                
-    if not expected_features:
-        booster = getattr(model, "booster_", None)
-        if booster is not None:
-            booster_feature_name = getattr(booster, "feature_name", None)
-            if booster_feature_name is not None and callable(booster_feature_name):
-                try:
-                    res = booster_feature_name()
-                    if isinstance(res, (list, tuple)):
-                        expected_features = list(res)
-                except Exception:
-                    pass
-                    
-    if not expected_features:
-        get_booster_func = getattr(model, "get_booster", None)
-        if get_booster_func is not None and callable(get_booster_func):
-            try:
-                booster_obj = get_booster_func()
-                booster_names = getattr(booster_obj, "feature_names", None)
-                if booster_names is not None:
-                    expected_features = list(booster_names)
-            except Exception:
-                pass
-        
+    fn = getattr(model, "feature_name", None)
+    if callable(fn):
+        try:
+            res = fn()
+            if isinstance(res, (list, tuple)):
+                return list(res)
+        except Exception:
+            pass
+    return _extract_from_booster(model)
+
+def _align_features(df, model):
+    expected_features = _extract_expected_feature_names(model)
     if not expected_features:
         logging.warning("ML: Could not extract feature names from model. Using DataFrame columns as is.")
         return df
@@ -518,64 +482,72 @@ def bulk_predict_first_stage(properties_list: list) -> list:
     model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
     smearing_factors = _load_smearing_factors(model_dir)
     dynamic_weights = _load_ensemble_weights(model_dir)
-    
-    indexed_properties = list(enumerate(properties_list))
-    grouped_props = {}
-    for idx, prop in indexed_properties:
-        ptype = _detect_property_type(prop)
-        grouped_props.setdefault(ptype, []).append((idx, prop))
-        
+    grouped_props = _group_properties_by_type(properties_list)
     final_results = [0] * len(properties_list)
     
     for ptype, items in grouped_props.items():
-        sub_indices = [idx for idx, _ in items]
-        sub_props = [p for _, p in items]
-        
         first_models, _, mkt_master = _get_models_and_master(ptype)
         if not first_models:
             continue
             
+        sub_indices = [idx for idx, _ in items]
+        sub_props = [p for _, p in items]
         features_list = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
         feature_cols = FEATURE_SETS.get(ptype, {}).get("first", [])
+        df = _prepare_df_features(features_list, feature_cols)
         
-        df = pd.DataFrame(features_list)
-        for col in feature_cols:
-            if col not in df.columns:
-                df[col] = 0.0
-                
-        df = df[feature_cols].copy()
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype('category').cat.codes
-                
-        weights = dynamic_weights.get(ptype, {}).get("first")
-        if not weights:
-            if ptype == 'mansion':
-                weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
-            elif ptype in ['kodate', 'apartment']:
-                weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
-            else:
-                weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
-                
+        weights = dynamic_weights.get(ptype, {}).get("first") or _get_default_weights(ptype)
         smearing_factor = smearing_factors.get(ptype, {}).get("first", 1.0)
         
-        preds_log_dict = {}
-        with config_context(assume_finite=True):
-            for algo, model in first_models.items():
-                if model and weights.get(algo, 0) > 0:
-                    df_for_pred = _align_features(df, model)
-                    pred_log = model.predict(df_for_pred)
-                    preds_log_dict[algo] = np.array(pred_log)
-                    
-        areas = df["area"].values
-        preds_arr = _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
-        
+        preds_arr = _predict_batch_ensemble(first_models, weights, smearing_factor, df)
         for i, val in enumerate(preds_arr):
             original_idx = sub_indices[i]
-            raw_predicted_val = int(max(0, val))
-            final_results[original_idx] = _apply_rights_discount(sub_props[i], raw_predicted_val)
+            final_results[original_idx] = _apply_rights_discount(sub_props[i], int(max(0, val)))
             
     return final_results
+
+def _get_default_weights(ptype):
+    if ptype == 'mansion':
+        return {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
+    if ptype in ['kodate', 'apartment']:
+        return {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
+    return {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
+
+def _prepare_df_features(features_list, feature_cols):
+    df = pd.DataFrame(features_list)
+    for col in feature_cols:
+        if col not in df.columns:
+            df[col] = 0.0
+    df = df[feature_cols].copy()
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype('category').cat.codes
+    return df
+
+def _group_properties_by_type(properties_list):
+    grouped = {}
+    for idx, prop in enumerate(properties_list):
+        ptype = _detect_property_type(prop)
+        grouped.setdefault(ptype, []).append((idx, prop))
+    return grouped
+
+def _predict_batch_ensemble(models, weights, smearing_factor, df):
+    preds_log_dict = {}
+    with config_context(assume_finite=True):
+        for algo, model in models.items():
+            if model and weights.get(algo, 0) > 0:
+                df_for_pred = _align_features(df, model)
+                pred_log = model.predict(df_for_pred)
+                preds_log_dict[algo] = np.array(pred_log)
+    areas = df["area"].values
+    return _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
+
+def _attach_image_scores(features_list, sub_indices, interior_scores, layout_scores):
+    for i, idx in enumerate(sub_indices):
+        int_score = interior_scores[i] if interior_scores and i < len(interior_scores) else 3.0
+        lay_score = layout_scores[i] if layout_scores and i < len(layout_scores) else 3.0
+        features_list[i]["interior_score"] = float(int_score) if int_score is not None else 3.0
+        features_list[i]["layout_score"] = float(lay_score) if lay_score is not None else 3.0
 
 def bulk_predict_second_stage(properties_list: list, interior_scores=None, layout_scores=None) -> list:
     """
@@ -589,69 +561,29 @@ def bulk_predict_second_stage(properties_list: list, interior_scores=None, layou
     model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
     smearing_factors = _load_smearing_factors(model_dir)
     dynamic_weights = _load_ensemble_weights(model_dir)
-    
-    indexed_properties = list(enumerate(properties_list))
-    grouped_props = {}
-    for idx, prop in indexed_properties:
-        ptype = _detect_property_type(prop)
-        grouped_props.setdefault(ptype, []).append((idx, prop))
-        
+    grouped_props = _group_properties_by_type(properties_list)
     final_results = [0] * len(properties_list)
     
     for ptype, items in grouped_props.items():
-        sub_indices = [idx for idx, _ in items]
-        sub_props = [p for _, p in items]
-        
         _, second_models, mkt_master = _get_models_and_master(ptype)
         if not second_models:
             continue
             
+        sub_indices = [idx for idx, _ in items]
+        sub_props = [p for _, p in items]
         features_list = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
+        _attach_image_scores(features_list, sub_indices, interior_scores, layout_scores)
         
-        for i, idx in enumerate(sub_indices):
-            int_score = interior_scores[i] if interior_scores and i < len(interior_scores) else 3.0
-            lay_score = layout_scores[i] if layout_scores and i < len(layout_scores) else 3.0
-            features_list[i]["interior_score"] = float(int_score) if int_score is not None else 3.0
-            features_list[i]["layout_score"] = float(lay_score) if lay_score is not None else 3.0
-            
         feature_cols = FEATURE_SETS.get(ptype, {}).get("second", [])
+        df = _prepare_df_features(features_list, feature_cols)
         
-        df = pd.DataFrame(features_list)
-        for col in feature_cols:
-            if col not in df.columns:
-                df[col] = 0.0
-                
-        df = df[feature_cols].copy()
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                df[col] = df[col].astype('category').cat.codes
-                
-        weights = dynamic_weights.get(ptype, {}).get("second")
-        if not weights:
-            if ptype == 'mansion':
-                weights = {'lgb': 0.35, 'xgb': 0.35, 'cat': 0.15, 'rf': 0.15}
-            elif ptype in ['kodate', 'apartment']:
-                weights = {'lgb': 0.35, 'xgb': 0.45, 'cat': 0.1, 'rf': 0.1}
-            else:
-                weights = {'lgb': 0.3, 'xgb': 0.25, 'cat': 0.25, 'rf': 0.2}
-                
+        weights = dynamic_weights.get(ptype, {}).get("second") or _get_default_weights(ptype)
         smearing_factor = smearing_factors.get(ptype, {}).get("second", 1.0)
         
-        preds_log_dict = {}
-        with config_context(assume_finite=True):
-            for algo, model in second_models.items():
-                if model and weights.get(algo, 0) > 0:
-                    df_for_pred = _align_features(df, model)
-                    pred_log = model.predict(df_for_pred)
-                    preds_log_dict[algo] = np.array(pred_log)
-                    
-        areas = df["area"].values
-        preds_arr = _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
-        
+        preds_arr = _predict_batch_ensemble(second_models, weights, smearing_factor, df)
         for i, val in enumerate(preds_arr):
             original_idx = sub_indices[i]
-            raw_predicted_val = int(max(0, val))
-            final_results[original_idx] = _apply_rights_discount(sub_props[i], raw_predicted_val)
+            final_results[original_idx] = _apply_rights_discount(sub_props[i], int(max(0, val)))
             
     return final_results
 

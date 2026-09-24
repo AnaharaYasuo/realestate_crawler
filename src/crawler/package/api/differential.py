@@ -33,6 +33,46 @@ class ListItem:
         return cls(url=str(raw))
 
 
+def _is_ttl_expired(db_dt: Any, now: Any, ttl_days: int) -> bool:
+    if ttl_days <= 0 or not db_dt:
+        return False
+    dt_cmp = db_dt
+    if timezone.is_aware(now) and timezone.is_naive(dt_cmp):
+        dt_cmp = timezone.make_aware(dt_cmp)
+    elif timezone.is_naive(now) and timezone.is_aware(dt_cmp):
+        dt_cmp = timezone.make_naive(dt_cmp)
+    return (now - dt_cmp).total_seconds() > ttl_days * 86400
+
+
+def _should_fetch_item(item: ListItem, record: Optional[Dict[str, Any]], now: Any, ttl_days: int) -> bool:
+    if not record:
+        return True
+    db_price = record.get("price")
+    db_dt = record.get("updateDateTime") or record.get("inputDateTime")
+    if item.price is not None and db_price is not None and item.price != db_price:
+        logging.info(f"[Differential Crawl] Price change detected for {item.url}: {db_price} -> {item.price}")
+        return True
+    if _is_ttl_expired(db_dt, now, ttl_days):
+        logging.debug(f"[Differential Crawl] TTL expired ({ttl_days}d) for {item.url}. Refreshing.")
+        return True
+    return False
+
+
+async def _batch_update_cached(model_class: Any, to_skip: List[str], now: Any) -> None:
+    if not to_skip:
+        return
+    try:
+        def update_active_cached():
+            return model_class.objects.filter(pageUrl__in=to_skip).update(
+                updateDateTime=now
+            )
+
+        updated_count = await sync_to_async(update_active_cached)()
+        logging.info(f"[Differential Crawl] Batch updated updateDateTime for {updated_count} active cached properties.")
+    except Exception as ue:
+        logging.warning(f"[Differential Crawl] Failed to update updateDateTime for cached properties: {ue}")
+
+
 async def filter_differential_items(
     items: List[Any],
     model_class: Any,
@@ -75,54 +115,15 @@ async def filter_differential_items(
     to_skip: List[str] = []
 
     for item in normalized_items:
-        url = item.url
-        if not url:
+        if not item.url:
             continue
+        record = existing_map.get(item.url)
+        if _should_fetch_item(item, record, now, ttl_days):
+            to_fetch.append(item.url)
+        else:
+            to_skip.append(item.url)
 
-        if url not in existing_map:
-            # New property
-            to_fetch.append(url)
-            continue
-
-        record = existing_map[url]
-        db_price = record.get("price")
-        db_dt = record.get("updateDateTime") or record.get("inputDateTime")
-
-        # Check price revision if list page provided a price
-        if item.price is not None and db_price is not None and item.price != db_price:
-            logging.info(f"[Differential Crawl] Price change detected for {url}: {db_price} -> {item.price}")
-            to_fetch.append(url)
-            continue
-
-        # Check TTL expiration
-        if ttl_days > 0 and db_dt:
-            # Handle tz-aware vs naive if needed
-            dt_cmp = db_dt
-            if timezone.is_aware(now) and timezone.is_naive(dt_cmp):
-                dt_cmp = timezone.make_aware(dt_cmp)
-            elif timezone.is_naive(now) and timezone.is_aware(dt_cmp):
-                dt_cmp = timezone.make_naive(dt_cmp)
-
-            if (now - dt_cmp).total_seconds() > ttl_days * 86400:
-                logging.debug(f"[Differential Crawl] TTL expired ({ttl_days}d) for {url}. Refreshing.")
-                to_fetch.append(url)
-                continue
-
-        # Cached and valid
-        to_skip.append(url)
-
-    # Batch update updateDateTime for skipped (confirmed active) listings
-    if to_skip:
-        try:
-            def update_active_cached():
-                return model_class.objects.filter(pageUrl__in=to_skip).update(
-                    updateDateTime=now
-                )
-
-            updated_count = await sync_to_async(update_active_cached)()
-            logging.info(f"[Differential Crawl] Batch updated updateDateTime for {updated_count} active cached properties.")
-        except Exception as ue:
-            logging.warning(f"[Differential Crawl] Failed to update updateDateTime for cached properties: {ue}")
+    await _batch_update_cached(model_class, to_skip, now)
 
     logging.info(
         f"[Differential Crawl] Total: {len(all_urls)} | "

@@ -111,8 +111,6 @@ tokyuMansionPropertyDetail = tokyu_mansion_property_detail
 @tokyu_bp.route(API_KEY_TOKYU_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def tokyu_mansion_property_detail_test():
     logging.info("start propertyDetail")
-    # request_json = json.loads(request.get_json())
-    # url = request_json['url']
     obj = ParseTokyuMansionDetailFuncAsync()
     url = "https://www.livable.co.jp/mansion/C13261K62/"
     result = obj.main(url)

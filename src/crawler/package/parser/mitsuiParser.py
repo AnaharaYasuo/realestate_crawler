@@ -289,7 +289,7 @@ class MitsuiParser(ParserBase):
 
     @staticmethod
     def _traffic_station(line: str) -> str:
-        m = re.search(r"「([^」]+)」|([^\s「」]+)駅", line)
+        m = re.search(r"「([^」]{1,100})」|([^\s「」]{1,50})駅", line)
         if m:
             return (m.group(1) or m.group(2)).strip()
         return ""
@@ -775,7 +775,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         if getattr(item, "maguchi", None) is not None and item.maguchi != 0:
             return
         if getattr(item, "setsudou", None):
-            m_maguchi = re.search(r"(?:約)?\s*([\d\.]+)\s*[mｍ]", item.setsudou)
+            m_maguchi = re.search(r"(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", item.setsudou)
             if m_maguchi:
                 item.maguchi = Decimal(m_maguchi.group(1))
                 item.maguchiStr = f"{m_maguchi.group(1)}m"
@@ -785,7 +785,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         if getattr(item, "maguchi", None) is not None and item.maguchi != 0:
             return
         m_maguchi = re.search(
-            r"(?:接道間口|接面|間口)[：:]?\s*(?:約\s*)?([\d\.]+)\s*[mｍ]", full_text
+            r"(?:接道間口|接面|間口)[：:]?\s*(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", full_text
         )
         if m_maguchi:
             item.maguchi = Decimal(m_maguchi.group(1))
@@ -797,8 +797,8 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
             return
         if not full_text:
             return
-        m_width = re.search(r"幅員[：:]?\s*(?:約\s*)?([\d\.]+)\s*[mｍ]", full_text) or re.search(
-            r"接道[：:]?[^\n\r\t]*?(?:約)?\s*([\d\.]+)\s*[mｍ]", full_text
+        m_width = re.search(r"幅員[：:]?\s*(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", full_text) or re.search(
+            r"接道[：:]?[^\n\r\t]{0,100}?(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", full_text
         )
         if m_width:
             item.roadWidth = Decimal(m_width.group(1))
@@ -1019,7 +1019,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
 
     def _parseKaisuStrFromKaisuKouzou(self, value):
         if not value: return None
-        stories_match = re.search(r'(\d+)階建', value)
+        stories_match = re.search(r'(\d{1,5})階建', value)
         return str(stories_match.group(1)) if stories_match else None
 
     def _parseKouzou(self, response, _specs=None):
@@ -1326,7 +1326,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
         if kaisu: return kaisu
         kouzou = self._parseKouzou(response)
         if kouzou:
-            stories_match = re.search(r'(\d+)階', kouzou)
+            stories_match = re.search(r'(\d{1,5})階', kouzou)
             if stories_match: return str(stories_match.group(1))
         return None
 

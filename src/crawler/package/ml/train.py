@@ -109,13 +109,7 @@ def _load_company_properties(company, qs, duplicate_urls, eval_map):
         })
     return records
 
-def load_all_properties_from_db():
-    """
-    全24社の全物件種別のデータをDBから網羅的にロードする
-    """
-    print("Loading properties from DB (All 24 Portals)...")
-    
-    # N+1問題解消のため、評価レコードを一括ロードして辞書化
+def _get_evaluation_and_duplicate_caches():
     print("Caching property evaluations...")
     eval_map = {}
     for e in PropertyEvaluation.objects.all().only("property_url", "interior_score", "layout_score"):
@@ -125,44 +119,38 @@ def load_all_properties_from_db():
         )
     print(f"Cached {len(eval_map)} evaluations.")
 
-    # 重複物件のURLキャッシュ (名寄せされた重複分を排除するため)
     print("Caching duplicate property URLs...")
     duplicate_urls = set(
         PropertyEvaluation.objects.filter(duplicate_of__isnull=False)
         .values_list("property_url", flat=True)
     )
     print(f"Found {len(duplicate_urls)} duplicate properties to exclude.")
+    return eval_map, duplicate_urls
 
-    app_config = apps.get_app_config("package")
-    queries = {
-        "mansion": [],
-        "kodate": [],
-        "apartment": [],
-        "tochi": []
-    }
-    
+def _collect_model_queries(app_config):
+    queries = {"mansion": [], "kodate": [], "apartment": [], "tochi": []}
     for model in app_config.get_models():
         model_name = model.__name__.lower()
-        matched_company = None
-        for c in COMPANIES:
-            if model_name.startswith(c):
-                matched_company = c
-                break
+        matched_company = next((c for c in COMPANIES if model_name.startswith(c)), None)
         if not matched_company:
             continue
-            
         suffix = model_name[len(matched_company):]
-        if "mansion" in suffix:
-            queries["mansion"].append((matched_company, model.objects.all()))
-        elif "apartment" in suffix:
-            queries["apartment"].append((matched_company, model.objects.all()))
-        elif "tochi" in suffix:
-            queries["tochi"].append((matched_company, model.objects.all()))
-        elif "kodate" in suffix:
-            queries["kodate"].append((matched_company, model.objects.all()))
-            
+        for ptype in ["mansion", "apartment", "tochi", "kodate"]:
+            if ptype in suffix:
+                queries[ptype].append((matched_company, model.objects.all()))
+                break
+    return queries
+
+def load_all_properties_from_db():
+    """
+    全24社の全物件種別のデータをDBから網羅的にロードする
+    """
+    print("Loading properties from DB (All 24 Portals)...")
+    eval_map, duplicate_urls = _get_evaluation_and_duplicate_caches()
+    app_config = apps.get_app_config("package")
+    queries = _collect_model_queries(app_config)
+
     data_by_type = {"mansion": [], "kodate": [], "apartment": [], "tochi": []}
-    
     for ptype, list_qs in queries.items():
         for company, qs in list_qs:
             data_by_type[ptype].extend(_load_company_properties(company, qs, duplicate_urls, eval_map))
@@ -437,6 +425,42 @@ def generate_dummy_data(ptype, num_records=500):
     records = [_generate_single_dummy_record(ptype, rng) for _ in range(num_records)]
     return pd.DataFrame(records)
 
+def _apply_iqr_filtering(df, ptype):
+    for col in ["price", "area"]:
+        q1 = df[col].quantile(0.25)
+        q3 = df[col].quantile(0.75)
+        iqr = q3 - q1
+        lower_bound = max(0.0, q1 - 3.5 * iqr)
+        upper_bound = q3 + 3.5 * iqr
+        if col == "price":
+            upper_bound = max(upper_bound, 60000.0)
+        elif col == "area" and ptype == "mansion":
+            upper_bound = max(upper_bound, 250.0)
+        
+        pre_count = len(df)
+        df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)].copy()
+        post_count = len(df)
+        if post_count < pre_count:
+            print(f"  [IQR] Removed {pre_count - post_count} outlier records based on '{col}' (Bounds: {lower_bound:.1f} - {upper_bound:.1f})")
+    return df
+
+def _apply_isolation_forest_filtering(df, ptype):
+    from sklearn.ensemble import IsolationForest
+    features_for_outlier = ["price", "area", "chikunen"]
+    if "tochi_menseki" in df.columns and ptype != "mansion":
+        features_for_outlier.append("tochi_menseki")
+        
+    iso = IsolationForest(contamination=0.02, random_state=42)
+    x_outlier = df[features_for_outlier].fillna(0)
+    
+    preds = iso.fit_predict(x_outlier)
+    pre_count = len(df)
+    df = df[preds == 1].copy()
+    post_count = len(df)
+    if post_count < pre_count:
+        print(f"  [IsolationForest] Removed {pre_count - post_count} multi-dimensional outlier records (contamination=2%).")
+    return df
+
 def clean_training_data(df, ptype):
     """
     IQR法およびIsolation Forestを用いた学習データの自動クレンジング処理
@@ -454,43 +478,14 @@ def clean_training_data(df, ptype):
         print(f"  Removed {initial_count - physical_clean_count} records due to physical limit filters.")
         
     if len(df) < 20:
-        # データが少なすぎる場合はそれ以上の統計的除外をスキップ
         return df
 
-    # 2. IQR法による価格と面積の外れ値除外 (都心高級レジデンスの切り捨てを防ぐため3.5倍IQRおよび上限保証)
-    for col in ["price", "area"]:
-        q1 = df[col].quantile(0.25)
-        q3 = df[col].quantile(0.75)
-        iqr = q3 - q1
-        lower_bound = max(0.0, q1 - 3.5 * iqr)
-        upper_bound = q3 + 3.5 * iqr
-        if col == "price":
-            upper_bound = max(upper_bound, 60000.0)  # 6億円までは現実的な高級レジデンス・ビルとして学習
-        elif col == "area" and ptype == "mansion":
-            upper_bound = max(upper_bound, 250.0)   # 250㎡までのプレミアム住戸を学習に保持
-        
-        pre_count = len(df)
-        df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)].copy()
-        post_count = len(df)
-        if post_count < pre_count:
-            print(f"  [IQR] Removed {pre_count - post_count} outlier records based on '{col}' (Bounds: {lower_bound:.1f} - {upper_bound:.1f})")
+    # 2. IQR法による価格と面積の外れ値除外
+    df = _apply_iqr_filtering(df, ptype)
 
     # 3. Isolation Forestによる多次元外れ値の検出と除外 (データ数が100件以上の場合のみ)
     if len(df) >= 100:
-        from sklearn.ensemble import IsolationForest
-        features_for_outlier = ["price", "area", "chikunen"]
-        if "tochi_menseki" in df.columns and ptype != "mansion":
-            features_for_outlier.append("tochi_menseki")
-            
-        iso = IsolationForest(contamination=0.02, random_state=42)
-        x_outlier = df[features_for_outlier].fillna(0)
-        
-        preds = iso.fit_predict(x_outlier)
-        pre_count = len(df)
-        df = df[preds == 1].copy()
-        post_count = len(df)
-        if post_count < pre_count:
-            print(f"  [IsolationForest] Removed {pre_count - post_count} multi-dimensional outlier records (contamination=2%).")
+        df = _apply_isolation_forest_filtering(df, ptype)
             
     print(f"Cleaned training data for {ptype}. Final records: {len(df)}")
     return df
@@ -602,109 +597,79 @@ class TrainedEnsemble(dict):
         self.weights = weights or {}
         self.smearing_factor = smearing_factor
 
-def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> TrainedEnsemble:
-    """
-    指定された特徴量を用いてモデルをチューニング＆学習し、
-    Repeated 5-Fold CV (計15サイクル) 評価を行った上で、全データで最終学習したモデル、
-    データ駆動最適アンサンブル重み、およびDuan's Smearing補正係数を返します。
-    """
-    # 欠損特徴量カラムのゼロ埋め（ダミーデータや過去データ等の互換性ガード）
+def _prepare_features_and_target(df, feature_cols):
     for col in feature_cols:
         if col not in df.columns:
             df[col] = 0.0
 
     X = df[feature_cols].copy()
-    y = np.log1p(df["price"] / df["area"]) # 平米単価の対数変換 (log1p) を施す
-    
-    # カテゴリカル変数の処理 (Label Encoding)
+    y = np.log1p(df["price"] / df["area"])
     for col in X.columns:
         if X[col].dtype == 'object':
             X[col] = X[col].astype('category').cat.codes
-            
-    # 大規模データセット（3,000件超）では 3-Fold CV で高速・高精度評価。極小テストデータ（50件未満）では 2-Fold で瞬時検証
-    if len(df) > 3000:
-        rkf = KFold(n_splits=3, shuffle=True, random_state=42)
-        cv_desc = "3-Fold Fast CV"
-    elif len(df) < 50:
-        rkf = KFold(n_splits=2, shuffle=True, random_state=42)
-        cv_desc = "2-Fold Quick CV"
-    else:
-        rkf = RepeatedKFold(n_splits=5, n_repeats=3, random_state=42)
-        cv_desc = "15-Cycle Repeated CV"
-    algos = ['lgb', 'xgb', 'cat', 'rf']
-    
-    print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ({cv_desc}) ---", flush=True)
-    
-    trained_models = {}
-    best_params_dict = {}
-    
-    # 事前チューニングの実行（本番規模の十分なデータ数がある場合のみ）
-    for name in algos:
-        if len(df) >= 100:
-            print(f"Tuning hyperparameters for {name}...", flush=True)
-            best_params_dict[name] = tune_hyperparameters(X, y, name, sample_weight=sample_weight)
-            print(f"Best params for {name}: {best_params_dict[name]}", flush=True)
-        else:
-            best_params_dict[name] = {}
-            
-    oof_preds = {name: np.zeros(len(df)) for name in algos}
-    oof_counts = {name: np.zeros(len(df)) for name in algos}
+    return X, y
 
-    for name in algos:
-        mapes = []
-        maes = []
-        r2s = []
-        params = best_params_dict[name]
+def _get_cv_strategy(df_len):
+    if df_len > 3000:
+        return KFold(n_splits=3, shuffle=True, random_state=42), "3-Fold Fast CV"
+    if df_len < 50:
+        return KFold(n_splits=2, shuffle=True, random_state=42), "2-Fold Quick CV"
+    return RepeatedKFold(n_splits=5, n_repeats=3, random_state=42), "15-Cycle Repeated CV"
+
+def _evaluate_folds(name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts):
+    mapes, maes, r2s = [], [], []
+    for train_idx, val_idx in rkf.split(X):
+        x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
         
-        for train_idx, val_idx in rkf.split(X):
-            x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
-            y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-            
-            fold_model = _get_regressor(name, params)
-            if sample_weight is not None:
-                sw_train = sample_weight[train_idx]
-                fold_model.fit(x_train, y_train, sample_weight=sw_train)
-            else:
-                fold_model.fit(x_train, y_train)
-            preds_log = fold_model.predict(x_val)
-            
-            oof_preds[name][val_idx] += preds_log
-            oof_counts[name][val_idx] += 1
-            
-            # 元の万円スケールに逆対数変換 ＆ 面積乗算して総額に戻して評価
-            val_areas = df.iloc[val_idx]["area"].values
-            preds_actual = np.expm1(preds_log) * val_areas
-            y_val_actual = np.expm1(y_val) * val_areas
-            
-            mapes.append(calculate_mape(y_val_actual, preds_actual))
-            maes.append(mean_absolute_error(y_val_actual, preds_actual))
-            r2s.append(r2_score(y_val_actual, preds_actual))
-            
-            del fold_model, x_train, x_val, y_train, y_val
-            gc.collect()
-            
-        avg_mape = np.mean(mapes)
-        avg_mae = np.mean(maes)
-        avg_r2 = np.mean(r2s)
-        print(f"[{name}] 5-Fold CV Scores:")
-        print(f"  - MAPE: {avg_mape:.2f}%")
-        print(f"  - MAE:  {avg_mae:.2f}万円")
-        print(f"  - R2:   {avg_r2:.4f}")
-        
-        # 全データで本番学習
-        final_model = _get_regressor(name, params)
-            
+        fold_model = _get_regressor(name, params)
         if sample_weight is not None:
-            final_model.fit(X, y, sample_weight=sample_weight)
+            fold_model.fit(x_train, y_train, sample_weight=sample_weight[train_idx])
         else:
-            final_model.fit(X, y)
-        print_feature_importance(final_model, name, feature_cols)
-        trained_models[name] = final_model
+            fold_model.fit(x_train, y_train)
+        preds_log = fold_model.predict(x_val)
         
+        oof_preds[name][val_idx] += preds_log
+        oof_counts[name][val_idx] += 1
+        
+        val_areas = df.iloc[val_idx]["area"].values
+        preds_actual = np.expm1(preds_log) * val_areas
+        y_val_actual = np.expm1(y_val) * val_areas
+        
+        mapes.append(calculate_mape(y_val_actual, preds_actual))
+        maes.append(mean_absolute_error(y_val_actual, preds_actual))
+        r2s.append(r2_score(y_val_actual, preds_actual))
+        
+        del fold_model, x_train, x_val, y_train, y_val
+        gc.collect()
+        
+    print(f"[{name}] 5-Fold CV Scores:")
+    print(f"  - MAPE: {np.mean(mapes):.2f}%")
+    print(f"  - MAE:  {np.mean(maes):.2f}万円")
+    print(f"  - R2:   {np.mean(r2s):.4f}")
+
+def _train_single_algo(name, X, y, df, rkf, sample_weight, feature_cols, oof_preds, oof_counts):
+    if len(df) >= 100:
+        print(f"Tuning hyperparameters for {name}...", flush=True)
+        params = tune_hyperparameters(X, y, name, sample_weight=sample_weight)
+        print(f"Best params for {name}: {params}", flush=True)
+    else:
+        params = {}
+        
+    _evaluate_folds(name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts)
+    
+    final_model = _get_regressor(name, params)
+    if sample_weight is not None:
+        final_model.fit(X, y, sample_weight=sample_weight)
+    else:
+        final_model.fit(X, y)
+    print_feature_importance(final_model, name, feature_cols)
+    return final_model
+
+def _optimize_ensemble_weights(df, oof_preds, oof_counts, algos):
     for name in algos:
         oof_preds[name] /= np.maximum(1, oof_counts[name])
         
-    # OOF予測に基づく最適アンサンブル重みのデータ駆動算出 (SLSQP minimizer)
     oof_unit_preds = np.column_stack([np.maximum(0, np.expm1(oof_preds[name])) for name in algos])
     val_areas = df["area"].values
     y_actual = df["price"].values
@@ -724,18 +689,16 @@ def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> Train
     
     try:
         res = minimize(objective, init_weights, method='SLSQP', bounds=bounds, constraints=constraints)
-        if res.success:
-            opt_w = res.x / np.sum(res.x)
-        else:
-            opt_w = np.array(init_weights)
+        opt_w = res.x / np.sum(res.x) if res.success else np.array(init_weights)
     except Exception as e:
         print(f"Ensemble weight optimization fallback: {e}")
         opt_w = np.array(init_weights)
         
     optimal_weights = {algos[i]: float(opt_w[i]) for i in range(len(algos))}
     print(f"Optimized Ensemble Weights: {optimal_weights}")
-    
-    # Duan's Smearing Estimator (対数変換過小予測バイアス厳密数理補正: E[Y] = exp(mu + sigma^2/2))
+    return optimal_weights, opt_w, oof_unit_preds
+
+def _compute_smearing_factor(df, oof_unit_preds, opt_w):
     ensemble_pred_units = oof_unit_preds @ opt_w
     actual_unit_prices = df["price"].values / np.maximum(0.1, df["area"].values)
     log_residuals = np.log(np.maximum(0.1, actual_unit_prices)) - np.log(np.maximum(0.1, ensemble_pred_units))
@@ -748,6 +711,30 @@ def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> Train
     smearing_factor = float(np.exp(mean_bias + var_res / 2.0))
     smearing_factor = max(0.90, min(1.40, smearing_factor))
     print(f"Duan's Smearing Correction Factor (mean_bias={mean_bias:.4f}, var={var_res:.4f}): {smearing_factor:.4f}")
+    return smearing_factor
+
+def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> TrainedEnsemble:
+    """
+    指定された特徴量を用いてモデルをチューニング＆学習し、
+    Repeated 5-Fold CV (計15サイクル) 評価を行った上で、全データで最終学習したモデル、
+    データ駆動最適アンサンブル重み、およびDuan's Smearing補正係数を返します。
+    """
+    X, y = _prepare_features_and_target(df, feature_cols)
+    rkf, cv_desc = _get_cv_strategy(len(df))
+    algos = ['lgb', 'xgb', 'cat', 'rf']
+    
+    print(f"\n--- Tuning & Cross-Validating models for Stage: {stage_name} ({cv_desc}) ---", flush=True)
+    
+    oof_preds = {name: np.zeros(len(df)) for name in algos}
+    oof_counts = {name: np.zeros(len(df)) for name in algos}
+    trained_models = {}
+    for name in algos:
+        trained_models[name] = _train_single_algo(
+            name, X, y, df, rkf, sample_weight, feature_cols, oof_preds, oof_counts
+        )
+        
+    optimal_weights, opt_w, oof_unit_preds = _optimize_ensemble_weights(df, oof_preds, oof_counts, algos)
+    smearing_factor = _compute_smearing_factor(df, oof_unit_preds, opt_w)
     
     return TrainedEnsemble(trained_models, optimal_weights, smearing_factor)
 

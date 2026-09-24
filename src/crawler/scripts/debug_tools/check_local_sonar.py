@@ -19,12 +19,14 @@ MAX_REGEX_LENGTH = 500
 # Directories and paths excluded from Sonar scan (consistent with sonar-project.properties)
 EXCLUDED_PATTERNS = [
     r"tests[/\\].*",
+    r"testing[/\\].*",
     r"migrations[/\\].*",
     r"Temp[/\\].*",
     r"logs[/\\].*",
     r"catboost_info[/\\].*",
     r"\.pytest_cache[/\\].*",
     r"docs[/\\].*",
+    r"scripts[/\\].*",
     r"\.git[/\\].*",
 ]
 

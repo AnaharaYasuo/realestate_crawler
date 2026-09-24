@@ -18,6 +18,31 @@ HEADERS = {
 }
 
 
+def _is_blocked_ip(ip_obj) -> bool:
+    return any((ip_obj.is_private, ip_obj.is_loopback, ip_obj.is_link_local, ip_obj.is_reserved, ip_obj.is_multicast))
+
+
+def _validate_ip_or_dns(hostname: str) -> tuple[bool, str]:
+    try:
+        try:
+            ip_obj = ipaddress.ip_address(hostname)
+            if _is_blocked_ip(ip_obj):
+                return False, f"Blocked private/loopback/link-local IP address: {hostname} (SSRF Defense)"
+            return True, ""
+        except ValueError:
+            addr_info = socket.getaddrinfo(hostname, None)
+            for item in addr_info:
+                resolved_ip_str = item[4][0]
+                ip_obj = ipaddress.ip_address(resolved_ip_str)
+                if _is_blocked_ip(ip_obj):
+                    return False, f"Blocked domain resolving to private/loopback IP: {hostname} -> {resolved_ip_str} (SSRF Defense)"
+            return True, ""
+    except socket.gaierror:
+        return True, ""
+    except Exception as e:
+        return False, f"Security validation error: {str(e)}"
+
+
 class UrlSecurityValidator:
     """
     URL安全性検証およびSSRF防御・到達性判定クラス
@@ -47,8 +72,7 @@ class UrlSecurityValidator:
         if not hostname:
             return False, "URL missing hostname"
 
-        hostname_lower = hostname.lower()
-        if hostname_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
             return False, "Blocked loopback hostname (SSRF Defense)"
 
         # 3. ポート検証
@@ -56,28 +80,7 @@ class UrlSecurityValidator:
             return False, f"Blocked non-standard port: {parsed.port}. Only ports 80 and 443 are allowed."
 
         # 4. IPアドレス名前解決 & プライベート/リンクローカル判定
-        try:
-            # IPアドレス直接指定の場合
-            try:
-                ip_obj = ipaddress.ip_address(hostname)
-                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
-                    return False, f"Blocked private/loopback/link-local IP address: {hostname} (SSRF Defense)"
-            except ValueError:
-                # ドメイン名の場合はDNS名前解決を行う
-                addr_info = socket.getaddrinfo(hostname, None)
-                for item in addr_info:
-                    sockaddr = item[4]
-                    resolved_ip_str = sockaddr[0]
-                    ip_obj = ipaddress.ip_address(resolved_ip_str)
-                    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
-                        return False, f"Blocked domain resolving to private/loopback IP: {hostname} -> {resolved_ip_str} (SSRF Defense)"
-        except socket.gaierror:
-            # ホスト名解決失敗時はSSRF対象（プライベートIP）ではないと判断しパス。HTTP疎通時にエラー処理される
-            pass
-        except Exception as e:
-            return False, f"Security validation error: {str(e)}"
-
-        return True, ""
+        return _validate_ip_or_dns(hostname)
 
     @staticmethod
     async def check_property_content_and_reachability(

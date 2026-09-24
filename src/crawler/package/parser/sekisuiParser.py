@@ -7,6 +7,41 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 import re
 
+def _parse_sekisui_dl_specs(response: BeautifulSoup, specs: dict) -> None:
+    for dl in response.find_all("dl"):
+        dts = dl.find_all("dt")
+        dds = dl.find_all("dd")
+        for dt, dd in zip(dts, dds):
+            key = dt.get_text().strip()
+            val = re.sub(r'\s+', ' ', dd.get_text().strip())
+            if key:
+                specs[key] = val
+
+
+def _parse_sekisui_li_specs(response: BeautifulSoup, specs: dict) -> None:
+    for li in response.find_all("li"):
+        title_p = li.find("p", class_="title")
+        if not title_p:
+            continue
+        val_p = title_p.find_next_sibling("p")
+        if val_p:
+            key = title_p.get_text().strip()
+            val = re.sub(r'\s+', ' ', val_p.get_text().strip())
+            if key:
+                specs[key] = val
+
+
+def _parse_sekisui_tr_specs(response: BeautifulSoup, specs: dict) -> None:
+    for tr in response.find_all("tr"):
+        th = tr.find("th")
+        td = tr.find("td")
+        if th and td:
+            key = th.get_text().strip()
+            val = re.sub(r'\s+', ' ', td.get_text().strip())
+            if key:
+                specs[key] = val
+
+
 class SekisuiParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -120,41 +155,9 @@ class SekisuiParser(ParserBase):
     def _get_specs(self, response: BeautifulSoup):
         # Sekisui specific specifications parsing
         specs = {}
-        
-        # 1. dl -> dt / dd structure
-        for dl in response.find_all("dl"):
-            dts = dl.find_all("dt")
-            dds = dl.find_all("dd")
-            for dt, dd in zip(dts, dds):
-                key = dt.get_text().strip()
-                val = dd.get_text().strip()
-                val = re.sub(r'\s+', ' ', val)
-                if key:
-                    specs[key] = val
-                    
-        # 2. li -> p class="title" / p structure
-        for li in response.find_all("li"):
-            title_p = li.find("p", class_="title")
-            if title_p:
-                val_p = title_p.find_next_sibling("p")
-                if val_p:
-                    key = title_p.get_text().strip()
-                    val = val_p.get_text().strip()
-                    val = re.sub(r'\s+', ' ', val)
-                    if key:
-                        specs[key] = val
-                        
-        # 3. Normal tr/th/td tables
-        for tr in response.find_all("tr"):
-            th = tr.find("th")
-            td = tr.find("td")
-            if th and td:
-                key = th.get_text().strip()
-                val = td.get_text().strip()
-                val = re.sub(r'\s+', ' ', val)
-                if key:
-                    specs[key] = val
-
+        _parse_sekisui_dl_specs(response, specs)
+        _parse_sekisui_li_specs(response, specs)
+        _parse_sekisui_tr_specs(response, specs)
         return specs
 
     def _parseTrafficLines(self, response: BeautifulSoup):

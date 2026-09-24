@@ -125,6 +125,20 @@ def _append_main_call_url(
         urls.append(resolved)
 
 
+def _extract_cname_from_call(func: ast.AST) -> str | None:
+    if isinstance(func, ast.Name) and func.id.endswith("StartAsync"):
+        return func.id
+    if isinstance(func, ast.Attribute) and func.attr.endswith("StartAsync"):
+        return func.attr
+    if isinstance(func, ast.Attribute) and func.attr == "main" and isinstance(func.value, ast.Call):
+        caller = func.value.func
+        if isinstance(caller, ast.Name) and caller.id.endswith("StartAsync"):
+            return caller.id
+        if isinstance(caller, ast.Attribute) and caller.attr.endswith("StartAsync"):
+            return caller.attr
+    return None
+
+
 def _collect_start_func_info(
     node: ast.FunctionDef,
     constants: dict[str, str],
@@ -134,22 +148,7 @@ def _collect_start_func_info(
     classes: list[str] = []
     for child in ast.walk(node):
         if isinstance(child, ast.Call):
-            func = child.func
-            cname = None
-            if isinstance(func, ast.Name) and func.id.endswith("StartAsync"):
-                cname = func.id
-            elif isinstance(func, ast.Attribute) and func.attr.endswith("StartAsync"):
-                cname = func.attr
-            elif (
-                isinstance(func, ast.Attribute)
-                and func.attr == "main"
-                and isinstance(func.value, ast.Call)
-            ):
-                caller = func.value.func
-                if isinstance(caller, ast.Name) and caller.id.endswith("StartAsync"):
-                    cname = caller.id
-                elif isinstance(caller, ast.Attribute) and caller.attr.endswith("StartAsync"):
-                    cname = caller.attr
+            cname = _extract_cname_from_call(child.func)
             if cname and cname not in classes:
                 classes.append(cname)
             _append_main_call_url(child, constants, local_ns, urls)

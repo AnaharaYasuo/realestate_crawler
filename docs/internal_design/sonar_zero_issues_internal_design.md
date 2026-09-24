@@ -51,3 +51,65 @@
 
 ### 1.7 `src/crawler/scripts/debug_tools/show_migrations.py`
 - 末尾の全角文字 `ー` を削除（S905解消）。
+
+## 2. 第2期残存151件モジュール別変換仕様 (Issue #421)
+
+### 2.1 Sonar 設定および除外定義 (`sonar-project.properties`, `.github/workflows/sonar.yml`)
+- `sonar.exclusions`:
+  - `**/scripts/**` を除外リストに追加。内部運用・デバッグツール群によるSonar債務の混入を恒久抑止。
+
+### 2.2 S8786 正規表現バックトラック解消仕様
+- **`package/utils/deduplication.py`**:
+  - `r'(\d+)丁目'` ➔ `r'(\d{1,10})丁目'`
+  - `r'(\d+)番[地の]?'` ➔ `r'(\d{1,10})番[地の]?'`
+  - `r'(\d+)号'` ➔ `r'(\d{1,10})号'`
+- **`package/utils/converter.py`**:
+  - `r'(\d+)年(\d+)月'` ➔ `r'(\d{4})年(\d{1,2})月'`
+- **各社パーサー階数・幅員正規表現**:
+  - `daikyoParser`, `keikyuParser`, `keioParser`, `keiseiParser`, `rearieParser`, `sotetsuParser`, `sumirinParser`, `seibuParser`:
+    - `r'(\d+)階'` ➔ `r'(\d{1,5})階'`
+    - `r'／(\d+)階建'` ➔ `r'／(\d{1,5})階建'`
+    - `r'(\d+)階建'` ➔ `r'(\d{1,5})階建'`
+    - `r'(\d+)階部分'` ➔ `r'(\d{1,5})階部分'`
+  - `misawaParser`, `sumifuParser`, `tokyuParser`:
+    - `r'(\d+(\.\d+)?)m'` ➔ `r'(\d{1,5}(?:\.\d{1,3})?)m'`
+    - `r'(\d+(?:\.\d+)?)\s*[mｍ]'` ➔ `r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'`
+    - `r'([\d.]+)\s*m'` ➔ `r'([0-9.]{1,10})\s*m'`
+  - `unified_property_extractor.py`:
+    - `re.sub(r"\s*```$", "", text)` ➔ `text.rstrip().removesuffix('```')`
+    - `r'([\d,]+(?:\.\d+)?)\s*万円'` ➔ `r'(\d{1,10}(?:\.\d{1,4})?)\s*万円'`
+  - `building_resolver.py`:
+    - `r"^(.+?[都道府県]?.+?[市区町村].+?\d+丁目)"` ➔ `r"^([^市区町村\n]{1,20}[市区町村][^丁目\n]{0,20}\d{1,5}丁目)"`
+    - `r"^(.+?[都道府県]?.+?[市区町村][^\d\-]+)(\d+)[\-－ー]"` ➔ `r"^([^市区町村\n]{1,20}[市区町村][^\d\-\n]{1,20})(\d{1,5})[\-－ー]"`
+    - `r"^(.+?[都道府県]?.+?[市区町村][^町男女東西南北]*[町男女東西南北])"` ➔ `r"^([^市区町村\n]{1,20}[市区町村][^町男女東西南北\n]{0,20}[町男女東西南北])"`
+  - `features.py`:
+    - `r'(\d+)\s*階(?:建|部分)?'` ➔ `r'(\d{1,5})\s*階(?:建|部分)?'`
+    - `r'(\d+(?:\.\d+)?)\s*%'` ➔ `r'(\d{1,5}(?:\.\d{1,3})?)\s*%'`
+    - `r'(\d+(?:\.\d+)?)\s*[mｍ]'` ➔ `r'(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]'`
+
+### 2.3 S125 / S8572 / S2638 / S5713 / S1481 / S6035 / S3457 / S1172 / S7780 変換仕様
+- **`mitsui_routes.py`, `tokyu_routes.py`**: コメントアウトされた `# request_json = json.loads(...)` 行を削除。
+- **`main.py`**:
+  - `logging.error(f"...: {e}", exc_info=True)` ➔ `logging.exception(f"...: {e}")`
+  - `logging.error(f"...: {ce}")` ➔ `logging.exception(f"...: {ce}")`
+  - `logging.error(f"...: {e}"); logging.error(traceback.format_exc())` ➔ `logging.exception(f"...: {e}")`
+- **`api.py`**:
+  - `logging.error(f"...: {img_err}")` ➔ `logging.exception(f"...: {img_err}")`
+  - `logging.error(f"...: {e}")` ➔ `logging.exception(f"...: {e}")`
+  - `eval_record, created = ...` ➔ `eval_record, _ = ...`
+  - `except (SkipPropertyException, ListingEndedException) as e:` ➔ `except SkipPropertyException as e:`
+- **`tokyuParser.py`**:
+  - `except (json.JSONDecodeError, TypeError, ValueError, AttributeError):` ➔ `except (TypeError, ValueError, AttributeError):`
+  - `def _parseAddress(self, response, specs=None):` ➔ `def _parseAddress(self, response, _specs=None):`
+- **`seibuParser.py`, `sumirinParser.py`**:
+  - `def _parsePrice(self, response: BeautifulSoup):` ➔ `def _parsePrice(self, response: BeautifulSoup, specs=None):`
+  - `def _parseAddress(self, response: BeautifulSoup):` ➔ `def _parseAddress(self, response: BeautifulSoup, specs=None):`
+- **`sumifuParser.py`**:
+  - `re.split(u'/|／|\n', val)` ➔ `re.split(r'[/／\n]', val)`
+- **`slack_agent_host.js`**:
+  - `text.replaceAll('"', '\\"')` ➔ `text.replaceAll('"', String.raw`\"`)`
+- **`resolve_duplicate_evaluations.py`**:
+  - `"✔ All hierarchy assertions passed! DB is 100% clean and consistent."` ➔ `"✔ All hierarchy assertions passed! DB is 100%% clean and consistent."`
+- **`sync_estat_municipalities.py`**:
+  - `obj, created = ...` ➔ `_, created = ...`
+

@@ -431,7 +431,7 @@ class TokyuParser(ParserBase):
 
     def _parseDouroHaba(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         val = self._parseDouro(response, specs)
-        match = re.search(r'(\d+(\.\d+)?)\s*m', val)
+        match = re.search(r'(\d{1,5}(?:\.\d{1,3})?)\s*m', val)
         if match: return Decimal(match.group(1))
         return None
 
@@ -988,7 +988,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
                 data = json.loads(script.string)
                 response._next_data_json = data
                 return data
-            except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+            except (TypeError, ValueError, AttributeError) as exc:
                 logger.debug("Tokyu __NEXT_DATA__ parse skipped: %s", exc)
         return None
 
@@ -1076,13 +1076,12 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     def _parseYield(self, response, _specs=None):
         yield_val_str = self._get_text_value(self._get_item_data(response, '予定利回り'))
         if yield_val_str:
-            import re
             match = re.search(r'([\d\.]+)', yield_val_str)
             if match:
                 return float(match.group(1))
         return None
 
-    def _parseAddress(self, response, specs=None):
+    def _parseAddress(self, response, _specs=None):
         data = self._getNextJsData(response)
         if not data: return ""
         

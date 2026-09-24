@@ -9,39 +9,43 @@ __file__ から親方向に遡って realestateSettings.py の存在するルー
 import os
 import sys
 
-def init_environment():
+def _find_crawler_dir():
     cur = os.path.abspath(__file__)
-    crawler_dir = None
     while True:
         parent = os.path.dirname(cur)
         if parent == cur:
-            break
+            return None
         if os.path.exists(os.path.join(parent, "realestateSettings.py")):
-            crawler_dir = parent
             if parent not in sys.path:
                 sys.path.insert(0, parent)
-            break
+            return parent
         cur = parent
 
-    if hasattr(sys.stdout, "reconfigure"):
-        try:
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-    if hasattr(sys.stderr, "reconfigure"):
-        try:
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
 
+def _reconfigure_streams():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def _init_settings():
+    try:
+        from package.utils.logging_config import configure_logging
+        configure_logging()
+    except Exception:
+        pass
+    import realestateSettings
+    realestateSettings.configure()
+
+
+def init_environment():
+    crawler_dir = _find_crawler_dir()
+    _reconfigure_streams()
     if crawler_dir:
-        try:
-            from package.utils.logging_config import configure_logging
-            configure_logging()
-        except Exception:
-            pass
-        import realestateSettings
-        realestateSettings.configure()
+        _init_settings()
     return crawler_dir
 
 # モジュールインポート時に自動実行

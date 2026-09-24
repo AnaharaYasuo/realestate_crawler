@@ -21,10 +21,10 @@ def normalize_address(address: str) -> str:
     kanji_digits = {'一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'}
     for k, v in kanji_digits.items():
         address = address.replace(k, v)
-    address = re.sub(r'(\d+)丁目', r'\1-', address)
-    address = re.sub(r'(\d+)番[地の]?', r'\1-', address)
-    address = re.sub(r'(\d+)号', r'\1', address)
-    address = re.sub('-+', '-', address)
+    address = re.sub(r'(\d{1,10})丁目', r'\1-', address)
+    address = re.sub(r'(\d{1,10})番[地の]?', r'\1-', address)
+    address = re.sub(r'(\d{1,10})号', r'\1', address)
+    address = re.sub(r'-+', '-', address)
     address = address.strip('-')
     return address
 COMPANIES = ['mitsui', 'sumifu', 'tokyu', 'nomura', 'misawa', 'smtrc', 'sumai1', 'mizuho', 'odakyu', 'afr', 'sekisui', 'daiwa', 'totate', 'athome', 'homes', 'seibu', 'keikyu', 'sotetsu', 'keisei', 'daikyo', 'rearie', 'heim', 'sumirin', 'keio']

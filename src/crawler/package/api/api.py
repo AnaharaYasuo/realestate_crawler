@@ -776,7 +776,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 try:
                     url_list = await self._treatPage(session, self._getTreatPageArg())
                 except Exception as e:
-                    logging.error(f"Error in _run/_treatPage for {_url}: {e}")
+                    logging.exception(f"Error in _run/_treatPage for {_url}: {e}")
                     raise e
                 finally:
                     if session is not None:
@@ -1019,18 +1019,27 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.exception("Unexpected error getting content from %s: %s", url, e)
                 raise
 
-    async def _treatPage(self, _session, *arg):
+    @staticmethod
+    def _detect_company_name(item) -> str:
+        model_name = item.__class__.__name__
+        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+            if model_name.lower().startswith(c):
+                return c
+        return "unknown"
 
+    async def _fetch_detail_item(self):
         async def get_item():
             item = None
             _connector = self._generateConnector(self._getActiveEventLoop())
             await self.semaphore.acquire()
             try:
-                # with await self.semaphore:
-                async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtl_session:
+                async with aiohttp.ClientSession(
+                    headers=header,
+                    connector=self._generateConnector(self._getActiveEventLoop()),
+                    timeout=self._generateTimeout()
+                ) as dtl_session:
                     try:
                         item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
-
                     except Exception as e:
                         logging.exception("exception get item for URL: %s Details: %s", self.url, e)
                         raise
@@ -1043,440 +1052,362 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 self.semaphore.release()
             return item
 
-        retry = False
-        item = None
-        is_skipped_property = False
         try:
             item = await get_item()
+            return item, False
         except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
-            retry = True
-        except (SkipPropertyException, ListingEndedException) as e:
-            logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
-            item = None
-            is_skipped_property = True
-
-
-        except Exception as e:
-            logging.error(f"get item exception for URL: {self.url}", exc_info=e)
-        if retry:
             logging.debug("get item retry")
             try:
                 item = await get_item()
+                return item, False
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {str(e)}")
+                return None, False
+        except SkipPropertyException as e:
+            logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
+            return None, True
+        except Exception as e:
+            logging.error(f"get item exception for URL: {self.url}", exc_info=e)
+            return None, False
+
+    async def _save_property_and_price_history(self, item):
+        current_time = datetime.datetime.now()
+        current_day = datetime.date.today()
+
+        item.pageUrl = UrlMatcher.normalize(item.pageUrl)
+        model_class = item.__class__
+        existing_record = None
+        try:
+            def get_existing():
+                return UrlMatcher.find_match_in_queryset(
+                    model_class.objects, "pageUrl", item.pageUrl
+                )
+            existing_record = await sync_to_async(get_existing)()
+        except Exception as e:
+            logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
+
+        if existing_record:
+            item.id = existing_record.id
+            item._state.adding = False
+            item.inputDate = existing_record.inputDate or current_day
+            item.inputDateTime = existing_record.inputDateTime or current_time
+            item.updateDateTime = current_time
+
+            old_p = existing_record.price
+            new_p = item.price
+            if old_p is not None and new_p is not None and old_p != new_p:
+                await self._record_price_revision(item, model_class, old_p, new_p)
+        else:
+            item.inputDateTime = current_time
+            item.inputDate = current_day
+            item.updateDateTime = current_time
+
+        logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
+        await sync_to_async(item.save)()
+        logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
+
+    async def _record_price_revision(self, item, model_class, old_p, new_p):
+        company = self._detect_company_name(item)
+        property_type = PropertyTypeDetector.detect_from_object(item)
+        try:
+            def create_price_history():
+                PropertyPriceHistory.objects.create(
+                    property_url=item.pageUrl,
+                    company=company,
+                    property_type=property_type,
+                    old_price=old_p,
+                    new_price=new_p,
+                    price_diff=new_p - old_p,
+                )
+            await sync_to_async(create_price_history)()
+            logging.info(f"[Price Revision] {item.pageUrl}: {old_p} -> {new_p} (diff: {new_p - old_p:+d})")
+        except Exception as he:
+            logging.warning(f"Failed to record price history for {item.pageUrl}: {he}")
+
+    def _check_crawler_limit(self):
+        global GLOBAL_SAVE_COUNT
+        try:
+            GLOBAL_SAVE_COUNT += 1
+        except NameError:
+            GLOBAL_SAVE_COUNT = 1
+
+        limit = int(os.getenv("CRAWLER_LIMIT", 0))
+        if limit > 0:
+            logging.info(f"Global Save Count: {GLOBAL_SAVE_COUNT}/{limit}")
+            if GLOBAL_SAVE_COUNT >= limit:
+                logging.info(f"Hit limit {limit}. Exiting...")
+                os._exit(0)
+
+    async def _run_stage1_eval(self, item, company, property_type, asking_price, PropertyEvaluation, predict_first_stage):
+        price_stage1 = await sync_to_async(predict_first_stage)(item)
+        is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
+
+        chidai_val = getattr(item, "chidai", None)
+        if chidai_val is None and getattr(item, "chidaiStr", None):
+            chidai_val = parse_chidai(item.chidaiStr)
+        monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
+        liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+
+        eval_record, _ = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
+            property_url=item.pageUrl,
+            defaults={
+                "company": company,
+                "property_type": property_type,
+                "property_id": item.id,
+                "first_stage_predicted_price": price_stage1,
+                "is_first_stage_passed": is_passed,
+                "analysis_status": "pending",
+                "monthly_land_rent": monthly_rent,
+                "land_rent_liability": liability
+            }
+        )
+        return eval_record, price_stage1, is_passed
+
+    async def _run_dedup_and_investment(self, item, eval_record, property_type):
+        from package.utils.deduplication import find_duplicate_property
+        duplicate_parent = await sync_to_async(find_duplicate_property)(eval_record)
+        if duplicate_parent:
+            eval_record.duplicate_of = duplicate_parent
+            eval_record.is_slack_notified = True
+            await sync_to_async(eval_record.save)()
+            logging.info(f"Deduplication: Property {item.pageUrl} is linked as a duplicate of {duplicate_parent.property_url}. Skipping Slack notification.")
+
+        if PropertyTypeDetector.is_investment(property_type):
+            from package.ml.investment_evaluator import evaluate_investment_property
+            eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
+            await sync_to_async(eval_record.save)()
+
+    async def _upload_single_property_image(self, eval_record, property_type, idx, img, PropertyImage):
+        try:
+            resp = await sync_to_async(requests.get)(img["url"], timeout=10)
+            if resp.status_code == 200:
+                img_bytes = resp.content
+                ext = ".png" if img["url"].split('?')[0].lower().endswith(".png") else (".webp" if img["url"].split('?')[0].lower().endswith(".webp") else ".jpg")
+                object_key = f"{property_type}/{eval_record.id}_{idx}_{uuid.uuid4().hex}{ext}"
+                content_type = "image/jpeg" if ext == ".jpg" else f"image/{ext[1:]}"
+                storage_url = get_storage_manager().upload_image_bytes(img_bytes, object_key, content_type)
+                await sync_to_async(PropertyImage.objects.create)(
+                    evaluation=eval_record, image_url=storage_url, local_path=object_key,
+                    category=img["category"], is_cleaned=True
+                )
+            else:
+                await sync_to_async(PropertyImage.objects.create)(
+                    evaluation=eval_record, image_url=img["url"], local_path=None,
+                    category=img["category"], is_cleaned=True
+                )
+        except Exception as img_err:
+            logging.exception(f"Failed to upload image to MinIO for {img['url']}: {img_err}")
+            try:
+                await sync_to_async(PropertyImage.objects.create)(
+                    evaluation=eval_record, image_url=img["url"], local_path=None,
+                    category=img["category"], is_cleaned=True
+                )
+            except Exception:
+                pass
+
+    async def _dispatch_slack_top1_alert(self, item, eval_record, company, property_type, asking_price, price_stage2, final_score, t_score, pop_count, is_investment):
+        from package.utils.slack import send_slack_message, verify_url_active
+        if not await verify_url_active(item.pageUrl):
+            logging.warning(f"⚠️ [SLACK SKIPPED] Slack notification skipped for {item.propertyName} due to inactive URL: {item.pageUrl}")
+            return
+
+        company_names = {
+            "mitsui": "三井のリハウス", "sumifu": "住友不動産販売", "tokyu": "東急リバブル", "nomura": "野村の仲介+",
+            "misawa": "ミサワホーム不動産", "athome": "アットホーム", "homes": "LIFULL HOME'S", "smtrc": "三井住友トラスト不動産",
+            "sumai1": "三菱UFJ不動産販売", "mizuho": "みずほ不動産販売", "odakyu": "小田急不動産", "afr": "旭化成不動産レジデンス",
+            "sekisui": "積水ハウス", "daiwa": "大和ハウス", "totate": "東京建物", "seibu": "西武不動産",
+            "keikyu": "京急不動産", "sotetsu": "相鉄不動産販売", "keisei": "京成不動産", "daikyo": "大京穴吹不動産",
+            "rearie": "パナソニック ホームズ不動産", "heim": "セキスイハイム不動産", "sumirin": "住友林業ホームサービス", "keio": "京王不動産"
+        }
+        type_names = {"mansion": "中古マンション", "kodate": "戸建て", "tochi": "土地", "investment": "投資用物件"}
+        plot_shape_labels = {
+            "regular": "整形地 (良好)", "irregular": "不整形地/変形地 (建物の再建築効率低下の懸念あり)",
+            "flagpole": "旗竿地/敷延 (再建築・アクセス制限の懸念あり)", "unknown": "判定不能"
+        }
+
+        company_name = company_names.get(company, company)
+        type_name = type_names.get(property_type, property_type)
+        asking_price_man = int(asking_price) if asking_price > 0 else 0
+        plot_shape_label = plot_shape_labels.get(eval_record.plot_shape_type, "判定不能")
+
+        if is_investment:
+            msg = (
+                f"🏆 [TOP 1% ALERT] 上位1%のお宝物件を検出しました！\n"
+                f"物件種別: {type_name} ({company_name})\n"
+                f"物件名: {item.propertyName}\n"
+                f"価格: {asking_price_man}万円 (理論価格: {price_stage2}万円, 積算価格: {eval_record.estimated_sekisan_price}万円)\n"
+                f"キャッシュフロー: {eval_record.cash_flow}万円/年, DSCR: {float(eval_record.dscr):.2f}\n"
+                f"偏差値: {t_score:.1f} (スコア: {final_score:.1f}, 母集団: {pop_count}件)\n"
+                f"土地の形状: {plot_shape_label}\n"
+                f"  詳細: {eval_record.plot_shape_description or '画像なし/記述なし'}\n"
+                f"建物メンテナンス状態: {eval_record.maintenance_score or 'N/A'} / 5.0\n"
+                f"  評価: {eval_record.maintenance_comment or '画像なし/記述なし'}\n"
+                f"URL: {item.pageUrl}"
+            )
+        else:
+            msg = (
+                f"🏆 [TOP 1% ALERT] 上位1%のお宝物件を検出しました！\n"
+                f"物件種別: {type_name} ({company_name})\n"
+                f"物件名: {item.propertyName}\n"
+                f"価格: {asking_price_man}万円 (理論価格: {price_stage2}万円, 投資スコア: {final_score:.1f})\n"
+                f"偏差値: {t_score:.1f} (母集団: {pop_count}件)\n"
+                f"土地の形状: {plot_shape_label}\n"
+                f"  詳細: {eval_record.plot_shape_description or '画像なし/記述なし'}\n"
+                f"建物メンテナンス状態: {eval_record.maintenance_score or 'N/A'} / 5.0\n"
+                f"  評価: {eval_record.maintenance_comment or '画像なし/記述なし'}\n"
+                f"URL: {item.pageUrl}"
+            )
+
+        logging.info(msg)
+        alert_channels = {
+            "mansion": os.getenv("SLACK_RECOMMEND_MANSION", "C0BJ87V7BM0"),
+            "kodate": os.getenv("SLACK_RECOMMEND_KODATE", "C0BJ87VEV0S"),
+            "tochi": os.getenv("SLACK_RECOMMEND_TOCHI", "C0BJA5D1GMP"),
+            "invest_apartment": os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "C0BJBUMSYGL"),
+            "apartment": os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "C0BJBUMSYGL"),
+            "invest_kodate": os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "C0BJ20EMQ67"),
+        }
+        alert_channel = alert_channels.get(property_type, os.getenv("SLACK_CHANNEL_ID"))
+        if alert_channel and await send_slack_message(msg, channel=alert_channel):
+            eval_record.is_slack_notified = True
+            await sync_to_async(eval_record.save)()
+        elif not alert_channel:
+            logging.error("Slack alert_channel is not defined.")
+        else:
+            logging.error(f"❌ [SLACK ERROR] Failed to send Slack alert for {item.propertyName} ({item.pageUrl})")
+
+    async def _run_stage2_and_notify(
+        self, item, eval_record, company, property_type, asking_price, timezone,
+        extract_images_from_soup, clean_images, check_api_budget_cap,
+        analyze_property_images_with_gemini, predict_second_stage, PropertyImage
+    ):
+        soup = getattr(item, "_soup", None)
+        raw_images = extract_images_from_soup(soup, item.pageUrl) if soup else []
+        cleaned_images = clean_images(raw_images)
+
+        if not cleaned_images:
+            logging.info(f"ML: No valid property images found for {item.propertyName}.")
+            return
+
+        if not await sync_to_async(check_api_budget_cap)():
+            eval_record.analysis_status = "skipped_by_budget"
+            await sync_to_async(eval_record.save)()
+            logging.warning(f"ML: Skipped Gemini analysis for {item.propertyName} due to daily budget cap.")
+            return
+
+        logging.info(f"ML: Executing Gemini image analysis for {item.propertyName}...")
+        eval_record.analysis_status = "processing"
+        await sync_to_async(eval_record.save)()
+
+        analysis_res = await sync_to_async(analyze_property_images_with_gemini)(cleaned_images)
+        interior_score = analysis_res['interior_score']
+        layout_score = analysis_res['layout_score']
+
+        price_stage2 = await sync_to_async(predict_second_stage)(item, interior_score, layout_score)
+        ratio = (price_stage2 / asking_price) if asking_price > 0 else 0.0
+        investment_score = min(100.0, max(0.0, ratio * 50.0))
+
+        eval_record.second_stage_predicted_price = price_stage2
+        eval_record.interior_score = interior_score
+        eval_record.layout_score = layout_score
+        eval_record.investment_score = investment_score
+        eval_record.plot_shape_type = analysis_res['plot_shape_type']
+        eval_record.plot_shape_description = analysis_res['plot_shape_description']
+        eval_record.maintenance_score = analysis_res['maintenance_score']
+        eval_record.maintenance_comment = analysis_res['maintenance_comment']
+        eval_record.analysis_status = "completed"
+        eval_record.analyzed_at = timezone.now()
+
+        if PropertyTypeDetector.is_investment(property_type):
+            from package.ml.investment_evaluator import evaluate_investment_property
+            eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
+
+        await sync_to_async(eval_record.save)()
+
+        final_score = eval_record.total_investment_score if PropertyTypeDetector.is_investment(property_type) else eval_record.investment_score
+        logging.info(f"ML: Stage 2 prediction for {item.propertyName}: {price_stage2}万円 (Interior: {interior_score}, Layout: {layout_score}, Score: {final_score or 0.0:.1f})")
+
+        for idx, img in enumerate(cleaned_images):
+            await self._upload_single_property_image(eval_record, property_type, idx, img, PropertyImage)
+
+        is_investment = "investment" in property_type
+        mean, stddev, pop_count = await sync_to_async(get_score_statistics)(is_investment)
+        t_score = calculate_t_score(final_score, mean, stddev) if final_score else 0.0
+
+        logging.info(
+            f"T-score: {t_score:.1f} (raw={final_score or 0.0:.1f}, "
+            f"μ={mean:.1f}, σ={stddev:.1f}, N={pop_count}, threshold={T_SCORE_THRESHOLD})"
+        )
+
+        if t_score >= T_SCORE_THRESHOLD and not eval_record.is_slack_notified:
+            await self._dispatch_slack_top1_alert(item, eval_record, company, property_type, asking_price, price_stage2, final_score, t_score, pop_count, is_investment)
+
+    async def _perform_inline_ml_evaluation(self, item):
+        try:
+            from package.ml.predict import predict_first_stage, predict_second_stage
+            from package.models.evaluation import PropertyEvaluation, PropertyImage
+            from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
+            from django.utils import timezone
+
+            company = self._detect_company_name(item)
+            property_type = PropertyTypeDetector.detect_from_object(item)
+
+            def get_existing_eval():
+                return UrlMatcher.find_match_in_queryset(
+                    PropertyEvaluation.objects.order_by("-id"),
+                    "property_url",
+                    item.pageUrl,
+                )
+            existing_eval = await sync_to_async(get_existing_eval)()
+
+            price_stage1 = None
+            is_passed = False
+            eval_record = None
+            asking_price = (float(item.price) / 10000.0) if item.price else 0.0
+
+            if existing_eval and existing_eval.first_stage_predicted_price is not None:
+                if existing_eval.second_stage_predicted_price is not None or not existing_eval.is_first_stage_passed:
+                    logging.info(f"ML: Skipping already fully evaluated property: {item.pageUrl}")
+                    return item
+                price_stage1 = float(existing_eval.first_stage_predicted_price)
+                is_passed = existing_eval.is_first_stage_passed
+                eval_record = existing_eval
+                logging.info(f"ML: Reusing Stage 1 result for incomplete Stage 2: {item.pageUrl} ({price_stage1}万円)")
+
+            if price_stage1 is None:
+                eval_record, price_stage1, is_passed = await self._run_stage1_eval(
+                    item, company, property_type, asking_price, PropertyEvaluation, predict_first_stage
+                )
+
+            eval_record = require_eval_record(eval_record, item.pageUrl)
+            await self._run_dedup_and_investment(item, eval_record, property_type)
+
+            logging.info(f"ML: Stage 1 predicted for {item.propertyName} ({item.pageUrl}) = {price_stage1}万円 (Asking: {asking_price}万円, Passed: {is_passed})")
+
+            if is_passed:
+                await self._run_stage2_and_notify(
+                    item, eval_record, company, property_type, asking_price, timezone,
+                    extract_images_from_soup, clean_images, check_api_budget_cap,
+                    analyze_property_images_with_gemini, predict_second_stage, PropertyImage
+                )
+        except Exception as ex:
+            logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
+
+    async def _treatPage(self, _session, *arg):
+        item, is_skipped = await self._fetch_detail_item()
 
         if item is not None:
-            current_time = datetime.datetime.now()
-            current_day = datetime.date.today()
-
-            # Enforce 1 property = 1 record and record price revision history
-            item.pageUrl = UrlMatcher.normalize(item.pageUrl)
-            model_class = item.__class__
-            existing_record = None
             try:
-                def get_existing():
-                    return UrlMatcher.find_match_in_queryset(
-                        model_class.objects, "pageUrl", item.pageUrl
-                    )
-                existing_record = await sync_to_async(get_existing)()
-            except Exception as e:
-                logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
-
-            if existing_record:
-                item.id = existing_record.id
-                item._state.adding = False
-                item.inputDate = existing_record.inputDate or current_day
-                item.inputDateTime = existing_record.inputDateTime or current_time
-                item.updateDateTime = current_time
-
-                old_p = existing_record.price
-                new_p = item.price
-                if old_p is not None and new_p is not None and old_p != new_p:
-                    model_name = model_class.__name__
-                    company = "unknown"
-                    for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
-                        if model_name.lower().startswith(c):
-                            company = c
-                            break
-                    property_type = PropertyTypeDetector.detect_from_object(item)
-                    try:
-                        def create_price_history():
-                            PropertyPriceHistory.objects.create(
-                                property_url=item.pageUrl,
-                                company=company,
-                                property_type=property_type,
-                                old_price=old_p,
-                                new_price=new_p,
-                                price_diff=new_p - old_p,
-                            )
-                        await sync_to_async(create_price_history)()
-                        logging.info(f"[Price Revision] {item.pageUrl}: {old_p} -> {new_p} (diff: {new_p - old_p:+d})")
-                    except Exception as he:
-                        logging.warning(f"Failed to record price history for {item.pageUrl}: {he}")
-            else:
-                item.inputDateTime = current_time
-                item.inputDate = current_day
-                item.updateDateTime = current_time
-
-            try:
-                logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
-                await sync_to_async(item.save)()
-                logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
-                
-                # ----------------------------------------------------
-                # 2段階スクリーニング統合処理 (B案: クロール中の同期評価はデフォルト非有効化)
-                # ----------------------------------------------------
-                enable_inline_ml = os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1")
-                if not enable_inline_ml:
-                    logging.debug(f"ML: Inline ML evaluation disabled. Property {item.pageUrl} saved for bulk evaluation.")
-                    return item
-
-                try:
-                    # 機械学習・画像解析モジュールのインポート
-                    from package.ml.predict import predict_first_stage, predict_second_stage
-
-                    from package.models.evaluation import PropertyEvaluation, PropertyImage
-                    from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
-                    from django.utils import timezone
-                    
-                    # 1. 不動産会社名と物件種別の特定
-                    model_name = item.__class__.__name__
-                    company = "unknown"
-                    for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
-                        if model_name.lower().startswith(c):
-                            company = c
-                            break
-                    property_type = PropertyTypeDetector.detect_from_object(item)
-                    
-                    # すでに価格推定（一次・二次予測、または一次不合格）が完了している場合は全体をスキップ
-                    def get_existing_eval():
-                        return UrlMatcher.find_match_in_queryset(
-                            PropertyEvaluation.objects.order_by("-id"),
-                            "property_url",
-                            item.pageUrl,
-                        )
-                    existing_eval = await sync_to_async(get_existing_eval)()
-                    
-                    price_stage1 = None
-                    is_passed = False
-                    eval_record = None
-                    asking_price = (float(item.price) / 10000.0) if item.price else 0.0
-                    
-                    if existing_eval and existing_eval.first_stage_predicted_price is not None:
-                        # 二次予測まで終わっているか、または一次不合格で終了している場合
-                        if existing_eval.second_stage_predicted_price is not None or not existing_eval.is_first_stage_passed:
-                            logging.info(f"ML: Skipping already fully evaluated property: {item.pageUrl}")
-                            return item
-                        else:
-                            # 一次合格しているが二次未完了の場合、一次予測結果を再利用して後半の画像解析へ進む
-                            price_stage1 = float(existing_eval.first_stage_predicted_price)
-                            is_passed = existing_eval.is_first_stage_passed
-                            eval_record = existing_eval
-                            logging.info(f"ML: Reusing Stage 1 result for incomplete Stage 2: {item.pageUrl} ({price_stage1}万円)")
-                    
-                    # 新規または一次予測未実行の場合のみ一次予測を実行
-                    if price_stage1 is None:
-                        # 2. 一次理論価格予測の実行
-                        price_stage1 = await sync_to_async(predict_first_stage)(item)
-                        
-                        # 3. 一次合格判定（理論価格が販売価格以上） - 販売価格（円）を万円単位にスケール変換して比較
-                        if price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price:
-                            is_passed = True
-                            
-                        chidai_val = getattr(item, "chidai", None)
-                        if chidai_val is None and getattr(item, "chidaiStr", None):
-                            chidai_val = parse_chidai(item.chidaiStr)
-                        monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
-                        liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
-
-                        # 4. PropertyEvaluation レコードの作成/更新
-                        eval_record, created = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
-                            property_url=item.pageUrl,
-                            defaults={
-                                "company": company,
-                                "property_type": property_type,
-                                "property_id": item.id,
-                                "first_stage_predicted_price": price_stage1,
-                                "is_first_stage_passed": is_passed,
-                                "analysis_status": "pending",
-                                "monthly_land_rent": monthly_rent,
-                                "land_rent_liability": liability
-                            }
-                        )
-                    
-                    eval_record = require_eval_record(eval_record, item.pageUrl)
-                    
-                    # 名寄せロジックによる重複検出
-                    from package.utils.deduplication import find_duplicate_property
-                    duplicate_parent = await sync_to_async(find_duplicate_property)(eval_record)
-                    if duplicate_parent:
-                        eval_record.duplicate_of = duplicate_parent
-                        # 重複物件のため、親物件が既に通知済み、または名寄せにより通知済み扱いとする
-                        eval_record.is_slack_notified = True
-                        await sync_to_async(eval_record.save)()
-                        logging.info(f"Deduplication: Property {item.pageUrl} is linked as a duplicate of {duplicate_parent.property_url}. Skipping Slack notification.")
-                    
-                    # 投資用物件の場合は、一次合格の有無にかかわらず、
-                    # まずテキスト情報のみから詳細な収支・融資・総合投資スコアの評価を実行
-                    if PropertyTypeDetector.is_investment(property_type):
-                        from package.ml.investment_evaluator import evaluate_investment_property
-                        eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
-                        await sync_to_async(eval_record.save)()
-                    
-                    logging.info(f"ML: Stage 1 predicted for {item.propertyName} ({item.pageUrl}) = {price_stage1}万円 (Asking: {asking_price}万円, Passed: {is_passed})")
-                    
-                    # 一次合格の場合のみ、詳細画像の取得と画像解析の実行
-                    if is_passed:
-                        soup = getattr(item, "_soup", None)
-                        raw_images = []
-                        if soup:
-                            # BeautifulSoup から画像をスクレイピング
-                            raw_images = extract_images_from_soup(soup, item.pageUrl)
-                            
-                        cleaned_images = clean_images(raw_images)
-                        
-                        if cleaned_images:
-                            # 予算上限 (1日200件) チェック
-                            if await sync_to_async(check_api_budget_cap)():
-                                logging.info(f"ML: Executing Gemini image analysis for {item.propertyName}...")
-                                # 解析ステータスを処理中に変更
-                                eval_record.analysis_status = "processing"
-                                await sync_to_async(eval_record.save)()
-                                
-                                # Gemini API で画像スコア・物件評価メタデータを算出
-                                analysis_res = await sync_to_async(analyze_property_images_with_gemini)(cleaned_images)
-                                interior_score = analysis_res['interior_score']
-                                layout_score = analysis_res['layout_score']
-                                
-                                # 二次理論価格予測の実行
-                                price_stage2 = await sync_to_async(predict_second_stage)(item, interior_score, layout_score)
-                                
-                                # 投資価値スコアの算出 (割安度×50。最大100)
-                                if asking_price > 0:
-                                    ratio = price_stage2 / asking_price
-                                    investment_score = min(100.0, max(0.0, ratio * 50.0))
-                                else:
-                                    investment_score = 0.0
-                                    
-                                # 結果を更新
-                                eval_record.second_stage_predicted_price = price_stage2
-                                eval_record.interior_score = interior_score
-                                eval_record.layout_score = layout_score
-                                eval_record.investment_score = investment_score
-                                eval_record.plot_shape_type = analysis_res['plot_shape_type']
-                                eval_record.plot_shape_description = analysis_res['plot_shape_description']
-                                eval_record.maintenance_score = analysis_res['maintenance_score']
-                                eval_record.maintenance_comment = analysis_res['maintenance_comment']
-                                eval_record.analysis_status = "completed"
-                                eval_record.analyzed_at = timezone.now()
-                                
-                                # 投資用物件の場合は、詳細な収支・融資・総合投資スコアの評価を実行
-                                if PropertyTypeDetector.is_investment(property_type):
-                                    eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
-                                
-                                await sync_to_async(eval_record.save)()
-                                
-                                # 総合投資スコア（投資用以外は従来のinvestment_scoreを使用）
-                                final_score = eval_record.total_investment_score if PropertyTypeDetector.is_investment(property_type) else eval_record.investment_score
-                                
-                                logging.info(f"ML: Stage 2 prediction for {item.propertyName}: {price_stage2}万円 (Interior: {interior_score}, Layout: {layout_score}, Score: {final_score or 0.0:.1f})")
-                                
-                                # クレンジング画像情報を保存
-                                for idx, img in enumerate(cleaned_images):
-                                    try:
-                                        resp = await sync_to_async(requests.get)(img["url"], timeout=10)
-                                        if resp.status_code == 200:
-                                            img_bytes = resp.content
-                                            ext = ".jpg"
-                                            clean_url = img["url"].split('?')[0].lower()
-                                            if clean_url.endswith(".png"):
-                                                ext = ".png"
-                                            elif clean_url.endswith(".webp"):
-                                                ext = ".webp"
-                                                
-                                            object_key = f"{property_type}/{eval_record.id}_{idx}_{uuid.uuid4().hex}{ext}"
-                                            content_type = f"image/{ext[1:]}"
-                                            if ext == ".jpg":
-                                                content_type = "image/jpeg"
-                                                
-                                            storage_mgr = get_storage_manager()
-                                            storage_url = storage_mgr.upload_image_bytes(img_bytes, object_key, content_type)
-                                            
-                                            await sync_to_async(PropertyImage.objects.create)(
-                                                evaluation=eval_record,
-                                                image_url=storage_url,
-                                                local_path=object_key,
-                                                category=img["category"],
-                                                is_cleaned=True
-                                            )
-                                        else:
-                                            await sync_to_async(PropertyImage.objects.create)(
-                                                evaluation=eval_record,
-                                                image_url=img["url"],
-                                                local_path=None,
-                                                category=img["category"],
-                                                is_cleaned=True
-                                            )
-                                    except Exception as img_err:
-                                        logging.error(f"Failed to upload image to MinIO for {img['url']}: {img_err}")
-                                        try:
-                                            await sync_to_async(PropertyImage.objects.create)(
-                                                evaluation=eval_record,
-                                                image_url=img["url"],
-                                                local_path=None,
-                                                category=img["category"],
-                                                is_cleaned=True
-                                            )
-                                        except Exception:
-                                            pass
-                                    
-                                # 偏差値（T-score）ベースの上位1%判定
-                                is_investment = "investment" in property_type
-                                mean, stddev, pop_count = await sync_to_async(get_score_statistics)(is_investment)
-                                t_score = calculate_t_score(final_score, mean, stddev) if final_score else 0.0
-                                
-                                logging.info(
-                                    f"T-score: {t_score:.1f} (raw={final_score or 0.0:.1f}, "
-                                    f"μ={mean:.1f}, σ={stddev:.1f}, N={pop_count}, threshold={T_SCORE_THRESHOLD})"
-                                )
-                                
-                                if t_score >= T_SCORE_THRESHOLD and not eval_record.is_slack_notified:
-                                    # 通知前のURL生存性（稼働状況）チェック
-                                    from package.utils.slack import send_slack_message, verify_url_active
-                                    url_active = await verify_url_active(item.pageUrl)
-                                    
-                                    if url_active:
-                                        # 会社名・物件種別の日本語変換
-                                        company_name = {
-                                            "mitsui": "三井のリハウス",
-                                            "sumifu": "住友不動産販売",
-                                            "tokyu": "東急リバブル",
-                                            "nomura": "野村の仲介+",
-                                            "misawa": "ミサワホーム不動産",
-                                            "athome": "アットホーム",
-                                            "homes": "LIFULL HOME'S",
-                                            "smtrc": "三井住友トラスト不動産",
-                                            "sumai1": "三菱UFJ不動産販売",
-                                            "mizuho": "みずほ不動産販売",
-                                            "odakyu": "小田急不動産",
-                                            "afr": "旭化成不動産レジデンス",
-                                            "sekisui": "積水ハウス",
-                                            "daiwa": "大和ハウス",
-                                            "totate": "東京建物",
-                                            "seibu": "西武不動産",
-                                            "keikyu": "京急不動産",
-                                            "sotetsu": "相鉄不動産販売",
-                                            "keisei": "京成不動産",
-                                            "daikyo": "大京穴吹不動産",
-                                            "rearie": "パナソニック ホームズ不動産",
-                                            "heim": "セキスイハイム不動産",
-                                            "sumirin": "住友林業ホームサービス",
-                                            "keio": "京王不動産"
-                                        }.get(company, company)
-                                        
-                                        type_name = {
-                                            "mansion": "中古マンション",
-                                            "kodate": "戸建て",
-                                            "tochi": "土地",
-                                            "investment": "投資用物件"
-                                        }.get(property_type, property_type)
-                                        
-                                        asking_price_man = int(asking_price) if asking_price > 0 else 0
-                                        
-                                        plot_shape_label = {
-                                            "regular": "整形地 (良好)",
-                                            "irregular": "不整形地/変形地 (建物の再建築効率低下の懸念あり)",
-                                            "flagpole": "旗竿地/敷延 (再建築・アクセス制限の懸念あり)",
-                                            "unknown": "判定不能"
-                                        }.get(eval_record.plot_shape_type, "判定不能")
-
-                                        if is_investment:
-                                            msg = (
-                                                f"🏆 [TOP 1% ALERT] 上位1%のお宝物件を検出しました！\n"
-                                                f"物件種別: {type_name} ({company_name})\n"
-                                                f"物件名: {item.propertyName}\n"
-                                                f"価格: {asking_price_man}万円 (理論価格: {price_stage2}万円, 積算価格: {eval_record.estimated_sekisan_price}万円)\n"
-                                                f"キャッシュフロー: {eval_record.cash_flow}万円/年, DSCR: {float(eval_record.dscr):.2f}\n"
-                                                f"偏差値: {t_score:.1f} (スコア: {final_score:.1f}, 母集団: {pop_count}件)\n"
-                                                f"土地の形状: {plot_shape_label}\n"
-                                                f"  詳細: {eval_record.plot_shape_description or '画像なし/記述なし'}\n"
-                                                f"建物メンテナンス状態: {eval_record.maintenance_score or 'N/A'} / 5.0\n"
-                                                f"  評価: {eval_record.maintenance_comment or '画像なし/記述なし'}\n"
-                                                f"URL: {item.pageUrl}"
-                                            )
-                                        else:
-                                            msg = (
-                                                f"🏆 [TOP 1% ALERT] 上位1%のお宝物件を検出しました！\n"
-                                                f"物件種別: {type_name} ({company_name})\n"
-                                                f"物件名: {item.propertyName}\n"
-                                                f"価格: {asking_price_man}万円 (理論価格: {price_stage2}万円, 投資スコア: {final_score:.1f})\n"
-                                                f"偏差値: {t_score:.1f} (母集団: {pop_count}件)\n"
-                                                f"土地の形状: {plot_shape_label}\n"
-                                                f"  詳細: {eval_record.plot_shape_description or '画像なし/記述なし'}\n"
-                                                f"建物メンテナンス状態: {eval_record.maintenance_score or 'N/A'} / 5.0\n"
-                                                f"  評価: {eval_record.maintenance_comment or '画像なし/記述なし'}\n"
-                                                f"URL: {item.pageUrl}"
-                                            )
-                                        
-                                        logging.info(msg)
-                                        
-                                        # 物件種別ごとのアラートチャンネル定義 (お宝物件用: SLACK_RECOMMEND_*)
-                                        alert_channel = os.getenv("SLACK_CHANNEL_ID")
-                                        if property_type == "mansion":
-                                            alert_channel = os.getenv("SLACK_RECOMMEND_MANSION", "C0BJ87V7BM0")
-                                        elif property_type == "kodate":
-                                            alert_channel = os.getenv("SLACK_RECOMMEND_KODATE", "C0BJ87VEV0S")
-                                        elif property_type == "tochi":
-                                            alert_channel = os.getenv("SLACK_RECOMMEND_TOCHI", "C0BJA5D1GMP")
-                                        elif property_type in ["invest_apartment", "apartment"]:
-                                            alert_channel = os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "C0BJBUMSYGL")
-                                        elif property_type == "invest_kodate":
-                                            alert_channel = os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "C0BJ20EMQ67")
-
-                                        # Slack送信を実行し、成否を明示的に判定・ログ記録する
-                                        if alert_channel:
-                                            success = await send_slack_message(msg, channel=alert_channel)
-                                        else:
-                                            success = False
-                                            logging.error("Slack alert_channel is not defined.")
-                                        if success:
-                                            eval_record.is_slack_notified = True
-                                            await sync_to_async(eval_record.save)()
-                                        else:
-                                            logging.error(f"❌ [SLACK ERROR] Failed to send Slack alert for {item.propertyName} ({item.pageUrl})")
-                                    else:
-                                        logging.warning(f"⚠️ [SLACK SKIPPED] Slack notification skipped for {item.propertyName} due to inactive URL: {item.pageUrl}")
-                            else:
-                                eval_record.analysis_status = "skipped_by_budget"
-                                await sync_to_async(eval_record.save)()
-                                logging.warning(f"ML: Skipped Gemini analysis for {item.propertyName} due to daily budget cap.")
-                        else:
-                            logging.info(f"ML: No valid property images found for {item.propertyName}.")
-                            
-                except Exception as ex:
-                    logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
-                # ----------------------------------------------------
-                
-                # Global Limit Check for Verification
-                global GLOBAL_SAVE_COUNT
-                try:
-                    GLOBAL_SAVE_COUNT += 1
-                except NameError:
-                    GLOBAL_SAVE_COUNT = 1
-                
-                limit = int(os.getenv("CRAWLER_LIMIT", 0))
-                if limit > 0:
-                    logging.info(f"Global Save Count: {GLOBAL_SAVE_COUNT}/{limit}")
-                    if GLOBAL_SAVE_COUNT >= limit:
-                        logging.info(f"Hit limit {limit}. Exiting...")
-                        os._exit(0)
-                        
+                await self._save_property_and_price_history(item)
+                if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
+                    await self._perform_inline_ml_evaluation(item)
+                self._check_crawler_limit()
             except Exception as e:
                 logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
-        elif is_skipped_property:
+        elif is_skipped:
             logging.info(f"Skipped property processing (Lifecycle / Filtered) for URL: {self.url}")
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")

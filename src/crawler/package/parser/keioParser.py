@@ -12,6 +12,14 @@ from package.parser.baseParser import KodateParserBase, MansionParserBase, Parse
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
+
 class KeioParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -93,41 +101,42 @@ class KeioParser(ParserBase):
                 return BeautifulSoup("", "html.parser")
         return await super().getResponseBs(session, url, charset)
 
-    async def parseNextPage(self, response: BeautifulSoup):
-        # ページネーション内の a.pager.current (アクティブなページ) の次のリンクを探す
+    def _build_page_url(self, target_page, href):
+        if target_page and self.current_base_url:
+            parsed = urllib.parse.urlparse(self.current_base_url)
+            query = dict(urllib.parse.parse_qsl(parsed.query))
+            query["page_num"] = str(target_page)
+            new_query = urllib.parse.urlencode(query)
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+        if href and "page_num=" in href:
+            return self.getRootDestUrl(href)
+        return ""
+
+    def _find_next_pager_el(self, response: BeautifulSoup):
         current = response.select_one("div.block_pager a.pager.current")
         if current:
-            next_el = current.find_next_sibling("a", class_="pager")
-            if next_el:
-                target_page = next_el.get("data-page")
-                if not target_page:
-                    t = next_el.get_text(strip=True)
-                    if t.isdigit():
-                        target_page = t
-                if target_page and self.current_base_url:
-                    parsed = urllib.parse.urlparse(self.current_base_url)
-                    query = dict(urllib.parse.parse_qsl(parsed.query))
-                    query["page_num"] = str(target_page)
-                    new_query = urllib.parse.urlencode(query)
-                    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
-                href = next_el.get("href")
-                if href and "page_num=" in href:
-                    return self.getRootDestUrl(href)
-        else:
-            for a in response.select("div.block_pager a.pager"):
-                text = a.get_text().strip()
-                if "次" in text or ">" in text:
-                    target_page = a.get("data-page")
-                    if target_page and self.current_base_url:
-                        parsed = urllib.parse.urlparse(self.current_base_url)
-                        query = dict(urllib.parse.parse_qsl(parsed.query))
-                        query["page_num"] = str(target_page)
-                        new_query = urllib.parse.urlencode(query)
-                        return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
-                    href = a.get("href")
-                    if href and "page_num=" in href:
-                        return self.getRootDestUrl(href)
-        return ""
+            return current.find_next_sibling("a", class_="pager")
+        for a in response.select("div.block_pager a.pager"):
+            text = a.get_text().strip()
+            if "次" in text or ">" in text:
+                return a
+        return None
+
+    def _extract_target_page(self, el):
+        target_page = el.get("data-page")
+        if not target_page:
+            t = el.get_text(strip=True)
+            if t.isdigit():
+                return t
+        return target_page
+
+    async def parseNextPage(self, response: BeautifulSoup):
+        next_el = self._find_next_pager_el(response)
+        if not next_el:
+            return ""
+        target_page = self._extract_target_page(next_el)
+        href = next_el.get("href")
+        return self._build_page_url(target_page, href)
 
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
@@ -277,6 +286,19 @@ class KeioMansionParser(KeioParser, MansionParserBase):
     def createEntity(self):
         return KeioMansion()
 
+    def _parse_floors(self, item, specs):
+        item.kaisuStr = _first_spec(specs, "所在階/構造・階建", "所在階", "階数")
+        if item.kaisuStr:
+            m = re.search(r'(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_kai = int(m.group(1))
+            m = re.search(r'地上(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chijo = int(m.group(1))
+            m = re.search(r'地下(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chika = int(m.group(1))
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -287,25 +309,14 @@ class KeioMansionParser(KeioParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")
-        if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
+        self._parse_floors(item, specs)
 
         # 築年月
         item.chikunengetsuStr = specs.get("築年月", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.balconyMensekiStr = specs.get("バルコニー面積", "") or specs.get("屋外設備", "")
+        item.balconyMensekiStr = _first_spec(specs, "バルコニー面積", "屋外設備")
         if item.balconyMensekiStr:
             item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
 
@@ -326,7 +337,7 @@ class KeioMansionParser(KeioParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         
-        item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
+        item.saikou = _first_spec(specs, "主要採光", "向き")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")
