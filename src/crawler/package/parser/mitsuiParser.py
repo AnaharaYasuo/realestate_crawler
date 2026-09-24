@@ -894,10 +894,14 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         m_muki = re.search(r'([北東西南]+)', value)
         if m_muki: res['douroMuki'] = m_muki.group(0)
         
-        m_haba = re.search(r'幅員[：:]?\s*約?\s*([\d\.]+)\s*[mｍ]', value) or re.search(r'約?\s*([\d\.]+)\s*[mｍ]', value)
+        m_haba = re.search(
+            r'幅員[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value
+        ) or re.search(r'(?:^|[^\d.])(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
         if m_haba: res['douroHaba'] = m_haba.group(1)
         
-        m_setsumen = re.search(r'(?:接面|間口)[：:]?\s*約?\s*([\d\.]+)\s*[mｍ]', value)
+        m_setsumen = re.search(
+            r'(?:接面|間口)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value
+        )
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分

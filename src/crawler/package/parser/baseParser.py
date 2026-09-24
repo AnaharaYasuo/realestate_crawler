@@ -524,7 +524,9 @@ class ParserBase(metaclass=ABCMeta):
         """Parse 沿線 駅名駅 徒歩N分 style traffic. Returns True if matched."""
         m = re.search(
             r'([^\s「」\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\s+'
-            r'([^\s「」\/]+?駅)\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?',
+            r'([^\s「」\/]+?駅)'
+            r'(?:\s*(?:徒歩|バス|車))?'
+            r'(?:\s*(\d+)(?:\s*分)?)?',
             traffic_text,
         )
         if not m:
@@ -535,7 +537,9 @@ class ParserBase(metaclass=ABCMeta):
     def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
         m = re.search(
-            r'([^\s「」\d]+?(?:駅|停留所|バス停))\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?',
+            r'([^\s「」\d]+?(?:駅|停留所|バス停))'
+            r'(?:\s*(?:徒歩|バス|車))?'
+            r'(?:\s*(\d+)(?:\s*分)?)?',
             traffic_text,
         )
 

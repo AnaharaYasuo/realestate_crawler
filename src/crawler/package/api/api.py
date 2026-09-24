@@ -744,7 +744,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             # Fire-and-Forget Success Path
             logging.info("Fire and forget - Timeout (assumed success): " + detail_url)
             return detail_url, 200, "FireAndForget"
-        except Exception as e:
+        except Exception:
             logging.exception("fetch error: %s", detail_url)
             raise
         return await self._proc_response(detail_url, response)

@@ -778,7 +778,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         if not item.setsudou:
             return
         mag_match = re.search(
-            r'(?:間口|接面|接す|接道)[：:]?\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?',
+            r'(?:間口|接面|接す|接道)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?',
             item.setsudou,
         )
         if mag_match:
@@ -1272,14 +1272,14 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         if not item.setsudou:
             return
         width_match = re.search(
-            r'(?:幅員|幅|道路|前面)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?',
+            r'(?:幅員|幅|道路|前面)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?',
             item.setsudou,
         )
         if width_match:
             item.roadWidth = Decimal(width_match.group(1))
             return
         dir_width_match = re.search(
-            r'(?:北東|北西|南東|南西|北|南|東|西)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]',
+            r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]',
             item.setsudou,
         )
         if dir_width_match:

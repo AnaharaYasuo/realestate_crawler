@@ -493,7 +493,7 @@ class NomuraParser(InvestmentParser):
             return
         NomuraParser._apply_maguchi_from_setsudou(item, setsudou)
         width_match = re.search(
-            r"(?:幅員|幅|道路)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?", setsudou
+            r"(?:幅員|幅|道路)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if width_match:
             item.roadWidthStr = width_match.group(0)
@@ -511,13 +511,13 @@ class NomuraParser(InvestmentParser):
     @staticmethod
     def _apply_maguchi_from_setsudou(item, setsudou: str) -> None:
         mag_match = re.search(
-            r"(?:間口|接面|接す)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?", setsudou
+            r"(?:間口|接面|接す)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if mag_match:
             item.maguchiStr = mag_match.group(0)
             item.maguchi = Decimal(mag_match.group(1))
             return
-        m = re.search(r"(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)", setsudou)
+        m = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)", setsudou)
         if m:
             item.maguchiStr = m.group(0)
             item.maguchi = Decimal(m.group(1))
@@ -792,38 +792,7 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
         
         # 統一土地評価フィールドのパース ＆ 代入
         item.setsudou = self._parseSetsudou(response)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-            
+        NomuraParser._apply_setsudou_road_fields(item)
         return item
 
     def _parseTochiMensekiStr(self, response, specs=None):
