@@ -38,20 +38,20 @@ class SotetsuParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + "/" + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + "/" + link_url
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         return await super().getResponseBs(session, url, charset)

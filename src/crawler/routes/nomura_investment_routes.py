@@ -15,39 +15,51 @@ nomura_investment_bp = Blueprint('nomura_investment', __name__)
 # ==============================================================================
 
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_KODATE_START, methods=['POST', 'GET'])
-def nomuraInvestKodateStart():
+def nomura_invest_kodate_start():
     ParseNomuraInvestKodateStartAsync().main("")
     return "OK"
 
+nomuraInvestKodateStart = nomura_invest_kodate_start
+
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_KODATE_LIST, methods=['POST', 'GET'])
-def nomuraInvestKodateList():
+def nomura_invest_kodate_list():
     url = request.json['url']
     ParseNomuraInvestKodateListFuncAsync().main(url)
     return "OK"
 
+nomuraInvestKodateList = nomura_invest_kodate_list
+
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_KODATE_DETAIL, methods=['POST', 'GET'])
-def nomuraInvestKodateDetail():
+def nomura_invest_kodate_detail():
     url = request.json['url']
     ParseNomuraInvestKodateDetailFuncAsync().main(url)
     return "OK"
+
+nomuraInvestKodateDetail = nomura_invest_kodate_detail
 
 # ==============================================================================
 #  APARTMENT ROUTES
 # ==============================================================================
 
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_APARTMENT_START, methods=['POST', 'GET'])
-def nomuraInvestApartmentStart():
+def nomura_invest_apartment_start():
     ParseNomuraInvestApartmentStartAsync().main("")
     return "OK"
 
+nomuraInvestApartmentStart = nomura_invest_apartment_start
+
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_APARTMENT_LIST, methods=['POST', 'GET'])
-def nomuraInvestApartmentList():
+def nomura_invest_apartment_list():
     url = request.json['url']
     ParseNomuraInvestApartmentListFuncAsync().main(url)
     return "OK"
 
+nomuraInvestApartmentList = nomura_invest_apartment_list
+
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_APARTMENT_DETAIL, methods=['POST', 'GET'])
-def nomuraInvestApartmentDetail():
+def nomura_invest_apartment_detail():
     url = request.json['url']
     ParseNomuraInvestApartmentDetailFuncAsync().main(url)
     return "OK"
+
+nomuraInvestApartmentDetail = nomura_invest_apartment_detail

@@ -40,22 +40,22 @@ class KeioParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
-
-
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            url = linkUrl
-        elif linkUrl.startswith('/'):
-            url = self.BASE_URL + linkUrl
+
+
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            url = link_url
+        elif link_url.startswith('/'):
+            url = self.BASE_URL + link_url
         else:
-            url = self.BASE_URL + "/sale/search/area/pref_13/" + linkUrl
+            url = self.BASE_URL + "/sale/search/area/pref_13/" + link_url
 
         # パラメータ重複除去
         parsed = urllib.parse.urlparse(url)
@@ -158,7 +158,7 @@ class KeioParser(ParserBase):
                     key = ths[i].get_text().strip().replace("\n", "").replace(" ", "")
                     val = tds[i].get_text().strip()
                     # 不要なテキスト（住宅ローンシミュレーションへのリンク等）の除外
-                    val = re.sub(r'ローンシミュレーション', '', val).strip()
+                    val = val.replace('ローンシミュレーション', '').strip()
                     val = re.sub(r'\s+', ' ', val)
                     specs[key] = val
         return specs

@@ -164,20 +164,27 @@ def add_cors_headers(response):
 # Cloud Function entry points wrapper (if needed for GCP environment looking for these specific names in main.py)
 # If GCP is configured to look for "parseMitsuiStartMansionAsyncPubSub" in main.py, we need wrappers.
 # The original main.py had these.
-def parseMitsuiStartMansionAsyncPubSub(event, context):
+def parse_mitsui_start_mansion_async_pubsub(event, context):
     return mitsuiMansionStart()
 
-def parseSumifuStartMansionAsyncPubSub(event, context):
+parseMitsuiStartMansionAsyncPubSub = parse_mitsui_start_mansion_async_pubsub
+
+
+def parse_sumifu_start_mansion_async_pubsub(event, context):
     return sumifuMansionStart()
+
+parseSumifuStartMansionAsyncPubSub = parse_sumifu_start_mansion_async_pubsub
 
 
 @app.route(API_KEY_MANSION_ALL_START, methods=['OPTIONS', 'POST', 'GET'])
-def allMansionStart():
+def all_mansion_start():
     mitsuiMansionStart()
     sumifuMansionStart()
     tokyuMansionStart()
     misawaMansionStart()
     return "OK"
+
+allMansionStart = all_mansion_start
 
 
 @app.route(API_KEY_KILL, methods=['OPTIONS', 'POST', 'GET'])
@@ -403,10 +410,11 @@ if __name__ == "__main__":
         func = dispatch.get((company, prop_type))
 
         if func:
+            stop_flag_file = "stop.flag"
             # Clean up any existing stop flag
-            if os.path.exists("stop.flag"):
+            if os.path.exists(stop_flag_file):
                 try:
-                    os.remove("stop.flag")
+                    os.remove(stop_flag_file)
                 except Exception:
                     pass
 
@@ -416,7 +424,7 @@ if __name__ == "__main__":
                     logging.info(f"Received signal {signum}, setting stop flag and forcing exit...")
                     print(f"Received signal {signum}, setting stop flag and forcing exit...", flush=True)
                     # Create stop flag for other threads/processes
-                    with open("stop.flag", "w") as f:
+                    with open(stop_flag_file, "w") as f:
                         f.write("STOP")
                 finally:
                     # Force exit immediately

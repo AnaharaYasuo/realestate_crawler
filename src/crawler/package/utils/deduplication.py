@@ -16,14 +16,14 @@ def normalize_address(address: str) -> str:
     if not address:
         return ''
     address = address.translate(str.maketrans('０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ', '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'))
-    address = re.sub('[\\s\u3000]+', '', address)
-    address = re.sub('[－ー‐—―〜~−]+', '-', address)
+    address = re.sub(r'\s+', '', address)
+    address = re.sub(r'[－ー‐—―〜~−]+', '-', address)
     kanji_digits = {'一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'}
     for k, v in kanji_digits.items():
         address = address.replace(k, v)
-    address = re.sub('(\\d+)丁目', '\\1-', address)
-    address = re.sub('(\\d+)番(?:地|の)?', '\\1-', address)
-    address = re.sub('(\\d+)号', '\\1', address)
+    address = re.sub(r'(\d+)丁目', r'\1-', address)
+    address = re.sub(r'(\d+)番[地の]?', r'\1-', address)
+    address = re.sub(r'(\d+)号', r'\1', address)
     address = re.sub('-+', '-', address)
     address = address.strip('-')
     return address

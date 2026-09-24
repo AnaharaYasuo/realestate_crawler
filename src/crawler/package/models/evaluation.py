@@ -387,8 +387,8 @@ class PropertyPriceHistory(models.Model):
     価格の値下げ・値上げ推移を時系列で保存する
     """
     property_url = models.CharField(max_length=500, db_index=True, verbose_name="物件URL")
-    company = models.CharField(max_length=50, blank=True, null=True, db_index=True, verbose_name="不動産会社コード")
-    property_type = models.CharField(max_length=50, blank=True, null=True, db_index=True, verbose_name="物件種別")
+    company = models.CharField(max_length=50, blank=True, default="", db_index=True, verbose_name="不動産会社コード")
+    property_type = models.CharField(max_length=50, blank=True, default="", db_index=True, verbose_name="物件種別")
     old_price = models.BigIntegerField(verbose_name="改定前価格（数値）")
     new_price = models.BigIntegerField(verbose_name="改定後価格（数値）")
     price_diff = models.BigIntegerField(blank=True, null=True, verbose_name="価格差分（新-旧）")

@@ -44,10 +44,10 @@ class HeimParser(ParserBase):
         return super()._parseAddress(response)
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        return self.BASE_URL + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        return self.BASE_URL + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         next_a = response.select_one(".pagination .next a, .pager .next a, a.next, li.next a")
@@ -139,8 +139,9 @@ class HeimParser(ParserBase):
             specs[k] = v
 
     _HEIM_LABEL_RE = re.compile(
-        r"^(種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+(.+)$"
+        r"^(?:種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+([^\r\n]+)$"
     )
+
 
     def _heim_specs_from_plan_tbl(self, response: BeautifulSoup, specs: dict) -> None:
         # planTblWrap hub tables: each cell is "ラベル 値"
@@ -225,7 +226,7 @@ class HeimParser(ParserBase):
             return ""
         h1t = h1.get_text(" ", strip=True)
         m = re.search(
-            r"((?:東京都|神奈川県|埼玉県|千葉県|山梨県)?[^\s\d]{2,20}?(?:市|区|町|村)[^\s\d]{0,20})",
+            r"((?:東京都|神奈川県|埼玉県|千葉県|山梨県)?[^\s\d]{2,20}?[市区町村][^\s\d]{0,20})",
             h1t,
         )
         return m.group(1).strip() if m else ""
@@ -233,10 +234,11 @@ class HeimParser(ParserBase):
     def _heim_address_from_page_text(self, response: BeautifulSoup) -> str:
         full_text = response.get_text()
         match = re.search(
-            r'(東京都[^\s\d\n\r]+?(?:市|区|町|村)[^\s\d\n\r<>\)]+)',
+            r'(東京都[^\s\d]+?[市区町村][^\s\d<>\)]+)',
             full_text,
         )
         return match.group(1).strip() if match else ""
+
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -421,9 +423,6 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         specs = specs or self._get_specs(response)
         return specs.get("総戸数", "")
 
-    def _parseSoukosu(self, response: BeautifulSoup, specs=None):
-        val_str = self._parseSoukosuStr(response, specs)
-        return converter.parse_numeric(val_str) if val_str else None
 
     def _parseKanrihiStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -514,7 +513,8 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         item.balconyMensekiStr = self._parseBalconyMensekiStr(response, specs)
         item.balconyMenseki = self._parseBalconyMenseki(response, specs)
         item.soukosuStr = self._parseSoukosuStr(response, specs)
-        item.soukosu = self._parseSoukosu(response, specs)
+        item.soukosu = self._parseSouKosu(response, specs)
+
         item.kanrihiStr = self._parseKanrihiStr(response, specs)
         item.kanrihi = self._parseKanrihi(response, specs)
         item.syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response, specs)

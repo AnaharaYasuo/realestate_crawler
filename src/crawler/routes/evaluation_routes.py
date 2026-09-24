@@ -256,7 +256,7 @@ def predict_mansion():
         data = request.get_json(silent=True)
         return _predict_price_internal('mansion', data)
     except Exception as e:
-        logging.error(f"Error in predict_mansion: {e}", exc_info=True)
+        logging.exception(f"Error in predict_mansion: {e}")
         return jsonify({"success": False, "message": INTERNAL_SERVER_ERROR_MSG}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/kodate', methods=['POST', 'OPTIONS'])
@@ -382,7 +382,7 @@ def predict_kodate():
         data = request.get_json(silent=True)
         return _predict_price_internal('kodate', data)
     except Exception as e:
-        logging.error(f"Error in predict_kodate: {e}", exc_info=True)
+        logging.exception(f"Error in predict_kodate: {e}")
         return jsonify({"success": False, "message": INTERNAL_SERVER_ERROR_MSG}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/apartment', methods=['POST', 'OPTIONS'])
@@ -516,7 +516,7 @@ def predict_apartment():
         data = request.get_json(silent=True)
         return _predict_price_internal('apartment', data)
     except Exception as e:
-        logging.error(f"Error in predict_apartment: {e}", exc_info=True)
+        logging.exception(f"Error in predict_apartment: {e}")
         return jsonify({"success": False, "message": INTERNAL_SERVER_ERROR_MSG}), 500
 
 @evaluation_bp.route('/api/evaluation/predict/tochi', methods=['POST', 'OPTIONS'])
@@ -627,7 +627,7 @@ def predict_tochi():
         data = request.get_json(silent=True)
         return _predict_price_internal('tochi', data)
     except Exception as e:
-        logging.error(f"Error in predict_tochi: {e}", exc_info=True)
+        logging.exception(f"Error in predict_tochi: {e}")
         return jsonify({"success": False, "message": INTERNAL_SERVER_ERROR_MSG}), 500
 
 
@@ -880,7 +880,7 @@ async def _execute_predict_by_url(
             parser_cls = getattr(parser_mod, route["parser_cls"])
             parser = parser_cls()
         except Exception as e:
-            logging.error(
+            logging.exception(
                 f"[PARSER_NOT_FOUND] Parser class '{route.get('parser_cls')}' could not be loaded for URL: {clean_url}: {e}",
                 exc_info=True
             )
@@ -923,7 +923,7 @@ async def _execute_predict_by_url(
                 "message": "対象サイトへの接続に失敗したか、タイムアウトしました。"
             }, 504
         except Exception as e:
-            logging.error(f"Live crawling error for {url}: {e}", exc_info=True)
+            logging.exception(f"Live crawling error for {url}: {e}")
             return {
                 "success": False,
                 "url": url,
@@ -1038,7 +1038,7 @@ def predict_by_url():
             }), 403
 
         # 2. 流量制限（レートリミット）確認
-        allowed, retry_after = rate_limiter.is_allowed(client_ip)
+        allowed, _ = rate_limiter.is_allowed(client_ip)
         if not allowed:
             lockout_manager.record_strike(client_ip)
             return jsonify({
@@ -1099,7 +1099,7 @@ def predict_by_url():
         )
         return jsonify(result), status_code
     except Exception as e:
-        logging.error(f"Error in predict_by_url: {e}", exc_info=True)
+        logging.exception(f"Error in predict_by_url: {e}")
         return jsonify({
             "success": False,
             "error_code": "INTERNAL_SERVER_ERROR",

@@ -65,6 +65,11 @@ SEKISUI_JOB_BUDGET_SEC = 90.0
 ATHOME_INVEST_JOB_BUDGET_SEC = 75.0
 PLAYWRIGHT_COMPANIES = frozenset({"athome", "mizuho", "sekisui"})
 
+_REPROS_HOST = "phfudousan.repros.jp"
+_HTML_PARSER = "html.parser"
+_A_HREF_SELECTOR = "a[href]"
+_LIST_PATH = "/list"
+
 
 @dataclass
 class SmokeResult:
@@ -312,8 +317,10 @@ def assert_property_type_for_smoke(
 
 
 async def _normalize_next_page_url(parser, list_url: str, next_raw: Any) -> str:
+    await asyncio.sleep(0)
     if next_raw is None:
         return ""
+
     if isinstance(next_raw, str):
         nxt = next_raw.strip()
     elif isinstance(next_raw, (list, tuple)) and next_raw:
@@ -495,8 +502,9 @@ def _looks_like_detail(url: str) -> bool:
         return True
     # Explicit list/search hubs — never treat as property detail.
     list_markers = (
-        "/list",
+        _LIST_PATH,
         "/search/",
+
         "/select-area",
         "/area-",
         "ensen_",
@@ -656,7 +664,7 @@ class _LightPlaywrightSession:
             await page.close()
 
 
-def _needs_playwright(parser, company: str = "") -> bool:
+def _needs_playwright(_parser, company: str = "") -> bool:
     # Only force stealth PW for known WAF/bot sites. Other `_getContent` overrides
     # still run via aiohttp-first; 403 falls back to lazy shared PW.
     return company.lower() in PLAYWRIGHT_COMPANIES
@@ -740,7 +748,8 @@ def _soup_looks_blocked(soup: BeautifulSoup) -> bool:
 def _soup_usable_for_smoke(soup: BeautifulSoup) -> bool:
     if _soup_looks_blocked(soup):
         return False
-    return len(soup.select("a[href]")) >= 3
+    return len(soup.select(_A_HREF_SELECTOR)) >= 3
+
 
 
 async def _fetch_via_get_response_bs(parser, session: aiohttp.ClientSession, url: str, deadline: float):
@@ -767,7 +776,7 @@ async def _fetch_via_get_response_bs(parser, session: aiohttp.ClientSession, url
 
 async def _try_get_response_bs_links(parser, session, url, deadline):
     via_bs = await _fetch_via_get_response_bs(parser, session, url, deadline)
-    if isinstance(via_bs, BeautifulSoup) and via_bs.select("a[href]"):
+    if isinstance(via_bs, BeautifulSoup) and via_bs.select(_A_HREF_SELECTOR):
         return via_bs
     return None
 
@@ -787,7 +796,7 @@ async def _fetch_soup_force_pw(
             raise TimeoutError(f"budget exhausted before fetch {url}")
         try:
             html = await pw.fetch_html(url, deadline)
-            soup = BeautifulSoup(html, "html.parser")
+            soup = BeautifulSoup(html, _HTML_PARSER)
             if _soup_usable_for_smoke(soup):
                 return soup
             if _soup_looks_blocked(soup):
@@ -812,9 +821,10 @@ def _build_fetch_headers(parser, url: str) -> dict[str, str]:
     if "wp-json" in url:
         headers["Accept"] = "application/json, text/javascript, */*; q=0.01"
         headers["X-Requested-With"] = "XMLHttpRequest"
-    if "phfudousan.repros.jp" in url and hasattr(parser, "REPROS_HEADERS"):
+    if _REPROS_HOST in url and hasattr(parser, "REPROS_HEADERS"):
         headers.update(parser.REPROS_HEADERS)
     return headers
+
 
 
 async def _recover_from_waf_status(
@@ -825,7 +835,7 @@ async def _recover_from_waf_status(
         return via_bs
     if pw is not None:
         html = await pw.fetch_html(url, deadline)
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html, _HTML_PARSER)
         if not _soup_looks_blocked(soup):
             return soup
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
@@ -835,13 +845,13 @@ async def _recover_from_waf_status(
 
 
 async def _decode_json_response(parser, session, url, deadline, data: Any) -> Any:
-    if "phfudousan.repros.jp" in url:
+    if _REPROS_HOST in url:
         return data
     html = ""
     if isinstance(data, dict):
         html = data.get("html", "") or ""
     if html:
-        return BeautifulSoup(html, "html.parser")
+        return BeautifulSoup(html, _HTML_PARSER)
     via_bs = await _try_get_response_bs_links(parser, session, url, deadline)
     if via_bs is not None:
         return via_bs
@@ -875,7 +885,7 @@ async def _unblock_or_return_soup(
     if pw is not None:
         if _remaining(deadline) > 3:
             html = await pw.fetch_html(url, deadline)
-            return BeautifulSoup(html, "html.parser")
+            return BeautifulSoup(html, _HTML_PARSER)
         return soup
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
     if via_parser is not None and (
@@ -907,22 +917,23 @@ async def _fetch_soup_http(
                     return via_bs
                 raise RuntimeError(f"HTTP {resp.status} for {url}")
             content_type = resp.headers.get("Content-Type", "")
-            if "json" in content_type or "wp-json" in url or "phfudousan.repros.jp" in url:
+            if "json" in content_type or "wp-json" in url or _REPROS_HOST in url:
                 data = await resp.json(content_type=None)
                 return await _decode_json_response(parser, session, url, deadline, data)
             raw = await resp.read()
             encoding = _resolve_response_encoding(parser, content_type)
-            soup = BeautifulSoup(raw.decode(encoding, errors="replace"), "html.parser")
+            soup = BeautifulSoup(raw.decode(encoding, errors="replace"), _HTML_PARSER)
             return await _unblock_or_return_soup(soup, parser, session, url, deadline, pw)
     except RuntimeError:
         raise
-    except Exception as exc:
+    except Exception:
         via_bs = await _try_get_response_bs_links(parser, session, url, deadline)
         if via_bs is not None:
             return via_bs
         if pw is not None and _remaining(deadline) > 2:
             html = await pw.fetch_html(url, deadline)
-            return BeautifulSoup(html, "html.parser")
+            return BeautifulSoup(html, _HTML_PARSER)
+
         raise
 
 
@@ -941,7 +952,7 @@ async def _fetch_soup(
     if "keiofudosan" in url or "get_search_result_sale" in url:
         via_bs = await _fetch_via_get_response_bs(parser, session, url, deadline)
         if isinstance(via_bs, BeautifulSoup) and (
-            via_bs.select("a.abs_link") or via_bs.select("a[href]")
+            via_bs.select("a.abs_link") or via_bs.select(_A_HREF_SELECTOR)
         ):
             return via_bs
 
@@ -959,7 +970,7 @@ def _decode_get_content_bytes(parser, raw: bytes | bytearray) -> BeautifulSoup:
         charset = parser.getCharset()
         if charset:
             encoding = charset
-    return BeautifulSoup(raw.decode(encoding, errors="replace"), "html.parser")
+    return BeautifulSoup(raw.decode(encoding, errors="replace"), _HTML_PARSER)
 
 
 def _materialize_get_content(parser, raw: Any) -> Any:
@@ -970,7 +981,7 @@ def _materialize_get_content(parser, raw: Any) -> Any:
     if isinstance(raw, (bytes, bytearray)):
         return _decode_get_content_bytes(parser, raw)
     if isinstance(raw, str):
-        return BeautifulSoup(raw, "html.parser")
+        return BeautifulSoup(raw, _HTML_PARSER)
     return None
 
 
@@ -1007,7 +1018,7 @@ _MIDDLE_LINK_TOKENS = (
     "/house/",
     "/tochi/",
     "/land/",
-    "/list",
+    _LIST_PATH,
     "/ensen_",
     "/area",
     "/city",
@@ -1025,7 +1036,7 @@ def _extract_athome_urls(parser, page, limit: int) -> tuple[list[str], list[str]
     middles: list[str] = []
     detail_set: set = set()
     list_set: set = set()
-    for a in page.select("a[href]"):
+    for a in page.select(_A_HREF_SELECTOR):
         href = a.get("href")
         if not href:
             continue
@@ -1042,7 +1053,7 @@ def _extract_athome_urls(parser, page, limit: int) -> tuple[list[str], list[str]
     return None
 
 
-async def _invoke_list_method(parser, method, page, limit: int) -> list[Any]:
+async def _invoke_list_method(_parser, method, page, limit: int) -> list[Any]:
     try:
         result = method(page)
         if hasattr(result, "__aiter__"):
@@ -1059,8 +1070,9 @@ async def _invoke_list_method(parser, method, page, limit: int) -> list[Any]:
 
 
 def _classify_extracted_url(
-    url: str, trust_as_detail: bool, details: list[str], middles: list[str]
+    url: str, _trust_as_detail: bool, details: list[str], middles: list[str]
 ) -> None:
+
     if not isinstance(url, str) or not url.startswith("http"):
         return
     if _looks_like_detail(url):
@@ -1129,7 +1141,7 @@ def _harvest_fallback_links(
     if details or middles or not hasattr(page, "select"):
         return
     base = _page_base_url(parser, page_url)
-    for anchor in page.select("a[href]"):
+    for anchor in page.select(_A_HREF_SELECTOR):
         full = _absolute_href(anchor.get("href") or "", base)
         if full:
             _append_harvested_link(full, details, middles)
@@ -1177,7 +1189,7 @@ def _discover_repros_via_list_items(
         if "id" not in item:
             continue
         detail = (
-            f"https://phfudousan.repros.jp/api/v1/{detail_endpoint}/"
+            f"https://{_REPROS_HOST}/api/v1/{detail_endpoint}/"
             f"?id={item['id']}&key={key}"
         )
         if detail not in details:
@@ -1188,15 +1200,15 @@ def _discover_repros_via_list_items(
 
 async def _discover_repros_json_details(
     parser, page: dict, url: str, max_details: int, details: list[str], fetch_errors: list[str]
-) -> bool:
-    """Handle repros JSON list pages. Returns True when the page was consumed."""
+) -> None:
+    """Handle repros JSON list pages."""
     if hasattr(parser, "parseRootPageJson"):
         await _discover_repros_via_parse_root(
             parser, page, url, max_details, details, fetch_errors
         )
-        return True
+        return
     _discover_repros_via_list_items(parser, page, max_details, details)
-    return True
+
 
 
 def _merge_page_details(
@@ -1214,7 +1226,7 @@ def _merge_page_details(
             details.append(detail)
         if len(details) >= max_details:
             return True
-    page_middles.sort(key=lambda u: (0 if "/list" in u.lower() else 1, u))
+    page_middles.sort(key=lambda u: (0 if _LIST_PATH in u.lower() else 1, u))
     for middle in page_middles:
         if middle not in seen and len(frontier) < 8:
             frontier.append((middle, depth + 1))
@@ -1249,7 +1261,7 @@ async def discover_detail_urls(
             fetch_errors.append(f"{url}: {type(exc).__name__}: {exc}")
             continue
 
-        if isinstance(page, dict) and "phfudousan.repros.jp" in seed_url:
+        if isinstance(page, dict) and _REPROS_HOST in seed_url:
             await _discover_repros_json_details(
                 parser, page, url, max_details, details, fetch_errors
             )
@@ -1711,8 +1723,9 @@ async def _try_parse_detail(
             parser, item, target.job_id, detail_url
         )
         return item, None
-    except (ListingEndedException, SkipPropertyException) as exc:
+    except SkipPropertyException as exc:
         return None, exc
+
     except Exception as exc:
         if _is_soft_parse_error(exc):
             return None, exc

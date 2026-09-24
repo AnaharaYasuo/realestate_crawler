@@ -29,7 +29,7 @@ class PropertyBaseModel(models.Model):
     priceStr = models.TextField(verbose_name="価格（文字列）")
     price = models.BigIntegerField(verbose_name="価格（数値）")
     address = models.TextField(verbose_name="住所")
-    traffic = models.TextField(blank=True, null=True, verbose_name="交通")
+    traffic = models.TextField(blank=True, default="", verbose_name="交通")
     chidaiStr = models.TextField(blank=True, default="", verbose_name="地代（文字列）")
     chidai = models.IntegerField(null=True, blank=True, verbose_name="月額地代（数値・円）")
 
@@ -46,53 +46,53 @@ class TransportationMixin(models.Model):
         abstract = True
     
     # Route 1
-    transfer1 = models.TextField(blank=True, null=True, verbose_name="乗り換え1")
-    railway1 = models.TextField(blank=True, null=True, verbose_name="沿線1")
-    station1 = models.TextField(blank=True, null=True, verbose_name="駅1")
-    railwayWalkMinute1Str = models.TextField(blank=True, null=True, verbose_name="徒歩分数1（文字列）")
+    transfer1 = models.TextField(blank=True, default="", verbose_name="乗り換え1")
+    railway1 = models.TextField(blank=True, default="", verbose_name="沿線1")
+    station1 = models.TextField(blank=True, default="", verbose_name="駅1")
+    railwayWalkMinute1Str = models.TextField(blank=True, default="", verbose_name="徒歩分数1（文字列）")
     railwayWalkMinute1 = models.IntegerField(blank=True, null=True, verbose_name="徒歩分数1（数値）")
-    busStation1 = models.TextField(blank=True, null=True, verbose_name="バス停1")
-    busWalkMinute1Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数1（文字列）")
+    busStation1 = models.TextField(blank=True, default="", verbose_name="バス停1")
+    busWalkMinute1Str = models.TextField(blank=True, default="", verbose_name="バス徒歩分数1（文字列）")
     busWalkMinute1 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数1（数値）")
     
     # Route 2
-    transfer2 = models.TextField(blank=True, null=True, verbose_name="乗り換え2")
-    railway2 = models.TextField(blank=True, null=True, verbose_name="沿線2")
-    station2 = models.TextField(blank=True, null=True, verbose_name="駅2")
-    railwayWalkMinute2Str = models.TextField(blank=True, null=True, verbose_name="徒歩分数2（文字列）")
+    transfer2 = models.TextField(blank=True, default="", verbose_name="乗り換え2")
+    railway2 = models.TextField(blank=True, default="", verbose_name="沿線2")
+    station2 = models.TextField(blank=True, default="", verbose_name="駅2")
+    railwayWalkMinute2Str = models.TextField(blank=True, default="", verbose_name="徒歩分数2（文字列）")
     railwayWalkMinute2 = models.IntegerField(blank=True, null=True, verbose_name="徒歩分数2（数値）")
-    busStation2 = models.TextField(blank=True, null=True, verbose_name="バス停2")
-    busWalkMinute2Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数2（文字列）")
+    busStation2 = models.TextField(blank=True, default="", verbose_name="バス停2")
+    busWalkMinute2Str = models.TextField(blank=True, default="", verbose_name="バス徒歩分数2（文字列）")
     busWalkMinute2 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数2（数値）")
     
     # Route 3
-    transfer3 = models.TextField(blank=True, null=True, verbose_name="乗り換え3")
-    railway3 = models.TextField(blank=True, null=True, verbose_name="沿線3")
-    station3 = models.TextField(blank=True, null=True, verbose_name="駅3")
-    railwayWalkMinute3Str = models.TextField(blank=True, null=True, verbose_name="徒歩分数3（文字列）")
+    transfer3 = models.TextField(blank=True, default="", verbose_name="乗り換え3")
+    railway3 = models.TextField(blank=True, default="", verbose_name="沿線3")
+    station3 = models.TextField(blank=True, default="", verbose_name="駅3")
+    railwayWalkMinute3Str = models.TextField(blank=True, default="", verbose_name="徒歩分数3（文字列）")
     railwayWalkMinute3 = models.IntegerField(blank=True, null=True, verbose_name="徒歩分数3（数値）")
-    busStation3 = models.TextField(blank=True, null=True, verbose_name="バス停3")
-    busWalkMinute3Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数3（文字列）")
+    busStation3 = models.TextField(blank=True, default="", verbose_name="バス停3")
+    busWalkMinute3Str = models.TextField(blank=True, default="", verbose_name="バス徒歩分数3（文字列）")
     busWalkMinute3 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数3（数値）")
     
     # Route 4
-    transfer4 = models.TextField(blank=True, null=True, verbose_name="乗り換え4")
-    railway4 = models.TextField(blank=True, null=True, verbose_name="沿線4")
-    station4 = models.TextField(blank=True, null=True, verbose_name="駅4")
-    railwayWalkMinute4Str = models.TextField(blank=True, null=True, verbose_name="徒歩分数4（文字列）")
+    transfer4 = models.TextField(blank=True, default="", verbose_name="乗り換え4")
+    railway4 = models.TextField(blank=True, default="", verbose_name="沿線4")
+    station4 = models.TextField(blank=True, default="", verbose_name="駅4")
+    railwayWalkMinute4Str = models.TextField(blank=True, default="", verbose_name="徒歩分数4（文字列）")
     railwayWalkMinute4 = models.IntegerField(blank=True, null=True, verbose_name="徒歩分数4（数値）")
-    busStation4 = models.TextField(blank=True, null=True, verbose_name="バス停4")
-    busWalkMinute4Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数4（文字列）")
+    busStation4 = models.TextField(blank=True, default="", verbose_name="バス停4")
+    busWalkMinute4Str = models.TextField(blank=True, default="", verbose_name="バス徒歩分数4（文字列）")
     busWalkMinute4 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数4（数値）")
     
     # Route 5
-    transfer5 = models.TextField(blank=True, null=True, verbose_name="乗り換え5")
-    railway5 = models.TextField(blank=True, null=True, verbose_name="沿線5")
-    station5 = models.TextField(blank=True, null=True, verbose_name="駅5")
-    railwayWalkMinute5Str = models.TextField(blank=True, null=True, verbose_name="徒歩分数5（文字列）")
+    transfer5 = models.TextField(blank=True, default="", verbose_name="乗り換え5")
+    railway5 = models.TextField(blank=True, default="", verbose_name="沿線5")
+    station5 = models.TextField(blank=True, default="", verbose_name="駅5")
+    railwayWalkMinute5Str = models.TextField(blank=True, default="", verbose_name="徒歩分数5（文字列）")
     railwayWalkMinute5 = models.IntegerField(blank=True, null=True, verbose_name="徒歩分数5（数値）")
-    busStation5 = models.TextField(blank=True, null=True, verbose_name="バス停5")
-    busWalkMinute5Str = models.TextField(blank=True, null=True, verbose_name="バス徒歩分数5（文字列）")
+    busStation5 = models.TextField(blank=True, default="", verbose_name="バス停5")
+    busWalkMinute5Str = models.TextField(blank=True, default="", verbose_name="バス徒歩分数5（文字列）")
     busWalkMinute5 = models.IntegerField(blank=True, null=True, verbose_name="バス徒歩分数5（数値）")
     
     # Metadata
@@ -114,23 +114,23 @@ class MansionBaseModel(PropertyBaseModel, TransportationMixin):
         abstract = True
     
     # Dual Storage Pattern fields
-    senyuMensekiStr = models.TextField(blank=True, null=True, verbose_name="専有面積（文字列）")
+    senyuMensekiStr = models.TextField(blank=True, default="", verbose_name="専有面積（文字列）")
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="専有面積（数値）")
     
-    chikunengetsuStr = models.TextField(blank=True, null=True, verbose_name="築年月（文字列）")
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name="築年月（文字列）")
     chikunengetsu = models.DateField(blank=True, null=True, verbose_name="築年月（日付）")
     
-    kanrihiStr = models.TextField(blank=True, null=True, verbose_name="管理費（文字列）")
+    kanrihiStr = models.TextField(blank=True, default="", verbose_name="管理費（文字列）")
     kanrihi = models.IntegerField(blank=True, null=True, verbose_name="管理費（数値）")
     
-    syuzenTsumitateStr = models.TextField(blank=True, null=True, verbose_name="修繕積立金（文字列）")
+    syuzenTsumitateStr = models.TextField(blank=True, default="", verbose_name="修繕積立金（文字列）")
     syuzenTsumitate = models.IntegerField(blank=True, null=True, verbose_name="修繕積立金（数値）")
     
     # Mansion-specific fields
-    madori = models.TextField(blank=True, null=True, verbose_name="間取り")
-    balconyMensekiStr = models.TextField(blank=True, null=True, verbose_name="バルコニー面積（文字列）")
+    madori = models.TextField(blank=True, default="", verbose_name="間取り")
+    balconyMensekiStr = models.TextField(blank=True, default="", verbose_name="バルコニー面積（文字列）")
     balconyMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="バルコニー面積（数値）")
-    kaisu = models.TextField(blank=True, null=True, verbose_name="所在階")
+    kaisu = models.TextField(blank=True, default="", verbose_name="所在階")
 
 
 class KodateBaseModel(PropertyBaseModel, TransportationMixin):
@@ -143,18 +143,18 @@ class KodateBaseModel(PropertyBaseModel, TransportationMixin):
         abstract = True
     
     # Dual Storage Pattern fields
-    tochiMensekiStr = models.TextField(blank=True, null=True, verbose_name="土地面積（文字列）")
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name="土地面積（文字列）")
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
     
-    tatemonoMensekiStr = models.TextField(blank=True, null=True, verbose_name="建物面積（文字列）")
+    tatemonoMensekiStr = models.TextField(blank=True, default="", verbose_name="建物面積（文字列）")
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="建物面積（数値）")
     
-    chikunengetsuStr = models.TextField(blank=True, null=True, verbose_name="築年月（文字列）")
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name="築年月（文字列）")
     chikunengetsu = models.DateField(blank=True, null=True, verbose_name="築年月（日付）")
     
     # Kodate-specific fields
-    madori = models.TextField(blank=True, null=True, verbose_name="間取り")
-    kouzou = models.TextField(blank=True, null=True, verbose_name="構造")
+    madori = models.TextField(blank=True, default="", verbose_name="間取り")
+    kouzou = models.TextField(blank=True, default="", verbose_name="構造")
 
 
 class TochiBaseModel(PropertyBaseModel, TransportationMixin):
@@ -167,24 +167,24 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
         abstract = True
     
     # Dual Storage Pattern fields
-    tochiMensekiStr = models.TextField(blank=True, null=True, verbose_name="土地面積（文字列）")
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name="土地面積（文字列）")
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
     
     # Tochi-specific fields
-    youtoChiiki = models.TextField(blank=True, null=True, verbose_name="用途地域")
-    kenpei = models.TextField(blank=True, null=True, verbose_name="建ぺい率")
-    youseki = models.TextField(blank=True, null=True, verbose_name="容積率")
+    youtoChiiki = models.TextField(blank=True, default="", verbose_name="用途地域")
+    kenpei = models.TextField(blank=True, default="", verbose_name="建ぺい率")
+    youseki = models.TextField(blank=True, default="", verbose_name="容積率")
     
     # 土地評価エンジン用新規取得パラメータ
-    maguchiStr = models.TextField(blank=True, null=True, verbose_name="間口（文字列）")
+    maguchiStr = models.TextField(blank=True, default="", verbose_name="間口（文字列）")
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="間口（数値）")
     
-    okuyukiStr = models.TextField(blank=True, null=True, verbose_name="奥行（文字列）")
+    okuyukiStr = models.TextField(blank=True, default="", verbose_name="奥行（文字列）")
     okuyuki = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="奥行（数値）")
     
-    roadWidthStr = models.TextField(blank=True, null=True, verbose_name="前面道路幅員（文字列）")
+    roadWidthStr = models.TextField(blank=True, default="", verbose_name="前面道路幅員（文字列）")
     roadWidth = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="前面道路幅員（数値）")
     
-    roadDirection = models.TextField(blank=True, null=True, verbose_name="接道方位")
-    roadType = models.TextField(blank=True, null=True, verbose_name="道路区分")
-    roadStructure = models.TextField(blank=True, null=True, verbose_name="接道状況")
+    roadDirection = models.TextField(blank=True, default="", verbose_name="接道方位")
+    roadType = models.TextField(blank=True, default="", verbose_name="道路区分")
+    roadStructure = models.TextField(blank=True, default="", verbose_name="接道状況")

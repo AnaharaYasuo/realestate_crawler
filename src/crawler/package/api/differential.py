@@ -14,7 +14,7 @@ class ListItem:
     hash_val: Optional[str] = None
 
     @classmethod
-    def from_raw(cls, raw: Union[str, Tuple[Any, ...], List[Any], Dict[str, Any], "ListItem"]) -> "ListItem":
+    def from_raw(cls, raw: str | Tuple[Any, ...] | List[Any] | Dict[str, Any] | "ListItem") -> "ListItem":
         if isinstance(raw, ListItem):
             return raw
         if isinstance(raw, str):

@@ -1,10 +1,10 @@
 const { App } = require('@slack/bolt');
-const { spawn } = require('child_process');
-const path = require('path');
+const { spawn } = require('node:child_process');
+const path = require('node:path');
 const iconv = require('iconv-lite');
 
 // プロジェクトルートの .env 絶対パス指定
-const envPath = 'c:\\Users\\weare\\Documents\\realestate_crawler\\.env';
+const envPath = String.raw`c:\Users\weare\Documents\realestate_crawler\.env`;
 require('dotenv').config({ path: envPath });
 
 const botToken = process.env.SLACK_BOT_TOKEN;

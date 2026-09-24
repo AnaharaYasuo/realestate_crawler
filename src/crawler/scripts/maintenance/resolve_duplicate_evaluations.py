@@ -28,6 +28,8 @@ realestateSettings.configure()
 from django.db import connection, transaction
 from package.models.evaluation import PropertyEvaluation
 
+EXPECTED_ZERO = " (Expected: 0)"
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -157,10 +159,10 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
         final_inverted = cursor.fetchone()[0]
 
         logger.info("=== Verification Results ===")
-        logger.info(f"Self-loops: {final_self} (Expected: 0)")
-        logger.info(f"Mutual cycles: {final_cycles} (Expected: 0)")
-        logger.info(f"Multi-hop chains: {final_chains} (Expected: 0)")
-        logger.info(f"Inverted hierarchies (parent.id >= child.id): {final_inverted} (Expected: 0)")
+        logger.info(f"Self-loops: {final_self}{EXPECTED_ZERO}")
+        logger.info(f"Mutual cycles: {final_cycles}{EXPECTED_ZERO}")
+        logger.info(f"Multi-hop chains: {final_chains}{EXPECTED_ZERO}")
+        logger.info(f"Inverted hierarchies (parent.id >= child.id): {final_inverted}{EXPECTED_ZERO}")
 
         if not dry_run:
             assert final_self == 0, f"Self loops remaining: {final_self}"

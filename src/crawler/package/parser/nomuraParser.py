@@ -22,6 +22,9 @@ from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+JAVASCRIPT_PREFIX = "javascript:"
+NOMU_BASE_URL = "https://www.nomu.com"
+
 
 class NomuraParser(InvestmentParser):
     property_type = ""
@@ -161,8 +164,8 @@ class NomuraParser(InvestmentParser):
         )
         if val:
             return val
-        specs = specs or self._get_specs(response)
-        return specs.get("価格", "") or specs.get("販売価格", "") or super()._parsePriceStr(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("価格", "") or target_specs.get("販売価格", "") or super()._parsePriceStr(response, target_specs)
 
     @staticmethod
     def _price_from_selector(response, selector) -> str:
@@ -176,42 +179,42 @@ class NomuraParser(InvestmentParser):
             return val
         return ""
 
-    def _parsePrice(self, response, specs=None):
+    def _parsePrice(self, response, _specs=None):
         return converter.parse_price(self._parsePriceStr(response))
 
     def _parseAddress(self, response, specs=None):
-        specs = self._get_specs(response)
-        addr = specs.get("所在地", "").replace("周辺地図を見る", "").strip()
+        target_specs = specs if specs is not None else self._get_specs(response)
+        addr = target_specs.get("所在地", "").replace("周辺地図を見る", "").strip()
         return addr
 
-    def _parseAddress1(self, response, specs=None):
+    def _parseAddress1(self, response, _specs=None):
         address = self._parseAddress(response)
         pref, _, _ = self._split_address(address)
         return pref
 
-    def _parseAddress2(self, response, specs=None):
+    def _parseAddress2(self, response, _specs=None):
         address = self._parseAddress(response)
         _, city, _ = self._split_address(address)
         return city
 
-    def _parseAddress3(self, response, specs=None):
+    def _parseAddress3(self, response, _specs=None):
         address = self._parseAddress(response)
         _, _, town = self._split_address(address)
         return town
 
 
     def _parseTrafficFull(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("交通", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("交通", "")
 
-    def _parseTrafficLines(self, response, specs=None):
+    def _parseTrafficLines(self, response, _specs=None):
         traffic_full = self._parseTrafficFull(response)
         if not traffic_full: return []
         # Nomura often uses <br> which becomes \n in get_text()
         lines = [line.strip() for line in traffic_full.split("\n") if line.strip()]
         return lines
 
-    def _parseRailwayCount(self, response, specs=None):
+    def _parseRailwayCount(self, response, _specs=None):
         return len(self._parseTrafficLines(response))
 
     def _getTrafficField(self, response, index, field_to_get, default_val):
@@ -247,55 +250,55 @@ class NomuraParser(InvestmentParser):
             
         return default_val
 
-    def _parseTransfer1(self, response, specs=None): return self._getTrafficField(response, 1, 'transfer', "")
-    def _parseRailway1(self, response, specs=None): return self._getTrafficField(response, 1, 'railway', "")
-    def _parseStation1(self, response, specs=None): return self._getTrafficField(response, 1, 'station', "")
-    def _parseRailwayWalkMinute1Str(self, response, specs=None): return self._getTrafficField(response, 1, 'railwayWalkMinute1Str', "")
-    def _parseRailwayWalkMinute1(self, response, specs=None): return self._getTrafficField(response, 1, 'railwayWalkMinute', 0)
-    def _parseBusStation1(self, response, specs=None): return self._getTrafficField(response, 1, 'busStation', "")
-    def _parseBusWalkMinute1Str(self, response, specs=None): return self._getTrafficField(response, 1, 'busWalkMinuteStr', "")
-    def _parseBusWalkMinute1(self, response, specs=None): return self._getTrafficField(response, 1, 'busWalkMinute', 0)
-    def _parseBusUse1(self, response, specs=None): return self._getTrafficField(response, 1, 'busUse', 0)
+    def _parseTransfer1(self, response, _specs=None): return self._getTrafficField(response, 1, 'transfer', "")
+    def _parseRailway1(self, response, _specs=None): return self._getTrafficField(response, 1, 'railway', "")
+    def _parseStation1(self, response, _specs=None): return self._getTrafficField(response, 1, 'station', "")
+    def _parseRailwayWalkMinute1Str(self, response, _specs=None): return self._getTrafficField(response, 1, 'railwayWalkMinute1Str', "")
+    def _parseRailwayWalkMinute1(self, response, _specs=None): return self._getTrafficField(response, 1, 'railwayWalkMinute', 0)
+    def _parseBusStation1(self, response, _specs=None): return self._getTrafficField(response, 1, 'busStation', "")
+    def _parseBusWalkMinute1Str(self, response, _specs=None): return self._getTrafficField(response, 1, 'busWalkMinuteStr', "")
+    def _parseBusWalkMinute1(self, response, _specs=None): return self._getTrafficField(response, 1, 'busWalkMinute', 0)
+    def _parseBusUse1(self, response, _specs=None): return self._getTrafficField(response, 1, 'busUse', 0)
 
-    def _parseTransfer2(self, response, specs=None): return self._getTrafficField(response, 2, 'transfer', "")
-    def _parseRailway2(self, response, specs=None): return self._getTrafficField(response, 2, 'railway', "")
-    def _parseStation2(self, response, specs=None): return self._getTrafficField(response, 2, 'station', "")
-    def _parseRailwayWalkMinute2Str(self, response, specs=None): return self._getTrafficField(response, 2, 'railwayWalkMinute2Str', "")
-    def _parseRailwayWalkMinute2(self, response, specs=None): return self._getTrafficField(response, 2, 'railwayWalkMinute', 0)
-    def _parseBusStation2(self, response, specs=None): return self._getTrafficField(response, 2, 'busStation', "")
-    def _parseBusWalkMinute2Str(self, response, specs=None): return self._getTrafficField(response, 2, 'busWalkMinuteStr', "")
-    def _parseBusWalkMinute2(self, response, specs=None): return self._getTrafficField(response, 2, 'busWalkMinute', 0)
-    def _parseBusUse2(self, response, specs=None): return self._getTrafficField(response, 2, 'busUse', 0)
+    def _parseTransfer2(self, response, _specs=None): return self._getTrafficField(response, 2, 'transfer', "")
+    def _parseRailway2(self, response, _specs=None): return self._getTrafficField(response, 2, 'railway', "")
+    def _parseStation2(self, response, _specs=None): return self._getTrafficField(response, 2, 'station', "")
+    def _parseRailwayWalkMinute2Str(self, response, _specs=None): return self._getTrafficField(response, 2, 'railwayWalkMinute2Str', "")
+    def _parseRailwayWalkMinute2(self, response, _specs=None): return self._getTrafficField(response, 2, 'railwayWalkMinute', 0)
+    def _parseBusStation2(self, response, _specs=None): return self._getTrafficField(response, 2, 'busStation', "")
+    def _parseBusWalkMinute2Str(self, response, _specs=None): return self._getTrafficField(response, 2, 'busWalkMinuteStr', "")
+    def _parseBusWalkMinute2(self, response, _specs=None): return self._getTrafficField(response, 2, 'busWalkMinute', 0)
+    def _parseBusUse2(self, response, _specs=None): return self._getTrafficField(response, 2, 'busUse', 0)
 
-    def _parseTransfer3(self, response, specs=None): return self._getTrafficField(response, 3, 'transfer', "")
-    def _parseRailway3(self, response, specs=None): return self._getTrafficField(response, 3, 'railway', "")
-    def _parseStation3(self, response, specs=None): return self._getTrafficField(response, 3, 'station', "")
-    def _parseRailwayWalkMinute3Str(self, response, specs=None): return self._getTrafficField(response, 3, 'railwayWalkMinute3Str', "")
-    def _parseRailwayWalkMinute3(self, response, specs=None): return self._getTrafficField(response, 3, 'railwayWalkMinute', 0)
-    def _parseBusStation3(self, response, specs=None): return self._getTrafficField(response, 3, 'busStation', "")
-    def _parseBusWalkMinute3Str(self, response, specs=None): return self._getTrafficField(response, 3, 'busWalkMinuteStr', "")
-    def _parseBusWalkMinute3(self, response, specs=None): return self._getTrafficField(response, 3, 'busWalkMinute', 0)
-    def _parseBusUse3(self, response, specs=None): return self._getTrafficField(response, 3, 'busUse', 0)
+    def _parseTransfer3(self, response, _specs=None): return self._getTrafficField(response, 3, 'transfer', "")
+    def _parseRailway3(self, response, _specs=None): return self._getTrafficField(response, 3, 'railway', "")
+    def _parseStation3(self, response, _specs=None): return self._getTrafficField(response, 3, 'station', "")
+    def _parseRailwayWalkMinute3Str(self, response, _specs=None): return self._getTrafficField(response, 3, 'railwayWalkMinute3Str', "")
+    def _parseRailwayWalkMinute3(self, response, _specs=None): return self._getTrafficField(response, 3, 'railwayWalkMinute', 0)
+    def _parseBusStation3(self, response, _specs=None): return self._getTrafficField(response, 3, 'busStation', "")
+    def _parseBusWalkMinute3Str(self, response, _specs=None): return self._getTrafficField(response, 3, 'busWalkMinuteStr', "")
+    def _parseBusWalkMinute3(self, response, _specs=None): return self._getTrafficField(response, 3, 'busWalkMinute', 0)
+    def _parseBusUse3(self, response, _specs=None): return self._getTrafficField(response, 3, 'busUse', 0)
 
-    def _parseTransfer4(self, response, specs=None): return self._getTrafficField(response, 4, 'transfer', "")
-    def _parseRailway4(self, response, specs=None): return self._getTrafficField(response, 4, 'railway', "")
-    def _parseStation4(self, response, specs=None): return self._getTrafficField(response, 4, 'station', "")
-    def _parseRailwayWalkMinute4Str(self, response, specs=None): return self._getTrafficField(response, 4, 'railwayWalkMinute4Str', "")
-    def _parseRailwayWalkMinute4(self, response, specs=None): return self._getTrafficField(response, 4, 'railwayWalkMinute', 0)
-    def _parseBusStation4(self, response, specs=None): return self._getTrafficField(response, 4, 'busStation', "")
-    def _parseBusWalkMinute4Str(self, response, specs=None): return self._getTrafficField(response, 4, 'busWalkMinuteStr', "")
-    def _parseBusWalkMinute4(self, response, specs=None): return self._getTrafficField(response, 4, 'busWalkMinute', 0)
-    def _parseBusUse4(self, response, specs=None): return self._getTrafficField(response, 4, 'busUse', 0)
+    def _parseTransfer4(self, response, _specs=None): return self._getTrafficField(response, 4, 'transfer', "")
+    def _parseRailway4(self, response, _specs=None): return self._getTrafficField(response, 4, 'railway', "")
+    def _parseStation4(self, response, _specs=None): return self._getTrafficField(response, 4, 'station', "")
+    def _parseRailwayWalkMinute4Str(self, response, _specs=None): return self._getTrafficField(response, 4, 'railwayWalkMinute4Str', "")
+    def _parseRailwayWalkMinute4(self, response, _specs=None): return self._getTrafficField(response, 4, 'railwayWalkMinute', 0)
+    def _parseBusStation4(self, response, _specs=None): return self._getTrafficField(response, 4, 'busStation', "")
+    def _parseBusWalkMinute4Str(self, response, _specs=None): return self._getTrafficField(response, 4, 'busWalkMinuteStr', "")
+    def _parseBusWalkMinute4(self, response, _specs=None): return self._getTrafficField(response, 4, 'busWalkMinute', 0)
+    def _parseBusUse4(self, response, _specs=None): return self._getTrafficField(response, 4, 'busUse', 0)
 
-    def _parseTransfer5(self, response, specs=None): return self._getTrafficField(response, 5, 'transfer', "")
-    def _parseRailway5(self, response, specs=None): return self._getTrafficField(response, 5, 'railway', "")
-    def _parseStation5(self, response, specs=None): return self._getTrafficField(response, 5, 'station', "")
-    def _parseRailwayWalkMinute5Str(self, response, specs=None): return self._getTrafficField(response, 5, 'railwayWalkMinute5Str', "")
-    def _parseRailwayWalkMinute5(self, response, specs=None): return self._getTrafficField(response, 5, 'railwayWalkMinute', 0)
-    def _parseBusStation5(self, response, specs=None): return self._getTrafficField(response, 5, 'busStation', "")
-    def _parseBusWalkMinute5Str(self, response, specs=None): return self._getTrafficField(response, 5, 'busWalkMinuteStr', "")
-    def _parseBusWalkMinute5(self, response, specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
-    def _parseBusUse5(self, response, specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
+    def _parseTransfer5(self, response, _specs=None): return self._getTrafficField(response, 5, 'transfer', "")
+    def _parseRailway5(self, response, _specs=None): return self._getTrafficField(response, 5, 'railway', "")
+    def _parseStation5(self, response, _specs=None): return self._getTrafficField(response, 5, 'station', "")
+    def _parseRailwayWalkMinute5Str(self, response, _specs=None): return self._getTrafficField(response, 5, 'railwayWalkMinute5Str', "")
+    def _parseRailwayWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'railwayWalkMinute', 0)
+    def _parseBusStation5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busStation', "")
+    def _parseBusWalkMinute5Str(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinuteStr', "")
+    def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
+    def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         links_selector = self.selectors.get('property_links', "a[href*='/pro/bukken_local_id/']")
@@ -307,9 +310,9 @@ class NomuraParser(InvestmentParser):
 
         for link in elements:
             href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith("javascript:") and "/library/" not in href:
+            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX) and "/library/" not in href:
                 href = href.split("?")[0]
-                if href.startswith("/"): href = "https://www.nomu.com" + href
+                if href.startswith("/"): href = NOMU_BASE_URL + href
                 yield href
 
     async def parseNextPage(self, response: BeautifulSoup):
@@ -332,10 +335,10 @@ class NomuraParser(InvestmentParser):
             
         for link in elements:
             href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith("javascript:"):
+            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX):
                 # Area/Region pages usually don't have query params but safe to strip
                 href = href.split("?")[0]
-                if href.startswith("/"): href = "https://www.nomu.com" + href
+                if href.startswith("/"): href = NOMU_BASE_URL + href
                 yield href
 
     async def parseRegionPage(self, response: BeautifulSoup):
@@ -348,55 +351,55 @@ class NomuraParser(InvestmentParser):
 
         for link in elements:
             href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith("javascript:"):
+            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX):
                  # Region pages usually don't have query params but safe to strip
                 href = href.split("?")[0]
-                if href.startswith("/"): href = "https://www.nomu.com" + href
+                if href.startswith("/"): href = NOMU_BASE_URL + href
                 yield href
 
 
     def _parseMadori(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("間取り", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("間取り", "")
 
     def _parseSenyuMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("専有面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("専有面積", "")
 
-    def _parseSenyuMenseki(self, response, specs=None):
+    def _parseSenyuMenseki(self, response, _specs=None):
         value = self._parseSenyuMensekiStr(response)
         return converter.parse_menseki(value) or Decimal(0)
 
     def _parseBalconyMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("バルコニー面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("バルコニー面積", "")
 
-    def _parseBalconyMenseki(self, response, specs=None):
+    def _parseBalconyMenseki(self, response, _specs=None):
         value = self._parseBalconyMensekiStr(response)
         return converter.parse_menseki(value) if value else None
 
     def _parseSaikou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("向き", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("向き", "")
 
     def _parseOtherArea(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("その他面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("その他面積", "")
 
     def _parseKouzou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("構造", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("構造", "")
 
     def _parseKaisu(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("所在階", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("所在階", "")
 
     def _parseKaisuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("階数", specs.get("階建", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("階数", target_specs.get("階建", ""))
         if val: return val
         # Fallback: check kouzou
-        kouzou = specs.get("構造", "")
+        kouzou = target_specs.get("構造", "")
         if kouzou:
              match = re.search(r'(\d+階建)', kouzou)
              if match:
@@ -404,80 +407,81 @@ class NomuraParser(InvestmentParser):
         return ""
 
     def _parseChikunengetsuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("築年月", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("築年月", "")
 
-    def _parseChikunengetsu(self, response, specs=None):
+    def _parseChikunengetsu(self, response, _specs=None):
         value = self._parseChikunengetsuStr(response)
         return converter.parse_chikunengetsu(value)
 
     def _parseSoukosuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("総戸数", specs.get("住戸数", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("総戸数", target_specs.get("住戸数", ""))
 
-    def _parseSoukosu(self, response, specs=None):
+    def _parseSouKosu(self, response, _specs=None):
         value = self._parseSoukosuStr(response)
         return converter.parse_numeric(value)
 
+
     def _parseTochikenri(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地権利", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地権利", "")
 
     def _parseYoutoChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("用途地域", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("用途地域", "")
 
     def _parseKanriKaisya(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("管理会社", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("管理会社", "")
 
     def _parseKanriKeitai(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("管理形態", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("管理形態", "")
 
     def _parseManager(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("管理員", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("管理員", "")
 
     def _parseKanrihiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("管理費", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("管理費", "")
 
     def _parseSyuzenTsumitateStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("修繕積立金", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("修繕積立金", "")
 
     def _parseOtherFees(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("その他費用", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("その他費用", "")
 
     def _parseTyusyajo(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("駐車場", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("駐車場", "")
     
     def _parseCurrentStatus(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("現況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("現況", "")
 
     def _parseHikiwatashi(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("引渡", specs.get("引渡時期", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("引渡", target_specs.get("引渡時期", ""))
 
     def _parseTorihiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("取引態様", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("取引態様", "")
 
     def _parseBiko(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("備考", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("備考", "")
 
     def _parseUpdateDate(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("更新日", specs.get("情報更新日", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("更新日", target_specs.get("情報更新日", ""))
 
     def _parseNextUpdateDate(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("次回更新予定日", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("次回更新予定日", "")
 
     @staticmethod
     def _apply_setsudou_road_fields(item) -> None:
@@ -489,7 +493,7 @@ class NomuraParser(InvestmentParser):
             return
         NomuraParser._apply_maguchi_from_setsudou(item, setsudou)
         width_match = re.search(
-            r"(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?", setsudou
+            r"(?:幅員|幅|道路)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if width_match:
             item.roadWidthStr = width_match.group(0)
@@ -507,16 +511,24 @@ class NomuraParser(InvestmentParser):
     @staticmethod
     def _apply_maguchi_from_setsudou(item, setsudou: str) -> None:
         mag_match = re.search(
-            r"(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?", setsudou
+            r"(?:間口|接面|接す)[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if mag_match:
             item.maguchiStr = mag_match.group(0)
             item.maguchi = Decimal(mag_match.group(1))
             return
-        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口)", setsudou)
-        if m:
-            item.maguchiStr = m.group(0)
-            item.maguchi = Decimal(m.group(1))
+        for kw in ("間口", "接面", "接す"):
+            if kw in setsudou:
+                prefix_part = setsudou.split(kw)[0].strip()
+                if prefix_part.endswith(("m", "ｍ", "米")):
+                    num_part = prefix_part.rstrip("mｍ米").strip().split()[-1]
+                    try:
+                        val = Decimal(num_part)
+                        item.maguchiStr = f"{val}m{kw}"
+                        item.maguchi = val
+                        return
+                    except Exception:
+                        pass
 
     @staticmethod
     def _apply_okuyuki(item) -> None:
@@ -529,8 +541,8 @@ class NomuraParser(InvestmentParser):
 class NomuraMansionParser(NomuraParser, MansionParserBase):
 
     def _parseSenyuMenseki(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = self._senyu_menseki_raw_from_specs(specs)
+        target_specs = specs or self._get_specs(response)
+        val = self._senyu_menseki_raw_from_specs(target_specs)
         parsed = self._decimal_from_menseki_text(val) if val else None
         if parsed is not None:
             return parsed
@@ -540,7 +552,7 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
         parsed = self._senyu_menseki_from_labeled_elements(response)
         if parsed is not None:
             return parsed
-        return super()._parseSenyuMenseki(response, specs)
+        return super()._parseSenyuMenseki(response, target_specs)
 
     @staticmethod
     def _senyu_menseki_raw_from_specs(specs: dict):
@@ -587,37 +599,37 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
         return None
 
     def _parseMadori(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("間取り", "") or target_specs.get("間取", "") or super()._parseMadori(response, target_specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("構造", "") or super()._parseKouzou(response, target_specs)
 
     def _parseFloor(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("階数", "") or target_specs.get("所在階", "") or super()._parseFloor(response, target_specs)
 
     def _parseSouKosu(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("総戸数", "")
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("総戸数", "")
         if val:
             m = re.search(r'(\d+)', val)
             return int(m.group(1)) if m else None
-        return super()._parseSouKosu(response, specs)
+        return super()._parseSouKosu(response, target_specs)
 
     def _parseManagementFee(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("管理費", "") or specs.get("管理費等", "")
-        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("管理費", "") or target_specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, target_specs)
 
     def _parseReserveFund(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("修繕積立金", "")
-        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, target_specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -684,7 +696,8 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
         item.chikunengetsuStr = self._parseChikunengetsuStr(response)
         item.chikunengetsu = self._parseChikunengetsu(response)
         item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSoukosu(response)
+        item.soukosu = self._parseSouKosu(response)
+
         item.tochikenri = self._parseTochikenri(response)
         item.youtoChiiki = self._parseYoutoChiiki(response)
         item.kanriKaisya = self._parseKanriKaisya(response)
@@ -717,23 +730,23 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
 class NomuraKodateParser(NomuraParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("間取り", "") or target_specs.get("間取", "") or super()._parseMadori(response, target_specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("構造", "") or super()._parseKouzou(response, target_specs)
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("用途地域", "") or super()._parseYoutoChiiki(response, target_specs)
 
     property_type = 'kodate'
     def createEntity(self): return NomuraKodate()
@@ -787,93 +800,62 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
         
         # 統一土地評価フィールドのパース ＆ 代入
         item.setsudou = self._parseSetsudou(response)
-        import re
-        if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if mag_match:
-                item.maguchiStr = mag_match.group(0)
-                item.maguchi = Decimal(mag_match.group(1))
-            else:
-                m = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)(?:接面|接す|間口)', item.setsudou)
-                if m:
-                    item.maguchiStr = m.group(0)
-                    item.maguchi = Decimal(m.group(1))
-                
-            width_match = re.search(r'(?:幅員|幅|道路)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?', item.setsudou)
-            if width_match:
-                item.roadWidthStr = width_match.group(0)
-                item.roadWidth = Decimal(width_match.group(1))
-                
-            direction_match = re.search(r'(北東|北西|南東|南西|北|南|東|西)', item.setsudou)
-            item.roadDirection = direction_match.group(1) if direction_match else ""
-            
-            type_match = re.search(r'(公道|私道)', item.setsudou)
-            item.roadType = type_match.group(1) if type_match else ""
-            
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', item.setsudou)
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        if item.tochiMenseki and getattr(item, 'maguchi', None) and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-            
+        NomuraParser._apply_setsudou_road_fields(item)
         return item
 
     def _parseTochiMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地面積", "")
 
-    def _parseTochiMenseki(self, response, specs=None):
+    def _parseTochiMenseki(self, response, _specs=None):
         value = self._parseTochiMensekiStr(response)
         return converter.parse_menseki(value) or Decimal(0)
 
     def _parseTatemonoMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建物面積", specs.get("延床面積", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建物面積", target_specs.get("延床面積", ""))
 
-    def _parseTatemonoMenseki(self, response, specs=None):
+    def _parseTatemonoMenseki(self, response, _specs=None):
         value = self._parseTatemonoMensekiStr(response)
         return converter.parse_menseki(value) or Decimal(0)
 
     def _parseChimoku(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("地目", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("地目", "")
 
     def _parsePrivateRoadBurden(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("私道負担", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("私道負担", "")
 
     def _parseSetback(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("セットバック", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("セットバック", "")
 
     def _parseCityPlanning(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("都市計画", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("都市計画", "")
 
     def _parseKenpeiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "")
 
-    def _parseKenpei(self, response, specs=None):
+    def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
         return converter.parse_numeric(value)
 
     def _parseYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "")
 
-    def _parseYouseki(self, response, specs=None):
+    def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)
         return converter.parse_numeric(value)
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("接道状況", "")
     def _parseFacilities(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("設備", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("設備", "")
 
 class NomuraTochiParser(NomuraParser, TochiParserBase):
     def _parseMaguchi(self, response, specs=None):
@@ -881,12 +863,12 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
 
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("用途地域", "") or super()._parseYoutoChiiki(response, target_specs)
 
     property_type = 'tochi'
     def createEntity(self): return NomuraTochi()
@@ -936,40 +918,40 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
         return item
 
     def _parseTochiMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地面積", "")
 
-    def _parseTochiMenseki(self, response, specs=None):
+    def _parseTochiMenseki(self, response, _specs=None):
         value = self._parseTochiMensekiStr(response)
         return converter.parse_menseki(value)
 
     def _parseChimoku(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("地目", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("地目", "")
 
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("接道状況", "")
 
     def _parseKenpeiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "")
 
-    def _parseKenpei(self, response, specs=None):
+    def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
         return converter.parse_numeric(value)
 
     def _parseYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "")
 
-    def _parseYouseki(self, response, specs=None):
+    def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)
         return converter.parse_numeric(value)
 
     def _parseCityPlanning(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("都市計画", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("都市計画", "")
 
 class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
@@ -1051,24 +1033,24 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
             )
 
     def _parseHikiwatashiInvest(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("引渡", specs.get("引渡時期", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("引渡", target_specs.get("引渡時期", ""))
 
     def _parseTorihikiInvest(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("取引態様", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("取引態様", "")
     
     def _parseGrossYield(self, response, specs=None):
-        specs = self._get_specs(response)
+        target_specs = specs if specs is not None else self._get_specs(response)
         yield_val = (
-            specs.get("想定利回り")
-            or specs.get("表面利回り")
-            or specs.get("利回り")
-            or specs.get("現行利回り")
+            target_specs.get("想定利回り")
+            or target_specs.get("表面利回り")
+            or target_specs.get("利回り")
+            or target_specs.get("現行利回り")
             or ""
         )
         if not yield_val:
-            for k, v in specs.items():
+            for k, v in target_specs.items():
                 if "利回" in str(k) and v:
                     yield_val = v
                     break
@@ -1084,86 +1066,87 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
             return Decimal(0)
 
     def _parseAnnualRent(self, response, specs=None):
-        specs = self._get_specs(response)
+        target_specs = specs if specs is not None else self._get_specs(response)
         rent_val = (
-            specs.get("想定年間収入")
-            or specs.get("想定年商")
-            or specs.get("満室時想定年収")
-            or specs.get("満室時年収")
-            or specs.get("想定年収")
+            target_specs.get("想定年間収入")
+            or target_specs.get("想定年商")
+            or target_specs.get("満室時想定年収")
+            or target_specs.get("満室時年収")
+            or target_specs.get("想定年収")
             or ""
         )
         if not rent_val:
-            for k, v in specs.items():
+            for k, v in target_specs.items():
                 if any(x in str(k) for x in ("年間収入", "想定年収", "想定年商")) and v:
                     rent_val = v
                     break
         return converter.parse_price(str(rent_val)) if rent_val else 0
 
-    def _parseMonthlyRent(self, response, specs=None):
-        annualRent = self._parseAnnualRent(response)
-        return (annualRent // 12) if annualRent else 0
+    def _parseMonthlyRent(self, response, _specs=None):
+        annual_rent = self._parseAnnualRent(response)
+        return (annual_rent // 12) if annual_rent else 0
 
     def _parseKouzouInvest(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("構造", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("構造", "")
     
     def _parseStories(self, response, specs=None):
-        specs = self._get_specs(response)
-        stories_val = specs.get("階数", specs.get("階建", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        stories_val = target_specs.get("階数", target_specs.get("階建", ""))
         m = re.search(r'(\d+)', stories_val) if stories_val else None
         return int(m.group(1)) if m else 0
         
     def _parseTochiMensekiInvest(self, response, specs=None):
-        specs = self._get_specs(response)
-        land_area = specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        land_area = target_specs.get("土地面積", "")
         return Decimal(str(converter.parse_menseki(land_area))) if land_area else Decimal(0)
 
     def _parseTatemonoMensekiInvest(self, response, specs=None):
-        specs = self._get_specs(response)
-        bldg_area = specs.get("建物面積", specs.get("延床面積", specs.get("専有面積", "")))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        bldg_area = target_specs.get("建物面積", target_specs.get("延床面積", target_specs.get("専有面積", "")))
         return Decimal(str(converter.parse_menseki(bldg_area))) if bldg_area else Decimal(0)
 
     # Missing helpers/Refactored for Investment Parsing
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("接道状況", "")
 
     def _parseChimoku(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("地目", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("地目", "")
 
     def _parseYoutoChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("用途地域", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("用途地域", "")
 
     def _parseTochikenri(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地権利", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地権利", "")
 
     def _parseKenpeiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "")
 
-    def _parseKenpei(self, response, specs=None):
+    def _parseKenpei(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
         return converter.parse_numeric(value)
 
     def _parseYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "")
 
-    def _parseYouseki(self, response, specs=None):
+    def _parseYouseki(self, response, _specs=None):
         value = self._parseYousekiStr(response)
         return converter.parse_numeric(value)
 
     def _parseSoukosuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("総戸数", specs.get("住戸数", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("総戸数", target_specs.get("住戸数", ""))
 
-    def _parseSoukosu(self, response, specs=None):
+    def _parseSouKosu(self, response, _specs=None):
         value = self._parseSoukosuStr(response)
         return converter.parse_numeric(value)
+
 
 class NomuraInvestmentKodateParser(NomuraInvestmentParser, KodateParserBase):
 
@@ -1174,15 +1157,15 @@ class NomuraInvestmentKodateParser(NomuraInvestmentParser, KodateParserBase):
         return super()._parseTatemonoMenseki(response, specs)
 
     def _parseMadori(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("間取り", "") or target_specs.get("間取", "") or super()._parseMadori(response, target_specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("構造", "") or super()._parseKouzou(response, target_specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -1191,12 +1174,12 @@ class NomuraInvestmentKodateParser(NomuraInvestmentParser, KodateParserBase):
         return super()._parseYouseki(response, specs)
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("用途地域", "") or super()._parseYoutoChiiki(response, target_specs)
 
     property_type = 'invest_kodate'
     def createEntity(self): return NomuraInvestmentKodate()
@@ -1239,7 +1222,7 @@ class NomuraInvestmentApartmentParser(NomuraInvestmentParser, InvestmentParserBa
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Apartment"
         item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSoukosu(response)
+        item.soukosu = self._parseSouKosu(response)
         item.setsudou = self._parseSetsudou(response)
         item.chimoku = self._parseChimoku(response)
         item.youtoChiiki = self._parseYoutoChiiki(response)

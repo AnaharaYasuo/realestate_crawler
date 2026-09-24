@@ -15,20 +15,24 @@ HEADERS = {
     'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.8',
 }
 
+REHOUSE_BASE_URL = "https://www.rehouse.co.jp"
+LIVABLE_BASE_URL = "https://www.livable.co.jp"
+NOMU_BASE_URL = "https://www.nomu.com"
+
 TARGET_SOURCES = [
     # 三井のリハウス (各カテゴリ 5〜6件)
-    {"site": "mitsui", "type": "mansion", "list": "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/", "pattern": r"/buy/mansion/bkdetail/[A-Za-z0-9]+", "base": "https://www.rehouse.co.jp", "limit": 6},
-    {"site": "mitsui", "type": "kodate", "list": "https://www.rehouse.co.jp/buy/kodate/prefecture/13/city/13101/", "pattern": r"/buy/kodate/bkdetail/[A-Za-z0-9]+", "base": "https://www.rehouse.co.jp", "limit": 6},
-    {"site": "mitsui", "type": "tochi", "list": "https://www.rehouse.co.jp/buy/tochi/prefecture/13/city/13101/", "pattern": r"/buy/tochi/bkdetail/[A-Za-z0-9]+", "base": "https://www.rehouse.co.jp", "limit": 6},
-    {"site": "mitsui", "type": "mansion", "list": "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13103/", "pattern": r"/buy/mansion/bkdetail/[A-Za-z0-9]+", "base": "https://www.rehouse.co.jp", "limit": 6}, # 港区
+    {"site": "mitsui", "type": "mansion", "list": f"{REHOUSE_BASE_URL}/buy/mansion/prefecture/13/city/13101/", "pattern": r"/buy/mansion/bkdetail/[A-Za-z0-9]+", "base": REHOUSE_BASE_URL, "limit": 6},
+    {"site": "mitsui", "type": "kodate", "list": f"{REHOUSE_BASE_URL}/buy/kodate/prefecture/13/city/13101/", "pattern": r"/buy/kodate/bkdetail/[A-Za-z0-9]+", "base": REHOUSE_BASE_URL, "limit": 6},
+    {"site": "mitsui", "type": "tochi", "list": f"{REHOUSE_BASE_URL}/buy/tochi/prefecture/13/city/13101/", "pattern": r"/buy/tochi/bkdetail/[A-Za-z0-9]+", "base": REHOUSE_BASE_URL, "limit": 6},
+    {"site": "mitsui", "type": "mansion", "list": f"{REHOUSE_BASE_URL}/buy/mansion/prefecture/13/city/13103/", "pattern": r"/buy/mansion/bkdetail/[A-Za-z0-9]+", "base": REHOUSE_BASE_URL, "limit": 6},
     # 東急リバブル
-    {"site": "tokyu", "type": "mansion", "list": "https://www.livable.co.jp/kounyu/chuko-mansion/tokyo/a13101/", "pattern": r"/mansion/C[A-Za-z0-9]+", "base": "https://www.livable.co.jp", "limit": 6},
-    {"site": "tokyu", "type": "kodate", "list": "https://www.livable.co.jp/kounyu/kodate/tokyo/a13101/", "pattern": r"/kodate/C[A-Za-z0-9]+", "base": "https://www.livable.co.jp", "limit": 4},
-    {"site": "tokyu", "type": "tochi", "list": "https://www.livable.co.jp/kounyu/tochi/tokyo/a13103/", "pattern": r"/tochi/C[A-Za-z0-9]+", "base": "https://www.livable.co.jp", "limit": 4},
+    {"site": "tokyu", "type": "mansion", "list": f"{LIVABLE_BASE_URL}/kounyu/chuko-mansion/tokyo/a13101/", "pattern": r"/mansion/C[A-Za-z0-9]+", "base": LIVABLE_BASE_URL, "limit": 6},
+    {"site": "tokyu", "type": "kodate", "list": f"{LIVABLE_BASE_URL}/kounyu/kodate/tokyo/a13101/", "pattern": r"/kodate/C[A-Za-z0-9]+", "base": LIVABLE_BASE_URL, "limit": 4},
+    {"site": "tokyu", "type": "tochi", "list": f"{LIVABLE_BASE_URL}/kounyu/tochi/tokyo/a13103/", "pattern": r"/tochi/C[A-Za-z0-9]+", "base": LIVABLE_BASE_URL, "limit": 4},
     # 野村の仲介＋
-    {"site": "nomu", "type": "mansion", "list": "https://www.nomu.com/mansion/tokyo/chiyoda-ku/", "pattern": r"/mansion/id/[A-Za-z0-9]+", "base": "https://www.nomu.com", "limit": 6},
-    {"site": "nomu", "type": "kodate", "list": "https://www.nomu.com/house/tokyo/chiyoda-ku/", "pattern": r"/house/id/[A-Za-z0-9]+", "base": "https://www.nomu.com", "limit": 4},
-    {"site": "nomu", "type": "invest", "list": "https://www.nomu.com/pro/search/tokyo/", "pattern": r"/pro/id/[A-Za-z0-9]+", "base": "https://www.nomu.com", "limit": 5},
+    {"site": "nomu", "type": "mansion", "list": f"{NOMU_BASE_URL}/mansion/tokyo/chiyoda-ku/", "pattern": r"/mansion/id/[A-Za-z0-9]+", "base": NOMU_BASE_URL, "limit": 6},
+    {"site": "nomu", "type": "kodate", "list": f"{NOMU_BASE_URL}/house/tokyo/chiyoda-ku/", "pattern": r"/house/id/[A-Za-z0-9]+", "base": NOMU_BASE_URL, "limit": 4},
+    {"site": "nomu", "type": "invest", "list": f"{NOMU_BASE_URL}/pro/search/tokyo/", "pattern": r"/pro/id/[A-Za-z0-9]+", "base": NOMU_BASE_URL, "limit": 5},
 ]
 
 async def fetch(session, url):
@@ -112,7 +116,12 @@ async def collect():
             raw_urls = re.findall(src['pattern'], l_html)
             urls = []
             for u in raw_urls:
-                full = u if u.startswith('http') else (src['base'] + u if u.startswith('/') else src['base'] + '/' + u)
+                if u.startswith('http'):
+                    full = u
+                elif u.startswith('/'):
+                    full = src['base'] + u
+                else:
+                    full = src['base'] + '/' + u
                 if full not in urls:
                     urls.append(full)
             
@@ -125,11 +134,12 @@ async def collect():
                     all_properties.append(prop_info)
                 await asyncio.sleep(0.5)
 
-        out_path = "src/crawler/package/ml/logs/corpus_40_live_properties.json"
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(all_properties, f, ensure_ascii=False, indent=2)
-        print(f"Successfully collected {len(all_properties)} live properties! Saved to {out_path}")
+        return all_properties
 
 if __name__ == '__main__':
-    asyncio.run(collect())
+    collected_props = asyncio.run(collect())
+    out_path = "src/crawler/package/ml/logs/corpus_40_live_properties.json"
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(collected_props, f, ensure_ascii=False, indent=2)
+    print(f"Successfully collected {len(collected_props)} live properties! Saved to {out_path}")

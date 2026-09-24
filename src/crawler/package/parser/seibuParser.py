@@ -56,12 +56,12 @@ class SeibuParser(ParserBase):
         return specs.get("所在地", "")
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + "/service/property/" + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + "/service/property/" + link_url
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         return await super().getResponseBs(session, url, charset)
@@ -118,7 +118,7 @@ class SeibuParser(ParserBase):
             return
         text = response.get_text(" ", strip=True)
         if "間取り" not in specs:
-            m = re.search(r"間取り\s*([0-9]+[A-Z]*[A-Z0-9]*)", text)
+            m = re.search(r"間取り\s*(\d+[A-Z]*[A-Z\d]*)", text)
             if m:
                 specs["間取り"] = m.group(1)
         if "建物構造" not in specs and "構造" not in specs:
@@ -126,7 +126,7 @@ class SeibuParser(ParserBase):
             if m:
                 specs["建物構造"] = m.group(1)
         if "土地面積" not in specs:
-            m = re.search(r"土地面積\s*([0-9.]+)\s*㎡", text)
+            m = re.search(r"土地面積\s*([\d.]+)\s*㎡", text)
             if m:
                 specs["土地面積"] = f"{m.group(1)}㎡"
 

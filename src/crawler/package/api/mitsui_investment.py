@@ -52,9 +52,7 @@ class ParseMitsuiInvestDetailFuncAsyncBase(ParseDetailPageAsyncBase):
         return 60
     
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
 
 class ParseMitsuiInvestStartAsyncBase(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):

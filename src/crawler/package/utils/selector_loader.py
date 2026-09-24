@@ -125,7 +125,7 @@ class SelectorLoader:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            logger.error(f"Failed to parse YAML file {config_path}: {e}")
+            logger.exception(f"Failed to parse YAML file {config_path}: {e}")
             raise
         
         if property_type not in config:

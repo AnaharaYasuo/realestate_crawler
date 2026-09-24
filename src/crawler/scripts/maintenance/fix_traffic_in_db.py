@@ -9,16 +9,22 @@ from django.apps import apps
 from package.parser.baseParser import ParserBase
 
 class DummyParser(ParserBase):
-    def getCharset(self): pass
-    def createEntity(self): pass
-    def _parsePropertyDetailPage(self, item, response): pass
+    def getCharset(self):
+        # Stub for traffic parsing utility
+        return "utf-8"
+    def createEntity(self):
+        # Stub for traffic parsing utility
+        return None
+    def _parsePropertyDetailPage(self, item, response):
+        # Stub for traffic parsing utility
+        return item
 
 parser = DummyParser()
 models = apps.get_models()
 
 for model in models:
     name = model.__name__
-    if not (name.endswith("Mansion") or name.endswith("Kodate") or name.endswith("Tochi") or "Investment" in name):
+    if not (name.endswith(("Mansion", "Kodate", "Tochi")) or "Investment" in name):
         continue
     if "PropertyEvaluation" in name:
         continue

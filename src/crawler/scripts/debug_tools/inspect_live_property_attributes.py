@@ -15,11 +15,13 @@ HEADERS = {
     'Accept-Language': 'ja-JP,ja;q=0.9,en-US;q=0.8,en;q=0.7',
 }
 
+REHOUSE_BASE_URL = "https://www.rehouse.co.jp"
+
 TARGET_URLS = [
     # 三井のリハウス (マンション、戸建て、土地)
-    ("mitsui_mansion_list", "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/", r"/buy/mansion/bkdetail/[A-Za-z0-9]+", "https://www.rehouse.co.jp"),
-    ("mitsui_kodate_list", "https://www.rehouse.co.jp/buy/kodate/prefecture/13/city/13101/", r"/buy/kodate/bkdetail/[A-Za-z0-9]+", "https://www.rehouse.co.jp"),
-    ("mitsui_tochi_list", "https://www.rehouse.co.jp/buy/tochi/prefecture/13/city/13101/", r"/buy/tochi/bkdetail/[A-Za-z0-9]+", "https://www.rehouse.co.jp"),
+    ("mitsui_mansion_list", f"{REHOUSE_BASE_URL}/buy/mansion/prefecture/13/city/13101/", r"/buy/mansion/bkdetail/[A-Za-z0-9]+", REHOUSE_BASE_URL),
+    ("mitsui_kodate_list", f"{REHOUSE_BASE_URL}/buy/kodate/prefecture/13/city/13101/", r"/buy/kodate/bkdetail/[A-Za-z0-9]+", REHOUSE_BASE_URL),
+    ("mitsui_tochi_list", f"{REHOUSE_BASE_URL}/buy/tochi/prefecture/13/city/13101/", r"/buy/tochi/bkdetail/[A-Za-z0-9]+", REHOUSE_BASE_URL),
     # 東急リバブル (マンション、戸建て)
     ("tokyu_mansion_list", "https://www.livable.co.jp/kounyu/chuko-mansion/tokyo/a13101/", r"/mansion/C[A-Za-z0-9]+", "https://www.livable.co.jp"),
     ("tokyu_kodate_list", "https://www.livable.co.jp/kounyu/kodate/tokyo/a13101/", r"/kodate/C[A-Za-z0-9]+", "https://www.livable.co.jp"),
@@ -59,8 +61,6 @@ def extract_all_page_attributes(html_text, site_key, url):
                     table_data[ths[0]] = " | ".join(tds)
                 else:
                     table_data[" / ".join(ths)] = " / ".join(tds)
-            elif tds and not ths:
-                pass
     
     # 2. dl / dt / dd ペアの抽出
     dl_data = {}
@@ -126,7 +126,12 @@ async def main():
             
             unique_details = []
             for m in matches:
-                u = m if m.startswith('http') else (base_url + m if m.startswith('/') else base_url + '/' + m)
+                if m.startswith('http'):
+                    u = m
+                elif m.startswith('/'):
+                    u = base_url + m
+                else:
+                    u = base_url + '/' + m
                 if u not in unique_details:
                     unique_details.append(u)
             
@@ -140,11 +145,12 @@ async def main():
                     results.append(attr_data)
                 await asyncio.sleep(1) #礼儀正しい間隔
                 
-        output_path = "src/crawler/package/ml/logs/live_site_attributes_survey.json"
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        print(f"Survey completed. Saved to {output_path}")
+        return results
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    survey_results = asyncio.run(main())
+    output_path = "src/crawler/package/ml/logs/live_site_attributes_survey.json"
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(survey_results, f, ensure_ascii=False, indent=2)
+    print(f"Survey completed. Saved to {output_path}")

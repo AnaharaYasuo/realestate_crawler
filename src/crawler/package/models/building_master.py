@@ -19,13 +19,13 @@ class BuildingMaster(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, verbose_name="緯度")
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True, verbose_name="経度")
 
-    developer_brand = models.CharField(max_length=150, null=True, blank=True, verbose_name="旧分譲主・ブランド名")
+    developer_brand = models.CharField(max_length=150, blank=True, default="", verbose_name="旧分譲主・ブランド名")
     developer_tier = models.CharField(max_length=30, default="unknown", verbose_name="デベロッパー格付け")
-    contractor_name = models.CharField(max_length=150, null=True, blank=True, verbose_name="施工会社")
+    contractor_name = models.CharField(max_length=150, blank=True, default="", verbose_name="施工会社")
     contractor_tier = models.CharField(max_length=30, default="unknown", verbose_name="ゼネコン格付け")
 
-    structure_type = models.CharField(max_length=50, null=True, blank=True, verbose_name="建物構造")
-    earthquake_resistance = models.CharField(max_length=30, null=True, blank=True, verbose_name="耐震性能")
+    structure_type = models.CharField(max_length=50, blank=True, default="", verbose_name="建物構造")
+    earthquake_resistance = models.CharField(max_length=30, blank=True, default="", verbose_name="耐震性能")
 
     total_units = models.IntegerField(null=True, blank=True, verbose_name="総戸数")
     total_floors = models.IntegerField(null=True, blank=True, verbose_name="地上総階数")
@@ -34,15 +34,15 @@ class BuildingMaster(models.Model):
 
     elevator_available = models.BooleanField(null=True, blank=True, verbose_name="エレベーター有無")
     elevator_count = models.IntegerField(null=True, blank=True, verbose_name="エレベーター基数")
-    hallway_type = models.CharField(max_length=20, null=True, blank=True, verbose_name="共用廊下(内廊下/外廊下)")
+    hallway_type = models.CharField(max_length=20, blank=True, default="", verbose_name="共用廊下(内廊下/外廊下)")
     garbage_disposal_24h = models.BooleanField(null=True, blank=True, verbose_name="24時間ゴミ出し可否")
 
-    management_company = models.CharField(max_length=150, null=True, blank=True, verbose_name="管理会社名")
-    management_type = models.CharField(max_length=50, null=True, blank=True, verbose_name="管理形態")
-    manager_working_style = models.CharField(max_length=50, null=True, blank=True, verbose_name="管理員勤務形態")
+    management_company = models.CharField(max_length=150, blank=True, default="", verbose_name="管理会社名")
+    management_type = models.CharField(max_length=50, blank=True, default="", verbose_name="管理形態")
+    manager_working_style = models.CharField(max_length=50, blank=True, default="", verbose_name="管理員勤務形態")
     repair_reserve_score = models.FloatField(null=True, blank=True, verbose_name="修繕積立金・管理組合健全性スコア")
 
-    shared_facilities_json = models.TextField(null=True, blank=True, verbose_name="共用施設リストJSON")
+    shared_facilities_json = models.TextField(blank=True, default="", verbose_name="共用施設リストJSON")
 
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="作成日時")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新日時")

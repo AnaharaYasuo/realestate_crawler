@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 import re
@@ -38,20 +39,20 @@ class RearieParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            url = linkUrl
-        elif linkUrl.startswith('/'):
-            url = self.BASE_URL + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            url = link_url
+        elif link_url.startswith('/'):
+            url = self.BASE_URL + link_url
         else:
-            url = self.BASE_URL + "/rearie/" + linkUrl
+            url = self.BASE_URL + "/rearie/" + link_url
             
         parsed = urllib.parse.urlparse(url)
         params = urllib.parse.parse_qsl(parsed.query)
@@ -91,6 +92,7 @@ class RearieParser(ParserBase):
         return await super().getResponseBs(session, url, charset)
 
     async def parseNextPageJson(self, json_data: dict) -> str:
+        await asyncio.sleep(0)
         page = json_data.get("page", 1)
         max_page = json_data.get("maxPage", 1)
         if page < max_page:
@@ -253,7 +255,7 @@ class RearieParser(ParserBase):
             item.pageUrl = url
             async with session.get(url, headers=self.REPROS_HEADERS) as resp:
                 if resp.status != 200:
-                    raise Exception(f"Failed to fetch Rearie API {url}: {resp.status}")
+                    raise RuntimeError(f"Failed to fetch Rearie API {url}: {resp.status}")
                 res_json = await resp.json()
                 data = res_json.get("data", res_json)
                 item = self._parsePropertyDetailJson(item, data)

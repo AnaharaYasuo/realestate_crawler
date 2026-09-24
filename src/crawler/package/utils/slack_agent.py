@@ -25,7 +25,7 @@ class SlackAgent:
         if allowed_users:
             self.allowed_users = set(allowed_users)
         elif env_allowed:
-            self.allowed_users = set(u.strip() for u in env_allowed.split(",") if u.strip())
+            self.allowed_users = {u.strip() for u in env_allowed.split(",") if u.strip()}
         else:
             self.allowed_users = set()
 
@@ -127,10 +127,15 @@ class SlackAgent:
             )
 
             output_chunks = []
+            stop_event = asyncio.Event()
 
             async def update_slack_periodically():
-                while process.returncode is None:
-                    await asyncio.sleep(3)
+                while not stop_event.is_set():
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=3)
+                        break
+                    except TimeoutError:
+                        pass
                     curr_text = "".join(output_chunks).strip()
                     if curr_text:
                         if len(curr_text) > 3500:
@@ -142,7 +147,7 @@ class SlackAgent:
                                 text=f"⏳ **Antigravity Agent 実行中 (リアルタイム進捗)...**\n\n```\n{curr_text}\n```"
                             )
                         except Exception as ex:
-                            logger.error(f"Failed chat.update: {ex}")
+                            logger.exception(f"Failed chat.update: {ex}")
 
             update_task = asyncio.create_task(update_slack_periodically())
 
@@ -153,6 +158,7 @@ class SlackAgent:
                 output_chunks.append(line.decode("utf-8", errors="ignore"))
 
             await process.wait()
+            stop_event.set()
             update_task.cancel()
 
             final_text = "".join(output_chunks).strip()
@@ -170,7 +176,7 @@ class SlackAgent:
                 text=f"{status_emoji} **Antigravity Agent タスク完了**\n\n```\n{final_text}\n```"
             )
         except Exception as e:
-            logger.error(f"Error during streaming agy execution: {e}")
+            logger.exception(f"Error during streaming agy execution: {e}")
             try:
                 client.chat_update(
                     channel=channel_id,

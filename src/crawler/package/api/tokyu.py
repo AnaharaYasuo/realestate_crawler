@@ -29,9 +29,7 @@ class ParseTokyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
 
     
 class ParseTokyuMansionListFuncAsync(ParseMiddlePageAsyncBase):
@@ -134,9 +132,7 @@ class ParseTokyuTochiDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 class ParseTokyuTochiListFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -162,7 +158,7 @@ class ParseTokyuTochiListFuncAsync(ParseMiddlePageAsyncBase):
         return 360
 
     def _getApiKey(self):
-        # TODO: Define specific API keys for Tochi in api.py if needed, effectively using same pattern
+        # Specific API keys for Tochi in api.py, effectively using same pattern
         if os.getenv('IS_CLOUD', ''):
             return API_KEY_TOKYU_TOCHI_DETAIL_GCP
         return API_KEY_TOKYU_TOCHI_DETAIL
@@ -241,9 +237,7 @@ class ParseTokyuKodateDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 class ParseTokyuKodateListFuncAsync(ParseMiddlePageAsyncBase):
 

@@ -279,7 +279,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 cnt, skp = future.result()
                 evaluated_count += cnt
                 skipped_count += skp
-            except Exception:  # noqa: BLE001
+            except Exception:
                 failed_models.append(m.__name__)
                 logger.exception("Failed evaluating %s", m.__name__)
 

@@ -15,6 +15,10 @@ from package.utils.property_type_detector import PropertyTypeDetector
 import re
 import urllib.parse
 
+LABEL_KENPEI_YOUSEKI = "建ぺい率/容積率"
+LABEL_SHOKAI_KAISU = "所在階/階数"
+
+
 class SumirinParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -76,12 +80,12 @@ class SumirinParser(ParserBase):
         return specs.get("所在地", "")
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + '/' + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + '/' + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーションの「次へ」リンクを探す
@@ -162,7 +166,7 @@ class SumirinParser(ParserBase):
         fallback_mappings = {
             "建ぺい率": ["建ペイ率"],
             "容積率": ["容積率"],
-            "建ぺい率/容積率": ["建ぺい・容積率", "建ペイ・容積率", "建ペイ率/容積率", "建ぺい率／容積率"],
+            LABEL_KENPEI_YOUSEKI: ["建ぺい・容積率", "建ペイ・容積率", "建ペイ率/容積率", "建ぺい率／容積率"],
             "想定年間収入": [
                 "満室想定年収", "想定年収", "想定賃料(年間)", "想定年間賃料",
                 "年間想定賃料", "年間想定収入", "想定収入",
@@ -232,8 +236,8 @@ class SumirinParser(ParserBase):
         return item
 
     def _parse_kenpei_youseki(self, item, specs):
-        kenpei_str = specs.get("建ぺい率", "") or specs.get("建ぺい率/容積率", "")
-        youseki_str = specs.get("容積率", "") or specs.get("建ぺい率/容積率", "")
+        kenpei_str = specs.get("建ぺい率", "") or specs.get(LABEL_KENPEI_YOUSEKI, "")
+        youseki_str = specs.get("容積率", "") or specs.get(LABEL_KENPEI_YOUSEKI, "")
         
         if "／" in kenpei_str:
             parts = kenpei_str.split("／")
@@ -332,7 +336,7 @@ class SumirinMansionParser(SumirinParser, MansionParserBase):
 
     def _apply_mansion_floor_fields(self, item, specs):
         item.kaisuStr = (
-            specs.get("所在階/階数", "")
+            specs.get(LABEL_SHOKAI_KAISU, "")
             or specs.get("所在階", "")
             or specs.get("階数", "")
             or specs.get("階建", "")
@@ -610,7 +614,7 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
 
         self._apply_invest_soukosu(item, specs)
         item.kaisuStr = (
-            specs.get("所在階/階数", "")
+            specs.get(LABEL_SHOKAI_KAISU, "")
             or specs.get("所在階", "")
             or specs.get("階数", "")
             or specs.get("階建", "")
@@ -709,7 +713,7 @@ class SumirinKodateParser(SumirinParser, KodateParserBase):
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("所在階/階数", "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("階建", "")
+        item.kaisuStr = specs.get(LABEL_SHOKAI_KAISU, "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("階建", "")
 
         self._parse_kenpei_youseki(item, specs)
 

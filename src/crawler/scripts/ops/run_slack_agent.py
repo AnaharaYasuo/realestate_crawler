@@ -34,6 +34,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def log_message(self, format, *args):
+        # Suppress standard HTTP request logging for health checks
         pass
 
 def start_health_server(port: int = 8080):

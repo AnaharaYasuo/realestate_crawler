@@ -66,7 +66,7 @@ def parse_menseki(menseki_str):
     try:
         # 数字とドット以外の文字を除去
         val = menseki_str.replace(',', '').split('㎡')[0].strip()
-        match = re.search(r'([0-9\.]+)', val)
+        match = re.search(r'([\d.]+)', val)
         if match:
             return Decimal(match.group(1))
     except Exception:
@@ -133,7 +133,7 @@ def parse_ratio(text):
         return None
     try:
         val = text.replace('％', '').replace('%', '').strip()
-        match = re.search(r'([0-9\.]+)', val)
+        match = re.search(r'([\d.]+)', val)
         if match:
             return Decimal(match.group(1))
     except Exception:

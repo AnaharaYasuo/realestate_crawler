@@ -6,6 +6,7 @@
 
 import os
 import sys
+import shutil
 import subprocess
 import logging
 
@@ -29,28 +30,28 @@ def main():
     results = {}
     
     # Step 1: 全パーサー実パース＆必須項目アサーション pytest (84 jobs)
-    p_ok, p_out = run_command(
+    p_ok, _ = run_command(
         "pytest src/crawler/tests/unit/test_all_parsers_execution.py -v",
         "All Parsers Full Execution & Mandatory Fields Pytest"
     )
     results["all_parsers_execution"] = p_ok
     
     # Step 2: 抽象メソッド定義検証 pytest (80 items)
-    a_ok, a_out = run_command(
+    a_ok, _ = run_command(
         "pytest src/crawler/tests/unit/test_parser_abstract_methods.py -v",
         "Abstract Methods Compliance Pytest"
     )
     results["abstract_methods"] = a_ok
     
     # Step 3: 全ユニットテスト＋統合E2Eテスト (398 items)
-    u_ok, u_out = run_command(
+    u_ok, _ = run_command(
         "pytest src/crawler/tests/unit/ src/crawler/tests/integration/test_crawler_pipeline_e2e.py",
         "Full Unit & Integration E2E Pipeline Pytest"
     )
     results["full_unit_and_integration"] = u_ok
     
     # Step 4: 全24社・全89ジョブ マトリクス＆処理時間計測検証
-    v_ok, v_out = run_command(
+    v_ok, _ = run_command(
         "python src/crawler/scripts/debug_tools/verify_all_sites_all_types.py",
         "All 24 Companies & 89 Jobs Complete Verification"
     )
@@ -60,15 +61,14 @@ def main():
     snyk_token = os.environ.get("SNYK_TOKEN")
     if snyk_token:
         # Check if snyk CLI or pip-audit is available
-        import shutil
         if shutil.which("snyk"):
-            s_ok, s_out = run_command(
+            s_ok, _ = run_command(
                 "snyk test --file=src/crawler/requirements.txt --skip-unresolved",
                 "Snyk Dependency Vulnerability Scan (Local CLI)"
             )
             results["snyk_scan"] = s_ok
         elif shutil.which("pip-audit"):
-            s_ok, s_out = run_command(
+            s_ok, _ = run_command(
                 "pip-audit -r src/crawler/requirements.txt",
                 "Pip-Audit Dependency Vulnerability Scan"
             )
@@ -83,9 +83,8 @@ def main():
     # Step 6: SonarCloud / コード品質スキャン
     sonar_token = os.environ.get("SONAR_TOKEN")
     if sonar_token:
-        import shutil
         if shutil.which("sonar-scanner"):
-            sn_ok, sn_out = run_command(
+            sn_ok, _ = run_command(
                 "sonar-scanner",
                 "SonarCloud Quality Gate Scan (Local CLI)"
             )

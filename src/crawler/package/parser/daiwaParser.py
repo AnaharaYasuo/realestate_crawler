@@ -31,12 +31,12 @@ class DaiwaParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + '/' + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + '/' + link_url
 
     def _find_conventional_next_page(self, response: BeautifulSoup) -> str:
         for a in response.select(".pagination a, .pager a, .paging a"):
@@ -113,7 +113,8 @@ class DaiwaParser(ParserBase):
     async def parseRootPage(self, response: BeautifulSoup):
 
         detail_links = set()
-        target_type = "house|kodate" if self.property_type == "kodate" else ("land|tochi" if self.property_type == "tochi" else (self.property_type or "mansion"))
+        target_mapping = {"kodate": "house|kodate", "tochi": "land|tochi"}
+        target_type = target_mapping.get(self.property_type, self.property_type or "mansion")
         pattern = re.compile(rf'/buy/(?:{target_type})/[\w\d-]+')
         for a in response.find_all("a", href=pattern):
 
@@ -160,7 +161,7 @@ class DaiwaParser(ParserBase):
 
         return item
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         title_el = response.find("h1") or response.select_one(".boxtitle h2")
         if title_el:
             name = title_el.get_text(" ", strip=True)
@@ -189,18 +190,18 @@ class DaiwaParser(ParserBase):
             return addr.strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):
@@ -211,7 +212,7 @@ class DaiwaParser(ParserBase):
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
         if access_str:
-            parts = [p.strip() for p in re.split(r'[\r\n\t、\s]+', access_str) if p.strip()]
+            parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
             current_line = []
             for part in parts:
                 current_line.append(part)

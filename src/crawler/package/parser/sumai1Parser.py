@@ -9,6 +9,9 @@ from package.utils.property_type_detector import PropertyTypeDetector
 import re
 import datetime
 
+LABEL_KENPEI_YOUSEKI = "建ぺい率／容積率"
+
+
 class Sumai1Parser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -32,10 +35,10 @@ class Sumai1Parser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        return self.BASE_URL + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        return self.BASE_URL + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # 「次へ」「次のページ」などのリンクを探索
@@ -89,8 +92,8 @@ class Sumai1Parser(ParserBase):
         return item
 
     def _parse_kenpei_youseki(self, item, specs):
-        kenpei_str = specs.get("建ぺい率", "") or specs.get("建ぺい率／容積率", "")
-        youseki_str = specs.get("容積率", "") or specs.get("建ぺい率／容積率", "")
+        kenpei_str = specs.get("建ぺい率", "") or specs.get(LABEL_KENPEI_YOUSEKI, "")
+        youseki_str = specs.get("容積率", "") or specs.get(LABEL_KENPEI_YOUSEKI, "")
         
         if "／" in kenpei_str:
             parts = kenpei_str.split("／")
@@ -129,7 +132,7 @@ class Sumai1Parser(ParserBase):
         # キーの表記揺れ標準化
         fallback_mappings = {
             "建ぺい率": ["建ペイ率"],
-            "建ぺい率／容積率": ["建ぺい率/容積率", "建ペイ率/容積率", "建ペイ率／容積率", "建ぺい・容積率"],
+            LABEL_KENPEI_YOUSEKI: ["建ぺい率/容積率", "建ペイ率/容積率", "建ペイ率／容積率", "建ぺい・容積率"],
             "引渡時期": ["引渡", "引渡可能時期", "引渡時期可能時期", "引渡し可能年月"],
             "都市計画": ["都市計画区域"],
             "建築条件": ["建築条件付", "建築条件付き"]
@@ -142,7 +145,7 @@ class Sumai1Parser(ParserBase):
                     specs[alt] = specs[std_key]
         return specs
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         h1 = response.find("h1")
         if h1:
             return h1.get_text().strip()
@@ -151,21 +154,22 @@ class Sumai1Parser(ParserBase):
             return title_elem.get_text().strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        _ = specs
         price_elem = response.select_one(".price-value, .property-price, .price")
         if price_elem:
             return price_elem.get_text().strip()
         specs = self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         addr = specs.get("所在地", "")
         if addr and addr.startswith("自治体情報"):
             addr = addr.replace("自治体情報", "").strip()
@@ -550,7 +554,7 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
             if len(chikunen_val) == 6:
                 try:
                     item.chikunengetsu = datetime.date(int(chikunen_val[:4]), int(chikunen_val[4:]), 1)
-                except:
+                except Exception:
                     pass
         if not item.chikunengetsu:
             item.chikunengetsuStr = specs.get("築年月", "")

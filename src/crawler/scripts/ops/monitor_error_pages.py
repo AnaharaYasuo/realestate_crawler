@@ -12,6 +12,8 @@ _project_root = os.path.dirname(os.path.dirname(os.path.dirname(_current_dir)))
 log_dir = os.path.join(_project_root, "logs")
 os.makedirs(log_dir, exist_ok=True)
 
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 ERROR_DIRS = [
     os.path.join(_project_root, "docs", "error_pages")
 ]
@@ -30,7 +32,7 @@ def parse_meta_file(meta_path):
                 elif line.startswith("Timestamp:"):
                     info["timestamp"] = line.split("Timestamp:", 1)[1].strip()
     except Exception as e:
-        logging.error(f"Failed to parse meta file {meta_path}: {e}")
+        logging.exception(f"Failed to parse meta file {meta_path}: {e}")
     return info
 
 def main():
@@ -39,7 +41,7 @@ def main():
     now = datetime.datetime.now()
     
     error_summary = {
-        "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": now.strftime(DATETIME_FORMAT),
         "total_errors": 0,
         "recent_errors_24h": 0,
         "by_company_type": {},
@@ -62,7 +64,7 @@ def main():
                 if path.strip():
                     recent_files.append(path.strip())
         except Exception as e:
-            logging.error(f"Failed to run find command in {base_dir}: {e}")
+            logging.exception(f"Failed to run find command in {base_dir}: {e}")
             
     # 2. 直近エラーの詳細をパース
     for file_path in recent_files:
@@ -83,9 +85,9 @@ def main():
         if meta_info["timestamp"] == "unknown":
             try:
                 mtime = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
-                meta_info["timestamp"] = mtime.strftime("%Y-%m-%d %H:%M:%S")
-            except:
-                meta_info["timestamp"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                meta_info["timestamp"] = mtime.strftime(DATETIME_FORMAT)
+            except Exception:
+                meta_info["timestamp"] = now.strftime(DATETIME_FORMAT)
                 
         error_summary["recent_errors_24h"] += 1
         error_summary["by_company_type"][company_type]["recent_24h"] += 1
@@ -115,7 +117,7 @@ def main():
                     error_summary["by_company_type"][comp] = {"total": 0, "recent_24h": 0}
                 error_summary["by_company_type"][comp]["total"] += 1
         except Exception as e:
-            logging.error(f"Failed to count total error files: {e}")
+            logging.exception(f"Failed to count total error files: {e}")
             
     today_str = datetime.date.today().strftime("%Y%m%d")
     report_path = os.path.join(log_dir, f"error_report_{today_str}.json")
@@ -137,7 +139,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
+        datefmt=DATETIME_FORMAT,
         handlers=[
             logging.StreamHandler(sys.stdout),
             logging.FileHandler(os.path.join(log_dir, "error_monitor.log"), encoding="utf-8")

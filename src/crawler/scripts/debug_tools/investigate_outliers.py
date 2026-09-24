@@ -35,7 +35,12 @@ def investigate():
         if not any(model_name.startswith(c) for c in COMPANIES):
             continue
         field_names = [f.name for f in model._meta.get_fields()]
-        url_field = "pageUrl" if "pageUrl" in field_names else ("url" if "url" in field_names else None)
+        if "pageUrl" in field_names:
+            url_field = "pageUrl"
+        elif "url" in field_names:
+            url_field = "url"
+        else:
+            url_field = None
         if not url_field or "price" not in field_names:
             continue
         try:
@@ -50,7 +55,7 @@ def investigate():
                             url_to_model[u] = model
                     except (ValueError, TypeError):
                         pass
-        except Exception as e:
+        except Exception:
             pass
             
     print(f"Indexed {len(url_to_price):,} property prices.", flush=True)
@@ -90,7 +95,12 @@ def investigate():
         if not model:
             return {}
         field_names = [f.name for f in model._meta.get_fields()]
-        url_field = "pageUrl" if "pageUrl" in field_names else ("url" if "url" in field_names else None)
+        if "pageUrl" in field_names:
+            url_field = "pageUrl"
+        elif "url" in field_names:
+            url_field = "url"
+        else:
+            url_field = None
         try:
             item = model.objects.filter(**{url_field: url}).first()
             if not item:

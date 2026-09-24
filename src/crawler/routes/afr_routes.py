@@ -34,34 +34,46 @@ def get_start_url(use_type='forhome'):
     return f"https://www.hebel-haus.com/stockhebel/purchase/{use_type}/searchlist.html/?shn=d&{pref_str}"
 
 @afr_bp.route(API_KEY_AFR_MANSION_START, methods=['POST', 'GET'])
-def afrMansionStart():
+def afr_mansion_start():
     return ParseAfrMansionStartAsync().main(get_start_url('forhome'))
 
+afrMansionStart = afr_mansion_start
+
 @afr_bp.route(API_KEY_AFR_MANSION_DETAIL, methods=['POST', 'GET'])
-def afrMansionDetail():
+def afr_mansion_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseAfrMansionDetailFuncAsync().main(url)
     return "finish", 200
 
+afrMansionDetail = afr_mansion_detail
+
 @afr_bp.route(API_KEY_AFR_KODATE_START, methods=['POST', 'GET'])
-def afrKodateStart():
+def afr_kodate_start():
     return ParseAfrKodateStartAsync().main(get_start_url('forhome'))
 
+afrKodateStart = afr_kodate_start
+
 @afr_bp.route(API_KEY_AFR_KODATE_DETAIL, methods=['POST', 'GET'])
-def afrKodateDetail():
+def afr_kodate_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseAfrKodateDetailFuncAsync().main(url)
     return "finish", 200
 
+afrKodateDetail = afr_kodate_detail
+
 @afr_bp.route(API_KEY_AFR_TOCHI_START, methods=['POST', 'GET'])
-def afrTochiStart():
+def afr_tochi_start():
     return ParseAfrTochiStartAsync().main(get_start_url('forhome'))
 
+afrTochiStart = afr_tochi_start
+
 @afr_bp.route(API_KEY_AFR_TOCHI_DETAIL, methods=['POST', 'GET'])
-def afrTochiDetail():
+def afr_tochi_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseAfrTochiDetailFuncAsync().main(url)
     return "finish", 200
+
+afrTochiDetail = afr_tochi_detail

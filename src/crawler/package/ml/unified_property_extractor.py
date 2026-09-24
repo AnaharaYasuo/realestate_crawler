@@ -310,7 +310,7 @@ class SingleUnifiedPropertyExtractor:
         # 価格の簡易抽出
         price_man = None
         price_str = prop_data.get("price_str", "") or prop_data.get("specs", {}).get("価格", "")
-        price_match = re.search(r'([0-9,]+(?:\.[0-9]+)?)\s*万円', price_str.replace(",", ""))
+        price_match = re.search(r'([\d,]+(?:\.\d+)?)\s*万円', price_str.replace(",", ""))
         if price_match:
             try:
                 price_man = int(float(price_match.group(1)))
@@ -322,7 +322,12 @@ class SingleUnifiedPropertyExtractor:
         disposer = True if re.search(r'ディスポーザー', all_text) else None
         dish = True if re.search(r'食洗|食器洗', all_text) else None
         floor_heat = True if re.search(r'床暖房', all_text) else None
-        hallway = "内廊下" if "内廊下" in all_text else ("外廊下" if "外廊下" in all_text else None)
+        if "内廊下" in all_text:
+            hallway = "内廊下"
+        elif "外廊下" in all_text:
+            hallway = "外廊下"
+        else:
+            hallway = None
         defect = True if "告知事項" in all_text or "心理的瑕疵" in all_text else False
 
         rights = self._detect_leasehold_rights(all_text)

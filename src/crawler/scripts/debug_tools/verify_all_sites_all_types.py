@@ -197,10 +197,12 @@ SAMPLE_HTML = """
 </html>
 """
 
+SEPARATOR_LINE = "=" * 80
+
 def verify_all_targets():
-    print("================================================================================")
+    print(SEPARATOR_LINE)
     print(" 全社・全物件種別 パーサー＆モデル完全性＆パース検証 (全89ジョブ網羅)")
-    print("================================================================================")
+    print(SEPARATOR_LINE)
     
     total_count = 0
     success_count = 0
@@ -251,6 +253,8 @@ def verify_all_targets():
                     raise ValueError(f"propertyName is None ({p_name})")
                 if p_price is None:
                     raise ValueError(f"price is None ({p_price})")
+                if p_addr is None:
+                    raise ValueError(f"address is None ({p_addr})")
                 
                 success_count += 1
                 print(f"  [{company:8s} - {ptype:16s}] PASS | Class: {parser_class_name:32s} | Pure Time: {elapsed_ms:5.1f}ms | Item: '{p_name}' | Price: {p_price}")
@@ -259,9 +263,9 @@ def verify_all_targets():
                 failed_targets.append((company, ptype, parser_class_name, str(e)))
                 print(f"  [{company:8s} - {ptype:16s}] FAIL | Class: {parser_class_name:32s} | Error: {e}")
                 
-    print("================================================================================")
+    print(SEPARATOR_LINE)
     print(f" 検証結果サマリー: 全 {total_count} ジョブ中 {success_count} 件 成功 (PASS率: {success_count/total_count*100:.1f}%)")
-    print("================================================================================")
+    print(SEPARATOR_LINE)
     
     if failed_targets:
         print("\n[FAIL LIST]:")

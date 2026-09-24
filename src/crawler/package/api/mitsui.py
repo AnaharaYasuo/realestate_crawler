@@ -24,9 +24,7 @@ class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 class ParseMitsuiMansionListFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -118,9 +116,7 @@ class ParseMitsuiTochiDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 class ParseMitsuiTochiListFuncAsync(ParseMiddlePageAsyncBase):
 
@@ -212,9 +208,7 @@ class ParseMitsuiKodateDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 class ParseMitsuiKodateListFuncAsync(ParseMiddlePageAsyncBase):
 

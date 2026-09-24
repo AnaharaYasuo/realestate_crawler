@@ -38,7 +38,12 @@ def analyze():
         if not any(model_name.startswith(c) for c in COMPANIES):
             continue
         field_names = [f.name for f in model._meta.get_fields()]
-        url_field = "pageUrl" if "pageUrl" in field_names else ("url" if "url" in field_names else None)
+        if "pageUrl" in field_names:
+            url_field = "pageUrl"
+        elif "url" in field_names:
+            url_field = "url"
+        else:
+            url_field = None
         if not url_field or "price" not in field_names:
             continue
         try:
@@ -107,7 +112,7 @@ def analyze():
     median_ape = float(np.median(abs_pct_err))
     
     # Normality test (D'Agostino and Pearson's test)
-    stat_k2, p_val = stats.normaltest(log_diff)
+    _, p_val = stats.normaltest(log_diff)
     
     within_10pct = float(np.mean(abs_pct_err <= 10.0) * 100.0)
     within_20pct = float(np.mean(abs_pct_err <= 20.0) * 100.0)
@@ -166,7 +171,7 @@ def analyze():
     ax1 = fig.add_subplot(2, 3, 1)
     # Filter reasonable bounds for display
     plot_log_diff = log_diff[(log_diff >= -1.0) & (log_diff <= 1.0)]
-    n, bins, patches = ax1.hist(plot_log_diff, bins=60, density=True, alpha=0.6, color='#2b5c8f', edgecolor='black', linewidth=0.5, label='Actual Log Residuals')
+    ax1.hist(plot_log_diff, bins=60, density=True, alpha=0.6, color='#2b5c8f', edgecolor='black', linewidth=0.5, label='Actual Log Residuals')
     
     # Fit normal curve
     x_range = np.linspace(-1.0, 1.0, 300)
