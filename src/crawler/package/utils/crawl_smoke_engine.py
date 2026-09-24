@@ -1852,7 +1852,8 @@ def _legacy_ssl_context() -> ssl.SSLContext:
     """SSL context allowing SECLEVEL=1 for legacy servers (Misawa/Keio)."""
     ctx = ssl.create_default_context()
     try:
-        ctx.set_ciphers("DEFAULT@SECLEVEL=1")  # NOSONAR: Required for legacy 1024-bit DH keys on Misawa/Keio
+        # Required for legacy 1024-bit DH keys on Misawa/Keio
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")  # NOSONAR
     except (ssl.SSLError, ValueError):
         pass
     return ctx
