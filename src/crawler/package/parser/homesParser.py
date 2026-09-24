@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
 from package.parser.baseParser import (
@@ -551,6 +551,27 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
     def createEntity(self):
         return HomesInvestmentApartment()
 
+    def _homes_parse_invest_rent(self, item, response: BeautifulSoup) -> None:
+        income_tag = response.select_one("td.prg-annualIncomeTableItem") or self._find_by_table_header(response, ["満室想定年収", "想定年収", "想定賃料"])
+        income_str = income_tag.get_text().strip() if income_tag else ""
+        item.annualRent = converter.parse_price(income_str)
+        item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
+        if not item.annualRent and item.grossYield and getattr(item, "price", None):
+            try:
+                price_dec = Decimal(str(item.price))
+                gy_dec = Decimal(str(item.grossYield))
+                if gy_dec > 0:
+                    rent_val = int(price_dec * gy_dec / Decimal(100))
+                    if rent_val > 0:
+                        item.annualRent = rent_val
+                        item.monthlyRent = rent_val // 12
+            except (TypeError, ValueError, InvalidOperation):
+                pass
+        if not item.annualRent:
+            raise SkipPropertyException(
+                "Homes invest: missing annualRent on listing (skip and try next)"
+            )
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -558,16 +579,7 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         yield_tag = response.select_one("span.prg-rimawariTableItem") or self._find_by_table_header(response, ["利回り"])
         yield_str = yield_tag.get_text().strip() if yield_tag else ""
         item.grossYield = converter.parse_ratio(yield_str)
-
-        # 想定賃料 (Homesは満室想定年収 prg-annualIncomeTableItem が取れる)
-        income_tag = response.select_one("td.prg-annualIncomeTableItem") or self._find_by_table_header(response, ["満室想定年収", "想定年収", "想定賃料"])
-        income_str = income_tag.get_text().strip() if income_tag else ""
-        item.annualRent = converter.parse_price(income_str)
-        item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
-        if not item.annualRent and not item.grossYield:
-            raise SkipPropertyException(
-                "Homes invest: missing yield/annualRent on listing (skip and try next)"
-            )
+        self._homes_parse_invest_rent(item, response)
 
         status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
         item.currentStatus = status_tag.get_text().strip() if status_tag else ""

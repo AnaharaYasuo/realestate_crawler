@@ -543,3 +543,51 @@ def test_effective_budget_returns_concrete_number():
     # Unknown company: must return the provided budget (not None).
     assert _effective_job_budget_sec("unknownco", 22.0) == 22.0
     assert isinstance(_effective_job_budget_sec("unknownco", 22.0), float)
+
+
+def test_soft_mansion_ok_seibu_heim():
+    from package.utils.crawl_smoke_engine import _soft_mansion_ok
+
+    item = _DummyItem(tatemonoMenseki=100)
+    assert _soft_mansion_ok("kodate", item, "seibu") is True
+    assert _soft_mansion_ok("kodate", item, "heim") is True
+    assert _soft_mansion_ok("kodate", item, "mitsui") is False
+
+
+def test_soft_tochi_ok_heim():
+    from package.utils.crawl_smoke_engine import _soft_tochi_ok
+
+    item = _DummyItem(tochiMenseki=200, tatemonoMenseki=None)
+    assert _soft_tochi_ok("kodate", item, specs={}, company_l="heim") is True
+    assert _soft_tochi_ok("kodate", item, specs={}, company_l="mitsui") is False
+
+
+@pytest.mark.asyncio
+async def test_normalize_next_page_url_relative_base():
+    from package.utils.crawl_smoke_engine import _normalize_next_page_url
+
+    class _P:
+        BASE_URL = "https://example.com/base/"
+
+    res = await _normalize_next_page_url(_P(), "https://example.com/base/list", "page2.html")
+    assert res == "https://example.com/base/page2.html"
+
+
+@pytest.mark.asyncio
+async def test_probe_next_page_fetch_success(monkeypatch):
+    import package.utils.crawl_smoke_engine as eng
+
+    async def fake_fetch(*args, **kwargs):
+        return "<html></html>"
+
+    monkeypatch.setattr(eng, "_fetch_soup", fake_fetch)
+    pages, exhausted, ok, err = await eng._probe_next_page_fetch(
+        None,
+        object(),
+        "https://example.com/list",
+        "https://example.com/list?page=2",
+        deadline=__import__("time").monotonic() + 30,
+        pw=None,
+        force_pw=False,
+    )
+    assert pages == 2 and exhausted is False and ok is True and err is None

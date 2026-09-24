@@ -1927,12 +1927,22 @@ def run_smoke_sync(
     budget = _effective_job_budget_sec(
         target.company, budget_sec, getattr(target, "property_type", "")
     )
-    # Internal deadline in smoke_crawl_target is the SSOT. Do not wrap with
-    # asyncio.wait_for — a hard cancel discards discovery progress and reports
-    # false ZERO DETAIL URLS after parsers already found candidates.
+    hard_limit = budget + 20.0
+
+    async def _runner() -> SmokeResult:
+        return await asyncio.wait_for(
+            smoke_crawl_target(target, sample_size=sample_size, budget_sec=budget),
+            timeout=hard_limit,
+        )
+
     try:
-        return asyncio.run(
-            smoke_crawl_target(target, sample_size=sample_size, budget_sec=budget)
+        return asyncio.run(_runner())
+    except asyncio.TimeoutError:
+        return SmokeResult(
+            job_id=target.job_id,
+            seed_url=target.seed_url,
+            elapsed_sec=hard_limit,
+            errors=[f"TimeoutError: smoke hard limit exceeded ({hard_limit:.0f}s)"],
         )
     except Exception as exc:
         return SmokeResult(

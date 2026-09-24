@@ -155,15 +155,15 @@ class AthomeParser(ParserBase):
 
     async def _athome_settle_page(self, page, url: str) -> None:
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=12000)
             # Athome often issues a follow-up navigation; wait for it to settle.
             try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
+                await page.wait_for_load_state("networkidle", timeout=1500)
             except Exception as idle_err:
                 logger.debug("Athome networkidle wait skipped: %s", idle_err)
-            await page.wait_for_timeout(400)
+            await page.wait_for_timeout(300)
             await self._athome_scroll_midpage(page)
-            await page.wait_for_timeout(400)
+            await page.wait_for_timeout(300)
             await self._athome_wait_content_ready(page)
         except Exception as goto_err:
             logger.warning("Playwright goto warning for %s: %s", url, goto_err)
@@ -173,12 +173,12 @@ class AthomeParser(ParserBase):
             return content_str
         logger.info("Retrying page load for challenge screen at %s...", url)
         try:
-            await page.reload(wait_until="domcontentloaded", timeout=20000)
+            await page.reload(wait_until="domcontentloaded", timeout=10000)
             try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
+                await page.wait_for_load_state("networkidle", timeout=2000)
             except Exception as idle_err:
                 logger.debug("Athome reload networkidle skipped: %s", idle_err)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(800)
             return await page.content()
         except Exception as reload_err:
             logger.warning("Playwright reload warning for %s: %s", url, reload_err)

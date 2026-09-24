@@ -4,8 +4,67 @@
 ※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
 """
 import pytest
-from package.parser.homesParser import HomesMansionParser, HomesKodateParser
+from package.parser.homesParser import HomesMansionParser, HomesKodateParser, HomesInvestmentApartmentParser
 from package.models.homes import HomesMansion, HomesKodate
+
+def test_homes_investment_rent_derivation():
+    from bs4 import BeautifulSoup
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    item.price = 6200000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">620万円</td>
+        <span class="prg-rimawariTableItem">9.48％</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_item = parser._parsePropertyDetailPage(item, soup)
+    assert float(parsed_item.grossYield) == pytest.approx(9.48, rel=1e-2)
+    assert parsed_item.annualRent == 587760
+    assert parsed_item.monthlyRent == 48980
+
+
+def test_homes_investment_rent_derivation_decimal_precision():
+    from bs4 import BeautifulSoup
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    # 29000000 * 0.07 = 2030000. In float: 29000000 * 0.07 is 2029999.9999999998
+    item.price = 29000000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">2900万円</td>
+        <span class="prg-rimawariTableItem">7.00％</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_item = parser._parsePropertyDetailPage(item, soup)
+    assert parsed_item.annualRent == 2030000
+
+
+def test_homes_investment_missing_rent_and_yield_raises_skip():
+    from bs4 import BeautifulSoup
+    from package.parser.baseParser import SkipPropertyException
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    item.price = 6200000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">620万円</td>
+        <span class="prg-rimawariTableItem">-</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    with pytest.raises(SkipPropertyException, match="missing annualRent"):
+        parser._parsePropertyDetailPage(item, soup)
+
+
 
 def test_homes_mansion_parser():
     parser = HomesMansionParser()

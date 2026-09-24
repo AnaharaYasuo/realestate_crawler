@@ -190,37 +190,6 @@ class HeimParser(ParserBase):
                 if k and k not in specs:
                     specs[k] = dd.get_text(" ", strip=True)
 
-    def _heim_fill_kouzou_if_missing(self, item, response: BeautifulSoup, specs: dict) -> None:
-        """Fill kouzou from explicit specs if omitted in primary fields."""
-        if getattr(item, "kouzou", None):
-            return
-        item.kouzou = specs.get("構造") or specs.get("建物構造") or None
-
-    def _heim_fill_chikunengetsu_if_missing(
-        self, item, response: BeautifulSoup, specs: dict
-    ) -> None:
-        """Fill chikunengetsuStr from completion/status dates in specs."""
-        if getattr(item, "chikunengetsuStr", None):
-            return
-        status_keys = (
-            "築年月",
-            "完成年月",
-            "完成時期",
-            "現況",
-            "現状",
-            "引渡時期",
-            "引渡時期/現況",
-        )
-        for k in status_keys:
-            val = specs.get(k)
-            if val:
-                item.chikunengetsuStr = str(val).strip()
-                return
-
-    def _heim_fill_unpublished_specs(self, item, response: BeautifulSoup, specs: dict) -> None:
-        """Fill omitted 構造・築年月 from explicit specs, then safe page fallbacks."""
-        self._heim_fill_kouzou_if_missing(item, response, specs)
-        self._heim_fill_chikunengetsu_if_missing(item, response, specs)
 
     def _split_address(self, address):
         return super()._split_address(address)
@@ -434,7 +403,7 @@ class HeimMansionParser(HeimParser, MansionParserBase):
 
     def _parseChikunengetsuStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("築年月", "")
+        return specs.get("築年月", "") or specs.get("完成年月", "") or specs.get("完成時期", "")
 
     def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
         val_str = self._parseChikunengetsuStr(response, specs)
@@ -474,7 +443,7 @@ class HeimMansionParser(HeimParser, MansionParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("建物構造", "")
+        return specs.get("建物構造", "") or specs.get("構造", "")
 
     def _parseKanriKeitai(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -560,7 +529,6 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = self._parseSaikouKadobeya(response, specs)
         item.kadobeya = item.saikouKadobeya
-        self._heim_fill_unpublished_specs(item, response, specs)
         self._heim_require_senyu_and_madori(item)
 
         return item
@@ -601,7 +569,7 @@ class HeimKodateParser(HeimParser, KodateParserBase):
 
     def _parseChikunengetsuStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("築年月", "")
+        return specs.get("築年月", "") or specs.get("完成年月", "") or specs.get("完成時期", "")
 
     def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
         val_str = self._parseChikunengetsuStr(response, specs)
@@ -609,7 +577,7 @@ class HeimKodateParser(HeimParser, KodateParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("建物構造", "")
+        return specs.get("建物構造", "") or specs.get("構造", "")
 
     def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -670,7 +638,6 @@ class HeimKodateParser(HeimParser, KodateParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
-        self._heim_fill_unpublished_specs(item, response, specs)
         # Incomplete plan lots omit 建物面積/間取り — skip to next candidate.
         if not getattr(item, "tatemonoMenseki", None) or not str(
             getattr(item, "madori", "") or ""
@@ -765,6 +732,5 @@ class HeimTochiParser(HeimParser, TochiParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
-        self._heim_fill_unpublished_specs(item, response, specs)
 
         return item
