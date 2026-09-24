@@ -88,11 +88,6 @@ def test_scale_proxysql_mig_via_rest_api_fallback(monkeypatch):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
 
-    res = gcp_resources.scale_proxysql_mig(
-        target_size=0,
-        compute_module=None,
-        get_token_callback=lambda: "bearer-token-789",
-    )
     with patch("requests.post", return_value=mock_resp) as mock_post:
         res = gcp_resources.scale_proxysql_mig(
             target_size=0,
@@ -103,6 +98,32 @@ def test_scale_proxysql_mig_via_rest_api_fallback(monkeypatch):
         mock_post.assert_called_once()
         url = mock_post.call_args[0][0]
         assert "instanceGroupManagers/proxysql-mig-prod/resize?size=0" in url
+
+
+def test_scale_proxysql_mig_falls_back_when_compute_v1_raises(monkeypatch):
+    """Verify scale_proxysql_mig falls back to REST API when compute_v1 raises an exception."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+    monkeypatch.setenv("PROXYSQL_MIG_NAME", "proxysql-mig-prod")
+
+    mock_compute = MagicMock()
+    mock_compute.RegionInstanceGroupManagersClient.return_value.resize.side_effect = (
+        Exception("Compute API error")
+    )
+    mock_resp = MagicMock(status_code=200)
+
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        res = gcp_resources.scale_proxysql_mig(
+            target_size=0,
+            compute_module=mock_compute,
+            get_token_callback=lambda: "tok",
+        )
+        assert res is True
+
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert "instanceGroupManagers/proxysql-mig-prod/resize?size=0" in url
 
 
 def test_scale_proxysql_mig_fails_when_all_fail(monkeypatch):

@@ -42,7 +42,9 @@ def get_gcp_access_token() -> str | None:
             timeout=5,
         )
         if resp.status_code == 200:
-            return str(resp.json().get("access_token"))
+            token = resp.json().get("access_token")
+            if token:
+                return str(token)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Metadata server token not available: {e}")
     return None
