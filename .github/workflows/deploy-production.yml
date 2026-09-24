@@ -85,6 +85,27 @@ jobs:
             asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:latest
             asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }}
 
+      - name: Prune old images (Keep latest 3 versions)
+        run: |
+          set -euo pipefail
+          echo "Pruning Artifact Registry images, keeping latest 3 versions..."
+          old_digests=$(gcloud artifacts docker images list \
+            asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler \
+            --sort-by=~CREATE_TIME \
+            --format="value(version)" | sed -e '1,3d' || true)
+          if [ -n "$old_digests" ]; then
+            while read -r digest; do
+              if [ -n "$digest" ]; then
+                echo "Deleting old image digest: $digest"
+                if ! gcloud artifacts docker images delete \
+                  "asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler@$digest" \
+                  --quiet --delete-tags; then
+                  echo "::warning::Failed to delete image digest: $digest"
+                fi
+              fi
+            done <<< "$old_digests"
+          fi
+
       - name: Run Database Migrations on Cloud SQL
         run: |
           gcloud run jobs update realestate-migrate-prod \

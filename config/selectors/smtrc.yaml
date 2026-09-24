@@ -46,9 +46,13 @@ kodate:
   field_mappings:
     土地面積: "tochiMensekiStr"
     建物面積: "tatemonoMensekiStr"
+    建物延面積: "tatemonoMensekiStr"
+    延床面積: "tatemonoMensekiStr"
     築年月: "chikunengetsuStr"
+    建築年月: "chikunengetsuStr"
     間取り: "madori"
     構造: "kouzou"
+    構造/階建: "kouzou"
     階数: "kaisuStr"
 
 tochi:
@@ -94,9 +98,13 @@ investment:
     年間想定収入: "annualRent"
     現況: "currentStatus"
     構造: "kouzou"
+    構造/階建: "kouzou"
     築年月: "chikunengetsuStr"
+    建築年月: "chikunengetsuStr"
     土地面積: "tochiMensekiStr"
     建物面積: "tatemonoMensekiStr"
+    建物延面積: "tatemonoMensekiStr"
+    延床面積: "tatemonoMensekiStr"
     建ぺい率: "kenpeiStr"
     容積率: "yousekiStr"
     用途地域: "youtoChiiki"

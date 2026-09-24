@@ -293,7 +293,11 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("建物延面積", "")
+            or specs.get("延床面積", "")
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
@@ -504,7 +508,11 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("建物延面積", "")
+            or specs.get("延床面積", "")
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
         item.kenpeiStr = specs.get("建ぺい率", "")
