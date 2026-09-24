@@ -2,7 +2,6 @@
 """Unit tests for gcp_resources utility module (ProxySQL MIG, GCE, Auth)."""
 
 from unittest.mock import MagicMock, patch
-import pytest
 
 from package.utils import gcp_resources
 
@@ -25,8 +24,10 @@ def test_get_gcp_access_token_via_metadata_server():
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"access_token": "metadata-token-456"}
 
-    with patch.object(gcp_resources, "google", None), \
-         patch("requests.get", return_value=mock_resp) as mock_get:
+    with (
+        patch.object(gcp_resources, "google", None),
+        patch("requests.get", return_value=mock_resp) as mock_get,
+    ):
         token = gcp_resources.get_gcp_access_token()
         assert token == "metadata-token-456"
         mock_get.assert_called_once()
@@ -34,8 +35,10 @@ def test_get_gcp_access_token_via_metadata_server():
 
 def test_get_gcp_access_token_returns_none_on_all_failures():
     """Verify get_gcp_access_token returns None if both auth and metadata fail."""
-    with patch.object(gcp_resources, "google", None), \
-         patch("requests.get", side_effect=Exception("Metadata server error")):
+    with (
+        patch.object(gcp_resources, "google", None),
+        patch("requests.get", side_effect=Exception("Metadata server error")),
+    ):
         token = gcp_resources.get_gcp_access_token()
         assert token is None
 
@@ -73,7 +76,7 @@ def test_scale_proxysql_mig_via_compute_v1(monkeypatch):
     mock_client.resize.assert_called_once_with(
         project="sumifu",
         region="asia-northeast1",
-        region_instance_group_manager="proxysql-mig-prod",
+        instance_group_manager="proxysql-mig-prod",
         size=1,
     )
 
