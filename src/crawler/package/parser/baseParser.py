@@ -1324,7 +1324,7 @@ class TochiParserBase(ParserBase):
             if tag:
                 val = tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
         if val:
-            match = re.search(r'(?:間口|約|幅員|道路)?\s*(\d+(?:\.\d+)?)\s*[mｍ]', val)
+            match = re.search(r'(?:(?:間口|約|幅員|道路)\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', val)
             if match:
                 try:
                     return Decimal(match.group(1))

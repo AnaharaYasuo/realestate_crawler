@@ -243,7 +243,7 @@ class NomuraParser(InvestmentParser):
             val = m_bus.group(1) if m_bus else default_val
             return int(val) if field_to_get == 'busWalkMinute' and val != default_val else val
         elif field_to_get == 'busStation':
-             m_bus_station = re.search(r'\((?:バス停|停)\s*([^)]+)\)', line)
+             m_bus_station = re.search(r'\((?:バス停|停)\s*([^)\n]{1,50})\)', line)
              return m_bus_station.group(1).strip() if m_bus_station else default_val
         elif field_to_get == 'busUse':
              return 1 if "バス" in line else 0
@@ -401,7 +401,7 @@ class NomuraParser(InvestmentParser):
         # Fallback: check kouzou
         kouzou = target_specs.get("構造", "")
         if kouzou:
-             match = re.search(r'(\d+階建)', kouzou)
+             match = re.search(r'(\d{1,5}階建)', kouzou)
              if match:
                  return match.group(0)
         return ""
@@ -593,7 +593,7 @@ class NomuraMansionParser(NomuraParser, MansionParserBase):
                 continue
             sib = el.find_next(["td", "dd", "p", "span"])
             blob = (sib.get_text(" ", strip=True) if sib else "") + " " + txt
-            m = re.search(r"([\d.]+)\s*m", blob, re.IGNORECASE)
+            m = re.search(r"([0-9.]{1,10})\s*m", blob, re.IGNORECASE)
             if m:
                 return Decimal(m.group(1))
         return None

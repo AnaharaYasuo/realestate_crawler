@@ -36,6 +36,7 @@ STRUCTURE_TEXT = "建物構造"
 KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
 SOUKOSU_REGEX = r'総戸数(\d+)戸'
+RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
 
 
 class KenbiyaParserBase(ParserBase):
@@ -70,9 +71,9 @@ class KenbiyaParserBase(ParserBase):
             raise ServerBusyException(f"Property page returned HTTP status {status}: {url}")
         if status == 429:
             backoff = min(30, 2 ** (attempt + 1))
-            logging.warning(f"Rate limited (429) on Kenbiya: {url}. Backing off {backoff}s")
+            logging.warning(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}. Backing off {backoff}s")
             if attempt == max_timeouts - 1:
-                raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
+                raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
             await asyncio.sleep(backoff)
             return None
         raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
@@ -105,7 +106,7 @@ class KenbiyaParserBase(ParserBase):
                     raise ServerDownException(f"Kenbiya server unresponsive after {self.consecutive_timeouts} consecutive timeouts: {e}")
                 await asyncio.sleep(1)
         if last_status == 429:
-            raise RateLimitedException(f"Rate limited (429) on Kenbiya: {url}")
+            raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
         raise LoadPropertyPageException(f"Exceeded max retries for {url}")
 
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:

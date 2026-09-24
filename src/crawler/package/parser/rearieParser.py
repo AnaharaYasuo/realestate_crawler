@@ -11,6 +11,14 @@ from package.parser.baseParser import KodateParserBase, MansionParserBase, Parse
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
+
 class RearieParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -148,8 +156,7 @@ class RearieParser(ParserBase):
                         logging.info(f"[Rearie] Match detail link: {normalized}")
                         yield normalized
 
-    def _parsePropertyDetailJson(self, item, data: dict):
-        item.propertyName = data.get("propName") or ""
+    def _parse_json_price(self, item, data: dict):
         price_num = data.get("price")
         if price_num:
             try:
@@ -160,72 +167,89 @@ class RearieParser(ParserBase):
                 item.priceStr = str(price_num)
                 item.price = converter.parse_price(item.priceStr)
 
+    def _parse_mansion_json_fields(self, item, data: dict):
+        tate_menseki = data.get("tateMenseki")
+        if tate_menseki:
+            item.senyuMenseki = converter.parse_menseki(tate_menseki)
+            item.senyuMensekiStr = str(tate_menseki)
+        baru = data.get("baruMenseki")
+        if baru:
+            item.balconyMenseki = converter.parse_menseki(baru)
+            item.balconyMensekiStr = str(baru)
+        kai = data.get("kai")
+        if kai and str(kai).isdigit():
+            item.floorType_kai = int(kai)
+        kaidate = data.get("kaidate")
+        if kaidate and str(kaidate).isdigit():
+            item.floorType_chijo = int(kaidate)
+        kosuu = data.get("kosuu")
+        if kosuu and str(kosuu).isdigit():
+            item.soukosu = int(kosuu)
+            item.soukosuStr = str(kosuu)
+        kanrihi = data.get("kanrihi")
+        if kanrihi:
+            item.kanrihi = converter.parse_price(kanrihi)
+            item.kanrihiStr = str(kanrihi)
+        tumikin = data.get("tumikin")
+        if tumikin:
+            item.syuzenTsumitate = converter.parse_price(tumikin)
+            item.syuzenTsumitateStr = str(tumikin)
+
+    def _parse_kodate_json_fields(self, item, data: dict):
+        tate_menseki = data.get("tateMenseki")
+        if tate_menseki:
+            item.tatemonoMenseki = converter.parse_menseki(tate_menseki)
+            item.tatemonoMensekiStr = str(tate_menseki)
+        tochi_m = data.get("tochiMenseki")
+        if tochi_m:
+            item.tochiMenseki = converter.parse_menseki(tochi_m)
+            item.tochiMensekiStr = str(tochi_m)
+        kenpei = data.get("kenpei")
+        if kenpei:
+            item.kenpei = converter.parse_ratio(kenpei)
+            item.kenpeiStr = str(kenpei)
+        youseki = data.get("youseki")
+        if youseki:
+            item.youseki = converter.parse_ratio(youseki)
+            item.yousekiStr = str(youseki)
+        item.youtoChiiki = data.get("chiiki") or ""
+        item.setsudou = data.get("setudou") or ""
+
+    def _parse_tochi_json_fields(self, item, data: dict):
+        tochi_m = data.get("tochiMenseki")
+        if tochi_m:
+            item.tochiMenseki = converter.parse_menseki(tochi_m)
+            item.tochiMensekiStr = str(tochi_m)
+        item.kenchikuJoken = data.get("jyouken") or ""
+        item.chimoku = data.get("chimoku") or ""
+        kenpei = data.get("kenpei")
+        if kenpei:
+            item.kenpei = converter.parse_ratio(kenpei)
+            item.kenpeiStr = str(kenpei)
+        youseki = data.get("youseki")
+        if youseki:
+            item.youseki = converter.parse_ratio(youseki)
+            item.yousekiStr = str(youseki)
+        item.youtoChiiki = data.get("chiiki") or ""
+        item.setsudou = data.get("setudou") or ""
+
+    def _parse_json_property_type_fields(self, item, data: dict):
+        if self.property_type == "mansion":
+            self._parse_mansion_json_fields(item, data)
+        elif self.property_type == "kodate":
+            self._parse_kodate_json_fields(item, data)
+        elif self.property_type == "tochi":
+            self._parse_tochi_json_fields(item, data)
+
+    def _parsePropertyDetailJson(self, item, data: dict):
+        item.propertyName = data.get("propName") or ""
+        self._parse_json_price(item, data)
+
         item.address = data.get("address") or ""
         if item.address:
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        tate_menseki = data.get("tateMenseki")
-        if self.property_type == "mansion":
-            if tate_menseki:
-                item.senyuMenseki = converter.parse_menseki(tate_menseki)
-                item.senyuMensekiStr = str(tate_menseki)
-            baru = data.get("baruMenseki")
-            if baru:
-                item.balconyMenseki = converter.parse_menseki(baru)
-                item.balconyMensekiStr = str(baru)
-            kai = data.get("kai")
-            if kai and str(kai).isdigit():
-                item.floorType_kai = int(kai)
-            kaidate = data.get("kaidate")
-            if kaidate and str(kaidate).isdigit():
-                item.floorType_chijo = int(kaidate)
-            kosuu = data.get("kosuu")
-            if kosuu and str(kosuu).isdigit():
-                item.soukosu = int(kosuu)
-                item.soukosuStr = str(kosuu)
-            kanrihi = data.get("kanrihi")
-            if kanrihi:
-                item.kanrihi = converter.parse_price(kanrihi)
-                item.kanrihiStr = str(kanrihi)
-            tumikin = data.get("tumikin")
-            if tumikin:
-                item.syuzenTsumitate = converter.parse_price(tumikin)
-                item.syuzenTsumitateStr = str(tumikin)
-        elif self.property_type == "kodate":
-            if tate_menseki:
-                item.tatemonoMenseki = converter.parse_menseki(tate_menseki)
-                item.tatemonoMensekiStr = str(tate_menseki)
-            tochi_m = data.get("tochiMenseki")
-            if tochi_m:
-                item.tochiMenseki = converter.parse_menseki(tochi_m)
-                item.tochiMensekiStr = str(tochi_m)
-            kenpei = data.get("kenpei")
-            if kenpei:
-                item.kenpei = converter.parse_ratio(kenpei)
-                item.kenpeiStr = str(kenpei)
-            youseki = data.get("youseki")
-            if youseki:
-                item.youseki = converter.parse_ratio(youseki)
-                item.yousekiStr = str(youseki)
-            item.youtoChiiki = data.get("chiiki") or ""
-            item.setsudou = data.get("setudou") or ""
-        elif self.property_type == "tochi":
-            tochi_m = data.get("tochiMenseki")
-            if tochi_m:
-                item.tochiMenseki = converter.parse_menseki(tochi_m)
-                item.tochiMensekiStr = str(tochi_m)
-            item.kenchikuJoken = data.get("jyouken") or ""
-            item.chimoku = data.get("chimoku") or ""
-            kenpei = data.get("kenpei")
-            if kenpei:
-                item.kenpei = converter.parse_ratio(kenpei)
-                item.kenpeiStr = str(kenpei)
-            youseki = data.get("youseki")
-            if youseki:
-                item.youseki = converter.parse_ratio(youseki)
-                item.yousekiStr = str(youseki)
-            item.youtoChiiki = data.get("chiiki") or ""
-            item.setsudou = data.get("setudou") or ""
+        self._parse_json_property_type_fields(item, data)
 
         item.tochikenri = data.get("tochiKenri") or ""
         item.genkyo = data.get("genkyou") or ""
@@ -403,6 +427,19 @@ class RearieMansionParser(RearieParser, MansionParserBase):
     def createEntity(self):
         return RearieMansion()
 
+    def _parse_floors(self, item, specs):
+        item.kaisuStr = _first_spec(specs, "階/階建", "階数")
+        if item.kaisuStr:
+            m = re.search(r'(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_kai = int(m.group(1))
+            m = re.search(r'地上(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chijo = int(m.group(1))
+            m = re.search(r'地下(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_chika = int(m.group(1))
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -413,25 +450,14 @@ class RearieMansionParser(RearieParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        # 階数・所在階
-        item.kaisuStr = specs.get("階/階建", "") or specs.get("階数", "")
-        if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_chika = int(m.group(1))
+        self._parse_floors(item, specs)
 
         # 築年月
         item.chikunengetsuStr = specs.get("築年月", "")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.balconyMensekiStr = specs.get("バルコニー", "") or specs.get("バルコニー面積", "")
+        item.balconyMensekiStr = _first_spec(specs, "バルコニー", "バルコニー面積")
         if item.balconyMensekiStr:
             item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
 
@@ -440,7 +466,7 @@ class RearieMansionParser(RearieParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費等", "") or specs.get("管理費", "")
+        item.kanrihiStr = _first_spec(specs, "管理費等", "管理費")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_rent(item.kanrihiStr)
 
@@ -449,10 +475,10 @@ class RearieMansionParser(RearieParser, MansionParserBase):
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kanriKeitai = specs.get("管理形態", "") or specs.get("管理形態/管理員の勤務形態", "")
+        item.kanriKeitai = _first_spec(specs, "管理形態", "管理形態/管理員の勤務形態")
         item.kanriKaisya = specs.get("管理会社", "")
         
-        item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
+        item.saikou = _first_spec(specs, "主要採光", "向き")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")

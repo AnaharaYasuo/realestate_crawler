@@ -18,6 +18,13 @@ from package.parser.baseParser import (
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
 class DaikyoParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -196,15 +203,8 @@ class DaikyoParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
-        
-        # 物件名
-        item.propertyName = self._parsePropertyName(response)
-            
-        # 価格
-        price_val = specs.get("価格", "") or specs.get("販売価格", "")
+    def _populate_price_and_address(self, item, specs, response):
+        price_val = _first_spec(specs, "価格", "販売価格")
         if not price_val:
             price_el = response.select_one(".text-price-01") or response.select_one(".text-price-01__number")
             if price_el:
@@ -213,25 +213,30 @@ class DaikyoParser(ParserBase):
             item.priceStr = price_val
             item.price = converter.parse_price(item.priceStr)
 
-        # 所在地
-        addr_val = specs.get("所在地", "") or specs.get("住所", "")
+        addr_val = _first_spec(specs, "所在地", "住所")
         if addr_val:
             item.address = addr_val
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        # 交通
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+        
+        item.propertyName = self._parsePropertyName(response)
+        self._populate_price_and_address(item, specs, response)
+
         traffic_str = specs.get("交通", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
 
-        item.biko = specs.get("備考", "") or specs.get("その他", "")
+        item.biko = _first_spec(specs, "備考", "その他")
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.tochikenri = self._parseRights(response, specs)
         item.torihiki = specs.get("取引態様", "")
-        item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "")
+        item.hikiwatashi = _first_spec(specs, "引渡時期", "引渡")
 
         # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("築年", "") or specs.get("完成時期", "") or specs.get("完成年月", "") or specs.get("竣工年月", "") or specs.get("建築年月", "")
+        item.chikunengetsuStr = _first_spec(specs, "築年月", "築年", "完成時期", "完成年月", "竣工年月", "建築年月")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
@@ -315,44 +320,20 @@ class DaikyoMansionParser(DaikyoParser, MansionParserBase):
     def createEntity(self):
         return DaikyoMansion()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
-
-        item.madori = self._parseMadori(response, specs)
-        
-        item.senyuMensekiStr = specs.get("専有面積", "")
-        if item.senyuMensekiStr:
-            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
-
-        # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "")
+    def _parse_floors(self, item, specs):
+        item.kaisuStr = _first_spec(specs, "所在階/構造・階建", "所在階", "階数")
         if item.kaisuStr:
-            m = re.search(r'(\d+)階', item.kaisuStr)
+            m = re.search(r'(\d{1,5})階', item.kaisuStr)
             if m:
                 item.floorType_kai = int(m.group(1))
-            m = re.search(r'地上(\d+)階', item.kaisuStr)
+            m = re.search(r'地上(\d{1,5})階', item.kaisuStr)
             if m:
                 item.floorType_chijo = int(m.group(1))
-            m = re.search(r'地下(\d+)階', item.kaisuStr)
+            m = re.search(r'地下(\d{1,5})階', item.kaisuStr)
             if m:
                 item.floorType_chika = int(m.group(1))
 
-        # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("築年", "") or specs.get("完成時期", "")
-        if item.chikunengetsuStr:
-            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
-
-        item.balconyMensekiStr = specs.get("バルコニー面積", "")
-        if item.balconyMensekiStr:
-            item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
-
-        # 総戸数
-        item.soukosuStr = specs.get("総戸数", "")
-        if item.soukosuStr:
-            item.soukosu = converter.parse_numeric(item.soukosuStr)
-
-        # 管理費/修繕積立金
+    def _parse_kanri_syuzen(self, item, specs):
         kanri_syuzen_val = specs.get("管理費/修繕積立金", "")
         if kanri_syuzen_val:
             parts = re.split(r'[／/]', kanri_syuzen_val)
@@ -370,11 +351,38 @@ class DaikyoMansionParser(DaikyoParser, MansionParserBase):
             if item.syuzenTsumitateStr:
                 item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+
+        item.madori = self._parseMadori(response, specs)
+        
+        item.senyuMensekiStr = specs.get("専有面積", "")
+        if item.senyuMensekiStr:
+            item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+
+        self._parse_floors(item, specs)
+
+        # 築年月
+        item.chikunengetsuStr = _first_spec(specs, "築年月", "築年", "完成時期")
+        if item.chikunengetsuStr:
+            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
+
+        item.balconyMensekiStr = specs.get("バルコニー面積", "")
+        if item.balconyMensekiStr:
+            item.balconyMenseki = converter.parse_menseki(item.balconyMensekiStr)
+
+        item.soukosuStr = specs.get("総戸数", "")
+        if item.soukosuStr:
+            item.soukosu = converter.parse_numeric(item.soukosuStr)
+
+        self._parse_kanri_syuzen(item, specs)
+
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         
-        item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
+        item.saikou = _first_spec(specs, "主要採光", "向き")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")

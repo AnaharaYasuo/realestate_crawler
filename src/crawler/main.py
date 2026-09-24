@@ -9,6 +9,7 @@ import inspect
 import asyncio
 import datetime
 import html
+from typing import Any
 from flask import Flask, jsonify, request
 from django.apps import apps
 from django.db import close_old_connections
@@ -307,6 +308,44 @@ def get_dispatch_map():
     }
 
 
+def _execute_crawl_func(func: Any, company: str, prop_type: str) -> bool:
+    try:
+        if inspect.iscoroutinefunction(func):
+            asyncio.run(func())
+        else:
+            func()
+        return True
+    except Exception as e:
+        logging.exception(f"Error during crawl task for {company} - {prop_type}: {e}")
+        return False
+
+
+def _count_scraped_items(company: str, prop_type: str, start_dt: datetime.datetime) -> int:
+    if not apps:
+        return 0
+    try:
+        target = prop_type.lower().replace("_", "")
+        for model in apps.get_models():
+            m_name = model.__name__.lower()
+            if m_name.startswith(company.lower()):
+                rest = m_name[len(company):]
+                if rest in (target, target.replace("invest", "investment")):
+                    q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
+                    return model.objects.filter(q).count()
+    except Exception as ce:
+        logging.exception(f"Failed to count scraped items: {ce}")
+    return 0
+
+
+def _update_task_record(task_rec: Any, success: bool) -> None:
+    if not task_rec:
+        return
+    task_rec.status = "COMPLETED" if success else "FAILED"
+    task_rec.jobs_success = 1 if success else 0
+    task_rec.jobs_failed = 0 if success else 1
+    task_rec.save()
+
+
 def execute_crawl_task(company: str, prop_type: str, execution_date: str = None):
     dispatch = get_dispatch_map()
     func = dispatch.get((company.lower(), prop_type.lower()))
@@ -323,37 +362,10 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
         defaults={"task_count": 1, "status": "RUNNING", "jobs_assigned": 1}
     )
 
-    success = False
-    try:
-        if inspect.iscoroutinefunction(func):
-            asyncio.run(func())
-        else:
-            func()
-        success = True
-    except Exception as e:
-        logging.error(f"Error during crawl task for {company} - {prop_type}: {e}", exc_info=True)
-        success = False
-
+    success = _execute_crawl_func(func, company, prop_type)
     elapsed = int(time.time() - start_t)
-    scraped_count = 0
-    if apps:
-        try:
-            target = prop_type.lower().replace("_", "")
-            for model in apps.get_models():
-                m_name = model.__name__.lower()
-                if m_name.startswith(company.lower()):
-                    rest = m_name[len(company):]
-                    if rest == target or rest == target.replace("invest", "investment"):
-                        q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
-                        scraped_count = model.objects.filter(q).count()
-        except Exception as ce:
-            logging.error(f"Failed to count scraped items: {ce}")
-
-    if task_rec:
-        task_rec.status = "COMPLETED" if success else "FAILED"
-        task_rec.jobs_success = 1 if success else 0
-        task_rec.jobs_failed = 0 if success else 1
-        task_rec.save()
+    scraped_count = _count_scraped_items(company, prop_type, start_dt)
+    _update_task_record(task_rec, success)
 
     return success, scraped_count, elapsed
 
@@ -441,8 +453,7 @@ if __name__ == "__main__":
                 else:
                     func()
             except Exception as e:
-                logging.error(f"Error during crawl execution: {e}")
-                logging.error(traceback.format_exc())
+                logging.exception(f"Error during crawl execution: {e}")
             logging.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:

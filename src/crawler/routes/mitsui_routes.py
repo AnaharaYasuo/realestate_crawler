@@ -119,8 +119,6 @@ mitsuiMansionPropertyDetail = mitsui_mansion_property_detail
 @mitsui_bp.route(API_KEY_MITSUI_MANSION_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsui_mansion_property_detail_test():
     logging.info(START_PROPERTY_DETAIL)
-    # request_json = json.loads(request.get_json())
-    # url = request_json['url']
     url = "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKPBAA05/"
     obj = ParseMitsuiMansionDetailFuncAsync()
     result = obj.main(url)
@@ -223,8 +221,6 @@ mitsuiTochiPropertyDetail = mitsui_tochi_property_detail
 @mitsui_bp.route(API_KEY_MITSUI_TOCHI_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsui_tochi_property_detail_test():
     logging.info(START_PROPERTY_DETAIL)
-    # request_json = json.loads(request.get_json())
-    # url = request_json['url']
     url = "https://www.rehouse.co.jp/buy/tochi/bkdetail/FBHZGA14/"
     obj = ParseMitsuiTochiDetailFuncAsync()
     result = obj.main(url)
@@ -327,8 +323,6 @@ mitsuiKodatePropertyDetail = mitsui_kodate_property_detail
 @mitsui_bp.route(API_KEY_MITSUI_KODATE_DETAIL_TEST, methods=['OPTIONS', 'POST', 'GET'])
 def mitsui_kodate_property_detail_test():
     logging.info(START_PROPERTY_DETAIL)
-    # request_json = json.loads(request.get_json())
-    # url = request_json['url']
     url = "https://www.rehouse.co.jp/kodate/bkdetail/FLGZ4A09/"
     obj = ParseMitsuiKodateDetailFuncAsync()
     result = obj.main(url)
