@@ -18,22 +18,21 @@ def generate_sample_mlit_csv(filepath):
     """
     logging.info(f"Generating sample MLIT station passenger volume CSV at: {filepath}")
     
-    # 国土数値情報（駅別乗降人員）に近いフォーマット
-    # 路線名, 駅名, 代表値（1日平均乗降人員数）
+    line_tokyu_toyoko = "東急東横線"
     sample_data = [
         ["JR東海道本線", "横浜", "420000"],
-        ["東急東横線", "横浜", "360000"],
+        [line_tokyu_toyoko, "横浜", "360000"],
         ["相鉄本線", "横浜", "230000"],
         ["京急本線", "横浜", "190000"],
         ["みなとみらい線", "みなとみらい", "25000"],
         ["みなとみらい線", "元町・中華街", "30000"],
         ["京急本線", "上大岡", "140000"],
-        ["東急東横線", "武蔵小杉", "180000"],
+        [line_tokyu_toyoko, "武蔵小杉", "180000"],
         ["JR南武線", "武蔵小杉", "130000"],
         ["東急田園都市線", "たまプラーザ", "80000"],
-        ["東急東横線", "日吉", "150000"],
+        [line_tokyu_toyoko, "日吉", "150000"],
         ["東急大井町線", "自由が丘", "55000"],
-        ["東急東横線", "自由が丘", "95000"],
+        [line_tokyu_toyoko, "自由が丘", "95000"],
         ["小田急小田原線", "町田", "290000"],
         ["JR横浜線", "町田", "110000"],
     ]
@@ -98,7 +97,7 @@ def import_mlit_stations(csv_path):
             # 駅名から「駅」という文字を除外して正規化 (クローラーとの結合を確実にするため)
             station_clean = station.replace("駅", "")
             
-            obj, created = StationPotential.objects.update_or_create(
+            _, created = StationPotential.objects.update_or_create(
                 station_name=station_clean,
                 railway_line=line,
                 defaults={

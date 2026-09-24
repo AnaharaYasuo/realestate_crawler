@@ -575,7 +575,7 @@ def calculate_chikunen(chikunengetsu, base_date=None):
             try:
                 dt = datetime.date(gregorian_year, month, 1)
                 return (base_date - dt).days / 365.25
-            except:
+            except Exception:
                 return 20.0
                 
         # 西暦のパース (YYYY-MM-DD or YYYY年MM月など)
@@ -584,14 +584,14 @@ def calculate_chikunen(chikunengetsu, base_date=None):
             try:
                 dt = datetime.date(int(m.group(1)), int(m.group(2)), 1)
                 return (base_date - dt).days / 365.25
-            except:
+            except Exception:
                 pass
                 
         # 単純な日付形式 YYYY-MM-DD
         try:
             dt = datetime.datetime.strptime(chikunengetsu, "%Y-%m-%d").date()
             return (base_date - dt).days / 365.25
-        except:
+        except Exception:
             return 20.0
     elif isinstance(chikunengetsu, (datetime.date, datetime.datetime)):
         if isinstance(chikunengetsu, datetime.datetime):
@@ -888,21 +888,21 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     
     # バス乗車分数の抽出 (例: "【バス】28分", "バス20分", "バス乗車15分")
     bus_min = 0.0
-    m_bus = re.search(r'(?:【バス】|バス|乗車)\s*([0-9]+)\s*分', raw_traffic)
+    m_bus = re.search(r'(?:【バス】|バス|乗車)\s*(\d+)\s*分', raw_traffic)
     if m_bus:
         bus_min = safe_float(m_bus.group(1), 0.0)
         bus_use = 1
         
     bus_walk = get_attr(property_obj, 'busWalkMinute1', None)
     if bus_walk is None:
-        m_bwalk = re.search(r'(?:停歩|停 徒歩|バス停徒歩)\s*([0-9]+)\s*分', raw_traffic)
+        m_bwalk = re.search(r'(?:停歩|停 徒歩|バス停徒歩)\s*(\d+)\s*分', raw_traffic)
         bus_walk = safe_float(m_bwalk.group(1), 0.0) if m_bwalk else 0.0
     else:
         bus_walk = safe_float(bus_walk, 0.0)
 
     if walk_min is None:
         # traffic / koutsu テキストからの徒歩分数抽出
-        m_walk = re.search(r'(?:徒歩|歩)\s*([0-9]+)\s*分', raw_traffic)
+        m_walk = re.search(r'(?:徒歩|歩)\s*(\d+)\s*分', raw_traffic)
         if m_walk:
             walk_min = safe_float(m_walk.group(1), 15)
         else:
@@ -938,8 +938,8 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             
     for text in search_texts:
         patterns = [
-            r'(?:セットバック|後退)(?:面積)?(?:約)?\s*([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)',
-            r'([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)\s*(?:のセットバック|の後退|セットバック要)',
+            r'(?:セットバック|後退)(?:面積)?(?:約)?\s*([\d.]+)\s*(?:㎡|平米|m2|ｍ２)',
+            r'([\d.]+)\s*(?:㎡|平米|m2|ｍ２)\s*(?:のセットバック|の後退|セットバック要)',
         ]
         found = False
         for pattern in patterns:
@@ -951,7 +951,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                         setback_area_temp = area_val
                         found = True
                         break
-                except:
+                except Exception:
                     pass
         if found:
             break
@@ -963,12 +963,12 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         raw_setsudou_temp = get_attr(property_obj, 'setsudou', '') or ''
         
         if not road_width_temp and raw_setsudou_temp:
-            m_width = re.search(r'([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
+            m_width = re.search(r'([\d.]+)\s*[mｍ]', raw_setsudou_temp)
             if m_width:
                 road_width_temp = safe_float(m_width.group(1), 0.0)
                 
         if not maguchi_temp and raw_setsudou_temp:
-            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*([0-9\.]+)\s*[mｍ]', raw_setsudou_temp)
+            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約\s*)?([\d.]+)\s*[mｍ]', raw_setsudou_temp)
             if m_maguchi:
                 maguchi_temp = safe_float(m_maguchi.group(1), 0.0)
                 
@@ -1143,7 +1143,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                         max_youseki = zone_max_youseki
                     if max_kenpei is None:
                         max_kenpei = zone_max_kenpei
-            except:
+            except Exception:
                 pass
                 
     if max_youseki is None:
@@ -1345,7 +1345,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         if hz:
             flood_risk_level = int(hz.flood_risk_level)
             landslide_risk_level = int(hz.landslide_risk_level)
-    except:
+    except Exception:
         pass
 
     # 土地（tochi）固有の鑑定特徴量の算出
@@ -1384,7 +1384,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
                 road_width = safe_float(m_width.group(1), None)
                 
         if not maguchi and raw_setsudou:
-            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約)?\s*(\d+(?:\.\d+)?)\s*[mｍ]', raw_setsudou)
+            m_maguchi = re.search(r'(?:間口|接面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', raw_setsudou)
             if m_maguchi:
                 maguchi = safe_float(m_maguchi.group(1), None)
                 
@@ -1642,7 +1642,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             
         # 古家建物面積の抽出 (テキストから「建物〇㎡」「延床〇㎡」またはtatemono_area)
         furuya_bldg_area = 0.0
-        m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([0-9\.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
+        m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([\d.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
         if m_bldg:
             furuya_bldg_area = safe_float(m_bldg.group(1), 0.0)
         if furuya_bldg_area <= 0.0:
@@ -1770,13 +1770,20 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
             bm_obj = None
 
     dev_tier = getattr(bm_obj, 'developer_tier', 'unknown') if bm_obj else 'unknown'
-    feats["bm_brand_tier_score"] = 1.0 if dev_tier == "major_reputable" else (0.5 if dev_tier == "standard" else 0.0)
+    dev_scores = {"major_reputable": 1.0, "standard": 0.5}
+    feats["bm_brand_tier_score"] = dev_scores.get(dev_tier, 0.0)
 
     contractor_tier = getattr(bm_obj, 'contractor_tier', 'unknown') if bm_obj else 'unknown'
-    feats["bm_contractor_tier_score"] = 1.0 if contractor_tier == "super_general" else (0.6 if contractor_tier == "major" else 0.0)
+    cont_scores = {"super_general": 1.0, "major": 0.6}
+    feats["bm_contractor_tier_score"] = cont_scores.get(contractor_tier, 0.0)
 
     eq_res = getattr(bm_obj, 'earthquake_resistance', '') or ''
-    feats["bm_is_seismic_isolated"] = 1.0 if "免震" in str(eq_res) else (0.5 if "制震" in str(eq_res) else 0.0)
+    if "免震" in str(eq_res):
+        feats["bm_is_seismic_isolated"] = 1.0
+    elif "制震" in str(eq_res):
+        feats["bm_is_seismic_isolated"] = 0.5
+    else:
+        feats["bm_is_seismic_isolated"] = 0.0
 
     ev_avail = getattr(bm_obj, 'elevator_available', None) if bm_obj else None
     if ev_avail is True:
@@ -1849,7 +1856,7 @@ def build_features_batch(properties_list, property_type, base_date=None, mkt_com
             results.append(feats)
         except Exception:
             # 万一の個別パース例外時は空辞書でなくデフォルト値でフォールバック
-            fallback = {col: 0.0 for col in FEATURE_SETS.get(property_type, {}).get("first", [])}
+            fallback = dict.fromkeys(FEATURE_SETS.get(property_type, {}).get("first", []), 0.0)
             fallback["area"] = 50.0
             results.append(fallback)
     return results

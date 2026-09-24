@@ -25,7 +25,7 @@ async def test_athome_list():
                 detail_links = []
                 for l in all_links:
                     path = urllib.parse.urlparse(l).path
-                    if re.search(r'/(mansion|kodate|tochi|toushi)/[0-9]{5,}/?', path):
+                    if re.search(r'/(mansion|kodate|tochi|toushi)/\d{5,}/?', path):
                         detail_links.append(l)
                 print(f"Athome detail links found: {len(detail_links)}. Samples: {detail_links[:5]}")
                 

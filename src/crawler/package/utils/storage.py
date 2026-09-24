@@ -5,6 +5,7 @@
 S3/GCS互換のMinIOオブジェクトストレージへ画像をアップロード・管理するインターフェースを提供します。
 """
 import os
+import json
 import boto3
 from botocore.client import Config
 import logging
@@ -24,7 +25,7 @@ class ObjectStorageManager:
             aws_access_key_id=self.access_key,
             aws_secret_access_key=self.secret_key,
             config=Config(signature_version='s3v4'),
-            region_name='us-east-1' # ダミー値、MinIOで必要
+            region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
         )
         
         self._ensure_bucket_exists()
@@ -38,9 +39,7 @@ class ObjectStorageManager:
             logger.info(f"Bucket '{self.bucket_name}' already exists.")
         except Exception:
             try:
-                self.s3_client.create_bucket(Bucket=self.bucket_name)
-                # バケットポリシーを公開用に設定（ブラウザで画像表示できるようにするため）
-                # 誰でもGET可能にするポリシー
+                # 公開読み取りポリシーを設定
                 policy = {
                     "Version": "2012-10-17",
                     "Statement": [
@@ -53,11 +52,10 @@ class ObjectStorageManager:
                         }
                     ]
                 }
-                import json
                 self.s3_client.put_bucket_policy(Bucket=self.bucket_name, Policy=json.dumps(policy))
                 logger.info(f"Successfully created bucket '{self.bucket_name}' with public-read policy.")
             except Exception as e:
-                logger.error(f"Failed to create bucket '{self.bucket_name}': {e}")
+                logger.exception(f"Failed to create bucket '{self.bucket_name}': {e}")
 
     def upload_image_bytes(self, image_bytes: bytes, filename: str, content_type: str = "image/jpeg") -> str:
         """
@@ -86,7 +84,7 @@ class ObjectStorageManager:
             logger.info(f"Successfully uploaded image to storage: {public_url}")
             return public_url
         except Exception as e:
-            logger.error(f"Failed to upload image '{filename}' to storage: {e}")
+            logger.exception(f"Failed to upload image '{filename}' to storage: {e}")
             raise e
 
 _storage_manager = None

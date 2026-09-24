@@ -15,39 +15,51 @@ sumifu_investment_bp = Blueprint('sumifu_investment', __name__)
 # ==============================================================================
 
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_KODATE_START, methods=['POST', 'GET'])
-def sumifuInvestKodateStart():
+def sumifu_invest_kodate_start():
     ParseSumifuInvestKodateStartAsync().main("")
     return "OK"
 
+sumifuInvestKodateStart = sumifu_invest_kodate_start
+
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_KODATE_LIST, methods=['POST', 'GET'])
-def sumifuInvestKodateList():
+def sumifu_invest_kodate_list():
     url = request.json['url']
     ParseSumifuInvestKodateListFuncAsync().main(url)
     return "OK"
 
+sumifuInvestKodateList = sumifu_invest_kodate_list
+
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_KODATE_DETAIL, methods=['POST', 'GET'])
-def sumifuInvestKodateDetail():
+def sumifu_invest_kodate_detail():
     url = request.json['url']
     ParseSumifuInvestKodateDetailFuncAsync().main(url)
     return "OK"
+
+sumifuInvestKodateDetail = sumifu_invest_kodate_detail
 
 # ==============================================================================
 #  APARTMENT ROUTES
 # ==============================================================================
 
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_APARTMENT_START, methods=['POST', 'GET'])
-def sumifuInvestApartmentStart():
+def sumifu_invest_apartment_start():
     ParseSumifuInvestApartmentStartAsync().main("")
     return "OK"
 
+sumifuInvestApartmentStart = sumifu_invest_apartment_start
+
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_APARTMENT_LIST, methods=['POST', 'GET'])
-def sumifuInvestApartmentList():
+def sumifu_invest_apartment_list():
     url = request.json['url']
     ParseSumifuInvestApartmentListFuncAsync().main(url)
     return "OK"
 
+sumifuInvestApartmentList = sumifu_invest_apartment_list
+
 @sumifu_investment_bp.route(API_KEY_SUMIFU_INVEST_APARTMENT_DETAIL, methods=['POST', 'GET'])
-def sumifuInvestApartmentDetail():
+def sumifu_invest_apartment_detail():
     url = request.json['url']
     ParseSumifuInvestApartmentDetailFuncAsync().main(url)
     return "OK"
+
+sumifuInvestApartmentDetail = sumifu_invest_apartment_detail

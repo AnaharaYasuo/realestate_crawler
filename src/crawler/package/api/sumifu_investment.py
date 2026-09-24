@@ -28,9 +28,7 @@ class ParseSumifuInvestDetailFuncAsyncBase(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
 
 class ParseSumifuInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
@@ -64,13 +62,13 @@ class ParseSumifuInvestStartAsyncBase(ApiAsyncProcBase):
     def _getTimeOutSecond(self):
         return 2400
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks)
         return responses

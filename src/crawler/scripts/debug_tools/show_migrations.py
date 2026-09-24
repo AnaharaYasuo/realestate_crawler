@@ -12,5 +12,4 @@ def show_migrations():
         print(f"Error showing migrations: {e}")
 
 if __name__ == "__main__":
-    show_migrations()
-ー
+    show_migrations()

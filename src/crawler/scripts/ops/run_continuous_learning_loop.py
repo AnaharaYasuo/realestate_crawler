@@ -83,7 +83,7 @@ def main():
         try:
             execute_single_cycle(iteration=iteration, force_eval=True)
         except Exception as e:
-            logging.error(f"サイクル #{iteration} で予期せぬ例外: {e}")
+            logging.exception(f"サイクル #{iteration} で予期せぬ例外: {e}")
             
         if args.once:
             break

@@ -47,7 +47,7 @@ def inspect_mitsui_nuxt():
         html = resp.read().decode('utf-8', errors='ignore')
     # scriptタグから、キーと値のペアを探索
     # 例: "floorPlan":"ワンルーム", "renovation"...
-    matches = re.findall(r'\"([a-zA-Z0-9_]{3,35})\":(\"[^\"]{1,100}\"|\d+|true|false|null)', html)
+    matches = re.findall(r'\"(\w{3,35})\":(\"[^\"]{1,100}\"|\d+|true|false|null)', html)
     print(f"\n--- MITSUI NUXT KEY-VALUES (Total {len(matches)} pairs) ---")
     interesting_kvs = {}
     for k, v in matches:
@@ -65,7 +65,7 @@ def inspect_mitsui_types():
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=10) as resp:
             html = resp.read().decode('utf-8', errors='ignore')
-        matches = re.findall(r'"([a-zA-Z0-9_]{3,35})":("([^"]{1,100})"|\d+|true|false|null)', html)
+        matches = re.findall(r'"(\w{3,35})":("([^"]{1,100})"|\d+|true|false|null)', html)
         print(f"\n=== {name} (Matches: {len(matches)}) ===")
         found = {}
         for item in matches:

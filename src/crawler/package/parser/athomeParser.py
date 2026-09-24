@@ -15,16 +15,19 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
+HTML_PARSER = "html.parser"
+LABEL_KAIDATE_KAI = "階建 / 階"
+
 ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
 ATHOME_LIST_KEYWORDS = ("tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
 _ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
-_ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_DIR_WIDTH_RE = (
-    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)'
+    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]'
 )
-_ATHOME_MAGUCHI_RE = r'([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+_ATHOME_MAGUCHI_RE = r'(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
-    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約)?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:m|米)?'
+    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 )
 _ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
 _ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
@@ -230,7 +233,7 @@ class AthomeParser(ParserBase):
         try:
             return await self._athome_fetch_with_playwright(url)
         except Exception as e:
-            logger.error("Playwright stealth fetch failed for %s: %s", url, e)
+            logger.exception("Playwright stealth fetch failed for %s: %s", url, e)
             return await super()._getContent(session, url)
 
     @staticmethod
@@ -298,13 +301,13 @@ class AthomeParser(ParserBase):
             item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
             item.okuyukiStr = f"{item.okuyuki}m"
 
-    def getRootDestUrl(self, linkUrl, base_domain=None):
-        if not linkUrl:
+    def getRootDestUrl(self, link_url, base_domain=None):
+        if not link_url:
             return ""
-        if linkUrl.startswith('http'):
-            return re.sub(r'(?<!:)//+', '/', linkUrl)
+        if link_url.startswith('http'):
+            return re.sub(r'(?<!:)//+', '/', link_url)
         base = base_domain or getattr(self, 'current_base_domain', None) or self.BASE_URL
-        joined = urllib.parse.urljoin(base, linkUrl)
+        joined = urllib.parse.urljoin(base, link_url)
         return re.sub(r'(?<!:)//+', '/', joined)
 
     @staticmethod
@@ -338,7 +341,7 @@ class AthomeParser(ParserBase):
         if not isinstance(response, BeautifulSoup):
             import lxml.etree
             html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
-            response = BeautifulSoup(html_str, "html.parser")
+            response = BeautifulSoup(html_str, HTML_PARSER)
 
         next_tag = (
             response.select_one(".pagination__item--next a")
@@ -387,7 +390,7 @@ class AthomeParser(ParserBase):
                 return [], None
             parsed_curr = urllib.parse.urlparse(curr_l_url)
             page_base = f"{parsed_curr.scheme or 'https'}://{parsed_curr.netloc}" if parsed_curr.netloc else base_domain
-            sub_soup = BeautifulSoup(list_html, "html.parser")
+            sub_soup = BeautifulSoup(list_html, HTML_PARSER)
             links = list(self._extract_detail_links_from_soup(sub_soup, page_base))
             next_page = await self.parseNextPage(sub_soup, base_domain=page_base)
             return links, next_page
@@ -446,7 +449,7 @@ class AthomeParser(ParserBase):
         if not isinstance(response, BeautifulSoup):
             import lxml.etree
             html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
-            response = BeautifulSoup(html_str, "html.parser")
+            response = BeautifulSoup(html_str, HTML_PARSER)
 
         detail_links = set()
         list_links = set()
@@ -539,22 +542,24 @@ class AthomeParser(ParserBase):
                     specs[label] = val_cleaned
         return specs
 
-    def _parseAddress(self, response: BeautifulSoup) -> str:
+    def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
+        _ = specs
         for th in response.find_all("th"):
             text = th.get_text().strip()
             if "所在地" in text and th.find_next_sibling("td"):
                 return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup) -> str:
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        _ = specs
         for th in response.find_all("th"):
             text = th.get_text().strip()
             if "価格" in text and th.find_next_sibling("td"):
                 return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
         return ""
 
-    def _parsePrice(self, response: BeautifulSoup) -> int:
-        pstr = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None) -> int:
+        pstr = self._parsePriceStr(response, specs)
         return converter.parse_price(pstr) or 0
 
     def _parseTraffic(self, response: BeautifulSoup) -> str:
@@ -648,7 +653,7 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
-        item.kaisuStr = specs.get("階建 / 階", "")
+        item.kaisuStr = specs.get(LABEL_KAIDATE_KAI, "")
         item.saikou = specs.get("主要採光面", "")
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)
@@ -729,7 +734,7 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        item.kaisuStr = specs.get("階建 / 階", "")
+        item.kaisuStr = specs.get(LABEL_KAIDATE_KAI, "")
         item.tyusyajo = specs.get("駐車場", "")
         item.chimoku = self._parseChimoku(response, specs)
         item.kenpeiStr = specs.get("建ぺい率", "")
@@ -836,7 +841,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         )
         if yield_str:
             return yield_str
-        m = re.search(r"利回り[：:\s]*([0-9]+(?:\.[0-9]+)?)\s*[％%]?", biko)
+        m = re.search(r"利回り[：:\s]*(\d+(?:\.\d+)?)\s*[％%]?", biko)
         return (m.group(1) + "%") if m else ""
 
     def _athome_parse_rent_str(self, specs: dict, biko: str) -> str:
@@ -849,7 +854,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         )
         if rent_str:
             return rent_str
-        m = re.search(r"年間想定(?:家賃)?収入[：:\s]*([0-9.,]+)\s*万円", biko)
+        m = re.search(r"年間想定(?:家賃)?収入[：:\s]*([\d.,]+)\s*万円", biko)
         return (m.group(1) + "万円") if m else ""
 
     def _athome_derive_rent_from_yield(self, item) -> None:
@@ -877,7 +882,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
 
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)
-        item.kaisuStr = specs.get("階建 / 階", "")
+        item.kaisuStr = specs.get(LABEL_KAIDATE_KAI, "")
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.kenpei = converter.parse_ratio(item.kenpeiStr)
         item.yousekiStr = specs.get("容積率", "")

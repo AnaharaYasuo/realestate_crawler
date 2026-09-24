@@ -20,7 +20,7 @@ async def test_athome_city_list():
             detail_links = set()
             for href in all_links:
                 path = urllib.parse.urlparse(href).path
-                if re.match(r'^/(mansion|kodate|toushi|tochi)/[0-9]{5,}/?$', path):
+                if re.match(r'^/(mansion|kodate|toushi|tochi)/\d{5,}/?$', path):
                     detail_links.add(href)
             print(f"Athome detail links found: {len(detail_links)}. Samples: {list(detail_links)[:5]}")
 

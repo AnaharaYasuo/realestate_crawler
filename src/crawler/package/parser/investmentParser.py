@@ -2,6 +2,9 @@ import re
 import logging
 from package.parser.baseParser import InvestmentParserBase
 
+NON_DIGIT_PATTERN = r'\D'
+
+
 class InvestmentParser(InvestmentParserBase):
     def _parseAddress(self, response, specs=None):
         return super()._parseAddress(response, specs)
@@ -27,8 +30,8 @@ class InvestmentParser(InvestmentParserBase):
     def _parsePriceStr(self, response, specs=None):
         return super()._parsePriceStr(response, specs)
 
-    def _parsePropertyDetailPage(self, response, specs=None):
-        return super()._parsePropertyDetailPage(response, specs)
+    def _parsePropertyDetailPage(self, item, response):
+        return super()._parsePropertyDetailPage(item, response)
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -92,7 +95,7 @@ class InvestmentParser(InvestmentParserBase):
             if '億' in text:
                 parts = text.split('億')
                 oku_part = parts[0]
-                total += int(re.sub(r'[^0-9]', '', oku_part)) * 100000000
+                total += int(re.sub(NON_DIGIT_PATTERN, '', oku_part)) * 100000000
                 remainder = parts[1]
             else:
                 remainder = text
@@ -102,10 +105,10 @@ class InvestmentParser(InvestmentParserBase):
                 man_part = remainder.split('万')[0]
                 # If there was '億', man_part might be empty or just numeric
                 if man_part:
-                    total += int(re.sub(r'[^0-9]', '', man_part)) * 10000
+                    total += int(re.sub(NON_DIGIT_PATTERN, '', man_part)) * 10000
             elif remainder and '億' not in text: # pure number?
                 # Sometimes prices are just raw numbers
-                clean_num = re.sub(r'[^0-9]', '', remainder)
+                clean_num = re.sub(NON_DIGIT_PATTERN, '', remainder)
                 if clean_num:
                     total += int(clean_num)
                     
@@ -121,7 +124,7 @@ class InvestmentParser(InvestmentParserBase):
         if not text:
             return None
         try:
-            clean = re.sub(r'[^0-9\.]', '', text)
+            clean = re.sub(r'[^\d.]', '', text)
             return float(clean)
         except Exception:
             logging.warning(f"Failed to parse yield: {text}")

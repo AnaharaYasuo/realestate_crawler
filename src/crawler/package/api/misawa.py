@@ -81,14 +81,14 @@ class ParseMisawaMansionStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         return API_KEY_MISAWA_MANSION_LIST
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
+        for _detail_url in self.urlList:
             # We skip 'Region'/'Area' layers and go straight to List for Misawa as the URL covers all
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks)
         return responses
@@ -167,13 +167,13 @@ class ParseMisawaKodateStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         return API_KEY_MISAWA_KODATE_LIST
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks)
         return responses
@@ -252,13 +252,13 @@ class ParseMisawaTochiStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         return API_KEY_MISAWA_TOCHI_LIST
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks)
         return responses

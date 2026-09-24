@@ -15,7 +15,7 @@ print("-" * 80)
 
 for model in sorted(models, key=lambda m: m.__name__):
     name = model.__name__
-    if not (name.endswith("Mansion") or name.endswith("Kodate") or name.endswith("Tochi") or "Investment" in name):
+    if not (name.endswith(("Mansion", "Kodate", "Tochi")) or "Investment" in name):
         continue
     if "PropertyEvaluation" in name:
         continue

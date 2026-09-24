@@ -96,7 +96,6 @@ class SumifuMansion(SumifuModel):
     madori = models.TextField()
     senyuMensekiStr = models.TextField()
     senyuMenseki = models.DecimalField(max_digits=8, decimal_places=3) # Strict
-    # kaisu = models.TextField() # Removed, defined as IntegerField below
     chikunengetsuStr = models.TextField()
     chikunengetsu = models.DateField(null=True)
 
@@ -190,7 +189,6 @@ class SumifuKodate(SumifuModel):
     chikunengetsuStr = models.TextField()
     chikunengetsu = models.DateField(null=True)
     kaisuKouzou  = models.TextField()
-    kaisu  = models.TextField(blank=True)
     kouzou  = models.TextField(blank=True)
     chimokuChisei = models.TextField()
     chimoku = models.TextField()

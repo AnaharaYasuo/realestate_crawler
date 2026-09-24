@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-建物名寄せ＆マスタ解決リゾルバ (BuildingResolver)
-同一マンション・アパートを名寄せし、BuildingMasterへの蓄積および未設定属性の自動補完を行う。
+建物名寄せおよびマスタ解決リゾルバ。
+同一マンションやアパートを名寄せし、BuildingMasterへの蓄積および未設定属性の自動補完を行う。
 """
 import re
 import unicodedata
@@ -73,12 +73,12 @@ def normalize_building_address(raw_address: str) -> str:
         return m_chome.group(1).replace(" ", "")
 
     # パターン2: ハイフン表記 (例: 浜松町1-2-3) ➔ 1丁目へ正規化
-    m_hyphen = re.search(r"^(.+?[都道府県]?.+?[市区町村].+?[^\d\-])(\d+)[\-－ー]", addr)
+    m_hyphen = re.search(r"^(.+?[都道府県]?.+?[市区町村][^\d\-]+)(\d+)[\-－ー]", addr)
     if m_hyphen:
         return f"{m_hyphen.group(1)}{m_hyphen.group(2)}丁目".replace(" ", "")
 
     # パターン3: 町名まで (大字・小字)
-    m_town = re.search(r"^(.+?[都道府県]?.+?[市区町村].+?[町男女東西南北])", addr)
+    m_town = re.search(r"^(.+?[都道府県]?.+?[市区町村][^町男女東西南北]*[町男女東西南北])", addr)
     if m_town:
         return m_town.group(1).replace(" ", "")
 
@@ -148,23 +148,23 @@ class BuildingResolver:
                 raw_name=raw_name,
                 normalized_address=norm_addr,
                 raw_address=raw_addr,
-                developer_brand=dev_brand,
+                developer_brand=dev_brand or "",
                 developer_tier=dev_tier,
-                contractor_name=contractor,
+                contractor_name=contractor or "",
                 contractor_tier=contractor_tier,
-                structure_type=prop_data.get("structure_type") or prop_data.get("structure"),
-                earthquake_resistance=prop_data.get("earthquake_resistance"),
+                structure_type=prop_data.get("structure_type") or prop_data.get("structure") or "",
+                earthquake_resistance=prop_data.get("earthquake_resistance") or "",
                 total_units=prop_data.get("total_units"),
                 total_floors=prop_data.get("total_floors"),
                 built_year=prop_data.get("built_year"),
                 built_month=prop_data.get("built_month"),
                 elevator_available=prop_data.get("elevator_available"),
                 elevator_count=prop_data.get("elevator_count"),
-                hallway_type=prop_data.get("hallway_type"),
+                hallway_type=prop_data.get("hallway_type") or "",
                 garbage_disposal_24h=prop_data.get("garbage_disposal_24h"),
-                management_company=prop_data.get("management_company"),
-                management_type=prop_data.get("management_type"),
-                manager_working_style=prop_data.get("manager_working_style"),
+                management_company=prop_data.get("management_company") or "",
+                management_type=prop_data.get("management_type") or "",
+                manager_working_style=prop_data.get("manager_working_style") or "",
             )
             created = True
             logging.info(f"BuildingResolver: Created new BuildingMaster [{norm_name}] in [{norm_addr}]")
@@ -185,7 +185,8 @@ class BuildingResolver:
                 ("manager_working_style", prop_data.get("manager_working_style")),
             ]
             for field_name, new_val in fields_to_check:
-                if new_val is not None and getattr(bm, field_name) is None:
+                curr_val = getattr(bm, field_name)
+                if new_val is not None and (curr_val is None or curr_val == ""):
                     setattr(bm, field_name, new_val)
                     updated = True
 

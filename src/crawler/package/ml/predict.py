@@ -37,7 +37,7 @@ def _load_mkt_comparison_master(model_dir):
                 _mkt_comparison_master = joblib.load(master_path)
                 logging.info("ML: Loaded market comparison master.")
             except Exception as e:
-                logging.error(f"ML: Failed to load market comparison master: {e}")
+                logging.exception(f"ML: Failed to load market comparison master: {e}")
                 _mkt_comparison_master = {}
         else:
             logging.warning("ML: Market comparison master not found. Run train.py first.")
@@ -54,7 +54,7 @@ def _load_smearing_factors(model_dir):
                 _smearing_factors = joblib.load(path)
                 logging.info("ML: Loaded smearing factors.")
             except Exception as e:
-                logging.error(f"ML: Failed to load smearing factors: {e}")
+                logging.exception(f"ML: Failed to load smearing factors: {e}")
                 _smearing_factors = {}
     return _smearing_factors
 
@@ -67,7 +67,7 @@ def _load_ensemble_weights(model_dir):
                 _ensemble_weights = joblib.load(path)
                 logging.info("ML: Loaded dynamic ensemble weights.")
             except Exception as e:
-                logging.error(f"ML: Failed to load ensemble weights: {e}")
+                logging.exception(f"ML: Failed to load ensemble weights: {e}")
                 _ensemble_weights = {}
     return _ensemble_weights
 
@@ -80,7 +80,7 @@ def _load_legacy_model(property_type, algo, stage, model_dir):
             model = joblib.load(legacy_path)
             logging.info(f"ML: Loaded {property_type} {stage} legacy model as lgb.")
             return model
-        except:
+        except Exception:
             pass
     return None
 
@@ -102,7 +102,7 @@ def _load_first_stage_models(property_type, model_dir):
                     logging.info(f"ML: Loaded {property_type} first stage {algo} model.")
                     continue
                 except Exception as e:
-                    logging.error(f"ML: Failed to load {property_type} first stage {algo} model: {e}")
+                    logging.exception(f"ML: Failed to load {property_type} first stage {algo} model: {e}")
             
             legacy_model = _load_legacy_model(property_type, algo, "first_stage", model_dir)
             if legacy_model:
@@ -128,7 +128,7 @@ def _load_second_stage_models(property_type, model_dir):
                     logging.info(f"ML: Loaded {property_type} second stage {algo} model.")
                     continue
                 except Exception as e:
-                    logging.error(f"ML: Failed to load {property_type} second stage {algo} model: {e}")
+                    logging.exception(f"ML: Failed to load {property_type} second stage {algo} model: {e}")
             
             legacy_model = _load_legacy_model(property_type, algo, "second_stage", model_dir)
             if legacy_model:
@@ -227,7 +227,7 @@ def _log_prediction_error(property_obj, property_type, predicted_price, actual_p
             df_row.to_csv(log_path, mode='a', index=False, header=header, encoding='utf-8-sig')
             logging.info(f"ML: Logged prediction error for {page_url} (Error: {error_ratio*100:.1f}%)")
         except Exception as e:
-            logging.error(f"ML: Failed to write prediction error log: {e}")
+            logging.exception(f"ML: Failed to write prediction error log: {e}")
 
 def _apply_rights_discount(_property_obj, predicted_price: float) -> int:
     """
@@ -246,7 +246,7 @@ def _align_features(df, model):
     if names_in is not None:
         try:
             expected_features = list(names_in)
-        except:
+        except Exception:
             pass
         
     if not expected_features:
@@ -254,7 +254,7 @@ def _align_features(df, model):
         if name_ is not None:
             try:
                 expected_features = list(name_)
-            except:
+            except Exception:
                 pass
             
     if not expected_features:
@@ -262,7 +262,7 @@ def _align_features(df, model):
         if names is not None:
             try:
                 expected_features = list(names)
-            except:
+            except Exception:
                 pass
             
     if not expected_features:
@@ -272,7 +272,7 @@ def _align_features(df, model):
                 res = feature_name_func()
                 if isinstance(res, (list, tuple)):
                     expected_features = list(res)
-            except:
+            except Exception:
                 pass
                 
     if not expected_features:
@@ -284,7 +284,7 @@ def _align_features(df, model):
                     res = booster_feature_name()
                     if isinstance(res, (list, tuple)):
                         expected_features = list(res)
-                except:
+                except Exception:
                     pass
                     
     if not expected_features:
@@ -295,7 +295,7 @@ def _align_features(df, model):
                 booster_names = getattr(booster_obj, "feature_names", None)
                 if booster_names is not None:
                     expected_features = list(booster_names)
-            except:
+            except Exception:
                 pass
         
     if not expected_features:
@@ -333,12 +333,7 @@ def _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas
     return np.maximum(final_preds, 0.0)
 
 def _ensemble_predict(models, df, weights, ptype, smearing_factor=1.0) -> float:
-    loaded_weights = {}
-    total_weight = 0.0
-    for algo, model in models.items():
-        if model:
-            loaded_weights[algo] = weights.get(algo, 0.25)
-            total_weight += loaded_weights[algo]
+    loaded_weights = {algo: weights.get(algo, 0.25) for algo, model in models.items() if model}
             
     if not loaded_weights:
         logging.error(f"ML DEBUG: No models available for {ptype}. Models dict content: {models}")

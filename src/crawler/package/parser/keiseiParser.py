@@ -38,20 +38,20 @@ class KeiseiParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + "/" + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + "/" + link_url
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         return await super().getResponseBs(session, url, charset)
@@ -145,14 +145,6 @@ class KeiseiParser(ParserBase):
         item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "")
 
         return item
-
-    def _parseCurrentStatus(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
-
-    def _parseRights(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
 
 class KeiseiMansionParser(KeiseiParser, MansionParserBase):
     def _parsePriceStr(self, response, specs=None):

@@ -23,46 +23,62 @@ def get_start_url(property_type='mansion'):
     return f"https://www.odakyu-chukai.com/{url_type}/list/"
 
 @odakyu_bp.route(API_KEY_ODAKYU_MANSION_START, methods=['POST', 'GET'])
-def odakyuMansionStart():
+def odakyu_mansion_start():
     return ParseOdakyuMansionStartAsync().main(get_start_url('mansion'))
 
+odakyuMansionStart = odakyu_mansion_start
+
 @odakyu_bp.route(API_KEY_ODAKYU_MANSION_DETAIL, methods=['POST', 'GET'])
-def odakyuMansionDetail():
+def odakyu_mansion_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseOdakyuMansionDetailFuncAsync().main(url)
     return "finish", 200
 
+odakyuMansionDetail = odakyu_mansion_detail
+
 @odakyu_bp.route(API_KEY_ODAKYU_KODATE_START, methods=['POST', 'GET'])
-def odakyuKodateStart():
+def odakyu_kodate_start():
     return ParseOdakyuKodateStartAsync().main(get_start_url('kodate'))
 
+odakyuKodateStart = odakyu_kodate_start
+
 @odakyu_bp.route(API_KEY_ODAKYU_KODATE_DETAIL, methods=['POST', 'GET'])
-def odakyuKodateDetail():
+def odakyu_kodate_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseOdakyuKodateDetailFuncAsync().main(url)
     return "finish", 200
 
+odakyuKodateDetail = odakyu_kodate_detail
+
 @odakyu_bp.route(API_KEY_ODAKYU_TOCHI_START, methods=['POST', 'GET'])
-def odakyuTochiStart():
+def odakyu_tochi_start():
     return ParseOdakyuTochiStartAsync().main(get_start_url('tochi'))
 
+odakyuTochiStart = odakyu_tochi_start
+
 @odakyu_bp.route(API_KEY_ODAKYU_TOCHI_DETAIL, methods=['POST', 'GET'])
-def odakyuTochiDetail():
+def odakyu_tochi_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseOdakyuTochiDetailFuncAsync().main(url)
     return "finish", 200
 
+odakyuTochiDetail = odakyu_tochi_detail
+
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_START, methods=['POST', 'GET'])
-def odakyuInvestmentStart():
+def odakyu_investment_start():
     return ParseOdakyuInvestmentStartAsync().main("https://www.odakyu-chukai.com/invest/list/")
 
+odakyuInvestmentStart = odakyu_investment_start
+
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_DETAIL, methods=['POST', 'GET'])
-def odakyuInvestmentDetail():
+def odakyu_investment_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseOdakyuInvestmentDetailFuncAsync().main(url)
     return "finish", 200
+
+odakyuInvestmentDetail = odakyu_investment_detail
 

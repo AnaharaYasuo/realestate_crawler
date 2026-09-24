@@ -36,10 +36,10 @@ class DependabotPrInspector:
             res = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return json.loads(res.stdout)
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to list dependabot PRs: {e.stderr}")
+            logger.exception(f"Failed to list dependabot PRs: {e.stderr}")
             return []
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse gh output as JSON: {e}")
+            logger.exception(f"Failed to parse gh output as JSON: {e}")
             return []
 
     def evaluate_pr_status(self, pr_data: Dict[str, Any]) -> Tuple[PRStatus, str]:
@@ -108,7 +108,7 @@ class DependabotAutoMerger:
             logger.info(f"Successfully merged PR #{pr_number}: {res.stdout.strip()}")
             return True
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to merge PR #{pr_number}: {e.stderr.strip()}")
+            logger.exception(f"Failed to merge PR #{pr_number}: {e.stderr.strip()}")
             return False
 
     def request_rebase(self, pr_number: int) -> bool:
@@ -123,7 +123,7 @@ class DependabotAutoMerger:
             logger.info(f"Successfully requested rebase on PR #{pr_number}")
             return True
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to request rebase on PR #{pr_number}: {e.stderr.strip()}")
+            logger.exception(f"Failed to request rebase on PR #{pr_number}: {e.stderr.strip()}")
             return False
 
     def format_summary_markdown(self, results: List[Dict[str, Any]]) -> str:
@@ -157,13 +157,23 @@ class DependabotAutoMerger:
             if status == PRStatus.MERGE_READY:
                 if self.auto_merge:
                     success = self.execute_merge(number)
-                    action_desc = "Merged" if success and not self.dry_run else ("Merged (Dry-Run)" if self.dry_run else "Merge Failed")
+                    if self.dry_run:
+                        action_desc = "Merged (Dry-Run)"
+                    elif success:
+                        action_desc = "Merged"
+                    else:
+                        action_desc = "Merge Failed"
                 else:
                     action_desc = "Ready (Auto-merge disabled)"
             elif status == PRStatus.NEED_REBASE:
                 if self.auto_rebase:
                     success = self.request_rebase(number)
-                    action_desc = "Rebase Requested" if success and not self.dry_run else ("Rebase Requested (Dry-Run)" if self.dry_run else "Rebase Request Failed")
+                    if self.dry_run:
+                        action_desc = "Rebase Requested (Dry-Run)"
+                    elif success:
+                        action_desc = "Rebase Requested"
+                    else:
+                        action_desc = "Rebase Request Failed"
                 else:
                     action_desc = "Conflict / Out-of-date (Rebase disabled)"
             elif status == PRStatus.CI_RUNNING:

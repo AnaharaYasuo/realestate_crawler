@@ -12,9 +12,9 @@ async def dump_homes_hrefs():
             html = await resp.text()
             soup = BeautifulSoup(html, "html.parser")
             
-            all_hrefs = set([a.get("href") for a in soup.find_all("a", href=True)])
+            all_hrefs = {a.get("href") for a in soup.find_all("a", href=True)}
             print(f"Unique hrefs count: {len(all_hrefs)}")
-            for h in sorted(list(all_hrefs))[:30]:
+            for h in sorted(all_hrefs)[:30]:
                 print(f"  {h}")
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
                 await asyncio.sleep(1.0)
                 return True
     except Exception as e:
-        logger.error(f"Failed to send Slack notification: {e}")
+        logger.exception(f"Failed to send Slack notification: {e}")
         record_failed_message(channel, str(e), message)
         return False
 
@@ -138,7 +138,7 @@ def record_failed_message(channel: str, error: str, message: str):
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as ex:
-        logger.error(f"Failed to write failed Slack message record: {ex}")
+        logger.exception(f"Failed to write failed Slack message record: {ex}")
 
 
 async def verify_url_active(url: str) -> bool:

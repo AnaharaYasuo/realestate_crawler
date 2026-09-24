@@ -8,6 +8,8 @@ from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
+MIZUHO_BASE_URL = "https://www.mizuho-re.co.jp/"
+
 # Official detail sitemaps (robots.txt → sitemap_all.xml). WAF-safe discovery.
 _SITEMAP_BY_KIND = {
     "house": ("https://www.mizuho-re.co.jp/sitemap_detail_house.xml",),
@@ -247,7 +249,7 @@ async def _get_mizuho_links_once(url: str) -> list:
                     "MizuhoBypass: Navigating to top page first to establish cookies..."
                 )
                 await page.goto(
-                    "https://www.mizuho-re.co.jp/",
+                    MIZUHO_BASE_URL,
                     wait_until="domcontentloaded",
                     timeout=15000,
                 )
@@ -280,7 +282,7 @@ async def _get_mizuho_links_once(url: str) -> list:
                     )
                     await page.wait_for_timeout(3000)
                     await page.goto(
-                        "https://www.mizuho-re.co.jp/",
+                        MIZUHO_BASE_URL,
                         wait_until="domcontentloaded",
                         timeout=15000,
                     )
@@ -312,7 +314,7 @@ async def _get_mizuho_links_once(url: str) -> list:
                             exc_info=True,
                         )
     except Exception as e:  # noqa: BLE001
-        logger.error("MizuhoBypass: Error during Playwright operation: %s", e)
+        logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
 
     return links
 
@@ -364,7 +366,7 @@ async def get_mizuho_page_html(url: str) -> bytes:
                 """)
                 page = await context.new_page()
                 await page.goto(
-                    "https://www.mizuho-re.co.jp/",
+                    MIZUHO_BASE_URL,
                     wait_until="networkidle",
                     timeout=20000,
                 )

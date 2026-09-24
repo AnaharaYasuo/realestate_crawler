@@ -16,6 +16,12 @@ from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 
+HTML_PARSER = "html.parser"
+TOKEN_INQUIRY = "/inquiry"
+TOKEN_CONTACT = "/contact"
+DECIMAL_REGEX = re.compile(r'([\d\.]+)')
+DIGIT_REGEX = re.compile(r'(\d+)')
+
 
 class ReadPropertyNameException(Exception):
 
@@ -223,7 +229,7 @@ class ParserBase(metaclass=ABCMeta):
 
     async def parsePropertyListPage(self, response):
         return
-        yield
+
 
     @staticmethod
     def _put_th_td_pairs(ths, tds, specs: dict) -> None:
@@ -306,9 +312,14 @@ class ParserBase(metaclass=ABCMeta):
     def _scrape_to_dict(self, response: BeautifulSoup) -> dict:
         return self._get_specs(response)
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+    def _parsePropertyDetailPage(self, item, _response: BeautifulSoup):
         """Default base detail page parse returning the item entity."""
         return item
+
+    _TOKEN_INQUIRY = TOKEN_INQUIRY
+    _TOKEN_CONTACT = TOKEN_CONTACT
+    _TOKEN_RENT = "/rent/"
+    _TOKEN_CHINTAI = "/chintai/"
 
     @staticmethod
     def _is_non_property_href(href: str) -> bool:
@@ -317,14 +328,15 @@ class ParserBase(metaclass=ABCMeta):
             return True
         if href.startswith(("javascript:", "mailto:", "tel:")):
             return True
-        skip_tokens = ("/inquiry", "/contact", "/shiritai/", "/360/", "/benefit/")
+        skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, "/shiritai/", "/360/", "/benefit/")
         return any(tok in href for tok in skip_tokens)
 
     @staticmethod
     def _href_fails_rental_filter(href: str, str_xpath: str) -> bool:
-        if "/chintai/" in str_xpath or "/rent/" in str_xpath:
+        if ParserBase._TOKEN_CHINTAI in str_xpath or ParserBase._TOKEN_RENT in str_xpath:
             return False
-        return "/chintai/" in href or "/rent/" in href or "/chintai_" in href
+        return ParserBase._TOKEN_CHINTAI in href or ParserBase._TOKEN_RENT in href or "/chintai_" in href
+
 
     @staticmethod
     def _href_fails_detail_filter(href: str, str_xpath: str) -> bool:
@@ -373,7 +385,7 @@ class ParserBase(metaclass=ABCMeta):
             return None
         if not dest_url or not isinstance(dest_url, str) or not dest_url.startswith("http"):
             return None
-        bad_tokens = ("javascript:", "void(0)", "/inquiry", "/contact")
+        bad_tokens = ("javascript:", "void(0)", TOKEN_INQUIRY, TOKEN_CONTACT)
         if any(tok in dest_url for tok in bad_tokens):
             return None
         return dest_url
@@ -512,7 +524,9 @@ class ParserBase(metaclass=ABCMeta):
         """Parse 沿線 駅名駅 徒歩N分 style traffic. Returns True if matched."""
         m = re.search(
             r'([^\s「」\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\s+'
-            r'([^\s「」\/]+?駅)\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?',
+            r'([^\s「」\/]+?駅)'
+            r'(?:\s*(?:徒歩|バス|車))?'
+            r'(?:\s*(\d+)(?:\s*分)?)?',
             traffic_text,
         )
         if not m:
@@ -523,9 +537,12 @@ class ParserBase(metaclass=ABCMeta):
     def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
         m = re.search(
-            r'([^\s「」]+?(?:駅|停留所|バス停))\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?',
+            r'([^\s「」\d]+?(?:駅|停留所|バス停))'
+            r'(?:\s*(?:徒歩|バス|車))?'
+            r'(?:\s*(\d+)(?:\s*分)?)?',
             traffic_text,
         )
+
         if not m:
             return False
         station = self._normalize_station_name(m.group(1))
@@ -568,15 +585,16 @@ class ParserBase(metaclass=ABCMeta):
         try:
             soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
             if not soup.find() or len(str(soup)) < 100:
-                soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
+                soup = BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
             return soup
         except Exception:
-            return BeautifulSoup(content, "html.parser", from_encoding=encoding)
+            return BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
 
     async def getResponse(self, session, url: str, charset: str | None = None) -> BeautifulSoup:
         return await self.getResponseBs(session, url, charset=charset)
 
     async def parseNextPage(self, response):
+        await asyncio.sleep(0)
         return ""
 
     def _getValueByLabel(self, soup: BeautifulSoup, label: str):
@@ -924,7 +942,7 @@ class ParserBase(metaclass=ABCMeta):
         if not url:
             return
         u_lower = str(url).lower()
-        skip_parts = ("/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/")
+        skip_parts = ("/shiritai/", "/360/", "/chintai/", "/rent/", TOKEN_INQUIRY, TOKEN_CONTACT, "/benefit/")
         if any(p in u_lower for p in skip_parts):
             logging.info(f"Fast-skipping non-property/rental URL: {url}")
             raise SkipPropertyException(f"Non-property URL skipped: {url}")
@@ -945,10 +963,10 @@ class ParserBase(metaclass=ABCMeta):
         try:
             soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
             if not soup.find() or len(str(soup)) < 100:
-                soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
+                soup = BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
             return soup
         except Exception:
-            return BeautifulSoup(content, "html.parser", from_encoding=encoding)
+            return BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
 
     @staticmethod
     def _raise_on_listing_title(title: str, url) -> None:
@@ -1009,14 +1027,15 @@ class ParserBase(metaclass=ABCMeta):
         except SkipPropertyException as e:
             raise e
         except (LoadPropertyPageException, TimeoutError) as e:
-            logging.error(f"Failure loading page: {url} - Reason: {str(e)}")
+            logging.exception(f"Failure loading page: {url}")
             raise e
         except Exception as e:
             msg = f"Can not read property page: {url} - Reason: {str(e)}"
-            logging.error(msg)
+            logging.exception(msg)
             if content:
                 self.save_error_html(url, content, reason=str(e))
             raise LoadPropertyPageException(msg)
+
         return item
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
@@ -1062,7 +1081,7 @@ class MansionParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("専有面積", "") or specs.get("壁芯面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1092,7 +1111,7 @@ class MansionParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("総戸数", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1113,7 +1132,7 @@ class MansionParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1122,7 +1141,7 @@ class MansionParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("容積率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1162,7 +1181,7 @@ class KodateParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1171,7 +1190,7 @@ class KodateParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建物面積", "") or specs.get("延床面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1196,7 +1215,7 @@ class KodateParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1205,7 +1224,7 @@ class KodateParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("容積率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1254,7 +1273,7 @@ class TochiParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1263,7 +1282,7 @@ class TochiParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1272,7 +1291,7 @@ class TochiParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("容積率", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
         return None
 
@@ -1339,7 +1358,7 @@ class InvestmentParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("表面利回り", "") or specs.get("利回り", "") or specs.get("想定利回り", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1380,7 +1399,7 @@ class InvestmentParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("土地面積", "") or specs.get("区画面積", "") or specs.get("敷地面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 
@@ -1389,7 +1408,7 @@ class InvestmentParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建物面積", "") or specs.get("延床面積", "")
         if val:
-            m = re.search(r'([\d\.]+)', val)
+            m = DECIMAL_REGEX.search(val)
             return Decimal(m.group(1)) if m else None
         return None
 

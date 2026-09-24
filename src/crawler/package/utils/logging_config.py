@@ -13,7 +13,7 @@ import datetime
 from typing import Optional, Any
 import structlog
 
-
+GCP_SOURCE_LOCATION_KEY = "logging.googleapis.com/sourceLocation"
 _configured = False
 
 
@@ -59,7 +59,7 @@ def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
     # 4. sourceLocation (標準 logging Record または structlog callsite より抽出)
     record = event_dict.pop("_record", None)
     if record:
-        event_dict["logging.googleapis.com/sourceLocation"] = {
+        event_dict[GCP_SOURCE_LOCATION_KEY] = {
             "file": getattr(record, "pathname", ""),
             "line": getattr(record, "lineno", 0),
             "function": getattr(record, "funcName", "")
@@ -68,13 +68,13 @@ def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
         f = event_dict.pop("pathname", "")
         l = event_dict.pop("lineno", 0)
         fn = event_dict.pop("func_name", "")
-        event_dict["logging.googleapis.com/sourceLocation"] = {
+        event_dict[GCP_SOURCE_LOCATION_KEY] = {
             "file": f,
             "line": l,
             "function": fn
         }
-    elif "logging.googleapis.com/sourceLocation" not in event_dict:
-        event_dict["logging.googleapis.com/sourceLocation"] = {
+    elif GCP_SOURCE_LOCATION_KEY not in event_dict:
+        event_dict[GCP_SOURCE_LOCATION_KEY] = {
             "file": getattr(logger, "name", "root"),
             "line": 0,
             "function": ""
@@ -158,8 +158,7 @@ def configure_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(numeric_level)
     # 既存ハンドラーをクリーンアップ
-    for h in list(root_logger.handlers):
-        root_logger.removeHandler(h)
+    root_logger.handlers.clear()
 
     handler = logging.StreamHandler(stream)
     handler.setFormatter(formatter)

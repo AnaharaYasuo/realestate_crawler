@@ -94,11 +94,11 @@ class ParseNomuraMansionStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_REGION_GCP
         return API_KEY_NOMURA_MANSION_REGION
-    async def _callApi(self, urlList): return None
+    async def _callApi(self, url_list): return None
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
             await asyncio.sleep(0.1)
         responses = await asyncio.gather(*tasks)
@@ -167,11 +167,11 @@ class ParseNomuraKodateStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_REGION_GCP
         return API_KEY_NOMURA_KODATE_REGION
-    async def _callApi(self, urlList): return None
+    async def _callApi(self, url_list): return None
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
             await asyncio.sleep(0.1)
         responses = await asyncio.gather(*tasks)
@@ -240,11 +240,11 @@ class ParseNomuraTochiStartAsync(ApiAsyncProcBase):
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_REGION_GCP
         return API_KEY_NOMURA_TOCHI_REGION
-    async def _callApi(self, urlList): return None
+    async def _callApi(self, url_list): return None
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
             await asyncio.sleep(0.1)
         responses = await asyncio.gather(*tasks)

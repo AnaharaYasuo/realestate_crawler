@@ -4,6 +4,7 @@ import sys
 import json
 import requests
 import logging
+import re
 from collections import defaultdict
 
 # Django環境のロード
@@ -101,8 +102,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
             try:
                 price = float(price_str)
                 # 面積に「㎡」等の文字が含まれる場合があるため、数値部分のみ抽出
-                import re
-                area_match = re.search(r'([0-9\.]+)', str(area_str))
+                area_match = re.search(r'([\d.]+)', str(area_str))
                 if not area_match:
                     continue
                 area = float(area_match.group(1))
@@ -137,7 +137,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
             fixed_asset = int(avg_unit_price * 0.7)
             
             # update_or_create でマスタに同期
-            obj, created = LandPricePotential.objects.update_or_create(
+            LandPricePotential.objects.update_or_create(
                 prefecture=pref,
                 city=city_name,
                 land_use=use,
@@ -153,7 +153,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
         return True
         
     except Exception as e:
-        logging.error(f"Failed to sync land prices from MLIT API: {e}")
+        logging.exception(f"Failed to sync land prices from MLIT API: {e}")
         return False
 
 if __name__ == "__main__":

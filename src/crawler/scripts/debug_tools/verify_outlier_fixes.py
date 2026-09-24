@@ -22,7 +22,12 @@ app_config = apps.get_app_config("package")
 for url in urls:
     for model in app_config.get_models():
         field_names = [f.name for f in model._meta.get_fields()]
-        url_field = "pageUrl" if "pageUrl" in field_names else ("url" if "url" in field_names else None)
+        if "pageUrl" in field_names:
+            url_field = "pageUrl"
+        elif "url" in field_names:
+            url_field = "url"
+        else:
+            url_field = None
         if not url_field:
             continue
         obj = model.objects.filter(**{url_field: url}).order_by('-id').first()

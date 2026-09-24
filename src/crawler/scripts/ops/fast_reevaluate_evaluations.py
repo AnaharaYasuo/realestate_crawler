@@ -52,10 +52,20 @@ def fast_reevaluate():
         logging.info(f"Processing {model_class.__name__} ({len(ev_list):,} records)...")
         
         # モデルオブジェクトをURLでマッピング
-        url_field = "pageUrl" if hasattr(model_class, "pageUrl") else ("url" if hasattr(model_class, "url") else None)
+        if hasattr(model_class, "pageUrl"):
+            url_field = "pageUrl"
+        elif hasattr(model_class, "url"):
+            url_field = "url"
+        else:
+            url_field = None
         if not url_field:
             field_names = [f.name for f in model_class._meta.get_fields()]
-            url_field = "pageUrl" if "pageUrl" in field_names else ("url" if "url" in field_names else None)
+            if "pageUrl" in field_names:
+                url_field = "pageUrl"
+            elif "url" in field_names:
+                url_field = "url"
+            else:
+                url_field = None
             
         if not url_field:
             logging.warning(f"No URL field found on {model_class.__name__}")

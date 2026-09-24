@@ -26,6 +26,9 @@ from package.utils.slack import send_slack_message
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
+LABEL_INVEST_APARTMENT = "一棟アパート"
+LABEL_INVEST_KODATE = "戸建（投資用）"
+
 def get_property_record(eval_record):
     """URLに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
     company = eval_record.company.lower()
@@ -62,21 +65,25 @@ def normalize_asking_price_man(asking_price):
         return 0
 
 
+def _format_dt(dt) -> str:
+    if hasattr(dt, "strftime"):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return str(dt) if dt else "-"
+
+
+def _find_pub_dt(prop):
+    for attr in ("updateDateTime", "updateDate", "publishedDateTime", "publishedDate", "published_at", "updated_at"):
+        val = getattr(prop, attr, None)
+        if val:
+            return val
+    return getattr(prop, "inputDate", None)
+
+
 def get_prop_dates(prop):
     crawl_dt = getattr(prop, "inputDateTime", None) or getattr(prop, "inputDate", None)
-    crawl_str = crawl_dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(crawl_dt, "strftime") else str(crawl_dt) if crawl_dt else "-"
-    
-    pub_dt = None
-    for attr in ["updateDateTime", "updateDate", "publishedDateTime", "publishedDate", "published_at", "updated_at"]:
-        if hasattr(prop, attr):
-            val = getattr(prop, attr)
-            if val:
-                pub_dt = val
-                break
-    if not pub_dt:
-        pub_dt = getattr(prop, "inputDate", None)
-    
-    pub_str = pub_dt.strftime("%Y-%m-%d %H:%M:%S") if hasattr(pub_dt, "strftime") else str(pub_dt) if pub_dt else "-"
+    crawl_str = _format_dt(crawl_dt)
+    pub_dt = _find_pub_dt(prop)
+    pub_str = _format_dt(pub_dt)
     return pub_str, crawl_str
 
 def _evaluate_investment_candidate(eval_rec) -> tuple:
@@ -168,11 +175,11 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         "mansion": "中古マンション",
         "kodate": "中古戸建",
         "tochi": "土地",
-        "invest_kodate": "戸建（投資用）",
-        "invest_apartment": "一棟アパート",
-        "apartment": "一棟アパート",
-        "investmentkodate": "戸建（投資用）",
-        "investmentapartment": "一棟アパート",
+        "invest_kodate": LABEL_INVEST_KODATE,
+        "invest_apartment": LABEL_INVEST_APARTMENT,
+        "apartment": LABEL_INVEST_APARTMENT,
+        "investmentkodate": LABEL_INVEST_KODATE,
+        "investmentapartment": LABEL_INVEST_APARTMENT,
         "investment": "投資用物件"
     }.get(eval_rec.property_type, eval_rec.property_type)
 

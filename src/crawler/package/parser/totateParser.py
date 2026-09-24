@@ -31,12 +31,12 @@ class TotateParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + '/' + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + '/' + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # 東京建物の改ページリンク。pagingクラスなどの a タグから next または数字を探す。
@@ -110,7 +110,7 @@ class TotateParser(ParserBase):
 
         return item
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         # 物件名の要素を探す (.page-title .name が基本、フォールバックでパンくず等)
         title_el = response.select_one(".page-title .name") or response.select_one("#pankuzu span.selected") or response.select_one(".boxtitle h2")
         if title_el:
@@ -121,18 +121,18 @@ class TotateParser(ParserBase):
                 return h1.get_text().strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):
@@ -143,7 +143,7 @@ class TotateParser(ParserBase):
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
         if access_str:
-            parts = [p.strip() for p in re.split(r'[\r\n\t、\s]+', access_str) if p.strip()]
+            parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
             current_line = []
             for part in parts:
                 current_line.append(part)

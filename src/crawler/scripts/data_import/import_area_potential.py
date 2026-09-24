@@ -11,6 +11,12 @@ realestateSettings.configure()
 
 from package.models.evaluation import MunicipalPotential, StationPotential
 
+LINE_YAMANOTE = "JR山手線"
+LINE_CHUO = "JR中央線"
+LINE_YURAKUCHO = "東京メトロ有楽町線"
+LINE_NANBOKU = "東京メトロ南北線"
+LINE_HIGASHIYAMA = "名古屋市営東山線"
+
 def import_municipal_data():
     print("Importing municipal potential data...")
     
@@ -53,7 +59,7 @@ def import_municipal_data():
 
     count = 0
     for m in municipalities:
-        obj, created = MunicipalPotential.objects.update_or_create(
+        _, created = MunicipalPotential.objects.update_or_create(
             prefecture=m["prefecture"],
             city=m["city"],
             defaults={
@@ -73,15 +79,15 @@ def import_station_data():
     # 主要駅の1日平均乗降客数 (路線名はクローラーに合わせる)
     stations = [
         # 都心・JR・主要私鉄
-        {"station_name": "新宿", "railway_line": "JR山手線", "passenger_volume": 750000},
+        {"station_name": "新宿", "railway_line": LINE_YAMANOTE, "passenger_volume": 750000},
         {"station_name": "新宿", "railway_line": "東京メトロ丸ノ内線", "passenger_volume": 240000},
-        {"station_name": "渋谷", "railway_line": "JR山手線", "passenger_volume": 650000},
-        {"station_name": "池袋", "railway_line": "JR山手線", "passenger_volume": 550000},
-        {"station_name": "東京", "railway_line": "JR山手線", "passenger_volume": 450000},
-        {"station_name": "品川", "railway_line": "JR山手線", "passenger_volume": 380000},
-        {"station_name": "秋葉原", "railway_line": "JR山手線", "passenger_volume": 240000},
-        {"station_name": "有楽町", "railway_line": "JR山手線", "passenger_volume": 170000},
-        {"station_name": "御茶ノ水", "railway_line": "JR中央線", "passenger_volume": 100000},
+        {"station_name": "渋谷", "railway_line": LINE_YAMANOTE, "passenger_volume": 650000},
+        {"station_name": "池袋", "railway_line": LINE_YAMANOTE, "passenger_volume": 550000},
+        {"station_name": "東京", "railway_line": LINE_YAMANOTE, "passenger_volume": 450000},
+        {"station_name": "品川", "railway_line": LINE_YAMANOTE, "passenger_volume": 380000},
+        {"station_name": "秋葉原", "railway_line": LINE_YAMANOTE, "passenger_volume": 240000},
+        {"station_name": "有楽町", "railway_line": LINE_YAMANOTE, "passenger_volume": 170000},
+        {"station_name": "御茶ノ水", "railway_line": LINE_CHUO, "passenger_volume": 100000},
         {"station_name": "御茶ノ水", "railway_line": "中央・総武緩行線", "passenger_volume": 100000},
         
         # 地下鉄（千代田線・半蔵門線・有楽町線・大江戸線等）
@@ -92,33 +98,33 @@ def import_station_data():
         {"station_name": "神保町", "railway_line": "東京メトロ半蔵門線", "passenger_volume": 90000},
         {"station_name": "半蔵門", "railway_line": "東京メトロ半蔵門線", "passenger_volume": 60000},
         {"station_name": "半蔵門", "railway_line": "半蔵門線", "passenger_volume": 60000},
-        {"station_name": "麹町", "railway_line": "東京メトロ有楽町線", "passenger_volume": 50000},
+        {"station_name": "麹町", "railway_line": LINE_YURAKUCHO, "passenger_volume": 50000},
         {"station_name": "麹町", "railway_line": "有楽町線", "passenger_volume": 50000},
-        {"station_name": "市ケ谷", "railway_line": "JR中央線", "passenger_volume": 120000},
-        {"station_name": "市ケ谷", "railway_line": "東京メトロ有楽町線", "passenger_volume": 80000},
-        {"station_name": "市ケ谷", "railway_line": "東京メトロ南北線", "passenger_volume": 50000},
-        {"station_name": "飯田橋", "railway_line": "JR中央線", "passenger_volume": 150000},
+        {"station_name": "市ケ谷", "railway_line": LINE_CHUO, "passenger_volume": 120000},
+        {"station_name": "市ケ谷", "railway_line": LINE_YURAKUCHO, "passenger_volume": 80000},
+        {"station_name": "市ケ谷", "railway_line": LINE_NANBOKU, "passenger_volume": 50000},
+        {"station_name": "飯田橋", "railway_line": LINE_CHUO, "passenger_volume": 150000},
         {"station_name": "飯田橋", "railway_line": "東京メトロ東西線", "passenger_volume": 170000},
         {"station_name": "飯田橋", "railway_line": "都営大江戸線", "passenger_volume": 80000},
-        {"station_name": "飯田橋", "railway_line": "東京メトロ南北線", "passenger_volume": 60000},
+        {"station_name": "飯田橋", "railway_line": LINE_NANBOKU, "passenger_volume": 60000},
         {"station_name": "小川町", "railway_line": "都営新宿線", "passenger_volume": 40000},
         {"station_name": "淡路町", "railway_line": "東京メトロ丸ノ内線", "passenger_volume": 45000},
-        {"station_name": "永田町", "railway_line": "東京メトロ有楽町線", "passenger_volume": 70000},
+        {"station_name": "永田町", "railway_line": LINE_YURAKUCHO, "passenger_volume": 70000},
         {"station_name": "赤坂見附", "railway_line": "東京メトロ銀座線", "passenger_volume": 80000},
         {"station_name": "広尾", "railway_line": "東京メトロ日比谷線", "passenger_volume": 60000},
-        {"station_name": "麻布十番", "railway_line": "東京メトロ南北線", "passenger_volume": 55000},
+        {"station_name": "麻布十番", "railway_line": LINE_NANBOKU, "passenger_volume": 55000},
         
         # 名古屋（住友不動産テスト用）
-        {"station_name": "覚王山", "railway_line": "名古屋市営東山線", "passenger_volume": 15000},
-        {"station_name": "新栄町", "railway_line": "名古屋市営東山線", "passenger_volume": 12000},
-        {"station_name": "高畑", "railway_line": "名古屋市営東山線", "passenger_volume": 10000},
+        {"station_name": "覚王山", "railway_line": LINE_HIGASHIYAMA, "passenger_volume": 15000},
+        {"station_name": "新栄町", "railway_line": LINE_HIGASHIYAMA, "passenger_volume": 12000},
+        {"station_name": "高畑", "railway_line": LINE_HIGASHIYAMA, "passenger_volume": 10000},
         {"station_name": "高岳", "railway_line": "名古屋市営桜通線", "passenger_volume": 8000},
-        {"station_name": "池下", "railway_line": "名古屋市営東山線", "passenger_volume": 11000},
+        {"station_name": "池下", "railway_line": LINE_HIGASHIYAMA, "passenger_volume": 11000},
     ]
 
     count = 0
     for s in stations:
-        obj, created = StationPotential.objects.update_or_create(
+        _, created = StationPotential.objects.update_or_create(
             station_name=s["station_name"],
             railway_line=s["railway_line"],
             defaults={
