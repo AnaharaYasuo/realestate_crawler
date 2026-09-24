@@ -120,6 +120,16 @@ terraform/
   - `allow-proxysql-health-check`: GCP ヘルスチェック IP (`35.191.0.0/16`, `130.211.0.0/22`) からのポート 6032, 6033 アクセス許可
   - `allow-proxysql-internal`: VPC 内部および VPC Connector (`10.0.0.0/24`, `10.8.0.0/28`) からのポート 6033 アクセス許可
 
+### 3.5 コンテナリポジトリ & ライフサイクル設計 (`artifact_registry.tf`)
+- `google_artifact_registry_repository` (`crawler_repo`):
+  - リポジトリID: `realestate-crawler-${var.environment}`
+  - フォーマット: `DOCKER`
+  - リージョン: `var.region` (`asia-northeast1`)
+  - クリーンアップポリシー設定 (`cleanup_policies`):
+    - `cleanup_policy_dry_run`: `false` (本番削除有効)
+    - ポリシー1 (`keep-recent-3`, `KEEP`): `most_recent_versions.keep_count = 3`。最新3世代のコンテナイメージのみを保持
+    - ポリシー2 (`delete-untagged`, `DELETE`): `condition.tag_state = "UNTAGGED"`。新イメージ push でタグが外れた過去の中間・不要イメージを自動パージ
+
 ### 3.8 ログ監視・アラートポリシー設計 (`alerting.tf`)
 - **ログベースメトリクス (`google_logging_metric`)**:
   - `mysql_access_denied_metric`: フィルタ `resource.type="cloudsql_database" AND (textPayload =~ "Access denied for user" OR textPayload =~ "MY-010926")`。通常 NOTICE 扱いされる MySQL 認証拒否を数値化
