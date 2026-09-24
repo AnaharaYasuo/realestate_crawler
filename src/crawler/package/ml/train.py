@@ -521,11 +521,11 @@ def tune_hyperparameters(X, y, algo_name, sample_weight=None) -> dict:
     """
     if len(X) > 5000:
         tune_idx = np.random.default_rng(42).choice(len(X), size=5000, replace=False)
-        X_tune = X.iloc[tune_idx].reset_index(drop=True)
+        x_tune = X.iloc[tune_idx].reset_index(drop=True)
         y_tune = y.iloc[tune_idx].reset_index(drop=True)
         sw_tune = sample_weight[tune_idx] if sample_weight is not None else None
     else:
-        X_tune, y_tune = X.reset_index(drop=True), y.reset_index(drop=True)
+        x_tune, y_tune = X.reset_index(drop=True), y.reset_index(drop=True)
         sw_tune = sample_weight if sample_weight is not None else None
 
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
@@ -552,8 +552,8 @@ def tune_hyperparameters(X, y, algo_name, sample_weight=None) -> dict:
     param_grid = grids.get(algo_name, [{}])
     for params in param_grid:
         mapes = []
-        for train_idx, val_idx in kf.split(X_tune):
-            x_train, x_val = X_tune.iloc[train_idx], X_tune.iloc[val_idx]
+        for train_idx, val_idx in kf.split(x_tune):
+            x_train, x_val = x_tune.iloc[train_idx], x_tune.iloc[val_idx]
             y_train, y_val = y_tune.iloc[train_idx], y_tune.iloc[val_idx]
             
             model = _get_regressor(algo_name, params)

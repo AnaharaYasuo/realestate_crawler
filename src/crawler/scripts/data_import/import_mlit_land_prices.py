@@ -4,6 +4,7 @@ import sys
 import csv
 import logging
 import argparse
+from decimal import Decimal
 
 # Django環境のロード
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -105,13 +106,12 @@ def import_land_prices(csv_path):
                 price = 0
                 
             try:
-                from decimal import Decimal
                 growth = Decimal(growth_str)
-            except:
+            except Exception:
                 growth = Decimal("0.0")
                 
             # 重複時は update_or_create で最新値に洗い替える
-            obj, created = LandPricePotential.objects.update_or_create(
+            _, created = LandPricePotential.objects.update_or_create(
                 prefecture=pref,
                 city=city,
                 land_use=use,
@@ -146,4 +146,4 @@ if __name__ == "__main__":
     try:
         import_land_prices(csv_file)
     except Exception as e:
-        logging.error(f"Failed to import land prices: {e}")
+        logging.exception(f"Failed to import land prices: {e}")

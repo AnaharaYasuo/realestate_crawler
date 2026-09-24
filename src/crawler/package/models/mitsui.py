@@ -22,7 +22,6 @@ class MitsuiModel(PropertyBaseModel, TransportationMixin):
         abstract = True
 
 class MitsuiMansion(MitsuiModel):
-    # unique_id = models.CharField(max_length=100, default="")
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)

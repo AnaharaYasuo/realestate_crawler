@@ -207,7 +207,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 evaluated_count += cnt
                 skipped_count += skp
             except Exception as exc:
-                logging.error(f"Failed evaluating {m.__name__}: {exc}", exc_info=True)
+                logging.exception(f"Failed evaluating {m.__name__}: {exc}")
 
     logging.info(f"✅ Bulk ML Evaluation Finished! Evaluated: {evaluated_count}, Skipped (Already done): {skipped_count}")
     sys.stdout.flush()

@@ -37,7 +37,7 @@ ZERO_MODELS = [
 
 async def diagnose_zero_models():
     print("=== ZERO COUNT MODELS DIAGNOSIS ===")
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession():
         for company, ptype in ZERO_MODELS:
             start_api_path = f"/api/{company}/{ptype}/start"
             api_cls = ApiRegistry.get(start_api_path)

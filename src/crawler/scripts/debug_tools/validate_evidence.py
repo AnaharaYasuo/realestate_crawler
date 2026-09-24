@@ -44,17 +44,17 @@ if apt_model:
             
     if yield_data:
         ydf = pd.DataFrame(yield_data)
-        merged_apt = pd.merge(df, ydf, on='url')
+        merged_apt = pd.merge(df, ydf, on='url', how='inner', validate='many_to_one')
         print(f"Invest Apartment Samples with Verified Rental Data: {len(merged_apt):,}")
         
         # 利回りとモデル判定（pct_error: 割安度）の相関
         corr_yield, p_yield = stats.spearmanr(merged_apt['grossYield'], merged_apt['pct_error'])
-        print(f"1. Spearman Correlation (Gross Yield vs Model Undervaluation Ratio):")
+        print("1. Spearman Correlation (Gross Yield vs Model Undervaluation Ratio):")
         print(f"   r = {corr_yield:.4f} (p-value = {p_yield:.4e})")
         
         # 年間純収益還元価値と予測価格の相関
         corr_rent, p_rent = stats.spearmanr(merged_apt['annualRent'], merged_apt['pred_price'])
-        print(f"2. Spearman Correlation (Annual Rent vs Model Predicted Value):")
+        print("2. Spearman Correlation (Annual Rent vs Model Predicted Value):")
         print(f"   r = {corr_rent:.4f} (p-value = {p_rent:.4e})")
         
         # 利回り高低別の割安度分布
@@ -90,7 +90,7 @@ within_1std = np.mean((log_diffs >= mean_diff - std_diff) & (log_diffs <= mean_d
 within_2std = np.mean((log_diffs >= mean_diff - 2*std_diff) & (log_diffs <= mean_diff + 2*std_diff)) * 100
 within_3std = np.mean((log_diffs >= mean_diff - 3*std_diff) & (log_diffs <= mean_diff + 3*std_diff)) * 100
 
-print(f"\nEmpirical Rule vs Theoretical Normal Distribution:")
+print("\nEmpirical Rule vs Theoretical Normal Distribution:")
 print(f"  Within ±1σ: {within_1std:.2f}% (Theoretical Normal: 68.27%)")
 print(f"  Within ±2σ: {within_2std:.2f}% (Theoretical Normal: 95.45%)")
 print(f"  Within ±3σ: {within_3std:.2f}% (Theoretical Normal: 99.73%)")

@@ -42,10 +42,10 @@ class SmtrcParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        return self.BASE_URL + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        return self.BASE_URL + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーションリンクを探索
@@ -105,21 +105,22 @@ class SmtrcParser(ParserBase):
 
         return item
 
-    def _parsePriceStr(self, response: BeautifulSoup):
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        _ = specs
         price_elem = response.select_one(".price-value, .property-price")
         if price_elem:
             return price_elem.get_text().strip()
         specs = self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):

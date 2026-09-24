@@ -28,9 +28,7 @@ class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 
 class ParseSumifuMansionListFuncAsync(ParseMiddlePageAsyncBase):
@@ -129,15 +127,15 @@ class ParseSumifuMansionStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_MANSION_REGION_GCP
         return API_KEY_SUMIFU_MANSION_REGION
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
         _timeout = self._generateTimeout()
 
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks) # Fixed: removed loop argument
         return responses
@@ -160,9 +158,7 @@ class ParseSumifuTochiDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 
 class ParseSumifuTochiListFuncAsync(ParseMiddlePageAsyncBase):
@@ -261,15 +257,15 @@ class ParseSumifuTochiStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_TOCHI_REGION_GCP
         return API_KEY_SUMIFU_TOCHI_REGION
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
         _timeout = self._generateTimeout()
 
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks) # Fixed: removed loop argument
         return responses
@@ -292,9 +288,7 @@ class ParseSumifuKodateDetailFuncAsync(ParseDetailPageAsyncBase):
         return 60
 
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''):
-            return ""
-        return ""
+        return os.getenv("SCRAPING_API_KEY", "")
     
 
 class ParseSumifuKodateListFuncAsync(ParseMiddlePageAsyncBase):
@@ -393,15 +387,15 @@ class ParseSumifuKodateStartAsync(ApiAsyncProcBase):
             return API_KEY_SUMIFU_KODATE_REGION_GCP
         return API_KEY_SUMIFU_KODATE_REGION
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
         _timeout = self._generateTimeout()
 
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks) # Fixed: removed loop argument
         return responses

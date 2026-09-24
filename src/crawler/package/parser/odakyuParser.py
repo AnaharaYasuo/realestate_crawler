@@ -49,12 +49,12 @@ class OdakyuParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + '/' + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + '/' + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーション内の「次へ」または `paging`, `pagenation-block` 領域内の a タグ
@@ -132,24 +132,24 @@ class OdakyuParser(ParserBase):
 
         return self.clean_parsed_item(item)
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         title_el = response.find("h1") or response.select_one(".detailTitle h2")
         if title_el:
             return title_el.get_text().strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):
@@ -160,7 +160,7 @@ class OdakyuParser(ParserBase):
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
         if access_str:
-            parts = [p.strip() for p in re.split(r'[\r\n\t、\s]+', access_str) if p.strip()]
+            parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
             current_line = []
             for part in parts:
                 current_line.append(part)
@@ -622,9 +622,9 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
     def _fill_invest_card_yield_rent(self, item, block) -> str:
         catch = block.select_one(".estate-info-catch")
         catch_text = catch.get_text(" ", strip=True) if catch else ""
-        gy_m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*％", catch_text)
+        gy_m = re.search(r"(\d+(?:\.\d+)?)\s*％", catch_text)
         if not gy_m:
-            gy_m = re.search(r"利回り[：:\s]*約?([0-9]+(?:\.[0-9]+)?)", catch_text)
+            gy_m = re.search(r"利回り[：:\s]*約?(\d+(?:\.\d+)?)", catch_text)
         if gy_m:
             item.grossYield = converter.parse_ratio(gy_m.group(1) + "%")
         self._derive_annual_rent_from_yield(item)

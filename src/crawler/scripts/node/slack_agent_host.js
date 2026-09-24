@@ -1,6 +1,6 @@
 const { App } = require('@slack/bolt');
-const { exec } = require('child_process');
-const path = require('path');
+const { exec } = require('node:child_process');
+const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '../../..', '.env') });
 
 const botToken = process.env.SLACK_BOT_TOKEN;
@@ -18,7 +18,7 @@ const app = new App({
   socketMode: true
 });
 
-const agyPath = 'C:\\Users\\weare\\AppData\\Local\\agy\\bin\\agy.exe';
+const agyPath = String.raw`C:\Users\weare\AppData\Local\agy\bin\agy.exe`;
 
 /**
  * Start the configured agent command for a Slack message and post its result.
@@ -47,7 +47,7 @@ async function processInstruction(say, event) {
     thread_ts: threadTs
   });
 
-  const cmd = `"${agyPath}" --dangerously-skip-permissions --conversation "${conversationId}" -p "${text.replace(/"/g, '\\"')}"`;
+  const cmd = `"${agyPath}" --dangerously-skip-permissions --conversation "${conversationId}" -p "${text.replaceAll('"', String.raw`\"`)}"`;
   console.log(`[SlackAgent] Running CLI: ${cmd}`);
 
   const env = { ...process.env, PAGER: 'cat' };

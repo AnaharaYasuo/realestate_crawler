@@ -52,7 +52,7 @@ class MacroTrendForecaster:
             df = pd.DataFrame(records)
             return self.fit(df)
         except Exception as e:
-            logger.error(f"Failed to fit MacroTrendForecaster from DB: {e}")
+            logger.exception(f"Failed to fit MacroTrendForecaster from DB: {e}")
             return self
 
     def fit(self, df: pd.DataFrame):

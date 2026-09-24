@@ -15,6 +15,7 @@ from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
 DEFAULT_PARARELL_LIMIT = 1
+MISAWA_INVEST_START_URL = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
 
 
 class MisawaInvestmentConnectorMixin:
@@ -127,7 +128,7 @@ class ParseMisawaInvestmentKodateListFuncAsync(MisawaInvestmentConnectorMixin, P
 class ParseMisawaInvestmentStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
     # Investment = Type 9 (Web ID)
     urlList: ClassVar[list[str]] = [
-        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+        MISAWA_INVEST_START_URL
     ]
 
     def _generateParser(self):
@@ -146,13 +147,13 @@ class ParseMisawaInvestmentStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncPr
     def _getApiKey(self):
         return API_KEY_MISAWA_INVEST_APARTMENT_LIST 
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return None
 
     async def _treatPage(self, _session, *arg):
         tasks = []
-        for _detailUrl in self.urlList:
-            task = asyncio.ensure_future(self._fetchWithEachSession(detailUrl=_detailUrl, apiUrl=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
+        for _detail_url in self.urlList:
+            task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
         responses = await asyncio.gather(*tasks)
         return responses
@@ -165,7 +166,7 @@ class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
     # MisawaInvestmentKodateParser skips non-戸建. Explicit urlList so catalog seed
     # is not ambiguous with the apartment Start class.
     urlList: ClassVar[list[str]] = [
-        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+        MISAWA_INVEST_START_URL
     ]
 
     def _generateParser(self):
@@ -178,7 +179,7 @@ class ParseMisawaInvestmentKodateStartAsync(ParseMisawaInvestmentStartAsync):
 
 class ParseMisawaInvestmentApartmentStartAsync(ParseMisawaInvestmentStartAsync):
     urlList: ClassVar[list[str]] = [
-        "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
+        MISAWA_INVEST_START_URL
     ]
 
 

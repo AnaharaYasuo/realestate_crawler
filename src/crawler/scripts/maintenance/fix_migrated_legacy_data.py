@@ -45,6 +45,8 @@ DEFAULT_SQL_OUTPUT = os.path.join(
     "cloud_sql_correction.sql"
 )
 
+UPDATE_REAL_ESTATE_PREFIX = "UPDATE real_estate."
+
 def _get_mansion_set_clauses(current_t: str) -> list:
     if 'sumifu' in current_t:
         return [
@@ -57,7 +59,7 @@ def _get_mansion_set_clauses(current_t: str) -> list:
         ]
     if 'tokyu' in current_t:
         return [
-            "c.kaisu = COALESCE(NULLIF(l.floorType_kai, 0), CASE WHEN l.kaisu REGEXP '[0-9]+' THEN CAST(REGEXP_SUBSTR(l.kaisu, '[0-9]+') AS SIGNED) ELSE c.kaisu END)",
+            "c.kaisu = COALESCE(NULLIF(l.floorType_kai, 0), CASE WHEN l.kaisu REGEXP '\d+' THEN CAST(REGEXP_SUBSTR(l.kaisu, '\d+') AS SIGNED) ELSE c.kaisu END)",
             KAISU_STR_CLAUSE,
             "c.tatemonoKaisu = CASE WHEN (c.tatemonoKaisu IS NULL OR c.tatemonoKaisu = '') AND l.floorType_chijo > 0 THEN CAST(l.floorType_chijo AS CHAR) ELSE c.tatemonoKaisu END",
         ]
@@ -66,7 +68,7 @@ def _get_mansion_set_clauses(current_t: str) -> list:
 def _get_kodate_set_clauses(current_t: str) -> list:
     if 'sumifu' in current_t:
         return [
-            "c.kaisu = CASE WHEN c.kaisu IS NULL AND l.kaisu REGEXP '[0-9]+' THEN CAST(REGEXP_SUBSTR(l.kaisu, '[0-9]+') AS SIGNED) ELSE c.kaisu END",
+            "c.kaisu = CASE WHEN c.kaisu IS NULL AND l.kaisu REGEXP '\d+' THEN CAST(REGEXP_SUBSTR(l.kaisu, '\d+') AS SIGNED) ELSE c.kaisu END",
         ]
     if 'mitsui' in current_t:
         return [
@@ -98,7 +100,7 @@ def _build_table_statements(legacy_t: str, current_t: str) -> list:
         "-- ========================================================",
         f"-- Correcting {current_t} from {legacy_t}",
         "-- ========================================================",
-        f"""UPDATE real_estate.{current_t} c
+        f"""{UPDATE_REAL_ESTATE_PREFIX}{current_t} c
 INNER JOIN real_estate_legacy.{legacy_t} l ON c.pageUrl = l.pageUrl COLLATE utf8mb4_unicode_ci
 SET c.price = CAST(l.price AS SIGNED) * 10000
 WHERE c.price < 100000 AND c.price > 0 AND l.price > 0;
@@ -107,7 +109,7 @@ WHERE c.price < 100000 AND c.price > 0 AND l.price > 0;
     set_clauses = _get_attribute_set_clauses(current_t)
     if set_clauses:
         set_str = ",\n    ".join(set_clauses)
-        stmts.append(f"""UPDATE real_estate.{current_t} c
+        stmts.append(f"""{UPDATE_REAL_ESTATE_PREFIX}{current_t} c
 INNER JOIN real_estate_legacy.{legacy_t} l ON c.pageUrl = l.pageUrl COLLATE utf8mb4_unicode_ci
 SET 
     {set_str};
@@ -141,7 +143,7 @@ def _correct_table(cur, legacy_t: str, current_t: str, is_execute: bool) -> int:
     updated_count = 0
     if price_cnt > 0:
         cur.execute(f"""
-            UPDATE real_estate.{current_t} c
+            {UPDATE_REAL_ESTATE_PREFIX}{current_t} c
             INNER JOIN real_estate_legacy.{legacy_t} l ON c.pageUrl = l.pageUrl COLLATE utf8mb4_unicode_ci
             SET c.price = CAST(l.price AS SIGNED) * 10000
             WHERE c.price < 100000 AND c.price > 0 AND l.price > 0
@@ -153,7 +155,7 @@ def _correct_table(cur, legacy_t: str, current_t: str, is_execute: bool) -> int:
     if set_clauses:
         set_str = ",\n    ".join(set_clauses)
         cur.execute(f"""
-            UPDATE real_estate.{current_t} c
+            {UPDATE_REAL_ESTATE_PREFIX}{current_t} c
             INNER JOIN real_estate_legacy.{legacy_t} l ON c.pageUrl = l.pageUrl COLLATE utf8mb4_unicode_ci
             SET 
                 {set_str}

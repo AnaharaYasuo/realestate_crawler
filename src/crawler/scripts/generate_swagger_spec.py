@@ -14,6 +14,15 @@ import os
 import sys
 import yaml
 
+MIME_APPLICATION_JSON = "application/json"
+REF_INTERIOR_SCORE = "#/components/schemas/InteriorScore"
+REF_LAYOUT_SCORE = "#/components/schemas/LayoutScore"
+REF_SUCCESS_RESPONSE = "#/components/responses/SuccessResponse"
+REF_ERROR_RESPONSE = "#/components/responses/ErrorResponse"
+REF_COMMON_PROPERTY_DATA = "#/components/schemas/CommonPropertyData"
+LABEL_SETUDO_MAGUCHI = "接道間口 (m)"
+LABEL_ZENMEN_DOURO_FUKUIN = "前面道路幅員 (m)"
+
 def get_openapi_spec_dict():
     return {
         "openapi": "3.0.0",
@@ -45,7 +54,7 @@ def get_openapi_spec_dict():
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
+                            MIME_APPLICATION_JSON: {
                                 "schema": {
                                     "type": "object",
                                     "required": ["property_data"],
@@ -54,10 +63,10 @@ def get_openapi_spec_dict():
                                             "$ref": "#/components/schemas/MansionPropertyData"
                                         },
                                         "interior_score": {
-                                            "$ref": "#/components/schemas/InteriorScore"
+                                            "$ref": REF_INTERIOR_SCORE
                                         },
                                         "layout_score": {
-                                            "$ref": "#/components/schemas/LayoutScore"
+                                            "$ref": REF_LAYOUT_SCORE
                                         }
                                     }
                                 }
@@ -66,13 +75,13 @@ def get_openapi_spec_dict():
                     },
                     "responses": {
                         "200": {
-                            "$ref": "#/components/responses/SuccessResponse"
+                            "$ref": REF_SUCCESS_RESPONSE
                         },
                         "400": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "500": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         }
                     }
                 }
@@ -84,7 +93,7 @@ def get_openapi_spec_dict():
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
+                            MIME_APPLICATION_JSON: {
                                 "schema": {
                                     "type": "object",
                                     "required": ["property_data"],
@@ -93,10 +102,10 @@ def get_openapi_spec_dict():
                                             "$ref": "#/components/schemas/KodatePropertyData"
                                         },
                                         "interior_score": {
-                                            "$ref": "#/components/schemas/InteriorScore"
+                                            "$ref": REF_INTERIOR_SCORE
                                         },
                                         "layout_score": {
-                                            "$ref": "#/components/schemas/LayoutScore"
+                                            "$ref": REF_LAYOUT_SCORE
                                         }
                                     }
                                 }
@@ -105,13 +114,13 @@ def get_openapi_spec_dict():
                     },
                     "responses": {
                         "200": {
-                            "$ref": "#/components/responses/SuccessResponse"
+                            "$ref": REF_SUCCESS_RESPONSE
                         },
                         "400": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "500": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         }
                     }
                 }
@@ -123,7 +132,7 @@ def get_openapi_spec_dict():
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
+                            MIME_APPLICATION_JSON: {
                                 "schema": {
                                     "type": "object",
                                     "required": ["property_data"],
@@ -132,10 +141,10 @@ def get_openapi_spec_dict():
                                             "$ref": "#/components/schemas/ApartmentPropertyData"
                                         },
                                         "interior_score": {
-                                            "$ref": "#/components/schemas/InteriorScore"
+                                            "$ref": REF_INTERIOR_SCORE
                                         },
                                         "layout_score": {
-                                            "$ref": "#/components/schemas/LayoutScore"
+                                            "$ref": REF_LAYOUT_SCORE
                                         }
                                     }
                                 }
@@ -144,13 +153,13 @@ def get_openapi_spec_dict():
                     },
                     "responses": {
                         "200": {
-                            "$ref": "#/components/responses/SuccessResponse"
+                            "$ref": REF_SUCCESS_RESPONSE
                         },
                         "400": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "500": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         }
                     }
                 }
@@ -162,7 +171,7 @@ def get_openapi_spec_dict():
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
+                            MIME_APPLICATION_JSON: {
                                 "schema": {
                                     "type": "object",
                                     "required": ["property_data"],
@@ -171,10 +180,10 @@ def get_openapi_spec_dict():
                                             "$ref": "#/components/schemas/TochiPropertyData"
                                         },
                                         "interior_score": {
-                                            "$ref": "#/components/schemas/InteriorScore"
+                                            "$ref": REF_INTERIOR_SCORE
                                         },
                                         "layout_score": {
-                                            "$ref": "#/components/schemas/LayoutScore"
+                                            "$ref": REF_LAYOUT_SCORE
                                         }
                                     }
                                 }
@@ -183,13 +192,13 @@ def get_openapi_spec_dict():
                     },
                     "responses": {
                         "200": {
-                            "$ref": "#/components/responses/SuccessResponse"
+                            "$ref": REF_SUCCESS_RESPONSE
                         },
                         "400": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "500": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         }
                     }
                 }
@@ -201,7 +210,7 @@ def get_openapi_spec_dict():
                     "requestBody": {
                         "required": True,
                         "content": {
-                            "application/json": {
+                            MIME_APPLICATION_JSON: {
                                 "schema": {
                                     "type": "object",
                                     "required": ["url"],
@@ -223,10 +232,10 @@ def get_openapi_spec_dict():
                                             "description": "true の場合、キャッシュをバイパスして強制再取得"
                                         },
                                         "interior_score": {
-                                            "$ref": "#/components/schemas/InteriorScore"
+                                            "$ref": REF_INTERIOR_SCORE
                                         },
                                         "layout_score": {
-                                            "$ref": "#/components/schemas/LayoutScore"
+                                            "$ref": REF_LAYOUT_SCORE
                                         }
                                     }
                                 }
@@ -237,7 +246,7 @@ def get_openapi_spec_dict():
                         "200": {
                             "description": "価格推定成功",
                             "content": {
-                                "application/json": {
+                                MIME_APPLICATION_JSON: {
                                     "schema": {
                                         "type": "object",
                                         "properties": {
@@ -295,22 +304,22 @@ def get_openapi_spec_dict():
                             }
                         },
                         "400": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "403": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "410": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "422": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "429": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         },
                         "500": {
-                            "$ref": "#/components/responses/ErrorResponse"
+                            "$ref": REF_ERROR_RESPONSE
                         }
                     }
                 }
@@ -448,7 +457,7 @@ def get_openapi_spec_dict():
                 },
                 "MansionPropertyData": {
                     "allOf": [
-                        {"$ref": "#/components/schemas/CommonPropertyData"},
+                        {"$ref": REF_COMMON_PROPERTY_DATA},
                         {
                             "type": "object",
                             "required": ["senyuMenseki"],
@@ -504,7 +513,7 @@ def get_openapi_spec_dict():
                 },
                 "KodatePropertyData": {
                     "allOf": [
-                        {"$ref": "#/components/schemas/CommonPropertyData"},
+                        {"$ref": REF_COMMON_PROPERTY_DATA},
                         {
                             "type": "object",
                             "required": ["tatemonoMenseki", "tochiMenseki"],
@@ -526,12 +535,12 @@ def get_openapi_spec_dict():
                                 },
                                 "maguchi": {
                                     "type": "number",
-                                    "description": "接道間口 (m)",
+                                    "description": LABEL_SETUDO_MAGUCHI,
                                     "example": 7.2
                                 },
                                 "roadWidth": {
                                     "type": "number",
-                                    "description": "前面道路幅員 (m)",
+                                    "description": LABEL_ZENMEN_DOURO_FUKUIN,
                                     "example": 4.5
                                 },
                                 "roadDirection": {
@@ -565,7 +574,7 @@ def get_openapi_spec_dict():
                 },
                 "ApartmentPropertyData": {
                     "allOf": [
-                        {"$ref": "#/components/schemas/CommonPropertyData"},
+                        {"$ref": REF_COMMON_PROPERTY_DATA},
                         {
                             "type": "object",
                             "required": ["tatemonoMenseki", "tochiMenseki", "grossYield", "annualRent"],
@@ -602,12 +611,12 @@ def get_openapi_spec_dict():
                                 },
                                 "maguchi": {
                                     "type": "number",
-                                    "description": "接道間口 (m)",
+                                    "description": LABEL_SETUDO_MAGUCHI,
                                     "example": 12.0
                                 },
                                 "roadWidth": {
                                     "type": "number",
-                                    "description": "前面道路幅員 (m)",
+                                    "description": LABEL_ZENMEN_DOURO_FUKUIN,
                                     "example": 5.0
                                 },
                                 "setsudou": {
@@ -621,7 +630,7 @@ def get_openapi_spec_dict():
                 },
                 "TochiPropertyData": {
                     "allOf": [
-                        {"$ref": "#/components/schemas/CommonPropertyData"},
+                        {"$ref": REF_COMMON_PROPERTY_DATA},
                         {
                             "type": "object",
                             "required": ["tochiMenseki"],
@@ -633,12 +642,12 @@ def get_openapi_spec_dict():
                                 },
                                 "maguchi": {
                                     "type": "number",
-                                    "description": "接道間口 (m)",
+                                    "description": LABEL_SETUDO_MAGUCHI,
                                     "example": 6.5
                                 },
                                 "roadWidth": {
                                     "type": "number",
-                                    "description": "前面道路幅員 (m)",
+                                    "description": LABEL_ZENMEN_DOURO_FUKUIN,
                                     "example": 4.0
                                 },
                                 "roadDirection": {
@@ -695,7 +704,7 @@ def get_openapi_spec_dict():
                 "SuccessResponse": {
                     "description": "推定成功",
                     "content": {
-                        "application/json": {
+                        MIME_APPLICATION_JSON: {
                             "schema": {
                                 "type": "object",
                                 "properties": {
@@ -729,7 +738,7 @@ def get_openapi_spec_dict():
                 "ErrorResponse": {
                     "description": "エラー発生",
                     "content": {
-                        "application/json": {
+                        MIME_APPLICATION_JSON: {
                             "schema": {
                                 "type": "object",
                                 "properties": {

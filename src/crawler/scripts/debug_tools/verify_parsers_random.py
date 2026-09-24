@@ -51,7 +51,7 @@ TARGET_PARSERS = [
     (TokyuKodate, TokyuKodateParser, "TokyuKodate"),
 ]
 
-async def verify_parser_on_urls(session, model_class, parser_class, label, urls):
+async def verify_parser_on_urls(session, _model_class, parser_class, label, urls):
     parser = parser_class()
     success_count = 0
     total = len(urls)

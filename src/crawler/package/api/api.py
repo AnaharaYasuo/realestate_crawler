@@ -6,6 +6,12 @@ import ssl
 import traceback
 from abc import ABCMeta, abstractmethod
 from typing import Dict, Any, Optional
+from pathlib import Path
+import re
+import uuid
+import requests
+from package.utils.storage import get_storage_manager
+from package.ml.investment_evaluator import evaluate_investment_property
 
 from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
     ReadPropertyNameException, SkipPropertyException, ListingEndedException
@@ -27,13 +33,40 @@ from package.utils.converter import parse_chidai
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
+ERROR_PAGES_DIR = Path("src/crawler/tests/error_pages")
+CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
+DETAIL_ID_PATTERN = re.compile(r'detail_([^/]+)')
+BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
+
+
+def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unknown Error") -> None:
+    """Save HTML of failed property/page synchronously in worker thread."""
+    ERROR_PAGES_DIR.mkdir(parents=True, exist_ok=True)
+    company_type = CAMEL_TO_SNAKE_PATTERN.sub('_', model_name).lower()
+    company_dir = ERROR_PAGES_DIR / company_type
+    company_dir.mkdir(parents=True, exist_ok=True)
+
+    match = DETAIL_ID_PATTERN.search(url) or BKDETAIL_ID_PATTERN.search(url)
+    p_id = match.group(1) if match else str(int(datetime.datetime.now().timestamp()))
+
+    html_file = company_dir / f"{p_id}.html"
+    response = requests.get(url, headers=header, timeout=30)
+    if response.status_code == 200:
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(response.text)
+        meta_file = company_dir / f"{p_id}_meta.txt"
+        with open(meta_file, 'w', encoding='utf-8') as f:
+            f.write(f"URL: {url}\nModel/Class: {model_name}\nTimestamp: {datetime.datetime.now()}\nReason: {reason}\n")
+        logging.info("Saved error HTML to %s", html_file)
+
 
 TCP_CONNECTOR_LIMIT = 100
+SUMIFU_MANSION_START_ENDPOINT = '/sumifu_mansion_start'
 API_KEY_MANSION_ALL_START = '/api/all/mansion/start'
 API_KEY_TOCHI_ALL_START = '/api/all/tochi/start'
 
 API_KEY_MITSUI_MANSION_START = '/api/mitsui/mansion/start'
-API_KEY_MITSUI_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_MITSUI_MANSION_START_GCP = SUMIFU_MANSION_START_ENDPOINT
 API_KEY_MITSUI_MANSION_AREA = '/api/mitsui/mansion/area'
 API_KEY_MITSUI_MANSION_AREA_GCP = '/mitsui_mansion_area'
 API_KEY_MITSUI_MANSION_LIST = '/api/mitsui/mansion/list'
@@ -63,7 +96,7 @@ API_KEY_MITSUI_KODATE_DETAIL_GCP = '/mitsui_kodate_detail'
 API_KEY_MITSUI_KODATE_DETAIL_TEST = '/api/mitsui/kodate/detail/test'
 
 API_KEY_SUMIFU_MANSION_START = '/api/sumifu/mansion/start'
-API_KEY_SUMIFU_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_SUMIFU_MANSION_START_GCP = SUMIFU_MANSION_START_ENDPOINT
 API_KEY_SUMIFU_MANSION_REGION = '/api/sumifu/mansion/region'
 API_KEY_SUMIFU_MANSION_REGION_GCP = '/sumifu_mansion_region'
 API_KEY_SUMIFU_MANSION_AREA = '/api/sumifu/mansion/area'
@@ -200,7 +233,7 @@ API_KEY_MISAWA_INVEST_APARTMENT_DETAIL = '/api/misawa/investment/apartment/detai
 API_KEY_MISAWA_INVEST_APARTMENT_DETAIL_GCP = '/misawa_investment_apartment_detail'
 
 API_KEY_TOKYU_MANSION_START = '/api/tokyu/mansion/start'
-API_KEY_TOKYU_MANSION_START_GCP = '/sumifu_mansion_start'
+API_KEY_TOKYU_MANSION_START_GCP = SUMIFU_MANSION_START_ENDPOINT
 API_KEY_TOKYU_MANSION_AREA = '/api/tokyu/mansion/area'
 API_KEY_TOKYU_MANSION_AREA_GCP = '/tokyu_mansion_area'
 API_KEY_TOKYU_MANSION_LIST = '/api/tokyu/mansion/list'
@@ -598,15 +631,15 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return []
 
     def _getApiUrl(self):
-        apiUrl = self._getUrl() + (self._getApiKey() or '')
-        return apiUrl
+        api_url = self._getUrl() + (self._getApiKey() or '')
+        return api_url
 
-    async def _fetchWithEachSession(self, detailUrl, apiUrl, loop):
+    async def _fetchWithEachSession(self, detail_url, api_url, loop):
         await self.semaphore.acquire()
         try:
             async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
                 try:
-                    return await self._fetch(_session, detailUrl, apiUrl, loop, retryTimes=0)
+                    return await self._fetch(_session, detail_url, api_url, loop, retry_times=0)
                 finally:
                     if _session is not None:
                         await _session.close()
@@ -625,17 +658,17 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
-    async def _fetch(self, session:aiohttp.ClientSession, detailUrl, apiUrl, loop, retryTimes :int):
+    async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
         if os.path.exists("stop.flag"):
-             logging.info("stop.flag found at start of _fetch, aborting: " + detailUrl)
-             return detailUrl, 200, "Aborted"
+             logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
+             return detail_url, 200, "Aborted"
 
         # Middleware request hook
         request_context = {
             'method': 'POST',
-            'url': apiUrl,
-            'detailUrl': detailUrl,
-            'retryTimes': retryTimes
+            'url': api_url,
+            'detailUrl': detail_url,
+            'retryTimes': retry_times
         }
         mw_result = await self._apply_middlewares_request(request_context)
         if mw_result is not None:
@@ -654,7 +687,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             from urllib.parse import urlparse
             import threading
 
-            parsed = urlparse(apiUrl)
+            parsed = urlparse(api_url)
             path = parsed.path
             target_class = ApiRegistry.get(path)
             
@@ -666,7 +699,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     new_loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(new_loop)
                     try:
-                        target_class().main(detailUrl)
+                        target_class().main(detail_url)
                     finally:
                         try:
                             from django.db import close_old_connections, connections
@@ -686,45 +719,34 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                          close_old_connections()
                          os._exit(0)
                 
-                return detailUrl, 200, "LocalSync"
+                return detail_url, 200, "LocalSync"
             else:
                  logging.warning(f"No registry found for {path}, falling back to HTTP")
 
         post_json_data = json.dumps(
-            '{"url":"' + detailUrl + '"}').encode("utf-8")
+            '{"url":"' + detail_url + '"}').encode("utf-8")
         try:
-            response:aiohttp.ClientResponse = await session.post(apiUrl, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-        except (aiohttp.client_exceptions.ClientConnectorError) as e:
-            if(retryTimes>0):
+            response:aiohttp.ClientResponse = await session.post(api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+        except aiohttp.client_exceptions.ClientConnectorError as e:
+            if retry_times > 0:
                 await asyncio.sleep(10)
-                return await self._fetch(session, detailUrl, apiUrl, loop, retryTimes+1)
-            else:
-                logging.error("ClientConnectorError:" + detailUrl)
-                #logging.error(e.__cause__)
-                #logging.error(traceback.format_exc())
-                #logging.error(e)
-                raise e
-        except (aiohttp.client_exceptions.ServerDisconnectedError) as e:
-            if(retryTimes>0):
+                return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
+            logging.exception("ClientConnectorError: %s", detail_url)
+            raise
+        except aiohttp.client_exceptions.ServerDisconnectedError as e:
+            if retry_times > 0:
                 await asyncio.sleep(10)
-                return await self._fetch(session, detailUrl, apiUrl, loop, retryTimes+1)
-            else:
-                logging.error("ServerDisconnectedError:" + detailUrl)
-                #logging.error(e.__cause__)
-                #logging.error(traceback.format_exc())
-                #logging.error(e)
-                raise e
+                return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
+            logging.exception("ServerDisconnectedError: %s", detail_url)
+            raise
         except (asyncio.TimeoutError, TimeoutError):
             # Fire-and-Forget Success Path
-            logging.info("Fire and forget - Timeout (assumed success): " + detailUrl)
-            return detailUrl, 200, "FireAndForget"
+            logging.info("Fire and forget - Timeout (assumed success): " + detail_url)
+            return detail_url, 200, "FireAndForget"
         except Exception as e:
-            logging.error("fetch error:" + detailUrl)
-            #logging.error(e.__cause__)
-            #logging.error(traceback.format_exc())
-            #logging.error(e)
-            raise e
-        return await self._proc_response(detailUrl, response)
+            logging.exception("fetch error: %s", detail_url)
+            raise
+        return await self._proc_response(detail_url, response)
 
     async def _proc_response(self, url, response:aiohttp.ClientResponse):
         response_context = {
@@ -748,11 +770,11 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         
         _timeout: aiohttp.ClientTimeout = self._generateTimeout()
         _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
-        urlList = []
+        url_list = []
         try:
             async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
                 try:
-                    urlList = await self._treatPage(session, self._getTreatPageArg())
+                    url_list = await self._treatPage(session, self._getTreatPageArg())
                 except Exception as e:
                     logging.error(f"Error in _run/_treatPage for {_url}: {e}")
                     raise e
@@ -763,88 +785,52 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if _connector is not None:
                 await _connector.close()
 
-        return await self._callApi(urlList)
+        return await self._callApi(url_list)
 
-    def _afterRunProc(self, runResult):
+    def _afterRunProc(self, run_result):
+        # Optional lifecycle hook invoked after execution in subclasses
         pass
 
     def main(self, url):
         self.url = url
         loop: Optional[asyncio.AbstractEventLoop] = None
-        runResult = None
+        run_result = None
         try:
             try:
                 loop = self._getActiveEventLoop()
                 task = loop.create_task(self._run(url))
                 res = loop.run_until_complete(task)
-                runResult = res if isinstance(res, list) else [res]
+                run_result = res if isinstance(res, list) else [res]
             except asyncio.exceptions.TimeoutError:
                 if loop and loop.is_running():
                     loop.stop()
                 if loop:
                     task = loop.create_task(self._run(url))
                     res = loop.run_until_complete(task)
-                    runResult = res if isinstance(res, list) else [res]
-        except Exception as e:
-            raise e
+                    run_result = res if isinstance(res, list) else [res]
         finally:
             if loop and loop.is_running():
                 loop.stop()
             if loop and not loop.is_closed():
                 loop.close()
-        self._afterRunProc(runResult)
+        self._afterRunProc(run_result)
         return "finish", 200
 
     async def _save_error_html_by_url(self, url, model_name, reason="Unknown Error"):
         """Save HTML of failed property/page for debugging"""
         try:
-            import re
-            from pathlib import Path
-            import requests
-            
-            error_dir = Path("src/crawler/tests/error_pages")
-            error_dir.mkdir(parents=True, exist_ok=True)
-            
-            # e.g., SumifuMansion -> sumifu_mansion
-            company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
-            company_dir = error_dir / company_type
-            company_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Try to extract an ID or use timestamp
-            property_id = re.search(r'detail_([^/]+)', url)
-            if not property_id:
-                property_id = re.search(r'bkdetail/([^/]+)', url)
-            
-            p_id = property_id.group(1) if property_id else str(int(datetime.datetime.now().timestamp()))
-            
-            html_file = company_dir / f"{p_id}.html"
-            
-            response = requests.get(url, headers=header, timeout=30)
-            if response.status_code == 200:
-                with open(html_file, 'w', encoding='utf-8') as f:
-                    f.write(response.text)
-                
-                meta_file = company_dir / f"{p_id}_meta.txt"
-                with open(meta_file, 'w', encoding='utf-8') as f:
-                    f.write(f"URL: {url}\n")
-                    f.write(f"Model/Class: {model_name}\n")
-                    f.write(f"Timestamp: {datetime.datetime.now()}\n")
-                    f.write(f"Reason: {reason}\n")
-                
-                logging.info(f"Saved error HTML to {html_file}")
-            else:
-                logging.warning(f"Failed to fetch error HTML for {url}: HTTP {response.status_code}")
-        except Exception as e:
-            logging.error(f"Failed to save error HTML for {url}: {e}")
+            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason)
+        except Exception:
+            logging.exception("Failed to save error HTML for %s", url)
 
     def _getPararellLimit(self):
-        pararellLimit = self._getLocalPararellLimit()
+        pararell_limit = self._getLocalPararellLimit()
         if os.getenv('IS_CLOUD', ''):
             custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')
             if custom_cloud_limit and custom_cloud_limit.isdigit():
                 return int(custom_cloud_limit)
-            pararellLimit = self._getCloudPararellLimit()
-        return pararellLimit
+            pararell_limit = self._getCloudPararellLimit()
+        return pararell_limit
 
     @abstractmethod
     def _generateParser(self)->ParserBase:
@@ -875,7 +861,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         pass
 
 
@@ -893,35 +879,35 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Fetch Failure: {str(e)}")
             raise e
 
-        detailUrlList = []
+        detail_url_list = []
         try:
-            parserFunc = self._getParserFunc()
-            async for detailUrl in parserFunc(response):
-                detailUrlList.append(detailUrl)
+            parser_func = self._getParserFunc()
+            async for detail_url in parser_func(response):
+                detail_url_list.append(detail_url)
         except Exception as e:
             logging.error(f"Failed to parse middle page: {self.url}")
             await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Parse Failure: {str(e)}")
             raise e
         finally:
             # 次のページを開く
-            parserNextFunc = self._getNextPageParserFunc()
-            if parserNextFunc is not None:
-                nextPageUrl = await parserNextFunc(response)
-                if len(nextPageUrl) > 0:
-                    async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as anotherSession:
+            parser_next_func = self._getNextPageParserFunc()
+            if parser_next_func is not None:
+                next_page_url = await parser_next_func(response)
+                if len(next_page_url) > 0:
+                    async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as another_session:
                         try:
-                            await self._fetch(session=anotherSession, detailUrl=nextPageUrl, apiUrl=self._getUrl(
-                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retryTimes=0)
+                            await self._fetch(session=another_session, detail_url=next_page_url, api_url=self._getUrl(
+                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retry_times=0)
                         except Exception as npe:
-                            logging.warning(f"Failed to fetch next page {nextPageUrl}: {npe}")
+                            logging.warning(f"Failed to fetch next page {next_page_url}: {npe}")
 
-        return detailUrlList
+        return detail_url_list
 
     def _getTreatPageArg(self):
         return
 
-    async def _callApi(self, urlList):
-        if not urlList:
+    async def _callApi(self, url_list):
+        if not url_list:
             return []
 
         model_class = None
@@ -933,13 +919,13 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             except Exception:
                 model_class = None
 
-        to_fetch = urlList
+        to_fetch = url_list
         if model_class is not None:
             ttl_days = int(os.getenv("DIFFERENTIAL_TTL_DAYS", "7"))
             force_full = os.getenv("FORCE_FULL_CRAWL", "false").lower() in ("true", "1")
             enabled = os.getenv("ENABLE_DIFFERENTIAL_CRAWL", "true").lower() in ("true", "1")
             to_fetch, _ = await filter_differential_items(
-                items=urlList,
+                items=url_list,
                 model_class=model_class,
                 ttl_days=ttl_days,
                 force_full=force_full,
@@ -950,14 +936,14 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         loop = self._getActiveEventLoop()
         for detail_item in to_fetch:
             if isinstance(detail_item, ListItem):
-                detailUrl = detail_item.url
+                detail_url = detail_item.url
             elif isinstance(detail_item, (tuple, list)):
-                detailUrl = detail_item[0]
+                detail_url = detail_item[0]
             else:
-                detailUrl = str(detail_item)
+                detail_url = str(detail_item)
 
             colo = self._fetchWithEachSession(
-                detailUrl, self._getApiUrl(), loop)
+                detail_url, self._getApiUrl(), loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 
@@ -996,8 +982,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             try:
                 item = await self._treatPage(session, self._getTreatPageArg())
             except Exception as e:
-                logging.error(traceback.format_exc())
-                logging.error(e)
+                logging.exception("Error during _treatPage: %s", e)
                 item = None
             finally:
                 if session is not None:
@@ -1022,9 +1007,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     aiohttp.client_exceptions.ServerDisconnectedError) as e:
                 retry_count += 1
                 if retry_count > max_retries:
-                    logging.error(f"Max retries ({max_retries}) exceeded for {url}")
-                    logging.error(f"Exception type: {type(e).__name__}, Details: {str(e)}")
-                    raise e
+                    logging.exception("Max retries (%s) exceeded for %s", max_retries, url)
+                    raise
                 
                 # Exponential backoff: 2s, 4s, 8s
                 wait_time = 2 ** retry_count
@@ -1032,30 +1016,27 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.warning(f"Exception type: {type(e).__name__}, Details: {str(e)}")
                 await asyncio.sleep(wait_time)
             except Exception as e:
-                logging.error(f"Unexpected error getting content from {url}")
-                logging.error(f"Exception type: {type(e).__name__}, Details: {str(e)}")
-                raise e
+                logging.exception("Unexpected error getting content from %s: %s", url, e)
+                raise
 
     async def _treatPage(self, _session, *arg):
 
-        async def getItem():
+        async def get_item():
             item = None
             _connector = self._generateConnector(self._getActiveEventLoop())
             await self.semaphore.acquire()
             try:
                 # with await self.semaphore:
-                async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtlSession:
+                async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as dtl_session:
                     try:
-                        item = await self.parser.parsePropertyDetailPage(session=dtlSession, url=self.url)
+                        item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
 
                     except Exception as e:
-                        logging.error(f"exception get item for URL: {self.url}")
-                        logging.error(f"Exception type: {type(e).__name__}, Details: {str(e)}")
-                        logging.error(traceback.format_exc())
-                        raise e
+                        logging.exception("exception get item for URL: %s Details: %s", self.url, e)
+                        raise
                     finally:
-                        if dtlSession is not None:
-                            await dtlSession.close()
+                        if dtl_session is not None:
+                            await dtl_session.close()
                         if _connector is not None:
                             await _connector.close()
             finally:
@@ -1066,8 +1047,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         item = None
         is_skipped_property = False
         try:
-            item = await getItem()
-        except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError, ReadPropertyNameException):
+            item = await get_item()
+        except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException):
             retry = True
         except (SkipPropertyException, ListingEndedException) as e:
             logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
@@ -1080,15 +1061,15 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if retry:
             logging.debug("get item retry")
             try:
-                item = await getItem()
-            except (LoadPropertyPageException, asyncio.TimeoutError, TimeoutError, ReadPropertyNameException) as e:
+                item = await get_item()
+            except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
                 CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {str(e)}")
 
         if item is not None:
-            currentTime = datetime.datetime.now()
-            currentDay = datetime.date.today()
+            current_time = datetime.datetime.now()
+            current_day = datetime.date.today()
 
             # Enforce 1 property = 1 record and record price revision history
             item.pageUrl = UrlMatcher.normalize(item.pageUrl)
@@ -1106,9 +1087,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             if existing_record:
                 item.id = existing_record.id
                 item._state.adding = False
-                item.inputDate = existing_record.inputDate or currentDay
-                item.inputDateTime = existing_record.inputDateTime or currentTime
-                item.updateDateTime = currentTime
+                item.inputDate = existing_record.inputDate or current_day
+                item.inputDateTime = existing_record.inputDateTime or current_time
+                item.updateDateTime = current_time
 
                 old_p = existing_record.price
                 new_p = item.price
@@ -1135,9 +1116,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     except Exception as he:
                         logging.warning(f"Failed to record price history for {item.pageUrl}: {he}")
             else:
-                item.inputDateTime = currentTime
-                item.inputDate = currentDay
-                item.updateDateTime = currentTime
+                item.inputDateTime = current_time
+                item.inputDate = current_day
+                item.updateDateTime = current_time
 
             try:
                 logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
@@ -1293,7 +1274,6 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 
                                 # 投資用物件の場合は、詳細な収支・融資・総合投資スコアの評価を実行
                                 if PropertyTypeDetector.is_investment(property_type):
-                                    from package.ml.investment_evaluator import evaluate_investment_property
                                     eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
                                 
                                 await sync_to_async(eval_record.save)()
@@ -1306,10 +1286,6 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 # クレンジング画像情報を保存
                                 for idx, img in enumerate(cleaned_images):
                                     try:
-                                        import requests
-                                        import uuid
-                                        from package.utils.storage import get_storage_manager
-                                        
                                         resp = await sync_to_async(requests.get)(img["url"], timeout=10)
                                         if resp.status_code == 200:
                                             img_bytes = resp.content
@@ -1480,8 +1456,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                             logging.info(f"ML: No valid property images found for {item.propertyName}.")
                             
                 except Exception as ex:
-                    logging.error(f"ML/Image screening error for {item.pageUrl}: {ex}")
-                    logging.error(traceback.format_exc())
+                    logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
                 # ----------------------------------------------------
                 
                 # Global Limit Check for Verification
@@ -1499,8 +1474,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         os._exit(0)
                         
             except Exception as e:
-                logging.error(f"Failed to save item (Single): {e} for URL: {item.pageUrl}")
-                logging.error(traceback.format_exc())
+                logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
         elif is_skipped_property:
             logging.info(f"Skipped property processing (Lifecycle / Filtered) for URL: {self.url}")
@@ -1513,96 +1487,28 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     def _getTreatPageArg(self):
         return
 
-    async def _callApi(self, urlList):
+    async def _callApi(self, url_list):
         return
 
     async def _save_error_html_by_url(self, url, model_name, reason="Live Fetch Failure/Parsing Error"):
         """Save HTML of failed property for debugging when we only have the URL"""
         try:
-            import re
-            from pathlib import Path
-            import requests
-            import datetime
-            
-            error_dir = Path("src/crawler/tests/error_pages")
-            error_dir.mkdir(parents=True, exist_ok=True)
-            
-            # e.g., SumifuMansion -> sumifu_mansion
-            company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
-            company_dir = error_dir / company_type
-            company_dir.mkdir(parents=True, exist_ok=True)
-            
-            property_id = re.search(r'detail_([^/]+)', url)
-            property_id = property_id.group(1) if property_id else str(int(datetime.datetime.now().timestamp()))
-            
-            html_file = company_dir / f"{property_id}.html"
-            
-            response = requests.get(url, headers=header, timeout=30)
-            if response.status_code == 200:
-                with open(html_file, 'w', encoding='utf-8') as f:
-                    f.write(response.text)
-                
-                meta_file = company_dir / f"{property_id}_meta.txt"
-                with open(meta_file, 'w', encoding='utf-8') as f:
-                    f.write(f"URL: {url}\n")
-                    f.write(f"Model: {model_name}\n")
-                    f.write(f"Timestamp: {datetime.datetime.now()}\n")
-                    f.write(f"Reason: {reason}\n")
-                
-                logging.info(f"Saved error HTML to {html_file}")
-        except Exception as e:
-            logging.error(f"Failed to save error HTML by URL: {e}")
+            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason)
+        except Exception:
+            logging.exception("Failed to save error HTML by URL")
 
-    def _afterRunProc(self, runResult):
+    def _afterRunProc(self, run_result):
 
         def _save_error_html(item):
             """Save HTML of failed property for debugging"""
             try:
-                import re
-                from pathlib import Path
-                import requests
-                
-                error_dir = Path("src/crawler/tests/error_pages")
-                error_dir.mkdir(parents=True, exist_ok=True)
-                
-                model_name = item.__class__.__name__
-                company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
-                
-                company_dir = error_dir / company_type
-                company_dir.mkdir(parents=True, exist_ok=True)
-                
                 url = getattr(item, 'pageUrl', '')
-                property_id = re.search(r'detail_([^/]+)', url)
-                if property_id:
-                    property_id = property_id.group(1)
-                else:
-                    import time
-                    property_id = str(int(time.time()))
-                
-                html_file = company_dir / f"{property_id}.html"
-                
-                try:
-                    response = requests.get(url, headers=header, timeout=30)
-                    if response.status_code == 200:
-                        with open(html_file, 'w', encoding='utf-8') as f:
-                            f.write(response.text)
-                        
-                        meta_file = company_dir / f"{property_id}_meta.txt"
-                        with open(meta_file, 'w', encoding='utf-8') as f:
-                            f.write(f"URL: {url}\n")
-                            f.write(f"Property Name: {getattr(item, 'propertyName', 'UNKNOWN')}\n")
-                            f.write(f"Model: {model_name}\n")
-                            f.write(f"Timestamp: {datetime.datetime.now()}\n")
-                        
-                        logging.info(f"Saved error HTML to {html_file}")
-                    else:
-                        logging.warning(f"Failed to fetch HTML for {url}: HTTP {response.status_code}")
-                except Exception as e:
-                    logging.error(f"Failed to fetch HTML for error page {url}: {e}")
-                    
-            except Exception as e:
-                logging.error(f"Failed to save error HTML: {e}")
-                logging.error(traceback.format_exc())
+                if url:
+                    model_name = item.__class__.__name__
+                    prop_name = getattr(item, 'propertyName', 'UNKNOWN')
+                    _sync_save_error_html_by_url(url, model_name, f"Property Name: {prop_name}")
+            except Exception:
+                logging.exception("Failed to save error HTML")
 
         def _save(item):
             try:
@@ -1629,7 +1535,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
         logging.debug("start afterRunProc")
         try:
-            for item in runResult:
+            for item in run_result:
                 if item is not None:
                     max_retries = 3
                     for attempt in range(max_retries):
@@ -1646,11 +1552,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                                 from time import sleep
                                 sleep(5)
                             else:
-                                logging.error(f"Max retries reached. Failed to save {getattr(item, 'pageUrl', 'UNKNOWN')}", exc_info=True)
-                                raise e
+                                logging.exception("Max retries reached. Failed to save %s", getattr(item, 'pageUrl', 'UNKNOWN'))
+                                raise
                         except Exception as e:
-                            logging.error(f"save error {getattr(item, 'propertyName', 'UNKNOWN')}:{getattr(item, 'pageUrl', 'UNKNOWN_URL')}", exc_info=True)
-                            raise e
+                            logging.exception("save error %s:%s", getattr(item, 'propertyName', 'UNKNOWN'), getattr(item, 'pageUrl', 'UNKNOWN_URL'))
+                            raise
         finally:
             # Final cleanup of stale connections
             close_old_connections()

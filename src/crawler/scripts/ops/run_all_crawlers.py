@@ -32,6 +32,8 @@ from package.utils.task_distribution import get_task_config, distribute_jobs
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
@@ -79,7 +81,7 @@ active_processes = {}
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""
     global active_processes
-    for idx, (proc, company, ptype, start_t) in list(active_processes.items()):
+    for idx, (proc, company, ptype, start_t) in active_processes.items():
         if proc.poll() is None:
             try:
                 pgid = os.getpgid(proc.pid)
@@ -87,7 +89,7 @@ def cleanup_active_process():
                 os.killpg(pgid, signal.SIGKILL)
                 proc.communicate()  # プロセスゾンビ化を防ぐための回収
             except Exception as e:
-                logging.error(f"子プロセスのクリーンアップ中にエラー: {e}")
+                logging.exception(f"子プロセスのクリーンアップ中にエラー: {e}")
     active_processes.clear()
 
 def signal_handler(signum, frame):
@@ -104,16 +106,17 @@ def clean_zombies():
     """自分自身以外の残留クローラープロセスを一掃する"""
     my_pid = os.getpid()
     cleaned = 0
-    if not os.path.exists('/proc'):
+    proc_dir = '/proc'
+    if not os.path.exists(proc_dir):
         return
-    for name in os.listdir('/proc'):
+    for name in os.listdir(proc_dir):
         if not name.isdigit():
             continue
         pid = int(name)
         if pid == my_pid:
             continue
         try:
-            with open(os.path.join('/proc', name, 'cmdline'), 'r') as f:
+            with open(os.path.join(proc_dir, name, 'cmdline'), 'r') as f:
                 cmdline = f.read().replace('\x00', ' ')
             if 'main.py' in cmdline and '--company=' in cmdline:
                 logging.info(f"残留プロセスを検知: PID {pid} ({cmdline.strip()})")
@@ -156,7 +159,7 @@ def main():
         try:
             asyncio.run(send_crawling_summary_alert(msg))
         except Exception as se:
-            logging.error(f"Failed to post Slack status: {se}")
+            logging.exception(f"Failed to post Slack status: {se}")
 
     def get_count_for_job(company, ptype, start_dt):
         if apps is None or start_dt is None:
@@ -171,7 +174,7 @@ def main():
                         q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
                         return model.objects.filter(q).count()
         except Exception as ce:
-            logging.error(f"Failed to get db count for {company} - {ptype}: {ce}")
+            logging.exception(f"Failed to get db count for {company} - {ptype}: {ce}")
         return 0
 
     today_str = datetime.date.today().strftime("%Y%m%d")
@@ -219,7 +222,8 @@ def main():
         now = time.time()
         
         # 1. 終了プロセスの回収およびタイムアウトのキル
-        for idx, (proc, company, ptype, start_t, start_dt) in list(active_processes.items()):
+        for idx in list(active_processes):
+            proc, company, ptype, start_t, start_dt = active_processes[idx]
             poll_status = proc.poll()
             if poll_status is not None:
                 # 正常・異常終了の回収
@@ -249,8 +253,8 @@ def main():
                     "property_type": ptype,
                     "status": status,
                     "exit_code": exit_code,
-                    "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else "",
-                    "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S") if end_dt else "",
+                    "start_time": start_dt.strftime(DATETIME_FORMAT) if start_dt else "",
+                    "end_time": end_dt.strftime(DATETIME_FORMAT) if end_dt else "",
                     "duration": duration_job_str,
                     "elapsed_seconds": int(elapsed),
                     "items_count": scraped_cnt,
@@ -267,7 +271,7 @@ def main():
                     os.killpg(pgid, signal.SIGKILL)
                     proc.communicate()
                 except Exception as ke:
-                    logging.error(f"Failed to kill: {ke}")
+                    logging.exception(f"Failed to kill: {ke}")
                 
                 elapsed = now - start_t
                 end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
@@ -307,7 +311,7 @@ def main():
             )
 
             if job_select_res is not None:
-                target_idx_in_queue, target_job = job_select_res
+                target_idx_in_queue, _ = job_select_res
                 company, ptype = job_queue.pop(target_idx_in_queue)
                 idx = next_job_index
                 next_job_index += 1
@@ -333,7 +337,7 @@ def main():
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
-                    logging.error(f"Failed to start crawl job for {company} - {ptype}: {e}")
+                    logging.exception(f"Failed to start crawl job for {company} - {ptype}: {e}")
                     results.append({
                         "index": idx,
                         "company": company,
@@ -361,9 +365,9 @@ def main():
     duration_str = format_duration(int(elapsed_delta.total_seconds()))
 
     summary = {
-        "timestamp": batch_end_dt.strftime("%Y-%m-%d %H:%M:%S"),
-        "start_time": batch_start_dt.strftime("%Y-%m-%d %H:%M:%S"),
-        "end_time": batch_end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": batch_end_dt.strftime(DATETIME_FORMAT),
+        "start_time": batch_start_dt.strftime(DATETIME_FORMAT),
+        "end_time": batch_end_dt.strftime(DATETIME_FORMAT),
         "duration": duration_str,
         "elapsed_seconds": int(elapsed_delta.total_seconds()),
         "total_jobs": len(CRAWL_JOBS),
@@ -428,8 +432,8 @@ def main():
                 
         # Format Slack Message
         msg_lines = ["📢 【クローリング実行状況レポート】"]
-        msg_lines.append(f"開始時間: {batch_start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        msg_lines.append(f"終了時間: {batch_end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        msg_lines.append(f"開始時間: {batch_start_dt.strftime(DATETIME_FORMAT)}")
+        msg_lines.append(f"終了時間: {batch_end_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"所要時間: {duration_str}")
         msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
         
@@ -469,7 +473,7 @@ def main():
             
         asyncio.run(send_crawling_summary_alert("\n".join(msg_lines)))
     except Exception as ex:
-        logging.error(f"Failed to generate/send Slack crawl summary: {ex}")
+        logging.exception(f"Failed to generate/send Slack crawl summary: {ex}")
         
     # monitor_error_pages.py のキック
     monitor_script = os.path.join(_project_root, "src", "crawler", "scripts", "monitor_error_pages.py")

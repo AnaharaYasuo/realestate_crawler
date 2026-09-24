@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
+import asyncio
 
 
 from bs4 import BeautifulSoup
@@ -18,16 +19,22 @@ from package.utils.selector_loader import SelectorLoader
 import lxml.html
 import urllib.parse
 
+JAVASCRIPT_PREFIX = "javascript:"
+VOID_0 = "void(0)"
+DIGIT_REGEX = re.compile(r'(\d+)')
+LABEL_KENPEI_YOUSEKI = "建ぺい率・容積率"
+LABEL_SAIKENCHIKU_FUKA = "再建築不可"
+
 
 class SumifuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("現況", "") or target_specs.get("現況状況", "")
 
     def _parseRights(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -72,51 +79,51 @@ class SumifuParser(ParserBase):
 
 
     def createEntity(self):
-        pass
+        # Base implementation, overridden in concrete parser subclasses
+        return None
 
     def getRegionXpath(self):
         return u''
 
-    def getRegionDestUrl(self, linkUrl):
-        if not linkUrl:
+    def getRegionDestUrl(self, link_url):
+        if not link_url:
             return ""
-        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
+        return urllib.parse.urljoin(self.BASE_URL, link_url)
 
     async def parseRegionPage(self, response):
-        async for destUrl in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
-            yield destUrl
+        async for dest_url in self._parsePageCore(response, self.getRegionXpath, self.getRegionDestUrl):
+            yield dest_url
 
     def getAreaXpath(self):
         return u''
 
-    def getAreaDestUrl(self, linkUrl):
-        if not linkUrl:
+    def getAreaDestUrl(self, link_url):
+        if not link_url:
             return ""
-        full_url = urllib.parse.urljoin(self.BASE_URL, linkUrl)
+        full_url = urllib.parse.urljoin(self.BASE_URL, link_url)
         sep = "&" if "?" in full_url else "?"
         if "limit=1000" not in full_url:
             full_url += f"{sep}limit=1000&mode=2"
         return full_url
 
     async def parseAreaPage(self, response):       
-        async for destUrl in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
-            yield destUrl
+        async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
+            yield dest_url
 
     def getPropertyListXpath(self):
         xpath = self.selectors.get('property_list_xpath', u'')
         logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
-    def getPropertyListDestUrl(self, linkUrl):
-        if not linkUrl:
-            return ""
-        return urllib.parse.urljoin(self.BASE_URL, linkUrl)
+    def getPropertyListDestUrl(self, link_url):
+        return self.getRegionDestUrl(link_url)
 
     async def parsePropertyListPage(self, response):
-        async for destUrl in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
-            yield destUrl
+        async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
+            yield dest_url
 
     async def getPropertyListNextPageUrl(self, response):
+        await asyncio.sleep(0)
         logging.info("getPropertyListNextPageUrl")
         next_page_selector = self.selectors.get('next_page')
         next_link = response.select_one(next_page_selector) if next_page_selector else None
@@ -129,13 +136,13 @@ class SumifuParser(ParserBase):
             return None
             
         href = next_link.get("href", "")
-        if not href or href == "#" or href.startswith("javascript:"):
+        if not href or href == "#" or href.startswith(JAVASCRIPT_PREFIX):
             return None
-        nextPageUrl = urllib.parse.urljoin(self.BASE_URL, href)
-        if "javascript:" in nextPageUrl or "void(0)" in nextPageUrl:
+        next_page_url = urllib.parse.urljoin(self.BASE_URL, href)
+        if JAVASCRIPT_PREFIX in next_page_url or VOID_0 in next_page_url:
             return None
-        logging.info("getPropertyListNextPageUrl nextPageUrl:" + nextPageUrl)
-        return nextPageUrl
+        logging.info("getPropertyListNextPageUrl next_page_url:" + next_page_url)
+        return next_page_url
 
 
 
@@ -158,11 +165,11 @@ class SumifuParser(ParserBase):
         k_part = parts[0].strip()
         y_part = parts[1].strip()
         if "%" in k_part:
-            k_m = re.search(r'(\d+)', k_part)
+            k_m = DIGIT_REGEX.search(k_part)
             if k_m:
                 kenpei = int(k_m.group(1))
         if "%" in y_part:
-            y_m = re.search(r'(\d+)', y_part)
+            y_m = DIGIT_REGEX.search(y_part)
             if y_m:
                 youseki = int(y_m.group(1))
         return kenpei, youseki
@@ -179,47 +186,47 @@ class SumifuParser(ParserBase):
             return None, None
 
     def _parseChimoku(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("地目", specs.get("地勢", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("地目", target_specs.get("地勢", ""))
         return val if val else ""
 
     def _parseChisei(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("地目", specs.get("地勢", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("地勢", target_specs.get("地目", ""))
         return val if val else ""
 
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("接道状況", "")
         return val if val else ""
 
     def _parseDouroInfo(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("接道状況", "")
         return self._parseDouroText(val) if val else {}
 
-    def _parseDouro(self, response, specs=None):
+    def _parseDouro(self, response, _specs=None):
         return self._parseDouroInfo(response).get('douro', '')
 
-    def _parseDouroMuki(self, response, specs=None):
+    def _parseDouroMuki(self, response, _specs=None):
         return self._parseDouroInfo(response).get('douroMuki', '')
 
-    def _parseDouroHaba(self, response, specs=None):
+    def _parseDouroHaba(self, response, _specs=None):
         return self._parseDouroInfo(response).get('douroHaba', None)
 
-    def _parseDouroKubun(self, response, specs=None):
+    def _parseDouroKubun(self, response, _specs=None):
         return self._parseDouroInfo(response).get('douroKubun', '')
 
-    def _parseSetsumen(self, response, specs=None):
+    def _parseSetsumen(self, response, _specs=None):
         return self._parseDouroInfo(response).get('setsumen', None)
 
     def _parseChiikiChiku(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("地域地区", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("地域地区", "")
 
     def _parseBoukaChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        text = specs.get("地域地区", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        text = target_specs.get("地域地区", "")
         if text and '/' in text:
             return text.split('/')[0].strip()
         elif text and '｜' in text:
@@ -228,8 +235,8 @@ class SumifuParser(ParserBase):
             return text if text else ""
 
     def _parseSonotaChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        text = specs.get("地域地区", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        text = target_specs.get("地域地区", "")
         if text and '/' in text:
             return text.split('/')[1].strip()
         elif text and '｜' in text:
@@ -251,7 +258,7 @@ class SumifuParser(ParserBase):
         haba_match = re.search(r'(\d+(\.\d+)?)m', text)
         if haba_match:
             try: result['douroHaba'] = Decimal(haba_match.group(1))
-            except: pass
+            except Exception: pass
         
         # Type (Public/Private)
         if "公道" in text:
@@ -266,7 +273,7 @@ class SumifuParser(ParserBase):
         setsumen_match = re.search(r'接面(\d+(\.\d+)?)m', text)
         if setsumen_match:
             try: result['setsumen'] = Decimal(setsumen_match.group(1))
-            except: pass
+            except Exception: pass
             
         return result
 
@@ -311,7 +318,7 @@ class SumifuParser(ParserBase):
             return val.get_text(strip=True)
         return str(val).strip()
 
-    def _parsePriceStr(self, response, specs=None):
+    def _parsePriceStr(self, response, _specs=None):
         price_key = self.selectors.get('price_key', "価格")
         price_td = self._getValueFromTable(response, price_key)
         if price_td:
@@ -333,7 +340,7 @@ class SumifuParser(ParserBase):
                 return text
         return ""
 
-    def _parsePrice(self, response, specs=None):
+    def _parsePrice(self, response, _specs=None):
         price_str = self._parsePriceStr(response)
         return converter.parse_price(price_str)
 
@@ -367,13 +374,13 @@ class SumifuParser(ParserBase):
                 return text
         return ""
 
-    def _parseAddress(self, response, specs=None):
+    def _parseAddress(self, response, _specs=None):
         from_table = self._address_from_table_td(response)
         if from_table:
             return from_table
         return self._address_from_selectors(response)
 
-    def _parseAddressComponents(self, response, specs=None):
+    def _parseAddressComponents(self, response, _specs=None):
         addr = self._parseAddress(response)
         components = {'address1': '', 'address2': '', 'address3': ''}
         if not addr: return components
@@ -384,13 +391,13 @@ class SumifuParser(ParserBase):
         return components
 
 
-    def _parseAddress1(self, response, specs=None):
+    def _parseAddress1(self, response, _specs=None):
         return self._parseAddressComponents(response).get('address1', '')
     
-    def _parseAddress2(self, response, specs=None):
+    def _parseAddress2(self, response, _specs=None):
         return self._parseAddressComponents(response).get('address2', '')
         
-    def _parseAddress3(self, response, specs=None):
+    def _parseAddress3(self, response, _specs=None):
         return self._parseAddressComponents(response).get('address3', '')
 
     def _getValueFromTable(self, response: BeautifulSoup, title: str, partial_match: bool = False):
@@ -416,57 +423,57 @@ class SumifuParser(ParserBase):
                 
         return None
 
-    def _parseHikiwatashi(self, response, specs=None):
+    def _parseHikiwatashi(self, response, _specs=None):
         td = self._getValueFromTable(response, "引渡時期")
         return self._getText(td)
 
-    def _parseGenkyo(self, response, specs=None):
+    def _parseGenkyo(self, response, _specs=None):
         td = self._getValueFromTable(response, "現況")
         return self._getText(td)
 
-    def _parseTochikenri(self, response, specs=None):
+    def _parseTochikenri(self, response, _specs=None):
         td = self._getValueFromTable(response, "土地権利")
         return self._getText(td)
 
-    def _parseTorihiki(self, response, specs=None):
+    def _parseTorihiki(self, response, _specs=None):
         td = self._getValueFromTable(response, "取引態様")
         return self._getText(td)
 
-    def _parseChikunengetsuStr(self, response, specs=None):
+    def _parseChikunengetsuStr(self, response, _specs=None):
         return self._getText(self._getValueFromTable(response, "築年月", True))
 
-    def _parseChikunengetsu(self, response, specs=None):
-        chikunengetsuStr = self._parseChikunengetsuStr(response)
-        return converter.parse_chikunengetsu(chikunengetsuStr) if chikunengetsuStr else None
+    def _parseChikunengetsu(self, response, _specs=None):
+        chikunengetsu_str = self._parseChikunengetsuStr(response)
+        return converter.parse_chikunengetsu(chikunengetsu_str) if chikunengetsu_str else None
 
-    def _parseBiko(self, response, specs=None):
+    def _parseBiko(self, response, _specs=None):
         td = self._getValueFromTable(response, "備考")
         if td:
             val = self._getText(td)
             return converter.truncate_str(val, 2000).strip()
         return ""
 
-    def _parseMadori(self, response, specs=None):
+    def _parseMadori(self, response, _specs=None):
         td = self._getValueFromTable(response, "間取り")
         return self._getText(td) or ""
 
-    def _parseTatemonoMensekiStr(self, response, specs=None):
+    def _parseTatemonoMensekiStr(self, response, _specs=None):
         td = self._getValueFromTable(response, "建物面積") or self._getValueFromTable(response, "専有面積")
         return self._getText(td)
 
-    def _parseTatemonoMenseki(self, response, specs=None):
-        tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
-        return converter.parse_menseki(tatemonoMensekiStr)
+    def _parseTatemonoMenseki(self, response, _specs=None):
+        tatemono_menseki_str = self._parseTatemonoMensekiStr(response)
+        return converter.parse_menseki(tatemono_menseki_str)
 
-    def _parseTochiMensekiStr(self, response, specs=None):
+    def _parseTochiMensekiStr(self, response, _specs=None):
         td = self._getValueFromTable(response, "土地面積")
         return self._getText(td)
 
-    def _parseTochiMenseki(self, response, specs=None):
-        tochiMensekiStr = self._parseTochiMensekiStr(response)
-        return converter.parse_menseki(tochiMensekiStr)
+    def _parseTochiMenseki(self, response, _specs=None):
+        tochi_menseki_str = self._parseTochiMensekiStr(response)
+        return converter.parse_menseki(tochi_menseki_str)
 
-    def _parseKouzou(self, response, specs=None):
+    def _parseKouzou(self, response, _specs=None):
         td = self._getValueFromTable(response, "構造", partial_match=True)
         if td:
             val = self._getText(td)
@@ -475,23 +482,23 @@ class SumifuParser(ParserBase):
         return ""
 
     def _parseKaisuRaw(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("階数", specs.get("所在階", specs.get("所在階構造", "")))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("階数", target_specs.get("所在階", target_specs.get("所在階構造", "")))
 
-    def _parseKaisuStr(self, response, specs=None):
+    def _parseKaisuStr(self, response, _specs=None):
         val = self._parseKaisuRaw(response)
         if val and "・" in val:
             return val.split("・")[0].strip()
         return val or ""
 
-    def _parseKaisu(self, response, specs=None):
+    def _parseKaisu(self, response, _specs=None):
         k_str = self._parseKaisuStr(response)
         if k_str:
-             m = re.search(r'(\d+)', k_str)
+             m = DIGIT_REGEX.search(k_str)
              if m: return int(m.group(1))
         return None
 
-    def _parseTrafficLines(self, response, specs=None):
+    def _parseTrafficLines(self, response, _specs=None):
         transport_key = self.selectors.get('transport_key', "交通")
         transport_td = self._getValueFromTable(response, transport_key)
         if not transport_td: return []
@@ -502,7 +509,7 @@ class SumifuParser(ParserBase):
             full_text = str(transport_td).strip()
         return [line.strip() for line in full_text.split("\n") if line.strip()]
 
-    def _parseRailwayCount(self, response, specs=None):
+    def _parseRailwayCount(self, response, _specs=None):
         return len(self._parseTrafficLines(response))
 
 
@@ -527,7 +534,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         return self.selectors.get('property_list_xpath')
 
     def _href_matches_property_type(self, href: str) -> bool:
-        if href.startswith("javascript:") or href == "#" or "/inquiry" in href or "/contact" in href:
+        if href.startswith(JAVASCRIPT_PREFIX) or href == "#" or "/inquiry" in href or "/contact" in href:
             return False
         if "/chintai/" in href or "/rent/" in href:
             return False
@@ -550,7 +557,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             if not href or not self._href_matches_property_type(href):
                 continue
             joined_url = urllib.parse.urljoin(self.BASE_URL, href)
-            if "javascript:" not in joined_url and "void(0)" not in joined_url:
+            if JAVASCRIPT_PREFIX not in joined_url and VOID_0 not in joined_url:
                 yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):
@@ -571,9 +578,9 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             href = getattr(next_link, "get", lambda k: None)("href")
             # For Sumifu, pagination might be javascript post or URL part
             # Based on docs: /pro/ca_0_001/30_2/
-            if href and href != "#" and not href.startswith("javascript:"):
+            if href and href != "#" and not href.startswith(JAVASCRIPT_PREFIX):
                 joined_url = urllib.parse.urljoin(self.BASE_URL, href)
-                if "javascript:" not in joined_url and "void(0)" not in joined_url:
+                if JAVASCRIPT_PREFIX not in joined_url and VOID_0 not in joined_url:
                     return joined_url
         return ""
 
@@ -664,8 +671,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         return Decimal(0)
 
     def _parseGrossYield(self, response, specs=None):
-        specs = self._get_specs(response)
-        yield_val = self._yield_val_from_specs(specs)
+        target_specs = specs if specs is not None else self._get_specs(response)
+        yield_val = self._yield_val_from_specs(target_specs)
         if not yield_val and response is not None:
             yield_val = self._yield_val_from_dom(response)
         return self._decimal_from_yield_str(yield_val)
@@ -696,19 +703,19 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         return ""
 
     def _parseAnnualRent(self, response, specs=None):
-        specs = self._get_specs(response)
-        rent_val = self._rent_val_from_specs(specs)
+        target_specs = specs if specs is not None else self._get_specs(response)
+        rent_val = self._rent_val_from_specs(target_specs)
         if not rent_val and response is not None:
             rent_val = self._rent_val_from_dom(response)
         return converter.parse_price(rent_val) if rent_val else 0
 
-    def _parseMonthlyRent(self, response, specs=None):
-        annualRent = self._parseAnnualRent(response)
-        return (annualRent // 12) if annualRent else 0
+    def _parseMonthlyRent(self, response, _specs=None):
+        annual_rent = self._parseAnnualRent(response)
+        return (annual_rent // 12) if annual_rent else 0
 
     def _parseCurrentStatus(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("現況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("現況", "")
 
     def _kouzou_from_spans(self, spans):
         if len(spans) >= 2:
@@ -741,8 +748,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         return text
 
     def _parseKouzou(self, response, specs=None):
-        specs = self._get_specs(response)
-        kouzou = specs.get("構造", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        kouzou = target_specs.get("構造", "")
         if kouzou:
             return kouzou
 
@@ -761,67 +768,67 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
 
     def _parseChikunengetsuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("築年月", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("築年月", "")
 
-    def _parseChikunengetsu(self, response, specs=None):
-        chikunengetsuStr = self._parseChikunengetsuStr(response)
-        return converter.parse_chikunengetsu(chikunengetsuStr) if chikunengetsuStr else None
+    def _parseChikunengetsu(self, response, _specs=None):
+        chikunengetsu_str = self._parseChikunengetsuStr(response)
+        return converter.parse_chikunengetsu(chikunengetsu_str) if chikunengetsu_str else None
 
     def _parseKenpeiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率・容積率", specs.get("建ぺい率", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get(LABEL_KENPEI_YOUSEKI, target_specs.get("建ぺい率", ""))
 
-    def _parseKenpei(self, response, specs=None):
-        kenpeiStr = self._parseKenpeiStr(response)
-        if kenpeiStr: 
-            k, _ = self._parseKenpeiYousekiText(kenpeiStr)
+    def _parseKenpei(self, response, _specs=None):
+        kenpei_str = self._parseKenpeiStr(response)
+        if kenpei_str: 
+            k, _ = self._parseKenpeiYousekiText(kenpei_str)
             if k is not None: return k
-            m = re.search(r'(\d+)', kenpeiStr)
+            m = DIGIT_REGEX.search(kenpei_str)
             if m: return int(m.group(1))
         return None
 
     def _parseYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率・容積率", specs.get("容積率", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get(LABEL_KENPEI_YOUSEKI, target_specs.get("容積率", ""))
 
-    def _parseYouseki(self, response, specs=None):
-        yousekiStr = self._parseYousekiStr(response)
-        if yousekiStr: 
-            _, y = self._parseKenpeiYousekiText(yousekiStr)
+    def _parseYouseki(self, response, _specs=None):
+        youseki_str = self._parseYousekiStr(response)
+        if youseki_str: 
+            _, y = self._parseKenpeiYousekiText(youseki_str)
             if y is not None: return y
-            m = re.search(r'(\d+)', yousekiStr)
+            m = DIGIT_REGEX.search(youseki_str)
             if m: return int(m.group(1))
         return None
 
     def _parseYoutoChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("用途地域", "") 
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("用途地域", "") 
 
     def _parseTochikenri(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地権利", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地権利", "")
 
     def _parseTochiMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地面積", "")
 
-    def _parseTochiMenseki(self, response, specs=None):
+    def _parseTochiMenseki(self, response, _specs=None):
         land_area = self._parseTochiMensekiStr(response)
         if land_area:
              try: return Decimal(str(converter.parse_menseki(land_area)))
-             except: pass
+             except Exception: pass
         return Decimal(0)
 
     def _parseTatemonoMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建物面積", specs.get("専有面積", specs.get("延床面積", "")))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建物面積", target_specs.get("専有面積", target_specs.get("延床面積", "")))
 
-    def _parseTatemonoMenseki(self, response, specs=None):
+    def _parseTatemonoMenseki(self, response, _specs=None):
         bldg_area = self._parseTatemonoMensekiStr(response)
         if bldg_area:
              try: return Decimal(str(converter.parse_menseki(bldg_area)))
-             except: pass
+             except Exception: pass
         return Decimal(0)
     
     def _parse_type_specific_fields(self, item, response):
@@ -842,15 +849,15 @@ class SumifuInvestmentKodateParser(SumifuInvestmentParserBase, KodateParserBase)
         return super()._parseTatemonoMenseki(response, specs)
 
     def _parseMadori(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("間取り", "") or target_specs.get("間取", "") or super()._parseMadori(response, target_specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("構造", "") or super()._parseKouzou(response, target_specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -859,12 +866,12 @@ class SumifuInvestmentKodateParser(SumifuInvestmentParserBase, KodateParserBase)
         return super()._parseYouseki(response, specs)
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("用途地域", "") or super()._parseYoutoChiiki(response, target_specs)
 
     """Parser for Sumifu investment kodate (戸建て) properties"""
     
@@ -907,24 +914,28 @@ class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase, InvestmentPars
         item.propertyType = "Apartment"
         
         item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSoukosu(response)
+        item.soukosu = self._parseSouKosu(response)
             
         item.setsudou = self._parseSetsudou(response)
         item.chimoku = self._parseChimoku(response)
     
     def _parseSoukosuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("総戸数", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("総戸数", "")
 
-    def _parseSoukosu(self, response, specs=None):
+    def _parseSouKosu(self, response, _specs=None):
         u_val = self._parseSoukosuStr(response)
         if u_val:
             try:
-                m = re.search(r'(\d+)', u_val)
+                m = DIGIT_REGEX.search(u_val)
                 if m:
                     return int(m.group(1))
-            except: pass
+            except Exception:
+                pass
         return 0
+
+    _parseSoukosu = _parseSouKosu
+
 
     def _getChimokuChiseiText(self, item, value):
         item.chimokuChisei = value
@@ -958,30 +969,30 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
 
     def _parseKouzou(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("構造", "") or super()._parseKouzou(response, target_specs)
 
     def _parseFloor(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("階数", "") or target_specs.get("所在階", "") or super()._parseFloor(response, target_specs)
 
     def _parseSouKosu(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("総戸数", "")
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("総戸数", "")
         if val:
-            m = re.search(r'(\d+)', val)
+            m = DIGIT_REGEX.search(val)
             return int(m.group(1)) if m else None
-        return super()._parseSouKosu(response, specs)
+        return super()._parseSouKosu(response, target_specs)
 
     def _parseManagementFee(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("管理費", "") or specs.get("管理費等", "")
-        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("管理費", "") or target_specs.get("管理費等", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, target_specs)
 
     def _parseReserveFund(self, response, specs=None):
-        specs = specs or self._get_specs(response)
-        val = specs.get("修繕積立金", "")
-        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
+        target_specs = specs or self._get_specs(response)
+        val = target_specs.get("修繕積立金", "")
+        return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, target_specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -1024,7 +1035,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         item.kadobeya = self._parseKadobeya(response)
         
         item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSoukosu(response)
+        item.soukosu = self._parseSouKosu(response)
         
         item.kanriKeitai = self._parseKanriKeitai(response)
         item.kanriKaisya = self._parseKanriKaisya(response)
@@ -1066,8 +1077,8 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return item
 
     def _parseMadori(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("間取り", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("間取り", "")
         if not val and self.selectors:
             sel = self.selectors.get('madori')
             if sel:
@@ -1105,67 +1116,67 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return ""
 
     def _parseSenyuMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
+        target_specs = specs if specs is not None else self._get_specs(response)
         return (
-            self._senyu_from_specs(specs)
+            self._senyu_from_specs(target_specs)
             or self._senyu_from_selector(response)
             or self._senyu_from_summary_chip(response)
         )
 
-    def _parseSenyuMenseki(self, response, specs=None):
-        senyuMensekiStr = self._parseSenyuMensekiStr(response)
-        if senyuMensekiStr:
-            return converter.parse_menseki(senyuMensekiStr)
+    def _parseSenyuMenseki(self, response, _specs=None):
+        senyu_menseki_str = self._parseSenyuMensekiStr(response)
+        if senyu_menseki_str:
+            return converter.parse_menseki(senyu_menseki_str)
         return Decimal(0)
 
     # Kaisu/Kouzou logic inherited from base is now robust enough.
     # Removed redundant overrides here to use base implementation.
 
     def _parseChikunengetsuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("築年月", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("築年月", "")
 
-    def _parseChikunengetsu(self, response, specs=None):
-        chikunengetsuStr = self._parseChikunengetsuStr(response)
-        return converter.parse_chikunengetsu(chikunengetsuStr) if chikunengetsuStr else None
+    def _parseChikunengetsu(self, response, _specs=None):
+        chikunengetsu_str = self._parseChikunengetsuStr(response)
+        return converter.parse_chikunengetsu(chikunengetsu_str) if chikunengetsu_str else None
 
-    def _parseKyutaishin(self, response, specs=None):
+    def _parseKyutaishin(self, response, _specs=None):
         chikunengetsu = self._parseChikunengetsu(response)
         if chikunengetsu and chikunengetsu < datetime.date(1982, 1, 1):
             return 1
         return 0
 
-    def _parseBalconyMensekiStr(self, response, specs=None):
+    def _parseBalconyMensekiStr(self, response, _specs=None):
         td = self._getValueFromTable(response, "バルコニー", partial_match=True)
         return self._getText(td)
 
-    def _parseBalconyMenseki(self, response, specs=None):
-        balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and balconyMensekiStr != "-":
+    def _parseBalconyMenseki(self, response, _specs=None):
+        balcony_menseki_str = self._parseBalconyMensekiStr(response)
+        if balcony_menseki_str and balcony_menseki_str != "-":
             # Just take the first area if multiple
-            m = re.search(r'(\d+(\.\d+)?)', balconyMensekiStr)
+            m = re.search(r'(\d+(\.\d+)?)', balcony_menseki_str)
             if m: return Decimal(m.group(1))
         return Decimal(0)
 
-    def _parseSenyouNiwaMenseki(self, response, specs=None):
-        balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and "専用庭面積" in balconyMensekiStr:
+    def _parseSenyouNiwaMenseki(self, response, _specs=None):
+        balcony_menseki_str = self._parseBalconyMensekiStr(response)
+        if balcony_menseki_str and "専用庭面積" in balcony_menseki_str:
             try:
-                return converter.parse_menseki(balconyMensekiStr.split("専用庭面積")[1])
+                return converter.parse_menseki(balcony_menseki_str.split("専用庭面積")[1])
             except Exception:
                 pass
         return Decimal(0)
 
-    def _parseRoofBalconyMenseki(self, response, specs=None):
-        balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and "ルーフバルコニー面積" in balconyMensekiStr:
+    def _parseRoofBalconyMenseki(self, response, _specs=None):
+        balcony_menseki_str = self._parseBalconyMensekiStr(response)
+        if balcony_menseki_str and "ルーフバルコニー面積" in balcony_menseki_str:
             try:
-                return converter.parse_menseki(balconyMensekiStr.split("ルーフバルコニー面積")[1])
+                return converter.parse_menseki(balcony_menseki_str.split("ルーフバルコニー面積")[1])
             except Exception:
                 pass
         return Decimal(0)
 
-    def _parseSaikou(self, response, specs=None):
+    def _parseSaikou(self, response, _specs=None):
         td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
         if td:
              val = self._getText(td)
@@ -1173,7 +1184,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
              return temp[0].strip()
         return ""
 
-    def _parseKadobeya(self, response, specs=None):
+    def _parseKadobeya(self, response, _specs=None):
         td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
         if td:
              val = self._getText(td)
@@ -1182,27 +1193,29 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return ""
 
     def _parseSoukosuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("総戸数", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("総戸数", "")
 
-    def _parseSoukosu(self, response, specs=None):
-        soukosuStr = self._parseSoukosuStr(response)
-        return converter.parse_numeric(soukosuStr) if soukosuStr else 0
+    def _parseSouKosu(self, response, _specs=None):
+        soukosu_str = self._parseSoukosuStr(response)
+        return converter.parse_numeric(soukosu_str) if soukosu_str else 0
 
-    def _parseKanriKeitaiKaisya(self, response, specs=None):
+    _parseSoukosu = _parseSouKosu
+
+    def _parseKanriKeitaiKaisya(self, response, _specs=None):
         td = self._getValueFromTable(response, "管理方式", partial_match=True) or \
              self._getValueFromTable(response, "管理形態", partial_match=True) or \
              self._getValueFromTable(response, "管理会社", partial_match=True)
         return self._getText(td)
 
-    def _parseKanriKeitai(self, response, specs=None):
+    def _parseKanriKeitai(self, response, _specs=None):
         val = self._parseKanriKeitaiKaisya(response)
         if val:
              temp = val.split("\n")
              return temp[0].strip()
         return ""
 
-    def _parseKanriKaisya(self, response, specs=None):
+    def _parseKanriKaisya(self, response, _specs=None):
         val = self._parseKanriKeitaiKaisya(response)
         if val:
              temp = val.split("\n")
@@ -1219,7 +1232,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     # But Sumifu site often has "42階部分／地上49階地下3階建て鉄筋コンクリート造"
     # Base _parseKaisuStr would return the whole thing or fail to split if delimiter is different.
     
-    def _parseKaisuStr(self, response, specs=None):
+    def _parseKaisuStr(self, response, _specs=None):
         # Override to handle Sumifu Mansion specifics if base is insufficient
         # But let's check base implementation again.
         # It splits on "・". Sumifu often uses "／" or "建て".
@@ -1238,32 +1251,32 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return val
 
     def _parseKanrihiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("管理費(月額)", specs.get("管理費", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("管理費(月額)", target_specs.get("管理費", ""))
         return val if val and val != "￥" else ""
 
-    def _parseKanrihi(self, response, specs=None):
-        kanrihiStr = self._parseKanrihiStr(response)
-        if not kanrihiStr: return 0
-        if "万" in kanrihiStr: return converter.parse_price(kanrihiStr)
-        return converter.parse_yen(kanrihiStr)
+    def _parseKanrihi(self, response, _specs=None):
+        kanrihi_str = self._parseKanrihiStr(response)
+        if not kanrihi_str: return 0
+        if "万" in kanrihi_str: return converter.parse_price(kanrihi_str)
+        return converter.parse_yen(kanrihi_str)
 
     def _parseSyuzenTsumitateStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("修繕積立金(月額)", specs.get("修繕積立金", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("修繕積立金(月額)", target_specs.get("修繕積立金", ""))
         return val if val and val != "￥" else ""
 
-    def _parseSyuzenTsumitate(self, response, specs=None):
-        syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response)
-        if not syuzenTsumitateStr: return 0
-        if "万" in syuzenTsumitateStr: return converter.parse_price(syuzenTsumitateStr)
-        return converter.parse_yen(syuzenTsumitateStr)
+    def _parseSyuzenTsumitate(self, response, _specs=None):
+        syuzen_tsumitate_str = self._parseSyuzenTsumitateStr(response)
+        if not syuzen_tsumitate_str: return 0
+        if "万" in syuzen_tsumitate_str: return converter.parse_price(syuzen_tsumitate_str)
+        return converter.parse_yen(syuzen_tsumitate_str)
 
-    def _parseBunjoKaisya(self, response, specs=None):
+    def _parseBunjoKaisya(self, response, _specs=None):
         td = self._getValueFromTable(response, "新築時売主")
         return self._getText(td)
 
-    def _parseSekouKaisya(self, response, specs=None):
+    def _parseSekouKaisya(self, response, _specs=None):
         td = self._getValueFromTable(response, "施工会社")
         return self._getText(td)
 
@@ -1272,41 +1285,41 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     # If we need Building Height, we should parse it separately, but schema doesn't seem to imply kaisuStr is building height anymore for Mansion?
     # Actually SumifuMansion has floorType_chijo/chika which capture building height.
     
-    def _parseFloorTypeKai(self, response, specs=None):
+    def _parseFloorTypeKai(self, response, _specs=None):
         return self._parseKaisu(response) # Now returns Int
 
-    def _parseFloorTypeChijo(self, response, specs=None):
+    def _parseFloorTypeChijo(self, response, _specs=None):
         raw = self._parseKaisuRaw(response)
         if raw:
              m = re.search(r'地上(\d+)階', raw)
              if m: return int(m.group(1))
         return None
 
-    def _parseFloorTypeChika(self, response, specs=None):
+    def _parseFloorTypeChika(self, response, _specs=None):
         raw = self._parseKaisuRaw(response)
         if raw:
              m = re.search(r'地下(\d+)階', raw)
              if m: return int(m.group(1))
         return None
 
-    def _parseFloorTypeKouzou(self, response, specs=None):
+    def _parseFloorTypeKouzou(self, response, _specs=None):
         kouzou = self._parseKouzou(response)
         return kouzou if kouzou else ""
 
     def _calculateKanrihiPerHeibei(self, response):
         kanrihi = self._parseKanrihi(response)
-        senyuMenseki = self._parseSenyuMenseki(response)
-        if not kanrihi or not senyuMenseki: return 0
+        senyu_menseki = self._parseSenyuMenseki(response)
+        if not kanrihi or not senyu_menseki: return 0
         from decimal import ROUND_HALF_UP
-        val = (Decimal(str(kanrihi)) / Decimal(str(senyuMenseki))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+        val = (Decimal(str(kanrihi)) / Decimal(str(senyu_menseki))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
         return min(val, Decimal('9999.999'))
 
     def _calculateSyuzenTsumitatePerHeibei(self, response):
-        syuzenTsumitate = self._parseSyuzenTsumitate(response)
-        senyuMenseki = self._parseSenyuMenseki(response)
-        if not syuzenTsumitate or not senyuMenseki: return 0
+        syuzen_tsumitate = self._parseSyuzenTsumitate(response)
+        senyu_menseki = self._parseSenyuMenseki(response)
+        if not syuzen_tsumitate or not senyu_menseki: return 0
         from decimal import ROUND_HALF_UP
-        val = (Decimal(str(syuzenTsumitate)) / Decimal(str(senyuMenseki))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
+        val = (Decimal(str(syuzen_tsumitate)) / Decimal(str(senyu_menseki))).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP)
         return min(val, Decimal('9999.999'))
 
 class SumifuTochiParser(SumifuParser, TochiParserBase):
@@ -1321,8 +1334,8 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
 
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     property_type = 'tochi'
     
@@ -1381,13 +1394,13 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         import re
         if item.setsumen is not None:
             item.maguchiStr = str(item.setsumen)
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.maguchiStr)
+            m = re.search(r'(\d+(?:\.\d+)?)', item.maguchiStr)
             if m:
                 item.maguchi = Decimal(m.group(1))
                 
         if item.douroHaba is not None:
             item.roadWidthStr = str(item.douroHaba)
-            m = re.search(r'([0-9]+(?:\.[0-9]+)?)', item.roadWidthStr)
+            m = re.search(r'(\d+(?:\.\d+)?)', item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
                 
@@ -1410,24 +1423,24 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         return item
 
     def _parseTochiMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("土地面積", "")
         if not val or val == "-":
             res = self._getValueByLabel(response, "土地面積")
             if res: val = res.get_text(strip=True).replace("土地面積", "")
         return val
 
-    def _parseTochiMenseki(self, response, specs=None):
-        tochiMensekiStr = self._parseTochiMensekiStr(response)
-        return converter.parse_menseki(tochiMensekiStr) if tochiMensekiStr else Decimal(0)
+    def _parseTochiMenseki(self, response, _specs=None):
+        tochi_menseki_str = self._parseTochiMensekiStr(response)
+        return converter.parse_menseki(tochi_menseki_str) if tochi_menseki_str else Decimal(0)
 
     def _parseKenchikuJoken(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建築条件", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建築条件", "")
 
     def _parseChimoku(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("地目", specs.get("地勢", specs.get("地目地勢", "")))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("地目", target_specs.get("地勢", target_specs.get("地目地勢", "")))
         if not val or val == "-":
             return ""
         # If combined like "宅地平坦", it's hard to split strictly without a list.
@@ -1439,83 +1452,83 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         return val # Fallback
 
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("接道状況", "")
 
     def _parseKenpei(self, response, specs=None):
-        specs = self._get_specs(response)
-        ky_str = specs.get("建ぺい率・容積率", specs.get("建ぺい率", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        ky_str = target_specs.get(LABEL_KENPEI_YOUSEKI, target_specs.get("建ぺい率", ""))
         k, _ = self._parseKenpeiYousekiText(ky_str)
         if k is not None:
             return k
         # Fallback to direct number search in string
         if ky_str:
-            m = re.search(r'(\d+)', ky_str)
+            m = DIGIT_REGEX.search(ky_str)
             if m: return int(m.group(1))
         return None
 
     def _parseYouseki(self, response, specs=None):
-        specs = self._get_specs(response)
-        ky_str = specs.get("建ぺい率・容積率", specs.get("容積率", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        ky_str = target_specs.get(LABEL_KENPEI_YOUSEKI, target_specs.get("容積率", ""))
         _, y = self._parseKenpeiYousekiText(ky_str)
         if y is not None:
             return y
         # Fallback to direct number search in string
         if ky_str:
-            m = re.search(r'容積率[^0-9]*(\d+)', ky_str) or re.search(r'(\d+)', ky_str)
+            m = re.search(r'容積率\D*(\d+)', ky_str) or DIGIT_REGEX.search(ky_str)
             if m: return int(m.group(len(m.groups())))
         return None
 
     def _parseYoutoChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("用途地域", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("用途地域", "")
 
     def _parseKokudoHou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("国土法", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("国土法", "")
     
     def _parseChisei(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("地勢", specs.get("地目地勢", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("地勢", target_specs.get("地目地勢", ""))
         if not val or val == "-":
             return ""
         
         # If extracted from combined "地目地勢", try to remove chimoku
-        if "地目地勢" in specs:
+        if "地目地勢" in target_specs:
             chimoku = self._parseChimoku(response)
             if val and isinstance(val, str) and chimoku and isinstance(chimoku, str) and chimoku != "-" and chimoku in val:
                 val = val.replace(chimoku, "").strip()
         
         return val if val else ""
 
-    def _parseChimokuChisei(self, response, specs=None):
+    def _parseChimokuChisei(self, response, _specs=None):
         # Fallback or combination
         c = self._parseChimoku(response)
         s = self._parseChisei(response)
         return f"{c}・{s}" if c and s else (c or s or "")
 
     def _parseKenpeiYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("建ぺい率・容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get(LABEL_KENPEI_YOUSEKI, "")
         if not val:
-            k = specs.get("建ぺい率", "")
-            y = specs.get("容積率", "")
+            k = target_specs.get("建ぺい率", "")
+            y = target_specs.get("容積率", "")
             if k and y: val = f"建ぺい率{k} 容積率{y}"
             elif k or y: val = k or y
         return val if val else ""
 
     def _parseKuiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("都市計画", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("都市計画", "")
 
     def _parseSaikenchiku(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("再建築不可", specs.get("再建築", ""))
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get(LABEL_SAIKENCHIKU_FUKA, target_specs.get("再建築", ""))
         if not val:
             # Check other likely fields where this info might hide
-            region = specs.get("地域・地区", specs.get("地域地区", specs.get("用途地域", "")))
-            if region and "再建築不可" in region:
-                val = "再建築不可"
+            region = target_specs.get("地域・地区", target_specs.get("地域地区", target_specs.get("用途地域", "")))
+            if region and LABEL_SAIKENCHIKU_FUKA in region:
+                val = LABEL_SAIKENCHIKU_FUKA
         return val if val else ""
 
 class SumifuKodateParser(SumifuParser, KodateParserBase):
@@ -1527,8 +1540,8 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
 
 
     def _parseRights(self, response, specs=None) -> str:
-        specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        target_specs = specs or self._get_specs(response)
+        return target_specs.get("権利", "") or target_specs.get("土地権利", "") or super()._parseRights(response, target_specs)
 
     property_type = 'kodate'
     
@@ -1600,93 +1613,93 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         return item
 
     def _parseTochiMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("土地面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("土地面積", "")
         if not val or val == "-":
             res = self._getValueByLabel(response, "土地面積")
             if res: val = res.get_text(strip=True).replace("土地面積", "")
         return val
 
-    def _parseTochiMenseki(self, response, specs=None):
-        tochiMensekiStr = self._parseTochiMensekiStr(response)
-        return converter.parse_menseki(tochiMensekiStr) if tochiMensekiStr else Decimal(0)
+    def _parseTochiMenseki(self, response, _specs=None):
+        tochi_menseki_str = self._parseTochiMensekiStr(response)
+        return converter.parse_menseki(tochi_menseki_str) if tochi_menseki_str else Decimal(0)
 
     def _parseTatemonoMensekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("建物面積", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("建物面積", "")
         if not val or val == "-":
             res = self._getValueByLabel(response, "建物面積")
             if res: val = res.get_text(strip=True).replace("建物面積", "")
         return val
 
-    def _parseTatemonoMenseki(self, response, specs=None):
-        tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
-        return converter.parse_menseki(tatemonoMensekiStr) if tatemonoMensekiStr else Decimal(0)
+    def _parseTatemonoMenseki(self, response, _specs=None):
+        tatemono_menseki_str = self._parseTatemonoMensekiStr(response)
+        return converter.parse_menseki(tatemono_menseki_str) if tatemono_menseki_str else Decimal(0)
 
     def _parseMadori(self, response, specs=None):
-        specs = self._get_specs(response)
-        val = specs.get("間取り", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        val = target_specs.get("間取り", "")
         if not val or val == "-":
             res = self._getValueByLabel(response, "間取り")
             if res: val = res.get_text(strip=True).replace("間取り", "")
         return val
 
     def _parseChikunengetsuStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("築年月", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("築年月", "")
 
     def _parseHikiwatashi(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("引渡時期", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("引渡時期", "")
 
     def _parseGenkyo(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("現況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("現況", "")
 
     def _parseTochikenri(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("土地権利", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("土地権利", "")
 
     def _parseTorihiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("取引態様", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("取引態様", "")
 
     def _parseKokudoHou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("国土法", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("国土法", "")
 
     def _parseSetsudou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("接道状況", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("接道状況", "")
 
     def _parseKenpeiYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        k = specs.get("建ぺい率", "")
-        y = specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        k = target_specs.get("建ぺい率", "")
+        y = target_specs.get("容積率", "")
         if k and y:
             return f"建ぺい率{k} 容積率{y}"
         return k or y
 
     def _parseKenpeiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建ぺい率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建ぺい率", "")
     
     def _parseYousekiStr(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("容積率", "")
 
     def _parseKuiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("都市計画", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("都市計画", "")
 
     def _parseSaikenchiku(self, response, specs=None):
-        specs = self._get_specs(response)
+        target_specs = specs if specs is not None else self._get_specs(response)
         # Check '地域・地区' for '再建築不可' as seen in Error HTML
-        val = specs.get("再建築不可", "")
+        val = target_specs.get(LABEL_SAIKENCHIKU_FUKA, "")
         if not val:
-            region = specs.get("地域・地区", "") or specs.get("地域地区", "")
-            if "再建築不可" in region:
-                val = "再建築不可"
+            region = target_specs.get("地域・地区", "") or target_specs.get("地域地区", "")
+            if LABEL_SAIKENCHIKU_FUKA in region:
+                val = LABEL_SAIKENCHIKU_FUKA
         return val if val else ""
 
     def _parseSpecsCombined(self, response, key_start):
@@ -1697,10 +1710,10 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
                   return val
         return ""
 
-    def _parseKaisuKouzou(self, response, specs=None):
+    def _parseKaisuKouzou(self, response, _specs=None):
         return self._parseSpecsCombined(response, "階数") or ""
 
-    def _parseKaisu(self, response, specs=None):
+    def _parseKaisu(self, response, _specs=None):
         # Key is '階数構造' -> "地上2階建て木造"
         val = self._parseSpecsCombined(response, "階数")
         if not val: return None
@@ -1708,7 +1721,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
         match = re.search(r'(\d+)階', val)
         return int(match.group(1)) if match else None
 
-    def _parseKouzou(self, response, specs=None):
+    def _parseKouzou(self, response, _specs=None):
         # Key '階数構造' -> "地上2階建て木造"
         val = self._parseSpecsCombined(response, "階数")
         if not val: return ""
@@ -1724,7 +1737,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
                 return s
         return val # Fallback
 
-    def _parseChimoku(self, response, specs=None):
+    def _parseChimoku(self, response, _specs=None):
         # Key '地目地勢' -> "宅地平坦"
         val = self._parseSpecsCombined(response, "地目")
         if not val: return ""
@@ -1736,7 +1749,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
                 return c
         return val
 
-    def _parseChisei(self, response, specs=None):
+    def _parseChisei(self, response, _specs=None):
          # Key '地目地勢' -> "宅地平坦"
         val = self._parseSpecsCombined(response, "地目")
         if not val: return ""
@@ -1746,45 +1759,45 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
             val = val.replace(chimoku, "").strip()
         return val if val else ""
 
-    def _parseChimokuChisei(self, response, specs=None):
+    def _parseChimokuChisei(self, response, _specs=None):
         c = self._parseChimoku(response)
         s = self._parseChisei(response)
         return f"{c}・{s}"
 
-    def _parseChikunengetsu(self, response, specs=None):
-        chikunengetsuStr = self._parseChikunengetsuStr(response)
-        return converter.parse_chikunengetsu(chikunengetsuStr) if chikunengetsuStr else None
+    def _parseChikunengetsu(self, response, _specs=None):
+        chikunengetsu_str = self._parseChikunengetsuStr(response)
+        return converter.parse_chikunengetsu(chikunengetsu_str) if chikunengetsu_str else None
 
     def _parseKenpei(self, response, specs=None):
-        specs = self._get_specs(response)
+        target_specs = specs if specs is not None else self._get_specs(response)
         # Use simple key for Kodate
-        k_str = specs.get("建ぺい率", "")
+        k_str = target_specs.get("建ぺい率", "")
         if k_str:
-            m = re.search(r'(\d+)', k_str)
+            m = DIGIT_REGEX.search(k_str)
             return int(m.group(1)) if m else None
         return None
 
     def _parseYouseki(self, response, specs=None):
-        specs = self._get_specs(response)
-        y_str = specs.get("容積率", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        y_str = target_specs.get("容積率", "")
         if not y_str:
              return None
-        m = re.search(r'(\d+)', y_str)
+        m = DIGIT_REGEX.search(y_str)
         return int(m.group(1)) if m else None
 
     def _parseTyusyajo(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("駐車場", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("駐車場", "")
 
     def _parseYoutoChiiki(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("用途地域", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("用途地域", "")
 
     def _parseKenchikuJoken(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("建築条件", "")
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("建築条件", "")
 
-    def _parseKaisuStr(self, response, specs=None):
+    def _parseKaisuStr(self, response, _specs=None):
         # Use the kaisu (int) we parsed
         k = self._parseKaisu(response)
         return str(k) if k is not None else ""

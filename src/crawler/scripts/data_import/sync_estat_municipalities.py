@@ -49,36 +49,22 @@ def fetch_estat_data(app_id):
                 return generate_mock_estat_data()
             return parse_estat_json(data)
         else:
-            logging.error(f"Failed to fetch e-Stat data: HTTP {response.status_code}")
+            logging.exception(f"Failed to fetch e-Stat data: HTTP {response.status_code}")
             return generate_mock_estat_data()
     except Exception as e:
-        logging.error(f"Connection error to e-Stat: {e}")
+        logging.exception(f"Connection error to e-Stat: {e}")
         return generate_mock_estat_data()
 
 
 def parse_estat_json(data):
     """
     e-StatのレスポンスJSONをパースしてDB用の形式に変換する。
-    (e-Statのデータ構造仕様に合わせたパース)
     """
-    records = []
     try:
-        # e-Stat API 共通JSON構造の走査
-        stats_list = data["GET_STATS_DATA"]["STATISTICAL_DATA"]["DATA_INF"]["VALUE"]
-        
-        # メタデータ（エリアコード、項目コード）のマップを作成して実名称を引く
-        # (簡単のため本実装では主要項目を決め打ちしてパースします)
-        for item in stats_list:
-            area_code = item.get("@area")
-            cat_code = item.get("@cat01") # カテゴリ項目コード
-            val = item.get("$") # 実数値
-            
-            # 所得項目コード、人口項目コードに一致するものを抽出・マージするロジック
-            # (※e-Statのメタ構造は非常に複雑なため、実名マッピングが必要)
-            pass
-            
+        if "GET_STATS_DATA" not in data:
+            return generate_mock_estat_data()
     except KeyError as e:
-        logging.error(f"JSON parsing error: {e}")
+        logging.exception(f"JSON parsing error: {e}")
         
     return generate_mock_estat_data() # デモ動作担保のため今回はモックを返します
 
@@ -142,7 +128,7 @@ def sync_municipalities(csv_path=None):
         try:
             data = fetch_estat_data(app_id)
         except Exception as e:
-            logging.error(f"Failed to fetch from e-Stat API: {e}")
+            logging.exception(f"Failed to fetch from e-Stat API: {e}")
             
     if not data and os.path.exists(csv_path):
         clean_csv = safe_path(csv_path)

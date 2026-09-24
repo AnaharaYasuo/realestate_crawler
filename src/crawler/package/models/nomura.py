@@ -3,7 +3,6 @@ from .base import PropertyBaseModel, TransportationMixin
 
 
 class NomuraModel(PropertyBaseModel, TransportationMixin):
-    pass
     # address and traffic are in PropertyBaseModel
     # But wait, NomuraModel had traffic not in Mixin? PropertyBaseModel has traffic.
     # So traffic is covered.

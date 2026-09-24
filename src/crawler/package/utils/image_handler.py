@@ -258,5 +258,5 @@ def analyze_property_images_with_gemini(cleaned_images) -> dict:
         logging.warning(f"Failed to parse Gemini response: {text}")
         return default_result
     except Exception as e:
-        logging.error(f"Error during Gemini image analysis: {e}")
+        logging.exception(f"Error during Gemini image analysis: {e}")
         return default_result

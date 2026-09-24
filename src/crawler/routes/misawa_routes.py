@@ -16,26 +16,29 @@ from package.api.misawa import (
 
 misawa_bp = Blueprint('misawa', __name__)
 
+ERROR_END = "error end"
+
 # ==========================================
 # Mansion
 # ==========================================
 
 @misawa_bp.route(API_KEY_MISAWA_MANSION_START, methods=['OPTIONS', 'POST', 'GET'])
-def misawaMansionStart():
+def misawa_mansion_start():
     logging.info("Start misawaMansionStart")
     obj = ParseMisawaMansionStartAsync()
     url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=3"
     try:
         result = obj.main(url)
-    except:
-        logging.error("Failed misawaMansionStart")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaMansionStart")
+        return ERROR_END, 500
     logging.info("Success misawaMansionStart")
     return result
 
+misawaMansionStart = misawa_mansion_start
+
 @misawa_bp.route(API_KEY_MISAWA_MANSION_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def misawaMansionList():
+def misawa_mansion_list():
     logging.info("Start misawaMansionList")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -44,15 +47,16 @@ def misawaMansionList():
     obj = ParseMisawaMansionListFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaMansionList")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaMansionList")
+        return ERROR_END, 500
     logging.info("Success misawaMansionList")
     return "finish", 200
 
+misawaMansionList = misawa_mansion_list
+
 @misawa_bp.route(API_KEY_MISAWA_MANSION_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def misawaMansionDetail():
+def misawa_mansion_detail():
     logging.info("Start misawaMansionDetail")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -61,33 +65,35 @@ def misawaMansionDetail():
     obj = ParseMisawaMansionDetailFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaMansionDetail")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaMansionDetail")
+        return ERROR_END, 500
     logging.info("Success misawaMansionDetail")
     return "finish", 200
+
+misawaMansionDetail = misawa_mansion_detail
 
 # ==========================================
 # Kodate
 # ==========================================
 
 @misawa_bp.route(API_KEY_MISAWA_KODATE_START, methods=['OPTIONS', 'POST', 'GET'])
-def misawaKodateStart():
+def misawa_kodate_start():
     logging.info("Start misawaKodateStart")
     obj = ParseMisawaKodateStartAsync()
     url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=2"
     try:
         result = obj.main(url)
-    except:
-        logging.error("Failed misawaKodateStart")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaKodateStart")
+        return ERROR_END, 500
     logging.info("Success misawaKodateStart")
     return result
 
+misawaKodateStart = misawa_kodate_start
+
 @misawa_bp.route(API_KEY_MISAWA_KODATE_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def misawaKodateList():
+def misawa_kodate_list():
     logging.info("Start misawaKodateList")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -96,15 +102,16 @@ def misawaKodateList():
     obj = ParseMisawaKodateListFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaKodateList")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaKodateList")
+        return ERROR_END, 500
     logging.info("Success misawaKodateList")
     return "finish", 200
 
+misawaKodateList = misawa_kodate_list
+
 @misawa_bp.route(API_KEY_MISAWA_KODATE_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def misawaKodateDetail():
+def misawa_kodate_detail():
     logging.info("Start misawaKodateDetail")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -113,33 +120,35 @@ def misawaKodateDetail():
     obj = ParseMisawaKodateDetailFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaKodateDetail")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaKodateDetail")
+        return ERROR_END, 500
     logging.info("Success misawaKodateDetail")
     return "finish", 200
+
+misawaKodateDetail = misawa_kodate_detail
 
 # ==========================================
 # Tochi
 # ==========================================
 
 @misawa_bp.route(API_KEY_MISAWA_TOCHI_START, methods=['OPTIONS', 'POST', 'GET'])
-def misawaTochiStart():
+def misawa_tochi_start():
     logging.info("Start misawaTochiStart")
     obj = ParseMisawaTochiStartAsync()
     url = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type%5B%5D=1"
     try:
         result = obj.main(url)
-    except:
-        logging.error("Failed misawaTochiStart")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaTochiStart")
+        return ERROR_END, 500
     logging.info("Success misawaTochiStart")
     return result
 
+misawaTochiStart = misawa_tochi_start
+
 @misawa_bp.route(API_KEY_MISAWA_TOCHI_LIST, methods=['OPTIONS', 'POST', 'GET'])
-def misawaTochiList():
+def misawa_tochi_list():
     logging.info("Start misawaTochiList")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -148,15 +157,16 @@ def misawaTochiList():
     obj = ParseMisawaTochiListFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaTochiList")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaTochiList")
+        return ERROR_END, 500
     logging.info("Success misawaTochiList")
     return "finish", 200
 
+misawaTochiList = misawa_tochi_list
+
 @misawa_bp.route(API_KEY_MISAWA_TOCHI_DETAIL, methods=['OPTIONS', 'POST', 'GET'])
-def misawaTochiDetail():
+def misawa_tochi_detail():
     logging.info("Start misawaTochiDetail")
     request_json = request.get_json()
     if isinstance(request_json, str):
@@ -165,9 +175,10 @@ def misawaTochiDetail():
     obj = ParseMisawaTochiDetailFuncAsync()
     try:
         obj.main(url)
-    except:
-        logging.error("Failed misawaTochiDetail")
-        logging.error(traceback.format_exc())
-        return "error end", 500
+    except Exception:
+        logging.exception("Failed misawaTochiDetail")
+        return ERROR_END, 500
     logging.info("Success misawaTochiDetail")
     return "finish", 200
+
+misawaTochiDetail = misawa_tochi_detail

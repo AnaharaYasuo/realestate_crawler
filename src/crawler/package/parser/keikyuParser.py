@@ -10,6 +10,9 @@ from package.parser.baseParser import KodateParserBase, MansionParserBase, Parse
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
+RESERVE_FUND_KEY = "修繕積立金"
+
+
 class KeikyuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -39,19 +42,19 @@ class KeikyuParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        return super()._parsePrice(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        return super()._parsePrice(response, specs)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        return super()._parseAddress(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        return super()._parseAddress(response, specs)
 
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + "/" + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + "/" + link_url
 
     async def getResponseBs(self, session, url, charset=None) -> BeautifulSoup:
         return await super().getResponseBs(session, url, charset)
@@ -105,7 +108,7 @@ class KeikyuParser(ParserBase):
         fallback_mappings = {
             "面積": ["専有面積", "建物面積", "建物延面積", "土地面積"],
             "管理費": ["管理費等", "管理費/月"],
-            "修繕積立金": ["修繕積立金等", "修繕積立金/月", "積立金"],
+            RESERVE_FUND_KEY: ["修繕積立金等", "修繕積立金/月", "積立金"],
             "交通": ["最寄り駅", "最寄駅", "アクセス"],
             "現現況": ["現況", "現状", "入居状況"],
             "建物構造": ["構造", "構造・規模"],
@@ -219,7 +222,7 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
 
     def _parseReserveFund(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("修繕積立金", "")
+        val = specs.get(RESERVE_FUND_KEY, "")
         return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
 
     def _parseKenpei(self, response, specs=None):
@@ -279,7 +282,7 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
         if item.kanrihiStr:
             item.kanrihi = converter.parse_rent(item.kanrihiStr)
 
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        item.syuzenTsumitateStr = specs.get(RESERVE_FUND_KEY, "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 

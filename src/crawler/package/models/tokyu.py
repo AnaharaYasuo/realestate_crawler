@@ -43,11 +43,9 @@ class TokyuMansion(TokyuModel):
     sonotaHiyouStr = models.TextField(blank=True)
     balconyMensekiStr = models.TextField()
     balconyMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True)
-    saikou = models.TextField()
     kaisuStr = models.TextField()
     tatemonoKaisu  = models.TextField()
     kouzou  = models.TextField()
-    soukosu  = models.TextField()
     bunjoKaisya  = models.TextField(blank=True)
     sekouKaisya  = models.TextField(blank=True)
     kanriKaisya  = models.TextField(blank=True)
@@ -64,7 +62,6 @@ class TokyuMansion(TokyuModel):
 
 
 class TokyuTochi(TokyuModel):
-    tochiMensekiStr = models.TextField()
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     chimokuChisei = models.TextField()
     chimoku = models.TextField()
@@ -118,7 +115,6 @@ class TokyuKodate(TokyuModel):
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     shidoMensekiStr = models.TextField()
     shidoMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True)
-    kenpeiYousekiStr = models.TextField(default='')
     tatemonoMensekiStr = models.TextField()
     tatemonoMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     kouzou  = models.TextField()

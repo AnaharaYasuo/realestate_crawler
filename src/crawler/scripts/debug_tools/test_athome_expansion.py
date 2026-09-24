@@ -25,7 +25,7 @@ async def test_athome_expansion():
                 for a in soup.find_all("a", href=True):
                     href = a.get("href")
                     path = urllib.parse.urlparse(href).path
-                    if "/list/" in path or re.search(r'/(mansion|kodate|tochi|toushi)/[0-9]{5,}/?', path):
+                    if "/list/" in path or re.search(r'/(mansion|kodate|tochi|toushi)/\d{5,}/?', path):
                         links.add(href)
                 print(f"Extracted list/detail links count: {len(links)}. Samples: {list(links)[:5]}")
 

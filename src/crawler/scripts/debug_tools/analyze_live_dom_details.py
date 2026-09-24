@@ -62,7 +62,7 @@ def analyze_page(name, url):
                         found.add(lit)
             if found:
                 print(f"-- NUXT/STATE KEYWORDS FOUND ({len(found)}) --")
-                for f_item in sorted(list(found))[:30]:
+                for f_item in sorted(found)[:30]:
                     print(f"   * {f_item}")
 
     # 3. HTML内の全テーブル th/td

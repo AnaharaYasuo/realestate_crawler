@@ -39,12 +39,12 @@ class MizuhoParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        if linkUrl.startswith('/'):
-            return self.BASE_URL + linkUrl
-        return self.BASE_URL + '/' + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        if link_url.startswith('/'):
+            return self.BASE_URL + link_url
+        return self.BASE_URL + '/' + link_url
 
     def _ended_or_load_error(self, url: str, status: int, cause: Optional[Exception] = None):
         # Playwright/WAF 失敗は掲載終了より優先（誤って売止扱いにしない）
@@ -138,7 +138,7 @@ class MizuhoParser(ParserBase):
             with open(links_file, "r", encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip()]
         except Exception as e:
-            logging.error(f"Mizuho: Failed to read temporary URLs file: {e}")
+            logging.exception(f"Mizuho: Failed to read temporary URLs file: {e}")
             return []
 
     def _extract_static_detail_links(self, response: BeautifulSoup) -> set:
@@ -233,7 +233,7 @@ class MizuhoParser(ParserBase):
 
         return item
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         # 物件タイトル要素
         title_el = response.select_one(".detailTitle .h3Title") or response.select_one(".detailTitle h4")
         if title_el:
@@ -248,18 +248,18 @@ class MizuhoParser(ParserBase):
             return h1.get_text().strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):
@@ -270,10 +270,8 @@ class MizuhoParser(ParserBase):
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
         if access_str:
-            # 複数行や改行、または全角スペース等で区切られた交通情報を分割
-            # 例: "都営大江戸線 『勝どき』駅 徒歩8分 都営大江戸線 『月島』駅 徒歩18分"
-            # 空白区切りで分割
-            parts = [p.strip() for p in re.split(r'[\r\n\t、\s]+', access_str) if p.strip()]
+            # 複数行や改行、空白等で区切られた交通情報を分割
+            parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
             
             # 分割したパーツを「路線」「駅」「徒歩分数」のまとまりごとに復元する
             # "徒歩XX分" が現れるまでを1つの交通情報行とする

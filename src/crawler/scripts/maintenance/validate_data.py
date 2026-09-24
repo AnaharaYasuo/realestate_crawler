@@ -146,7 +146,7 @@ def validate_data():
                 rep = json.load(f)
                 html_errors_list = rep.get("recent_details", [])
     except Exception as e:
-        logging.error(f"Failed to integrate monitor_error_pages: {e}")
+        logging.exception(f"Failed to integrate monitor_error_pages: {e}")
         
     # チャンネルごとのメッセージバッファ
     buffers = {

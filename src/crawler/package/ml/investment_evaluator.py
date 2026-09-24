@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import math
 import logging
+import re
 from decimal import Decimal
 from django.utils import timezone
 from package.models.evaluation import LandPricePotential
@@ -201,8 +202,7 @@ def evaluate_investment_property(property_obj, evaluation_record):
     address = getattr(property_obj, "address", "")
     prefecture = ""
     city = ""
-    import re
-    pref_match = re.match(r'^(東京都|京都府|大阪府|北海道|[^県]+[県])', address)
+    pref_match = re.match(r'^(東京都|京都府|大阪府|北海道|[^県]+県)', address)
     if pref_match:
         prefecture = pref_match.group(1)
         city_part = address[len(prefecture):]

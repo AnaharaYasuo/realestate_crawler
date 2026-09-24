@@ -1,5 +1,5 @@
 const { WebClient } = require('@slack/web-api');
-const path = require('path');
+const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '../../..', '.env') });
 
 const token = process.env.SLACK_BOT_TOKEN;

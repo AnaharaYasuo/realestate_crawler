@@ -40,10 +40,10 @@ class AfrParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def getRootDestUrl(self, linkUrl):
-        if linkUrl.startswith('http'):
-            return linkUrl
-        return self.BASE_URL + linkUrl
+    def getRootDestUrl(self, link_url):
+        if link_url.startswith('http'):
+            return link_url
+        return self.BASE_URL + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
         # 1回のAjaxで全物件がロードされるため、改ページ巡回は不要です。
@@ -147,7 +147,7 @@ class AfrParser(ParserBase):
 
         return item
 
-    def _parsePropertyName(self, response: BeautifulSoup):
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         # H2要素のうち「物件画像」や「おすすめポイント」などの定型表現を除外して物件名を見つける
         ignore_titles = ["物件詳細", "物件画像", "間取り", "物件タイプ", "おすすめポイント", 
                          "建物メンテナンス情報", "物件情報", "お問い合わせ", 
@@ -162,18 +162,18 @@ class AfrParser(ParserBase):
             return h1.get_text().strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("価格", "")
 
-    def _parsePrice(self, response: BeautifulSoup):
-        price_str = self._parsePriceStr(response)
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        price_str = self._parsePriceStr(response, specs)
         if price_str:
             return converter.parse_price(price_str)
         return 0
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        specs = specs or self._get_specs(response)
         return specs.get("所在地", "")
 
     def _split_address(self, address):

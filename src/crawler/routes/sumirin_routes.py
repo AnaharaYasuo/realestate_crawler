@@ -17,45 +17,61 @@ from package.api.sumirin import (
 sumirin_bp = Blueprint('sumirin', __name__)
 
 @sumirin_bp.route(API_KEY_SUMIRIN_MANSION_START, methods=['POST', 'GET'])
-def sumirinMansionStart():
+def sumirin_mansion_start():
     return ParseSumirinMansionStartAsync().main("https://www.suminavi.com/buy/mansion/")
 
+sumirinMansionStart = sumirin_mansion_start
+
 @sumirin_bp.route(API_KEY_SUMIRIN_MANSION_DETAIL, methods=['POST', 'GET'])
-def sumirinMansionDetail():
+def sumirin_mansion_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseSumirinMansionDetailFuncAsync().main(url)
     return "finish", 200
 
+sumirinMansionDetail = sumirin_mansion_detail
+
 @sumirin_bp.route(API_KEY_SUMIRIN_KODATE_START, methods=['POST', 'GET'])
-def sumirinKodateStart():
+def sumirin_kodate_start():
     return ParseSumirinKodateStartAsync().main("https://www.suminavi.com/buy/house/")
 
+sumirinKodateStart = sumirin_kodate_start
+
 @sumirin_bp.route(API_KEY_SUMIRIN_KODATE_DETAIL, methods=['POST', 'GET'])
-def sumirinKodateDetail():
+def sumirin_kodate_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseSumirinKodateDetailFuncAsync().main(url)
     return "finish", 200
 
+sumirinKodateDetail = sumirin_kodate_detail
+
 @sumirin_bp.route(API_KEY_SUMIRIN_TOCHI_START, methods=['POST', 'GET'])
-def sumirinTochiStart():
+def sumirin_tochi_start():
     return ParseSumirinTochiStartAsync().main("https://www.suminavi.com/buy/land/")
 
+sumirinTochiStart = sumirin_tochi_start
+
 @sumirin_bp.route(API_KEY_SUMIRIN_TOCHI_DETAIL, methods=['POST', 'GET'])
-def sumirinTochiDetail():
+def sumirin_tochi_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseSumirinTochiDetailFuncAsync().main(url)
     return "finish", 200
 
+sumirinTochiDetail = sumirin_tochi_detail
+
 @sumirin_bp.route(API_KEY_SUMIRIN_INVESTMENT_START, methods=['POST', 'GET'])
-def sumirinInvestmentStart():
+def sumirin_investment_start():
     return ParseSumirinInvestmentStartAsync().main("https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=3&s_mode=1")
 
+sumirinInvestmentStart = sumirin_investment_start
+
 @sumirin_bp.route(API_KEY_SUMIRIN_INVESTMENT_DETAIL, methods=['POST', 'GET'])
-def sumirinInvestmentDetail():
+def sumirin_investment_detail():
     request_json = json.loads(request.get_json())
     url = request_json['url']
     ParseSumirinInvestmentDetailFuncAsync().main(url)
     return "finish", 200
+
+sumirinInvestmentDetail = sumirin_investment_detail
