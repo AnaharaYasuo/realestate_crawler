@@ -1435,6 +1435,26 @@ def _build_fallback_shape_features(is_hatasao: bool, is_fuseigei: bool, kagechi_
     }, shape_penalty
 
 
+def _resolve_kagechi_ratio(property_obj, is_hatasao: bool, is_fuseigei: bool) -> float:
+    kagechi_ratio = safe_float(_get_attr(property_obj, 'kagechi_ratio', None), None)
+    if kagechi_ratio is not None:
+        return kagechi_ratio
+    if is_hatasao:
+        return 0.25
+    if is_fuseigei:
+        return 0.15
+    return 0.0
+
+
+def _apply_plot_shape_discount(property_type, cost_approach_value, mkt_comparison_value, residual_land_value, plot_shape_penalty):
+    if property_type in ['tochi', 'kodate']:
+        cost_approach_value = round(cost_approach_value * plot_shape_penalty, 2)
+        mkt_comparison_value = round(mkt_comparison_value * plot_shape_penalty, 2)
+        if residual_land_value > 0:
+            residual_land_value = round(residual_land_value * plot_shape_penalty, 2)
+    return cost_approach_value, mkt_comparison_value, residual_land_value
+
+
 def _calculate_plot_shape_features(
     property_obj, property_type, cost_approach_value, mkt_comparison_value, residual_land_value
 ):
@@ -1443,14 +1463,7 @@ def _calculate_plot_shape_features(
     is_hatasao = any(x in str(biko_text) or x in str(tochi_text) for x in ["旗竿", "路地状", "敷地延長", "敷延"])
     is_fuseigei = any(x in str(biko_text) or x in str(tochi_text) for x in ["不整形", "変形地", "台形地", "袋地"])
 
-    kagechi_ratio = safe_float(_get_attr(property_obj, 'kagechi_ratio', None), None)
-    if kagechi_ratio is None:
-        if is_hatasao:
-            kagechi_ratio = 0.25
-        elif is_fuseigei:
-            kagechi_ratio = 0.15
-        else:
-            kagechi_ratio = 0.0
+    kagechi_ratio = _resolve_kagechi_ratio(property_obj, is_hatasao, is_fuseigei)
 
     plot_vertices = _get_attr(property_obj, 'plot_vertices', None)
     shape_metrics = analyze_plot_shape(plot_vertices) if plot_vertices and len(plot_vertices) >= 3 else None
@@ -1460,11 +1473,9 @@ def _calculate_plot_shape_features(
     else:
         shape_feats, plot_shape_penalty = _build_fallback_shape_features(is_hatasao, is_fuseigei, kagechi_ratio)
 
-    if property_type in ['tochi', 'kodate']:
-        cost_approach_value = round(cost_approach_value * plot_shape_penalty, 2)
-        mkt_comparison_value = round(mkt_comparison_value * plot_shape_penalty, 2)
-        if residual_land_value > 0:
-            residual_land_value = round(residual_land_value * plot_shape_penalty, 2)
+    cost_approach_value, mkt_comparison_value, residual_land_value = _apply_plot_shape_discount(
+        property_type, cost_approach_value, mkt_comparison_value, residual_land_value, plot_shape_penalty
+    )
 
     return shape_feats, cost_approach_value, mkt_comparison_value, residual_land_value
 
@@ -1482,39 +1493,6 @@ def _extract_combined_text_for_prop(property_obj):
     all_text_list = [raw_html_content, tochikenri, biko_val, kuiki, youto, prop_name, setsudou_text, notes_val, genkyo_val]
     return " ".join([str(x) for x in all_text_list if x])
 
-def _evaluate_furuya(
-    combined_text, property_type, tochi_area, tatemono_area, average_land_price, scale_discount,
-    is_saikenchiku_fuka, cost_approach_value, income_approach_value, residual_land_value
-):
-    furuya_keywords = [
-        "古家あり", "古家有", "古家付", "古家建", "上物あり", "上物有", "上物付",
-        "古家解体", "建物あり", "建物有", "現況：古家", "現況古家", "上物解体", "古家付売地"
-    ]
-    if not any(k in combined_text for k in furuya_keywords):
-        return {
-            "is_furuya": 0.0,
-            "has_demolition_condition": 0.0,
-            "furuya_demolition_cost": 0.0,
-            "furuya_usable_value": 0.0,
-            "furuya_option_value": 0.0,
-            "cost_approach_value": cost_approach_value,
-            "income_approach_value": income_approach_value,
-            "residual_land_value": residual_land_value,
-        }
-
-    is_furuya = 1.0
-    demolition_cond_keywords = [
-        "更地渡し", "解体更地渡し", "解体後引渡", "更地引渡",
-        "売主負担にて解体", "売主負担で解体", "売主にて解体", "売主側で解体"
-    ]
-    has_demolition_condition = 1.0 if any(k in combined_text for k in demolition_cond_keywords) else 0.0
-
-    m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([\d.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
-    furuya_bldg_area = safe_float(m_bldg.group(1), 0.0) if m_bldg else 0.0
-    if furuya_bldg_area <= 0.0:
-        furuya_bldg_area = safe_float(tatemono_area, 0.0)
-    if furuya_bldg_area <= 0.0:
-        furuya_bldg_area = 80.0
 
 def _determine_demolish_unit(combined_text: str) -> float:
     if "鉄骨" in combined_text:
