@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from django.db import models
+
 
 class MunicipalPotential(models.Model):
     """
@@ -141,6 +141,98 @@ class PropertyEvaluation(models.Model):
     maintenance_score = models.FloatField(null=True, blank=True, verbose_name="外観メンテナンス状態スコア (1.0-5.0)")
     maintenance_comment = models.TextField(default="", blank=True, verbose_name="外観メンテナンス評価コメント")
 
+    # 土地形状・公的評価指標 (Gemini Vision + plot_shape_analyzer)
+    shadow_area_ratio = models.FloatField(null=True, blank=True, verbose_name="かげ地割合 (0.0-1.0)")
+    frontage_length_est = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="推定間口長 (m)")
+    road_width_est = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, verbose_name="推定前面道路幅員 (m)")
+    passage_width = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, verbose_name="旗竿地通路幅 (m)")
+    shape_score_100 = models.FloatField(null=True, blank=True, verbose_name="総合画地幾何スコア (0-100点)")
+    nta_irregular_discount = models.FloatField(null=True, blank=True, verbose_name="国税庁不整形地補正率")
+
+    # プロ買い付け目線コスト・リスク予測項目 (Gemini Vision)
+    retaining_wall_risk = models.CharField(
+        max_length=30,
+        default='none',
+        choices=[
+            ('none', '擁壁なし/平坦'),
+            ('rc_legal', '適法RC擁壁'),
+            ('stone_masonry', '間知石/玉石積み'),
+            ('two_tier_illegal', '二段擁壁/危険擁壁')
+        ],
+        verbose_name="擁壁リスク種別"
+    )
+    ground_elevation_diff_m = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True, verbose_name="道路宅地高低差 (m)")
+    demolition_difficulty = models.CharField(
+        max_length=20,
+        default='medium',
+        choices=[
+            ('low', '容易 (重機進入容易)'),
+            ('medium', '通常'),
+            ('high', '困難 (狭小手壊し要)')
+        ],
+        verbose_name="解体・重機進入難易度"
+    )
+    utility_pole_risk = models.CharField(
+        max_length=20,
+        default='none',
+        choices=[
+            ('none', 'なし'),
+            ('pole', '敷地内電柱あり'),
+            ('guy_wire', '黄色支線あり')
+        ],
+        verbose_name="敷地内電柱・支線リスク"
+    )
+    foundation_crack_risk = models.BooleanField(null=True, blank=True, verbose_name="基礎構造クラック有無")
+    water_leak_risk = models.BooleanField(null=True, blank=True, verbose_name="軒天・漏水サイン有無")
+    stair_steepness = models.CharField(
+        max_length=20,
+        default='unknown',
+        choices=[
+            ('normal', '通常勾配'),
+            ('steep', '急勾配 (昭和階段)'),
+            ('unknown', '不明')
+        ],
+        verbose_name="階段勾配"
+    )
+    indoor_washing_machine_space = models.CharField(
+        max_length=20,
+        default='unknown',
+        choices=[
+            ('indoor', '室内'),
+            ('outdoor', '外置き (バルコニー等)'),
+            ('unknown', '不明')
+        ],
+        verbose_name="洗濯機置場"
+    )
+    exposed_pipes_risk = models.BooleanField(null=True, blank=True, verbose_name="露出老朽化配管サイン有無")
+    renovation_budget_tier = models.CharField(
+        max_length=30,
+        default='tier_medium',
+        choices=[
+            ('tier_none', '不要 (0円/美室)'),
+            ('tier_light', '軽微 (〜100万円/表層)'),
+            ('tier_medium', '標準 (〜300万円/水回り一部)'),
+            ('tier_heavy', '大規模 (〜600万円/水回り全交換)'),
+            ('tier_full', 'フルリノベ (1000万円超/スケルトン)')
+        ],
+        verbose_name="想定リフォーム費用規模"
+    )
+
+    # テキストスクレイピング由来プロ目線リスクフラグ
+    is_psychological_defect = models.BooleanField(default=False, verbose_name="心理的瑕疵フラグ")
+    is_as_is_condition = models.BooleanField(default=False, verbose_name="契約不適合免責フラグ")
+    is_boundary_unspecified = models.BooleanField(default=False, verbose_name="境界非明示フラグ")
+    is_unbuildable = models.BooleanField(default=False, verbose_name="再建築不可フラグ")
+    is_urbanization_control_area = models.BooleanField(default=False, verbose_name="市街化調整区域フラグ")
+    has_private_road_burden = models.BooleanField(default=False, verbose_name="私道負担・持分なしフラグ")
+    is_sublease = models.BooleanField(default=False, verbose_name="サブリース中フラグ")
+    bath_type = models.CharField(max_length=20, default='unknown', verbose_name="浴室種別")
+    gas_type = models.CharField(max_length=20, default='unknown', verbose_name="ガス種別")
+    sewage_type = models.CharField(max_length=20, default='unknown', verbose_name="下水種別")
+    has_elevator = models.BooleanField(null=True, blank=True, verbose_name="エレベーター有無")
+    is_stair_only_3f_plus = models.BooleanField(null=True, blank=True, verbose_name="3階以上階段物件フラグ")
+    is_old_earthquake_standard = models.BooleanField(null=True, blank=True, verbose_name="旧耐震基準判定")
+
     # 解析ステータス・制御
     analysis_status = models.CharField(
         max_length=30,
@@ -163,6 +255,28 @@ class PropertyEvaluation(models.Model):
         verbose_name = "物件評価データ"
         verbose_name_plural = "物件評価データ"
 
+    def update_from_gemini(self, analysis_res: dict) -> None:
+        """Gemini画像解析結果辞書から土地幾何指標およびプロ目線リスクを反映する。"""
+        self.plot_shape_type = analysis_res.get('plot_shape_type', 'unknown')
+        self.plot_shape_description = analysis_res.get('plot_shape_description', '')
+        self.maintenance_score = analysis_res.get('maintenance_score')
+        self.maintenance_comment = analysis_res.get('maintenance_comment', '')
+        self.shadow_area_ratio = analysis_res.get('shadow_area_ratio')
+        self.frontage_length_est = analysis_res.get('frontage_length_est')
+        self.road_width_est = analysis_res.get('road_width_est')
+        self.passage_width = analysis_res.get('passage_width')
+        self.shape_score_100 = analysis_res.get('shape_score_100')
+        self.nta_irregular_discount = analysis_res.get('nta_irregular_discount')
+        self.retaining_wall_risk = analysis_res.get('retaining_wall_risk', 'none')
+        self.ground_elevation_diff_m = analysis_res.get('ground_elevation_diff_m')
+        self.demolition_difficulty = analysis_res.get('demolition_difficulty', 'medium')
+        self.foundation_crack_risk = analysis_res.get('foundation_crack_risk')
+        self.water_leak_risk = analysis_res.get('water_leak_risk')
+        self.stair_steepness = analysis_res.get('stair_steepness', 'unknown')
+        self.indoor_washing_machine_space = analysis_res.get('indoor_washing_machine_space', 'unknown')
+        self.exposed_pipes_risk = analysis_res.get('exposed_pipes_risk')
+        self.renovation_budget_tier = analysis_res.get('renovation_budget_tier', 'tier_medium')
+
     def __str__(self):
         return f"[{self.company}/{self.property_type}] URL: {self.property_url} (一次合格: {self.is_first_stage_passed}, ステータス: {self.analysis_status})"
 
@@ -184,6 +298,7 @@ class PropertyImage(models.Model):
         max_length=50,
         choices=[
             ('layout', '間取り図'),
+            ('plot_plan', '区画図・敷地配置図'),
             ('exterior', '外観'),
             ('interior', '内装')
         ],
@@ -283,7 +398,7 @@ class PropertyPriceHistory(models.Model):
         db_table = 'property_price_history'
         verbose_name = "物件価格改定履歴"
         verbose_name_plural = "物件価格改定履歴"
-        ordering = ['-recorded_at']
+        ordering = ['-recorded_at']  # noqa: RUF012
 
     def __str__(self):
         diff_str = f"{self.price_diff:+d}" if self.price_diff is not None else "0"
