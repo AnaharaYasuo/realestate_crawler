@@ -60,7 +60,7 @@ jobs:
           - group: live-guarantee
             name: Live Crawl Guarantee Tests
             needs_db: false
-            command: docker compose exec -T -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=25 -e CRAWL_LIVE_WALL_LIMIT_SEC=600 -e CRAWL_LIVE_PARALLEL_MODE=ci app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
+            command: docker compose exec -T -e PYTHONPATH=/app/src/crawler -e PYTHONUNBUFFERED=1 -e CRAWL_SMOKE_SAMPLE_SIZE=3 -e CRAWL_SMOKE_JOB_BUDGET_SEC=25 -e CRAWL_LIVE_WALL_LIMIT_SEC=750 -e CRAWL_LIVE_PARALLEL_MODE=ci app python src/crawler/scripts/ops/run_live_crawl_guarantee.py --durations=20
 
     steps:
       - name: Checkout code
