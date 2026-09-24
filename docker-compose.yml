@@ -41,7 +41,6 @@ services:
       - .:/app
     depends_on:
       - db
-      - minio
     restart: always
 
   scheduler:
@@ -69,12 +68,11 @@ services:
     depends_on:
       - db
       - app
-      - minio
     entrypoint: ["sh", "-c", "python /app/src/crawler/scripts/maintenance/write_env.py && echo '0 16 * * * . /app/.cron_env && cd /app && /usr/local/bin/python src/crawler/scripts/ops/run_pipeline.py >> /app/logs/pipeline.log 2>&1' | crontab - && cron -f"]
     restart: always
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: ghcr.io/coollabsio/minio:latest
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -105,7 +103,6 @@ services:
     depends_on:
       - db
       - app
-      - minio
     entrypoint: ["python", "src/crawler/scripts/ops/run_slack_agent.py"]
 
     restart: always
