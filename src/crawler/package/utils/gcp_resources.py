@@ -78,6 +78,91 @@ def _resize_mig_via_rest(
     return False
 
 
+def _patch_autoscaler_via_compute_v1(
+    compute_module: Any,
+    project: str,
+    region: str,
+    auto_name: str,
+    min_replicas: int,
+    max_replicas: int,
+) -> bool:
+    if compute_module is None or not hasattr(compute_module, "RegionAutoscalersClient"):
+        return False
+    try:
+        auto_client = compute_module.RegionAutoscalersClient()
+        policy_cls = getattr(compute_module, "AutoscalingPolicy", None)
+        auto_cls = getattr(compute_module, "Autoscaler", None)
+        request_cls = getattr(compute_module, "PatchRegionAutoscalerRequest", None)
+        policy = (
+            policy_cls(min_num_replicas=min_replicas, max_num_replicas=max_replicas)
+            if policy_cls
+            else None
+        )
+        resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
+        if request_cls is not None:
+            req = request_cls(
+                project=project,
+                region=region,
+                autoscaler=auto_name,
+                autoscaler_resource=resource,
+            )
+            auto_client.patch(request=req, timeout=10.0)
+        else:
+            auto_client.patch(
+                project=project,
+                region=region,
+                autoscaler=auto_name,
+                autoscaler_resource=resource,
+                timeout=10.0,
+            )
+        logger.info(
+            f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via compute_v1."
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to patch autoscaler via compute_v1: {e}")
+        return False
+
+
+def _patch_autoscaler_via_rest(
+    project: str,
+    region: str,
+    auto_name: str,
+    min_replicas: int,
+    max_replicas: int,
+    token: str | None,
+) -> bool:
+    if not token:
+        return False
+    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{region}/autoscalers"
+    params = {"autoscaler": auto_name}
+    body = {
+        "autoscalingPolicy": {
+            "minNumReplicas": min_replicas,
+            "maxNumReplicas": max_replicas,
+        }
+    }
+    try:
+        resp = requests.patch(
+            patch_url,
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code in (200, 204):
+            logger.info(
+                f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via REST API."
+            )
+            return True
+        logger.warning(
+            f"REST API patch autoscaler failed: HTTP {resp.status_code} - {resp.text}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"REST API patch autoscaler request error: {e}")
+    return False
+
+
 def patch_proxysql_autoscaler(
     min_replicas: int = 1,
     max_replicas: int = 2,
@@ -108,74 +193,16 @@ def patch_proxysql_autoscaler(
         f"proxysql-autoscaler-{os.getenv('ENVIRONMENT', 'prod')}",
     )
 
-    if compute_module is not None and hasattr(compute_module, "RegionAutoscalersClient"):
-        try:
-            auto_client = compute_module.RegionAutoscalersClient()
-            policy_cls = getattr(compute_module, "AutoscalingPolicy", None)
-            auto_cls = getattr(compute_module, "Autoscaler", None)
-            request_cls = getattr(compute_module, "PatchRegionAutoscalerRequest", None)
-            policy = (
-                policy_cls(min_num_replicas=min_replicas, max_num_replicas=max_replicas)
-                if policy_cls
-                else None
-            )
-            resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
-            if request_cls is not None:
-                req = request_cls(
-                    project=project,
-                    region=reg,
-                    autoscaler=auto_name,
-                    autoscaler_resource=resource,
-                )
-                auto_client.patch(request=req, timeout=10.0)
-            else:
-                auto_client.patch(
-                    project=project,
-                    region=reg,
-                    autoscaler=auto_name,
-                    autoscaler_resource=resource,
-                    timeout=10.0,
-                )
-            logger.info(
-                f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via compute_v1."
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to patch autoscaler via compute_v1: {e}")
+    if _patch_autoscaler_via_compute_v1(
+        compute_module, project, reg, auto_name, min_replicas, max_replicas
+    ):
+        return True
 
     token_fn = get_token_callback or get_gcp_access_token
     token = token_fn()
-    if not token:
-        return False
-
-    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{reg}/autoscalers"
-    params = {"autoscaler": auto_name}
-    body = {
-        "autoscalingPolicy": {
-            "minNumReplicas": min_replicas,
-            "maxNumReplicas": max_replicas,
-        }
-    }
-    try:
-        resp = requests.patch(
-            patch_url,
-            params=params,
-            json=body,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
-        if resp.status_code in (200, 204):
-            logger.info(
-                f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via REST API."
-            )
-            return True
-        logger.warning(
-            f"REST API patch autoscaler failed: HTTP {resp.status_code} - {resp.text}"
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"REST API patch autoscaler request error: {e}")
-
-    return False
+    return _patch_autoscaler_via_rest(
+        project, reg, auto_name, min_replicas, max_replicas, token
+    )
 
 
 def scale_proxysql_mig(
