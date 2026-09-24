@@ -499,7 +499,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         
         # Others
         item.saikouKadobeya = self._parseSaikouKadobeya(response)
-        item.kadobeya = "-"
+        item.kadobeya = item.saikouKadobeya
         item.senyouNiwaMenseki = self._parseSenyouNiwaMenseki(response)
         item.roofBalconyMenseki = self._parseRoofBalconyMenseki(response)
         
@@ -511,7 +511,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
 
     def _parseKouzou(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("構造", "-")
+        return specs.get("構造", "")
 
     def _parseKaisuStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -591,7 +591,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
 
     def _parseKanriKeitaiKaisya(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("管理員の勤務形態", "-")
+        return specs.get("管理員の勤務形態", "")
 
     def _parseKanrihiStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -660,7 +660,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
 
     def _parseSaikouKadobeya(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("角部屋", "-")
+        return specs.get("角部屋", "")
 
     def _parseSenyouNiwaMenseki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -836,11 +836,11 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
 
     def _parseKenchikuJoken(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("建築条件", "-")
+        return specs.get("建築条件", "")
 
     def _parseChimoku(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("地目", "-")
+        return specs.get("地目", "")
 
     def _parseSetsudou(self, response, specs=None):
         specs = self._get_specs(response)
@@ -874,19 +874,19 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
 
     def _parseYoutoChiiki(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("用途地域", "-")
+        return specs.get("用途地域", "")
 
     def _parseKuiki(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("都市計画", "-")
+        return specs.get("都市計画", "")
 
     def _parseKokudoHou(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("国土法", "-")
+        return specs.get("国土法", "")
 
     def _parseSetudouDetails(self, value):
-        # Default to safe values for DB (Decimal fields need "0", CharFields can handle "-")
-        res = {'douroHaba': "0", 'douroKubun': "-", 'douroMuki': "-", 'setsumen': "0"}
+        # Default to safe values for DB (Decimal fields need "0", CharFields can handle "")
+        res = {'douroHaba': "0", 'douroKubun': "", 'douroMuki': "", 'setsumen': "0"}
         if not value: return res
         
         m_muki = re.search(u'(北|東|西|南)+', value)
@@ -1001,7 +1001,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
     def _parseKouzouFromKaisuKouzou(self, value):
         if not value: return ""
         if "その他" in value: return "その他"
-        if "-" in value: return "-"
+        if "-" in value: return ""
         try: return value.split("造")[0].strip() + "造"
         except: return value
 

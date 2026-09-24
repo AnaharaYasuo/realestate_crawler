@@ -347,6 +347,10 @@
   - **重要スペック項目 (`menseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `grossYield` 等)**: `[PARSER_EXTRACTION_ERROR]` 構造化ログを記録し、後続のAIフォールバック補完へ連携。
   - **任意・付加項目 (`kanrihi`, `syuzenTsumitate`, `kaisu`, `setsudou` 等)**: `[PARSER_EXTRACTION_WARN]` を記録。
 
+#### FR-023: パーサー未取得項目のダミー・推測値フォールバック全廃
+- **元データ忠実性原則**: 物件詳細ページ上に情報が存在しない（未記載・未取得）場合、勝手な推測値（"相談", "即時", "仲介", "所有権", "可", "不要", "不明"）やダミー文字列（"-"）を補填・代入することを厳禁とし、未取得状態（空文字 `""` または `None`）として保持すること。
+- **対象パーサー**: `misawaParser`, `mitsuiParser`, `nomuraParser`, `sumifuParser`, `tokyuParser` を含む全パーサー。
+
 ### 2.3 テスト・品質保証機能
 
 #### FR-008: ライブサイト到達・動的パース検証統合テスト

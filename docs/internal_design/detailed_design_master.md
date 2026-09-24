@@ -488,6 +488,36 @@ graph TD
   5. **ローカルシフトレフトコマンド整備 (`Taskfile.yml`)**:
      - `task ci:precheck` を新設し、Ruff、Semgrep、Unit Tests、PR Mutation スコア（80%）を手元でワンステップ検証可能にする。
 
+### 6.31 パーサー未取得項目のダミー・推測値フォールバック全廃内部設計 (Issue #400)
+- **背景と課題**:
+  - `misawaParser`, `mitsuiParser`, `nomuraParser`, `sumifuParser`, `tokyuParser` において、対象ページに記載がない場合に空文字や `None` ではなく、固定値（"-"）や推測値（"相談", "即時", "仲介", "所有権", "可", "不要", "不明"）を代入・返却していた。
+  - これにより、DB内に事実と異なる推測データが永続化され、検索・フィルタリングや価格推定MLモデルの学習・特徴量に歪みを生じさせていた。
+- **改修内容**:
+  1. **`misawaParser`**:
+     - `_parseNeighborhood`, `_parseSchoolDistrict`, `_parseTransactionType`, `_parseUrbanPlanning`, `_parseKakuninBango`, `_parseSetback`, `_parseBiko`, `_parsePrivateRoadFee` の `or "-"` を `or ""` に変更。
+     - `_parseTochikenri_I` の `or "所有権"` を撤廃し、未取得時は `""`。
+     - `_parseDeliveryDate_I` の `or "即時"` を撤廃し、未取得時は `""`。
+     - `_parseTransactionType_I` の `or "仲介"` を撤廃し、未取得時は `""`。
+  2. **`mitsuiParser`**:
+     - `_parsePropertyDetailPage` における `item.kadobeya = "-"` を `item.kadobeya = item.saikouKadobeya` に改修。
+     - `_parseKouzou`, `_parseKanriKeitaiKaisya`, `_parseSaikouKadobeya`, `_parseKenchikuJoken`, `_parseChimoku`, `_parseYoutoChiiki`, `_parseKuiki`, `_parseKokudoHou` の `specs.get(..., "-")` を `specs.get(..., "")` に変更。
+     - `_parseSetudouDetails` における `douroKubun`, `douroMuki` の初期値を `"-"` から `""` に変更。
+     - `_parseKouzouFromKaisuKouzou` の `"-"` 返却を空文字返却に変更。
+  3. **`nomuraParser`**:
+     - `_parseCurrentStatus` の `or "不明"` を撤廃（`specs.get("現況", "")`）。
+     - `_parseHikiwatashi` の `or "相談"` を撤廃。
+     - `_parseTorihiki` の `or "仲介"` を撤廃。
+     - `_parsePropertyDetailPage` (土地) における `item.kaisuStr = "-"` を `item.kaisuStr = ""` に変更。
+     - `_parseHikiwatashiInvest` のデフォルト `"即時"` を撤廃。
+     - `_parseTorihikiInvest` のデフォルト `"仲介"` を撤廃。
+     - `_parseKouzouInvest` のデフォルト `"不明"` を撤廃。
+  4. **`sumifuParser`**:
+     - 各パーサーの `_parseChiikiChiku`, `_parseBoukaChiiki`, `_parseSonotaChiiki`, `_parseMadori`, `_parseCurrentStatus`, `_parseKouzou`, `_parseChikunengetsuStr`, `_parseTochikenri`, `_parseTochiMensekiStr`, `_parseSaikou`, `_parseKadobeya`, `_parseKanriKeitai`, `_parseKanriKaisya`, `_parseKaisuStr`, `_parseKenchikuJoken`, `_parseChimoku`, `_parseSetsudou`, `_parseYoutoChiiki`, `_parseKokudoHou`, `_parseChisei`, `_parseChimokuChisei`, `_parseKaisuKouzou` で未取得時に返却されていた `"-"` をすべて空文字 `""` に統一。
+  5. **`tokyuParser`**:
+     - `_parseDouroKubun`, `_parseChisei`, `_parseBoukaChiiki`, `_parseSonotaChiiki`, `_parseKenchikuJoken` の未取得時 `"-"` を `""` に変更。
+     - `_parseSaikenchiku` において、備考に「再建築不可」がない場合に「可」を推測返却していた処理を撤廃し、明示されていない場合は `""` を返却。
+     - `_parseKokudoHou` において、備考に「国土法」がない場合に「不要」を推測返却していた処理を撤廃し、明示されていない場合は `""` を返却。
+
 ---
 
 ## 7. 参照ドキュメント

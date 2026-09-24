@@ -101,4 +101,4 @@ def test_sumifu_none_replace_safety():
 
     tochi_parser = SumifuTochiParser()
     c = tochi_parser._parseChisei(soup)
-    assert c == "-"
+    assert c == ""
