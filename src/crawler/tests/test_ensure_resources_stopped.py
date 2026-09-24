@@ -170,18 +170,19 @@ def test_proxysql_api_error_triggers_critical_alert(mock_compute_client, mock_sl
     mock_compute_client.return_value = mock_instance
     mock_instance.get.side_effect = Exception("HTTP 404: Not Found")
 
-    result = check_and_stop_proxysql_mig(
-        project_id="test-proj",
-        region="asia-northeast1",
-        mig_name="proxysql-mig-prod",
-        dry_run=False,
-    )
+    with patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value=None):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            dry_run=False,
+        )
 
-    assert result.was_leaked is True
-    assert result.forced_stop is False
-    assert "HTTP 404" in result.details
-    mock_slack.assert_called_once()
-    assert ":rotating_light:" in mock_slack.call_args[0][0]
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        assert "HTTP 404" in result.details
+        mock_slack.assert_called_once()
+        assert ":rotating_light:" in mock_slack.call_args[0][0]
 
 
 def test_proxysql_rest_fallback_success(mock_slack):
@@ -314,5 +315,9 @@ def test_proxysql_resize_compute_v1_error_falls_back_to_rest_api(
         assert result.forced_stop is True
         assert result.leaked_size == 2
         mock_instance.resize.assert_called_once()
-        mock_post.assert_called_once()
+        mock_post.assert_called_once_with(
+            "https://compute.googleapis.com/compute/v1/projects/test-proj/regions/asia-northeast1/instanceGroupManagers/proxysql-mig-prod/resize?size=0",
+            headers={"Authorization": "Bearer fake-token"},
+            timeout=10,
+        )
         mock_slack.assert_called_once()
