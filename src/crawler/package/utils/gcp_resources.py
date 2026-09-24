@@ -3,8 +3,6 @@
 from collections.abc import Callable
 import logging
 import os
-import shutil
-import subprocess
 from typing import Any
 
 import requests
@@ -120,29 +118,6 @@ def scale_proxysql_mig(
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(f"REST API resize request error: {e}")
-
-    # 3. gcloud CLI フォールバック (CLIが存在する場合のみ)
-    if shutil.which("gcloud"):
-        cmd = [
-            "gcloud",
-            "compute",
-            "instance-groups",
-            "managed",
-            "resize",
-            mig,
-            f"--size={target_size}",
-            f"--region={reg}",
-            f"--project={project}",
-            "--quiet",
-        ]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if res.returncode == 0:
-                logger.info("Resize operation succeeded via gcloud CLI.")
-                return True
-            logger.error(f"gcloud resize failed: {res.stderr}")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"gcloud execution error: {e}")
 
     logger.error(
         f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
