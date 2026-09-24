@@ -551,15 +551,7 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
     def createEntity(self):
         return HomesInvestmentApartment()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-
-        # 利回り
-        yield_tag = response.select_one("span.prg-rimawariTableItem") or self._find_by_table_header(response, ["利回り"])
-        yield_str = yield_tag.get_text().strip() if yield_tag else ""
-        item.grossYield = converter.parse_ratio(yield_str)
-
-        # 想定賃料 (Homesは満室想定年収 prg-annualIncomeTableItem が取れる)
+    def _homes_parse_invest_rent(self, item, response: BeautifulSoup) -> None:
         income_tag = response.select_one("td.prg-annualIncomeTableItem") or self._find_by_table_header(response, ["満室想定年収", "想定年収", "想定賃料"])
         income_str = income_tag.get_text().strip() if income_tag else ""
         item.annualRent = converter.parse_price(income_str)
@@ -578,6 +570,15 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
             raise SkipPropertyException(
                 "Homes invest: missing annualRent on listing (skip and try next)"
             )
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+
+        # 利回り
+        yield_tag = response.select_one("span.prg-rimawariTableItem") or self._find_by_table_header(response, ["利回り"])
+        yield_str = yield_tag.get_text().strip() if yield_tag else ""
+        item.grossYield = converter.parse_ratio(yield_str)
+        self._homes_parse_invest_rent(item, response)
 
         status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
         item.currentStatus = status_tag.get_text().strip() if status_tag else ""

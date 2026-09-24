@@ -5,7 +5,7 @@
 """
 import pytest
 from package.parser.homesParser import HomesMansionParser, HomesKodateParser, HomesInvestmentApartmentParser
-from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment
+from package.models.homes import HomesMansion, HomesKodate
 
 def test_homes_investment_rent_derivation():
     from bs4 import BeautifulSoup
