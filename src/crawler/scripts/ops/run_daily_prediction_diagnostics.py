@@ -116,11 +116,12 @@ def _classify_under_prediction(text: str, features: dict) -> list:
     return causes
 
 
-def classify_error_cause(error_ratio: float, text: str = "", _ptype: str = "", features: dict = None) -> list:
+def classify_error_cause(error_ratio: float, text: str = "", ptype: str = "", features: dict | None = None) -> list:
     """
     乖離率および物件テキスト・属性から、ズレの主要因を自動推定（タギング）する。
     error_ratio = (predicted - actual) / actual
     """
+    _ = ptype
     text = text or ""
     features = features or {}
 

@@ -167,48 +167,56 @@ def _extract_route_info() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         constants = _route_http_constants(tree)
         local_ns = _load_get_start_url_ns(tree, path, constants)
         for node in tree.body:
-            if not isinstance(node, ast.FunctionDef) or not node.name.endswith("Start"):
-                continue
-            u, c = _collect_start_func_info(node, constants, local_ns)
-            seeds[node.name] = u
-            if c:
-                classes[node.name] = c
+            if isinstance(node, ast.FunctionDef) and (node.name.endswith("Start") or node.name.endswith("_start")):
+                u, c = _collect_start_func_info(node, constants, local_ns)
+                seeds[node.name] = u
+                if c:
+                    classes[node.name] = c
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Name):
+                    if node.value.id in seeds:
+                        seeds[target.id] = seeds[node.value.id]
+                    if node.value.id in classes:
+                        classes[target.id] = classes[node.value.id]
     return seeds, classes
 
 
-def _urls_from_url_list_value(value: ast.AST) -> list[str]:
+def _urls_from_url_list_value(value: ast.AST, constants: dict[str, str] | None = None) -> list[str]:
     urls: list[str] = []
     if not isinstance(value, (ast.List, ast.Tuple)):
         return urls
     for elt in value.elts:
         lit = _lit(elt)
+        if not lit and isinstance(elt, ast.Name) and constants and elt.id in constants:
+            lit = constants[elt.id]
         if lit:
             urls.append(lit)
     return urls
 
 
-def _urls_from_assign_item(item: ast.AST) -> list[str] | None:
+def _urls_from_assign_item(item: ast.AST, constants: dict[str, str] | None = None) -> list[str] | None:
     """Extract urlList values from Assign or AnnAssign, else None."""
     if isinstance(item, ast.Assign):
         for target in item.targets:
-            if isinstance(target, ast.Name) and target.id == "urlList":
-                return _urls_from_url_list_value(item.value)
+            if isinstance(target, ast.Name) and target.id in ("urlList", "url_list"):
+                return _urls_from_url_list_value(item.value, constants)
         return None
     if isinstance(item, ast.AnnAssign):
         target = item.target
         if (
             isinstance(target, ast.Name)
-            and target.id == "urlList"
+            and target.id in ("urlList", "url_list")
             and item.value is not None
         ):
-            return _urls_from_url_list_value(item.value)
+            return _urls_from_url_list_value(item.value, constants)
     return None
 
 
-def _url_list_from_class(node: ast.ClassDef) -> list[str] | None:
+def _url_list_from_class(node: ast.ClassDef, constants: dict[str, str] | None = None) -> list[str] | None:
     """Read class-level urlList from Assign or AnnAssign (incl. ClassVar[list[str]])."""
     for item in node.body:
-        urls = _urls_from_assign_item(item)
+        urls = _urls_from_assign_item(item, constants)
         if urls is not None:
             return urls
     return None
@@ -218,10 +226,11 @@ def _extract_url_lists_from_file(path: Path) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path))
+    constants = _route_http_constants(tree)
     for node in tree.body:
         if not isinstance(node, ast.ClassDef) or not node.name.endswith("StartAsync"):
             continue
-        urls = _url_list_from_class(node)
+        urls = _url_list_from_class(node, constants)
         if urls is not None:
             result[f"{path.stem}.{node.name}"] = urls
     return result
@@ -243,7 +252,20 @@ def _start_func_names(company: str, ptype: str) -> list[str]:
         "invest_apartment": "InvestApartment",
         "investment": "Investment",
     }[ptype]
-    return [f"{company}{token}Start"]
+    snake_token = {
+        "mansion": "mansion",
+        "kodate": "kodate",
+        "tochi": "tochi",
+        "invest_kodate": "invest_kodate",
+        "invest_apartment": "invest_apartment",
+        "investment": "investment",
+    }[ptype]
+    return [
+        f"{company}{token}Start",
+        f"{company}_{snake_token}_start",
+        f"{company}{token}_start",
+        f"{company}_{token.lower()}_start",
+    ]
 
 
 def _class_matches_ptype(class_name: str, company: str, ptype: str, type_token: str) -> bool:
