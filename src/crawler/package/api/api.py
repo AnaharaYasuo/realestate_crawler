@@ -1098,7 +1098,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             old_p = existing_record.price
             new_p = item.price
             if old_p is not None and new_p is not None and old_p != new_p:
-                await self._record_price_revision(item, model_class, old_p, new_p)
+                await self._record_price_revision(item, old_p, new_p)
         else:
             item.inputDateTime = current_time
             item.inputDate = current_day
@@ -1108,7 +1108,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         await sync_to_async(item.save)()
         logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
 
-    async def _record_price_revision(self, item, model_class, old_p, new_p):
+    async def _record_price_revision(self, item, old_p, new_p):
         company = self._detect_company_name(item)
         property_type = PropertyTypeDetector.detect_from_object(item)
         try:
@@ -1140,7 +1140,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.info(f"Hit limit {limit}. Exiting...")
                 os._exit(0)
 
-    async def _run_stage1_eval(self, item, company, property_type, asking_price, PropertyEvaluation, predict_first_stage):
+    async def _run_stage1_eval(self, item, company, property_type, asking_price, property_eval_cls, predict_first_stage):
         price_stage1 = await sync_to_async(predict_first_stage)(item)
         is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
 
@@ -1150,7 +1150,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
         liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
 
-        eval_record, _ = await sync_to_async(PropertyEvaluation.objects.update_or_create)(
+        eval_record, _ = await sync_to_async(property_eval_cls.objects.update_or_create)(
             property_url=item.pageUrl,
             defaults={
                 "company": company,
@@ -1179,28 +1179,34 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             eval_record = await sync_to_async(evaluate_investment_property)(item, eval_record)
             await sync_to_async(eval_record.save)()
 
-    async def _upload_single_property_image(self, eval_record, property_type, idx, img, PropertyImage):
+    async def _upload_single_property_image(self, eval_record, property_type, idx, img, property_image_cls):
         try:
             resp = await sync_to_async(requests.get)(img["url"], timeout=10)
             if resp.status_code == 200:
                 img_bytes = resp.content
-                ext = ".png" if img["url"].split('?')[0].lower().endswith(".png") else (".webp" if img["url"].split('?')[0].lower().endswith(".webp") else ".jpg")
+                base_url = img["url"].split('?')[0].lower()
+                if base_url.endswith(".png"):
+                    ext = ".png"
+                elif base_url.endswith(".webp"):
+                    ext = ".webp"
+                else:
+                    ext = ".jpg"
                 object_key = f"{property_type}/{eval_record.id}_{idx}_{uuid.uuid4().hex}{ext}"
                 content_type = "image/jpeg" if ext == ".jpg" else f"image/{ext[1:]}"
                 storage_url = get_storage_manager().upload_image_bytes(img_bytes, object_key, content_type)
-                await sync_to_async(PropertyImage.objects.create)(
+                await sync_to_async(property_image_cls.objects.create)(
                     evaluation=eval_record, image_url=storage_url, local_path=object_key,
                     category=img["category"], is_cleaned=True
                 )
             else:
-                await sync_to_async(PropertyImage.objects.create)(
+                await sync_to_async(property_image_cls.objects.create)(
                     evaluation=eval_record, image_url=img["url"], local_path=None,
                     category=img["category"], is_cleaned=True
                 )
         except Exception as img_err:
             logging.exception(f"Failed to upload image to MinIO for {img['url']}: {img_err}")
             try:
-                await sync_to_async(PropertyImage.objects.create)(
+                await sync_to_async(property_image_cls.objects.create)(
                     evaluation=eval_record, image_url=img["url"], local_path=None,
                     category=img["category"], is_cleaned=True
                 )
@@ -1281,7 +1287,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     async def _run_stage2_and_notify(
         self, item, eval_record, company, property_type, asking_price, timezone,
         extract_images_from_soup, clean_images, check_api_budget_cap,
-        analyze_property_images_with_gemini, predict_second_stage, PropertyImage
+        analyze_property_images_with_gemini, predict_second_stage, property_image_cls
     ):
         soup = getattr(item, "_soup", None)
         raw_images = extract_images_from_soup(soup, item.pageUrl) if soup else []
@@ -1330,7 +1336,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         logging.info(f"ML: Stage 2 prediction for {item.propertyName}: {price_stage2}万円 (Interior: {interior_score}, Layout: {layout_score}, Score: {final_score or 0.0:.1f})")
 
         for idx, img in enumerate(cleaned_images):
-            await self._upload_single_property_image(eval_record, property_type, idx, img, PropertyImage)
+            await self._upload_single_property_image(eval_record, property_type, idx, img, property_image_cls)
 
         is_investment = "investment" in property_type
         mean, stddev, pop_count = await sync_to_async(get_score_statistics)(is_investment)

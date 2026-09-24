@@ -529,14 +529,18 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
 
     def _parse_investment_yield_and_rent(self, item, response: BeautifulSoup, specs: dict):
         rimawari_input = response.find("input", id="manshitsuji_rimawari")
-        gross_yield_str = rimawari_input.get("value") if rimawari_input and rimawari_input.get("value") else ""
+        gross_yield_str = ""
+        if rimawari_input:
+            gross_yield_str = rimawari_input.get("value") or ""
         if not gross_yield_str:
             gross_yield_str = _first_spec(specs, "利回り", "表面利回り", "想定利回り")
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
 
         shunyu_input = response.find("input", id="manshitsuji_sotei_shunyu")
-        annual_rent_str = shunyu_input.get("value") if shunyu_input and shunyu_input.get("value") else ""
+        annual_rent_str = ""
+        if shunyu_input:
+            annual_rent_str = shunyu_input.get("value") or ""
         if not annual_rent_str:
             annual_rent_str = _first_spec(specs, "想定年間収入", "年間想定収入", "想定収入")
         if annual_rent_str:
@@ -547,19 +551,19 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
 
     def _parse_investment_kouzou_and_chikunen(self, item, response: BeautifulSoup, specs: dict):
         kozo_input = response.find("input", id="kozo_name")
-        if kozo_input and kozo_input.get("value"):
-            item.kouzou = kozo_input.get("value")
+        kozo_val = kozo_input.get("value") if kozo_input else None
+        if kozo_val:
+            item.kouzou = kozo_val
         else:
             item.kouzou = self._parseKouzou(response, specs)
 
         chikunen_input = response.find("input", id="chikunen_getsu")
-        if chikunen_input and chikunen_input.get("value"):
-            chikunen_val = chikunen_input.get("value")
-            if len(chikunen_val) == 6:
-                try:
-                    item.chikunengetsu = datetime.date(int(chikunen_val[:4]), int(chikunen_val[4:]), 1)
-                except Exception:
-                    pass
+        chikunen_val = chikunen_input.get("value") if chikunen_input else None
+        if chikunen_val and len(chikunen_val) == 6:
+            try:
+                item.chikunengetsu = datetime.date(int(chikunen_val[:4]), int(chikunen_val[4:]), 1)
+            except Exception:
+                pass
         if not item.chikunengetsu:
             item.chikunengetsuStr = specs.get("築年月", "")
             if item.chikunengetsuStr:
@@ -567,7 +571,9 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
 
     def _parse_investment_soukosu(self, item, response: BeautifulSoup, specs: dict):
         ju_kosu_input = response.find("input", id="ju_kosu")
-        soukosu_val = ju_kosu_input.get("value") if ju_kosu_input and ju_kosu_input.get("value") else ""
+        soukosu_val = ""
+        if ju_kosu_input:
+            soukosu_val = ju_kosu_input.get("value") or ""
         if not soukosu_val:
             soukosu_val = specs.get("総戸数", "")
             if not soukosu_val:

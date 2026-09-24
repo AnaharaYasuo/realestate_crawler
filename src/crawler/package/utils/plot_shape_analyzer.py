@@ -538,10 +538,16 @@ def _compute_penalties_and_score(
 ) -> Tuple[float, float]:
     shadow_penalty = shadow_area_ratio * 0.35
     solidity_penalty = (1.0 - solidity) * 0.25
-    aspect_penalty = (0.50 - mir_aspect_ratio) * 0.40 + (0.08 if is_unagi else 0.0) if mir_aspect_ratio < 0.50 else 0.0
+    aspect_penalty = 0.0
+    if mir_aspect_ratio < 0.50:
+        unagi_bonus = 0.08 if is_unagi else 0.0
+        aspect_penalty = (0.50 - mir_aspect_ratio) * 0.40 + unagi_bonus
     vertex_penalty = min(0.15, (vertex_count - 6) * 0.02) if vertex_count > 6 else 0.0
     acute_penalty = min(0.15, acute_count * 0.05)
-    flagpole_penalty = min(0.20, flagpole_passage_ratio * 0.35 + (0.05 if bottleneck_width < 2.5 else 0.0)) if is_flagpole else 0.0
+    flagpole_penalty = 0.0
+    if is_flagpole:
+        bottleneck_penalty = 0.05 if bottleneck_width < 2.5 else 0.0
+        flagpole_penalty = min(0.20, flagpole_passage_ratio * 0.35 + bottleneck_penalty)
 
     geometric_penalty = shadow_penalty + solidity_penalty + aspect_penalty + vertex_penalty + acute_penalty + flagpole_penalty
     geometric_score = max(0.60, min(1.0, 1.0 - geometric_penalty))

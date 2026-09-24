@@ -715,36 +715,36 @@ _hazard_cache: Dict[Tuple[str, str], Any] = {}
 _zone_cache: Dict[str, Any] = {}
 _macro_cache: Dict[str, Any] = {}
 
-def _init_muni_cache(MunicipalPotential):
+def _init_muni_cache(muni_cls):
     global _muni_cache, _muni_pref_cache
     if not _muni_cache:
-        for m in MunicipalPotential.objects.all():
+        for m in muni_cls.objects.all():
             _muni_cache[(m.prefecture, m.city)] = m
             _muni_pref_cache.setdefault(m.prefecture, []).append(m)
 
-def _init_lp_cache(LandPricePotential):
+def _init_lp_cache(lp_cls):
     global _lp_cache, _lp_pref_res_cache, _lp_pref_comm_cache
     if not _lp_cache:
-        for lp in LandPricePotential.objects.all():
+        for lp in lp_cls.objects.all():
             _lp_cache[(lp.prefecture, lp.city, lp.land_use)] = lp
             if lp.land_use == 'residential':
                 _lp_pref_res_cache.setdefault(lp.prefecture, []).append(lp)
             elif lp.land_use == 'commercial':
                 _lp_pref_comm_cache.setdefault(lp.prefecture, []).append(lp)
 
-def _init_misc_caches(StationPotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex):
+def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls):
     global _station_cache, _hazard_cache, _zone_cache, _macro_cache
     if not _station_cache:
-        for s in StationPotential.objects.all():
+        for s in station_cls.objects.all():
             _station_cache[s.station_name] = s
     if not _hazard_cache:
-        for hz in HazardMapPotential.objects.all():
+        for hz in hazard_cls.objects.all():
             _hazard_cache[(hz.prefecture, hz.city)] = hz
     if not _zone_cache:
-        for z in UrbanPlanningZonePotential.objects.all():
+        for z in zone_cls.objects.all():
             _zone_cache[z.zone_name] = z
     _macro_cache.clear()
-    for macro in MacroEconomicIndex.objects.all():
+    for macro in macro_cls.objects.all():
         _macro_cache[macro.year_month] = macro
 
 def _init_global_caches():
@@ -831,15 +831,25 @@ def _resolve_eval_dates_and_diff(property_obj, base_date):
     is_legacy = _check_is_legacy(prop_date, property_obj)
     return eval_base_date, ref_prop_date, time_diff_months, is_legacy
 
-def _extract_macro_features(ref_prop_date, property_type):
-    ym = f"{ref_prop_date.year:04d}-{ref_prop_date.month:02d}"
+def _get_macro_record(ym: str):
     macro_rec = _macro_cache.get(ym)
     if not macro_rec and _macro_cache:
         sorted_keys = sorted(_macro_cache.keys())
         if ym < sorted_keys[0]:
-            macro_rec = _macro_cache[sorted_keys[0]]
-        else:
-            macro_rec = _macro_cache[sorted_keys[-1]]
+            return _macro_cache[sorted_keys[0]]
+        return _macro_cache[sorted_keys[-1]]
+    return macro_rec
+
+def _pick_macro_repi(property_type: str, repi_m: float, repi_k: float, repi_t: float) -> float:
+    if property_type == 'kodate':
+        return repi_k
+    if property_type == 'tochi':
+        return repi_t
+    return repi_m
+
+def _extract_macro_features(ref_prop_date, property_type):
+    ym = f"{ref_prop_date.year:04d}-{ref_prop_date.month:02d}"
+    macro_rec = _get_macro_record(ym)
 
     if macro_rec:
         repi_m = float(macro_rec.repi_mansion or 100.0)
@@ -856,15 +866,7 @@ def _extract_macro_features(ref_prop_date, property_type):
         reit = 1800.0
         const_cost = 100.0
 
-    if property_type in ['mansion', 'apartment']:
-        macro_repi = repi_m
-    elif property_type == 'kodate':
-        macro_repi = repi_k
-    elif property_type == 'tochi':
-        macro_repi = repi_t
-    else:
-        macro_repi = repi_m
-
+    macro_repi = _pick_macro_repi(property_type, repi_m, repi_k, repi_t)
     return macro_repi, jgb, nikkei, reit, const_cost
 
 def _get_raw_chikunengetsu(property_obj):
@@ -1134,46 +1136,41 @@ def _resolve_zone_limits(property_obj):
     max_kenpei = 60.0 if max_kenpei is None else max_kenpei
     return max_youseki, max_kenpei, zone_max_kenpei, zone_max_youseki, zone_name_prop
 
-def _blend_land_prices(address1: str, address2: str, max_youseki: float):
+def _calculate_commercial_weight(max_youseki: float) -> float:
     if max_youseki <= 150.0:
-        weight_comm = 0.0
-    elif max_youseki >= 450.0:
-        weight_comm = 1.0
-    else:
-        weight_comm = (max_youseki - 150.0) / 300.0
+        return 0.0
+    if max_youseki >= 450.0:
+        return 1.0
+    return (max_youseki - 150.0) / 300.0
+
+def _get_land_price_stats(address1: str, address2: str, land_use: str, pref_cache: dict):
+    lp = _lp_cache.get((address1, address2, land_use))
+    if lp:
+        growth = float(lp.land_price_growth_rate) if lp.land_price_growth_rate is not None else None
+        return lp.average_land_price, lp.estimated_rosenka_price, lp.estimated_fixed_asset_price, growth
+
+    pref_list = pref_cache.get(address1, [])
+    if not pref_list:
+        return None, None, None, None
+
+    n = len(pref_list)
+    price = sum(x.average_land_price for x in pref_list) / n
+    rosenka = sum(x.estimated_rosenka_price for x in pref_list if x.estimated_rosenka_price is not None) / n
+    fixed = sum(x.estimated_fixed_asset_price for x in pref_list if x.estimated_fixed_asset_price is not None) / n
+    has_g = [float(x.land_price_growth_rate) for x in pref_list if x.land_price_growth_rate is not None]
+    growth = (sum(has_g) / len(has_g)) if has_g else None
+    return price, rosenka, fixed, growth
+
+def _blend_land_prices(address1: str, address2: str, max_youseki: float):
+    weight_comm = _calculate_commercial_weight(max_youseki)
     weight_res = 1.0 - weight_comm
 
-    lp_res = _lp_cache.get((address1, address2, 'residential'))
-    if lp_res:
-        res_price, res_rosenka, res_fixed = lp_res.average_land_price, lp_res.estimated_rosenka_price, lp_res.estimated_fixed_asset_price
-        res_growth = float(lp_res.land_price_growth_rate) if lp_res.land_price_growth_rate is not None else None
-    else:
-        lp_pref_res = _lp_pref_res_cache.get(address1, [])
-        if lp_pref_res:
-            n = len(lp_pref_res)
-            res_price = sum(x.average_land_price for x in lp_pref_res) / n
-            res_rosenka = sum(x.estimated_rosenka_price for x in lp_pref_res if x.estimated_rosenka_price is not None) / n
-            res_fixed = sum(x.estimated_fixed_asset_price for x in lp_pref_res if x.estimated_fixed_asset_price is not None) / n
-            has_rg = [float(x.land_price_growth_rate) for x in lp_pref_res if x.land_price_growth_rate is not None]
-            res_growth = (sum(has_rg) / len(has_rg)) if has_rg else None
-        else:
-            res_price, res_rosenka, res_fixed, res_growth = None, None, None, None
-
-    lp_comm = _lp_cache.get((address1, address2, 'commercial'))
-    if lp_comm:
-        comm_price, comm_rosenka, comm_fixed = lp_comm.average_land_price, lp_comm.estimated_rosenka_price, lp_comm.estimated_fixed_asset_price
-        comm_growth = float(lp_comm.land_price_growth_rate) if lp_comm.land_price_growth_rate is not None else None
-    else:
-        lp_pref_comm = _lp_pref_comm_cache.get(address1, [])
-        if lp_pref_comm:
-            n = len(lp_pref_comm)
-            comm_price = sum(x.average_land_price for x in lp_pref_comm) / n
-            comm_rosenka = sum(x.estimated_rosenka_price for x in lp_pref_comm if x.estimated_rosenka_price is not None) / n
-            comm_fixed = sum(x.estimated_fixed_asset_price for x in lp_pref_comm if x.estimated_fixed_asset_price is not None) / n
-            has_cg = [float(x.land_price_growth_rate) for x in lp_pref_comm if x.land_price_growth_rate is not None]
-            comm_growth = (sum(has_cg) / len(has_cg)) if has_cg else None
-        else:
-            comm_price, comm_rosenka, comm_fixed, comm_growth = None, None, None, None
+    res_price, res_rosenka, res_fixed, res_growth = _get_land_price_stats(
+        address1, address2, 'residential', _lp_pref_res_cache
+    )
+    comm_price, comm_rosenka, comm_fixed, comm_growth = _get_land_price_stats(
+        address1, address2, 'commercial', _lp_pref_comm_cache
+    )
 
     def blend_val(r_val, c_val, default):
         if r_val is not None and c_val is not None:
@@ -1329,8 +1326,8 @@ def _extract_road_specs(property_obj):
     road_dir, road_type = _fallback_road_classification(raw_setsudou, road_dir, road_type)
     return maguchi_val, road_width_val, road_dir, road_type, road_structure, chimoku
 
-def _calculate_road_factors(tochi_area, maguchi_val, road_width_val, road_direction_str, road_structure_str, youtoChiiki, max_youseki):
-    is_commercial = any(x in (youtoChiiki or '') for x in ("商業", "近隣商業", "工業", "準工業", "工業専用"))
+def _calculate_road_factors(tochi_area, maguchi_val, road_width_val, road_direction_str, road_structure_str, youto_chiiki, max_youseki):
+    is_commercial = any(x in (youto_chiiki or '') for x in ("商業", "近隣商業", "工業", "準工業", "工業専用"))
     multiplier = 0.6 if is_commercial else 0.4
     road_volume_limit = road_width_val * multiplier * 100.0
     actual_volume_limit = min(max_youseki, road_volume_limit)
@@ -1386,8 +1383,60 @@ def _calculate_tochi_appraisal_factors(
         residual_land_value, road_direction_str, road_type_str, road_structure_str, chimoku_str
     )
 
+def _build_shape_metrics_features(shape_metrics):
+    shape_code_map = {'regular': 1.0, 'irregular': 2.0, 'slender': 3.0, 'flagpole': 4.0}
+    s_type = getattr(shape_metrics, 'shape_type', 'regular')
+    return {
+        "kagechi_ratio": shape_metrics.shadow_area_ratio,
+        "plot_shadow_ratio": shape_metrics.shadow_area_ratio,
+        "plot_aspect_ratio": shape_metrics.mir_aspect_ratio,
+        "plot_effective_ratio": shape_metrics.mir_effective_ratio,
+        "plot_shape_penalty": shape_metrics.shape_penalty_score,
+        "plot_mic_diameter": shape_metrics.mic_diameter,
+        "plot_bottleneck_width": shape_metrics.bottleneck_width,
+        "plot_solidity": shape_metrics.solidity,
+        "plot_compactness": shape_metrics.compactness,
+        "plot_nta_discount": shape_metrics.nta_composite_discount,
+        "plot_acute_angles": float(shape_metrics.acute_angle_count),
+        "plot_flagpole_ratio": shape_metrics.flagpole_passage_ratio,
+        "plot_shape_grade_num": float(shape_metrics.shape_grade_num),
+        "plot_shape_score_100": shape_metrics.shape_score_100,
+        "shape_type_code": shape_code_map.get(s_type, 1.0),
+        "is_regular_shape": 1.0 if s_type == 'regular' else 0.0
+    }, shape_metrics.shape_penalty_score
+
+
+def _build_fallback_shape_features(is_hatasao: bool, is_fuseigei: bool, kagechi_ratio: float):
+    shape_penalty = round(max(0.60, min(1.0, 1.0 - (kagechi_ratio * 0.35))), 4)
+    if is_hatasao:
+        s_type = 'flagpole'
+    elif is_fuseigei:
+        s_type = 'irregular'
+    else:
+        s_type = 'regular'
+    shape_code_map = {'regular': 1.0, 'irregular': 2.0, 'slender': 3.0, 'flagpole': 4.0}
+    return {
+        "kagechi_ratio": kagechi_ratio,
+        "plot_shadow_ratio": kagechi_ratio,
+        "plot_aspect_ratio": 0.5 if is_fuseigei else 1.0,
+        "plot_effective_ratio": max(0.0, 1.0 - kagechi_ratio),
+        "plot_shape_penalty": shape_penalty,
+        "plot_mic_diameter": 6.0 if is_fuseigei else 10.0,
+        "plot_bottleneck_width": 4.0 if is_fuseigei else 10.0,
+        "plot_solidity": 0.85 if is_fuseigei else 1.0,
+        "plot_compactness": 0.70 if is_fuseigei else 1.0,
+        "plot_nta_discount": shape_penalty,
+        "plot_acute_angles": 0.0,
+        "plot_flagpole_ratio": 0.0,
+        "plot_shape_grade_num": 3.0 if is_fuseigei else 5.0,
+        "plot_shape_score_100": round(shape_penalty * 100.0, 1),
+        "shape_type_code": shape_code_map.get(s_type, 1.0),
+        "is_regular_shape": 1.0 if s_type == 'regular' else 0.0
+    }, shape_penalty
+
+
 def _calculate_plot_shape_features(
-    property_obj, property_type, tochi_area, cost_approach_value, mkt_comparison_value, residual_land_value
+    property_obj, property_type, cost_approach_value, mkt_comparison_value, residual_land_value
 ):
     biko_text = _get_attr(property_obj, 'biko', '') or ''
     tochi_text = _get_attr(property_obj, 'tochikenri', '') or ''
@@ -1396,42 +1445,20 @@ def _calculate_plot_shape_features(
 
     kagechi_ratio = safe_float(_get_attr(property_obj, 'kagechi_ratio', None), None)
     if kagechi_ratio is None:
-        kagechi_ratio = 0.25 if is_hatasao else (0.15 if is_fuseigei else 0.0)
+        if is_hatasao:
+            kagechi_ratio = 0.25
+        elif is_fuseigei:
+            kagechi_ratio = 0.15
+        else:
+            kagechi_ratio = 0.0
 
     plot_vertices = _get_attr(property_obj, 'plot_vertices', None)
     shape_metrics = analyze_plot_shape(plot_vertices) if plot_vertices and len(plot_vertices) >= 3 else None
 
     if shape_metrics:
-        plot_shadow_ratio = shape_metrics.shadow_area_ratio
-        kagechi_ratio = shape_metrics.shadow_area_ratio
-        plot_aspect_ratio = shape_metrics.mir_aspect_ratio
-        plot_effective_ratio = shape_metrics.mir_effective_ratio
-        plot_shape_penalty = shape_metrics.shape_penalty_score
-        plot_mic_diameter = shape_metrics.mic_diameter
-        plot_bottleneck_width = shape_metrics.bottleneck_width
-        plot_solidity = shape_metrics.solidity
-        plot_compactness = shape_metrics.compactness
-        plot_nta_discount = shape_metrics.nta_composite_discount
-        plot_acute_angles = float(shape_metrics.acute_angle_count)
-        plot_flagpole_ratio = shape_metrics.flagpole_passage_ratio
-        plot_shape_grade_num = float(shape_metrics.shape_grade_num)
-        plot_shape_score_100 = shape_metrics.shape_score_100
-        s_type = getattr(shape_metrics, 'shape_type', 'regular')
+        shape_feats, plot_shape_penalty = _build_shape_metrics_features(shape_metrics)
     else:
-        plot_shadow_ratio = kagechi_ratio
-        plot_aspect_ratio = 1.0 if not is_fuseigei else 0.5
-        plot_effective_ratio = max(0.0, 1.0 - kagechi_ratio)
-        plot_shape_penalty = round(max(0.60, min(1.0, 1.0 - (kagechi_ratio * 0.35))), 4)
-        plot_mic_diameter = 10.0 if not is_fuseigei else 6.0
-        plot_bottleneck_width = 10.0 if not is_fuseigei else 4.0
-        plot_solidity = 1.0 if not is_fuseigei else 0.85
-        plot_compactness = 1.0 if not is_fuseigei else 0.70
-        plot_nta_discount = plot_shape_penalty
-        plot_acute_angles = 0.0
-        plot_flagpole_ratio = 0.0
-        plot_shape_grade_num = 5.0 if not is_fuseigei else 3.0
-        plot_shape_score_100 = round(plot_shape_penalty * 100.0, 1)
-        s_type = 'flagpole' if is_hatasao else ('irregular' if is_fuseigei else 'regular')
+        shape_feats, plot_shape_penalty = _build_fallback_shape_features(is_hatasao, is_fuseigei, kagechi_ratio)
 
     if property_type in ['tochi', 'kodate']:
         cost_approach_value = round(cost_approach_value * plot_shape_penalty, 2)
@@ -1439,25 +1466,6 @@ def _calculate_plot_shape_features(
         if residual_land_value > 0:
             residual_land_value = round(residual_land_value * plot_shape_penalty, 2)
 
-    shape_code_map = {'regular': 1.0, 'irregular': 2.0, 'slender': 3.0, 'flagpole': 4.0}
-    shape_feats = {
-        "kagechi_ratio": kagechi_ratio,
-        "plot_shadow_ratio": plot_shadow_ratio,
-        "plot_aspect_ratio": plot_aspect_ratio,
-        "plot_effective_ratio": plot_effective_ratio,
-        "plot_shape_penalty": plot_shape_penalty,
-        "plot_mic_diameter": plot_mic_diameter,
-        "plot_bottleneck_width": plot_bottleneck_width,
-        "plot_solidity": plot_solidity,
-        "plot_compactness": plot_compactness,
-        "plot_nta_discount": plot_nta_discount,
-        "plot_acute_angles": plot_acute_angles,
-        "plot_flagpole_ratio": plot_flagpole_ratio,
-        "plot_shape_grade_num": plot_shape_grade_num,
-        "plot_shape_score_100": plot_shape_score_100,
-        "shape_type_code": shape_code_map.get(s_type, 1.0),
-        "is_regular_shape": 1.0 if s_type == 'regular' else 0.0
-    }
     return shape_feats, cost_approach_value, mkt_comparison_value, residual_land_value
 
 def _extract_combined_text_for_prop(property_obj):
@@ -1508,12 +1516,18 @@ def _evaluate_furuya(
     if furuya_bldg_area <= 0.0:
         furuya_bldg_area = 80.0
 
-    unit_demolish = 1.8 if "鉄骨" in combined_text else (2.5 if any(x in combined_text for x in ["RC", "鉄筋"]) else 1.4)
-    if has_demolition_condition >= 0.5 or is_saikenchiku_fuka >= 0.5:
-        furuya_demolition_cost = 0.0
-    else:
-        furuya_demolition_cost = round(furuya_bldg_area * unit_demolish, 2)
+def _determine_demolish_unit(combined_text: str) -> float:
+    if "鉄骨" in combined_text:
+        return 1.8
+    if any(x in combined_text for x in ["RC", "鉄筋"]):
+        return 2.5
+    return 1.4
 
+
+def _calculate_furuya_values(
+    furuya_bldg_area: float, average_land_price: float, tochi_area: float,
+    scale_discount: float, is_saikenchiku_fuka: float, furuya_demolition_cost: float
+) -> Tuple[float, float]:
     unit_rent_monthly = max(1200.0, min(8000.0, average_land_price * 0.0018))
     est_monthly_rent_man = max(4.0, min(25.0, (unit_rent_monthly * furuya_bldg_area * 0.70) / 10000.0))
     est_annual_noi_man = est_monthly_rent_man * 12.0 * 0.80
@@ -1529,17 +1543,73 @@ def _evaluate_furuya(
     saikenchiku_land_factor = 0.20 if is_saikenchiku_fuka >= 0.5 else 1.0
     clean_land_val = max(0.0, tochi_area * (average_land_price / 10000.0) * scale_discount * saikenchiku_land_factor - furuya_demolition_cost)
     furuya_option_value = round(max(0.0, furuya_usable_value - clean_land_val), 2)
+    return furuya_usable_value, furuya_option_value
+
+
+def _adjust_tochi_furuya_values(
+    cost_approach_value: float, income_approach_value: float, residual_land_value: float,
+    is_saikenchiku_fuka: float, furuya_usable_value: float, furuya_demolition_cost: float,
+    furuya_option_value: float
+) -> Tuple[float, float, float]:
+    if is_saikenchiku_fuka >= 0.5:
+        c_val = furuya_usable_value
+        i_val = max(income_approach_value, furuya_usable_value)
+    else:
+        c_val = max(0.0, cost_approach_value - furuya_demolition_cost) + (furuya_option_value * 0.5)
+        i_val = max(income_approach_value, furuya_usable_value) if furuya_usable_value > 0 else income_approach_value
+    r_val = max(0.0, residual_land_value - furuya_demolition_cost) if furuya_demolition_cost > 0 else residual_land_value
+    return c_val, i_val, r_val
+
+
+def _evaluate_furuya(
+    combined_text, property_type, tochi_area, tatemono_area, average_land_price, scale_discount,
+    is_saikenchiku_fuka, cost_approach_value, income_approach_value, residual_land_value
+):
+    furuya_keywords = [
+        "古家あり", "古家有", "古家付", "古家建", "上物あり", "上物有", "上物付",
+        "古家解体", "建物あり", "建物有", "現況：古家", "現況古家", "上物解体", "古家付売地"
+    ]
+    if not any(k in combined_text for k in furuya_keywords):
+        return {
+            "is_furuya": 0.0,
+            "has_demolition_condition": 0.0,
+            "furuya_demolition_cost": 0.0,
+            "furuya_usable_value": 0.0,
+            "furuya_option_value": 0.0,
+            "cost_approach_value": cost_approach_value,
+            "income_approach_value": income_approach_value,
+            "residual_land_value": residual_land_value,
+        }
+
+    is_furuya = 1.0
+    demolition_cond_keywords = [
+        "更地渡し", "解体更地渡し", "解体後引渡", "更地引渡",
+        "売主負担にて解体", "売主負担で解体", "売主にて解体", "売主側で解体"
+    ]
+    has_demolition_condition = 1.0 if any(k in combined_text for k in demolition_cond_keywords) else 0.0
+
+    m_bldg = re.search(r'(?:延床|建物)(?:面積)?[:：約]?\s*([\d.]+)\s*(?:㎡|平米|m2|ｍ２)', combined_text)
+    furuya_bldg_area = safe_float(m_bldg.group(1), 0.0) if m_bldg else 0.0
+    if furuya_bldg_area <= 0.0:
+        furuya_bldg_area = safe_float(tatemono_area, 0.0)
+    if furuya_bldg_area <= 0.0:
+        furuya_bldg_area = 80.0
+
+    unit_demolish = _determine_demolish_unit(combined_text)
+    if has_demolition_condition >= 0.5 or is_saikenchiku_fuka >= 0.5:
+        furuya_demolition_cost = 0.0
+    else:
+        furuya_demolition_cost = round(furuya_bldg_area * unit_demolish, 2)
+
+    furuya_usable_value, furuya_option_value = _calculate_furuya_values(
+        furuya_bldg_area, average_land_price, tochi_area, scale_discount, is_saikenchiku_fuka, furuya_demolition_cost
+    )
 
     if property_type == 'tochi':
-        if is_saikenchiku_fuka >= 0.5:
-            cost_approach_value = furuya_usable_value
-            income_approach_value = max(income_approach_value, furuya_usable_value)
-        else:
-            cost_approach_value = max(0.0, cost_approach_value - furuya_demolition_cost) + (furuya_option_value * 0.5)
-            if furuya_usable_value > 0:
-                income_approach_value = max(income_approach_value, furuya_usable_value)
-        if furuya_demolition_cost > 0:
-            residual_land_value = max(0.0, residual_land_value - furuya_demolition_cost)
+        cost_approach_value, income_approach_value, residual_land_value = _adjust_tochi_furuya_values(
+            cost_approach_value, income_approach_value, residual_land_value,
+            is_saikenchiku_fuka, furuya_usable_value, furuya_demolition_cost, furuya_option_value
+        )
 
     return {
         "is_furuya": is_furuya,
@@ -1553,7 +1623,7 @@ def _evaluate_furuya(
     }
 
 def _extract_legal_and_furuya_features(
-    property_obj, property_type, combined_text, chikunen, tochi_area, tatemono_area,
+    property_type, combined_text, chikunen, tochi_area, tatemono_area,
     average_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
 ):
     combined_text_lower = combined_text.lower()
@@ -1755,12 +1825,12 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     )
 
     shape_feats, cost_approach_value, mkt_comparison_value, residual_land_value = _calculate_plot_shape_features(
-        property_obj, property_type, tochi_area, cost_approach_value, mkt_comparison_value, residual_land_value
+        property_obj, property_type, cost_approach_value, mkt_comparison_value, residual_land_value
     )
 
     combined_text = _extract_combined_text_for_prop(property_obj)
     legal_furuya_feats = _extract_legal_and_furuya_features(
-        property_obj, property_type, combined_text, chikunen, tochi_area, tatemono_area,
+        property_type, combined_text, chikunen, tochi_area, tatemono_area,
         average_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
     )
     bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text)

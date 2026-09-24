@@ -721,6 +721,33 @@ async def _execute_predict_by_url(
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
     """
+def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
+    if not route:
+        return {}
+    try:
+        mod = importlib.import_module(route["model_module"])
+        model_cls = getattr(mod, route["model_cls"])
+        existing_item = UrlMatcher.find_match_in_queryset(
+            model_cls.objects, "pageUrl", url
+        )
+        if existing_item:
+            return _extract_property_info(existing_item)
+    except Exception as e:
+        logging.exception(f"Failed to fetch model info for cached eval: {e}")
+    return {}
+
+
+def _resolve_cached_meta(eval_record, route: Optional[dict]) -> Tuple[str, str]:
+    site_name = getattr(eval_record, "company", "unknown")
+    if hasattr(site_name, "_mock_name") or type(site_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        site_name = route["site"] if route else "unknown"
+
+    ptype_name = getattr(eval_record, "property_type", "mansion")
+    if hasattr(ptype_name, "_mock_name") or type(ptype_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
+        ptype_name = route["property_type"] if route else "mansion"
+    return str(site_name), str(ptype_name)
+
+
 def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: Optional[str]):
     if force_refresh:
         return None
@@ -735,39 +762,22 @@ def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint:
     if not eval_record or eval_record.first_stage_predicted_price is None:
         return None
 
-    prop_info = {}
     route = UrlRouter.resolve(url, property_type=property_type_hint)
-    if route:
-        try:
-            mod = importlib.import_module(route["model_module"])
-            model_cls = getattr(mod, route["model_cls"])
-            existing_item = UrlMatcher.find_match_in_queryset(
-                model_cls.objects, "pageUrl", url
-            )
-            if existing_item:
-                prop_info = _extract_property_info(existing_item)
-        except Exception as e:
-            logging.exception(f"Failed to fetch model info for cached eval: {e}")
+    prop_info = _fetch_cached_property_info(url, route)
 
     first_pred = int(eval_record.first_stage_predicted_price)
     second_pred = int(eval_record.second_stage_predicted_price) if eval_record.second_stage_predicted_price is not None else first_pred
     asking_price = prop_info.get("price")
     price_gap, ratio, is_bargain = _calculate_prediction_metrics(first_pred, asking_price)
 
-    site_name = getattr(eval_record, 'company', 'unknown')
-    if hasattr(site_name, '_mock_name') or type(site_name).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
-        site_name = route["site"] if route else "unknown"
-
-    ptype_name = getattr(eval_record, 'property_type', 'mansion')
-    if hasattr(ptype_name, '_mock_name') or type(ptype_name).__name__ in ('MagicMock', 'AsyncMock', 'Mock'):
-        ptype_name = route["property_type"] if route else "mansion"
+    site_name, ptype_name = _resolve_cached_meta(eval_record, route)
 
     return {
         "success": True,
         "url": url,
         "data_source": "evaluation_cache",
-        "site": str(site_name),
-        "property_type": str(ptype_name),
+        "site": site_name,
+        "property_type": ptype_name,
         "property_info": prop_info,
         "prediction": {
             "first_stage_predicted_price": first_pred,
