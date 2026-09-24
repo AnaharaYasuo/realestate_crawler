@@ -170,3 +170,68 @@ def test_wait_for_proxysql_health_cloud_timeout(monkeypatch):
 
     with patch("socket.create_connection", side_effect=OSError("Connection refused")), patch("time.sleep"):
         assert gcp_resources.wait_for_proxysql_health(timeout_sec=1) is False
+
+
+def test_patch_proxysql_autoscaler_local_returns_true():
+    """Verify patch_proxysql_autoscaler returns True immediately in local/test environment."""
+    with patch.dict("os.environ", {}, clear=True):
+        assert gcp_resources.patch_proxysql_autoscaler(min_replicas=1, max_replicas=2) is True
+
+
+def test_patch_proxysql_autoscaler_compute_v1_success(monkeypatch):
+    """Verify patch_proxysql_autoscaler patches via RegionAutoscalersClient in cloud."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "test-project")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+
+    mock_client = MagicMock()
+    mock_compute = MagicMock()
+    mock_compute.RegionAutoscalersClient.return_value = mock_client
+    mock_compute.PatchRegionAutoscalerRequest = MagicMock()
+    mock_compute.AutoscalingPolicy = MagicMock()
+    mock_compute.Autoscaler = MagicMock()
+
+    res = gcp_resources.patch_proxysql_autoscaler(
+        min_replicas=1,
+        max_replicas=2,
+        compute_module=mock_compute,
+    )
+    assert res is True
+    mock_client.patch.assert_called_once()
+
+
+def test_patch_proxysql_autoscaler_rest_fallback(monkeypatch):
+    """Verify patch_proxysql_autoscaler falls back to REST API when compute_v1 unavailable."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "test-project")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    with patch("requests.patch", return_value=mock_resp) as mock_patch:
+        res = gcp_resources.patch_proxysql_autoscaler(
+            min_replicas=1,
+            max_replicas=2,
+            compute_module=None,
+            get_token_callback=lambda: "mock-token",
+        )
+        assert res is True
+        mock_patch.assert_called_once()
+        called_url = mock_patch.call_args[0][0]
+        assert "autoscalers" in called_url
+
+
+def test_patch_proxysql_autoscaler_fails_when_all_fail(monkeypatch):
+    """Verify patch_proxysql_autoscaler returns False when both compute_v1 and REST API fail."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "test-project")
+
+    with patch("requests.patch", side_effect=Exception("HTTP error")):
+        res = gcp_resources.patch_proxysql_autoscaler(
+            min_replicas=1,
+            max_replicas=2,
+            compute_module=None,
+            get_token_callback=lambda: "token",
+        )
+        assert res is False
+

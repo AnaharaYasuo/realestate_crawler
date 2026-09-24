@@ -26,6 +26,7 @@ def test_run_pipeline_contains_startup_and_health_check():
         content = f.read()
 
     # Imports check
+    assert "patch_proxysql_autoscaler" in content, "run_pipeline.py must import patch_proxysql_autoscaler"
     assert "scale_proxysql_mig" in content, "run_pipeline.py must import scale_proxysql_mig"
     assert "wait_for_proxysql_health" in content, "run_pipeline.py must import wait_for_proxysql_health"
 

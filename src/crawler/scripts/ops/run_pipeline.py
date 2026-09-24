@@ -25,7 +25,11 @@ from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
-from package.utils.gcp_resources import scale_proxysql_mig, wait_for_proxysql_health
+from package.utils.gcp_resources import (
+    patch_proxysql_autoscaler,
+    scale_proxysql_mig,
+    wait_for_proxysql_health,
+)
 configure_logging()
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,9 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
     if not os.environ.get("IS_CLOUD"):
         return
     if is_coordinator:
+        logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
+        if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
+            logger.warning("⚠️ [Startup Warning] Failed to update ProxySQL Autoscaler to min=1.")
         logger.info("🚀 [Startup: Coordinator] Scaling ProxySQL MIG (0 -> 1)...")
         success = scale_proxysql_mig(target_size=1)
         if not success:
