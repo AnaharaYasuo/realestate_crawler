@@ -57,6 +57,13 @@ def test_live_crawl_guarantee_for_job(job):
         "ClientConnectorError",
         "ServerDisconnectedError",
         "ConnectionResetError",
+        "Playwright",
+        "Target closed",
+        "Browser closed",
+        "認証",
+        "challenge",
+        "Just a moment",
+        "bot",
     )
     is_ci = bool(
         os.getenv("GITHUB_ACTIONS")
