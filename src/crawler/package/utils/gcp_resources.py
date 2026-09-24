@@ -1,8 +1,8 @@
 """GCP リソース管理共通ユーティリティ (ProxySQL MIG, GCE, Auth)."""
 
-from collections.abc import Callable
 import logging
 import os
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -50,7 +50,9 @@ def get_gcp_access_token() -> str | None:
     return None
 
 
-def _resize_via_compute_client(compute_module: Any, project: str, reg: str, mig: str, target_size: int) -> bool:
+def _resize_via_compute_client(
+    compute_module: Any, project: str, reg: str, mig: str, target_size: int
+) -> bool:
     if compute_module is None:
         return False
     try:
@@ -58,7 +60,7 @@ def _resize_via_compute_client(compute_module: Any, project: str, reg: str, mig:
         op = client.resize(
             project=project,
             region=reg,
-            region_instance_group_manager=mig,
+            instance_group_manager=mig,
             size=target_size,
         )
         logger.info(
@@ -70,10 +72,17 @@ def _resize_via_compute_client(compute_module: Any, project: str, reg: str, mig:
         return False
 
 
-def _resize_via_rest_api(token: str | None, project: str, reg: str, mig: str, target_size: int) -> bool:
+def _resize_mig_via_rest(
+    project: str,
+    region: str,
+    mig: str,
+    target_size: int,
+    token: str | None,
+) -> bool:
+    """REST API を直接呼び出して ProxySQL MIG をリサイズ。"""
     if not token:
         return False
-    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{reg}/instanceGroupManagers/{mig}/resize?size={target_size}"
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{region}/instanceGroupManagers/{mig}/resize?size={target_size}"
     try:
         resp = requests.post(
             url, headers={"Authorization": f"Bearer {token}"}, timeout=10
@@ -83,9 +92,7 @@ def _resize_via_rest_api(token: str | None, project: str, reg: str, mig: str, ta
                 f"Resize operation submitted via REST API: HTTP {resp.status_code}"
             )
             return True
-        logger.error(
-            f"REST API resize failed: HTTP {resp.status_code} - {resp.text}"
-        )
+        logger.error(f"REST API resize failed: HTTP {resp.status_code} - {resp.text}")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"REST API resize request error: {e}")
     return False
@@ -118,9 +125,7 @@ def scale_proxysql_mig(
         f"Scaling ProxySQL MIG '{mig}' to size {target_size} (project: {project}, region: {reg}, dry_run: {dry_run})"
     )
     if dry_run or not bool(
-        os.getenv("IS_CLOUD")
-        or os.getenv("K_SERVICE")
-        or os.getenv("CLOUD_RUN_JOB")
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
     ):
         logger.info(f"[Dry-run/Local] ProxySQL MIG scaled to {target_size} (mocked).")
         return True
@@ -131,7 +136,7 @@ def scale_proxysql_mig(
 
     # 2. REST API フォールバック
     token_fn = get_token_callback or get_gcp_access_token
-    if _resize_via_rest_api(token_fn(), project, reg, mig, target_size):
+    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
         return True
 
     logger.error(
