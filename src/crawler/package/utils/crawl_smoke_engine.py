@@ -598,7 +598,12 @@ class _LightPlaywrightSession:
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+            ],
         )
         self._context = await self._browser.new_context(
             user_agent=DEFAULT_HEADERS["User-Agent"],

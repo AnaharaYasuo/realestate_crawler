@@ -122,60 +122,18 @@ def _record_bucket_code(
         _warn_bucket_failed(label, code)
 
 
-def _run_pw_rest(
-    rest: list[PytestInvocation],
-    extra: list[str],
-    deadline: float,
-    codes_by_label: dict[str, int],
-) -> None:
-    """Run remaining PW companies serially (≤1) or overlapped (>1)."""
-    if len(rest) <= 1:
-        for inv in rest:
-            code = _run_invocation(
-                inv.label, inv.sites_csv, inv.xdist_n, extra, deadline
-            )
-            _record_bucket_code(codes_by_label, inv.label, code)
-        return
-    with ThreadPoolExecutor(max_workers=len(rest)) as pool:
-        futures = {
-            pool.submit(
-                _run_invocation,
-                inv.label,
-                inv.sites_csv,
-                inv.xdist_n,
-                extra,
-                deadline,
-            ): inv
-            for inv in rest
-        }
-        for fut in as_completed(futures):
-            inv = futures[fut]
-            _record_bucket_code(codes_by_label, inv.label, int(fut.result()))
-
-
 def _run_pw_serial(
     invocations: list[PytestInvocation],
     extra: list[str],
     deadline: float,
 ) -> list[int]:
     """
-    Playwright schedule: mizuho first (fast sitemap), then sekisui ∥ athome.
+    Run Playwright invocations strictly serially.
 
-    One Chromium per company; overlapping sekisui with athome after mizuho keeps
-    wall ≈ mizuho + max(sekisui, athome) instead of the full serial sum.
+    One Chromium per company at a time to prevent CPU/memory exhaustion and deadlocks
+    in containerized environments.
     """
-    if not invocations:
-        return []
-    mizuho = [inv for inv in invocations if inv.label == "pw-mizuho"]
-    rest = [inv for inv in invocations if inv.label != "pw-mizuho"]
-    codes_by_label: dict[str, int] = {}
-
-    for inv in mizuho:
-        code = _run_invocation(inv.label, inv.sites_csv, inv.xdist_n, extra, deadline)
-        _record_bucket_code(codes_by_label, inv.label, code)
-
-    _run_pw_rest(rest, extra, deadline, codes_by_label)
-    return [codes_by_label.get(inv.label, 1) for inv in invocations]
+    return _run_invocations_serial(invocations, extra, deadline)
 
 
 def _run_invocations_serial(
