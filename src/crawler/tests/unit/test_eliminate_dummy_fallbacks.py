@@ -147,4 +147,11 @@ def test_tokyu_no_dummy_fallbacks():
     assert tochi._parseSonotaChiiki(soup, empty_specs) == ""
     assert tochi._parseKenchikuJoken(soup, empty_specs) == ""
     assert tochi._parseSaikenchiku(soup, empty_specs) == ""
+    assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可否は確認中"}}) == ""
+    assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可"}}) == "可"
+    assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築不可"}}) == "不可"
+
     assert tochi._parseKokudoHou(soup, empty_specs) == ""
+    assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法の要否は確認中"}}) == ""
+    assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法届出要"}}) == "届出要"
+    assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法不要"}}) == "不要"

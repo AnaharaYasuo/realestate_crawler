@@ -474,7 +474,7 @@ class TokyuParser(ParserBase):
     def _parseSaikenchiku(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
         if "再建築不可" in val: return "不可"
-        if "再建築可" in val: return "可"
+        if "再建築可" in val and "再建築可否" not in val: return "可"
         return ""
 
     def _parseSonotaChiiki(self, response: BeautifulSoup, specs=None) -> str:
@@ -491,7 +491,8 @@ class TokyuParser(ParserBase):
         if "国土法" in val:
             if "不要" in val:
                 return "不要"
-            return "届出要"
+            if any(term in val for term in ("届出要", "要届出", "届出が必要", "届出要す")):
+                return "届出要"
         return ""
 
     def _parseSaikou(self, response: BeautifulSoup, specs=None) -> str:
