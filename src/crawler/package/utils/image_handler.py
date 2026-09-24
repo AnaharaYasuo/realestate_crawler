@@ -145,8 +145,8 @@ def _parse_gemini_analysis_response(text: str, default_result: dict) -> dict:
     result = default_result.copy()
 
     shadow_ratio = float(data.get('shadow_area_ratio')) if data.get('shadow_area_ratio') is not None else None
-    nta_discount = 1.0
-    shape_score_100 = 80.0
+    nta_discount = None
+    shape_score_100 = None
     if shadow_ratio is not None:
         nta_discount = calculate_nta_irregular_discount(shadow_ratio)
         shape_score_100 = round(max(0.0, min(100.0, 100.0 - (shadow_ratio * 100.0))), 1)
@@ -168,11 +168,11 @@ def _parse_gemini_analysis_response(text: str, default_result: dict) -> dict:
         'ground_elevation_diff_m': float(data.get('ground_elevation_diff_m')) if data.get('ground_elevation_diff_m') is not None else None,
         'demolition_difficulty': str(data.get('demolition_difficulty', 'medium')),
         'utility_pole_risk': str(data.get('utility_pole_risk', 'none')),
-        'foundation_crack_risk': bool(data.get('foundation_crack_risk', False)),
-        'water_leak_risk': bool(data.get('water_leak_risk', False)),
+        'foundation_crack_risk': bool(data['foundation_crack_risk']) if data.get('foundation_crack_risk') is not None else None,
+        'water_leak_risk': bool(data['water_leak_risk']) if data.get('water_leak_risk') is not None else None,
         'stair_steepness': str(data.get('stair_steepness', 'unknown')),
         'indoor_washing_machine_space': str(data.get('indoor_washing_machine_space', 'unknown')),
-        'exposed_pipes_risk': bool(data.get('exposed_pipes_risk', False)),
+        'exposed_pipes_risk': bool(data['exposed_pipes_risk']) if data.get('exposed_pipes_risk') is not None else None,
         'renovation_budget_tier': str(data.get('renovation_budget_tier', 'tier_medium')),
     })
     return result
@@ -191,17 +191,17 @@ def analyze_property_images_with_gemini(cleaned_images):
         'frontage_length_est': None,
         'road_width_est': None,
         'passage_width': None,
-        'shape_score_100': 80.0,
-        'nta_irregular_discount': 1.0,
+        'shape_score_100': None,
+        'nta_irregular_discount': None,
         'retaining_wall_risk': 'none',
         'ground_elevation_diff_m': None,
         'demolition_difficulty': 'medium',
         'utility_pole_risk': 'none',
-        'foundation_crack_risk': False,
-        'water_leak_risk': False,
+        'foundation_crack_risk': None,
+        'water_leak_risk': None,
         'stair_steepness': 'unknown',
         'indoor_washing_machine_space': 'unknown',
-        'exposed_pipes_risk': False,
+        'exposed_pipes_risk': None,
         'renovation_budget_tier': 'tier_medium',
     }
 
@@ -216,8 +216,23 @@ def analyze_property_images_with_gemini(cleaned_images):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
 
+    # Deduplicate by URL and prioritize 'plot_plan' first
+    seen_urls = set()
+    unique_images = []
+    for img in cleaned_images:
+        url = img.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_images.append(img)
+
+    category_priority = {"plot_plan": 0, "layout": 1, "exterior": 2, "interior": 3}
+    sorted_images = sorted(
+        unique_images,
+        key=lambda x: category_priority.get(x.get("category", ""), 99)
+    )
+
     images_to_send = []
-    for item in cleaned_images[:5]:
+    for item in sorted_images[:5]:
         url = item.get("url")
         try:
             resp = requests.get(url, timeout=10)
@@ -262,7 +277,10 @@ def analyze_property_images_with_gemini(cleaned_images):
 """
 
     try:
-        response = model.generate_content([prompt] + images_to_send)
+        response = model.generate_content(
+            [prompt] + images_to_send,
+            request_options={"timeout": 30.0}
+        )
         return _parse_gemini_analysis_response(response.text, default_result)
     except Exception as e:  # noqa: BLE001
         logger.error(f"Error during Gemini image analysis: {e}")

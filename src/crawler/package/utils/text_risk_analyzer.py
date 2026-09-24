@@ -11,7 +11,10 @@ from typing import Any
 def _extract_legal_risks(raw: str) -> dict[str, bool]:
     """心理的瑕疵、契約免責、境界、再建築、調整区域、私道、サブリース等の権利・法規リスクを抽出する。"""
     is_psychological_defect = bool(re.search(r'告知事項|心理的瑕疵|特別募集|事故物件|訳あり|わけあり', raw))
-    is_as_is_condition = bool(re.search(r'契約不適合[^\n]{0,10}免責|現況有姿|瑕疵担保免責|瑕疵免責|免責', raw))
+    is_as_is_condition = bool(
+        re.search(r'契約不適合[^\n]{0,10}免責|現況有姿|瑕疵担保免責|瑕疵免責', raw)
+        and not re.search(r'免責[：:\s]*(?:なし|無|しない|除外)', raw)
+    )
     is_boundary_unspecified = bool(re.search(r'境界非明示|公簿売買|境界未確定|筆界未確定|境界確定なし|確定測量なし', raw))
     is_unbuildable = bool(re.search(r'再建築[^\n]{0,10}不可|建築不可|既存不適格|43条但書|43条2項|接道義務違反|連棟|テラスハウス', raw))
     is_urbanization_control_area = bool(re.search(r'市街化調整区域|調整区域につき', raw))
@@ -51,7 +54,7 @@ def _extract_equipment_specs(raw: str) -> dict[str, str]:
         sewage_type = "public"
 
     bath_type = "unknown"
-    if re.search(r'ユニットバス|システムバス|ub', raw):
+    if re.search(r'ユニットバス|システムバス|\bub\b', raw):
         bath_type = "unit_bath"
     elif re.search(r'在来浴室|在来工法|タイル張', raw):
         bath_type = "tile_traditional"
@@ -70,9 +73,9 @@ def _extract_elevator_and_stair(
 ) -> dict[str, bool | None]:
     """エレベーター有無および3階以上階段利用リスクを判定する。"""
     has_elevator = None
-    if re.search(r'エレベータ[ー]?無|エレベータ[ー]?なし|ev無|evなし', raw):
+    if re.search(r'エレベータ[ー]?[：:\s]*(?:無|なし)|ev[：:\s]*(?:無|なし)', raw):
         has_elevator = False
-    elif re.search(r'エレベータ[ー]?|ev有|evあり|ev完備', raw):
+    elif re.search(r'エレベータ[ー]?|ev[：:\s]*(?:有|あり|完備)', raw):
         has_elevator = True
 
     floor_num = None
@@ -125,7 +128,7 @@ def analyze_text_risks(
     legal_risks = _extract_legal_risks(raw)
     equipment_specs = _extract_equipment_specs(raw)
     elevator_specs = _extract_elevator_and_stair(raw, kaisu_str, total_floors)
-    earthquake = _extract_earthquake_standard(chikunengetsu_str or text or "")
+    earthquake = _extract_earthquake_standard(chikunengetsu_str) if chikunengetsu_str else None
 
     return {
         **legal_risks,

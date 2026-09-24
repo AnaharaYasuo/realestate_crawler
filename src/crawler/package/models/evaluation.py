@@ -270,12 +270,11 @@ class PropertyEvaluation(models.Model):
         self.retaining_wall_risk = analysis_res.get('retaining_wall_risk', 'none')
         self.ground_elevation_diff_m = analysis_res.get('ground_elevation_diff_m')
         self.demolition_difficulty = analysis_res.get('demolition_difficulty', 'medium')
-        self.utility_pole_risk = analysis_res.get('utility_pole_risk', 'none')
-        self.foundation_crack_risk = analysis_res.get('foundation_crack_risk', False)
-        self.water_leak_risk = analysis_res.get('water_leak_risk', False)
+        self.foundation_crack_risk = analysis_res.get('foundation_crack_risk')
+        self.water_leak_risk = analysis_res.get('water_leak_risk')
         self.stair_steepness = analysis_res.get('stair_steepness', 'unknown')
         self.indoor_washing_machine_space = analysis_res.get('indoor_washing_machine_space', 'unknown')
-        self.exposed_pipes_risk = analysis_res.get('exposed_pipes_risk', False)
+        self.exposed_pipes_risk = analysis_res.get('exposed_pipes_risk')
         self.renovation_budget_tier = analysis_res.get('renovation_budget_tier', 'tier_medium')
 
     def __str__(self):
@@ -399,7 +398,7 @@ class PropertyPriceHistory(models.Model):
         db_table = 'property_price_history'
         verbose_name = "物件価格改定履歴"
         verbose_name_plural = "物件価格改定履歴"
-        ordering = ['-recorded_at']
+        ordering = ['-recorded_at']  # noqa: RUF012
 
     def __str__(self):
         diff_str = f"{self.price_diff:+d}" if self.price_diff is not None else "0"

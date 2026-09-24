@@ -57,7 +57,11 @@ def _populate_text_risks(evaluation_record, item):
         getattr(item, "torihiki", ""),
         getattr(item, "setsubi", ""),
     ]))
-    chikunengetsu_str = getattr(item, "chikunengetsuStr", None)
+    chikunengetsu = getattr(item, "chikunengetsu", None)
+    if chikunengetsu:
+        chikunengetsu_str = chikunengetsu.strftime("%Y年%m月") if hasattr(chikunengetsu, "strftime") else str(chikunengetsu)
+    else:
+        chikunengetsu_str = getattr(item, "chikunengetsuStr", None)
     kaisu_str = getattr(item, "kaisu", None) or getattr(item, "shozaikai", None)
     total_floors = getattr(item, "chijoKaisu", None) or getattr(item, "totalFloors", None)
     parsed_total_floors = None
@@ -255,6 +259,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     models = get_all_property_models(skip_portals=skip_portals)
     evaluated_count = 0
     skipped_count = 0
+    failed_models = []
     BATCH_SIZE = 500
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
@@ -269,7 +274,12 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 evaluated_count += cnt
                 skipped_count += skp
             except Exception:  # noqa: BLE001
+                failed_models.append(m.__name__)
                 logger.exception("Failed evaluating %s", m.__name__)
+
+    if failed_models:
+        logger.error("❌ Bulk ML Evaluation failed on models: %s", failed_models)
+        sys.exit(1)
 
     logger.info("✅ Bulk ML Evaluation Finished! Evaluated: %d, Skipped (Already done): %d", evaluated_count, skipped_count)
     sys.stdout.flush()

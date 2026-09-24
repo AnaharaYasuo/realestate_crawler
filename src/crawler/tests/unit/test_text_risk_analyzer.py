@@ -146,3 +146,33 @@ def test_elevator_and_stair_only_detection():
     res4 = analyze_text_risks("閑静な住宅街の一戸建て。")
     assert res4["has_elevator"] is None
     assert res4["is_stair_only_3f_plus"] is None
+
+    # エレベーター：無 のコロン区切り形式
+    res5 = analyze_text_risks("エレベーター：無 所在階3階", kaisu_str="3階")
+    assert res5["has_elevator"] is False
+    assert res5["is_stair_only_3f_plus"] is True
+
+    # 所在階なしでも全階数 total_floors=3 で階段3階以上判定
+    res6 = analyze_text_risks("エレベーターなし", total_floors=3)
+    assert res6["has_elevator"] is False
+    assert res6["is_stair_only_3f_plus"] is True
+
+
+def test_earthquake_boundary_and_false_positives():
+    # 境界値テスト: 1981年5月 (True), 1981年6月 (False), 昭和56年5月 (True)
+    assert analyze_text_risks(chikunengetsu_str="1981年5月")["is_old_earthquake_standard"] is True
+    assert analyze_text_risks(chikunengetsu_str="1981年6月")["is_old_earthquake_standard"] is False
+    assert analyze_text_risks(chikunengetsu_str="昭和56年5月")["is_old_earthquake_standard"] is True
+
+    # 偽陽性防止テスト: CLUB は unit_bath にならない
+    res_club = analyze_text_risks("近隣にCLUBあり。")
+    assert res_club["bath_type"] == "unknown"
+
+    # 偽陽性防止テスト: 契約不適合責任 免責なし は as-is にならない
+    res_menseki = analyze_text_risks("契約不適合責任：免責なし。")
+    assert res_menseki["is_as_is_condition"] is False
+
+    # 偽陽性防止テスト: 本文中にのみ 2015年リフォーム がある場合は旧耐震を誤判定せず None
+    res_reform = analyze_text_risks("2015年リフォーム済み美邸。")
+    assert res_reform["is_old_earthquake_standard"] is None
+
