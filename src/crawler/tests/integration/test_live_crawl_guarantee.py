@@ -58,7 +58,12 @@ def test_live_crawl_guarantee_for_job(job):
         "ServerDisconnectedError",
         "ConnectionResetError",
     )
-    if (result.detail_urls_found == 0 or result.parsed_ok == 0) and os.getenv("GITHUB_ACTIONS") and any(
+    is_ci = bool(
+        os.getenv("GITHUB_ACTIONS")
+        or os.getenv("CI")
+        or os.getenv("CRAWL_LIVE_PARALLEL_MODE") == "ci"
+    )
+    if (result.detail_urls_found == 0 or result.parsed_ok == 0) and is_ci and any(
         any(sig in str(e) for sig in ci_network_errors) for e in result.errors
     ):
         pytest.skip(
