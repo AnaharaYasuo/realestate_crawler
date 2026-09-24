@@ -2,6 +2,7 @@
 Safety-net script to ensure cloud resources (ProxySQL MIG, NAT, etc.) are stopped.
 Designed to run at 05:00 JST daily (or on demand) to eliminate zombie resource costs.
 """
+
 import argparse
 import asyncio
 import inspect
@@ -19,6 +20,7 @@ while True:
         if _parent not in sys.path:
             sys.path.insert(0, _parent)
         import setup_env  # noqa: F401
+
         break
     _cur = _parent
 
@@ -48,7 +50,9 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-ERR_NO_COMPUTE_CLIENT: str = "Neither google-cloud-compute nor valid GCP credentials available"
+ERR_NO_COMPUTE_CLIENT: str = (
+    "Neither google-cloud-compute nor valid GCP credentials available"
+)
 
 
 @dataclass
@@ -60,14 +64,20 @@ class ResourceInspectionResult:
 
 
 def send_slack_alert(message: str, channel: str | None = None) -> None:
-    target_channel = channel or os.environ.get("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
+    target_channel = channel or os.environ.get(
+        "SLACK_ALERT_PROPERTY_ALERT", "property_alert"
+    )
     if send_slack_message is not None:
         try:
             if inspect.iscoroutinefunction(send_slack_message):
                 if async_to_sync is not None:
-                    async_to_sync(send_slack_message)(channel=target_channel, message=message)
+                    async_to_sync(send_slack_message)(
+                        channel=target_channel, message=message
+                    )
                 else:
-                    asyncio.run(send_slack_message(channel=target_channel, message=message))
+                    asyncio.run(
+                        send_slack_message(channel=target_channel, message=message)
+                    )
             else:
                 res = send_slack_message(channel=target_channel, message=message)
                 if inspect.isawaitable(res):
@@ -81,7 +91,9 @@ def send_slack_alert(message: str, channel: str | None = None) -> None:
 def _get_gcp_access_token() -> str | None:
     if google is not None:
         try:
-            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/compute"])
+            credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/compute"]
+            )
             req = google.auth.transport.requests.Request()
             credentials.refresh(req)
             if credentials.token:
@@ -108,29 +120,35 @@ def _extract_autoscaler_name(autoscaler_url_or_name: str | None) -> str | None:
     return autoscaler_url_or_name.rstrip("/").split("/")[-1]
 
 
-def _get_mig_info(project_id: str, region: str, mig_name: str) -> tuple[int, str, str | None]:
+def _get_mig_info(
+    project_id: str, region: str, mig_name: str
+) -> tuple[int, str, str | None]:
+    last_err = ""
     if compute_v1 is not None:
         try:
             client = compute_v1.RegionInstanceGroupManagersClient()
             igm = client.get(
                 project=project_id,
                 region=region,
-                region_instance_group_manager=mig_name,
+                instance_group_manager=mig_name,
                 timeout=10.0,
             )
             target_size = int(igm.target_size or 0)
             autoscaler = getattr(getattr(igm, "status", None), "autoscaler", None)
             return target_size, "", autoscaler
         except Exception as e:  # noqa: BLE001
-            return -1, str(e), None
+            last_err = str(e)
+            logger.warning(f"Failed to get MIG info via compute_v1: {e}")
 
     token = _get_gcp_access_token()
     if not token:
-        return -1, ERR_NO_COMPUTE_CLIENT, None
+        return -1, last_err or ERR_NO_COMPUTE_CLIENT, None
 
     url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}"
     try:
-        resp = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
         if resp.status_code != 200:
             return -1, f"HTTP {resp.status_code}: {resp.text}", None
         data = resp.json()
@@ -149,7 +167,11 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
             policy_cls = getattr(compute_v1, "AutoscalingPolicy", None)
             auto_cls = getattr(compute_v1, "Autoscaler", None)
             request_cls = getattr(compute_v1, "PatchRegionAutoscalerRequest", None)
-            policy = policy_cls(min_num_replicas=0, max_num_replicas=0) if policy_cls else None
+            policy = (
+                policy_cls(min_num_replicas=0, max_num_replicas=0)
+                if policy_cls
+                else None
+            )
             resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
             if request_cls is not None:
                 req = request_cls(
@@ -194,27 +216,31 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
 
 
 def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
+    last_err = ""
     if compute_v1 is not None:
         try:
             client = compute_v1.RegionInstanceGroupManagersClient()
             client.resize(
                 project=project_id,
                 region=region,
-                region_instance_group_manager=mig_name,
+                instance_group_manager=mig_name,
                 size=0,
                 timeout=10.0,
             )
             return ""
         except Exception as e:  # noqa: BLE001
-            return str(e)
+            last_err = str(e)
+            logger.warning(f"Failed to resize MIG via compute_v1: {e}")
 
     token = _get_gcp_access_token()
     if not token:
-        return ERR_NO_COMPUTE_CLIENT
+        return last_err or ERR_NO_COMPUTE_CLIENT
 
     resize_url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}/resize?size=0"
     try:
-        resp = requests.post(resize_url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        resp = requests.post(
+            resize_url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
         if resp.status_code not in (200, 204):
             return f"HTTP {resp.status_code}: {resp.text}"
         return ""
@@ -237,13 +263,17 @@ def check_and_stop_proxysql_mig(
         err_msg = f":rotating_light: *【緊急】ProxySQL MIG状態取得失敗*: {err}"
         logger.error(err_msg)
         send_slack_alert(err_msg)
-        return ResourceInspectionResult(was_leaked=True, forced_stop=False, leaked_size=-1, details=err)
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=False, leaked_size=-1, details=err
+        )
 
     logger.info(f"ProxySQL MIG '{mig_name}' current target_size: {current_target_size}")
 
     if current_target_size == 0:
         logger.info("ProxySQL MIG is safely stopped (target_size = 0).")
-        return ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0)
+        return ResourceInspectionResult(
+            was_leaked=False, forced_stop=False, leaked_size=0
+        )
 
     # Leak detected!
     warning_msg = (
@@ -258,33 +288,47 @@ def check_and_stop_proxysql_mig(
     send_slack_alert(warning_msg)
 
     if dry_run:
-        return ResourceInspectionResult(was_leaked=True, forced_stop=False, leaked_size=current_target_size)
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=False, leaked_size=current_target_size
+        )
 
     auto_name = _extract_autoscaler_name(autoscaler)
     if auto_name:
-        logger.info(f"MIG is managed by autoscaler '{auto_name}'. Scaling autoscaler to 0.")
+        logger.info(
+            f"MIG is managed by autoscaler '{auto_name}'. Scaling autoscaler to 0."
+        )
         stop_err = _stop_autoscaler(project_id, region, auto_name)
     else:
         stop_err = _resize_mig_to_zero(project_id, region, mig_name)
 
     if not stop_err:
         logger.info(f"Successfully stopped ProxySQL MIG '{mig_name}'.")
-        return ResourceInspectionResult(was_leaked=True, forced_stop=True, leaked_size=current_target_size)
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=True, leaked_size=current_target_size
+        )
 
     err_msg = f"Failed to stop ProxySQL MIG '{mig_name}': {stop_err}"
     logger.error(err_msg)
-    send_slack_alert(f":rotating_light: *【緊急】ProxySQL MIGの強制停止に失敗しました*: {err_msg}")
+    send_slack_alert(
+        f":rotating_light: *【緊急】ProxySQL MIGの強制停止に失敗しました*: {err_msg}"
+    )
     return ResourceInspectionResult(
-        was_leaked=True, forced_stop=False, leaked_size=current_target_size, details=stop_err
+        was_leaked=True,
+        forced_stop=False,
+        leaked_size=current_target_size,
+        details=stop_err,
     )
 
 
-
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ensure GCP on-demand resources are safely stopped.")
+    parser = argparse.ArgumentParser(
+        description="Ensure GCP on-demand resources are safely stopped."
+    )
     parser.add_argument(
         "--project-id",
-        default=os.environ.get("GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", "sumifu")),
+        default=os.environ.get(
+            "GCP_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT", "sumifu")
+        ),
         help="GCP Project ID",
     )
     parser.add_argument(
@@ -315,7 +359,9 @@ def main() -> int:
 
     if result.was_leaked:
         if result.forced_stop:
-            logger.warning(f"Leaked resource detected and forcibly stopped: {result.leaked_size} instances.")
+            logger.warning(
+                f"Leaked resource detected and forcibly stopped: {result.leaked_size} instances."
+            )
             return 0
         logger.error(f"Leaked resource detected but failed to stop: {result.details}")
         return 1

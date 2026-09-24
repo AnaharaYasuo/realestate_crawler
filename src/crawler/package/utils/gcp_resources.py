@@ -1,8 +1,8 @@
 """GCP リソース管理共通ユーティリティ (ProxySQL MIG, GCE, Auth)."""
 
-from collections.abc import Callable
 import logging
 import os
+from collections.abc import Callable
 from typing import Any
 
 import requests
@@ -77,9 +77,7 @@ def scale_proxysql_mig(
         f"Scaling ProxySQL MIG '{mig}' to size {target_size} (project: {project}, region: {reg}, dry_run: {dry_run})"
     )
     if dry_run or not bool(
-        os.getenv("IS_CLOUD")
-        or os.getenv("K_SERVICE")
-        or os.getenv("CLOUD_RUN_JOB")
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
     ):
         logger.info(f"[Dry-run/Local] ProxySQL MIG scaled to {target_size} (mocked).")
         return True
@@ -91,7 +89,7 @@ def scale_proxysql_mig(
             op = client.resize(
                 project=project,
                 region=reg,
-                region_instance_group_manager=mig,
+                instance_group_manager=mig,
                 size=target_size,
             )
             logger.info(
