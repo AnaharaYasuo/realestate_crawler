@@ -121,6 +121,7 @@ def test_scale_proxysql_mig_falls_back_when_compute_v1_raises(monkeypatch):
         )
         assert res is True
 
+    mock_compute.RegionInstanceGroupManagersClient.return_value.resize.assert_called_once()
     mock_post.assert_called_once()
     url = mock_post.call_args[0][0]
     assert "instanceGroupManagers/proxysql-mig-prod/resize?size=0" in url
