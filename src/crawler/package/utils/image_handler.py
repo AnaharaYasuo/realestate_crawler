@@ -282,6 +282,6 @@ def analyze_property_images_with_gemini(cleaned_images):
             request_options={"timeout": 30.0}
         )
         return _parse_gemini_analysis_response(response.text, default_result)
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Error during Gemini image analysis: {e}")
+    except Exception:
+        logger.exception("Error during Gemini image analysis")
         return default_result

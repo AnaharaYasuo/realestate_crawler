@@ -109,17 +109,23 @@ def _filter_unprocessed_items(model, existing_eval_map, force, limit_per_model):
     return unprocessed_items, skipped_count
 
 
+def _extract_land_rent_and_liability(item) -> tuple[int | None, Decimal | None]:
+    """物件から地代および借地権負担（債務控除額）を算出する"""
+    chidai_val = getattr(item, "chidai", None)
+    if chidai_val is None and getattr(item, "chidaiStr", None):
+        chidai_val = parse_chidai(item.chidaiStr)
+    monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
+    liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+    return monthly_rent, liability
+
+
 def _build_or_update_eval_record(item, price_stage1, existing, company, property_type):
     """単一物件の評価レコードを生成または更新する"""
     page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
     asking_price = (float(item.price) / 10000.0) if getattr(item, "price", None) else 0.0
     is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
 
-    chidai_val = getattr(item, "chidai", None)
-    if chidai_val is None and getattr(item, "chidaiStr", None):
-        chidai_val = parse_chidai(item.chidaiStr)
-    monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
-    liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
+    monthly_rent, liability = _extract_land_rent_and_liability(item)
 
     if existing and existing.pk:
         rec = existing

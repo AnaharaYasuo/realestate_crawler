@@ -1,8 +1,4 @@
-"""テキストスクレイピング解析によるプロ買い付け目線リスク抽出モジュール (text_risk_analyzer.py)
-
-物件詳細、備考（biko）、土地権利（tochikenri）、現況（genkyo）、交通（traffic）、設備情報から
-ルールベース（正規表現・キーワード検知）により高速・決定論的に各種リスク・設備仕様を抽出する。
-"""
+"""Text risk analyzer module for professional buyer assessment."""
 
 import re
 from typing import Any
@@ -73,14 +69,14 @@ def _extract_elevator_and_stair(
 ) -> dict[str, bool | None]:
     """エレベーター有無および3階以上階段利用リスクを判定する。"""
     has_elevator = None
-    if re.search(r'エレベータ[ー]?[：:\s]*(?:無|なし)|ev[：:\s]*(?:無|なし)', raw):
+    if re.search(r'エレベーター?[：:\s]*(?:無|なし)|ev[：:\s]*(?:無|なし)', raw):
         has_elevator = False
-    elif re.search(r'エレベータ[ー]?|ev[：:\s]*(?:有|あり|完備)', raw):
+    elif re.search(r'エレベーター?|ev[：:\s]*(?:有|あり|完備)', raw):
         has_elevator = True
 
     floor_num = None
     target_kaisu = f"{kaisu_str or ''} {raw}"
-    k_match = re.search(r'([1-9]\d?)\s*(?:階|f)', target_kaisu)
+    k_match = re.search(r'([1-9]\d?)\s*[階f]', target_kaisu)
     if k_match:
         floor_num = int(k_match.group(1))
 
