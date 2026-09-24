@@ -102,7 +102,8 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
     if is_coordinator:
         logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
         if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
-            logger.warning("⚠️ [Startup Warning] Failed to update ProxySQL Autoscaler to min=1.")
+            logger.error("❌ [Startup Error] Failed to restore ProxySQL Autoscaler.")
+            raise RuntimeError("ProxySQL Autoscaler restore failed.")
         logger.info("🚀 [Startup: Coordinator] Scaling ProxySQL MIG (0 -> 1)...")
         success = scale_proxysql_mig(target_size=1)
         if not success:

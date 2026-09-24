@@ -32,7 +32,20 @@ def test_run_pipeline_contains_startup_and_health_check():
     assert "wait_for_proxysql_health" in content, "run_pipeline.py must import wait_for_proxysql_health"
 
     # Function definition check
-    assert "def _execute_startup_resources" in content, "run_pipeline.py must define _execute_startup_resources"
+    tree = ast.parse(content)
+    startup_func = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_execute_startup_resources"),
+        None,
+    )
+    assert startup_func is not None, "run_pipeline.py must define _execute_startup_resources"
+    called_funcs = [
+        item.func.id
+        for item in ast.walk(startup_func)
+        if isinstance(item, ast.Call) and isinstance(item.func, ast.Name)
+    ]
+    assert "patch_proxysql_autoscaler" in called_funcs, "_execute_startup_resources must invoke patch_proxysql_autoscaler"
+    assert "scale_proxysql_mig" in called_funcs, "_execute_startup_resources must invoke scale_proxysql_mig"
+    assert "wait_for_proxysql_health" in called_funcs, "_execute_startup_resources must invoke wait_for_proxysql_health"
 
     # Execution sequence check: _execute_startup_resources must appear BEFORE wait_for_db.py
     startup_pos = content.find("_execute_startup_resources(is_coordinator)")

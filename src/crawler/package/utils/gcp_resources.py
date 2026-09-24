@@ -106,15 +106,17 @@ def _patch_autoscaler_via_compute_v1(
                 autoscaler=auto_name,
                 autoscaler_resource=resource,
             )
-            auto_client.patch(request=req, timeout=10.0)
+            op = auto_client.patch(request=req, timeout=10.0)
         else:
-            auto_client.patch(
+            op = auto_client.patch(
                 project=project,
                 region=region,
                 autoscaler=auto_name,
                 autoscaler_resource=resource,
                 timeout=10.0,
             )
+        if hasattr(op, "result") and callable(op.result):
+            op.result(timeout=15.0)
         logger.info(
             f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via compute_v1."
         )

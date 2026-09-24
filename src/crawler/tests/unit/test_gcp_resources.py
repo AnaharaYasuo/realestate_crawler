@@ -197,7 +197,12 @@ def test_patch_proxysql_autoscaler_compute_v1_success(monkeypatch):
         compute_module=mock_compute,
     )
     assert res is True
+    mock_compute.AutoscalingPolicy.assert_called_once_with(min_num_replicas=1, max_num_replicas=2)
     mock_client.patch.assert_called_once()
+    req_kwargs = mock_compute.PatchRegionAutoscalerRequest.call_args[1]
+    assert req_kwargs["project"] == "test-project"
+    assert req_kwargs["region"] == "asia-northeast1"
+    assert req_kwargs["autoscaler"] == "proxysql-autoscaler-prod"
 
 
 def test_patch_proxysql_autoscaler_rest_fallback(monkeypatch):
@@ -218,7 +223,15 @@ def test_patch_proxysql_autoscaler_rest_fallback(monkeypatch):
         assert res is True
         mock_patch.assert_called_once()
         called_url = mock_patch.call_args[0][0]
-        assert "autoscalers" in called_url
+        called_kwargs = mock_patch.call_args[1]
+        assert "projects/test-project/regions/asia-northeast1/autoscalers" in called_url
+        assert called_kwargs["params"] == {"autoscaler": "proxysql-autoscaler-prod"}
+        assert called_kwargs["json"] == {
+            "autoscalingPolicy": {
+                "minNumReplicas": 1,
+                "maxNumReplicas": 2,
+            }
+        }
 
 
 def test_patch_proxysql_autoscaler_fails_when_all_fail(monkeypatch):
