@@ -31,6 +31,10 @@ while True:
 
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.gcp_resources import (
+    scale_proxysql_mig as _gcp_scale_proxysql_mig,
+    get_gcp_access_token as _get_gcp_access_token,
+)
 
 try:
     from google.cloud import compute_v1
@@ -46,39 +50,17 @@ SEPARATOR = "============================================================="
 
 def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, region: str | None = None, mig_name: str | None = None, dry_run: bool = False) -> bool:
     """ProxySQL MIG のサイズを変更 (バッチ終了時の停止 size: 1 -> 0)"""
-    project = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
-    reg = region or os.getenv("GCP_REGION", "asia-northeast1")
-    mig = mig_name or os.getenv("PROXYSQL_MIG_NAME", f"proxysql-mig-{os.getenv('ENVIRONMENT', 'prod')}")
-
-    logger.info(f"Scaling ProxySQL MIG '{mig}' to size {target_size} (project: {project}, region: {reg}, dry_run: {dry_run})")
-    if dry_run or not bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")):
-        logger.info(f"[Dry-run/Local] ProxySQL MIG scaled to {target_size} (mocked).")
-        return True
-
-    if compute_v1 is not None:
-        try:
-            client = compute_v1.RegionInstanceGroupManagersClient()
-            op = client.resize(
-                project=project,
-                region=reg,
-                region_instance_group_manager=mig,
-                size=target_size,
-            )
-            logger.info(f"Resize operation submitted: {op.name}")
-            return True
-        except Exception:
-            logger.exception("Failed to resize ProxySQL MIG via compute_v1")
-            return False
-    else:
-        cmd = [
-            "gcloud", "compute", "instance-groups", "managed", "resize",
-            mig, f"--size={target_size}", f"--region={reg}", f"--project={project}", "--quiet"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode != 0:
-            logger.error(f"gcloud resize failed: {res.stderr}")
-            return False
-        return True
+    token_fn = getattr(sys.modules[__name__], "_get_gcp_access_token", _get_gcp_access_token)
+    comp_mod = getattr(sys.modules[__name__], "compute_v1", compute_v1)
+    return _gcp_scale_proxysql_mig(
+        target_size=target_size,
+        project_id=project_id,
+        region=region,
+        mig_name=mig_name,
+        dry_run=dry_run,
+        compute_module=comp_mod,
+        get_token_callback=token_fn,
+    )
 
 
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:

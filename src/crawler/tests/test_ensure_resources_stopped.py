@@ -191,7 +191,30 @@ def test_proxysql_rest_fallback_success(mock_slack):
         assert "regionInstanceGroupManagers" not in mock_get.call_args[0][0]
         mock_patch.assert_called_once()
         assert mock_patch.call_args[0][0].endswith("/autoscalers")
-        assert mock_patch.call_args[1].get("params") == {"autoscaler": "proxysql-autoscaler-prod"}
+        assert mock_patch.call_args[1].get("params") == {
+            "autoscaler": "proxysql-autoscaler-prod"
+        }
         mock_slack.assert_called_once()
+
+
+def test_send_slack_alert_invokes_async_send_slack_message():
+    """Verify that send_slack_alert properly executes async send_slack_message without coroutine warning."""
+    called = []
+
+    async def fake_send_slack_message(channel: str, message: str) -> bool:
+        called.append((channel, message))
+        return True
+
+    try:
+        from scripts.ensure_resources_stopped import send_slack_alert
+    except ImportError:
+        from src.crawler.scripts.ensure_resources_stopped import send_slack_alert
+
+    with patch(f"{_MODULE_PATH}.send_slack_message", fake_send_slack_message):
+        send_slack_alert("Test alert message", channel="test-channel")
+
+    assert len(called) == 1
+    assert called[0] == ("test-channel", "Test alert message")
+
 
 

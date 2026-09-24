@@ -202,6 +202,13 @@ resource "google_compute_region_autoscaler" "proxysql_autoscaler" {
       target = 0.7
     }
   }
+
+  lifecycle {
+    ignore_changes = [
+      autoscaling_policy[0].min_replicas,
+      autoscaling_policy[0].max_replicas,
+    ]
+  }
 }
 
 # 5. ILB リージョンバックエンドサービス (Connection Draining対応)
