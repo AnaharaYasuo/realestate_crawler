@@ -3,13 +3,16 @@ import aiohttp
 import os
 import json
 import ssl
+import threading
 import traceback
+from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
 from typing import Dict, Any, Optional
 from pathlib import Path
 import re
 import uuid
 import requests
+from package.api.registry import ApiRegistry
 from package.utils.storage import get_storage_manager
 from package.ml.investment_evaluator import evaluate_investment_property
 
@@ -662,19 +665,15 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if os.getenv('IS_CLOUD', ''):
             return None
 
-        from package.api.registry import ApiRegistry
-        from urllib.parse import urlparse
-        import threading
-
         parsed = urlparse(api_url)
         path = parsed.path
         target_class = ApiRegistry.get(path)
         
         if not target_class:
-            logging.warning("No registry found for %s, falling back to HTTP", path)
+            logging.warning("No registry found for local route, falling back to HTTP")
             return None
 
-        logging.debug("Local routing: %s -> %s", path, target_class.__name__)
+        logging.debug("Local routing to %s", target_class.__name__)
         
         def run_in_new_loop():
             new_loop = asyncio.new_event_loop()
