@@ -181,17 +181,17 @@ class SumifuParser(ParserBase):
     def _parseChimoku(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地目", specs.get("地勢", ""))
-        return val if val else "-"
+        return val if val else ""
 
     def _parseChisei(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地目", specs.get("地勢", ""))
-        return val if val else "-"
+        return val if val else ""
 
     def _parseSetsudou(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("接道状況", "")
-        return val if val else "-"
+        return val if val else ""
 
     def _parseDouroInfo(self, response, specs=None):
         specs = self._get_specs(response)
@@ -215,7 +215,7 @@ class SumifuParser(ParserBase):
 
     def _parseChiikiChiku(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("地域地区", "-")
+        return specs.get("地域地区", "")
 
     def _parseBoukaChiiki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -225,7 +225,7 @@ class SumifuParser(ParserBase):
         elif text and '｜' in text:
             return text.split('｜')[0].strip()
         else:
-            return text if text else "-"
+            return text if text else ""
 
     def _parseSonotaChiiki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -235,7 +235,7 @@ class SumifuParser(ParserBase):
         elif text and '｜' in text:
             return text.split('｜')[1].strip()
         else:
-            return "-"
+            return ""
 
     def _parseDouroText(self, text):
         # Example: "東4m(公道)接面5.1m" or "一方道路・南西17.2m(公道)接面2m"
@@ -448,7 +448,7 @@ class SumifuParser(ParserBase):
 
     def _parseMadori(self, response, specs=None):
         td = self._getValueFromTable(response, "間取り")
-        return self._getText(td) or "-"
+        return self._getText(td) or ""
 
     def _parseTatemonoMensekiStr(self, response, specs=None):
         td = self._getValueFromTable(response, "建物面積") or self._getValueFromTable(response, "専有面積")
@@ -708,7 +708,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("現況", "-")
+        return specs.get("現況", "")
 
     def _kouzou_from_spans(self, spans):
         if len(spans) >= 2:
@@ -756,13 +756,13 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             parsed = self._kouzou_from_combined_tag(combined_tag)
             if parsed:
                 return parsed
-        return "-"
+        return ""
 
 
 
     def _parseChikunengetsuStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("築年月", "-")
+        return specs.get("築年月", "")
 
     def _parseChikunengetsu(self, response, specs=None):
         chikunengetsuStr = self._parseChikunengetsuStr(response)
@@ -800,11 +800,11 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     def _parseTochikenri(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("土地権利", "-")
+        return specs.get("土地権利", "")
 
     def _parseTochiMensekiStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("土地面積", "-")
+        return specs.get("土地面積", "")
 
     def _parseTochiMenseki(self, response, specs=None):
         land_area = self._parseTochiMensekiStr(response)
@@ -1123,7 +1123,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseChikunengetsuStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("築年月", "-")
+        return specs.get("築年月", "")
 
     def _parseChikunengetsu(self, response, specs=None):
         chikunengetsuStr = self._parseChikunengetsuStr(response)
@@ -1149,16 +1149,20 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseSenyouNiwaMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and u"専用庭面積" in balconyMensekiStr:
-             try: return converter.parse_menseki(balconyMensekiStr.split(u"専用庭面積")[1])
-             except: pass
+        if balconyMensekiStr and "専用庭面積" in balconyMensekiStr:
+            try:
+                return converter.parse_menseki(balconyMensekiStr.split("専用庭面積")[1])
+            except Exception:
+                pass
         return Decimal(0)
 
     def _parseRoofBalconyMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and u"ルーフバルコニー面積" in balconyMensekiStr:
-             try: return converter.parse_menseki(balconyMensekiStr.split(u"ルーフバルコニー面積")[1])
-             except: pass
+        if balconyMensekiStr and "ルーフバルコニー面積" in balconyMensekiStr:
+            try:
+                return converter.parse_menseki(balconyMensekiStr.split("ルーフバルコニー面積")[1])
+            except Exception:
+                pass
         return Decimal(0)
 
     def _parseSaikou(self, response, specs=None):
@@ -1167,7 +1171,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
              val = self._getText(td)
              temp = re.split(u'/|／|\n', val)
              return temp[0].strip()
-        return "-"
+        return ""
 
     def _parseKadobeya(self, response, specs=None):
         td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
@@ -1175,7 +1179,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
              val = self._getText(td)
              temp = re.split(u'/|／|\n', val)
              if len(temp) >= 2: return temp[1].strip()
-        return "-"
+        return ""
 
     def _parseSoukosuStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1196,14 +1200,14 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         if val:
              temp = val.split("\n")
              return temp[0].strip()
-        return "-"
+        return ""
 
     def _parseKanriKaisya(self, response, specs=None):
         val = self._parseKanriKeitaiKaisya(response)
         if val:
              temp = val.split("\n")
              return temp[-1].strip()
-        return "-"
+        return ""
 
     # _parseKaisuStr is inherited from SumifuParser (base) which extracts location floor.
     # However, for Mansion, we might want to ensure we get the floor number correctly.
@@ -1220,7 +1224,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         # But let's check base implementation again.
         # It splits on "・". Sumifu often uses "／" or "建て".
         val = self._parseKaisuRaw(response)
-        if not val: return "-"
+        if not val: return ""
         
         # Clean up common patterns
         # Pattern: "X階部分／地上Y階..."
@@ -1236,7 +1240,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseKanrihiStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("管理費(月額)", specs.get("管理費", ""))
-        return val if val and val != "￥" else "-"
+        return val if val and val != "￥" else ""
 
     def _parseKanrihi(self, response, specs=None):
         kanrihiStr = self._parseKanrihiStr(response)
@@ -1247,7 +1251,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseSyuzenTsumitateStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("修繕積立金(月額)", specs.get("修繕積立金", ""))
-        return val if val and val != "￥" else "-"
+        return val if val and val != "￥" else ""
 
     def _parseSyuzenTsumitate(self, response, specs=None):
         syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response)
@@ -1287,7 +1291,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseFloorTypeKouzou(self, response, specs=None):
         kouzou = self._parseKouzou(response)
-        return kouzou if kouzou else "-"
+        return kouzou if kouzou else ""
 
     def _calculateKanrihiPerHeibei(self, response):
         kanrihi = self._parseKanrihi(response)
@@ -1419,13 +1423,13 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
 
     def _parseKenchikuJoken(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("建築条件", "-")
+        return specs.get("建築条件", "")
 
     def _parseChimoku(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地目", specs.get("地勢", specs.get("地目地勢", "")))
         if not val or val == "-":
-            return "-"
+            return ""
         # If combined like "宅地平坦", it's hard to split strictly without a list.
         # But usually the first few chars are chimoku.
         potential = ["宅地", "田", "畑", "山林", "雑種地", "原野"]
@@ -1436,7 +1440,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
 
     def _parseSetsudou(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("接道状況", "-")
+        return specs.get("接道状況", "")
 
     def _parseKenpei(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1464,17 +1468,17 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
 
     def _parseYoutoChiiki(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("用途地域", "-")
+        return specs.get("用途地域", "")
 
     def _parseKokudoHou(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("国土法", "-")
+        return specs.get("国土法", "")
     
     def _parseChisei(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地勢", specs.get("地目地勢", ""))
         if not val or val == "-":
-            return "-"
+            return ""
         
         # If extracted from combined "地目地勢", try to remove chimoku
         if "地目地勢" in specs:
@@ -1482,13 +1486,13 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             if val and isinstance(val, str) and chimoku and isinstance(chimoku, str) and chimoku != "-" and chimoku in val:
                 val = val.replace(chimoku, "").strip()
         
-        return val if val else "-"
+        return val if val else ""
 
     def _parseChimokuChisei(self, response, specs=None):
         # Fallback or combination
         c = self._parseChimoku(response)
         s = self._parseChisei(response)
-        return f"{c}・{s}" if c and s else (c or s or "-")
+        return f"{c}・{s}" if c and s else (c or s or "")
 
     def _parseKenpeiYousekiStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1498,7 +1502,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             y = specs.get("容積率", "")
             if k and y: val = f"建ぺい率{k} 容積率{y}"
             elif k or y: val = k or y
-        return val if val else "-"
+        return val if val else ""
 
     def _parseKuiki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1512,7 +1516,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             region = specs.get("地域・地区", specs.get("地域地区", specs.get("用途地域", "")))
             if region and "再建築不可" in region:
                 val = "再建築不可"
-        return val if val else "-"
+        return val if val else ""
 
 class SumifuKodateParser(SumifuParser, KodateParserBase):
     def _parsePropertyName(self, response, specs=None):
@@ -1629,7 +1633,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
 
     def _parseChikunengetsuStr(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("築年月", "-")
+        return specs.get("築年月", "")
 
     def _parseHikiwatashi(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1641,7 +1645,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
 
     def _parseTochikenri(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("土地権利", "-")
+        return specs.get("土地権利", "")
 
     def _parseTorihiki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1683,18 +1687,18 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
             region = specs.get("地域・地区", "") or specs.get("地域地区", "")
             if "再建築不可" in region:
                 val = "再建築不可"
-        return val if val else "-"
+        return val if val else ""
 
     def _parseSpecsCombined(self, response, key_start):
         """Helper to find values where keys are concatenated like '階数構造'"""
         specs = self._get_specs(response)
         for key, val in specs.items():
             if key.startswith(key_start) or key_start in key:
-                 return val
+                  return val
         return ""
 
     def _parseKaisuKouzou(self, response, specs=None):
-        return self._parseSpecsCombined(response, "階数") or "-"
+        return self._parseSpecsCombined(response, "階数") or ""
 
     def _parseKaisu(self, response, specs=None):
         # Key is '階数構造' -> "地上2階建て木造"
@@ -1707,7 +1711,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
     def _parseKouzou(self, response, specs=None):
         # Key '階数構造' -> "地上2階建て木造"
         val = self._parseSpecsCombined(response, "階数")
-        if not val: return "-"
+        if not val: return ""
         # Structure usually comes after floor or "木造" etc is distinct
         # Simple extraction logic: remove floor info?
         # Or simply return the whole string as kouzou if strict extraction isn't possible?
@@ -1723,7 +1727,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
     def _parseChimoku(self, response, specs=None):
         # Key '地目地勢' -> "宅地平坦"
         val = self._parseSpecsCombined(response, "地目")
-        if not val: return "-"
+        if not val: return ""
         # Hard to split without delimiter.
         # But usually '宅地' is chimoku.
         potential_chimoku = ["宅地", "田", "畑", "山林", "雑種地"]
@@ -1735,12 +1739,12 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
     def _parseChisei(self, response, specs=None):
          # Key '地目地勢' -> "宅地平坦"
         val = self._parseSpecsCombined(response, "地目")
-        if not val: return "-"
+        if not val: return ""
         # If extracts chimoku, remove it
         chimoku = self._parseChimoku(response)
         if val and isinstance(val, str) and chimoku and isinstance(chimoku, str) and chimoku != "-" and chimoku in val:
             val = val.replace(chimoku, "").strip()
-        return val if val else "-"
+        return val if val else ""
 
     def _parseChimokuChisei(self, response, specs=None):
         c = self._parseChimoku(response)

@@ -457,15 +457,15 @@ class NomuraParser(InvestmentParser):
     
     def _parseCurrentStatus(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("現況", "") or "不明"
+        return specs.get("現況", "")
 
     def _parseHikiwatashi(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("引渡", specs.get("引渡時期", "")) or "相談"
+        return specs.get("引渡", specs.get("引渡時期", ""))
 
     def _parseTorihiki(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("取引態様", "") or "仲介"
+        return specs.get("取引態様", "")
 
     def _parseBiko(self, response, specs=None):
         specs = self._get_specs(response)
@@ -913,7 +913,7 @@ class NomuraTochiParser(NomuraParser, TochiParserBase):
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
         item.tochiMenseki = self._parseTochiMenseki(response)
         item.tochikenri = self._parseTochikenri(response)
-        item.kaisuStr = "-"
+        item.kaisuStr = ""
         item.chimoku = self._parseChimoku(response)
         item.setsudou = self._parseSetsudou(response)
         item.youtoChiiki = self._parseYoutoChiiki(response)
@@ -1052,11 +1052,11 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
     def _parseHikiwatashiInvest(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("引渡", specs.get("引渡時期", "即時"))
+        return specs.get("引渡", specs.get("引渡時期", ""))
 
     def _parseTorihikiInvest(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("取引態様", "仲介")
+        return specs.get("取引態様", "")
     
     def _parseGrossYield(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1106,7 +1106,7 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
 
     def _parseKouzouInvest(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get("構造", "不明")
+        return specs.get("構造", "")
     
     def _parseStories(self, response, specs=None):
         specs = self._get_specs(response)
