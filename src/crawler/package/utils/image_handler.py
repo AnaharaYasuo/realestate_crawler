@@ -1,262 +1,287 @@
-# -*- coding: utf-8 -*-
 import io
-import re
-import os
 import json
 import logging
+import os
+import re
+from urllib.parse import urljoin
+
+import google.generativeai as genai
 import requests
 from django.utils import timezone
-from PIL import Image
-import google.generativeai as genai
 from package.models.evaluation import PropertyEvaluation
+from package.utils.plot_shape_analyzer import calculate_nta_irregular_discount
+from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 # 1日のGemini API上限数
 MAX_DAILY_IMAGE_ANALYSIS = 200
 
 # 除外対象の不要キーワード（周辺環境、ダミー、広告、ロゴなど）
 REJECT_KEYWORDS = [
-    u'周辺', u'環境', u'駅', u'学校', u'店舗', u'スーパー', u'地図', u'街なみ',
-    u'街並み', u'コンビニ', u'ドラッグストア', u'小学校', u'中学校', u'病院',
-    u'公園', u'役所', u'郵便局', u'銀行', u'バス停', u'道路', u'現地案内図',
-    u'案内図', u'logo', u'map', u'banner', u'dummy', u'noimage', u'担当者',
-    u'ロゴ', u'案内', u'案内板', u'看板', u'ライフインフォメーション'
+    '周辺', '環境', '駅', '学校', '店舗', 'スーパー', '地図', '街なみ',
+    '街並み', 'コンビニ', 'ドラッグストア', '小学校', '中学校', '病院',
+    '公園', '役所', '郵便局', '銀行', 'バス停', '道路', '現地案内図',
+    '案内図', 'logo', 'map', 'banner', 'dummy', 'noimage', '担当者',
+    'ロゴ', '案内', '案内板', '看板', 'ライフインフォメーション'
 ]
 
 # 各カテゴリのホワイトリストキーワード
-LAYOUT_KEYWORDS = [u'間取', u'平面', u'区画']
-EXTERIOR_KEYWORDS = [u'外観', u'建物', u'エントランス', u'共有', u'ロビー', u'アプローチ', u'庭']
+PLOT_PLAN_KEYWORDS = ['区画', '敷地配置', '土地図', '公図', '測量図', '実測図', '区画図']
+LAYOUT_KEYWORDS = ['間取', '平面']
+EXTERIOR_KEYWORDS = ['外観', '建物', 'エントランス', '共有', 'ロビー', 'アプローチ', '庭']
 
 
 def extract_images_from_soup(soup, base_url):
-    """
-    BeautifulSoupオブジェクトから画像URLとラベル（alt属性や周囲のテキスト）のリストを抽出する。
-    """
+    """BeautifulSoupオブジェクトから画像URLとラベル（alt属性や周囲のテキスト）のリストを抽出する。"""
     images = []
     if not soup:
         return images
-        
+
     for img in soup.find_all("img"):
         src = img.get("src") or img.get("data-src") or img.get("data-original") or img.get("data-lazy")
         if not src:
             continue
-            
-        # 相対パスを絶対パスに変換
-        from urllib.parse import urljoin
-        abs_url = urljoin(base_url, src)
-        
-        # 拡張子チェック (jpg, jpeg, png, webp のみ)
-        # クエリパラメータ付きURL対策として、?以降をカットして拡張子判定
-        clean_url = abs_url.split('?')[0]
-        if not any(clean_url.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]):
-            continue
-            
-        alt = img.get("alt") or img.get("title") or ""
-        label = alt.strip()
-        
-        # 重複排除
-        if abs_url not in [i["url"] for i in images]:
-            images.append({
-                "url": abs_url,
-                "label": label
-            })
-            
+
+        full_url = urljoin(base_url, src.strip())
+        alt = img.get("alt", "").strip()
+        parent_text = img.parent.get_text(strip=True) if img.parent else ""
+        label = f"{alt} {parent_text}".strip()
+
+        images.append({
+            "url": full_url,
+            "label": label
+        })
+
     return images
 
 
+def _is_rejected_image(label_lower: str, url_lower: str) -> bool:
+    """除外キーワードに合致するか判定する。"""
+    return any(kw.lower() in label_lower or kw.lower() in url_lower for kw in REJECT_KEYWORDS)
+
+
+def _detect_image_category(label_lower: str, url_lower: str) -> str | None:
+    """ラベルとURLから画像カテゴリ（plot_plan, layout, exterior, interior）を判定する。"""
+    if any(kw.lower() in label_lower or kw.lower() in url_lower for kw in PLOT_PLAN_KEYWORDS):
+        return 'plot_plan'
+    if any(kw.lower() in label_lower or kw.lower() in url_lower for kw in LAYOUT_KEYWORDS):
+        return 'layout'
+    if any(kw.lower() in label_lower or kw.lower() in url_lower for kw in EXTERIOR_KEYWORDS):
+        return 'exterior'
+    return 'interior'
+
+
 def clean_images(images_list):
-    """
-    画像のリストを入力とし、不要な画像（周辺環境やロゴなど）を除外して
-    ホワイトリストに該当する画像のみをカテゴリに分類して返す。
-    
-    images_list: list of dict. 例: [{"url": "http...", "label": "外観"}]
-    """
+    """画像のリストを入力とし、不要な画像を除外してホワイトリストカテゴリに分類して返す。"""
     cleaned = []
-    
     for img in images_list:
         url = img.get("url", "") or ""
         label = img.get("label", "") or ""
-        
-        # Noneや空文字対策
         url_lower = url.lower()
         label_lower = label.lower()
-        
-        # 1. 除外キーワードチェック
-        has_reject = False
-        for kw in REJECT_KEYWORDS:
-            if kw.lower() in label_lower or kw.lower() in url_lower:
-                has_reject = True
-                break
-        
-        if has_reject:
+
+        if _is_rejected_image(label_lower, url_lower):
             continue
-            
-        # 2. カテゴリ判定
-        category = None
-        
-        # 間取り判定
-        for kw in LAYOUT_KEYWORDS:
-            if kw.lower() in label_lower or kw.lower() in url_lower:
-                category = 'layout'
-                break
-                
-        if not category:
-            # 外観判定
-            for kw in EXTERIOR_KEYWORDS:
-                if kw.lower() in label_lower or kw.lower() in url_lower:
-                    category = 'exterior'
-                    break
-                    
-        if not category:
-            # 内装判定（それ以外を内装とみなす）
-            category = 'interior'
-            
+
+        category = _detect_image_category(label_lower, url_lower)
         cleaned.append({
             "url": url,
+            "label": label,
             "category": category
         })
-        
     return cleaned
 
 
-def verify_image_bytes(image_bytes: bytes) -> bool:
-    """
-    画像のバイナリデータをチェックし、サイズ、アスペクト比、色の分散から
-    明らかにノイズ（プレースホルダーや小さすぎるアイコン）であるものを除外する。
-    """
+def verify_image_bytes(image_bytes):
+    """バイト列が有効な画像であるか検証し、単色画像や極端に小さい画像でないかチェックする。"""
+    if not image_bytes or len(image_bytes) < 1000:
+        return False
+        
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        width, height = img.size
-        
-        # 1. サイズフィルター
-        if width < 200 or height < 200:
-            return False
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img.verify()
             
-        # 2. アスペクト比フィルター
-        aspect_ratio = float(width) / float(height)
-        if aspect_ratio > 3.0 or aspect_ratio < 0.33:
-            return False
-            
-        # 3. 単色プレースホルダー画像（ダミー）の判定
-        img_rgb = img.convert('RGB')
-        img_small = img_rgb.resize((10, 10))
-        pixels = list(img_small.getdata())
-        
-        r_vals = [p[0] for p in pixels]
-        g_vals = [p[1] for p in pixels]
-        b_vals = [p[2] for p in pixels]
-        
-        def std_dev(lst):
-            mean = sum(lst) / len(lst)
-            variance = sum((x - mean) ** 2 for x in lst) / len(lst)
-            return variance ** 0.5
-            
-        r_std = std_dev(r_vals)
-        g_std = std_dev(g_vals)
-        b_std = std_dev(b_vals)
-        
-        if r_std < 5.0 and g_std < 5.0 and b_std < 5.0:
-            return False
-            
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            width, height = img.size
+            if width < 50 or height < 50:
+                return False
+                
+            img_small = img.resize((10, 10)).convert("RGB")
+            pixels = list(img_small.getdata())
+            first_pixel = pixels[0]
+            is_monochrome = all(p == first_pixel for p in pixels)
+            if is_monochrome:
+                return False
+                
         return True
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Image verification failed: {e}")
         return False
 
 
-def check_api_budget_cap() -> bool:
-    """
-    当日の画像解析APIの実行数が上限（200件）を超えていないかチェックする。
-    """
+def check_daily_analysis_limit():
+    """本日の画像解析実行数が上限（200件）に達しているか確認する。"""
     today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    current_count = PropertyEvaluation.objects.filter(
-        analysis_status__in=['completed', 'processing'],
+    count = PropertyEvaluation.objects.filter(
+        analysis_status__in=['processing', 'completed'],
         analyzed_at__gte=today_start
     ).count()
-    
-    return current_count < MAX_DAILY_IMAGE_ANALYSIS
+    return count < MAX_DAILY_IMAGE_ANALYSIS
 
 
-def analyze_property_images_with_gemini(cleaned_images) -> dict:
-    """
-    クレンジング済み画像リストから画像をダウンロードし、
-    Gemini API に入力して各種画像解析メタデータ（内装、間取り、土地形状、外観状態）を取得する。
-    
-    返り値: dict
-    """
+# Alias for test backwards-compatibility
+check_api_budget_cap = check_daily_analysis_limit
+
+
+def _parse_gemini_analysis_response(text: str, default_result: dict) -> dict:
+    """Gemini APIのテキストレスポンスからJSONをパースし、評価結果辞書を構築する。"""
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if not match:
+        logger.warning(f"Failed to parse Gemini response: {text}")
+        return default_result
+
+    data = json.loads(match.group(0))
+    result = default_result.copy()
+
+    shadow_ratio = float(data.get('shadow_area_ratio')) if data.get('shadow_area_ratio') is not None else None
+    nta_discount = None
+    shape_score_100 = None
+    if shadow_ratio is not None:
+        nta_discount = calculate_nta_irregular_discount(shadow_ratio)
+        shape_score_100 = round(max(0.0, min(100.0, 100.0 - (shadow_ratio * 100.0))), 1)
+
+    result.update({
+        'interior_score': float(data.get('interior_score', 3.5)),
+        'layout_score': float(data.get('layout_score', 3.5)),
+        'plot_shape_type': str(data.get('plot_shape_type', 'unknown')),
+        'plot_shape_description': str(data.get('plot_shape_description', '')),
+        'maintenance_score': float(data.get('maintenance_score', 3.5)),
+        'maintenance_comment': str(data.get('maintenance_comment', '')),
+        'shadow_area_ratio': shadow_ratio,
+        'frontage_length_est': float(data.get('frontage_length_est')) if data.get('frontage_length_est') is not None else None,
+        'road_width_est': float(data.get('road_width_est')) if data.get('road_width_est') is not None else None,
+        'passage_width': float(data.get('passage_width')) if data.get('passage_width') is not None else None,
+        'shape_score_100': shape_score_100,
+        'nta_irregular_discount': nta_discount,
+        'retaining_wall_risk': str(data.get('retaining_wall_risk', 'none')),
+        'ground_elevation_diff_m': float(data.get('ground_elevation_diff_m')) if data.get('ground_elevation_diff_m') is not None else None,
+        'demolition_difficulty': str(data.get('demolition_difficulty', 'medium')),
+        'utility_pole_risk': str(data.get('utility_pole_risk', 'none')),
+        'foundation_crack_risk': bool(data['foundation_crack_risk']) if data.get('foundation_crack_risk') is not None else None,
+        'water_leak_risk': bool(data['water_leak_risk']) if data.get('water_leak_risk') is not None else None,
+        'stair_steepness': str(data.get('stair_steepness', 'unknown')),
+        'indoor_washing_machine_space': str(data.get('indoor_washing_machine_space', 'unknown')),
+        'exposed_pipes_risk': bool(data['exposed_pipes_risk']) if data.get('exposed_pipes_risk') is not None else None,
+        'renovation_budget_tier': str(data.get('renovation_budget_tier', 'tier_medium')),
+    })
+    return result
+
+
+def analyze_property_images_with_gemini(cleaned_images):
+    """選別された画像群をGeminiに渡し、画像特化の画地幾何およびプロ目線リスク予測を実行する。"""
     default_result = {
         'interior_score': 3.5,
         'layout_score': 3.5,
         'plot_shape_type': 'unknown',
-        'plot_shape_description': '画像なしのため判定不能',
+        'plot_shape_description': '',
         'maintenance_score': 3.5,
-        'maintenance_comment': '画像なしのため判定不能'
+        'maintenance_comment': '',
+        'shadow_area_ratio': None,
+        'frontage_length_est': None,
+        'road_width_est': None,
+        'passage_width': None,
+        'shape_score_100': None,
+        'nta_irregular_discount': None,
+        'retaining_wall_risk': 'none',
+        'ground_elevation_diff_m': None,
+        'demolition_difficulty': 'medium',
+        'utility_pole_risk': 'none',
+        'foundation_crack_risk': None,
+        'water_leak_risk': None,
+        'stair_steepness': 'unknown',
+        'indoor_washing_machine_space': 'unknown',
+        'exposed_pipes_risk': None,
+        'renovation_budget_tier': 'tier_medium',
     }
-    
+
+    if not cleaned_images:
+        return default_result
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        logging.error("❌ [CRITICAL ERROR] GEMINI_API_KEY env variable is NOT configured. Gemini image analysis will be skipped and default dummy scores will be returned! Please set the API key in your .env or system environment.")
+        logger.warning("GEMINI_API_KEY not configured. Skipping Gemini image analysis.")
         return default_result
-        
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+
+    # Deduplicate by URL and prioritize 'plot_plan' first
+    seen_urls = set()
+    unique_images = []
+    for img in cleaned_images:
+        url = img.get("url")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_images.append(img)
+
+    category_priority = {"plot_plan": 0, "layout": 1, "exterior": 2, "interior": 3}
+    sorted_images = sorted(
+        unique_images,
+        key=lambda x: category_priority.get(x.get("category", ""), 99)
+    )
+
+    images_to_send = []
+    for item in sorted_images[:5]:
+        url = item.get("url")
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200 and verify_image_bytes(resp.content):
+                img = Image.open(io.BytesIO(resp.content))
+                images_to_send.append(img)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to load image for Gemini: {e}")
+
+    if not images_to_send:
+        logger.warning("No valid images downloaded. Using default analysis result.")
+        return default_result
+
+    prompt = """
+あなたはお不動産買い付けのプロ査定士です。提供された画像群（区画図・配置図、間取り図、外観、内装など）から、
+画像からしか視認できない画地幾何指標およびコストリスクを厳密に査定し、以下のJSON形式で回答してください。
+
+```json
+{
+  "interior_score": 1.0〜5.0,
+  "layout_score": 1.0〜5.0,
+  "plot_shape_type": "regular" | "irregular" | "flagpole" | "unknown",
+  "plot_shape_description": "土地形状の具体的特徴",
+  "maintenance_score": 1.0〜5.0,
+  "maintenance_comment": "外観状態の評価",
+  "shadow_area_ratio": 0.0〜1.0 (区画図がある場合のかげ地割合。ない場合はnull),
+  "frontage_length_est": 推定間口幅(m) または null,
+  "road_width_est": 推定前面道路幅(m) または null,
+  "passage_width": 旗竿地の場合の通路幅(m) または null,
+  "retaining_wall_risk": "none" | "rc_legal" | "stone_masonry" | "two_tier_illegal",
+  "ground_elevation_diff_m": 道路との高低差(m) または null,
+  "demolition_difficulty": "low" | "medium" | "high",
+  "utility_pole_risk": "none" | "pole" | "guy_wire",
+  "foundation_crack_risk": true | false,
+  "water_leak_risk": true | false,
+  "stair_steepness": "normal" | "steep" | "unknown",
+  "indoor_washing_machine_space": "indoor" | "outdoor" | "unknown",
+  "exposed_pipes_risk": true | false,
+  "renovation_budget_tier": "tier_none" | "tier_light" | "tier_medium" | "tier_heavy" | "tier_full"
+}
+```
+"""
+
     try:
-        genai.configure(api_key=api_key)
-        # gemini-1.5-flashを使用
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        
-        images_to_send = []
-        categories_to_send = ['layout', 'exterior', 'interior']
-        
-        for cat in categories_to_send:
-            target = [img for img in cleaned_images if img['category'] == cat]
-            # 各カテゴリ最大2枚まで取得して解析精度を高める
-            for img_info in target[:2]:
-                try:
-                    resp = requests.get(img_info['url'], timeout=10)
-                    if resp.status_code == 200:
-                        img_bytes = resp.content
-                        if verify_image_bytes(img_bytes):
-                            pil_img = Image.open(io.BytesIO(img_bytes))
-                            images_to_send.append(pil_img)
-                except Exception as e:
-                    logging.warning(f"Failed to download or verify image {img_info['url']}: {e}")
-                    
-        if not images_to_send:
-            logging.warning("No valid images downloaded. Using default analysis result.")
-            return default_result
-            
-        prompt = (
-            "Analyze these real estate images (interior, layout/plot plan, exterior) and evaluate the property.\n"
-            "Return a JSON object containing the following fields:\n"
-            "1. 'interior_score': float between 1.0 and 5.0 (cleanliness and design of interior)\n"
-            "2. 'layout_score': float between 1.0 and 5.0 (utility and efficiency of floor plan)\n"
-            "3. 'plot_shape_type': string, one of ['regular', 'irregular', 'flagpole', 'unknown']\n"
-            "   - 'regular': Standard rectangular/square shape, easy to build on.\n"
-            "   - 'irregular': Deformed, triangular, or complex shape which is hard to build on efficiently.\n"
-            "   - 'flagpole': Flagpole land / long narrow entrance pathway leading to the main plot (敷地延長/引込線路地).\n"
-            "   - 'unknown': Cannot determine from the given images.\n"
-            "4. 'plot_shape_description': string in Japanese explaining the land shape evaluation.\n"
-            "5. 'maintenance_score': float between 1.0 and 5.0 (structural maintenance quality, paint fade, rust, cleanliness of exterior)\n"
-            "6. 'maintenance_comment': string in Japanese summarizing the maintenance status of the exterior.\n"
-            "Return ONLY raw JSON, e.g. {\"interior_score\": 4.0, \"layout_score\": 3.5, \"plot_shape_type\": \"regular\", \"plot_shape_description\": \"きれいな長方形の角地で非常に建てやすい形状です。\", \"maintenance_score\": 4.2, \"maintenance_comment\": \"外壁の劣化やクラックは見られず、非常によくメンテナンスされています。\"}"
+        response = model.generate_content(
+            [prompt] + images_to_send,
+            request_options={"timeout": 30.0}
         )
-        
-        response = model.generate_content(images_to_send + [prompt])
-        text = response.text.strip()
-        
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-            result = default_result.copy()
-            result.update({
-                'interior_score': float(data.get('interior_score', 3.5)),
-                'layout_score': float(data.get('layout_score', 3.5)),
-                'plot_shape_type': str(data.get('plot_shape_type', 'unknown')),
-                'plot_shape_description': str(data.get('plot_shape_description', '')),
-                'maintenance_score': float(data.get('maintenance_score', 3.5)),
-                'maintenance_comment': str(data.get('maintenance_comment', ''))
-            })
-            return result
-            
-        logging.warning(f"Failed to parse Gemini response: {text}")
-        return default_result
-    except Exception as e:
-        logging.error(f"Error during Gemini image analysis: {e}")
+        return _parse_gemini_analysis_response(response.text, default_result)
+    except Exception:
+        logger.exception("Error during Gemini image analysis")
         return default_result

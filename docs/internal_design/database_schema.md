@@ -2094,6 +2094,40 @@ WARNING: Skipping save for this property due to validation errors.
 | `net_operating_income` | DECIMAL(12,0) | YES | - | ネット営業純利益 (NOI、実額地代控除済) |
 | `cash_flow` | DECIMAL(12,0) | YES | - | 年間手残りキャッシュフロー |
 | `dscr` | DECIMAL(6,2) | YES | - | 債務サービスカバー率 (DSCR) |
+| `interior_score` | FLOAT | YES | - | 内装クオリティスコア (1.0-5.0) |
+| `layout_score` | FLOAT | YES | - | 間取り評価スコア (1.0-5.0) |
+| `investment_score` | FLOAT | YES | - | 投資価値スコア (0-100) |
+| `plot_shape_type` | VARCHAR(30) | NO | - | 土地形状 (regular, irregular, flagpole, unknown) |
+| `plot_shape_description` | TEXT | YES | - | 土地形状に関する説明 |
+| `shadow_area_ratio` | FLOAT | YES | - | かげ地割合 (0.0-1.0、国税庁財産評価通達基準) |
+| `frontage_length_est` | DECIMAL(5,2) | YES | - | 推定間口長 (m) |
+| `road_width_est` | DECIMAL(4,2) | YES | - | 推定前面道路幅員 (m) |
+| `passage_width` | DECIMAL(4,2) | YES | - | 旗竿地路地状部分・通路幅 (m) |
+| `shape_score_100` | FLOAT | YES | - | 総合画地幾何スコア (0-100点) |
+| `nta_irregular_discount` | FLOAT | YES | - | 国税庁不整形地補正率 |
+| `retaining_wall_risk` | VARCHAR(30) | YES | - | 擁壁リスク (none, rc_legal, stone_masonry, two_tier_illegal) |
+| `ground_elevation_diff_m` | DECIMAL(4,2) | YES | - | 道路からの宅地盤高低差 (m) |
+| `demolition_difficulty` | VARCHAR(20) | YES | - | 解体難易度・重機進入性 (low, medium, high) |
+| `utility_pole_risk` | VARCHAR(20) | YES | - | 敷地内電柱・支線 (none, pole, guy_wire) |
+| `foundation_crack_risk` | BOOL | YES | - | 基礎構造クラック有無 |
+| `water_leak_risk` | BOOL | YES | - | 軒天・雨漏りサイン有無 |
+| `stair_steepness` | VARCHAR(20) | YES | - | 階段勾配 (normal, steep, unknown) |
+| `indoor_washing_machine_space` | VARCHAR(20) | YES | - | 洗濯機置場 (indoor, outdoor, unknown) |
+| `exposed_pipes_risk` | BOOL | YES | - | 露出配管・老朽化配管サイン有無 |
+| `renovation_budget_tier` | VARCHAR(30) | YES | - | 想定リフォーム費用規模 (tier_none, tier_light, tier_medium, tier_heavy, tier_full) |
+| `is_psychological_defect` | BOOL | NO | - | 心理的瑕疵フラグ（テキスト抽出） |
+| `is_as_is_condition` | BOOL | NO | - | 契約不適合免責フラグ（テキスト抽出） |
+| `is_boundary_unspecified` | BOOL | NO | - | 境界非明示フラグ（テキスト抽出） |
+| `is_unbuildable` | BOOL | NO | - | 再建築不可フラグ（テキスト抽出） |
+| `is_urbanization_control_area` | BOOL | NO | - | 市街化調整区域フラグ（テキスト抽出） |
+| `has_private_road_burden` | BOOL | NO | - | 私道負担・持分なしフラグ（テキスト抽出） |
+| `is_sublease` | BOOL | NO | - | サブリース中フラグ（テキスト抽出） |
+| `bath_type` | VARCHAR(20) | YES | - | 浴室種別 (unit_bath, tile_traditional, unknown) |
+| `gas_type` | VARCHAR(20) | YES | - | ガス種別 (city_gas, lpg, all_electric, unknown) |
+| `sewage_type` | VARCHAR(20) | YES | - | 下水種別 (public, purification_tank, cesspool, unknown) |
+| `has_elevator` | BOOL | YES | - | エレベーター有無（テキスト抽出） |
+| `is_stair_only_3f_plus` | BOOL | YES | - | 3階以上階段物件フラグ（3階以上×EVなし） |
+| `is_old_earthquake_standard` | BOOL | YES | - | 旧耐震基準判定 (1981年5月以前建築) |
 
 ## 29. 全物件共通基底モデル (PropertyBaseModel) 地代フィールド追加
 
