@@ -2,6 +2,8 @@
 
 import logging
 import os
+import socket
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -134,3 +136,41 @@ def scale_proxysql_mig(
         f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
     )
     return False
+
+
+def wait_for_proxysql_health(
+    host: str | None = None,
+    port: int | None = None,
+    timeout_sec: int = 120,
+) -> bool:
+    """ProxySQL のポート (6033) 疎通を確認 (起動チェック)."""
+    target_host = host or os.getenv("DB_HOST", "127.0.0.1")
+    target_port = int(port or os.getenv("DB_PORT", "6033"))
+
+    if not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        logger.info(
+            f"[Local/Test] Skipping remote ProxySQL wait, checking {target_host}:{target_port}..."
+        )
+        return True
+
+    logger.info(
+        f"Waiting for ProxySQL health at {target_host}:{target_port} (timeout: {timeout_sec}s)..."
+    )
+    start = time.time()
+    while time.time() - start < timeout_sec:
+        try:
+            with socket.create_connection((target_host, target_port), timeout=2.0):
+                logger.info(
+                    f"ProxySQL is healthy and reachable at {target_host}:{target_port}!"
+                )
+                return True
+        except OSError:
+            time.sleep(2)
+
+    logger.warning(
+        f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution."
+    )
+    return False
+

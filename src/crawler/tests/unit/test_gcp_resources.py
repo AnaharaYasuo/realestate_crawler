@@ -142,3 +142,31 @@ def test_scale_proxysql_mig_fails_when_all_fail(monkeypatch):
             get_token_callback=lambda: "token",
         )
         assert res is False
+
+
+def test_wait_for_proxysql_health_local_returns_true():
+    """Verify wait_for_proxysql_health returns True immediately in local/test environment."""
+    with patch.dict("os.environ", {}, clear=True):
+        assert gcp_resources.wait_for_proxysql_health() is True
+
+
+def test_wait_for_proxysql_health_cloud_success(monkeypatch):
+    """Verify wait_for_proxysql_health succeeds when socket connects."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("DB_HOST", "10.0.0.2")
+    monkeypatch.setenv("DB_PORT", "6033")
+
+    with patch("socket.create_connection") as mock_conn:
+        mock_conn.return_value.__enter__.return_value = MagicMock()
+        assert gcp_resources.wait_for_proxysql_health(timeout_sec=5) is True
+        mock_conn.assert_called_once_with(("10.0.0.2", 6033), timeout=2.0)
+
+
+def test_wait_for_proxysql_health_cloud_timeout(monkeypatch):
+    """Verify wait_for_proxysql_health returns False when socket connection times out."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("DB_HOST", "10.0.0.2")
+    monkeypatch.setenv("DB_PORT", "6033")
+
+    with patch("socket.create_connection", side_effect=OSError("Connection refused")), patch("time.sleep"):
+        assert gcp_resources.wait_for_proxysql_health(timeout_sec=1) is False

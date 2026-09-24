@@ -61,6 +61,21 @@ sequenceDiagram
 - パイプラインのステップ（クローリング、データ検証、ML学習等）が途中で例外終了（Exit Code != 0）した場合でも、`try ... finally` ブロックにて確実に ProxySQL MIG の縮小・リソース解放を試行し、ゾンビ残存を根本防止。
 - `scale_proxysql_mig` は `compute_v1`（`google-cloud-compute`）および REST API フォールバックを採用し、コンテナ内での `gcloud` 不在による `FileNotFoundError` を防止。
 
+### 3.4 パイプライン起動時オンデマンド起動・起動チェック (`run_pipeline.py`)
+- **実行条件**: クラウド環境（`IS_CLOUD=true` 等）かつ Coordinator（または単一ジョブ実行）時、Step 0.4 (`wait_for_db.py`) の直前に実行。
+- **起動シーケンス**:
+  1. `scale_proxysql_mig(target_size=1)` を呼び出し、ProxySQL MIG を 0 台から 1 台へスケールアウト。
+  2. `wait_for_proxysql_health(host=DB_HOST, port=DB_PORT, timeout_sec=120)` を実行し、ポート 6033 へのソケット接続確立をポーリング検証（起動チェック）。
+  3. タイムアウト（120秒）内に応答が得られない場合は例外を送出し、後続の DB 接続ハングを未然に防止。
+  4. Worker タスク（Task Index > 0）は Coordinator による ProxySQL 起動および DB マイグレーションの完了を待機。
+
+### 3.5 DB 待機 Fail-Fast 制御 (`wait_for_db.py`)
+- **問題**: DB ホストが未起動またはネットワーク不通の場合、Django の `connection.ensure_connection()` は OS の TCP SYN タイムアウト（約 130 秒）までブロックされ、40 回リトライで 1 時間以上ハングする。
+- **設計**:
+  1. `connection.ensure_connection()` 呼び出し前に、`socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通事前チェックを実施。
+  2. ソケット不通時は 3 秒で即座に検知し、短周期（例: 2秒）でリトライ。
+  3. 最大リトライ時間（例: 60〜120秒）を経過しても不通の場合は、即座に Exit Code 1 で Fail-Fast 終了。Cloud Run のタスクタイムアウト（1時間）まで無駄に浪費することを防止する。
+
 ---
 
 ## 4. Terraform リソース設計

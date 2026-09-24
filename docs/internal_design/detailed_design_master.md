@@ -241,6 +241,15 @@ graph TD
 - ジョブ起動前段階で `src/crawler/scripts/debug_tools/check_slack_connection.py` を事前実行し、設定中の全 Slack チャンネルへの API 送信権限およびチャンネル存在有無をテストする。
 - 疎通失敗時はメインパイプラインの起動前に即座に失敗ログを出力して停止する。
 
+### 6.10.1 パイプライン起動時 ProxySQL オンデマンド起動・起動チェック設計原則 (Step 0.2)
+- クラウド環境（`IS_CLOUD=true` 等）におけるパイプライン（`run_pipeline.py`）の Coordinator 起動時、DB 接続待機（Step 0.4）に先立ち、ProxySQL MIG を `scale_proxysql_mig(target_size=1)` によりオンデマンド起動する。
+- 起動直後にポート 6033 へのソケット疎通ポーリング（起動チェック: `wait_for_proxysql_health`、最大 120 秒）を実施し、ProxySQL がリクエスト受付可能状態になるまで確実に待機する。
+- タイムアウト時は例外を送出してパイプラインを即座に中断し、終了時の `finally` 句で `ensure_resources_stopped.py` による縮小（teardown）を安全に実行する。
+
+### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
+- `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
+- ホスト未起動・不通時に OS の TCP SYN タイムアウト（約 130 秒）による 1 時間超のハングを防止し、最大待機時間（60〜120秒）以内に失敗を検知して迅速に Fail-Fast 終了する。
+
 ### 6.11 本番コンテナイメージのアセット同梱設計原則 (Dockerfile Packaging)
 - クローラー実行に必要な静的セレクター設定ファイル（`config/selectors/*.yaml`）は、本番 Docker イメージのビルド時に `/app/config/` 配下へ漏れなく COPY 同梱する。
 - ローカル環境のボリュームマウント（ホストパス直結）への暗黙依存を排除し、Cloud Run 等のサーバーレス環境でもパーサーが `FileNotFoundError` を起こさず自己完結して動作可能であることを保証する。
