@@ -158,27 +158,44 @@ def _collect_start_func_info(
     return urls, classes
 
 
+def _extract_node_info(
+    node: ast.AST,
+    constants: dict[str, str],
+    local_ns: dict[str, Any],
+    seeds: dict[str, list[str]],
+    classes: dict[str, list[str]],
+) -> None:
+    if isinstance(node, ast.FunctionDef) and node.name.endswith(("Start", "_start")):
+        u, c = _collect_start_func_info(node, constants, local_ns)
+        seeds[node.name] = u
+        if c:
+            classes[node.name] = c
+    elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+        target = node.targets[0]
+        if isinstance(target, ast.Name) and isinstance(node.value, ast.Name):
+            val_id = node.value.id
+            if val_id in seeds:
+                seeds[target.id] = seeds[val_id]
+            if val_id in classes:
+                classes[target.id] = classes[val_id]
+
+
+def _process_route_file(
+    path: Path, seeds: dict[str, list[str]], classes: dict[str, list[str]]
+) -> None:
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(path))
+    constants = _route_http_constants(tree)
+    local_ns = _load_get_start_url_ns(tree, path, constants)
+    for node in tree.body:
+        _extract_node_info(node, constants, local_ns, seeds, classes)
+
+
 def _extract_route_info() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     seeds: dict[str, list[str]] = {}
     classes: dict[str, list[str]] = {}
     for path in sorted(_ROUTES_DIR.glob("*_routes.py")):
-        text = path.read_text(encoding="utf-8")
-        tree = ast.parse(text, filename=str(path))
-        constants = _route_http_constants(tree)
-        local_ns = _load_get_start_url_ns(tree, path, constants)
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and (node.name.endswith("Start") or node.name.endswith("_start")):
-                u, c = _collect_start_func_info(node, constants, local_ns)
-                seeds[node.name] = u
-                if c:
-                    classes[node.name] = c
-            elif isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0]
-                if isinstance(target, ast.Name) and isinstance(node.value, ast.Name):
-                    if node.value.id in seeds:
-                        seeds[target.id] = seeds[node.value.id]
-                    if node.value.id in classes:
-                        classes[target.id] = classes[node.value.id]
+        _process_route_file(path, seeds, classes)
     return seeds, classes
 
 

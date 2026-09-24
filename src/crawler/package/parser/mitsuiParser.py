@@ -26,7 +26,7 @@ from package.utils.selector_loader import SelectorLoader
 
 REGEX_DECIMAL = r'[\d\.]+'
 REGEX_DIGITS = r'(\d+)'
-REGEX_PERCENT_DIGITS = r'(\d+)%'
+REGEX_DECIMAL_GROUP = r"(\d+(?:\.\d+)?)"
 ROAD_WIDTH_PREFIX = "前面道路幅員により"
 RESERVE_FUND_KEY = "修繕積立金"
 
@@ -582,8 +582,6 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         chikunengetsu_str = self._parseChikunengetsuStr(response)
         return converter.parse_chikunengetsu(chikunengetsu_str) if chikunengetsu_str else None
 
-    _parseSoukosu = _parseSouKosu
-
 
     def _parseKanriKaisya(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
@@ -759,7 +757,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         if item.setsumen is None:
             return
         item.maguchiStr = item.setsumen
-        m = re.search(r"(\d+(?:\.\d+)?)", str(item.maguchiStr))
+        m = re.search(REGEX_DECIMAL_GROUP, str(item.maguchiStr))
         if m:
             item.maguchi = Decimal(m.group(1))
 
@@ -768,7 +766,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         if item.douroHaba is None:
             return
         item.roadWidthStr = item.douroHaba
-        m = re.search(r"(\d+(?:\.\d+)?)", str(item.roadWidthStr))
+        m = re.search(REGEX_DECIMAL_GROUP, str(item.roadWidthStr))
         if m:
             item.roadWidth = Decimal(m.group(1))
 
@@ -809,7 +807,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
     @staticmethod
     def _apply_road_direction_and_type(item, full_text: str) -> None:
         if not getattr(item, "roadDirection", None) and full_text:
-            m_dir = re.search(r"接道[：:][^\n\r\t]*?([北東西南]+側)", full_text)
+            m_dir = re.search(r"接道[：:][^\n\r\t北東西南]*?([北東西南]+側)", full_text)
             if m_dir:
                 item.roadDirection = m_dir.group(1).replace("側", "")
         if item.douroMuki and not item.roadDirection:
@@ -896,10 +894,10 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         m_muki = re.search(r'([北東西南]+)', value)
         if m_muki: res['douroMuki'] = m_muki.group(0)
         
-        m_haba = re.search(r'(?:幅員[：:]?)?\s*(?:約\s*)?([\d\.]+)\s*[mｍ]', value)
+        m_haba = re.search(r'幅員[：:]?\s*約?\s*([\d\.]+)\s*[mｍ]', value) or re.search(r'約?\s*([\d\.]+)\s*[mｍ]', value)
         if m_haba: res['douroHaba'] = m_haba.group(1)
         
-        m_setsumen = re.search(r'(?:接面|間口)[：:]?\s*(?:約\s*)?([\d\.]+)\s*[mｍ]', value)
+        m_setsumen = re.search(r'(?:接面|間口)[：:]?\s*約?\s*([\d\.]+)\s*[mｍ]', value)
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分
@@ -911,8 +909,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
 
     def _parseKenpeiDetails(self, value):
         if not value: return 0
-        m = re.search(REGEX_PERCENT_DIGITS, value)
-        return int(m.group(1)) if m else 0
+        return converter.parse_numeric(value) or 0
 
     def _parseYousekiDetails(self, value):
         return self._parseKenpeiDetails(value)
@@ -1104,14 +1101,12 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
     def _parseKenpeiDetails(self, response, _specs=None):
         value = self._parseKenpeiStr(response)
         if not value: return 0
-        m = re.search(REGEX_PERCENT_DIGITS, value)
-        return int(m.group(1)) if m else 0
+        return converter.parse_numeric(value) or 0
 
     def _parseYousekiDetails(self, response, _specs=None):
         value = self._parseYousekiStr(response)
         if not value: return 0
-        m = re.search(REGEX_PERCENT_DIGITS, value)
-        return int(m.group(1)) if m else 0
+        return converter.parse_numeric(value) or 0
 
 
 class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
@@ -1233,7 +1228,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
         text = str(yield_val).replace("%", "").replace("％", "").strip()
         if not text:
             return Decimal(0)
-        m = re.search(r"(\d+(?:\.\d+)?)", text)
+        m = re.search(REGEX_DECIMAL_GROUP, text)
         if not m:
             return Decimal(0)
         try:
@@ -1545,5 +1540,3 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser, InvestmentParserBa
              # Fallback logic to other fields if necessary, but keep it minimal
              pass
         return soukosu
-
-    _parseSoukosu = _parseSouKosu

@@ -65,27 +65,25 @@ def normalize_asking_price_man(asking_price):
         return 0
 
 
+def _format_dt(dt) -> str:
+    if hasattr(dt, "strftime"):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return str(dt) if dt else "-"
+
+
+def _find_pub_dt(prop):
+    for attr in ("updateDateTime", "updateDate", "publishedDateTime", "publishedDate", "published_at", "updated_at"):
+        val = getattr(prop, attr, None)
+        if val:
+            return val
+    return getattr(prop, "inputDate", None)
+
+
 def get_prop_dates(prop):
     crawl_dt = getattr(prop, "inputDateTime", None) or getattr(prop, "inputDate", None)
-    if hasattr(crawl_dt, "strftime"):
-        crawl_str = crawl_dt.strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        crawl_str = str(crawl_dt) if crawl_dt else "-"
-    
-    pub_dt = None
-    for attr in ["updateDateTime", "updateDate", "publishedDateTime", "publishedDate", "published_at", "updated_at"]:
-        if hasattr(prop, attr):
-            val = getattr(prop, attr)
-            if val:
-                pub_dt = val
-                break
-    if not pub_dt:
-        pub_dt = getattr(prop, "inputDate", None)
-    
-    if hasattr(pub_dt, "strftime"):
-        pub_str = pub_dt.strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        pub_str = str(pub_dt) if pub_dt else "-"
+    crawl_str = _format_dt(crawl_dt)
+    pub_dt = _find_pub_dt(prop)
+    pub_str = _format_dt(pub_dt)
     return pub_str, crawl_str
 
 def _evaluate_investment_candidate(eval_rec) -> tuple:

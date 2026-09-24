@@ -47,7 +47,8 @@ async function processInstruction(say, event) {
     thread_ts: threadTs
   });
 
-  const cmd = `"${agyPath}" --dangerously-skip-permissions --conversation "${conversationId}" -p "${text.replaceAll('"', String.raw`\"`)}"`;
+  const escapedText = text.replaceAll('"', '\\"');
+  const cmd = `"${agyPath}" --dangerously-skip-permissions --conversation "${conversationId}" -p "${escapedText}"`;
   console.log(`[SlackAgent] Running CLI: ${cmd}`);
 
   const env = { ...process.env, PAGER: 'cat' };

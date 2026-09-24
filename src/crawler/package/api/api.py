@@ -658,10 +658,54 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
+    def _handle_local_execution(self, api_url, detail_url):
+        if os.getenv('IS_CLOUD', ''):
+            return None
+
+        from package.api.registry import ApiRegistry
+        from urllib.parse import urlparse
+        import threading
+
+        parsed = urlparse(api_url)
+        path = parsed.path
+        target_class = ApiRegistry.get(path)
+        
+        if not target_class:
+            logging.warning("No registry found for %s, falling back to HTTP", path)
+            return None
+
+        logging.debug("Local routing: %s -> %s", path, target_class.__name__)
+        
+        def run_in_new_loop():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                target_class().main(detail_url)
+            finally:
+                try:
+                    from django.db import close_old_connections, connections
+                    close_old_connections()
+                    connections.close_all()
+                except Exception:
+                    pass
+                new_loop.close()
+
+        t = threading.Thread(target=run_in_new_loop)
+        t.start()
+        while t.is_alive():
+            t.join(1.0)
+            if os.path.exists("stop.flag"):
+                print("stop.flag found, forcing exit...", flush=True)
+                from django.db import close_old_connections
+                close_old_connections()
+                os._exit(0)
+        
+        return detail_url, 200, "LocalSync"
+
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
         if os.path.exists("stop.flag"):
-             logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
-             return detail_url, 200, "Aborted"
+            logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
+            return detail_url, 200, "Aborted"
 
         # Middleware request hook
         request_context = {
@@ -674,66 +718,23 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if mw_result is not None:
             return mw_result
 
-        # Fire-and-Forget implementation:
-        # Instead of waiting for the recursive API chain to complete (which can take minutes),
-        # we set a short timeout to ensure the request is triggered, then disconnect.
-        # This treats TimeoutError as a successful "accepted" status.
-        # _timeout = self._generateTimeout()
         _timeout = aiohttp.ClientTimeout(total=3.0) 
 
-        # Local Execution Optimization
-        if not os.getenv('IS_CLOUD', ''):
-            from package.api.registry import ApiRegistry
-            from urllib.parse import urlparse
-            import threading
-
-            parsed = urlparse(api_url)
-            path = parsed.path
-            target_class = ApiRegistry.get(path)
-            
-            if target_class:
-                logging.debug(f"Local routing: {path} -> {target_class.__name__}")
-                import threading
-                
-                def run_in_new_loop():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        target_class().main(detail_url)
-                    finally:
-                        try:
-                            from django.db import close_old_connections, connections
-                            close_old_connections()
-                            connections.close_all()
-                        except Exception:
-                            pass
-                        new_loop.close()
-
-                t = threading.Thread(target=run_in_new_loop)
-                t.start()
-                while t.is_alive():
-                    t.join(1.0)
-                    if os.path.exists("stop.flag"):
-                         print("stop.flag found, forcing exit...", flush=True)
-                         from django.db import close_old_connections
-                         close_old_connections()
-                         os._exit(0)
-                
-                return detail_url, 200, "LocalSync"
-            else:
-                 logging.warning(f"No registry found for {path}, falling back to HTTP")
+        local_result = self._handle_local_execution(api_url, detail_url)
+        if local_result is not None:
+            return local_result
 
         post_json_data = json.dumps(
             '{"url":"' + detail_url + '"}').encode("utf-8")
         try:
-            response:aiohttp.ClientResponse = await session.post(api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout)
-        except aiohttp.client_exceptions.ClientConnectorError as e:
+            response: aiohttp.ClientResponse = await session.post(api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+        except aiohttp.client_exceptions.ClientConnectorError:
             if retry_times > 0:
                 await asyncio.sleep(10)
                 return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
             logging.exception("ClientConnectorError: %s", detail_url)
             raise
-        except aiohttp.client_exceptions.ServerDisconnectedError as e:
+        except aiohttp.client_exceptions.ServerDisconnectedError:
             if retry_times > 0:
                 await asyncio.sleep(10)
                 return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
@@ -1497,67 +1498,60 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception:
             logging.exception("Failed to save error HTML by URL")
 
-    def _afterRunProc(self, run_result):
+    def _save_error_html_record(self, item):
+        """Save HTML of failed property for debugging"""
+        try:
+            url = getattr(item, 'pageUrl', '')
+            if url:
+                model_name = item.__class__.__name__
+                prop_name = getattr(item, 'propertyName', 'UNKNOWN')
+                _sync_save_error_html_by_url(url, model_name, f"Property Name: {prop_name}")
+        except Exception:
+            logging.exception("Failed to save error HTML")
 
-        def _save_error_html(item):
-            """Save HTML of failed property for debugging"""
+    def _save_item_record(self, item):
+        try:
+            item.full_clean()
+            logging.info("Attempting to save item (Batch): %s (%s)", item.propertyName, item.pageUrl)
+            item.save(False, False, None, None)
+            logging.info("Successfully saved item (Batch): %s:%s", item.propertyName, item.pageUrl)
+        except ValidationError as ve:
+            msg = f"Validation failed for property: {getattr(item, 'pageUrl', 'UNKNOWN_URL')}\n"
+            msg += f"Property name: {getattr(item, 'propertyName', 'UNKNOWN')}\n"
+            missing_fields = [
+                f"{field} (value: {getattr(item, field, 'N/A')}): {', '.join(errors)}"
+                for field, errors in ve.message_dict.items()
+            ]
+            msg += f"Missing/invalid fields: {'; '.join(missing_fields)}"
+            logging.warning(msg)
+            logging.warning("Skipping save for this property due to validation errors.")
+            self._save_error_html_record(item)
+
+    def _save_item_with_retry(self, item, max_retries: int = 3):
+        for attempt in range(max_retries):
             try:
-                url = getattr(item, 'pageUrl', '')
-                if url:
-                    model_name = item.__class__.__name__
-                    prop_name = getattr(item, 'propertyName', 'UNKNOWN')
-                    _sync_save_error_html_by_url(url, model_name, f"Property Name: {prop_name}")
+                self._save_item_record(item)
+                close_old_connections()
+                return
+            except OperationalError as e:
+                if attempt < max_retries - 1:
+                    logging.warning("Database error (attempt %d/%d): %s. Retrying in 5 seconds...", attempt + 1, max_retries, e)
+                    close_old_connections()
+                    from time import sleep
+                    sleep(5)
+                else:
+                    logging.exception("Max retries reached. Failed to save %s", getattr(item, 'pageUrl', 'UNKNOWN'))
+                    raise
             except Exception:
-                logging.exception("Failed to save error HTML")
+                logging.exception("save error %s:%s", getattr(item, 'propertyName', 'UNKNOWN'), getattr(item, 'pageUrl', 'UNKNOWN_URL'))
+                raise
 
-        def _save(item):
-            try:
-                # Strict validation before save
-                item.full_clean()
-                logging.info(f"Attempting to save item (Batch): {item.propertyName} ({item.pageUrl})")
-                item.save(False, False, None, None)
-                logging.info("Successfully saved item (Batch):" + item.propertyName + ":" + item.pageUrl)
-            except ValidationError as ve:
-                # Detailed logging for validation failures
-                msg = f"Validation failed for property: {getattr(item, 'pageUrl', 'UNKNOWN_URL')}\n"
-                msg += f"Property name: {getattr(item, 'propertyName', 'UNKNOWN')}\n"
-                missing_fields = []
-                for field, errors in ve.message_dict.items():
-                    field_value = getattr(item, field, 'N/A')
-                    missing_fields.append(f"{field} (value: {field_value}): {', '.join(errors)}")
-                msg += f"Missing/invalid fields: {'; '.join(missing_fields)}"
-                logging.warning(msg)
-                logging.warning("Skipping save for this property due to validation errors.")
-                
-                # Save HTML for debugging
-                _save_error_html(item)
-                # Do not re-raise, just skip this item
-
+    def _afterRunProc(self, run_result):
         logging.debug("start afterRunProc")
         try:
             for item in run_result:
                 if item is not None:
-                    max_retries = 3
-                    for attempt in range(max_retries):
-                        try:
-                            _save(item)
-                            # Only close stale/expired connections
-                            close_old_connections()
-                            break
-                        except OperationalError as e:
-                            # Handle "Too many connections" (1040)
-                            if attempt < max_retries - 1:
-                                logging.warning(f"Database error (attempt {attempt + 1}/{max_retries}): {e}. Closing stale connections and retrying in 5 seconds...")
-                                close_old_connections()
-                                from time import sleep
-                                sleep(5)
-                            else:
-                                logging.exception("Max retries reached. Failed to save %s", getattr(item, 'pageUrl', 'UNKNOWN'))
-                                raise
-                        except Exception as e:
-                            logging.exception("save error %s:%s", getattr(item, 'propertyName', 'UNKNOWN'), getattr(item, 'pageUrl', 'UNKNOWN_URL'))
-                            raise
+                    self._save_item_with_retry(item)
         finally:
-            # Final cleanup of stale connections
             close_old_connections()
             logging.debug("finished afterRunProc")

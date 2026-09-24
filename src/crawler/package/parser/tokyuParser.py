@@ -26,8 +26,9 @@ importlib.reload(sys)
 
 logger = logging.getLogger(__name__)
 
+REGEX_FLOAT = r'(\d+(?:\.\d+)?)'
 DIGITS_PATTERN = re.compile(r'(\d+)')
-FLOAT_PATTERN = re.compile(r'(\d+(?:\.\d+)?)')
+FLOAT_PATTERN = re.compile(REGEX_FLOAT)
 KEY_NENKAN_YOTEI_CHINRYOU = '年間予定賃料収入'
 KEY_YOTEI_RIMAWARI = '予定利回り'
 KEY_YOUTO_CHIIKI_TOU = '用途地域等'
@@ -659,8 +660,6 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
             if match: return int(match.group(1))
         return None
 
-    _parseSoukosu = _parseSouKosu
-
     def _parseKanriKaisya(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
         key = "管理会社"
@@ -761,7 +760,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         if item.setsumen is None:
             return
         item.maguchiStr = str(item.setsumen)
-        m = re.search(r'(\d+(?:\.\d+)?)', item.maguchiStr)
+        m = FLOAT_PATTERN.search(item.maguchiStr)
         if m:
             item.maguchi = Decimal(m.group(1))
 
@@ -769,7 +768,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         if item.douroHaba is None:
             return
         item.roadWidthStr = str(item.douroHaba)
-        m = re.search(r'(\d+(?:\.\d+)?)', item.roadWidthStr)
+        m = FLOAT_PATTERN.search(item.roadWidthStr)
         if m:
             item.roadWidth = Decimal(m.group(1))
 
@@ -779,7 +778,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         if not item.setsudou:
             return
         mag_match = re.search(
-            r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?',
+            r'(?:間口|接面|接す|接道)[：:]?\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?',
             item.setsudou,
         )
         if mag_match:
@@ -914,13 +913,13 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
         import re
         if item.setsumen is not None:
             item.maguchiStr = item.setsumen
-            m = re.search(r'(\d+(?:\.\d+)?)', item.maguchiStr)
+            m = FLOAT_PATTERN.search(item.maguchiStr)
             if m:
                 item.maguchi = Decimal(m.group(1))
                 
         if item.douroHaba is not None:
             item.roadWidthStr = item.douroHaba
-            m = re.search(r'(\d+(?:\.\d+)?)', item.roadWidthStr)
+            m = FLOAT_PATTERN.search(item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
                 
@@ -1266,21 +1265,21 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         )
         if douro_haba_str:
             item.roadWidthStr = str(douro_haba_str)
-            m = re.search(r'(\d+(?:\.\d+)?)', item.roadWidthStr)
+            m = FLOAT_PATTERN.search(item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
             return
         if not item.setsudou:
             return
         width_match = re.search(
-            r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?',
+            r'(?:幅員|幅|道路|前面)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?',
             item.setsudou,
         )
         if width_match:
             item.roadWidth = Decimal(width_match.group(1))
             return
         dir_width_match = re.search(
-            r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]',
+            r'(?:北東|北西|南東|南西|北|南|東|西)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]',
             item.setsudou,
         )
         if dir_width_match:
@@ -1293,7 +1292,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             item.setsumen = specs.get("接道方向／幅員", specs.get("接道", ""))
             if item.setsumen:
                 item.maguchiStr = str(item.setsumen)
-                m = re.search(r'(\d+(?:\.\d+)?)', item.maguchiStr)
+                m = FLOAT_PATTERN.search(item.maguchiStr)
                 if m:
                     item.maguchi = Decimal(m.group(1))
             self._apply_invest_road_width(item, specs)
@@ -1435,8 +1434,6 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     def _parseSouKosu(self, response: BeautifulSoup, specs=None) -> int | None:
         if specs is None: specs = self._scrape_specs(response)
         return converter.parse_numeric(specs.get("総戸数", ""))
-
-    _parseSoukosu = _parseSouKosu
 
     def _parseKenpeiStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)

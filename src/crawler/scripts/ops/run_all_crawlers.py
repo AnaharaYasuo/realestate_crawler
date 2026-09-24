@@ -222,7 +222,8 @@ def main():
         now = time.time()
         
         # 1. 終了プロセスの回収およびタイムアウトのキル
-        for idx in list(active_processes):
+        active_indices = tuple(active_processes.keys())
+        for idx in active_indices:
             proc, company, ptype, start_t, start_dt = active_processes[idx]
             poll_status = proc.poll()
             if poll_status is not None:

@@ -934,8 +934,6 @@ class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase, InvestmentPars
                 pass
         return 0
 
-    _parseSoukosu = _parseSouKosu
-
 
     def _getChimokuChiseiText(self, item, value):
         item.chimokuChisei = value
@@ -1199,8 +1197,6 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseSouKosu(self, response, _specs=None):
         soukosu_str = self._parseSoukosuStr(response)
         return converter.parse_numeric(soukosu_str) if soukosu_str else 0
-
-    _parseSoukosu = _parseSouKosu
 
     def _parseKanriKeitaiKaisya(self, response, _specs=None):
         td = self._getValueFromTable(response, "管理方式", partial_match=True) or \

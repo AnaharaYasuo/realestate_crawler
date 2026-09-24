@@ -422,8 +422,6 @@ class NomuraParser(InvestmentParser):
         value = self._parseSoukosuStr(response)
         return converter.parse_numeric(value)
 
-    _parseSoukosu = _parseSouKosu
-
 
     def _parseTochikenri(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
@@ -495,7 +493,7 @@ class NomuraParser(InvestmentParser):
             return
         NomuraParser._apply_maguchi_from_setsudou(item, setsudou)
         width_match = re.search(
-            r"(?:幅員|幅|道路)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
+            r"(?:幅員|幅|道路)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if width_match:
             item.roadWidthStr = width_match.group(0)
@@ -513,13 +511,13 @@ class NomuraParser(InvestmentParser):
     @staticmethod
     def _apply_maguchi_from_setsudou(item, setsudou: str) -> None:
         mag_match = re.search(
-            r"(?:間口|接面|接す)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?", setsudou
+            r"(?:間口|接面|接す)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?", setsudou
         )
         if mag_match:
             item.maguchiStr = mag_match.group(0)
             item.maguchi = Decimal(mag_match.group(1))
             return
-        m = re.search(r"(\d+(?:\.\d+)?)\s*[m米](?:接面|接す|間口)", setsudou)
+        m = re.search(r"(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)", setsudou)
         if m:
             item.maguchiStr = m.group(0)
             item.maguchi = Decimal(m.group(1))
@@ -796,17 +794,17 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
         item.setsudou = self._parseSetsudou(response)
         import re
         if item.setsudou:
-            mag_match = re.search(r'(?:間口|接面|接す)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
+            mag_match = re.search(r'(?:間口|接面|接す)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
             if mag_match:
                 item.maguchiStr = mag_match.group(0)
                 item.maguchi = Decimal(mag_match.group(1))
             else:
-                m = re.search(r'(\d+(?:\.\d+)?)\s*[m米](?:接面|接す|間口)', item.setsudou)
+                m = re.search(r'(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)', item.setsudou)
                 if m:
                     item.maguchiStr = m.group(0)
                     item.maguchi = Decimal(m.group(1))
                 
-            width_match = re.search(r'(?:幅員|幅|道路)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
+            width_match = re.search(r'(?:幅員|幅|道路)\s*約?\s*(\d+(?:\.\d+)?)\s*[m米]?', item.setsudou)
             if width_match:
                 item.roadWidthStr = width_match.group(0)
                 item.roadWidth = Decimal(width_match.group(1))
@@ -1172,8 +1170,6 @@ class NomuraInvestmentParser(NomuraParser, InvestmentParserBase):
         value = self._parseSoukosuStr(response)
         return converter.parse_numeric(value)
 
-    _parseSoukosu = _parseSouKosu
-
 
 class NomuraInvestmentKodateParser(NomuraInvestmentParser, KodateParserBase):
 
@@ -1249,7 +1245,7 @@ class NomuraInvestmentApartmentParser(NomuraInvestmentParser, InvestmentParserBa
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Apartment"
         item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSoukosu(response)
+        item.soukosu = self._parseSouKosu(response)
         item.setsudou = self._parseSetsudou(response)
         item.chimoku = self._parseChimoku(response)
         item.youtoChiiki = self._parseYoutoChiiki(response)

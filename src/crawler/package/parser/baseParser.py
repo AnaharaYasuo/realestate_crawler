@@ -17,6 +17,8 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 
 HTML_PARSER = "html.parser"
+TOKEN_INQUIRY = "/inquiry"
+TOKEN_CONTACT = "/contact"
 DECIMAL_REGEX = re.compile(r'([\d\.]+)')
 DIGIT_REGEX = re.compile(r'(\d+)')
 
@@ -314,8 +316,8 @@ class ParserBase(metaclass=ABCMeta):
         """Default base detail page parse returning the item entity."""
         return item
 
-    _TOKEN_INQUIRY = "/inquiry"
-    _TOKEN_CONTACT = "/contact"
+    _TOKEN_INQUIRY = TOKEN_INQUIRY
+    _TOKEN_CONTACT = TOKEN_CONTACT
     _TOKEN_RENT = "/rent/"
     _TOKEN_CHINTAI = "/chintai/"
 
@@ -326,7 +328,7 @@ class ParserBase(metaclass=ABCMeta):
             return True
         if href.startswith(("javascript:", "mailto:", "tel:")):
             return True
-        skip_tokens = (ParserBase._TOKEN_INQUIRY, ParserBase._TOKEN_CONTACT, "/shiritai/", "/360/", "/benefit/")
+        skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, "/shiritai/", "/360/", "/benefit/")
         return any(tok in href for tok in skip_tokens)
 
     @staticmethod
@@ -383,7 +385,7 @@ class ParserBase(metaclass=ABCMeta):
             return None
         if not dest_url or not isinstance(dest_url, str) or not dest_url.startswith("http"):
             return None
-        bad_tokens = ("javascript:", "void(0)", "/inquiry", "/contact")
+        bad_tokens = ("javascript:", "void(0)", TOKEN_INQUIRY, TOKEN_CONTACT)
         if any(tok in dest_url for tok in bad_tokens):
             return None
         return dest_url
@@ -533,7 +535,7 @@ class ParserBase(metaclass=ABCMeta):
     def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
         m = re.search(
-            r'([^\s「」]+?(?:駅|停留所|バス停))\s*(?:(?:徒歩|バス|車)\s*)?(?:(\d+)\s*分)?',
+            r'([^\s「」\d]+?(?:駅|停留所|バス停))\s*(?:徒歩|バス|車)?\s*(\d+)?\s*分?',
             traffic_text,
         )
 
@@ -936,7 +938,7 @@ class ParserBase(metaclass=ABCMeta):
         if not url:
             return
         u_lower = str(url).lower()
-        skip_parts = ("/shiritai/", "/360/", "/chintai/", "/rent/", "/inquiry", "/contact", "/benefit/")
+        skip_parts = ("/shiritai/", "/360/", "/chintai/", "/rent/", TOKEN_INQUIRY, TOKEN_CONTACT, "/benefit/")
         if any(p in u_lower for p in skip_parts):
             logging.info(f"Fast-skipping non-property/rental URL: {url}")
             raise SkipPropertyException(f"Non-property URL skipped: {url}")
@@ -957,10 +959,10 @@ class ParserBase(metaclass=ABCMeta):
         try:
             soup = BeautifulSoup(content, "lxml", from_encoding=encoding)
             if not soup.find() or len(str(soup)) < 100:
-                soup = BeautifulSoup(content, "html.parser", from_encoding=encoding)
+                soup = BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
             return soup
         except Exception:
-            return BeautifulSoup(content, "html.parser", from_encoding=encoding)
+            return BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
 
     @staticmethod
     def _raise_on_listing_title(title: str, url) -> None:

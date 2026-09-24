@@ -423,8 +423,6 @@ class HeimMansionParser(HeimParser, MansionParserBase):
         specs = specs or self._get_specs(response)
         return specs.get("総戸数", "")
 
-    _parseSoukosu = _parseSouKosu
-
 
     def _parseKanrihiStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
