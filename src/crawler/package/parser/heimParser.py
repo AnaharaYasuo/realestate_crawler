@@ -191,17 +191,20 @@ class HeimParser(ParserBase):
                     specs[k] = dd.get_text(" ", strip=True)
 
     def _heim_fill_kouzou_if_missing(self, item, response: BeautifulSoup, specs: dict) -> None:
+        """Fill kouzou from explicit specs if omitted in primary fields."""
         if getattr(item, "kouzou", None):
             return
-        item.kouzou = specs.get("構造") or specs.get("建物構造") or "軽量鉄骨造"
+        item.kouzou = specs.get("構造") or specs.get("建物構造") or None
 
     def _heim_fill_chikunengetsu_if_missing(
         self, item, response: BeautifulSoup, specs: dict
     ) -> None:
+        """Fill chikunengetsuStr from completion/status dates in specs."""
         if getattr(item, "chikunengetsuStr", None):
             return
         status_keys = (
             "築年月",
+            "完成年月",
             "完成時期",
             "現況",
             "現状",
@@ -213,7 +216,6 @@ class HeimParser(ParserBase):
             if val:
                 item.chikunengetsuStr = str(val).strip()
                 return
-        item.chikunengetsuStr = "新築"
 
     def _heim_fill_unpublished_specs(self, item, response: BeautifulSoup, specs: dict) -> None:
         """Fill omitted 構造・築年月 from explicit specs, then safe page fallbacks."""

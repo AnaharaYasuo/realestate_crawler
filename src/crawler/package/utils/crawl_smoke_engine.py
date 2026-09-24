@@ -1647,7 +1647,7 @@ async def _expand_heim_plan_details(
             continue
         if not isinstance(hub_page, BeautifulSoup):
             continue
-        for a in hub_page.select("a[href*='plan_detail']"):
+        for a in hub_page.select("a[href*='plan_detail'], a[href*='/outline/']"):
             href = a.get("href") or ""
             full = urljoin(hub, href)
             if full not in expanded:
@@ -1848,10 +1848,11 @@ async def _smoke_crawl_with_session(
     return result
 
 
-def _default_ssl_context() -> ssl.SSLContext:
+def _legacy_ssl_context() -> ssl.SSLContext:
+    """SSL context allowing SECLEVEL=1 for legacy servers (Misawa/Keio)."""
     ctx = ssl.create_default_context()
     try:
-        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")  # NOSONAR: Required for legacy 1024-bit DH keys on Misawa/Keio
     except (ssl.SSLError, ValueError):
         pass
     return ctx
@@ -1875,8 +1876,13 @@ async def smoke_crawl_target(
         result.elapsed_sec = time.monotonic() - started
         return result
 
+    target_ssl = (
+        _legacy_ssl_context()
+        if target.company.lower() in ("misawa", "keio")
+        else ssl.create_default_context()
+    )
     timeout = aiohttp.ClientTimeout(total=_http_timeout_sec())
-    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60, ssl=_default_ssl_context())
+    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60, ssl=target_ssl)
     force_pw = _needs_playwright(parser, target.company)
 
     try:

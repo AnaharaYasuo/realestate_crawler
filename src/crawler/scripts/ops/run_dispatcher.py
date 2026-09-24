@@ -141,11 +141,15 @@ def _record_pending_task(today: datetime.date, company: str, prop_type: str) -> 
 def _dispatch_task_to_cloud(tasks_client, parent: str, url: str, sa_email: str, payload: dict) -> None:
     """Cloud Tasks API 経由でタスクを送信"""
     import json
+    headers = {"Content-Type": "application/json"}
+    api_key = os.getenv("ESTIMATION_API_KEY")
+    if api_key:
+        headers["X-API-KEY"] = api_key
     task = {
         "http_request": {
             "http_method": tasks_v2.HttpMethod.POST,
             "url": url,
-            "headers": {"Content-Type": "application/json"},
+            "headers": headers,
             "body": json.dumps(payload).encode(),
             "oidc_token": {"service_account_email": sa_email},
         }

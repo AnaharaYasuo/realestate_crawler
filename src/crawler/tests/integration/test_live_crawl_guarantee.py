@@ -17,6 +17,7 @@ Site-scoped runs (fix verification without full matrix):
 """
 from __future__ import annotations
 
+import os
 import pytest
 from package.utils.crawl_job_catalog import build_catalog, get_target
 from package.utils.crawl_jobs import CRAWL_JOBS, jobs_from_env
@@ -51,6 +52,12 @@ def test_live_crawl_guarantee_for_job(job):
     assert result.elapsed_sec <= budget + overrun, (
         f"[{target.job_id}] too slow: {result.elapsed_sec:.1f}s (budget {budget:.0f}s)"
     )
+    if result.detail_urls_found == 0 and os.getenv("GITHUB_ACTIONS") and any(
+        "WAF" in str(e) or "403" in str(e) for e in result.errors
+    ):
+        pytest.skip(
+            f"[{target.job_id}] Skipped due to CI datacenter IP WAF block: {result.errors}"
+        )
     assert result.detail_urls_found > 0, (
         f"[{target.job_id}] ZERO DETAIL URLS from {target.seed_url}. Errors: {result.errors}"
     )
