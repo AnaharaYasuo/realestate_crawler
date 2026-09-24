@@ -50,6 +50,32 @@ def get_gcp_access_token() -> str | None:
     return None
 
 
+def _resize_mig_via_rest(
+    project: str,
+    region: str,
+    mig: str,
+    target_size: int,
+    token: str | None,
+) -> bool:
+    """REST API を直接呼び出して ProxySQL MIG をリサイズ。"""
+    if not token:
+        return False
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{region}/instanceGroupManagers/{mig}/resize?size={target_size}"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code in (200, 204):
+            logger.info(
+                f"Resize operation submitted via REST API: HTTP {resp.status_code}"
+            )
+            return True
+        logger.error(f"REST API resize failed: HTTP {resp.status_code} - {resp.text}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"REST API resize request error: {e}")
+    return False
+
+
 def scale_proxysql_mig(
     target_size: int = 1,
     project_id: str | None = None,
@@ -101,23 +127,8 @@ def scale_proxysql_mig(
 
     # 2. REST API フォールバック
     token_fn = get_token_callback or get_gcp_access_token
-    token = token_fn()
-    if token:
-        url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{reg}/instanceGroupManagers/{mig}/resize?size={target_size}"
-        try:
-            resp = requests.post(
-                url, headers={"Authorization": f"Bearer {token}"}, timeout=10
-            )
-            if resp.status_code in (200, 204):
-                logger.info(
-                    f"Resize operation submitted via REST API: HTTP {resp.status_code}"
-                )
-                return True
-            logger.error(
-                f"REST API resize failed: HTTP {resp.status_code} - {resp.text}"
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"REST API resize request error: {e}")
+    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
+        return True
 
     logger.error(
         f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
