@@ -39,8 +39,8 @@ def _validate_ip_or_dns(hostname: str) -> tuple[bool, str]:
             return True, ""
     except socket.gaierror:
         return True, ""
-    except Exception as e:
-        return False, f"Security validation error: {str(e)}"
+    except Exception:
+        return False, "Security validation error"
 
 
 class UrlSecurityValidator:
@@ -60,8 +60,8 @@ class UrlSecurityValidator:
 
         try:
             parsed = urllib.parse.urlparse(url)
-        except Exception as e:
-            return False, f"URL parse error: {str(e)}"
+        except Exception:
+            return False, "URL parse error"
 
         # 1. スキーム検証
         if parsed.scheme.lower() not in ("http", "https"):
