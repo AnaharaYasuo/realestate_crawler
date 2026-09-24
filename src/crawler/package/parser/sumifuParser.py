@@ -1149,16 +1149,20 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseSenyouNiwaMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and u"専用庭面積" in balconyMensekiStr:
-            try: return converter.parse_menseki(balconyMensekiStr.split(u"専用庭面積")[1])
-            except: pass
+        if balconyMensekiStr and "専用庭面積" in balconyMensekiStr:
+            try:
+                return converter.parse_menseki(balconyMensekiStr.split("専用庭面積")[1])
+            except Exception:
+                pass
         return Decimal(0)
 
     def _parseRoofBalconyMenseki(self, response, specs=None):
         balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        if balconyMensekiStr and u"ルーフバルコニー面積" in balconyMensekiStr:
-            try: return converter.parse_menseki(balconyMensekiStr.split(u"ルーフバルコニー面積")[1])
-            except: pass
+        if balconyMensekiStr and "ルーフバルコニー面積" in balconyMensekiStr:
+            try:
+                return converter.parse_menseki(balconyMensekiStr.split("ルーフバルコニー面積")[1])
+            except Exception:
+                pass
         return Decimal(0)
 
     def _parseSaikou(self, response, specs=None):
