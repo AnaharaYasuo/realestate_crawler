@@ -3,6 +3,8 @@ Safety-net script to ensure cloud resources (ProxySQL MIG, NAT, etc.) are stoppe
 Designed to run at 05:00 JST daily (or on demand) to eliminate zombie resource costs.
 """
 import argparse
+import asyncio
+import inspect
 import logging
 import os
 import sys
@@ -21,6 +23,11 @@ while True:
     _cur = _parent
 
 import requests
+
+try:
+    from asgiref.sync import async_to_sync
+except ImportError:
+    async_to_sync = None
 
 try:
     from google.cloud import compute_v1
@@ -56,7 +63,15 @@ def send_slack_alert(message: str, channel: str | None = None) -> None:
     target_channel = channel or os.environ.get("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
     if send_slack_message is not None:
         try:
-            send_slack_message(channel=target_channel, message=message)
+            if inspect.iscoroutinefunction(send_slack_message):
+                if async_to_sync is not None:
+                    async_to_sync(send_slack_message)(channel=target_channel, message=message)
+                else:
+                    asyncio.run(send_slack_message(channel=target_channel, message=message))
+            else:
+                res = send_slack_message(channel=target_channel, message=message)
+                if inspect.isawaitable(res):
+                    asyncio.run(res)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to send Slack alert: {e}")
     else:

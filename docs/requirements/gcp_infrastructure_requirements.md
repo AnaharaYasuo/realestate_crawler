@@ -55,6 +55,8 @@
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
 - **リソースオンデマンド・ライフサイクル制御**:
   - 常時課金が発生する ProxySQL MIG（`min_replicas = 0`）および Cloud NAT は、クローリングバッチ稼働時間帯（01:00 JST等）のみオンデマンドで起動・有効化し、処理完了と同時に自動停止（スケールイン `size = 0`）すること。
+  - Terraform デプロイ時の Autoscaler `min_replicas`/`max_replicas` 上書きによる意図しない日中自動スケールアップを防止するため、Autoscaler リソースのポリシー変更を無視（`ignore_changes`）可能とすること。
+  - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
 - **Direct VPC Egress への統合**:
   - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台）を廃止し、Cloud Run の Direct VPC Egress 機能を用いて VPC サブネットへ直接接続し、常時固定費を削減すること。
 - **Artifact Registry ストレージ最適化 & ライフサイクル制御**:

@@ -60,3 +60,38 @@ def test_ml_pipeline_stops_mig_even_on_failure():
 
         # 失敗時でも必ず停止が実行されること
         mock_scale.assert_called_with(target_size=0, dry_run=False)
+
+
+def test_scale_proxysql_mig_rest_fallback(monkeypatch):
+    """When compute_v1 is None in Cloud Run, scale_proxysql_mig uses REST API fallback without FileNotFoundError."""
+    from unittest.mock import MagicMock
+    from scripts.ops import run_dispatcher, run_ml_pipeline
+
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+    monkeypatch.setenv("PROXYSQL_MIG_NAME", "proxysql-mig-prod")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    # Test dispatcher scale_proxysql_mig
+    with patch.object(run_dispatcher, "compute_v1", None), \
+         patch.object(run_dispatcher, "_get_gcp_access_token", return_value="fake-token", create=True), \
+         patch("requests.post", return_value=mock_resp) as mock_post:
+        res = run_dispatcher.scale_proxysql_mig(target_size=1, dry_run=False)
+        assert res is True
+        mock_post.assert_called_once()
+        url = mock_post.call_args[0][0]
+        assert "instanceGroupManagers/proxysql-mig-prod/resize?size=1" in url
+
+    # Test ml_pipeline scale_proxysql_mig
+    with patch.object(run_ml_pipeline, "compute_v1", None), \
+         patch.object(run_ml_pipeline, "_get_gcp_access_token", return_value="fake-token", create=True), \
+         patch("requests.post", return_value=mock_resp) as mock_post_ml:
+        res = run_ml_pipeline.scale_proxysql_mig(target_size=0, dry_run=False)
+        assert res is True
+        mock_post_ml.assert_called_once()
+        url = mock_post_ml.call_args[0][0]
+        assert "instanceGroupManagers/proxysql-mig-prod/resize?size=0" in url
+

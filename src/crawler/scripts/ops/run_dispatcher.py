@@ -7,14 +7,15 @@ Cloud Run Dispatcher Job:
 4. Cloud Tasks (crawler-tasks) へ全45タスクを一括登録
 5. 5秒〜数十秒で即座に exit 0 (課金停止)
 """
-import os
-import sys
-import time
-import socket
-import logging
 import argparse
 import datetime
+import json
+import logging
+import os
+import socket
 import subprocess
+import sys
+import time
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -31,6 +32,10 @@ while True:
 from package.utils.logging_config import configure_logging
 from package.utils.crawl_jobs import CRAWL_JOBS
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.gcp_resources import (
+    scale_proxysql_mig as _gcp_scale_proxysql_mig,
+    get_gcp_access_token as _get_gcp_access_token,
+)
 
 try:
     from google.cloud import compute_v1
@@ -45,39 +50,20 @@ logger = logging.getLogger(__name__)
 
 def scale_proxysql_mig(target_size: int = 1, project_id: str | None = None, region: str | None = None, mig_name: str | None = None, dry_run: bool = False) -> bool:
     """ProxySQL MIG のサイズを変更 (0 -> 1 または 1 -> 0)"""
-    project = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
-    reg = region or os.getenv("GCP_REGION", "asia-northeast1")
-    mig = mig_name or os.getenv("PROXYSQL_MIG_NAME", f"proxysql-mig-{os.getenv('ENVIRONMENT', 'prod')}")
-
-    logger.info(f"Scaling ProxySQL MIG '{mig}' to size {target_size} (project: {project}, region: {reg}, dry_run: {dry_run})")
-    if dry_run or not bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")):
-        logger.info(f"[Dry-run/Local] ProxySQL MIG scaled to {target_size} (mocked).")
-        return True
-
-    if compute_v1 is not None:
-        try:
-            client = compute_v1.RegionInstanceGroupManagersClient()
-            op = client.resize(
-                project=project,
-                region=reg,
-                region_instance_group_manager=mig,
-                size=target_size,
-            )
-            logger.info(f"Resize operation submitted: {op.name}")
-            return True
-        except Exception:
-            logger.exception("Failed to resize ProxySQL MIG via compute_v1")
-            raise
-    else:
-        cmd = [
-            "gcloud", "compute", "instance-groups", "managed", "resize",
-            mig, f"--size={target_size}", f"--region={reg}", f"--project={project}", "--quiet"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode != 0:
-            logger.error(f"gcloud resize failed: {res.stderr}")
-            raise RuntimeError(f"ProxySQL MIG resize failed: {res.stderr}")
-        return True
+    token_fn = getattr(sys.modules[__name__], "_get_gcp_access_token", _get_gcp_access_token)
+    comp_mod = getattr(sys.modules[__name__], "compute_v1", compute_v1)
+    res = _gcp_scale_proxysql_mig(
+        target_size=target_size,
+        project_id=project_id,
+        region=region,
+        mig_name=mig_name,
+        dry_run=dry_run,
+        compute_module=comp_mod,
+        get_token_callback=token_fn,
+    )
+    if not res and bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")) and not dry_run:
+        raise RuntimeError(f"ProxySQL MIG resize failed to scale to {target_size}")
+    return res
 
 
 def wait_for_proxysql_health(host: str | None = None, port: int | None = None, timeout_sec: int = 60) -> bool:
@@ -140,7 +126,6 @@ def _record_pending_task(today: datetime.date, company: str, prop_type: str) -> 
 
 def _dispatch_task_to_cloud(tasks_client, parent: str, url: str, sa_email: str, payload: dict) -> None:
     """Cloud Tasks API 経由でタスクを送信"""
-    import json
     headers = {"Content-Type": "application/json"}
     api_key = os.getenv("ESTIMATION_API_KEY")
     if api_key:
