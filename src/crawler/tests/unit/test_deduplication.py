@@ -278,49 +278,39 @@ def test_similarity_score_helpers():
     prop2.chikunengetsuStr = "2000年1月"
     assert _calculate_date_score(prop1, prop2) == 0.0
 
-    # 5. 住所ポジティブスコアの検証 (一致: 0.35, 類似度>=0.85: 0.35, 類似度>=0.70: 0.20)
-    prop1.address = "東京都渋谷区神南1-1-1"
-    prop2.address = "東京都渋谷区神南1-1-1"
-    assert _calculate_address_score(prop1, prop2) == pytest.approx(0.35)
+    # 5. 各ヘルパーの正の採点帯・境界値の個別検証
+    prop1.tatemonoMenseki = 100.0
+    prop2.tatemonoMenseki = 99.0
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.3)
+    prop2.tatemonoMenseki = 97.0
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.2)
+    prop2.tatemonoMenseki = 93.0
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.1)
 
-    prop1.address = "東京都渋谷区神南1-1-1"
-    prop2.address = "東京都渋谷区神南1-1-2"
-    assert _calculate_address_score(prop1, prop2) == pytest.approx(0.35)
-
-    with patch("package.utils.deduplication.difflib.SequenceMatcher") as mock_matcher:
-        mock_matcher.return_value.ratio.return_value = 0.75
-        assert _calculate_address_score(prop1, prop2) == pytest.approx(0.20)
-
-    # 6. 面積ポジティブスコアの検証 (誤差5%以内: 0.25, 誤差10%以内: 0.15)
-    prop1.senyuMenseki = 100.0
-    prop1.tatemonoMenseki = 0
-    prop2.senyuMenseki = 100.0
-    prop2.tatemonoMenseki = 0
-    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.25)
-
-    prop2.senyuMenseki = 96.0  # 誤差4%
-    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.25)
-
-    prop2.senyuMenseki = 92.0  # 誤差8%
-    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.15)
-
-    # 7. 価格ポジティブスコアの検証 (誤差5%以内: 0.25, 誤差10%以内: 0.15)
-    prop1.price = 50000000
-    prop2.price = 50000000
-    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.25)
-
-    prop2.price = 48000000  # 誤差4%
-    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.25)
-
-    prop2.price = 46000000  # 誤差8%
+    prop1.price = 100_000_000
+    prop2.price = 99_000_000
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.2)
+    prop2.price = 97_000_000
     assert _calculate_price_score(prop1, prop2) == pytest.approx(0.15)
+    prop2.price = 93_000_000
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.1)
+    prop2.price = 85_000_000
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.05)
 
-    # 8. 築年月一致ポジティブスコアの検証 (一致: 0.15)
+    prop1.address = prop2.address = "東京都新宿区西新宿1-1-1"
+    assert _calculate_address_score(prop1, prop2) == pytest.approx(0.5)
+    prop1.address, prop2.address = "A", "B"
+    with patch("package.utils.deduplication.SequenceMatcher") as matcher:
+        matcher.return_value.ratio.return_value = 0.85
+        assert _calculate_address_score(prop1, prop2) == pytest.approx(0.35)
+        matcher.return_value.ratio.return_value = 0.7
+        assert _calculate_address_score(prop1, prop2) == pytest.approx(0.2)
+
     prop1.chikunengetsu = None
     prop1.chikunengetsuStr = "2020年3月"
     prop2.chikunengetsu = None
     prop2.chikunengetsuStr = "2020年3月"
-    assert _calculate_date_score(prop1, prop2) == pytest.approx(0.15)
+    assert _calculate_date_score(prop1, prop2) == pytest.approx(0.1)
 
 
 
