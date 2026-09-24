@@ -409,7 +409,7 @@ class TokyuParser(ParserBase):
         key = "接道状況"
         if key in specs: return specs[key]['value']
         key = "接道"
-        return specs[key]['value'] if key in specs else "-"
+        return specs[key]['value'] if key in specs else ""
 
     def _parseDouro(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
@@ -419,7 +419,7 @@ class TokyuParser(ParserBase):
     def _parseDouroMuki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseDouro(response, specs)
         match = re.search("(北|南|東|西)+", val)
-        return match.group(0) if match else "-"
+        return match.group(0) if match else ""
 
     def _parseDouroHaba(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         val = self._parseDouro(response, specs)
@@ -431,7 +431,7 @@ class TokyuParser(ParserBase):
         val = self._parseDouro(response, specs)
         if "公道" in val: return "公道"
         if "私道" in val: return "私道"
-        return "-"
+        return ""
 
     def _parseSetsumen(self, response: BeautifulSoup, specs=None) -> Decimal:
         return Decimal(0)
@@ -451,7 +451,7 @@ class TokyuParser(ParserBase):
         if "（" in val:
             match = re.search("（(.*?)）", val)
             if match: return match.group(1)
-        return "-"
+        return ""
 
     def _parseChiikiChiku(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
@@ -469,26 +469,31 @@ class TokyuParser(ParserBase):
     def _parseBoukaChiiki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
         if "防火" in val: return "防火地域級等あり" 
-        return "-"
+        return ""
 
     def _parseSaikenchiku(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
         if "再建築不可" in val: return "不可"
-        return "可"
+        if re.search(r"再建築可(?!否)", val): return "可"
+        return ""
 
     def _parseSonotaChiiki(self, response: BeautifulSoup, specs=None) -> str:
-        return "-"
+        return ""
 
     def _parseKenchikuJoken(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
         key = "建築条件"
-        return specs[key]['value'] if key in specs else "-"
+        return specs[key]['value'] if key in specs else ""
 
 
     def _parseKokudoHou(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
-        if "国土法" in val: return "届出要"
-        return "不要"
+        if "国土法" in val:
+            if "不要" in val:
+                return "不要"
+            if re.search(r"届出要(?!否)", val) or any(term in val for term in ("要届出", "届出が必要", "届出要す")):
+                return "届出要"
+        return ""
 
     def _parseSaikou(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)

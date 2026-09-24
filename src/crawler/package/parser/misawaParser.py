@@ -387,35 +387,35 @@ class MisawaParser(ParserBase):
 
     def _parseNeighborhood(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('neighborhood_key', '周辺施設')) or "-"
+        return specs.get(self.selectors.get('neighborhood_key', '周辺施設')) or ""
 
     def _parseSchoolDistrict(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('school_district_key', '学区')) or "-"
+        return specs.get(self.selectors.get('school_district_key', '学区')) or ""
 
     def _parseTransactionType(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('transaction_type_key', '取引態様')) or "-"
+        return specs.get(self.selectors.get('transaction_type_key', '取引態様')) or ""
     
     def _parseUrbanPlanning(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('urban_planning_key', '都市計画')) or "-"
+        return specs.get(self.selectors.get('urban_planning_key', '都市計画')) or ""
 
     def _parseKakuninBango(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('kakunin_bango_key', '建築確認番号')) or "-"
+        return specs.get(self.selectors.get('kakunin_bango_key', '建築確認番号')) or ""
         
     def _parseSetback(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('setback_key', 'セットバック')) or "-"
+        return specs.get(self.selectors.get('setback_key', 'セットバック')) or ""
 
     def _parseBiko(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('biko_key', '備考')) or "-"
+        return specs.get(self.selectors.get('biko_key', '備考')) or ""
 
     def _parsePrivateRoadFee(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('shido_futan_key', '私道負担面積')) or "-"
+        return specs.get(self.selectors.get('shido_futan_key', '私道負担面積')) or ""
 
     def _parseInfoUpdateDate(self, response, specs=None):
         specs = self._get_specs(response)
@@ -909,7 +909,7 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
 
     def _parseTochikenri_I(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('tochikenri_key', '土地権利'), '') or "所有権"
+        return specs.get(self.selectors.get('tochikenri_key', '土地権利'), '')
 
     def _parseYoutoChiiki_I(self, response, specs=None):
         specs = self._get_specs(response)
@@ -917,7 +917,7 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
 
     def _parseDeliveryDate_I(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('delivery_key', '引渡時期'), '') or "即時"
+        return specs.get(self.selectors.get('delivery_key', '引渡時期'), '')
 
     def _parseFacilities_I(self, response, specs=None):
         specs = self._get_specs(response)
@@ -933,7 +933,7 @@ class MisawaInvestmentParser(MisawaParser, InvestmentParserBase):
 
     def _parseTransactionType_I(self, response, specs=None):
         specs = self._get_specs(response)
-        return specs.get(self.selectors.get('transaction_key', '取引態様'), '') or "仲介"
+        return specs.get(self.selectors.get('transaction_key', '取引態様'), '')
 
     def _parseBiko_I(self, response, specs=None):
         specs = self._get_specs(response)
