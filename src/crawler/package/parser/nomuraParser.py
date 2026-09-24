@@ -517,10 +517,14 @@ class NomuraParser(InvestmentParser):
             item.maguchiStr = mag_match.group(0)
             item.maguchi = Decimal(mag_match.group(1))
             return
-        m = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*[m米](?:間口|接面|接す)", setsudou)
-        if m:
-            item.maguchiStr = m.group(0)
-            item.maguchi = Decimal(m.group(1))
+        for kw in ("間口", "接面", "接す"):
+            if kw in setsudou:
+                prefix_part = setsudou.split(kw)[0].strip()
+                m = re.search(r"(\d+(?:\.\d+)?)\s*[m米]$", prefix_part)
+                if m:
+                    item.maguchiStr = f"{m.group(1)}m{kw}"
+                    item.maguchi = Decimal(m.group(1))
+                    return
 
     @staticmethod
     def _apply_okuyuki(item) -> None:
