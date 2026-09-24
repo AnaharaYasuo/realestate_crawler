@@ -205,6 +205,9 @@
      - ローカルの `master` を最新化: `git checkout master && git pull origin master`
      - `production` 宛てにリリース PR を作成: `gh pr create --base production --head master --title "release: ..." --body "..."`
      - CI（Production Gate & Terraform Plan）確認後、`production` にマージ。マージ完了により本番デプロイパイプライン（`deploy-production.yml`）が自動起動する。
+   - **タスク完了の定義原則（Production Merge Definition of Done）**:
+     - **「プロダクション（`production` ブランチ）へのマージ完了」をもって初めてタスク完了（Done）とする。**
+     - `master` へのマージ完了時点で作業を終了とみなしてはならず、必ず Step 2 の `master` ➔ `production` へのリリース PR 作成、CI（Production Gate）通過、および `production` へのマージ完了（本番デプロイ起動）まで一貫して遂行・監視しなければならない。
 
 ## 【プロジェクト普遍ルール】複数セッション並行開発時の Git ワークツリー運用原則 (Git Worktree Isolation)
 - **並行セッションの衝突防止**: 複数のAIエージェントやセッションが同時に稼働する際、同一ワーキングツリー内でのファイル変更・Gitインデックスのバッティングを防ぐため、必ず `git worktree` を用いて独立したワークツリーディレクトリ（例: `../realestate_crawler_<topic>`）を作成して作業すること。

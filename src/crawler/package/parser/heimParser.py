@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import re
 import logging
 import urllib.parse
@@ -192,6 +191,7 @@ class HeimParser(ParserBase):
                     specs[k] = dd.get_text(" ", strip=True)
 
     def _heim_fill_kouzou_if_missing(self, item, response: BeautifulSoup, specs: dict) -> None:
+        """Fill kouzou from explicit specs if omitted in primary fields."""
         if getattr(item, "kouzou", None):
             return
         item.kouzou = specs.get("構造") or specs.get("建物構造") or None
@@ -199,10 +199,12 @@ class HeimParser(ParserBase):
     def _heim_fill_chikunengetsu_if_missing(
         self, item, response: BeautifulSoup, specs: dict
     ) -> None:
+        """Fill chikunengetsuStr from completion/status dates in specs."""
         if getattr(item, "chikunengetsuStr", None):
             return
         status_keys = (
             "築年月",
+            "完成年月",
             "完成時期",
             "現況",
             "現状",

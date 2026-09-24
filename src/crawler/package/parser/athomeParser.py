@@ -33,6 +33,7 @@ _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
     '--no-sandbox',
     '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
     '--disable-infobars',
     '--window-position=0,0',
     '--ignore-certificate-errors',
@@ -192,21 +193,29 @@ class AthomeParser(ParserBase):
                 headless=True,
                 args=_ATHOME_PLAYWRIGHT_ARGS,
             )
-            context = await browser.new_context(
-                user_agent=(
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                    '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-                ),
-                viewport={'width': 1920, 'height': 1080},
-                locale='ja-JP',
-                timezone_id='Asia/Tokyo',
-            )
-            await context.add_init_script(_ATHOME_STEALTH_INIT)
-            page = await context.new_page()
-            await self._athome_settle_page(page, url)
-            content_str = await page.content()
-            content_str = await self._athome_reload_if_challenge(page, url, content_str)
-            await browser.close()
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+                    ),
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='ja-JP',
+                    timezone_id='Asia/Tokyo',
+                )
+                try:
+                    await context.add_init_script(_ATHOME_STEALTH_INIT)
+                    page = await context.new_page()
+                    try:
+                        await self._athome_settle_page(page, url)
+                        content_str = await page.content()
+                        content_str = await self._athome_reload_if_challenge(page, url, content_str)
+                    finally:
+                        await page.close()
+                finally:
+                    await context.close()
+            finally:
+                await browser.close()
             content_bytes = content_str.encode('utf-8')
             logger.info(
                 "Playwright stealth fetch success: %s bytes for URL: %s",

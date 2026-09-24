@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import ssl
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -597,7 +598,12 @@ class _LightPlaywrightSession:
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+            ],
         )
         self._context = await self._browser.new_context(
             user_agent=DEFAULT_HEADERS["User-Agent"],
@@ -606,6 +612,9 @@ class _LightPlaywrightSession:
         )
         await self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            "Object.defineProperty(navigator, 'languages', {get: () => ['ja-JP', 'ja', 'en-US', 'en']});"
+            "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});"
+            "window.chrome = {runtime: {}};"
         )
 
     async def fetch_html(self, url: str, deadline: float) -> str:
@@ -773,25 +782,27 @@ async def _fetch_soup_force_pw(
     # Prefer shared light Playwright (reused Chromium). Avoid production
     # stealth parsers here — mizuho/athome _getContent relaunches PW and
     # burns the smoke budget under static∥PW contention.
-    if pw is not None and _remaining(deadline) > 3:
+    if pw is not None:
+        if _remaining(deadline) <= 1:
+            raise TimeoutError(f"budget exhausted before fetch {url}")
         try:
             html = await pw.fetch_html(url, deadline)
             soup = BeautifulSoup(html, "html.parser")
             if _soup_usable_for_smoke(soup):
                 return soup
+            if _soup_looks_blocked(soup):
+                raise RuntimeError(f"WAF blocked page for {url}")
+            return soup
         except Exception as exc:
+            if "WAF blocked" in str(exc):
+                raise
             logger.debug("smoke force-PW fetch failed for %s: %s", url, exc)
+            raise
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
     if via_parser is not None and (
         not isinstance(via_parser, BeautifulSoup) or _soup_usable_for_smoke(via_parser)
     ):
         return via_parser
-    if pw is not None:
-        html = await pw.fetch_html(url, deadline)
-        soup = BeautifulSoup(html, "html.parser")
-        if not _soup_looks_blocked(soup):
-            return soup
-        raise RuntimeError(f"WAF blocked page for {url}")
     return None
 
 
@@ -859,12 +870,13 @@ async def _unblock_or_return_soup(
     soup: BeautifulSoup, parser, session, url, deadline, pw
 ) -> BeautifulSoup:
     # Athome and similar return HTTP 200 for bot interstitials.
-    if not (_soup_looks_blocked(soup) and pw is not None and _remaining(deadline) > 3):
+    if not _soup_looks_blocked(soup):
         return soup
-    html = await pw.fetch_html(url, deadline)
-    soup2 = BeautifulSoup(html, "html.parser")
-    if not _soup_looks_blocked(soup2):
-        return soup2
+    if pw is not None:
+        if _remaining(deadline) > 3:
+            html = await pw.fetch_html(url, deadline)
+            return BeautifulSoup(html, "html.parser")
+        return soup
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
     if via_parser is not None and (
         not isinstance(via_parser, BeautifulSoup) or not _soup_looks_blocked(via_parser)
@@ -1646,7 +1658,7 @@ async def _expand_heim_plan_details(
             continue
         if not isinstance(hub_page, BeautifulSoup):
             continue
-        for a in hub_page.select("a[href*='plan_detail']"):
+        for a in hub_page.select("a[href*='plan_detail'], a[href*='/outline/']"):
             href = a.get("href") or ""
             full = urljoin(hub, href)
             if full not in expanded:
@@ -1847,6 +1859,17 @@ async def _smoke_crawl_with_session(
     return result
 
 
+def _legacy_ssl_context() -> ssl.SSLContext:
+    """SSL context allowing SECLEVEL=1 for legacy servers (Misawa/Keio)."""
+    ctx = ssl.create_default_context()
+    try:
+        # Required for legacy 1024-bit DH keys on Misawa/Keio
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")  # NOSONAR
+    except (ssl.SSLError, ValueError):
+        pass
+    return ctx
+
+
 async def smoke_crawl_target(
     target: CrawlTarget,
     sample_size: int | None = None,
@@ -1865,8 +1888,13 @@ async def smoke_crawl_target(
         result.elapsed_sec = time.monotonic() - started
         return result
 
+    target_ssl = (
+        _legacy_ssl_context()
+        if target.company.lower() in ("misawa", "keio")
+        else ssl.create_default_context()
+    )
     timeout = aiohttp.ClientTimeout(total=_http_timeout_sec())
-    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60)
+    connector = aiohttp.TCPConnector(limit=4, ttl_dns_cache=60, ssl=target_ssl)
     force_pw = _needs_playwright(parser, target.company)
 
     try:

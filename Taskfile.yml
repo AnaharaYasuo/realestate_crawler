@@ -64,6 +64,7 @@ tasks:
           -e PYTHONUNBUFFERED=1 \
           -e CRAWL_SMOKE_SAMPLE_SIZE={{.SAMPLE}} \
           -e CRAWL_SMOKE_JOB_BUDGET_SEC=25 \
+          -e CRAWL_LIVE_WALL_LIMIT_SEC=450 \
           -e CRAWL_GUARANTEE_SITES={{.SITES}} \
           -e CRAWL_GUARANTEE_COMPANY={{.COMPANY}} \
           -e CRAWL_GUARANTEE_TYPE={{.TYPE}} \

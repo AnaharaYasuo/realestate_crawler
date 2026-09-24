@@ -156,22 +156,39 @@ class HomesParser(ParserBase):
         ))
 
 
+    @staticmethod
+    def _is_yield_indicated(tag) -> bool:
+        """Check if parent row/card text specifies yield percentage."""
+        parent = tag.find_parent("tr") or tag.find_parent("li") or tag.find_parent("div")
+        txt = parent.get_text() if parent else ""
+        return "%" in txt or "％" in txt
+
     async def parseRootPage(self, response):
         """
         検索結果一覧ページ（BeautifulSoup）から詳細物件ページのURLを抽出する
+        投資物件などで利回り・想定年収が明記されている物件を優先的に処理する
         """
         import urllib.parse
         detail_links = set()
+        yield_links = []
+        other_links = []
         for a in response.select("a[href*='/bukkendetail/']"):
             href = a.get("href")
-            if href:
-                full_url = self.getRootDestUrl(href)
-                # クレンジング（URLの正規化）
-                parsed = urllib.parse.urlparse(full_url)
-                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield normalized
+            if not href:
+                continue
+            full_url = self.getRootDestUrl(href)
+            parsed = urllib.parse.urlparse(full_url)
+            normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if normalized in detail_links:
+                continue
+            detail_links.add(normalized)
+            if self._is_yield_indicated(a):
+                yield_links.append(normalized)
+            else:
+                other_links.append(normalized)
+
+        for link in yield_links + other_links:
+            yield link
 
     def _find_by_table_header(self, response: BeautifulSoup, headers):
         """thタグのテキストに含まれるキーワードから、対応するtdタグのテキストを抽出する。
