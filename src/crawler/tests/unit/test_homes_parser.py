@@ -27,6 +27,45 @@ def test_homes_investment_rent_derivation():
     assert parsed_item.monthlyRent == 48980
 
 
+def test_homes_investment_rent_derivation_decimal_precision():
+    from bs4 import BeautifulSoup
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    # 29000000 * 0.07 = 2030000. In float: 29000000 * 0.07 is 2029999.9999999998
+    item.price = 29000000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">2900万円</td>
+        <span class="prg-rimawariTableItem">7.00％</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parsed_item = parser._parsePropertyDetailPage(item, soup)
+    assert parsed_item.annualRent == 2030000
+
+
+def test_homes_investment_missing_rent_and_yield_raises_skip():
+    from bs4 import BeautifulSoup
+    from package.parser.baseParser import SkipPropertyException
+    parser = HomesInvestmentApartmentParser()
+    item = parser.createEntity()
+    item.price = 6200000
+    html = """
+    <div>
+        <td class="prg-nameTableItem">テスト物件</td>
+        <td class="prg-priceTableItem">620万円</td>
+        <span class="prg-rimawariTableItem">-</span>
+        <td class="prg-annualIncomeTableItem">-</td>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    with pytest.raises(SkipPropertyException, match="missing annualRent"):
+        parser._parsePropertyDetailPage(item, soup)
+
+
+
 def test_homes_mansion_parser():
     parser = HomesMansionParser()
     item = parser.createEntity()

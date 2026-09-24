@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
 from package.parser.baseParser import (
@@ -558,13 +558,14 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         item.monthlyRent = int(item.annualRent / 12) if item.annualRent else 0
         if not item.annualRent and item.grossYield and getattr(item, "price", None):
             try:
-                gy = float(item.grossYield)
-                if gy > 0:
-                    rent_val = int(float(item.price) * gy / 100.0)
+                price_dec = Decimal(str(item.price))
+                gy_dec = Decimal(str(item.grossYield))
+                if gy_dec > 0:
+                    rent_val = int(price_dec * gy_dec / Decimal(100))
                     if rent_val > 0:
                         item.annualRent = rent_val
                         item.monthlyRent = rent_val // 12
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, InvalidOperation):
                 pass
         if not item.annualRent:
             raise SkipPropertyException(
