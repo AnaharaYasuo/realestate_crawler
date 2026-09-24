@@ -163,7 +163,7 @@ class MitsuiParser(ParserBase):
         traffic_str = "  ".join(traffic_lines)
         self._populateTraffic(item, traffic_str)
 
-        return self.clean_parsed_item(item)
+        return item
 
     def _parseChikunengetsuStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -510,8 +510,8 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         return item
 
     def _parseKouzou(self, response, specs=None):
-        specs = self._get_specs(response)
-        return specs.get("構造", "")
+        specs = specs or self._get_specs(response)
+        return specs.get("建物構造", "") or specs.get("構造", "")
 
     def _parseKaisuStr(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1387,7 +1387,7 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return specs.get("建物構造", "") or specs.get("構造", "") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)

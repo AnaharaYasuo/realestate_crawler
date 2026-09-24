@@ -52,6 +52,8 @@ def test_mitsui_no_dummy_fallbacks():
 
     mansion = MitsuiMansionParser()
     assert mansion._parseKouzou(soup, empty_specs) == ""
+    assert mansion._parseKouzou(soup, {"建物構造": "RC"}) == "RC"
+    assert mansion._parseKouzou(soup, {"構造": "SRC"}) == "SRC"
     assert mansion._parseKanriKeitaiKaisya(soup, empty_specs) == ""
     assert mansion._parseSaikouKadobeya(soup, empty_specs) == ""
 
