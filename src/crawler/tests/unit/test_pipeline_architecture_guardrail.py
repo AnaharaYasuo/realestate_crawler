@@ -17,6 +17,7 @@ def test_scheduler_triggers_pipeline_with_startup_guardrail():
 
     assert "google_cloud_scheduler_job" in content
     assert "crawler_daily_trigger" in content
+    assert "google_cloud_run_v2_job.crawler_pipeline_job.name" in content
 
 
 def test_run_pipeline_contains_startup_and_health_check():

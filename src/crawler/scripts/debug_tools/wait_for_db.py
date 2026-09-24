@@ -24,6 +24,10 @@ def wait_for_db(max_retries: int = 40, retry_interval: float = 2.0, socket_timeo
     port = int(settings_dict.get("PORT") or os.getenv("DB_PORT", "3306"))
 
     logger.info(f"Waiting for database connection to be ready ({host}:{port}, up to {int(max_retries * retry_interval)}s)...")
+    options = settings_dict.setdefault("OPTIONS", {})
+    options.setdefault("connect_timeout", int(socket_timeout))
+    options.setdefault("read_timeout", int(socket_timeout))
+
     for i in range(1, max_retries + 1):
         try:
             # 1. ソケットによる迅速な疎通チェック (最大 socket_timeout 秒で fail-fast)
