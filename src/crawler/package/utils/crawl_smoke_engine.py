@@ -612,6 +612,9 @@ class _LightPlaywrightSession:
         )
         await self._context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            "Object.defineProperty(navigator, 'languages', {get: () => ['ja-JP', 'ja', 'en-US', 'en']});"
+            "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});"
+            "window.chrome = {runtime: {}};"
         )
 
     async def fetch_html(self, url: str, deadline: float) -> str:
@@ -779,25 +782,27 @@ async def _fetch_soup_force_pw(
     # Prefer shared light Playwright (reused Chromium). Avoid production
     # stealth parsers here — mizuho/athome _getContent relaunches PW and
     # burns the smoke budget under static∥PW contention.
-    if pw is not None and _remaining(deadline) > 3:
+    if pw is not None:
+        if _remaining(deadline) <= 1:
+            raise TimeoutError(f"budget exhausted before fetch {url}")
         try:
             html = await pw.fetch_html(url, deadline)
             soup = BeautifulSoup(html, "html.parser")
             if _soup_usable_for_smoke(soup):
                 return soup
+            if _soup_looks_blocked(soup):
+                raise RuntimeError(f"WAF blocked page for {url}")
+            return soup
         except Exception as exc:
+            if "WAF blocked" in str(exc):
+                raise
             logger.debug("smoke force-PW fetch failed for %s: %s", url, exc)
+            raise
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
     if via_parser is not None and (
         not isinstance(via_parser, BeautifulSoup) or _soup_usable_for_smoke(via_parser)
     ):
         return via_parser
-    if pw is not None:
-        html = await pw.fetch_html(url, deadline)
-        soup = BeautifulSoup(html, "html.parser")
-        if not _soup_looks_blocked(soup):
-            return soup
-        raise RuntimeError(f"WAF blocked page for {url}")
     return None
 
 
@@ -865,12 +870,13 @@ async def _unblock_or_return_soup(
     soup: BeautifulSoup, parser, session, url, deadline, pw
 ) -> BeautifulSoup:
     # Athome and similar return HTTP 200 for bot interstitials.
-    if not (_soup_looks_blocked(soup) and pw is not None and _remaining(deadline) > 3):
+    if not _soup_looks_blocked(soup):
         return soup
-    html = await pw.fetch_html(url, deadline)
-    soup2 = BeautifulSoup(html, "html.parser")
-    if not _soup_looks_blocked(soup2):
-        return soup2
+    if pw is not None:
+        if _remaining(deadline) > 3:
+            html = await pw.fetch_html(url, deadline)
+            return BeautifulSoup(html, "html.parser")
+        return soup
     via_parser = await _fetch_via_parser(parser, session, url, deadline)
     if via_parser is not None and (
         not isinstance(via_parser, BeautifulSoup) or not _soup_looks_blocked(via_parser)
