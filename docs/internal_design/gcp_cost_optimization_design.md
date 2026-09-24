@@ -46,7 +46,7 @@ sequenceDiagram
 - Compute Engine API / REST API (`instanceGroupManagers`) を介して `proxysql-mig` の `target_size` および稼働インスタンス数を取得。
 - `target_size > 0` または稼働インスタンスが存在する場合：
   1. Autoscaler 管理下 MIG の GCP API 制約（直接 `resize` 禁止）に適合させるため、Autoscaler の `min_num_replicas = 0` かつ `max_num_replicas = 0` へ更新（または Autoscaler 一時停止）し、インスタンスを 0 台へ完全削除・縮小。
-  2. Slack チャンネル（`#property_alert`）に警告メッセージを発報。
+  2. Slack チャンネル（`#property_alert`）に警告メッセージを発報（非同期関数 `send_slack_message` を `async_to_sync` 経由で確実に同期実行・未 await 警告を防止）。
   3. 戻り値としてステータスを返し、監査ログへ記録。
 - **安全側に倒すエラーハンドリング (Fail-Safe)**:
   - API 通信エラー、404 Not Found、認証エラー等が発生した場合、決して「正常停止中」と偽装せず、緊急 Slack アラート（`:rotating_light:`）を発報し非ゼロ（Exit Code 1）で終了。
@@ -59,15 +59,17 @@ sequenceDiagram
 
 ### 3.3 パイプライン異常時クリーンアップ (`run_pipeline.py` finally ブロック)
 - パイプラインのステップ（クローリング、データ検証、ML学習等）が途中で例外終了（Exit Code != 0）した場合でも、`try ... finally` ブロックにて確実に ProxySQL MIG の縮小・リソース解放を試行し、ゾンビ残存を根本防止。
+- `scale_proxysql_mig` は `compute_v1`（`google-cloud-compute`）および REST API フォールバックを採用し、コンテナ内での `gcloud` 不在による `FileNotFoundError` を防止。
 
 ---
 
 ## 4. Terraform リソース設計
 
-### 4.1 ProxySQL MIG のオンデマンド定義 (`proxysql.tf`)
+### 4.1 ProxySQL MIG および Autoscaler のオンデマンド定義 (`proxysql.tf`)
 - `proxysql_min_replicas = 0`
 - `proxysql_max_replicas = 2`
 - 通常時の `target_size` を 0 とし、バッチ稼働時のみサイズ変更を許容する `lifecycle { ignore_changes = [target_size] }` の維持。
+- Autoscaler (`google_compute_region_autoscaler.proxysql_autoscaler`) において、デプロイ時の `terraform apply` がバッチ停止時や `ensure_resources_stopped.py` で設定した縮退状態（`min=0, max=0`）を上書きして日中に不要インスタンスを自動起動することを防ぐため、`lifecycle { ignore_changes = [autoscaling_policy[0].min_replicas, autoscaling_policy[0].max_replicas] }` を明示設定。
 
 ### 4.2 Direct VPC Egress 構成 (`cloud_run_job.tf`, `cloud_run_service.tf`, `cloud_run_api_service.tf`)
 - `vpc_access` の `connector` を廃止し、Direct VPC Egress (`network_interfaces`) によるサブネット直接接続への切り替え。
