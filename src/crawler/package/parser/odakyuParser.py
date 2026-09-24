@@ -622,9 +622,9 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
     def _fill_invest_card_yield_rent(self, item, block) -> str:
         catch = block.select_one(".estate-info-catch")
         catch_text = catch.get_text(" ", strip=True) if catch else ""
-        gy_m = re.search(r"(\d+(?:\.\d+)?)\s*％", catch_text)
+        gy_m = re.search(r"(\d{1,5}(?:\.\d{1,3})?)\s*％", catch_text)
         if not gy_m:
-            gy_m = re.search(r"利回り[：:\s]*約?(\d+(?:\.\d+)?)", catch_text)
+            gy_m = re.search(r"利回り[：:\s]*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)", catch_text)
         if gy_m:
             item.grossYield = converter.parse_ratio(gy_m.group(1) + "%")
         self._derive_annual_rent_from_yield(item)

@@ -46,14 +46,14 @@ class SeibuParser(ParserBase):
     def getCharset(self):
         return "utf-8"
 
-    def _parsePrice(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
-        price_str = specs.get("価格", "") or specs.get("販売価格", "")
+    def _parsePrice(self, response: BeautifulSoup, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        price_str = target_specs.get("価格", "") or target_specs.get("販売価格", "")
         return converter.parse_price(price_str)
 
-    def _parseAddress(self, response: BeautifulSoup):
-        specs = self._get_specs(response)
-        return specs.get("所在地", "")
+    def _parseAddress(self, response: BeautifulSoup, specs=None):
+        target_specs = specs if specs is not None else self._get_specs(response)
+        return target_specs.get("所在地", "")
 
 
     def getRootDestUrl(self, link_url):
@@ -295,13 +295,13 @@ class SeibuMansionParser(SeibuParser, MansionParserBase):
         )
         if not item.kaisuStr:
             return
-        m = re.search(r"(\d+)階", item.kaisuStr)
+        m = re.search(r"(\d{1,5})階", item.kaisuStr)
         if m:
             item.floorType_kai = int(m.group(1))
-        m = re.search(r"地上(\d+)階", item.kaisuStr)
+        m = re.search(r"地上(\d{1,5})階", item.kaisuStr)
         if m:
             item.floorType_chijo = int(m.group(1))
-        m = re.search(r"地下(\d+)階", item.kaisuStr)
+        m = re.search(r"地下(\d{1,5})階", item.kaisuStr)
         if m:
             item.floorType_chika = int(m.group(1))
 

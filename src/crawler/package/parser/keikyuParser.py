@@ -13,6 +13,55 @@ from package.utils.selector_loader import SelectorLoader
 RESERVE_FUND_KEY = "修繕積立金"
 
 
+def _first_spec(specs: dict, *keys: str) -> str:
+    for k in keys:
+        v = specs.get(k)
+        if v:
+            return v
+    return ""
+
+
+def _parse_table_specs(response: BeautifulSoup) -> dict:
+    specs = {}
+    for table in response.select("table"):
+        for tr in table.select("tr"):
+            ths = tr.find_all("th")
+            tds = tr.find_all("td")
+            for i in range(min(len(ths), len(tds))):
+                key = ths[i].get_text().strip().replace("\n", "").replace(" ", "")
+                val = re.sub(r'\s+', ' ', tds[i].get_text().strip())
+                specs[key] = val
+    return specs
+
+
+def _parse_dl_summary_specs(response: BeautifulSoup) -> dict:
+    specs = {}
+    for dl in response.select("dl.searchresult-detail-list"):
+        for dt, dd in zip(dl.select("dt"), dl.select("dd")):
+            key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("：", "")
+            val = re.sub(r'\s+', ' ', dd.get_text().strip())
+            specs[key] = val
+    return specs
+
+
+def _apply_spec_fallbacks(specs: dict) -> None:
+    fallback_mappings = {
+        "面積": ["専有面積", "建物面積", "建物延面積", "土地面積"],
+        "管理費": ["管理費等", "管理費/月"],
+        RESERVE_FUND_KEY: ["修繕積立金等", "修繕積立金/月", "積立金"],
+        "交通": ["最寄り駅", "最寄駅", "アクセス"],
+        "現現況": ["現況", "現状", "入居状況"],
+        "建物構造": ["構造", "構造・規模"],
+        "引渡": ["引渡時期", "引渡/入居時期"]
+    }
+    for std_key, alt_keys in fallback_mappings.items():
+        for alt in alt_keys:
+            if alt in specs and std_key not in specs:
+                specs[std_key] = specs[alt]
+            if std_key in specs and alt not in specs:
+                specs[alt] = specs[std_key]
+
+
 class KeikyuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
@@ -86,41 +135,9 @@ class KeikyuParser(ParserBase):
                     yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
-        specs = {}
-        for table in response.select("table"):
-            for tr in table.select("tr"):
-                ths = tr.find_all("th")
-                tds = tr.find_all("td")
-                for i in range(min(len(ths), len(tds))):
-                    key = ths[i].get_text().strip().replace("\n", "").replace(" ", "")
-                    val = tds[i].get_text().strip()
-                    val = re.sub(r'\s+', ' ', val)
-                    specs[key] = val
-        # 上部サマリーの抽出
-        for dl in response.select("dl.searchresult-detail-list"):
-            for dt, dd in zip(dl.select("dt"), dl.select("dd")):
-                key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("：", "")
-                val = dd.get_text().strip()
-                val = re.sub(r'\s+', ' ', val)
-                specs[key] = val
-
-        # キーの表記揺れ標準化マッピングを追加
-        fallback_mappings = {
-            "面積": ["専有面積", "建物面積", "建物延面積", "土地面積"],
-            "管理費": ["管理費等", "管理費/月"],
-            RESERVE_FUND_KEY: ["修繕積立金等", "修繕積立金/月", "積立金"],
-            "交通": ["最寄り駅", "最寄駅", "アクセス"],
-            "現現況": ["現況", "現状", "入居状況"],
-            "建物構造": ["構造", "構造・規模"],
-            "引渡": ["引渡時期", "引渡/入居時期"]
-        }
-        for std_key, alt_keys in fallback_mappings.items():
-            for alt in alt_keys:
-                if alt in specs and std_key not in specs:
-                    specs[std_key] = specs[alt]
-                # 反対方向の補完
-                if std_key in specs and alt not in specs:
-                    specs[alt] = specs[std_key]
+        specs = _parse_table_specs(response)
+        specs.update(_parse_dl_summary_specs(response))
+        _apply_spec_fallbacks(specs)
         return specs
 
     def _split_address(self, address):
@@ -236,6 +253,24 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
     def createEntity(self):
         return KeikyuMansion()
 
+    def _parse_floors(self, item, specs):
+        item.kaisuStr = _first_spec(specs, "所在階/構造・階建", "所在階", "階数", "構造・規模")
+        if item.kaisuStr:
+            # 所在階の抽出 (例: 3階 / 地上10階)
+            m = re.search(r'(\d{1,5})階', item.kaisuStr)
+            if m:
+                item.floorType_kai = int(m.group(1))
+            # 地上階建の抽出
+            m_chijo = re.search(r'(?:地上|造)(\d{1,5})階建', item.kaisuStr) or re.search(r'地上(\d{1,5})階', item.kaisuStr)
+            if m_chijo:
+                item.floorType_chijo = int(m_chijo.group(1))
+            # 地下階建の抽出
+            m_chika = re.search(r'地下(\d{1,5})階建', item.kaisuStr) or re.search(r'地下(\d{1,5})階', item.kaisuStr)
+            if m_chika:
+                item.floorType_chika = int(m_chika.group(1))
+            else:
+                item.floorType_chika = 0
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -246,26 +281,10 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        # 階数・所在階
-        item.kaisuStr = specs.get("所在階/構造・階建", "") or specs.get("所在階", "") or specs.get("階数", "") or specs.get("構造・規模", "")
-        if item.kaisuStr:
-            # 所在階の抽出 (例: 3階 / 地上10階)
-            m = re.search(r'(\d+)階', item.kaisuStr)
-            if m:
-                item.floorType_kai = int(m.group(1))
-            # 地上階建の抽出
-            m_chijo = re.search(r'(?:地上|造)(\d+)階建', item.kaisuStr) or re.search(r'地上(\d+)階', item.kaisuStr)
-            if m_chijo:
-                item.floorType_chijo = int(m_chijo.group(1))
-            # 地下階建の抽出
-            m_chika = re.search(r'地下(\d+)階建', item.kaisuStr) or re.search(r'地下(\d+)階', item.kaisuStr)
-            if m_chika:
-                item.floorType_chika = int(m_chika.group(1))
-            else:
-                item.floorType_chika = 0
+        self._parse_floors(item, specs)
 
         # 築年月
-        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
+        item.chikunengetsuStr = _first_spec(specs, "築年月", "完成時期")
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
@@ -290,7 +309,7 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         
-        item.saikou = specs.get("主要採光", "") or specs.get("向き", "")
+        item.saikou = _first_spec(specs, "主要採光", "向き")
         item.saikouMuki = item.saikou
         item.saikouMukiStr = item.saikou
         item.saikouKadobeya = specs.get("角部屋", "")

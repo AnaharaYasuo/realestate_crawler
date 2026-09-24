@@ -139,7 +139,7 @@ class HeimParser(ParserBase):
             specs[k] = v
 
     _HEIM_LABEL_RE = re.compile(
-        r"^(?:種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+([^\r\n]+)$"
+        r"^(?:種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+([^\r\n]{1,200})$"
     )
 
 
@@ -473,13 +473,13 @@ class HeimMansionParser(HeimParser, MansionParserBase):
     def _heim_parse_floor_types(self, item) -> None:
         if not item.kaisuStr:
             return
-        m = re.search(r'(\d+)階部分', item.kaisuStr)
+        m = re.search(r'(\d{1,5})階部分', item.kaisuStr)
         if m:
             item.floorType_kai = int(m.group(1))
-        m = re.search(r'地上(\d+)階', item.kaisuStr)
+        m = re.search(r'地上(\d{1,5})階', item.kaisuStr)
         if m:
             item.floorType_chijo = int(m.group(1))
-        m = re.search(r'地下(\d+)階', item.kaisuStr)
+        m = re.search(r'地下(\d{1,5})階', item.kaisuStr)
         if m:
             item.floorType_chika = int(m.group(1))
 

@@ -185,6 +185,101 @@ def calculate_pmt(principal, annual_rate, years):
     pmt_monthly = principal * (r * math.pow(1 + r, n)) / (math.pow(1 + r, n) - 1)
     return pmt_monthly * 12
 
+def _extract_pref_and_city(address: str):
+    prefecture = ""
+    city = ""
+    pref_match = re.match(r'^(東京都|京都府|大阪府|北海道|[^県]+県)', address)
+    if pref_match:
+        prefecture = pref_match.group(1)
+        city_part = address[len(prefecture):]
+        city_match = re.match(r'^([^市町村]+[市区町村])', city_part)
+        if city_match:
+            city = city_match.group(1)
+    return prefecture, city
+
+def _extract_combined_text(property_obj):
+    text_attrs = [
+        getattr(property_obj, "tochikenri", "") or "",
+        getattr(property_obj, "biko", "") or "",
+        getattr(property_obj, "propertyName", "") or "",
+        getattr(property_obj, "setsudou", "") or "",
+        getattr(property_obj, "notes", "") or ""
+    ]
+    return " ".join(str(x) for x in text_attrs if x)
+
+def _calculate_annual_rent_and_noi(property_obj, price_man, sekisan_price, combined_str_lower):
+    annual_rent = float(getattr(property_obj, "annualRent", 0) or 0)
+    if annual_rent <= 0:
+        yield_pct = float(getattr(property_obj, "grossYield", 0) or 0)
+        if yield_pct > 0:
+            annual_rent = price_man * (yield_pct / 100.0)
+            
+    if annual_rent <= 0:
+        annual_rent = price_man * 0.08
+        
+    annual_rent_man = annual_rent / 10000.0 if annual_rent > 100000 else annual_rent
+    noi = annual_rent_man * (1.0 - DEFAULT_OPEX_RATIO)
+
+    chidai_val = getattr(property_obj, "chidai", None)
+    is_leasehold = any(x in combined_str_lower for x in ["借地", "賃借", "定期借地", "定借"])
+    land_rent_annual_man = 0.0
+    if chidai_val and float(chidai_val) > 0:
+        land_rent_annual_man = (float(chidai_val) * 12.0) / 10000.0
+        noi = max(0.0, noi - land_rent_annual_man)
+    elif is_leasehold:
+        base_price = sekisan_price if sekisan_price > 0 else price_man
+        land_rent_annual_man = base_price * 0.010
+        noi = max(0.0, noi - land_rent_annual_man)
+
+    return noi, chidai_val, is_leasehold, land_rent_annual_man
+
+def _calculate_monthly_cashflow_and_repayment(property_obj, price_man, noi, combined_str):
+    is_saikenchiku_fuka = "再建築不可" in combined_str
+    if is_saikenchiku_fuka:
+        down_payment = price_man
+        loan_principal = 0.0
+    else:
+        down_payment = price_man * DEFAULT_DOWN_PAYMENT_RATIO
+        loan_principal = price_man - down_payment
+    
+    kouzou_str = getattr(property_obj, "kouzou", "")
+    struct_type = detect_structure_type(kouzou_str)
+    age = parse_chikunen(getattr(property_obj, "chikunengetsu", None) or getattr(property_obj, "chikunengetsuStr", ""))
+    
+    loan_term = calculate_loan_term(struct_type, age)
+    annual_repayment = calculate_pmt(loan_principal, DEFAULT_LOAN_INTEREST_RATE, loan_term)
+    cf = noi - annual_repayment
+    dscr = round(float(noi / annual_repayment), 3) if annual_repayment > 0 else 9.99
+    coc = (cf / down_payment * 100.0) if down_payment > 0 else 0.0
+    return down_payment, annual_repayment, cf, dscr, coc
+
+def _limit_decimal(val, max_val=9999.99, min_val=-9999.99):
+    try:
+        return Decimal(max(min_val, min(max_val, float(val))))
+    except Exception:
+        return Decimal(0.0)
+
+def _calculate_investment_scores(cf, price_man, down_payment, sekisan_ratio, dscr, evaluation_record):
+    coc = (cf / down_payment * 100.0) if down_payment > 0 else 0.0
+    coc_score = min(100.0, max(0.0, coc / 12.0 * 100.0))
+    cf_yield = (cf / price_man * 100.0) if price_man > 0 else 0.0
+    cf_yield_score = min(100.0, max(0.0, cf_yield / 2.0 * 100.0))
+    cashflow_score = (coc_score + cf_yield_score) / 2.0
+
+    sekisan_score = min(100.0, max(0.0, (sekisan_ratio - 50.0) / 50.0 * 100.0))
+    dscr_score_val = min(100.0, max(0.0, (dscr - 1.0) / 0.3 * 100.0))
+    finance_score = (sekisan_score * 0.7) + (dscr_score_val * 0.3)
+
+    predicted_price = float(evaluation_record.second_stage_predicted_price or evaluation_record.first_stage_predicted_price or 0.0)
+    if predicted_price > 0 and price_man > 0:
+        asset_ratio = predicted_price / price_man
+        asset_score = min(100.0, max(0.0, (asset_ratio - 0.8) / 0.4 * 100.0))
+    else:
+        asset_score = 50.0
+
+    total_investment_score = (asset_score * 0.4) + (cashflow_score * 0.4) + (finance_score * 0.2)
+    return cashflow_score, finance_score, total_investment_score
+
 def evaluate_investment_property(property_obj, evaluation_record):
     """
     投資用物件の収支・融資評価を行い、PropertyEvaluation レコードを更新する。
@@ -200,121 +295,37 @@ def evaluate_investment_property(property_obj, evaluation_record):
 
     # 1. 住所から市区町村を取得
     address = getattr(property_obj, "address", "")
-    prefecture = ""
-    city = ""
-    pref_match = re.match(r'^(東京都|京都府|大阪府|北海道|[^県]+県)', address)
-    if pref_match:
-        prefecture = pref_match.group(1)
-        city_part = address[len(prefecture):]
-        city_match = re.match(r'^([^市町村]+[市区町村])', city_part)
-        if city_match:
-            city = city_match.group(1)
+    prefecture, city = _extract_pref_and_city(address)
 
     # 2. 積算価格の算出
     sekisan_price = calculate_sekisan_price(property_obj, prefecture, city)
     sekisan_ratio = (sekisan_price / price_man * 100.0) if price_man > 0 else 0.0
 
     # 3. 賃料の取得と収支計算
-    annual_rent = float(getattr(property_obj, "annualRent", 0) or 0)
-    if annual_rent <= 0:
-        yield_pct = float(getattr(property_obj, "grossYield", 0) or 0)
-        if yield_pct > 0:
-            annual_rent = price_man * (yield_pct / 100.0)
-            
-    if annual_rent <= 0:
-        annual_rent = price_man * 0.08
-        
-    if annual_rent > 100000:
-        annual_rent_man = annual_rent / 10000.0
-    else:
-        annual_rent_man = annual_rent
-
-    noi = annual_rent_man * (1.0 - DEFAULT_OPEX_RATIO)
-
-    # 物件の全テキスト属性を結合
-    text_attrs = [
-        getattr(property_obj, "tochikenri", "") or "",
-        getattr(property_obj, "biko", "") or "",
-        getattr(property_obj, "propertyName", "") or "",
-        getattr(property_obj, "setsudou", "") or "",
-        getattr(property_obj, "notes", "") or ""
-    ]
-    combined_str = " ".join(str(x) for x in text_attrs if x)
+    combined_str = _extract_combined_text(property_obj)
     combined_str_lower = combined_str.lower()
-
-    # 借地権の場合、支払地代をNOIから差し引く (実額地代を最優先、未記載時は更地想定価格の 1.0% / 年 と仮定)
-    chidai_val = getattr(property_obj, "chidai", None)
-    is_leasehold = any(x in combined_str_lower for x in ["借地", "賃借", "定期借地", "定借"])
-
-    land_rent_annual_man = 0.0
-    if chidai_val and float(chidai_val) > 0:
-        # 実額月額地代（円） -> 年間地代（万円）
-        land_rent_annual_man = (float(chidai_val) * 12.0) / 10000.0
-        noi = max(0.0, noi - land_rent_annual_man)
-    elif is_leasehold:
-        base_price = sekisan_price if sekisan_price > 0 else price_man
-        land_rent_annual_man = base_price * 0.010
-        noi = max(0.0, noi - land_rent_annual_man)
+    noi, chidai_val, is_leasehold, land_rent_annual_man = _calculate_annual_rent_and_noi(
+        property_obj, price_man, sekisan_price, combined_str_lower
+    )
 
     # 4. ローン返済シミュレーション (再建築不可の場合は融資不可のため頭金100%)
-    is_saikenchiku_fuka = "再建築不可" in combined_str
-    
-    if is_saikenchiku_fuka:
-        down_payment = price_man
-        loan_principal = 0.0
-    else:
-        down_payment = price_man * DEFAULT_DOWN_PAYMENT_RATIO
-        loan_principal = price_man - down_payment
-    
-    kouzou_str = getattr(property_obj, "kouzou", "")
-    struct_type = detect_structure_type(kouzou_str)
-    age = parse_chikunen(getattr(property_obj, "chikunengetsu", None) or getattr(property_obj, "chikunengetsuStr", ""))
-    
-    loan_term = calculate_loan_term(struct_type, age)
-    annual_repayment = calculate_pmt(loan_principal, DEFAULT_LOAN_INTEREST_RATE, loan_term)
+    down_payment, annual_repayment, cf, dscr, coc = _calculate_monthly_cashflow_and_repayment(
+        property_obj, price_man, noi, combined_str
+    )
 
-    # 5. キャッシュフロー & 指標計算
-    cf = noi - annual_repayment
-    dscr = round(float(noi / annual_repayment), 3) if annual_repayment > 0 else 9.99
-    coc = (cf / down_payment * 100.0) if down_payment > 0 else 0.0
-
-    # --- スコア化ロジック ---
-    
-    coc_score = min(100.0, max(0.0, coc / 12.0 * 100.0))
-    cf_yield = (cf / price_man * 100.0) if price_man > 0 else 0.0
-    cf_yield_score = min(100.0, max(0.0, cf_yield / 2.0 * 100.0))
-    
-    cashflow_score = (coc_score + cf_yield_score) / 2.0
-
-    sekisan_score = min(100.0, max(0.0, (sekisan_ratio - 50.0) / 50.0 * 100.0))
-    dscr_score_val = min(100.0, max(0.0, (dscr - 1.0) / 0.3 * 100.0))
-    
-    finance_score = (sekisan_score * 0.7) + (dscr_score_val * 0.3)
-
-    predicted_price = float(evaluation_record.second_stage_predicted_price or evaluation_record.first_stage_predicted_price or 0.0)
-    if predicted_price > 0 and price_man > 0:
-        asset_ratio = predicted_price / price_man
-        asset_score = min(100.0, max(0.0, (asset_ratio - 0.8) / 0.4 * 100.0))
-    else:
-        asset_score = 50.0
-
-    total_investment_score = (asset_score * 0.4) + (cashflow_score * 0.4) + (finance_score * 0.2)
-
-    # 制限用のヘルパー関数
-    def limit_decimal(val, max_val=9999.99, min_val=-9999.99):
-        try:
-            return Decimal(max(min_val, min(max_val, float(val))))
-        except Exception:
-            return Decimal(0.0)
+    # 5. スコア化ロジック
+    cashflow_score, finance_score, total_investment_score = _calculate_investment_scores(
+        cf, price_man, down_payment, sekisan_ratio, dscr, evaluation_record
+    )
 
     # --- PropertyEvaluationレコードの更新 ---
     evaluation_record.estimated_sekisan_price = sekisan_price
     evaluation_record.net_operating_income = int(noi)
     evaluation_record.debt_service = int(annual_repayment)
     evaluation_record.cash_flow = int(cf)
-    evaluation_record.dscr = limit_decimal(dscr)
-    evaluation_record.coc_return = limit_decimal(coc)
-    evaluation_record.sekisan_ratio = limit_decimal(sekisan_ratio)
+    evaluation_record.dscr = _limit_decimal(dscr)
+    evaluation_record.coc_return = _limit_decimal(coc)
+    evaluation_record.sekisan_ratio = _limit_decimal(sekisan_ratio)
     evaluation_record.cashflow_score = float(f"{cashflow_score:.2f}")
     evaluation_record.finance_score = float(f"{finance_score:.2f}")
     evaluation_record.total_investment_score = float(f"{total_investment_score:.2f}")

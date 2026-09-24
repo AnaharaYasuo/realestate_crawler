@@ -82,7 +82,7 @@ def parse_chikunengetsu(date_str):
         return None
     
     try:
-        match = re.search(r'(\d+)年(\d+)月', date_str)
+        match = re.search(r'(\d{4})年(\d{1,2})月', date_str)
         if match:
             year = int(match.group(1))
             month = int(match.group(2))

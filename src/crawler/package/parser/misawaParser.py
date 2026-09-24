@@ -13,12 +13,12 @@ from decimal import Decimal, ROUND_HALF_UP
 logger = logging.getLogger(__name__)
 
 _MISAWA_MAGUCHI_RE = (
-    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
+    r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[m米]?'
 )
-_MISAWA_MAGUCHI_ALT_RE = r'(\d+(?:\.\d+)?)\s*[m米](?:接面|接す|間口|接道)'
-_MISAWA_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
+_MISAWA_MAGUCHI_ALT_RE = r'(\d{1,5}(?:\.\d{1,3})?)\s*[m米](?:接面|接す|間口|接道)'
+_MISAWA_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[m米]?'
 _MISAWA_DIR_WIDTH_RE = (
-    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]'
+    r'(?:北東|北西|南東|南西|北|南|東|西)\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[m米]'
 )
 _MISAWA_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _MISAWA_ROAD_TYPE_RE = r'(公道|私道)'
@@ -217,15 +217,15 @@ class MisawaParser(ParserBase):
         
         norm_traffic = traffic.replace("・", " ").replace("　", " ")
         # 沿線名、駅名、徒歩分数の直後にスペースがない場合、スペースを強制挿入して誤判定を防止
-        norm_traffic = re.sub(r'(\S+?(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール))\s*(?=\S)', r'\1 ', norm_traffic)
-        norm_traffic = re.sub(r'([^駅\s]+駅)\s*(?=\S)', r'\1 ', norm_traffic)
-        norm_traffic = re.sub(r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=\S)', r'\1 ', norm_traffic)
+        norm_traffic = re.sub(r'([^\s線]{1,30}(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール))\s*(?=\S)', r'\1 ', norm_traffic)
+        norm_traffic = re.sub(r'([^駅\s]{1,30}駅)\s*(?=\S)', r'\1 ', norm_traffic)
+        norm_traffic = re.sub(r'((?:徒歩|停歩|バス)\s*\d{1,4}\s*分)\s*(?=\S)', r'\1 ', norm_traffic)
         
         # Try various patterns (ReDoS-safe: no nested .*? / (a+)* forms)
         # 1. Standard pattern: 線駅 徒歩/バス分
         matches = re.findall(
             r"(\S+(?:線|ライン|ライナー|鉄道|地下鉄|JR|つくばエクスプレス|モノレール|電気鉄道|急行)?)\s+(\S+駅)\s*"
-            r"((?:徒歩|停歩|バス)\s*\d+\s*分(?:\s*停歩\s*\d+\s*分)?)",
+            r"((?:徒歩|停歩|バス)\s*\d{1,4}\s*分(?:\s*停歩\s*\d{1,4}\s*分)?)",
             norm_traffic,
         )
 
@@ -233,12 +233,12 @@ class MisawaParser(ParserBase):
             # 2. Bracketed station name: 線 「駅」 徒歩/バス分
             matches = re.findall(
                 r'([^「」\s]+(?:線|ライン|ライナー|鉄道)?)\s*「([^「」]+)」\s*'
-                r'((?:徒歩|停歩|バス)\s*\d+\s*分(?:\s*停歩\s*\d+\s*分)?)',
+                r'((?:徒歩|停歩|バス)\s*\d{1,4}\s*分(?:\s*停歩\s*\d{1,4}\s*分)?)',
                 norm_traffic,
             )
         if not matches:
              # 3. Simple sequence: 沿線 駅 徒歩分
-             matches = re.findall(r'(\S+)\s+(\S+駅)\s*(徒歩|停歩|バス)\s*(\d+)\s*分', norm_traffic)
+             matches = re.findall(r'(\S{1,30})\s+([^駅\s]{1,30}駅)\s*(?:徒歩|停歩|バス)\s*(\d{1,4})\s*分', norm_traffic)
              if matches:
                  # Standardize to (railway, station, access)
                  matches = [(m[0], m[1], f"{m[2]}{m[3]}分") for m in matches]
@@ -519,7 +519,7 @@ class MisawaMansionParser(MisawaParser, MansionParserBase):
             txt = el.get_text(" ", strip=True)
             if "専有面積" not in txt and "壁芯" not in txt:
                 continue
-            m = re.search(r"([\d.]+)\s*m", txt, re.I)
+            m = re.search(r"([0-9.]{1,10})\s*m", txt, re.I)
             if m:
                 return Decimal(m.group(1))
             sib = el.find_next(["td", "dd", "span"])

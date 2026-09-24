@@ -169,7 +169,7 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
             assert final_cycles == 0, f"Cycles remaining: {final_cycles}"
             assert final_chains == 0, f"Chains remaining: {final_chains}"
             assert final_inverted == 0, f"Inverted relationships remaining: {final_inverted}"
-            logger.info("✔ All hierarchy assertions passed! DB is 100% clean and consistent.")
+            logger.info("✔ All hierarchy assertions passed! DB is 100%% clean and consistent.")
 
 
 if __name__ == "__main__":
