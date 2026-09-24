@@ -88,6 +88,16 @@ resource "google_cloud_run_v2_service" "crawler_worker_service" {
           }
         }
       }
+
+      env {
+        name = "ESTIMATION_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = "realestate-estimation-api-key-${var.environment}"
+            version = "latest"
+          }
+        }
+      }
     }
   }
 

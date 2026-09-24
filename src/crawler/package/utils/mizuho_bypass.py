@@ -198,6 +198,7 @@ async def _get_mizuho_links_once(url: str) -> list:
                         "--disable-blink-features=AutomationControlled",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
                     ],
                 )
                 context = await browser.new_context(
@@ -346,6 +347,7 @@ async def get_mizuho_page_html(url: str) -> bytes:
                         "--disable-blink-features=AutomationControlled",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
                     ],
                 )
                 context = await browser.new_context(

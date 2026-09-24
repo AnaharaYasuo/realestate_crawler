@@ -116,6 +116,27 @@ jobs:
             --command=python,src/crawler/main.py \
             --region=asia-northeast1
 
+      - name: Update Crawler Worker Service Image
+        run: |
+          gcloud run services update realestate-crawler-worker-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/main.py \
+            --region=asia-northeast1
+
+      - name: Update Crawler Dispatcher Job Image
+        run: |
+          gcloud run jobs update realestate-crawler-dispatcher-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/scripts/ops/run_dispatcher.py \
+            --region=asia-northeast1
+
+      - name: Update ML Pipeline Job Image
+        run: |
+          gcloud run jobs update realestate-ml-pipeline-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/scripts/ops/run_ml_pipeline.py \
+            --region=asia-northeast1
+
       - name: Update Safety Net Job Image
         run: |
           gcloud run jobs update realestate-safety-net-prod \

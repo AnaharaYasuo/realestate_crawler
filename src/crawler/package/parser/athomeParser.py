@@ -33,6 +33,7 @@ _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
     '--no-sandbox',
     '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
     '--disable-infobars',
     '--window-position=0,0',
     '--ignore-certificate-errors',
@@ -154,15 +155,15 @@ class AthomeParser(ParserBase):
 
     async def _athome_settle_page(self, page, url: str) -> None:
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=12000)
             # Athome often issues a follow-up navigation; wait for it to settle.
             try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
+                await page.wait_for_load_state("networkidle", timeout=1500)
             except Exception as idle_err:
                 logger.debug("Athome networkidle wait skipped: %s", idle_err)
-            await page.wait_for_timeout(400)
+            await page.wait_for_timeout(300)
             await self._athome_scroll_midpage(page)
-            await page.wait_for_timeout(400)
+            await page.wait_for_timeout(300)
             await self._athome_wait_content_ready(page)
         except Exception as goto_err:
             logger.warning("Playwright goto warning for %s: %s", url, goto_err)
@@ -172,12 +173,12 @@ class AthomeParser(ParserBase):
             return content_str
         logger.info("Retrying page load for challenge screen at %s...", url)
         try:
-            await page.reload(wait_until="domcontentloaded", timeout=20000)
+            await page.reload(wait_until="domcontentloaded", timeout=10000)
             try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
+                await page.wait_for_load_state("networkidle", timeout=2000)
             except Exception as idle_err:
                 logger.debug("Athome reload networkidle skipped: %s", idle_err)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(800)
             return await page.content()
         except Exception as reload_err:
             logger.warning("Playwright reload warning for %s: %s", url, reload_err)
@@ -192,21 +193,29 @@ class AthomeParser(ParserBase):
                 headless=True,
                 args=_ATHOME_PLAYWRIGHT_ARGS,
             )
-            context = await browser.new_context(
-                user_agent=(
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                    '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-                ),
-                viewport={'width': 1920, 'height': 1080},
-                locale='ja-JP',
-                timezone_id='Asia/Tokyo',
-            )
-            await context.add_init_script(_ATHOME_STEALTH_INIT)
-            page = await context.new_page()
-            await self._athome_settle_page(page, url)
-            content_str = await page.content()
-            content_str = await self._athome_reload_if_challenge(page, url, content_str)
-            await browser.close()
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+                    ),
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='ja-JP',
+                    timezone_id='Asia/Tokyo',
+                )
+                try:
+                    await context.add_init_script(_ATHOME_STEALTH_INIT)
+                    page = await context.new_page()
+                    try:
+                        await self._athome_settle_page(page, url)
+                        content_str = await page.content()
+                        content_str = await self._athome_reload_if_challenge(page, url, content_str)
+                    finally:
+                        await page.close()
+                finally:
+                    await context.close()
+            finally:
+                await browser.close()
             content_bytes = content_str.encode('utf-8')
             logger.info(
                 "Playwright stealth fetch success: %s bytes for URL: %s",

@@ -16,6 +16,7 @@ services:
   app:
     build: .
     image: realestate_crawler-app:latest
+    shm_size: '2gb'
     ports:
       - "8000:8000"
     env_file:
