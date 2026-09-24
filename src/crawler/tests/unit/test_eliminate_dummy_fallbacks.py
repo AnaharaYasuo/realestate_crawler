@@ -52,8 +52,12 @@ def test_mitsui_no_dummy_fallbacks():
 
     mansion = MitsuiMansionParser()
     assert mansion._parseKouzou(soup, empty_specs) == ""
-    assert mansion._parseKouzou(soup, {"建物構造": "RC"}) == "RC"
+    assert mansion._parseKouzou(soup, {"建物構造": "RC", "構造": "SRC"}) == "RC"
     assert mansion._parseKouzou(soup, {"構造": "SRC"}) == "SRC"
+    assert mansion._parseFloorTypeKouzou(soup, {"建物構造": "鉄骨鉄筋コンクリート造"}) == "ＳＲＣ造"
+    assert mansion._parseFloorTypeKouzou(soup, {"建物構造": "鉄筋コンクリート造"}) == "ＲＣ造"
+    assert mansion._parseFloorTypeKouzou(soup, {"建物構造": "SRC造"}) == "ＳＲＣ造"
+    assert mansion._parseFloorTypeKouzou(soup, {"建物構造": "RC造"}) == "ＲＣ造"
     assert mansion._parseKanriKeitaiKaisya(soup, empty_specs) == ""
     assert mansion._parseSaikouKadobeya(soup, empty_specs) == ""
 
@@ -106,6 +110,9 @@ def test_sumifu_no_dummy_fallbacks():
     assert mansion._parseKanriKeitai(soup, empty_specs) == ""
     assert mansion._parseKanriKaisya(soup, empty_specs) == ""
     assert mansion._parseKaisuStr(soup, empty_specs) == ""
+    assert mansion._parseKanrihiStr(soup, empty_specs) == ""
+    assert mansion._parseSyuzenTsumitateStr(soup, empty_specs) == ""
+    assert mansion._parseFloorTypeKouzou(soup, empty_specs) == ""
 
     kodate = SumifuKodateParser()
     assert kodate._parseKaisuKouzou(soup, empty_specs) == ""
@@ -121,6 +128,8 @@ def test_sumifu_no_dummy_fallbacks():
     assert tochi._parseTochikenri(soup, empty_specs) == ""
     assert tochi._parseTochiMensekiStr(soup, empty_specs) == ""
     assert tochi._parseKenchikuJoken(soup, empty_specs) == ""
+    assert tochi._parseKenpeiYousekiStr(soup, empty_specs) == ""
+    assert tochi._parseSaikenchiku(soup, empty_specs) == ""
     assert tochi._parseSetsudou(soup, empty_specs) == ""
     assert tochi._parseYoutoChiiki(soup, empty_specs) == ""
     assert tochi._parseKokudoHou(soup, empty_specs) == ""
@@ -141,6 +150,8 @@ def test_tokyu_no_dummy_fallbacks():
     assert kodate._parseKenchikuJoken(soup, empty_specs) == ""
 
     tochi = TokyuTochiParser()
+    assert tochi._parseSetsudou(soup, empty_specs) == ""
+    assert tochi._parseDouroMuki(soup, empty_specs) == ""
     assert tochi._parseDouroKubun(soup, empty_specs) == ""
     assert tochi._parseChisei(soup, empty_specs) == ""
     assert tochi._parseBoukaChiiki(soup, empty_specs) == ""
@@ -148,10 +159,14 @@ def test_tokyu_no_dummy_fallbacks():
     assert tochi._parseKenchikuJoken(soup, empty_specs) == ""
     assert tochi._parseSaikenchiku(soup, empty_specs) == ""
     assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可否は確認中"}}) == ""
+    assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可否：再建築可"}}) == "可"
+    assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可否：確認中"}}) == ""
     assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築可"}}) == "可"
     assert tochi._parseSaikenchiku(soup, {"備考": {"value": "再建築不可"}}) == "不可"
 
     assert tochi._parseKokudoHou(soup, empty_specs) == ""
     assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法の要否は確認中"}}) == ""
+    assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法届出要否：届出要"}}) == "届出要"
+    assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法届出要否は確認中"}}) == ""
     assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法届出要"}}) == "届出要"
     assert tochi._parseKokudoHou(soup, {"備考": {"value": "国土法不要"}}) == "不要"

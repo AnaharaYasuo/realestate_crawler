@@ -181,17 +181,17 @@ class SumifuParser(ParserBase):
     def _parseChimoku(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地目", specs.get("地勢", ""))
-        return val if val else "-"
+        return val if val else ""
 
     def _parseChisei(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("地目", specs.get("地勢", ""))
-        return val if val else "-"
+        return val if val else ""
 
     def _parseSetsudou(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("接道状況", "")
-        return val if val else "-"
+        return val if val else ""
 
     def _parseDouroInfo(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1240,7 +1240,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseKanrihiStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("管理費(月額)", specs.get("管理費", ""))
-        return val if val and val != "￥" else "-"
+        return val if val and val != "￥" else ""
 
     def _parseKanrihi(self, response, specs=None):
         kanrihiStr = self._parseKanrihiStr(response)
@@ -1251,7 +1251,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def _parseSyuzenTsumitateStr(self, response, specs=None):
         specs = self._get_specs(response)
         val = specs.get("修繕積立金(月額)", specs.get("修繕積立金", ""))
-        return val if val and val != "￥" else "-"
+        return val if val and val != "￥" else ""
 
     def _parseSyuzenTsumitate(self, response, specs=None):
         syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response)
@@ -1291,7 +1291,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseFloorTypeKouzou(self, response, specs=None):
         kouzou = self._parseKouzou(response)
-        return kouzou if kouzou else "-"
+        return kouzou if kouzou else ""
 
     def _calculateKanrihiPerHeibei(self, response):
         kanrihi = self._parseKanrihi(response)
@@ -1502,7 +1502,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             y = specs.get("容積率", "")
             if k and y: val = f"建ぺい率{k} 容積率{y}"
             elif k or y: val = k or y
-        return val if val else "-"
+        return val if val else ""
 
     def _parseKuiki(self, response, specs=None):
         specs = self._get_specs(response)
@@ -1516,7 +1516,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
             region = specs.get("地域・地区", specs.get("地域地区", specs.get("用途地域", "")))
             if region and "再建築不可" in region:
                 val = "再建築不可"
-        return val if val else "-"
+        return val if val else ""
 
 class SumifuKodateParser(SumifuParser, KodateParserBase):
     def _parsePropertyName(self, response, specs=None):

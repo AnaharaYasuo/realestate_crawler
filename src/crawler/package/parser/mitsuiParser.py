@@ -645,16 +645,16 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         except: return 0
 
     def _parseFloorTypeKouzou(self, response, specs=None):
-        kouzou = self._parseKouzou(response)
+        kouzou = self._parseKouzou(response, specs)
         if not kouzou:
             return ""
-        if u"鉄筋コンクリート" in kouzou: return "ＲＣ造"
-        if u"鉄骨鉄筋コンクリート" in kouzou: return "ＳＲＣ造"
-        if u"鉄骨" in kouzou: return "Ｓ造"
-        if u"木造" in kouzou: return "木造"
+        if "鉄骨鉄筋コンクリート" in kouzou: return "ＳＲＣ造"
+        if "鉄筋コンクリート" in kouzou: return "ＲＣ造"
+        if "鉄骨" in kouzou: return "Ｓ造"
+        if "木造" in kouzou: return "木造"
         # Standard fallback mappings
-        if "RC" in kouzou or "ＲＣ" in kouzou: return "ＲＣ造"
         if "SRC" in kouzou or "ＳＲＣ" in kouzou: return "ＳＲＣ造"
+        if "RC" in kouzou or "ＲＣ" in kouzou: return "ＲＣ造"
         if "S" in kouzou or "Ｓ" in kouzou: return "Ｓ造"
         return ""
 
