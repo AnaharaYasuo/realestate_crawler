@@ -138,9 +138,8 @@ def test_get_root_parent_resolves_chains_and_handles_cycles():
     # 4. 循環参照 (A -> B -> A) でも最小IDのノードに安全着地すること
     node_a.duplicate_of_id = 20
     node_a.duplicate_of = node_b
-    # 循環してもフリーズせずいずれかを返す
-    root = get_root_parent(node_a)
-    assert root.id in (10, 20)
+    assert get_root_parent(node_a).id == 10
+    assert get_root_parent(node_b).id == 10
 
 
 @pytest.mark.django_db
@@ -231,8 +230,8 @@ def test_parent_selection_strictly_earliest_registration_order():
 
 
 def test_similarity_score_helpers():
-    """類似度計算ヘルパーのゼロ値・非類似時の0.0返却（変異体キル）を検証"""
-    from unittest.mock import MagicMock
+    """類似度計算ヘルパーのゼロ値・非類似およびポジティブ境界スコアを検証"""
+    from unittest.mock import MagicMock, patch
     from package.utils.deduplication import (
         _calculate_address_score,
         _calculate_area_score,
@@ -278,6 +277,50 @@ def test_similarity_score_helpers():
     prop2.chikunengetsu = None
     prop2.chikunengetsuStr = "2000年1月"
     assert _calculate_date_score(prop1, prop2) == 0.0
+
+    # 5. 住所ポジティブスコアの検証 (一致: 0.35, 類似度>=0.85: 0.35, 類似度>=0.70: 0.20)
+    prop1.address = "東京都渋谷区神南1-1-1"
+    prop2.address = "東京都渋谷区神南1-1-1"
+    assert _calculate_address_score(prop1, prop2) == pytest.approx(0.35)
+
+    prop1.address = "東京都渋谷区神南1-1-1"
+    prop2.address = "東京都渋谷区神南1-1-2"
+    assert _calculate_address_score(prop1, prop2) == pytest.approx(0.35)
+
+    with patch("package.utils.deduplication.difflib.SequenceMatcher") as mock_matcher:
+        mock_matcher.return_value.ratio.return_value = 0.75
+        assert _calculate_address_score(prop1, prop2) == pytest.approx(0.20)
+
+    # 6. 面積ポジティブスコアの検証 (誤差5%以内: 0.25, 誤差10%以内: 0.15)
+    prop1.senyuMenseki = 100.0
+    prop1.tatemonoMenseki = 0
+    prop2.senyuMenseki = 100.0
+    prop2.tatemonoMenseki = 0
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.25)
+
+    prop2.senyuMenseki = 96.0  # 誤差4%
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.25)
+
+    prop2.senyuMenseki = 92.0  # 誤差8%
+    assert _calculate_area_score(prop1, prop2) == pytest.approx(0.15)
+
+    # 7. 価格ポジティブスコアの検証 (誤差5%以内: 0.25, 誤差10%以内: 0.15)
+    prop1.price = 50000000
+    prop2.price = 50000000
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.25)
+
+    prop2.price = 48000000  # 誤差4%
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.25)
+
+    prop2.price = 46000000  # 誤差8%
+    assert _calculate_price_score(prop1, prop2) == pytest.approx(0.15)
+
+    # 8. 築年月一致ポジティブスコアの検証 (一致: 0.15)
+    prop1.chikunengetsu = None
+    prop1.chikunengetsuStr = "2020年3月"
+    prop2.chikunengetsu = None
+    prop2.chikunengetsuStr = "2020年3月"
+    assert _calculate_date_score(prop1, prop2) == pytest.approx(0.15)
 
 
 

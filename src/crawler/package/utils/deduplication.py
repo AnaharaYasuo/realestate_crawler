@@ -128,24 +128,24 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
 def get_root_parent(eval_rec: PropertyEvaluation) -> PropertyEvaluation:
     """
     再帰的に duplicate_of を辿り、最上位の親レコード（ルート親）を取得する。
-    万一循環参照が存在する場合でも無限ループを防止し、最もIDが小さいレコードを返却する。
+    万一循環参照が存在する場合でも無限ループを防止し、サイクル内の最小IDノードを安全に返却する。
     """
     if not eval_rec or not eval_rec.duplicate_of_id:
         return eval_rec
     curr = eval_rec
     visited_ids = set()
-    best = curr
+    chain = []
     while curr and curr.duplicate_of_id:
         if curr.id in visited_ids:
-            break
+            # 循環参照検知: サイクル内の最小IDノードを安全に返却
+            return min(chain, key=lambda node: node.id if node.id is not None else float("inf"))
         visited_ids.add(curr.id)
+        chain.append(curr)
         parent = curr.duplicate_of
         if not parent:
             break
         curr = parent
-        if curr.id is not None and (best.id is None or curr.id < best.id):
-            best = curr
-    return best if best.duplicate_of_id is None else curr
+    return curr
 
 def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> PropertyEvaluation | None:
     """
@@ -156,13 +156,16 @@ def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> Prop
     qs = PropertyEvaluation.objects.filter(property_type=new_eval.property_type)
     if new_eval.id is not None:
         qs = qs.filter(id__lt=new_eval.id)
-    candidates = qs.order_by('-id')[:50]
+    candidates = qs.order_by("-id")[:50]
     for cand in candidates:
+        similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)
+        if similarity < 0.85:
+            continue
         root = get_root_parent(cand)
+        if not root or root.duplicate_of_id is not None:
+            continue
         if new_eval.id is not None and (root.id == new_eval.id or root.id >= new_eval.id):
             continue
-        similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)
-        if similarity >= 0.85:
-            logger.info(f'Duplicate property detected: {new_eval.property_url} is duplicate of {root.property_url} (matched via {cand.property_url}, Similarity: {similarity:.2f})')
-            return root
+        logger.info(f"Duplicate property detected: {new_eval.property_url} is duplicate of {root.property_url} (matched via {cand.property_url}, Similarity: {similarity:.2f})")
+        return root
     return None

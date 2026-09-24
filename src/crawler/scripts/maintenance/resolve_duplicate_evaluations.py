@@ -40,10 +40,14 @@ class UnionFind:
         if i not in self.parent:
             self.parent[i] = i
             return i
-        if self.parent[i] == i:
-            return i
-        self.parent[i] = self.find(self.parent[i])
-        return self.parent[i]
+        curr = i
+        path = []
+        while self.parent.get(curr, curr) != curr:
+            path.append(curr)
+            curr = self.parent[curr]
+        for node in path:
+            self.parent[node] = curr
+        return curr
 
     def union(self, i, j):
         root_i = self.find(i)
@@ -86,7 +90,7 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
         # 目標状態の計算
         # 各クラスタで最小IDのノードは duplicate_of = None
         # それ以外の全ノードは duplicate_of = min_id
-        target_parents = {} # node -> expected_duplicate_of_id
+        target_parents = {}  # node -> expected_duplicate_of_id
         for members in clusters.values():
             min_id = min(members)
 
@@ -96,10 +100,12 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
                     target_parents[m] = min_id
 
         # 現在のDB状態と比較して更新対象を抽出
-        cursor.execute("SELECT id, duplicate_of_id FROM property_evaluation WHERE id IN %s", [tuple(all_nodes)])
-        current_state = {r[0]: r[1] for r in cursor.fetchall()}
+        current_state = {}
+        if all_nodes:
+            cursor.execute("SELECT id, duplicate_of_id FROM property_evaluation WHERE id IN %s", [tuple(all_nodes)])
+            current_state = {r[0]: r[1] for r in cursor.fetchall()}
 
-        to_update = [] # (id, new_duplicate_of_id)
+        to_update = []  # (id, new_duplicate_of_id)
         for node, expected_parent in target_parents.items():
             curr_parent = current_state.get(node)
             if curr_parent != expected_parent:
@@ -109,11 +115,18 @@ def resolve_duplicate_hierarchies(dry_run: bool = False):
 
         if to_update and not dry_run:
             batch_size = 500
-            for i in range(0, len(to_update), batch_size):
-                chunk = to_update[i:i + batch_size]
-                with transaction.atomic():
-                    for node_id, new_p in chunk:
-                        PropertyEvaluation.objects.filter(id=node_id).update(duplicate_of_id=new_p)
+            with transaction.atomic():
+                for i in range(0, len(to_update), batch_size):
+                    chunk = to_update[i:i + batch_size]
+                    evaluations = [
+                        PropertyEvaluation(id=node_id, duplicate_of_id=new_p)
+                        for node_id, new_p in chunk
+                    ]
+                    PropertyEvaluation.objects.bulk_update(
+                        evaluations,
+                        ["duplicate_of"],
+                        batch_size=batch_size,
+                    )
             logger.info("Successfully applied updates to database.")
 
         # 最終検証クエリ
