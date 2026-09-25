@@ -2,6 +2,8 @@
 
 import logging
 import os
+import socket
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -98,6 +100,135 @@ def _resize_mig_via_rest(
     return False
 
 
+def _patch_autoscaler_via_compute_v1(
+    compute_module: Any,
+    project: str,
+    region: str,
+    auto_name: str,
+    min_replicas: int,
+    max_replicas: int,
+) -> bool:
+    if compute_module is None or not hasattr(compute_module, "RegionAutoscalersClient"):
+        return False
+    try:
+        auto_client = compute_module.RegionAutoscalersClient()
+        policy_cls = getattr(compute_module, "AutoscalingPolicy", None)
+        auto_cls = getattr(compute_module, "Autoscaler", None)
+        request_cls = getattr(compute_module, "PatchRegionAutoscalerRequest", None)
+        policy = (
+            policy_cls(min_num_replicas=min_replicas, max_num_replicas=max_replicas)
+            if policy_cls
+            else None
+        )
+        resource = auto_cls(autoscaling_policy=policy) if auto_cls else None
+        if request_cls is not None:
+            req = request_cls(
+                project=project,
+                region=region,
+                autoscaler=auto_name,
+                autoscaler_resource=resource,
+            )
+            op = auto_client.patch(request=req, timeout=10.0)
+        else:
+            op = auto_client.patch(
+                project=project,
+                region=region,
+                autoscaler=auto_name,
+                autoscaler_resource=resource,
+                timeout=10.0,
+            )
+        if hasattr(op, "result") and callable(op.result):
+            op.result(timeout=15.0)
+        logger.info(
+            f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via compute_v1."
+        )
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to patch autoscaler via compute_v1: {e}")
+        return False
+
+
+def _patch_autoscaler_via_rest(
+    project: str,
+    region: str,
+    auto_name: str,
+    min_replicas: int,
+    max_replicas: int,
+    token: str | None,
+) -> bool:
+    if not token:
+        return False
+    patch_url = f"https://compute.googleapis.com/compute/v1/projects/{project}/regions/{region}/autoscalers"
+    params = {"autoscaler": auto_name}
+    body = {
+        "autoscalingPolicy": {
+            "minNumReplicas": min_replicas,
+            "maxNumReplicas": max_replicas,
+        }
+    }
+    try:
+        resp = requests.patch(
+            patch_url,
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code in (200, 204):
+            logger.info(
+                f"Patched ProxySQL Autoscaler '{auto_name}' to min={min_replicas}, max={max_replicas} via REST API."
+            )
+            return True
+        logger.warning(
+            f"REST API patch autoscaler failed: HTTP {resp.status_code} - {resp.text}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"REST API patch autoscaler request error: {e}")
+    return False
+
+
+def patch_proxysql_autoscaler(
+    min_replicas: int = 1,
+    max_replicas: int = 2,
+    project_id: str | None = None,
+    region: str | None = None,
+    autoscaler_name: str | None = None,
+    dry_run: bool = False,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> bool:
+    """ProxySQL MIG の Autoscaler 設定 (min_replicas, max_replicas) を更新。"""
+    if dry_run or not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        logger.info(
+            f"[Dry-run/Local] ProxySQL Autoscaler min={min_replicas}, max={max_replicas} (mocked)."
+        )
+        return True
+
+    project = (
+        project_id
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
+    )
+    reg = region or os.getenv("GCP_REGION", "asia-northeast1")
+    auto_name = autoscaler_name or os.getenv(
+        "PROXYSQL_AUTOSCALER_NAME",
+        f"proxysql-autoscaler-{os.getenv('ENVIRONMENT', 'prod')}",
+    )
+
+    if _patch_autoscaler_via_compute_v1(
+        compute_module, project, reg, auto_name, min_replicas, max_replicas
+    ):
+        return True
+
+    token_fn = get_token_callback or get_gcp_access_token
+    token = token_fn()
+    return _patch_autoscaler_via_rest(
+        project, reg, auto_name, min_replicas, max_replicas, token
+    )
+
+
 def scale_proxysql_mig(
     target_size: int = 1,
     project_id: str | None = None,
@@ -143,3 +274,41 @@ def scale_proxysql_mig(
         f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
     )
     return False
+
+
+def wait_for_proxysql_health(
+    host: str | None = None,
+    port: int | None = None,
+    timeout_sec: int = 120,
+) -> bool:
+    """ProxySQL のポート (6033) 疎通を確認 (起動チェック)."""
+    target_host = host or os.getenv("DB_HOST", "127.0.0.1")
+    target_port = int(port or os.getenv("DB_PORT", "6033"))
+
+    if not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        logger.info(
+            f"[Local/Test] Skipping remote ProxySQL wait, checking {target_host}:{target_port}..."
+        )
+        return True
+
+    logger.info(
+        f"Waiting for ProxySQL health at {target_host}:{target_port} (timeout: {timeout_sec}s)..."
+    )
+    start = time.time()
+    while time.time() - start < timeout_sec:
+        try:
+            with socket.create_connection((target_host, target_port), timeout=2.0):
+                logger.info(
+                    f"ProxySQL is healthy and reachable at {target_host}:{target_port}!"
+                )
+                return True
+        except OSError:
+            time.sleep(2)
+
+    logger.warning(
+        f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution."
+    )
+    return False
+
