@@ -388,6 +388,7 @@ def main():
             task_exec_record.status = "COMPLETED" if summary["failed_jobs"] == 0 else "FAILED"
             task_exec_record.jobs_success = summary["success_jobs"]
             task_exec_record.jobs_failed = summary["failed_jobs"]
+            task_exec_record.results_json = results
             task_exec_record.save()
             logging.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
         except Exception as dbe:
@@ -432,11 +433,17 @@ def main():
                 pass
                 
         # Format Slack Message
-        msg_lines = ["📢 【クローリング実行状況レポート】"]
+        header_title = "📢 【クローリング実行状況レポート】"
+        if task_count > 1 and task_index is not None:
+            header_title = f"📢 【クローリング実行状況レポート (Task {task_index}/{task_count})】"
+        msg_lines = [header_title]
         msg_lines.append(f"開始時間: {batch_start_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"終了時間: {batch_end_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"所要時間: {duration_str}")
-        msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
+        if task_count > 1 and task_index is not None:
+            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
+        else:
+            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
         
         # Build lookup from results for job timings
         job_timings = {}

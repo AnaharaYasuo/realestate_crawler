@@ -11,6 +11,7 @@ class CrawlerTaskExecution(models.Model):
     jobs_assigned = models.IntegerField(default=0)
     jobs_success = models.IntegerField(default=0)
     jobs_failed = models.IntegerField(default=0)
+    results_json = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -34,10 +34,8 @@ def get_api_base_url():
         if not url.endswith("/"):
             url += "/"
         return url
-        
-    if os.getenv("IS_CLOUD", ""):
-        return "https://us-central1-sumifu.cloudfunctions.net/api/evaluation/predict/"
-    return "http://localhost:8000/api/evaluation/predict/"
+    base = (os.getenv("API_BASE_URL") or "http://localhost:8000").rstrip("/")
+    return f"{base}/api/evaluation/predict/"
 
 def _serialize_property(item, ptype):
     """DjangoモデルオブジェクトからAPI送信用のシリアライズ辞書を作成"""
