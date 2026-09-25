@@ -1085,7 +1085,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 )
             existing_record = await sync_to_async(get_existing)()
         except Exception as e:
-            logging.warning(f"Failed to check existing record for {item.pageUrl}: {e}")
+            logging.error(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}", exc_info=True)
+            return
 
         if existing_record:
             item.id = existing_record.id
@@ -1103,15 +1104,18 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             item.inputDate = current_day
             item.updateDateTime = current_time
 
+        def _save_item_with_retry():
+            try:
+                item.save()
+            except (OperationalError, Exception) as e:
+                if "2006" in str(e) or "gone away" in str(e).lower():
+                    close_old_connections()
+                    item.save()
+                else:
+                    raise
+
         logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
-        try:
-            await sync_to_async(item.save)()
-        except (OperationalError, Exception) as e:
-            if "2006" in str(e) or "gone away" in str(e).lower():
-                close_old_connections()
-                await sync_to_async(item.save)()
-            else:
-                raise
+        await sync_to_async(_save_item_with_retry)()
         logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
 
     async def _record_price_revision(self, item, old_p, new_p):

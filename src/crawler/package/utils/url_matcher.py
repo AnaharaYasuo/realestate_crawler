@@ -143,11 +143,12 @@ class UrlMatcher:
             return cls._match_in_candidates(queryset.filter(db_filter), field_name, url)
         except Exception as e:
             if "2006" in str(e) or "gone away" in str(e).lower():
+                from django.db import close_old_connections
+                close_old_connections()
                 try:
-                    from django.db import close_old_connections
-                    close_old_connections()
                     return cls._match_in_candidates(queryset.filter(db_filter), field_name, url)
-                except Exception:
-                    pass
+                except Exception as retry_err:
+                    logger.exception(f"UrlMatcher retry query failed on {field_name}={url}: {retry_err}")
+                    raise
             logger.exception(f"UrlMatcher query error on {field_name}={url}: {e}")
             return None
