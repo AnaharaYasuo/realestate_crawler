@@ -309,53 +309,73 @@ def get_mig_info(
     return -1, f"{err}; {rest_err}", None
 
 
+def _is_prefix_matched(name: str, prefix: str) -> bool:
+    """Check if instance name equals prefix or starts with prefix followed by hyphen."""
+    return name == prefix or name.startswith(f"{prefix}-")
+
+
+def _evaluate_sql_instances_matches(
+    all_matches: list[dict], prefix: str
+) -> tuple[bool, str]:
+    """Evaluate matched Cloud SQL instances count and return status tuple."""
+    if len(all_matches) == 1:
+        inst = all_matches[0]
+        state = inst.get("state", "UNKNOWN")
+        act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
+        logger.info(
+            f"Cloud SQL '{inst.get('name')}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
+        )
+        return state == "RUNNABLE", state
+    if len(all_matches) > 1:
+        logger.warning(
+            f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in all_matches]}"
+        )
+        return False, "MULTIPLE_MATCHES"
+    return False, "HTTP 404"
+
+
+def _fetch_cloud_sql_instances_by_prefix(
+    project: str, prefix: str, token: str
+) -> tuple[list[dict] | None, str | None]:
+    """Fetch and filter Cloud SQL instances matching prefix via REST API pagination."""
+    page_token = None
+    all_matches = []
+    while True:
+        list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
+        params = {"pageToken": page_token} if page_token else None
+        resp = requests.get(
+            list_url,
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None, f"HTTP {resp.status_code}"
+
+        data = resp.json()
+        for inst in data.get("items", []):
+            if _is_prefix_matched(inst.get("name", ""), prefix):
+                all_matches.append(inst)
+
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+    return all_matches, None
+
+
 def _find_cloud_sql_by_prefix(
     project: str, prefix: str, token: str
 ) -> tuple[bool, str]:
     """Find Cloud SQL instance whose name matches prefix (e.g. realestate-mysql-prod-*) on 404."""
-    page_token = None
-    all_matches = []
     try:
-        while True:
-            list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
-            params = {"pageToken": page_token} if page_token else None
-            resp = requests.get(
-                list_url,
-                headers={"Authorization": f"Bearer {token}"},
-                params=params,
-                timeout=5,
-            )
-            if resp.status_code != 200:
-                return False, f"HTTP {resp.status_code}"
-
-            data = resp.json()
-            items = data.get("items", [])
-            for inst in items:
-                name = inst.get("name", "")
-                if name == prefix or name.startswith(f"{prefix}-"):
-                    all_matches.append(inst)
-
-            page_token = data.get("nextPageToken")
-            if not page_token:
-                break
-
-        if len(all_matches) == 1:
-            inst = all_matches[0]
-            state = inst.get("state", "UNKNOWN")
-            act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
-            logger.info(
-                f"Cloud SQL '{inst.get('name')}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
-            )
-            return state == "RUNNABLE", state
-        if len(all_matches) > 1:
-            logger.warning(
-                f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in all_matches]}"
-            )
-            return False, "MULTIPLE_MATCHES"
-        return False, "HTTP 404"
+        matches, err = _fetch_cloud_sql_instances_by_prefix(project, prefix, token)
+        if err is not None:
+            return False, err
+        return _evaluate_sql_instances_matches(matches or [], prefix)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}")
         return False, str(e)
+
 
 
 def check_cloud_sql_status(
@@ -403,8 +423,8 @@ def check_cloud_sql_status(
             return _find_cloud_sql_by_prefix(project, instance, token)
         logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
         return False, f"HTTP {resp.status_code}"
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Cloud SQL status check failed: {e}")
+    except Exception as e:
+        logger.exception("Cloud SQL status check failed")
         return False, str(e)
 
 
