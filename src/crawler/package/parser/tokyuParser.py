@@ -957,33 +957,50 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     def __init__(self, params=None):
         self.selectors = SelectorLoader.load('tokyu', self.property_type)
 
-    async def parsePropertyListPage(self, response):
-        # Try Next.js data first
+    def _extract_nextjs_urls(self, response):
         script = response.find('script', id='__NEXT_DATA__')
-        if script:
-            try:
-                data = json.loads(script.string)
-                page_props = data.get('props', {}).get('pageProps', {})
-                property_list = page_props.get('propertyList', [])
-                if property_list:
-                    for item in property_list:
-                        detail_url = item.get('detailUrl')
-                        if detail_url:
-                            full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
-                            if not self._is_non_property_href(full_url):
-                                yield full_url
-                    return
-            except Exception as e:
-                logger.exception("Error parsing __NEXT_DATA__: %s", e)
+        if not script:
+            return None
+        try:
+            data = json.loads(script.string)
+            page_props = data.get('props', {}).get('pageProps', {})
+            property_list = page_props.get('propertyList', [])
+            if not property_list:
+                return None
+            urls = []
+            for item in property_list:
+                detail_url = item.get('detailUrl')
+                if detail_url:
+                    full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
+                    if not self._is_non_property_href(full_url):
+                        urls.append(full_url)
+            return urls
+        except Exception as e:
+            logger.exception("Error parsing __NEXT_DATA__: %s", e)
+            return None
 
-        # Fallback to selectors
+    def _extract_selector_urls(self, response):
         selector = self.selectors.get('property_links')
+        if not selector:
+            return []
+        urls = []
         for link in response.select(selector):
             href = link.get('href')
             if href:
                 full_url = self.BASE_URL + href if href.startswith('/') else href
                 if not self._is_non_property_href(full_url):
-                    yield full_url
+                    urls.append(full_url)
+        return urls
+
+    async def parsePropertyListPage(self, response):
+        urls = self._extract_nextjs_urls(response)
+        if urls is not None:
+            for url in urls:
+                yield url
+            return
+
+        for url in self._extract_selector_urls(response):
+            yield url
     def _getNextJsData(self, response):
         check_tokyu_listing_ended(response)
         if hasattr(response, '_next_data_json'):
