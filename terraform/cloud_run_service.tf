@@ -7,8 +7,8 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_compute_forwarding_rule.proxysql_forwarding_rule,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_address.proxysql_ip,
+    google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.slack_bot_token_version,
     google_secret_manager_secret_version.slack_app_token_version,
@@ -24,8 +24,11 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
     }
 
     vpc_access {
-      connector = google_vpc_access_connector.vpc_connector.id
-      egress    = "ALL_TRAFFIC"
+      network_interfaces {
+        network    = google_compute_network.vpc_network.name
+        subnetwork = google_compute_subnetwork.subnet.name
+      }
+      egress = "ALL_TRAFFIC"
     }
 
     containers {
@@ -53,7 +56,7 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
 
       env {
         name  = "DB_HOST"
-        value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+        value = google_compute_address.proxysql_ip.address
       }
       env {
         name  = "DB_NAME"

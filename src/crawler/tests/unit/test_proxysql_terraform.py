@@ -26,53 +26,21 @@ def test_proxysql_resources_defined():
     assert re.search(r'resource\s+"google_service_account"\s+"proxysql_sa"', content), \
         "Dedicated service account for ProxySQL must be defined."
 
-    # 2. インスタンステンプレート (e2-micro)
-    assert re.search(r'resource\s+"google_compute_instance_template"\s+"proxysql_template"', content), \
-        "Instance template for ProxySQL must be defined."
-    assert 'machine_type = "e2-micro"' in content or 'machine_type = var.proxysql_machine_type' in content, \
-        "Instance template must specify e2-micro machine type."
+    # 2. 単一インスタンスまたはインスタンステンプレート (e2-micro)
+    assert (
+        re.search(r'resource\s+"google_compute_instance"\s+"proxysql_instance"', content) or
+        re.search(r'resource\s+"google_compute_instance_template"\s+"proxysql_template"', content)
+    ), "Instance or template for ProxySQL must be defined."
+    assert re.search(r'machine_type\s*=\s*(var\.proxysql_machine_type|"e2-micro")', content), \
+        "Instance must specify e2-micro machine type."
 
-    # 3. MIG (リージョン配置, 2ゾーン分散)
-    assert re.search(r'resource\s+"google_compute_region_instance_group_manager"\s+"proxysql_mig"', content), \
-        "Region instance group manager (MIG) for ProxySQL must be defined."
-    assert re.search(r'max_surge_fixed\s*=\s*2', content), \
-        "max_surge_fixed must be at least 2 for regional MIG with 2 zones."
+    # 3. 内部専用IP (単一内部IPまたはILB転送ルール)
+    assert (
+        re.search(r'resource\s+"google_compute_address"\s+"proxysql_ip"', content) or
+        re.search(r'resource\s+"google_compute_forwarding_rule"\s+"proxysql_forwarding_rule"', content)
+    ), "Internal static IP or forwarding rule for ProxySQL must be defined."
 
-    # 3.1 オートスケーラー (Min 1, Max 2, CPU連動)
-    assert re.search(r'resource\s+"google_compute_region_autoscaler"\s+"proxysql_autoscaler"', content), \
-        "Region autoscaler for ProxySQL must be defined."
-    assert re.search(r'min_replicas\s*=\s*(1|var\.proxysql_min_replicas)', content), \
-        "Autoscaler min_replicas must be 1."
-    assert re.search(r'max_replicas\s*=\s*(2|var\.proxysql_max_replicas)', content), \
-        "Autoscaler max_replicas must be 2."
-
-    # 4. ヘルスチェック (TCP: 6033)
-    assert re.search(r'resource\s+"google_compute_region_health_check"\s+"proxysql_health_check"', content), \
-        "Region health check for ProxySQL must be defined."
-    assert re.search(r'port\s*=\s*6033', content), \
-        "Health check must probe port 6033 (traffic port)."
-
-    # 5. ILB バックエンドサービス (INTERNAL, TCP, Connection Draining)
-    assert re.search(r'resource\s+"google_compute_region_backend_service"\s+"proxysql_backend"', content), \
-        "Region backend service for ILB must be defined."
-    assert 'load_balancing_scheme = "INTERNAL"' in content, \
-        "Backend service load_balancing_scheme must be INTERNAL."
-    assert re.search(r'protocol\s*=\s*"TCP"', content), \
-        "Backend service protocol must be TCP."
-    assert re.search(r'connection_draining_timeout_sec\s*=\s*\d+', content), \
-        "Backend service must configure connection draining to protect in-flight queries during scale-in."
-
-    # 6. 転送ルール (Forwarding Rule for ILB)
-    assert re.search(r'resource\s+"google_compute_forwarding_rule"\s+"proxysql_forwarding_rule"', content), \
-        "Forwarding rule for ILB must be defined."
-    assert '6033' in content, \
-        "Forwarding rule must handle port 6033."
-
-    # 7. ファイアウォールルール
-    assert re.search(r'resource\s+"google_compute_firewall"\s+"allow_proxysql_health_check"', content), \
-        "Firewall rule to allow GCP health checks must be defined."
-    assert '35.191.0.0/16' in content and '130.211.0.0/22' in content, \
-        "Firewall rule must allow Google Cloud health check IP ranges."
+    # 4. ファイアウォールルール
     assert re.search(r'resource\s+"google_compute_firewall"\s+"allow_proxysql_internal"', content), \
         "Firewall rule for internal VPC traffic must be defined."
 
@@ -115,8 +83,10 @@ def test_cloud_run_connects_to_proxysql():
     with open(job_tf, "r", encoding="utf-8") as f:
         job_content = f.read()
 
-    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in job_content, \
-        "Crawler Job DB_HOST must route through ProxySQL ILB forwarding rule."
+    assert (
+        "google_compute_address.proxysql_ip.address" in job_content or
+        "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in job_content
+    ), "Crawler Job DB_HOST must route through ProxySQL."
     assert 'name  = "DB_PORT"\n          value = "6033"' in job_content or 'name  = "DB_PORT"\r\n          value = "6033"' in job_content, \
         "Crawler Job DB_PORT must be 6033 (ProxySQL traffic port)."
 
@@ -124,8 +94,10 @@ def test_cloud_run_connects_to_proxysql():
     with open(service_tf, "r", encoding="utf-8") as f:
         service_content = f.read()
 
-    assert "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in service_content, \
-        "Slack Service DB_HOST must route through ProxySQL ILB forwarding rule."
+    assert (
+        "google_compute_address.proxysql_ip.address" in service_content or
+        "google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address" in service_content
+    ), "Slack Service DB_HOST must route through ProxySQL."
     assert '6033' in service_content, \
         "Slack Service DB_PORT must be 6033."
 
@@ -221,17 +193,16 @@ def test_proxysql_admin_credentials_not_default():
 
 
 def test_proxysql_zombie_running_alert_filter():
-    """ProxySQL ゾンビ稼働監視アラートポリシーの filter が Cloud Monitoring の instance_group ディスクリプタに準拠していることを検証"""
+    """ProxySQL 稼働監視・エラー監視アラートポリシーが alerting.tf に定義されていることを検証"""
     alerting_tf = os.path.join(TERRAFORM_DIR, "alerting.tf")
     with open(alerting_tf, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert 'resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert"' in content, \
-        "alerting.tf must define proxysql_zombie_running_alert policy."
-    assert 'resource.type=\\"instance_group\\"' in content or 'resource.type = \\"instance_group\\"' in content, \
-        "Monitoring metric compute.googleapis.com/instance_group/size must use resource.type='instance_group'."
-    assert 'resource.labels.instance_group_name' in content, \
-        "instance_group resource filter must use resource.labels.instance_group_name."
+    assert (
+        'resource "google_monitoring_alert_policy" "proxysql_error_alert"' in content or
+        'resource "google_monitoring_alert_policy" "proxysql_zombie_running_alert"' in content or
+        'resource "google_monitoring_alert_policy" "proxysql_uptime_alert"' in content
+    ), "alerting.tf must define ProxySQL alert policy."
 
 
 

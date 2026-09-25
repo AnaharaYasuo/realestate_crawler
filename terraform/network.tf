@@ -20,21 +20,6 @@ resource "google_compute_subnetwork" "subnet" {
   }
 }
 
-# Serverless VPC Access Connector (Cloud Run -> VPC)
-resource "google_vpc_access_connector" "vpc_connector" {
-  name          = "cr-connector-${var.environment}"
-  region        = var.region
-  ip_cidr_range = "10.8.0.0/28"
-  network       = google_compute_network.vpc_network.name
-  min_instances = 2
-  max_instances = 3
-  machine_type  = "e2-micro"
-
-  depends_on = [
-    google_project_service.enabled_services,
-    google_compute_network.vpc_network
-  ]
-}
 
 # Static External IP for Cloud NAT (固定送信元IPでBotブロック回避)
 resource "google_compute_address" "nat_static_ip" {
