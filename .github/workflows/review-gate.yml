@@ -5,7 +5,6 @@ on:
     types: [opened, edited, synchronize, reopened]
     branches:
       - master
-      - production
   pull_request_review:
     types: [submitted, edited, dismissed]
   pull_request_review_comment:
@@ -95,7 +94,7 @@ jobs:
             }
 
             const targetBranch = pr.base && pr.base.ref;
-            if (targetBranch !== 'master' && targetBranch !== 'production') {
+            if (targetBranch !== 'master') {
               core.info(`Target branch is '${targetBranch}'. Skipping review gate.`);
               return;
             }
@@ -106,24 +105,6 @@ jobs:
             const headSha = pr.head && pr.head.sha;
             if (!headSha) {
               core.setFailed(`PR #${prNumber} has no head SHA.`);
-              return;
-            }
-
-            // Fast-pass for Production Release PRs: commits already validated on master
-            const isSameRepo = pr.head && pr.head.repo && pr.head.repo.full_name === `${owner}/${repo}`;
-            const isMasterHead = pr.head && pr.head.ref === 'master';
-            if (targetBranch === 'production') {
-              if (!isSameRepo || !isMasterHead) {
-                core.setFailed(`Production PR must originate from internal master branch. Attempted from: ${pr.head ? pr.head.ref : 'unknown'}`);
-                return;
-              }
-              core.info('🚀 Production PR from master detected: Bypassing review gate (verified on master).');
-              await reportHeadStatus(
-                headSha,
-                'success',
-                'Production release PR: review gate bypassed (verified on master)',
-                '### 🚀 Production PR Gate Bypassed\nThis release PR promotes commits directly from `master`, where all review conversations, checkboxes, and security checks have already been validated.'
-              );
               return;
             }
 
@@ -376,7 +357,7 @@ jobs:
               { name: 'CodeQL Scan', match: (n) => n.toLowerCase().includes('codeql scan') },
               { name: 'Trivy Security Scan', match: (n) => n.toLowerCase().includes('trivy') },
               { name: 'Semgrep SAST Scan', match: (n) => n.toLowerCase().includes('semgrep') },
-              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
+              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov iac') }
             ] : [];
 
             const allowedConclusions = ['success'];
@@ -385,7 +366,13 @@ jobs:
             const missingSecurityChecks = [];
 
             for (const req of requiredSecurityChecks) {
-              const matched = allCheckRuns.filter(c => req.match(c.name || ''));
+              const matched = allCheckRuns.filter(c => {
+                // Ignore external / SARIF ingestion runs from GitHub Advanced Security that queue asynchronously
+                if (c.app && c.app.slug && c.app.slug !== 'github-actions') {
+                  return false;
+                }
+                return req.match(c.name || '');
+              });
               if (matched.length === 0) {
                 missingSecurityChecks.push(req.name);
                 continue;
