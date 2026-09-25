@@ -492,6 +492,51 @@ def get_instance_status(
         return "UNKNOWN", str(e)
 
 
+def _execute_instance_action(
+    action: str,
+    project: str,
+    zone: str,
+    instance_name: str,
+    compute_module: Any,
+    token_fn: Callable[[], str | None],
+) -> bool:
+    """Execute start/stop action via compute_v1 or fallback to REST API."""
+    if compute_module is not None and hasattr(compute_module, "InstancesClient"):
+        try:
+            client = compute_module.InstancesClient()
+            method = getattr(client, action)
+            op = method(
+                project=project,
+                zone=zone,
+                instance=instance_name,
+            )
+            logger.info(
+                f"Instance {action} operation submitted via compute_v1: {getattr(op, 'name', op)}"
+            )
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to {action} instance via compute_v1: {e}")
+
+    token = token_fn()
+    if not token:
+        logger.error(f"No GCP access token available to {action} ProxySQL instance via REST.")
+        return False
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{zone}/instances/{instance_name}/{action}"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code in (200, 204):
+            logger.info(f"Instance {action} operation submitted via REST API: HTTP {resp.status_code}")
+            return True
+        logger.error(f"REST API {action} failed: HTTP {resp.status_code} - {resp.text}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"REST API {action} request error: {e}")
+
+    return False
+
+
 def start_proxysql_instance(
     project_id: str | None = None,
     zone: str | None = None,
@@ -528,40 +573,9 @@ def start_proxysql_instance(
         logger.info(f"ProxySQL instance '{inst_name}' is already RUNNING.")
         return True
 
-    if compute_module is not None and hasattr(compute_module, "InstancesClient"):
-        try:
-            client = compute_module.InstancesClient()
-            op = client.start(
-                project=project,
-                zone=inst_zone,
-                instance=inst_name,
-            )
-            logger.info(
-                f"Instance start operation submitted via compute_v1: {getattr(op, 'name', op)}"
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to start instance via compute_v1: {e}")
-
-    token_fn = get_token_callback or get_gcp_access_token
-    token = token_fn()
-    if not token:
-        logger.error("No GCP access token available to start ProxySQL instance via REST.")
-        return False
-
-    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{inst_zone}/instances/{inst_name}/start"
-    try:
-        resp = requests.post(
-            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
-        )
-        if resp.status_code in (200, 204):
-            logger.info(f"Instance start operation submitted via REST API: HTTP {resp.status_code}")
-            return True
-        logger.error(f"REST API start failed: HTTP {resp.status_code} - {resp.text}")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"REST API start request error: {e}")
-
-    return False
+    return _execute_instance_action(
+        "start", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+    )
 
 
 def stop_proxysql_instance(
@@ -600,40 +614,39 @@ def stop_proxysql_instance(
         logger.info(f"ProxySQL instance '{inst_name}' is already {status}.")
         return True
 
-    if compute_module is not None and hasattr(compute_module, "InstancesClient"):
-        try:
-            client = compute_module.InstancesClient()
-            op = client.stop(
-                project=project,
-                zone=inst_zone,
-                instance=inst_name,
-            )
-            logger.info(
-                f"Instance stop operation submitted via compute_v1: {getattr(op, 'name', op)}"
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to stop instance via compute_v1: {e}")
+    return _execute_instance_action(
+        "stop", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+    )
 
-    token_fn = get_token_callback or get_gcp_access_token
-    token = token_fn()
-    if not token:
-        logger.error("No GCP access token available to stop ProxySQL instance via REST.")
-        return False
 
-    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{inst_zone}/instances/{inst_name}/stop"
-    try:
-        resp = requests.post(
-            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+def _delegate_to_single_instance(
+    target_size: int,
+    project: str,
+    reg: str,
+    instance_name: str,
+    dry_run: bool,
+    compute_module: Any,
+    get_token_callback: Callable[[], str | None] | None,
+) -> bool:
+    """Delegate scale request to single ProxySQL instance."""
+    zone = os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    if target_size > 0:
+        return start_proxysql_instance(
+            project_id=project,
+            zone=zone,
+            instance_name=instance_name,
+            dry_run=dry_run,
+            compute_module=compute_module,
+            get_token_callback=get_token_callback,
         )
-        if resp.status_code in (200, 204):
-            logger.info(f"Instance stop operation submitted via REST API: HTTP {resp.status_code}")
-            return True
-        logger.error(f"REST API stop failed: HTTP {resp.status_code} - {resp.text}")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"REST API stop request error: {e}")
-
-    return False
+    return stop_proxysql_instance(
+        project_id=project,
+        zone=zone,
+        instance_name=instance_name,
+        dry_run=dry_run,
+        compute_module=compute_module,
+        get_token_callback=get_token_callback,
+    )
 
 
 def scale_proxysql_mig(
@@ -664,23 +677,8 @@ def scale_proxysql_mig(
     # 単一インスタンス構成 (Direct VPC Egress 移行後) の自動委任
     instance_name = os.getenv("PROXYSQL_INSTANCE_NAME")
     if instance_name:
-        zone = os.getenv("PROXYSQL_ZONE", f"{reg}-b")
-        if target_size > 0:
-            return start_proxysql_instance(
-                project_id=project,
-                zone=zone,
-                instance_name=instance_name,
-                dry_run=dry_run,
-                compute_module=compute_module,
-                get_token_callback=get_token_callback,
-            )
-        return stop_proxysql_instance(
-            project_id=project,
-            zone=zone,
-            instance_name=instance_name,
-            dry_run=dry_run,
-            compute_module=compute_module,
-            get_token_callback=get_token_callback,
+        return _delegate_to_single_instance(
+            target_size, project, reg, instance_name, dry_run, compute_module, get_token_callback
         )
 
     logger.info(
