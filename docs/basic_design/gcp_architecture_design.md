@@ -72,9 +72,9 @@ flowchart TB
 
 | コンポーネント | GCPサービス | 仕様・サイジング | 役割・選定根拠 |
 |---|---|---|---|
-| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQL MIGをAutoscaler経由で安全にオンデマンド起動・240sヘルスチェック・Cloud SQL稼働確認し、完了時/異常時finallyで停止。wait_for_dbのソケットFail-Fastを内包。 |
+| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQL MIGをAutoscaler経由で安全にオンデマンド起動・240sヘルスチェック・Cloud SQL稼働確認し、完了時/異常時finallyで停止。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のMIGゾンビ残存を根本遮断。 |
 | **定期トリガー** | Cloud Scheduler | 毎日 16:00 UTC (01:00 JST) 実行 | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。 |
-| **安全停止監視トリガー** | Cloud Scheduler | 毎日 20:00 UTC (05:00 JST) 実行 | バッチ完了後のリソース停止状態（ProxySQL size=0, NAT）を検査し強制停止するセーフティネット。 |
+| **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL size=0, NAT）を深夜〜早朝に定期検査し強制停止する多重セーフティネット。 |
 | **コネクションプール** | Compute Engine MIG | `e2-micro` オンデマンド (Autoscaler: Min 0, Max 2), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `size = 0` で課金ゼロ化。バッチ起動時に Autoscaler 設定 (0 -> 1) により安全にスケールアウトし最大240秒疎通確認。 |
 | **内部負荷分散** | 内部TCPロードバランサー (ILB) | リージョン内部ロードバランサー, ポート 6033, TCPヘルスチェック, コネクションドレイン (300秒) | ProxySQL MIG へのトラフィック分散、障害時自動フェイルオーバー、スケールイン時のクエリ保護。 |
 | **リレーショナルDB** | Cloud SQL for MySQL 8.0 | `db-f1-micro` または `db-g1-small`, SSD 20GB (自動拡張) | 物件マスタ、トランザクション、地価、評価データの格納。自動バックアップ対応。 |
@@ -118,12 +118,22 @@ Cloud Tasks のキューイングおよび流量制御機能（`max_dispatches_p
 - **サイト内詳細取得並行度 (`_getCloudPararellLimit`)**:
   - 環境変数 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 5）により、GCP帯域に最適化された並行リクエスト数を安全に設定可能。
 
-### 3.3 クローリング実行状況レポート設計（全体およびジョブ別時間粒度向上）
+### 3.3 クローリング実行状況レポート設計（全体およびジョブ別時間粒度向上 & タスクアレイ統合）
 - **全体レポート指標**:
   - バッチ開始日時 (`start_time`)、終了日時 (`end_time`)、合計所要時間 (`duration`: 〇時間〇分〇秒 / `elapsed_seconds`) を計測・出力。
 - **物件種別別粒度指標**:
   - 過去24時間新規取得件数内訳（会社×種別）および異常ジョブ一覧の各エントリに対し、個別ジョブの `(開始: HH:MM:SS, 終了: HH:MM:SS, 所要: 〇分〇秒)` を付与。
+- **タスクアレイ統合レポート (Task Array Aggregated Report)**:
+  - Cloud Run Jobs の並列タスクアレイ実行時、Coordinator（Task 0）が `wait_for_all_tasks` 完了後に全タスクの `CrawlerTaskExecution` レコード（各タスクが保存した `results_json`）を回収・統合。
+  - 全89ジョブの完全な成功・失敗内訳を集計し、単一のSlack統合通知として「総ジョブ数: 89 (成功: X, 失敗: Y)」を全件明記して発報。部分レポートによる件数乖離・誤解を防止。
 - **データ不整合防止ガード**:
   - 単一種別（ストックヘーベル等）のサイトにおいて、不適合種別のデータが混入しないようパーサーレベルで例外スキップ（`SkipPropertyException`）を実行。
+
+### 3.4 コンテナ内内部ルーティングおよび自律インプロセス実行設計
+- **ApiRegistry による同一コンテナ内インプロセス実行 (`_handle_local_execution`)**:
+  - Cloud Run Jobs や CLI 実行環境下において、`IS_CLOUD` 環境変数の有無に関わらず、`ApiRegistry` に登録されたルート（全224ルート）は同一プロセス内のスレッド＋新規イベントループで直接実行（`run_in_new_loop`）する。
+  - これにより、外部の HTTP サーバー（Flask ポート 8000）や廃止済み Cloud Functions への外部依存をゼロ化し、コンテナ内部で自己完結してミリ秒単位で高速処理する。
+- **廃止済み旧 Cloud Functions URL の完全撤廃**:
+  - 旧アーキテクチャの残骸である `https://us-central1-sumifu.cloudfunctions.net` をコードベースから完全排除し、未設定時のフォールバックは環境変数 `API_BASE_URL` / `EVALUATION_API_URL` またはローカル参照（`http://127.0.0.1:8000`）へ統一する。
 
 

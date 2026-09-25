@@ -241,10 +241,15 @@ graph TD
 - ジョブ起動前段階で `src/crawler/scripts/debug_tools/check_slack_connection.py` を事前実行し、設定中の全 Slack チャンネルへの API 送信権限およびチャンネル存在有無をテストする。
 - 疎通失敗時はメインパイプラインの起動前に即座に失敗ログを出力して停止する。
 
-### 6.10.1 パイプライン起動時 ProxySQL オンデマンド起動・起動チェック設計原則 (Step 0.2)
+### 6.10.1 パイプライン起動時 ProxySQL オンデマンド起動・起動チェック ＆ タイムアウト安全停止設計原則 (Step 0.2 / Teardown)
 - クラウド環境（`IS_CLOUD=true` 等）におけるパイプライン（`run_pipeline.py`）の Coordinator 起動時、DB 接続待機（Step 0.4）に先立ち、ProxySQL MIG を `scale_proxysql_mig(target_size=1)` によりオンデマンド起動する。
-- 起動直後にポート 6033 へのソケット疎通ポーリング（起動チェック: `wait_for_proxysql_health`、最大 120 秒）を実施し、ProxySQL がリクエスト受付可能状態になるまで確実に待機する。
-- タイムアウト時は例外を送出してパイプラインを即座に中断し、終了時の `finally` 句で `ensure_resources_stopped.py` による縮小（teardown）を安全に実行する。
+- 起動直後にポート 6033 へのソケット疎通ポーリング（起動チェック: `wait_for_proxysql_health`、最大 240 秒）を実施し、ProxySQL がリクエスト受付可能状態になるまで確実に待機する。
+- **タイムアウト時フェイルセーフ ＆ SIGTERM シグナル処理**:
+  - Cloud Run のコンテナタイムアウト到達による強制終了で teardown がスキップされる事態を防ぐため、`SIGTERM` および `SIGINT` シグナルハンドラ、ならびに `atexit` ハンドラを登録する。
+  - シグナル受信時は実行中の子プロセスを停止した上で、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、最短時間で ProxySQL MIG を 0 台へ縮小する。
+- **自律的早期シャットダウン (Graceful Self-Shutdown)**:
+  - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 0台縮退 + Slack警告発報）へ移行して終了する。
+  - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
@@ -527,6 +532,24 @@ graph TD
      - `_parseSaikenchiku` において、備考に「再建築不可」がない場合に「可」を推測返却していた処理を撤廃し、明示されていない場合は `""` を返却。
      - `_parseKokudoHou` において、備考に「国土法」がない場合に「不要」を推測返却していた処理を撤廃し、明示されていない場合は `""` を返却。
 
+### 6.29 Cloud Run Jobs 内部ルーティング自律インプロセス実行および旧Cloud Functions URL完全撤廃内部設計
+- **`ApiAsyncProcBase` 内部ルーティング改善 (`src/crawler/package/api/api.py`)**:
+  - `_handle_local_execution`: `IS_CLOUD` による一律ガードを撤廃し、`ApiRegistry` に `target_class` が登録されている場合は環境変数問わず同一プロセス内の別スレッド（`run_in_new_loop`）で直接実行する。
+  - `_getUrl`: 廃止済みの旧 Cloud Functions ドメイン（`https://us-central1-sumifu.cloudfunctions.net`）へのフォールバックを完全撤廃し、`os.getenv("API_BASE_URL", "http://127.0.0.1:8000")` に統一。
+- **価格推定および運用ツールにおける旧 URL 参照の根絶**:
+  - `src/crawler/package/ml/predict.py` (`get_api_base_url`): `EVALUATION_API_URL` 未設定時の参照先を `http://localhost:8000/api/evaluation/predict/` に統一。
+  - `src/crawler/scripts/debug_tools/evaluate_all_properties.py`: 同様に旧 Cloud Functions URL への参照を完全排除。
+
+### 6.30 タスクアレイ並列分散クローリング全件統合レポート可視化内部設計
+- **タスク実行結果モデルの拡張 (`CrawlerTaskExecution`)**:
+  - `results_json = models.JSONField(default=list, blank=True)` フィールドを追加し、各タスクが実行した全ジョブの詳細結果（会社、種別、ステータス、新規件数、所要時間、エラー内容）を永続化。
+- **個社クローラー実行状況レポート出力の透明化 (`run_all_crawlers.py`)**:
+  - タスクアレイ実行時（`task_count > 1`）、サマリー表示を `総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {success}, 失敗: {failed})` に改修し、担当件数と全体件数を明示。
+  - タスクアレイのワーカータスク（`task_index > 0`）による重複サマリー発報を抑制し、Coordinator での統合通知を主軸とする。
+- **Coordinator 全タスク結果統合＆Slack発報 (`run_pipeline.py`)**:
+  - `wait_for_all_tasks` 完了後（タイムアウト時含む）、当日の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計。
+  - 全タスクの成功件数、失敗件数、異常クローラー一覧、および過去24時間の新規取得件数内訳を集約した「全体統合クローリング実行状況レポート」を Slack に送信。タスク未完了やタイムアウトが発生した場合はそのタスク番号と未完了ジョブも明記し、全ジョブの稼働実績を100%可視化する。
+
 ---
 
 ## 7. 参照ドキュメント
@@ -537,8 +560,8 @@ graph TD
 
 ---
 
-**最終更新**: 2026年9月21日  
-**バージョン**: 3.0 (ログ構造化およびHTMLタグ断片漏洩防止内部設計追記)
+**最終更新**: 2026年9月26日  
+**バージョン**: 3.1 (内部ルーティング自律化およびタスクアレイ統合レポート内部設計追記)
 
 
 
