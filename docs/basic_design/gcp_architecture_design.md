@@ -74,7 +74,7 @@ flowchart TB
 |---|---|---|---|
 | **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQL MIGをAutoscaler経由で安全にオンデマンド起動・240sヘルスチェック・Cloud SQL稼働確認し、完了時/異常時finallyで停止。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のMIGゾンビ残存を根本遮断。 |
 | **定期トリガー** | Cloud Scheduler | 毎日 16:00 UTC (01:00 JST) 実行 | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。 |
-| **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL size=0, NAT）を深夜〜早朝に定期検査し強制停止する多重セーフティネット。 |
+| **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL size=0, NAT）を検査する多重セーフティネット。Cloud Run Job Execution 稼働状態連動（RUNNING ジョブがあれば停止スキップ、タイムアウト超過時は Cloud Run キャンセル ＋ ProxySQL 両強制停止、起動後10分間 Grace Period 猶予）。 |
 | **コネクションプール** | Compute Engine MIG | `e2-micro` オンデマンド (Autoscaler: Min 0, Max 2), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `size = 0` で課金ゼロ化。バッチ起動時に Autoscaler 設定 (0 -> 1) により安全にスケールアウトし最大240秒疎通確認。 |
 | **内部負荷分散** | 内部TCPロードバランサー (ILB) | リージョン内部ロードバランサー, ポート 6033, TCPヘルスチェック, コネクションドレイン (300秒) | ProxySQL MIG へのトラフィック分散、障害時自動フェイルオーバー、スケールイン時のクエリ保護。 |
 | **リレーショナルDB** | Cloud SQL for MySQL 8.0 | `db-f1-micro` または `db-g1-small`, SSD 20GB (自動拡張) | 物件マスタ、トランザクション、地価、評価データの格納。自動バックアップ対応。 |

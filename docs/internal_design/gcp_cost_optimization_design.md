@@ -42,22 +42,43 @@ sequenceDiagram
 ## 3. ゾンビ課金防止スクリプト (`ensure_resources_stopped.py`)
 
 ### 3.1 役割と責務
-- 毎朝 05:00 JST (20:00 UTC) に Cloud Scheduler 経由でキックされる（パイプライン異常終了時のセーフティネット）。
-- Compute Engine API / REST API (`instanceGroupManagers`) を介して `proxysql-mig` の `target_size` および稼働インスタンス数を取得。
-- `target_size > 0` または稼働インスタンスが存在する場合：
-  1. Autoscaler 管理下 MIG の GCP API 制約（直接 `resize` 禁止）に適合させるため、Autoscaler の `min_num_replicas = 0` かつ `max_num_replicas = 0` へ更新（または Autoscaler 一時停止）し、インスタンスを 0 台へ完全削除・縮小。
-  2. Slack チャンネル（`#property_alert`）に警告メッセージを発報（非同期関数 `send_slack_message` を `async_to_sync` 経由で確実に同期実行・未 await 警告を防止）。
-  3. 戻り値としてステータスを返し、監査ログへ記録。
+- Cloud Scheduler 経由で定期実行（深夜帯 `0 17-21 * * *` 等）およびオンデマンドでキックされる、ゾンビ課金防止セーフティネット。
+- **因果関係駆動・Cloud Run Job 状態連動**: 単に ProxySQL のサイズだけを見て機械的に停止するのではなく、親リソースである Cloud Run Job（`realestate-crawler-pipeline-*`, `realestate-migrate-*`）の Execution 稼働状態と実行経過時間を確認して停止要否を動的判定。
+- **起動直後レースコンディション防止 (Grace Period: 10分 / 600秒)**:
+  - ProxySQL のインスタンス作成日時または MIG 更新から 10分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ。
+- **完全停止戦略 (Dual Hard-Kill on Hang)**:
+  - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + バッファ）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL MIG (Autoscaler / size -> 0) を停止。
+- **親不在時の安全停止**:
+  - 関連する Cloud Run Job Execution が RUNNING でない（存在しない）かつ Grace Period を超過している場合は、直ちに ProxySQL を 0 台に縮小して停止漏れを解消。
 - **安全側に倒すエラーハンドリング (Fail-Safe)**:
   - API 通信エラー、404 Not Found、認証エラー等が発生した場合、決して「正常停止中」と偽装せず、緊急 Slack アラート（`:rotating_light:`）を発報し非ゼロ（Exit Code 1）で終了。
 
-### 3.2 入力引数
+### 3.2 判定アルゴリズム & フロー
+```mermaid
+flowchart TD
+    Start["ensure_resources_stopped 起動"] --> CheckMIG["ProxySQL MIG target_size 取得"]
+    CheckMIG -->|target_size == 0| SafeEnd["正常停止中 (何もしない / Exit 0)"]
+    CheckMIG -->|target_size > 0| CheckGrace["起動から Grace Period (10分) 以内か?"]
+    CheckGrace -->|Yes (起動直後)| SkipGrace["[Grace Period] 停止スキップ / Slack通知なし / Exit 0"]
+    CheckGrace -->|No (10分超過)| CheckExec["Cloud Run Job Execution 取得 (crawler / migrate)"]
+    
+    CheckExec -->|RUNNING ジョブあり| CheckTimeout["実行経過時間 <= 許容タイムアウト上限か?"]
+    CheckTimeout -->|Yes (正常実行中)| SkipRunning["[正常稼働中] 停止スキップ / Slack通知 / Exit 0"]
+    CheckTimeout -->|No (ハング超過)| HardKill["[真のゾンビ検知]\n1. Cloud Run Job Execution をキャンセル\n2. ProxySQL MIG を size=0 に停止\n3. 警告 Slack 発報 / Exit 0"]
+    
+    CheckExec -->|RUNNING ジョブなし (親不在)| StopOrphan["[停止漏れ検知]\n1. ProxySQL MIG を size=0 に停止\n2. 警告 Slack 発報 / Exit 0"]
+```
+
+### 3.3 入力引数
 - `--project-id`: GCP プロジェクトID（デフォルト: 環境変数 `GCP_PROJECT` または `sumifu`）
 - `--region`: リージョン（デフォルト: `asia-northeast1`）
 - `--mig-name`: MIG 名（デフォルト: `proxysql-mig-prod`）
+- `--job-prefixes`: 監視対象 Cloud Run Job 名接頭辞（デフォルト: `realestate-crawler-pipeline,realestate-migrate`）
+- `--grace-period-sec`: 起動直後の執行猶予秒数（デフォルト: `600` 秒 / 10分）
+- `--timeout-threshold-sec`: ジョブタイムアウト許容上限秒数（デフォルト: `4200` 秒 / 70分 = 3600s + 600s）
 - `--dry-run`: 判定のみ行い停止しないフラグ
 
-### 3.3 パイプライン異常時・タイムアウト時クリーンアップ (`run_pipeline.py`)
+### 3.4 パイプライン異常時・タイムアウト時クリーンアップ (`run_pipeline.py`)
 - **多重防壁1: SIGTERM / SIGINT シグナルハンドラ**:
   - Cloud Run がタスクタイムアウトや強制終了時にコンテナへ送出する `SIGTERM`（および `SIGINT`）を捕捉するシグナルハンドラを `run_pipeline.py` 冒頭で登録。
   - シグナル受信時、実行中の子プロセス（クローラーや後続処理）があれば即座に終了させ、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、ProxySQL MIG を確実に 0 台へ縮退させる。
