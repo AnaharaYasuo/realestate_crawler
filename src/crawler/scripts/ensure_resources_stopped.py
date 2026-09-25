@@ -507,6 +507,301 @@ def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
         return str(e)
 
 
+def _get_instance_info(
+    project_id: str, zone: str, instance_name: str
+) -> tuple[str, str, float | None]:
+    """Retrieve instance status ('RUNNING', 'TERMINATED', etc.), error message, and uptime in seconds."""
+    last_err = ""
+    if compute_v1 is not None and hasattr(compute_v1, "InstancesClient"):
+        try:
+            client = compute_v1.InstancesClient()
+            inst = client.get(
+                project=project_id,
+                zone=zone,
+                instance=instance_name,
+                timeout=10.0,
+            )
+            status = str(getattr(inst, "status", ""))
+            ts = getattr(inst, "last_start_timestamp", None) or getattr(
+                inst, "creation_timestamp", None
+            )
+            uptime = _parse_timestamp_to_seconds_ago(ts)
+            return status, "", uptime
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            logger.debug(f"Failed to get instance info via compute_v1: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return "UNKNOWN", last_err or ERR_NO_COMPUTE_CLIENT, None
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/zones/{zone}/instances/{instance_name}"
+    try:
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            status = str(data.get("status", "UNKNOWN"))
+            ts = data.get("lastStartTimestamp") or data.get("creationTimestamp")
+            uptime = _parse_timestamp_to_seconds_ago(ts)
+            return status, "", uptime
+        return "UNKNOWN", f"HTTP {resp.status_code}: {resp.text}", None
+    except Exception as e:  # noqa: BLE001
+        return "UNKNOWN", str(e), None
+
+
+def _stop_instance(project_id: str, zone: str, instance_name: str) -> str:
+    """Stop Compute Engine instance via compute_v1 or REST API fallback."""
+    last_err = ""
+    if compute_v1 is not None and hasattr(compute_v1, "InstancesClient"):
+        try:
+            client = compute_v1.InstancesClient()
+            client.stop(
+                project=project_id,
+                zone=zone,
+                instance=instance_name,
+                timeout=15.0,
+            )
+            return ""
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            logger.warning(f"Failed to stop instance via compute_v1: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return last_err or ERR_NO_COMPUTE_CLIENT
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/zones/{zone}/instances/{instance_name}/stop"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code in (200, 204):
+            return ""
+        return f"HTTP {resp.status_code}: {resp.text}"
+    except Exception as e:  # noqa: BLE001
+        return str(e)
+
+
+def check_and_stop_proxysql_instance(
+    project_id: str,
+    zone: str,
+    instance_name: str,
+    job_prefixes: tuple[str, ...] = (
+        "realestate-crawler-pipeline",
+        "realestate-ml-pipeline",
+        "realestate-migrate",
+    ),
+    grace_period_sec: float = 600.0,
+    timeout_threshold_sec: float = 4200.0,
+    dry_run: bool = False,
+) -> ResourceInspectionResult:
+    """
+    Checks if single ProxySQL instance is RUNNING.
+    - If status in ('TERMINATED', 'STOPPED', 'STOPPING'): returns safely stopped.
+    - If launched within grace_period_sec: skips stop (startup grace).
+    - If Cloud Run Jobs (crawler, ML, migrate) are actively RUNNING within timeout_threshold_sec: skips stop.
+    - If Cloud Run Jobs exceeded timeout_threshold_sec (hung): cancels executions and stops instance (Dual Kill).
+    - If no active Cloud Run Jobs (orphaned): stops instance immediately.
+    """
+    status, err, uptime = _get_instance_info(project_id, zone, instance_name)
+    if err:
+        err_msg = f":rotating_light: *【緊急】ProxySQL インスタンス状態取得失敗*: {err}"
+        logger.error(err_msg)
+        send_slack_alert(err_msg)
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=False, leaked_size=-1, details=err
+        )
+
+    logger.info(f"ProxySQL instance '{instance_name}' current status: {status}")
+
+    if status in ("TERMINATED", "STOPPED", "STOPPING"):
+        logger.info(f"ProxySQL instance is safely stopped (status: {status}).")
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=0,
+            skipped_reason="stopped",
+        )
+
+    # 1. Grace Period check
+    if uptime is None:
+        logger.info(
+            f"ProxySQL instance '{instance_name}' uptime could not be determined. "
+            f"Skipping stop to prevent terminating newly launched instance."
+        )
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=1,
+            skipped_reason="uptime_unknown",
+        )
+    if uptime <= grace_period_sec:
+        logger.info(
+            f"ProxySQL instance '{instance_name}' was launched {uptime:.1f}s ago "
+            f"(<= grace_period {grace_period_sec}s). Skipping stop."
+        )
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=1,
+            skipped_reason="grace_period",
+        )
+
+    # 2. Check active Cloud Run Jobs
+    region = "-".join(zone.split("-")[:2]) if zone else "asia-northeast1"
+    active_jobs, exec_err = _get_active_cloud_run_executions(
+        project_id=project_id, region=region, job_prefixes=job_prefixes
+    )
+    if exec_err:
+        err_msg = (
+            f":rotating_light: *【緊急】Cloud Run Executions取得失敗*: {exec_err}。"
+            f"安全のためProxySQL停止をスキップしました。"
+        )
+        logger.error(err_msg)
+        send_slack_alert(err_msg)
+        return ResourceInspectionResult(
+            was_leaked=True,
+            forced_stop=False,
+            leaked_size=1,
+            details=exec_err,
+            skipped_reason="api_error",
+        )
+
+    if active_jobs:
+        hung_jobs = [
+            j
+            for j in active_jobs
+            if j.elapsed_sec is None or j.elapsed_sec > timeout_threshold_sec
+        ]
+        if not hung_jobs:
+            job_desc = ", ".join(
+                f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+                for j in active_jobs
+            )
+            info_msg = (
+                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました*\n"
+                f"・プロジェクト: `{project_id}`\n"
+                f"・稼働ジョブ: {job_desc}\n"
+                f"・ProxySQL: `{instance_name}` (RUNNING)"
+            )
+            logger.info(info_msg)
+            send_slack_alert(info_msg)
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=1,
+                skipped_reason="job_running",
+            )
+
+        # Hung jobs detected! Trigger Dual Hard-Kill
+        hung_desc = ", ".join(
+            f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+            for j in hung_jobs
+        )
+        warning_msg = (
+            f":warning: *【ゾンビ課金アラート】ジョブ異常超過検知*\n"
+            f"・プロジェクト: `{project_id}`\n"
+            f"・ゾーン: `{zone}`\n"
+            f"・超過ジョブ: {hung_desc}\n"
+            f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else 'Cloud Run Job キャンセル および ProxySQL インスタンス強制停止を実行しました。'}"
+        )
+        logger.warning(warning_msg)
+        send_slack_alert(warning_msg)
+
+        if dry_run:
+            return ResourceInspectionResult(
+                was_leaked=True,
+                forced_stop=False,
+                leaked_size=1,
+                canceled_jobs=[j.name for j in hung_jobs],
+            )
+
+        canceled_names = []
+        cancel_errors = []
+        for j in hung_jobs:
+            c_err = _cancel_cloud_run_execution(j.name)
+            if c_err:
+                logger.warning(f"Failed to cancel {j.name}: {c_err}")
+                cancel_errors.append(f"{j.job_name}: {c_err}")
+            else:
+                canceled_names.append(j.name)
+
+        healthy_jobs = [j for j in active_jobs if j not in hung_jobs]
+        if healthy_jobs:
+            healthy_desc = ", ".join(
+                f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+                for j in healthy_jobs
+            )
+            logger.info(
+                f"Hung jobs {[j.name for j in hung_jobs]} were cancelled, but healthy jobs "
+                f"({healthy_desc}) are still legitimately running. Skipping ProxySQL stop."
+            )
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=1,
+                canceled_jobs=canceled_names,
+                skipped_reason="healthy_jobs_still_running",
+            )
+
+        stop_err = _stop_instance(project_id, zone, instance_name)
+        if cancel_errors or stop_err:
+            fail_items = []
+            if cancel_errors:
+                fail_items.append(f"Job cancel failures: {', '.join(cancel_errors)}")
+            if stop_err:
+                fail_items.append(f"ProxySQL stop failure: {stop_err}")
+            send_slack_alert(
+                f":rotating_light: *【緊急】強制停止処理で一部失敗が発生しました*: {'; '.join(fail_items)}"
+            )
+
+        return ResourceInspectionResult(
+            was_leaked=True,
+            forced_stop=not stop_err and len(canceled_names) == len(hung_jobs),
+            leaked_size=1,
+            canceled_jobs=canceled_names,
+            details=stop_err or ("; ".join(cancel_errors)),
+        )
+
+    # 3. No active jobs (orphaned ProxySQL instance)
+    warning_msg = (
+        f":warning: *【ゾンビ課金アラート】ProxySQL停止漏れ検知*\n"
+        f"・プロジェクト: `{project_id}`\n"
+        f"・ゾーン: `{zone}`\n"
+        f"・インスタンス名: `{instance_name}`\n"
+        f"・検知時状態: `{status}`\n"
+        f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else '自動強制停止を実行しました。'}"
+    )
+    logger.warning(warning_msg)
+    send_slack_alert(warning_msg)
+
+    if dry_run:
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=False, leaked_size=1
+        )
+
+    stop_err = _stop_instance(project_id, zone, instance_name)
+    if not stop_err:
+        logger.info(f"Successfully stopped ProxySQL instance '{instance_name}'.")
+        return ResourceInspectionResult(
+            was_leaked=True, forced_stop=True, leaked_size=1
+        )
+
+    err_msg = f"Failed to stop ProxySQL instance '{instance_name}': {stop_err}"
+    logger.error(err_msg)
+    send_slack_alert(
+        f":rotating_light: *【緊急】ProxySQL インスタンスの強制停止に失敗しました*: {err_msg}"
+    )
+    return ResourceInspectionResult(
+        was_leaked=True,
+        forced_stop=False,
+        leaked_size=1,
+        details=stop_err,
+    )
+
+
 def check_and_stop_proxysql_mig(
     project_id: str,
     region: str,
@@ -782,6 +1077,16 @@ def main() -> int:
         help="Timeout threshold in seconds for active jobs before forced cancel (default: 4200s / 70m)",
     )
     parser.add_argument(
+        "--instance-name",
+        default=os.environ.get("PROXYSQL_INSTANCE_NAME", ""),
+        help="ProxySQL Compute Engine Instance Name (Direct VPC single instance mode)",
+    )
+    parser.add_argument(
+        "--zone",
+        default=os.environ.get("PROXYSQL_ZONE", ""),
+        help="ProxySQL Compute Engine Instance Zone",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Check only without resizing",
@@ -791,15 +1096,27 @@ def main() -> int:
     prefixes = tuple(p.strip() for p in args.job_prefixes.split(",") if p.strip())
 
     logger.info("=== [START] Checking for leaked GCP resources ===")
-    result = check_and_stop_proxysql_mig(
-        project_id=args.project_id,
-        region=args.region,
-        mig_name=args.mig_name,
-        job_prefixes=prefixes,
-        grace_period_sec=args.grace_period_sec,
-        timeout_threshold_sec=args.timeout_threshold_sec,
-        dry_run=args.dry_run,
-    )
+    if args.instance_name:
+        inst_zone = args.zone or f"{args.region}-b"
+        result = check_and_stop_proxysql_instance(
+            project_id=args.project_id,
+            zone=inst_zone,
+            instance_name=args.instance_name,
+            job_prefixes=prefixes,
+            grace_period_sec=args.grace_period_sec,
+            timeout_threshold_sec=args.timeout_threshold_sec,
+            dry_run=args.dry_run,
+        )
+    else:
+        result = check_and_stop_proxysql_mig(
+            project_id=args.project_id,
+            region=args.region,
+            mig_name=args.mig_name,
+            job_prefixes=prefixes,
+            grace_period_sec=args.grace_period_sec,
+            timeout_threshold_sec=args.timeout_threshold_sec,
+            dry_run=args.dry_run,
+        )
 
     if result.was_leaked:
         if result.forced_stop:

@@ -6,8 +6,8 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_compute_forwarding_rule.proxysql_forwarding_rule,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_address.proxysql_ip,
+    google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.slack_bot_token_version,
     google_secret_manager_secret_iam_member.secret_accessor
@@ -24,7 +24,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
       max_retries     = 1
 
       vpc_access {
-        connector = google_vpc_access_connector.vpc_connector.id
+        network_interfaces {
+          network    = google_compute_network.vpc_network.name
+          subnetwork = google_compute_subnetwork.subnet.name
+        }
         egress    = "ALL_TRAFFIC" # 全外部通信をVPC経由にし、Cloud NAT(固定IP)から送信
       }
 
@@ -66,10 +69,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           value = "4"
         }
 
-        # データベース接続設定 (ProxySQL ILB 経由ポート 6033)
+        # データベース接続設定 (ProxySQL 経由ポート 6033)
         env {
           name  = "DB_HOST"
-          value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+          value = google_compute_address.proxysql_ip.address
         }
         env {
           name  = "DB_NAME"
@@ -175,7 +178,7 @@ resource "google_cloud_run_v2_job" "db_migrate_job" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_iam_member.secret_accessor
   ]
@@ -187,7 +190,10 @@ resource "google_cloud_run_v2_job" "db_migrate_job" {
       max_retries     = 1
 
       vpc_access {
-        connector = google_vpc_access_connector.vpc_connector.id
+        network_interfaces {
+          network    = google_compute_network.vpc_network.name
+          subnetwork = google_compute_subnetwork.subnet.name
+        }
         egress    = "ALL_TRAFFIC"
       }
 
@@ -323,8 +329,8 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_compute_forwarding_rule.proxysql_forwarding_rule,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_address.proxysql_ip,
+    google_compute_subnetwork.subnet,
     google_cloud_tasks_queue.crawler_tasks_queue,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_iam_member.secret_accessor
@@ -337,7 +343,10 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
       max_retries     = 1
 
       vpc_access {
-        connector = google_vpc_access_connector.vpc_connector.id
+        network_interfaces {
+          network    = google_compute_network.vpc_network.name
+          subnetwork = google_compute_subnetwork.subnet.name
+        }
         egress    = "ALL_TRAFFIC"
       }
 
@@ -365,7 +374,7 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
         }
         env {
           name  = "DB_HOST"
-          value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+          value = google_compute_address.proxysql_ip.address
         }
         env {
           name  = "DB_NAME"
@@ -384,8 +393,12 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
           value = "0"
         }
         env {
+          name  = "PROXYSQL_INSTANCE_NAME"
+          value = google_compute_instance.proxysql_instance.name
+        }
+        env {
           name  = "PROXYSQL_MIG_NAME"
-          value = google_compute_region_instance_group_manager.proxysql_mig.name
+          value = google_compute_instance.proxysql_instance.name
         }
         env {
           name  = "CLOUDSQL_INSTANCE_NAME"
@@ -441,8 +454,8 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_compute_forwarding_rule.proxysql_forwarding_rule,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_address.proxysql_ip,
+    google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.slack_bot_token_version,
     google_secret_manager_secret_iam_member.secret_accessor
@@ -455,7 +468,10 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
       max_retries     = 1
 
       vpc_access {
-        connector = google_vpc_access_connector.vpc_connector.id
+        network_interfaces {
+          network    = google_compute_network.vpc_network.name
+          subnetwork = google_compute_subnetwork.subnet.name
+        }
         egress    = "ALL_TRAFFIC"
       }
 
@@ -483,7 +499,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
         }
         env {
           name  = "DB_HOST"
-          value = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+          value = google_compute_address.proxysql_ip.address
         }
         env {
           name  = "DB_NAME"
@@ -502,8 +518,12 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           value = "0"
         }
         env {
+          name  = "PROXYSQL_INSTANCE_NAME"
+          value = google_compute_instance.proxysql_instance.name
+        }
+        env {
           name  = "PROXYSQL_MIG_NAME"
-          value = google_compute_region_instance_group_manager.proxysql_mig.name
+          value = google_compute_instance.proxysql_instance.name
         }
 
         env {

@@ -8,12 +8,14 @@ import pytest
 try:
     from scripts.ensure_resources_stopped import (
         check_and_stop_proxysql_mig,
+        check_and_stop_proxysql_instance,
     )
 
     _MODULE_PATH = "scripts.ensure_resources_stopped"
 except ImportError:
     from src.crawler.scripts.ensure_resources_stopped import (
         check_and_stop_proxysql_mig,
+        check_and_stop_proxysql_instance,
     )
 
     _MODULE_PATH = "src.crawler.scripts.ensure_resources_stopped"
@@ -906,6 +908,111 @@ def test_get_active_cloud_run_executions_direct_failure_paths(mock_compute_clien
         mock_instance.resize.assert_not_called()
         mock_slack.assert_called_once()
         assert "【緊急】Cloud Run Executions取得失敗" in mock_slack.call_args[0][0]
+
+
+def test_proxysql_instance_already_stopped(mock_slack):
+    """When instance is TERMINATED or STOPPED, no action and no alert."""
+    with patch(f"{_MODULE_PATH}._get_instance_info", return_value=("TERMINATED", "", None)):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            dry_run=False,
+        )
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "stopped"
+        mock_slack.assert_not_called()
+
+
+def test_proxysql_instance_within_grace_period(mock_slack):
+    """When instance is RUNNING but within grace_period (e.g. 300s <= 600s), stop is skipped."""
+    with patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 300.0)):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "grace_period"
+        mock_slack.assert_not_called()
+
+
+def test_proxysql_instance_with_active_job_within_timeout_skips_stop(mock_slack):
+    """When instance is RUNNING and active job is within timeout, stop is skipped."""
+    from scripts.ensure_resources_stopped import CloudRunExecutionInfo
+
+    mock_job = CloudRunExecutionInfo(name="exec-1", job_name="crawler-job", elapsed_sec=120.0)
+
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 1200.0)),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([mock_job], "")),
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "job_running"
+        mock_slack.assert_called_once()
+        assert "正常実行中のためProxySQL停止をスキップしました" in mock_slack.call_args[0][0]
+
+
+def test_proxysql_instance_orphaned_stopped(mock_slack):
+    """When instance is RUNNING past grace period and no jobs are active, instance is stopped."""
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 1200.0)),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._stop_instance", return_value="") as mock_stop,
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+        assert result.was_leaked is True
+        assert result.forced_stop is True
+        mock_stop.assert_called_once_with("test-proj", "asia-northeast1-b", "proxysql-instance-prod")
+        assert mock_slack.call_count == 1
+        assert "ProxySQL停止漏れ検知" in mock_slack.call_args[0][0]
+
+
+def test_proxysql_instance_hung_job_dual_kill(mock_slack):
+    """When Cloud Run job exceeds timeout, cancels job and stops instance."""
+    from scripts.ensure_resources_stopped import CloudRunExecutionInfo
+
+    mock_hung = CloudRunExecutionInfo(name="exec-hung", job_name="crawler-job", elapsed_sec=5000.0)
+
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 5000.0)),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([mock_hung], "")),
+        patch(f"{_MODULE_PATH}._cancel_cloud_run_execution", return_value="") as mock_cancel,
+        patch(f"{_MODULE_PATH}._stop_instance", return_value="") as mock_stop,
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            timeout_threshold_sec=4200.0,
+            dry_run=False,
+        )
+        assert result.was_leaked is True
+        assert result.forced_stop is True
+        mock_cancel.assert_called_once_with("exec-hung")
+        mock_stop.assert_called_once_with("test-proj", "asia-northeast1-b", "proxysql-instance-prod")
+        assert mock_slack.call_count == 1
+        assert "ジョブ異常超過検知" in mock_slack.call_args[0][0]
+
 
 
 
