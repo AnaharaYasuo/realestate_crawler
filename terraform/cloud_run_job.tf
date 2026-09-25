@@ -84,6 +84,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           value = "6033"
         }
         env {
+          name  = "CLOUDSQL_INSTANCE_NAME"
+          value = google_sql_database_instance.mysql_instance.name
+        }
+        env {
           name = "DB_PASSWORD"
           value_source {
             secret_key_ref {
@@ -217,6 +221,10 @@ resource "google_cloud_run_v2_job" "db_migrate_job" {
         env {
           name  = "DB_PORT"
           value = "3306"
+        }
+        env {
+          name  = "CLOUDSQL_INSTANCE_NAME"
+          value = google_sql_database_instance.mysql_instance.name
         }
         env {
           name = "DB_PASSWORD"
@@ -378,6 +386,10 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
         env {
           name  = "PROXYSQL_MIG_NAME"
           value = google_compute_region_instance_group_manager.proxysql_mig.name
+        }
+        env {
+          name  = "CLOUDSQL_INSTANCE_NAME"
+          value = google_sql_database_instance.mysql_instance.name
         }
         env {
           name  = "CLOUD_TASKS_QUEUE"

@@ -309,6 +309,55 @@ def get_mig_info(
     return -1, f"{err}; {rest_err}", None
 
 
+def _find_cloud_sql_by_prefix(
+    project: str, prefix: str, token: str
+) -> tuple[bool, str]:
+    """Find Cloud SQL instance whose name matches prefix (e.g. realestate-mysql-prod-*) on 404."""
+    page_token = None
+    all_matches = []
+    try:
+        while True:
+            list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
+            params = {"pageToken": page_token} if page_token else None
+            resp = requests.get(
+                list_url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                return False, f"HTTP {resp.status_code}"
+
+            data = resp.json()
+            items = data.get("items", [])
+            for inst in items:
+                name = inst.get("name", "")
+                if name == prefix or name.startswith(f"{prefix}-"):
+                    all_matches.append(inst)
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        if len(all_matches) == 1:
+            inst = all_matches[0]
+            state = inst.get("state", "UNKNOWN")
+            act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
+            logger.info(
+                f"Cloud SQL '{inst.get('name')}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
+            )
+            return state == "RUNNABLE", state
+        if len(all_matches) > 1:
+            logger.warning(
+                f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in all_matches]}"
+            )
+            return False, "MULTIPLE_MATCHES"
+        return False, "HTTP 404"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}")
+        return False, str(e)
+
+
 def check_cloud_sql_status(
     project_id: str | None = None,
     instance_name: str | None = None,
@@ -350,6 +399,8 @@ def check_cloud_sql_status(
                 f"Cloud SQL '{instance}' state: {state}, activationPolicy: {act_policy}"
             )
             return state == "RUNNABLE", state
+        if resp.status_code == 404:
+            return _find_cloud_sql_by_prefix(project, instance, token)
         logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
         return False, f"HTTP {resp.status_code}"
     except Exception as e:
