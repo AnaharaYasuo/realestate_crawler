@@ -388,6 +388,8 @@ class ParserBase(metaclass=ABCMeta):
         bad_tokens = ("javascript:", "void(0)", TOKEN_INQUIRY, TOKEN_CONTACT)
         if any(tok in dest_url for tok in bad_tokens):
             return None
+        if ParserBase._is_non_property_href(dest_url):
+            return None
         return dest_url
 
     async def _parsePageCore(self, response: BeautifulSoup, xpath_fn=None, dest_url_fn=None):

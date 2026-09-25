@@ -315,6 +315,12 @@ async def _get_mizuho_links_once(url: str) -> list:
                         )
     except Exception as e:  # noqa: BLE001
         logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
+    if not links:
+        try:
+            logger.info("MizuhoBypass: 0 links from Playwright. Falling back to official detail sitemaps...")
+            links = await get_mizuho_links_from_sitemap(url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("MizuhoBypass: Sitemap fallback failed: %s", exc)
 
     return links
 

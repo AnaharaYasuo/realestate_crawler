@@ -969,7 +969,9 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
                     for item in property_list:
                         detail_url = item.get('detailUrl')
                         if detail_url:
-                            yield self.BASE_URL + detail_url
+                            full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
+                            if not self._is_non_property_href(full_url):
+                                yield full_url
                     return
             except Exception as e:
                 logger.exception("Error parsing __NEXT_DATA__: %s", e)
@@ -979,7 +981,9 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         for link in response.select(selector):
             href = link.get('href')
             if href:
-                yield self.BASE_URL + href
+                full_url = self.BASE_URL + href if href.startswith('/') else href
+                if not self._is_non_property_href(full_url):
+                    yield full_url
     def _getNextJsData(self, response):
         check_tokyu_listing_ended(response)
         if hasattr(response, '_next_data_json'):

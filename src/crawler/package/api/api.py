@@ -1037,6 +1037,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 ) as dtl_session:
                     try:
                         item = await self.parser.parsePropertyDetailPage(session=dtl_session, url=self.url)
+                    except SkipPropertyException:
+                        raise
                     except Exception as e:
                         logging.exception("exception get item for URL: %s Details: %s", self.url, e)
                         raise
@@ -1102,7 +1104,14 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             item.updateDateTime = current_time
 
         logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
-        await sync_to_async(item.save)()
+        try:
+            await sync_to_async(item.save)()
+        except (OperationalError, Exception) as e:
+            if "2006" in str(e) or "gone away" in str(e).lower():
+                close_old_connections()
+                await sync_to_async(item.save)()
+            else:
+                raise
         logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
 
     async def _record_price_revision(self, item, old_p, new_p):

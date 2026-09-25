@@ -557,7 +557,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
             if not href or not self._href_matches_property_type(href):
                 continue
             joined_url = urllib.parse.urljoin(self.BASE_URL, href)
-            if JAVASCRIPT_PREFIX not in joined_url and VOID_0 not in joined_url:
+            if JAVASCRIPT_PREFIX not in joined_url and VOID_0 not in joined_url and not self._is_non_property_href(joined_url):
                 yield joined_url
 
     async def parseNextPage(self, response: BeautifulSoup):

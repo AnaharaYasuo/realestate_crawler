@@ -141,5 +141,16 @@ class UrlMatcher:
                 return item
             return None
         except Exception as e:
+            if "2006" in str(e) or "gone away" in str(e).lower():
+                try:
+                    from django.db import close_old_connections
+                    close_old_connections()
+                    candidates = queryset.filter(db_filter)
+                    for item in candidates:
+                        item_url = getattr(item, field_name, None)
+                        if isinstance(item_url, str) and cls.is_same_url(item_url, url):
+                            return item
+                except Exception:
+                    pass
             logger.exception(f"UrlMatcher query error on {field_name}={url}: {e}")
             return None
