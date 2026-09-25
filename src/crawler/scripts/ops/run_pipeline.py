@@ -128,6 +128,9 @@ atexit.register(_atexit_teardown)
 def run_command(cmd, desc, timeout: float | None = None):
     global _active_proc
     check_deadline_or_raise(desc)
+    if os.environ.get("IS_CLOUD"):
+        budget = max(1.0, get_remaining_pipeline_time() - SAFE_SHUTDOWN_BUFFER_SEC)
+        timeout = budget if timeout is None else min(timeout, budget)
     logger.info(f"=== [START] {desc} ===")
     logger.info(f"Command: {' '.join(cmd)}")
     start_time = time.time()
@@ -260,15 +263,22 @@ def _run_crawler_step(
     if is_task_array and is_coordinator:
         logger.info(f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)...")
         remaining = get_remaining_pipeline_time()
-        # Bound task waiting by remaining time minus safe shutdown buffer
-        wait_timeout = max(60, int(min(10800, remaining - SAFE_SHUTDOWN_BUFFER_SEC)))
+        # Bound task waiting by remaining time minus safe shutdown buffer and polling interval
+        wait_interval = 15
+        wait_timeout = max(
+            0,
+            int(min(
+                10800 - wait_interval,
+                remaining - SAFE_SHUTDOWN_BUFFER_SEC - wait_interval,
+            )),
+        )
         logger.info(f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)...")
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
             execution_date=datetime.datetime.now(datetime.timezone.utc).date(),
             task_count=task_count,
             timeout_sec=wait_timeout,
-            interval_sec=15,
+            interval_sec=wait_interval,
         )
         if not all_ok:
             logger.warning(f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。")

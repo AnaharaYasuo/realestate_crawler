@@ -100,18 +100,55 @@ def test_wait_for_all_tasks_timeout_bounded_by_remaining_time(monkeypatch):
 
         assert mock_wait.called
         call_kwargs = mock_wait.call_args.kwargs
-        # The timeout passed must be bounded by remaining time (400 - safe_buffer) or <= 400
-        assert call_kwargs["timeout_sec"] <= 400
+        # The timeout passed must be bounded by remaining time (400 - safe_buffer)
+        assert call_kwargs["timeout_sec"] <= 400 - run_pipeline.SAFE_SHUTDOWN_BUFFER_SEC
 
 
 def test_self_graceful_shutdown_when_timeout_approaching(monkeypatch):
-    """Verify pipeline initiates self graceful shutdown if remaining time is below safe threshold."""
+    """Verify pipeline initiates self graceful shutdown at the safe threshold."""
     from scripts.ops import run_pipeline
 
-    # Simulate remaining time is critically low (< SAFE_SHUTDOWN_BUFFER_SEC)
-    monkeypatch.setattr(run_pipeline, "is_deadline_approaching", lambda buffer=300: True)
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("CLOUD_RUN_JOB_TIMEOUT_SEC", "1000")
+    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", 1000.0)
+    monkeypatch.setattr(run_pipeline.time, "time", lambda: 1700.0)
 
     with pytest.raises(TimeoutError) as exc_info:
         run_pipeline.check_deadline_or_raise("Next Step")
 
     assert "approaching Cloud Run timeout" in str(exc_info.value)
+
+
+def test_deadline_boundary_at_301_seconds_is_not_approaching(monkeypatch):
+    """Verify 301 seconds remaining does not trigger deadline approaching."""
+    from scripts.ops import run_pipeline
+
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("CLOUD_RUN_JOB_TIMEOUT_SEC", "1000")
+    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", 1000.0)
+    monkeypatch.setattr(run_pipeline.time, "time", lambda: 1699.0)
+
+    assert run_pipeline.is_deadline_approaching() is False
+
+
+def test_run_command_bounds_timeout_in_cloud_mode(monkeypatch):
+    """Verify run_command bounds timeout by remaining pipeline time minus buffer."""
+    from scripts.ops import run_pipeline
+
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setattr(run_pipeline, "get_remaining_pipeline_time", lambda: 500.0)
+    monkeypatch.setattr(run_pipeline, "check_deadline_or_raise", lambda desc: None)
+
+    with patch("scripts.ops.run_pipeline.subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.stdout.readline.return_value = ""
+        mock_proc.poll.return_value = 0
+        mock_proc.wait.return_value = 0
+        mock_proc.returncode = 0
+        mock_popen.return_value = mock_proc
+
+        run_pipeline.run_command(["dummy"], "test step", timeout=600)
+
+        # Expected timeout is min(600, 500 - 300) = 200.0
+        mock_proc.wait.assert_called_with(timeout=200.0)
+
