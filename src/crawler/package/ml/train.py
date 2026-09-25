@@ -158,30 +158,27 @@ def load_all_properties_from_db():
     print(f"Loaded Mansion: {len(data_by_type['mansion'])}, Kodate: {len(data_by_type['kodate'])}, Apartment: {len(data_by_type['apartment'])}, Tochi: {len(data_by_type['tochi'])}")
     return data_by_type
 
+def _determine_eval_area(p, ptype: str) -> float:
+    try:
+        if ptype == 'tochi':
+            val = getattr(p, 'tochiMenseki', 0.0)
+            return float(val) if val is not None else 0.0
+        if ptype == 'mansion':
+            val = getattr(p, 'senyuMenseki', 0.0)
+            area = float(val) if val is not None else 0.0
+            return 0.0 if area > 500.0 else area
+        val = getattr(p, 'tatemonoMenseki', 0.0)
+        return float(val) if val is not None else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
 def _extract_unit_price_record(p, price, ptype):
     address1 = getattr(p, 'address1', '') or ''
     address2 = getattr(p, 'address2', '') or ''
     
-    chikunengetsu = getattr(p, 'chikunengetsu', None)
-    if not chikunengetsu:
-        chikunengetsu = getattr(p, 'chikunengetsuStr', None)
+    chikunengetsu = getattr(p, 'chikunengetsu', None) or getattr(p, 'chikunengetsuStr', None)
     chikunen = calculate_chikunen(chikunengetsu)
-    
-    senyu_menseki = getattr(p, 'senyuMenseki', 0.0)
-    tatemono_menseki = getattr(p, 'tatemonoMenseki', 0.0)
-    tochi_menseki = getattr(p, 'tochiMenseki', 0.0)
-    
-    try:
-        if ptype == 'tochi':
-            eval_area = float(tochi_menseki) if tochi_menseki is not None else 0.0
-        elif ptype == 'mansion':
-            eval_area = float(senyu_menseki) if senyu_menseki is not None else 0.0
-            if eval_area > 500.0:
-                eval_area = 0.0
-        else:
-            eval_area = float(tatemono_menseki) if tatemono_menseki is not None else 0.0
-    except (ValueError, TypeError):
-        eval_area = 0.0
+    eval_area = _determine_eval_area(p, ptype)
     
     if eval_area > 0 and price > 0:
         return {
@@ -259,18 +256,37 @@ def _calculate_dummy_valuation_metrics(ptype, area, tochi_area, average_land_pri
         "mkt_comparison_value": mkt_comparison_value,
     }
 
-def _generate_single_dummy_record(ptype, rng):
+def _sample_dummy_areas(ptype: str, rng):
     if ptype == 'tochi':
-        tochi_area = rng.uniform(50.0, 300.0)
-        area = tochi_area
-    else:
-        area = rng.uniform(25.0, 100.0) if ptype == 'mansion' else rng.uniform(60.0, 150.0)
-        tochi_area = 0.0 if ptype == 'mansion' else rng.uniform(70.0, 200.0)
+        area = rng.uniform(50.0, 300.0)
+        return area, area
+    if ptype == 'mansion':
+        return rng.uniform(25.0, 100.0), 0.0
+    return rng.uniform(60.0, 150.0), rng.uniform(70.0, 200.0)
+
+def _resolve_dummy_type_attributes(ptype: str, area: float, rng):
+    if ptype == 'mansion':
+        return {
+            "kanrihi": int(area * 200),
+            "syuzen": int(area * 150),
+            "max_youseki": 200.0,
+            "max_kenpei": 60.0,
+            "kouzou": "RC",
+        }
+    return {
+        "kanrihi": 0,
+        "syuzen": 0,
+        "max_youseki": float(rng.choice([100.0, 150.0, 200.0])),
+        "max_kenpei": float(rng.choice([40.0, 50.0, 60.0])),
+        "kouzou": "木造" if ptype == 'kodate' else "RC",
+    }
+
+def _generate_single_dummy_record(ptype, rng):
+    area, tochi_area = _sample_dummy_areas(ptype, rng)
+    type_attrs = _resolve_dummy_type_attributes(ptype, area, rng)
         
     chikunen = rng.uniform(1.0, 45.0)
     walk_min = rng.integers(1, 20)
-    kanrihi = int(area * 200) if ptype == 'mansion' else 0
-    syuzen = int(area * 150) if ptype == 'mansion' else 0
     pop_growth = rng.uniform(-1.0, 2.0)
     income = rng.integers(3000, 12000)
     passenger_volume = rng.integers(5000, 700000)
@@ -301,8 +317,8 @@ def _generate_single_dummy_record(ptype, rng):
         "tochi_menseki": tochi_area,
         "chikunen": chikunen,
         "walk_min": walk_min,
-        "kanrihi": kanrihi,
-        "syuzen": syuzen,
+        "kanrihi": type_attrs["kanrihi"],
+        "syuzen": type_attrs["syuzen"],
         "pop_growth": pop_growth,
         "income": income,
         "passenger_volume": passenger_volume,
@@ -322,13 +338,13 @@ def _generate_single_dummy_record(ptype, rng):
         "is_shin_taishin": 1 if chikunen <= 45.0 else 0,
         "flood_risk_level": rng.integers(0, 5),
         "landslide_risk_level": rng.integers(0, 3),
-        "max_youseki": 200.0 if ptype == 'mansion' else rng.choice([100.0, 150.0, 200.0]),
-        "max_kenpei": 60.0 if ptype == 'mansion' else rng.choice([40.0, 50.0, 60.0]),
+        "max_youseki": type_attrs["max_youseki"],
+        "max_kenpei": type_attrs["max_kenpei"],
         "prefecture": "東京都",
         "city": "世田谷区",
         "station": "世田谷駅",
         "company": "mitsui",
-        "kouzou": "木造" if ptype == 'kodate' else "RC",
+        "kouzou": type_attrs["kouzou"],
         "maguchi": rng.uniform(2.0, 10.0),
         "road_width": rng.uniform(3.0, 6.0),
         "setback_ratio": 0.0,
@@ -738,6 +754,70 @@ def train_and_compare(df, feature_cols, stage_name, sample_weight=None) -> Train
     
     return TrainedEnsemble(trained_models, optimal_weights, smearing_factor)
 
+def _train_single_ptype_models(
+    ptype: str,
+    items: list,
+    mkt_master: dict,
+    feature_sets: dict,
+    model_dir: str,
+    all_ensemble_weights: dict,
+    all_smearing_factors: dict
+):
+    if len(items) > 15000:
+        print(f"Sampling 15,000 representative properties from {len(items):,} total records for efficient training...", flush=True)
+        rng = np.random.default_rng(42)
+        indices = rng.choice(len(items), size=15000, replace=False)
+        items = [items[i] for i in indices]
+
+    print("\n=========================================", flush=True)
+    print(f"Training models for Property Type: {ptype} (records: {len(items):,})", flush=True)
+    print("=========================================", flush=True)
+    
+    # DBデータをもとに特徴量データフレームを作成
+    records = []
+    for i, item in enumerate(items):
+        p = item["obj"]
+        feats = build_features(p, ptype, mkt_comparison_master=mkt_master)
+        feats["price"] = item["price"]
+        feats["interior_score"] = item["interior_score"]
+        feats["layout_score"] = item["layout_score"]
+        feats["input_date"] = getattr(p, 'inputDate', None) or getattr(p, 'inputDateTime', None)
+        records.append(feats)
+        if (i + 1) % 5000 == 0:
+            print(f"  Extracted features for {i+1:,}/{len(items):,} items...", flush=True)
+        
+    df = pd.DataFrame(records)
+    
+    # 件数が少ない場合はダミーデータを適用
+    if len(df) < 10:
+        print(f"Not enough real data for {ptype} in DB. Generating dummy data.")
+        df = generate_dummy_data(ptype)
+        
+    # 学習データのクレンジング（外れ値の自動除外）を実行
+    df = clean_training_data(df, ptype)
+        
+    # 掲載日に基づく時間減衰サンプル重みを算出 (Time Decay Weights)
+    dates = df["input_date"].values if "input_date" in df.columns else [None] * len(df)
+    sample_weights = calculate_time_decay_weights(dates)
+
+    # 一次モデルの訓練と保存 (LGB, XGB, Cat, RF)
+    first_cols = feature_sets[ptype]["first"]
+    first_ensemble = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)", sample_weight=sample_weights)
+    all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
+    all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
+    for algo, model in first_ensemble.items():
+        joblib.dump(model, os.path.join(model_dir, f"{ptype}_first_stage_{algo}.joblib"))
+    
+    # 二次モデルの訓練と保存 (LGB, XGB, Cat, RF)
+    second_cols = feature_sets[ptype]["second"]
+    second_ensemble = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)", sample_weight=sample_weights)
+    all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
+    all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
+    for algo, model in second_ensemble.items():
+        joblib.dump(model, os.path.join(model_dir, f"{ptype}_second_stage_{algo}.joblib"))
+        
+    del items, df, records, first_ensemble, second_ensemble
+
 def main():
     data_by_type = load_all_properties_from_db()
     
@@ -760,63 +840,11 @@ def main():
     # 各物件種別の学習を実行
     ptypes = list(data_by_type.keys())
     for ptype in ptypes:
-        items = data_by_type[ptype]
-        if len(items) > 15000:
-            print(f"Sampling 15,000 representative properties from {len(items):,} total records for efficient training...", flush=True)
-            rng = np.random.default_rng(42)
-            indices = rng.choice(len(items), size=15000, replace=False)
-            items = [items[i] for i in indices]
-
-        print("\n=========================================", flush=True)
-        print(f"Training models for Property Type: {ptype} (records: {len(items):,})", flush=True)
-        print("=========================================", flush=True)
-        
-        # DBデータをもとに特徴量データフレームを作成
-        records = []
-        for i, item in enumerate(items):
-            p = item["obj"]
-            feats = build_features(p, ptype, mkt_comparison_master=mkt_master)
-            feats["price"] = item["price"]
-            feats["interior_score"] = item["interior_score"]
-            feats["layout_score"] = item["layout_score"]
-            feats["input_date"] = getattr(p, 'inputDate', None) or getattr(p, 'inputDateTime', None)
-            records.append(feats)
-            if (i + 1) % 5000 == 0:
-                print(f"  Extracted features for {i+1:,}/{len(items):,} items...", flush=True)
-            
-        df = pd.DataFrame(records)
-        
-        # 件数が少ない場合はダミーデータを適用
-        if len(df) < 10:
-            print(f"Not enough real data for {ptype} in DB. Generating dummy data.")
-            df = generate_dummy_data(ptype)
-            
-        # 学習データのクレンジング（外れ値の自動除外）を実行
-        df = clean_training_data(df, ptype)
-            
-        # 掲載日に基づく時間減衰サンプル重みを算出 (Time Decay Weights)
-        dates = df["input_date"].values if "input_date" in df.columns else [None] * len(df)
-        sample_weights = calculate_time_decay_weights(dates)
-
-        # 一次モデルの訓練と保存 (LGB, XGB, Cat, RF)
-        first_cols = feature_sets[ptype]["first"]
-        first_ensemble = train_and_compare(df, first_cols, f"{ptype} - First Stage (No Image)", sample_weight=sample_weights)
-        all_ensemble_weights.setdefault(ptype, {})["first"] = first_ensemble.weights
-        all_smearing_factors.setdefault(ptype, {})["first"] = first_ensemble.smearing_factor
-        for algo, model in first_ensemble.items():
-            joblib.dump(model, os.path.join(model_dir, f"{ptype}_first_stage_{algo}.joblib"))
-        
-        # 二次モデルの訓練と保存 (LGB, XGB, Cat, RF)
-        second_cols = feature_sets[ptype]["second"]
-        second_ensemble = train_and_compare(df, second_cols, f"{ptype} - Second Stage (With Image)", sample_weight=sample_weights)
-        all_ensemble_weights.setdefault(ptype, {})["second"] = second_ensemble.weights
-        all_smearing_factors.setdefault(ptype, {})["second"] = second_ensemble.smearing_factor
-        for algo, model in second_ensemble.items():
-            joblib.dump(model, os.path.join(model_dir, f"{ptype}_second_stage_{algo}.joblib"))
-            
-        # メモリ解放
+        _train_single_ptype_models(
+            ptype, data_by_type[ptype], mkt_master, feature_sets, model_dir,
+            all_ensemble_weights, all_smearing_factors
+        )
         data_by_type[ptype] = []
-        del items, df, records, first_ensemble, second_ensemble
         gc.collect()
         
     joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))

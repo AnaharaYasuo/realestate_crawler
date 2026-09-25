@@ -1166,28 +1166,36 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             if key_spaced and key_spaced not in data:
                 data[key_spaced] = val
 
+    def _delegate_shumoku_parser(self, item, response: BeautifulSoup):
+        """物件種目の動的判定と委譲処理 (Dynamic Dispatch)"""
+        if getattr(self, '_is_delegating', False):
+            return None
+        specs = self._get_specs(response)
+        shumoku = specs.get("物件種目", specs.get("物件種別", specs.get("種別", "")))
+        if not shumoku:
+            return None
+
+        is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
+        is_apt_building = "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku
+
+        target_cls = None
+        if is_apt_building and not is_apartment_parser:
+            target_cls = MitsuiInvestmentApartmentParser
+        elif not is_apt_building and is_apartment_parser:
+            target_cls = MitsuiInvestmentKodateParser
+
+        if target_cls:
+            parser = target_cls()
+            parser._is_delegating = True
+            new_item = parser.createEntity()
+            new_item.pageUrl = item.pageUrl
+            return parser._parsePropertyDetailPage(new_item, response)
+        return None
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 物件種目の動的判定と委譲処理 (Dynamic Dispatch)
-        if not getattr(self, '_is_delegating', False):
-            specs = self._get_specs(response)
-            shumoku = specs.get("物件種目", specs.get("物件種別", specs.get("種別", "")))
-            is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
-            
-            if shumoku:
-                if "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku:
-                    if not is_apartment_parser:
-                        parser = MitsuiInvestmentApartmentParser()
-                        parser._is_delegating = True
-                        new_item = parser.createEntity()
-                        new_item.pageUrl = item.pageUrl
-                        return parser._parsePropertyDetailPage(new_item, response)
-                else:
-                    if is_apartment_parser:
-                        parser = MitsuiInvestmentKodateParser()
-                        parser._is_delegating = True
-                        new_item = parser.createEntity()
-                        new_item.pageUrl = item.pageUrl
-                        return parser._parsePropertyDetailPage(new_item, response)
+        delegated_item = self._delegate_shumoku_parser(item, response)
+        if delegated_item is not None:
+            return delegated_item
 
         item = super()._parsePropertyDetailPage(item, response)
         
