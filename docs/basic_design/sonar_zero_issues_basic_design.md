@@ -154,4 +154,44 @@ flowchart TD
 2. **安全性の担保**:
    - シグネチャ・戻り値・型の一致を完全保証し、呼び出し元への破壊的変更（Breaking Change）をゼロに抑制。
 
+## 5. 第4期: Strict Quality Gate ＆ 多層防御アーキテクチャ設計 (Issue #436)
+
+### 5.1 背景と問題の局所化
+PR #433 において、`src/crawler/package/utils/gcp_resources.py` の新規Code Smell（S8572）が1件発生したが、Built-in Sonar way Quality Gateが適用されていたため、Maintainability Rating Aのまま通過した。
+### 5.2 多層防御アーキテクチャ
+
+```mermaid
+flowchart TD
+    PR[PR作成 / コミットプッシュ] --> CI[GitHub Actions: sonar.yml]
+    
+    subgraph Layer1[第1防壁: SonarCloud Strict Quality Gate]
+        CI --> SETUP[setup_strict_quality_gate.py<br/>Strict Gate自動プロビジョニング & アソシエーション]
+        SETUP --> SCAN[SonarCloud Scan: -Dsonar.qualitygate.wait=true]
+        SCAN --> COND{new_violations > 0 ?}
+        COND -- Yes --> FAIL1[Quality Gate FAILED<br/>PR Checks 赤バツ]
+        COND -- No --> PASS1[Quality Gate PASSED]
+    end
+    
+    subgraph Layer2[第2防壁: CIレベル Issue数厳格アサーション]
+        PASS1 --> CHECK[check_sonar_remote.py --strict-zero-issues]
+        CHECK --> COND2{Unresolved Issues > 0 ?}
+        COND2 -- Yes --> FAIL2[CIジョブ exit 1 異常終了]
+        COND2 -- No --> SUCCESS[CI SUCCESS & マージ許可]
+    end
+```
+### 5.3 Quality Gate 条件構成比較
+
+| 指標 (Metric) | Sonar way (旧設定) | MyWay (初期設定) | Strict Gate (新設定) | 判定基準・理由 |
+| :--- | :--- | :--- | :--- | :--- |
+| **new_violations** | 未設定 (Ratingのみ) | `> 0` でエラー | **`> 0` でエラー** | 新規Issueが1件でもあれば即座に弾く |
+| **new_reliability_rating** | `> 1` (Aより悪化) | `> 1` | **`> 1`** | バグ許容ゼロ |
+| **new_security_rating** | `> 1` (Aより悪化) | `> 1` | **`> 1`** | 脆弱性許容ゼロ |
+| **new_maintainability_rating** | `> 1` (Aより悪化) | `> 1` | **`> 1`** | 保守性維持 |
+| **new_duplicated_lines_density** | `> 3.0%` | `> 3.0%` | **`> 3.0%`** | 重複コード防止 |
+| **new_security_hotspots_reviewed**| `< 100%` | `< 100%` | **`< 100%`** | ホットスポット100%レビュー |
+| **new_coverage** | `< 80.0%` | `< 80.0%` (罠) | **除外 (設定なし)** | `sonar.coverage.exclusions=**` に適合 |
+| **branch_coverage** | 未設定 | `< 80.0%` (罠) | **除外 (設定なし)** | カバレッジ未測定による誤爆防止 |
+| **violations** (全体) | 未設定 | `> 0` | **未設定または新コード優先** | master historical debtによる巻き込み防止 |
+
+
 

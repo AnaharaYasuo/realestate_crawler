@@ -6,11 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "select_sonar_way | reset_new_code_30d"
+        description: "setup_strict_gate | select_sonar_way | reset_new_code_30d"
         required: true
-        default: "select_sonar_way"
+        default: "setup_strict_gate"
         type: choice
         options:
+          - setup_strict_gate
           - select_sonar_way
           - reset_new_code_30d
 
@@ -21,6 +22,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
       - name: Apply SonarCloud ops
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -34,6 +38,9 @@ jobs:
           fi
           AUTH=(-u "${SONAR_TOKEN}:")
           case "${{ inputs.action }}" in
+            setup_strict_gate)
+              python3 src/crawler/scripts/debug_tools/setup_strict_quality_gate.py
+              ;;
             select_sonar_way)
               # Built-in Sonar way gate id=9 (no overall violations<=0)
               curl -sS --fail-with-body --max-time 10 "${AUTH[@]}" \

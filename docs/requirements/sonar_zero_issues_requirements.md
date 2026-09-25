@@ -80,3 +80,19 @@ SonarCloud API (`https://sonarcloud.io/api/issues/search?componentKeys=AnaharaYa
 4. **FR-016 (S3776 幾何解析系認知的複雑度低減 - 1件)**:
    - `src/crawler/package/utils/plot_shape_analyzer.py:597`: `analyze_plot_shape` から接道間口・奥行推定 `_estimate_frontage_and_depth` および内接矩形・うなぎ判定 `_calculate_mir_and_unagi` を抽出し、複雑度17を低減（<=15）。
 
+## 7. 第4期要件: Strict Quality Gate ＆ 多層防御（Defense-in-Depth）確立 (Issue #436)
+直近PRにて新規Issue（Code Smell）が1件発生したにもかかわらずSonarCloudがQuality Gate Passedと誤承認した問題に対処し、新規Issueが1件でも発生した場合に確実にCIをFAILさせる：
+1. **FR-017 (Strict Quality Gate 策定と適用)**:
+   - SonarCloud上にカバレッジ条件（`new_coverage`, `branch_coverage`）を除外し、新規課題件数 `new_violations > 0` で確実にエラー判定となるカスタムQuality Gate（Strict Gate）を策定・適用する。
+   - `new_security_rating > 1`, `new_reliability_rating > 1`, `new_maintainability_rating > 1`, `new_duplicated_lines_density > 3`, `new_security_hotspots_reviewed < 100` も併せて維持する。
+2. **FR-018 (CIワークフロー自動プロビジョニング & 逆戻り防止)**:
+   - `.github/workflows/sonar.yml` において、Built-in Sonar way (gateId=9) への強制巻き戻し処理を廃止し、Strict Gateの作成・設定（存在確認・条件設定・プロジェクト関連付け）を自律実行するステップに更新する。
+3. **FR-019 (CIレベル多層防御: check_sonar_remote --strict-zero-issues)**:
+   - SonarCloudスキャン後に、`check_sonar_remote.py` にてPRまたは対象ブランチの未解決Issue数を検証し、1件でも残存している場合はCIジョブをexit 1で即座に異常終了させる二重防壁（Safety-Net）を設置する。
+4. **FR-020 (残存Issue S8572 の即時修正)**:
+   - 直近PRで混入した `src/crawler/package/utils/gcp_resources.py` の `logger.error` 例外呼び出しを `logger.exception` に修正し、プロジェクト全体での未解決Issue完全0件を回復する。
+
+## 8. 非機能要件（第4期）
+- **NFR-004 (新規Issue検出率100%)**: PRまたはmasterにおいて、SonarCloudが検知した新規Issue（バグ、脆弱性、コードスメル）が1件以上存在する場合、CIが100%の確実性でFAILすること。
+- **NFR-005 (無関係なカバレッジ起因の誤検知排除)**: `sonar.coverage.exclusions=**` 環境下で、カバレッジ不足に起因する不要なQuality Gateエラーが発生しないこと。
+

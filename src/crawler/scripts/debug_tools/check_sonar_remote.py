@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 SonarCloud Remote Inspection Tool (check_sonar_remote.py)
 Issue #299: Ensures finite timeout on all remote SonarCloud API calls to prevent hanging processes.
@@ -13,14 +11,17 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _crawler_root not in sys.path:
     sys.path.insert(0, _crawler_root)
 
-import setup_env  # noqa: E402
-setup_env.init_environment()
+try:
+    import setup_env
+    setup_env.init_environment()
+except ImportError:
+    pass
 
 DEFAULT_TIMEOUT_SEC: float = 10.0
 DEFAULT_PROJECT_KEY: str = "AnaharaYasuo_realestate_crawler"
@@ -29,15 +30,13 @@ SONARCLOUD_API_BASE: str = "https://sonarcloud.io/api"
 
 class SonarTimeoutException(Exception):
     """Raised when SonarCloud API call exceeds the finite timeout limit."""
-    pass
 
 
 class SonarApiException(Exception):
     """Raised when SonarCloud API returns an error or invalid response."""
-    pass
 
 
-def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str, Any]:
+def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> dict[str, Any]:
     """Execute HTTP GET with strict socket-level finite timeout."""
     if not url.startswith(("http://", "https://")):
         raise SonarApiException(f"Invalid URL scheme, only http/https allowed: {url}")
@@ -52,7 +51,7 @@ def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str
             if not isinstance(data, dict):
                 raise SonarApiException(f"Invalid JSON response: expected dict, got {type(data).__name__}")
             return data
-    except (TimeoutError, socket.timeout) as exc:
+    except TimeoutError as exc:
         raise SonarTimeoutException(f"SonarCloud API request timed out after {timeout}s: {url}") from exc
     except urllib.error.HTTPError as exc:
         raise SonarApiException(f"SonarCloud API HTTP {exc.code} {exc.reason}: {url}") from exc
@@ -68,10 +67,10 @@ def _execute_api_get(url: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> Dict[str
 
 def fetch_quality_gate(
     project_key: str = DEFAULT_PROJECT_KEY,
-    pr_number: Optional[int] = None,
-    branch: Optional[str] = None,
+    pr_number: int | None = None,
+    branch: str | None = None,
     timeout: float = DEFAULT_TIMEOUT_SEC,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch Quality Gate status for project, pull request, or branch."""
     params = {"projectKey": project_key}
     if pr_number is not None:
@@ -90,10 +89,10 @@ def fetch_quality_gate(
 
 def fetch_unresolved_issues(
     project_key: str = DEFAULT_PROJECT_KEY,
-    pr_number: Optional[int] = None,
-    branch: Optional[str] = None,
+    pr_number: int | None = None,
+    branch: str | None = None,
     timeout: float = DEFAULT_TIMEOUT_SEC,
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     """Fetch unresolved issues list and total count."""
     params = {"componentKeys": project_key, "resolved": "false"}
     if pr_number is not None:
@@ -113,7 +112,7 @@ def fetch_unresolved_issues(
     return issues, total
 
 
-def _format_target_info(pr: Optional[int], branch: Optional[str]) -> str:
+def _format_target_info(pr: int | None, branch: str | None) -> str:
     """Format human-readable target string."""
     if pr:
         return f"PR #{pr}"
@@ -126,8 +125,8 @@ def _print_text_summary(
     project_key: str,
     target_info: str,
     timeout: float,
-    qg_status: Dict[str, Any],
-    issues_data: List[Dict[str, Any]],
+    qg_status: dict[str, Any],
+    issues_data: list[dict[str, Any]],
     issues_total: int,
 ) -> None:
     """Print formatted Quality Gate report to stdout."""
@@ -180,7 +179,7 @@ def _positive_finite_float(val_str: str) -> float:
     return val
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         description="SonarCloud Remote Inspection Tool with guaranteed finite timeout"
@@ -196,6 +195,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     parser.add_argument("--issues", action="store_true", help="Also list unresolved issues")
+    parser.add_argument(
+        "--strict-zero-issues",
+        action="store_true",
+        help="Enforce zero unresolved issues: fail with exit code 1 if issues > 0 (Issue #436)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -208,7 +212,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         issues_data = []
         issues_total = 0
-        if args.issues or qg_status.get("status") != "OK":
+        if args.issues or args.strict_zero_issues or qg_status.get("status") != "OK":
             issues_data, issues_total = fetch_unresolved_issues(
                 project_key=args.project,
                 pr_number=args.pr,
@@ -217,11 +221,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
 
         is_ok = qg_status.get("status") == "OK"
+        if args.strict_zero_issues:
+            if issues_total > 0:
+                is_ok = False
+            elif is_ok and not args.json:
+                print("\n[STRICT CHECK] Zero-issues assertion passed.")
+
         if args.json:
             out_obj = {
                 "quality_gate": qg_status,
                 "issues_total": issues_total,
                 "issues": issues_data,
+                "strict_passed": is_ok,
             }
             print(json.dumps(out_obj, ensure_ascii=False, indent=2))
             return 0 if is_ok else 1
@@ -235,6 +246,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             issues_data=issues_data,
             issues_total=issues_total,
         )
+        if args.strict_zero_issues and issues_total > 0:
+            sys.stderr.write(
+                f"\n[STRICT CHECK FAILED] Found {issues_total} unresolved issue(s). Zero issues required.\n"
+            )
         return 0 if is_ok else 1
 
     except SonarTimeoutException as exc:
@@ -243,7 +258,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except SonarApiException as exc:
         sys.stderr.write(f"\n[API ERROR] {exc}\n")
         return 1
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"\n[UNEXPECTED ERROR] {exc}\n")
         return 1
 

@@ -403,8 +403,8 @@ def check_cloud_sql_status(
             return _find_cloud_sql_by_prefix(project, instance, token)
         logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
         return False, f"HTTP {resp.status_code}"
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Cloud SQL status check failed: {e}")
+    except Exception as e:
+        logger.exception("Cloud SQL status check failed")
         return False, str(e)
 
 
