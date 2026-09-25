@@ -255,7 +255,6 @@ def test_proxysql_compute_v1_error_falls_back_to_rest_api(
     mock_instance.get.side_effect = TypeError(
         "RegionInstanceGroupManagersClient.get() got an unexpected keyword argument 'region_instance_group_manager'"
     )
-
     mock_resp_get = MagicMock()
     mock_resp_get.status_code = 200
     mock_resp_get.json.return_value = {
@@ -345,4 +344,3 @@ def test_proxysql_rest_invalid_target_size_triggers_alert(mock_slack):
         assert result.forced_stop is False
         assert "missing or invalid targetSize" in result.details
         mock_slack.assert_called_once()
-
