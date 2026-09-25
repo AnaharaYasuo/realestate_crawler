@@ -609,6 +609,8 @@ task logs
 - **[Prodマージ高速化・CIトリガー最適化要件定義書](docs/requirements/prod_merge_ci_speedup.md)**: リリースPR自動起票、重複レビュー・テスト排除、Dependabot集約要件
 - **[Prodマージ高速化・CIトリガー最適化基本設計書](docs/basic_design/prod_merge_ci_speedup.md)**: CD高速化アーキテクチャ、Fast-Pass設計、Dependabotグループ化
 - **[Prodマージ高速化・CIトリガー最適化内部設計書](docs/internal_design/prod_merge_ci_speedup.md)**: auto-release-pr詳細実装、review-gate/dependabot/coderabbit設定仕様
+- **[CI/CD パイプライン最適化要件定義書](docs/requirements/ci_cd_optimization_requirements.md)**: master push 重複ジョブ廃止・PR提出時一本化・Production Gate 10秒化要件
+- **[CI/CD パイプライン最適化内部設計書](docs/internal_design/ci_cd_optimization_design.md)**: ワークフロー別トリガー見直し・production ブランチ保護ルール詳細仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造

@@ -8,13 +8,6 @@ on:
       - 'src/crawler/package/ml/**'
       - 'src/crawler/scripts/generate_swagger_spec.py'
       - 'docs/api/**'
-  push:
-    branches: [ master, main ]
-    paths:
-      - 'src/crawler/routes/**'
-      - 'src/crawler/package/ml/**'
-      - 'src/crawler/scripts/generate_swagger_spec.py'
-      - 'docs/api/**'
   workflow_dispatch:
 
 permissions:

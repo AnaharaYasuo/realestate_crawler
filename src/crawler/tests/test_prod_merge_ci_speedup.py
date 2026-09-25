@@ -79,20 +79,22 @@ def test_sonar_workflow_excludes_production_pr():
     )
 
 
-def test_review_gate_bypasses_production_pr():
-    """Verify that review-gate.yml contains early success fast-pass logic for production PRs."""
+def test_review_gate_excludes_production_pr():
+    """Verify that review-gate.yml strictly monitors master and excludes production PRs (Issue #456)."""
     rg_path = REPO_ROOT / ".github" / "workflows" / "review-gate.yml"
     assert rg_path.exists(), f"{rg_path} does not exist"
 
+    with open(rg_path, "r", encoding="utf-8") as f:
+        workflow = yaml.safe_load(f)
+
+    pr_trigger = (workflow.get("on") or workflow.get(True))["pull_request"]
+    branches = pr_trigger.get("branches", [])
+    assert "master" in branches, "review-gate.yml must monitor master"
+    assert "production" not in branches, "review-gate.yml must exclude production"
+
     content = rg_path.read_text(encoding="utf-8")
-    assert "targetBranch === 'production'" in content or 'targetBranch === "production"' in content, (
-        "review-gate.yml should check for targetBranch === 'production'"
-    )
-    assert "isSameRepo" in content and "isMasterHead" in content, (
-        "review-gate.yml must verify that production PR originates from same repo and master ref"
-    )
-    assert "Production release PR: review gate bypassed" in content, (
-        "review-gate.yml should set commit status description indicating bypass on production"
+    assert "targetBranch !== 'master'" in content, (
+        "review-gate.yml should skip any PR whose target branch is not master"
     )
     assert "staleChangesRequested" in content, (
         "review-gate.yml should handle stale changes requested from older commits as pending"

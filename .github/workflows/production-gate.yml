@@ -19,8 +19,8 @@ jobs:
         run: |
           echo "Target branch (base): ${{ github.base_ref }}"
           echo "Source branch (head): ${{ github.head_ref }}"
-          if [ "${{ github.head_ref }}" != "master" ]; then
-            echo "::error::Only pull requests from 'master' are allowed into 'production'. (Attempted from: ${{ github.head_ref }})"
+          if [ "${{ github.head_ref }}" != "master" ] || [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "::error::Only pull requests from this repository's 'master' branch are allowed into 'production'. (Attempted from: ${{ github.event.pull_request.head.repo.full_name }}:${{ github.head_ref }})"
             exit 1
           fi
           echo "Source branch is master. Verification passed."
