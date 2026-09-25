@@ -55,6 +55,8 @@
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
 - **リソースオンデマンド・ライフサイクル制御**:
   - 常時課金が発生する ProxySQL MIG（`min_replicas = 0`）および Cloud NAT は、クローリングバッチ稼働時間帯（01:00 JST等）のみオンデマンドで起動・有効化し、処理完了と同時に自動停止（スケールイン `size = 0`）すること。
+  - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL MIG をオンデマンド起動（`0 -> 1`）し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。
+  - DB疎通確認（`wait_for_db.py`）は、短時間のソケット疎通事前チェック（最大3〜5秒）を実施し、未起動・不通時に OS の TCP SYN タイムアウト（130秒×リトライ回数＝1時間）でハングせず迅速に Fail-Fast すること。
   - Terraform デプロイ時の Autoscaler `min_replicas`/`max_replicas` 上書きによる意図しない日中自動スケールアップを防止するため、Autoscaler リソースのポリシー変更を無視（`ignore_changes`）可能とすること。
   - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
 - **Direct VPC Egress への統合**:

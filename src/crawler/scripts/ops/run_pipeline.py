@@ -25,6 +25,11 @@ from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.gcp_resources import (
+    patch_proxysql_autoscaler,
+    scale_proxysql_mig,
+    wait_for_proxysql_health,
+)
 configure_logging()
 logger = logging.getLogger(__name__)
 
@@ -89,6 +94,30 @@ def _check_failed_slack_notifications(failed_slack_file: str) -> None:
             p = str(m.get("message_preview", "")).replace("\r", " ").replace("\n", " ")
             logger.critical("  - [%s] Channel: %s | Error: %s | Preview: %s", t, c, e, p)
         raise RuntimeError("Pipeline finished but some Slack notifications were not delivered successfully.")
+ 
+ 
+def _execute_startup_resources(is_coordinator: bool) -> None:
+    if not os.environ.get("IS_CLOUD"):
+        return
+    if is_coordinator:
+        logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
+        if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
+            logger.error("❌ [Startup Error] Failed to restore ProxySQL Autoscaler.")
+            raise RuntimeError("ProxySQL Autoscaler restore failed.")
+        logger.info("🚀 [Startup: Coordinator] Scaling ProxySQL MIG (0 -> 1)...")
+        success = scale_proxysql_mig(target_size=1)
+        if not success:
+            logger.error("❌ [Startup Error] Failed to scale ProxySQL MIG to 1.")
+            raise RuntimeError("ProxySQL MIG startup failed.")
+    else:
+        logger.info("⏳ [Startup: Worker] Waiting for Coordinator to bring up ProxySQL MIG...")
+
+    logger.info("⏳ [Startup] Verifying ProxySQL port health (startup check)...")
+    healthy = wait_for_proxysql_health(timeout_sec=120)
+    if not healthy:
+        logger.error("❌ [Startup Error] ProxySQL port health check timed out.")
+        raise RuntimeError("ProxySQL health check timed out during startup.")
+    logger.info("✔ [Startup] ProxySQL MIG is healthy and operational!")
 
 
 def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
@@ -216,6 +245,9 @@ def main():
             sys.executable,
             os.path.join(debug_tools_dir, "check_slack_connection.py"),
         ], "Step 0/6: Slack Connection Pre-flight Check")
+
+        # Step 0.2: Start On-Demand Resources & Health Check (Coordinator in Cloud)
+        _execute_startup_resources(is_coordinator)
 
         # Step 0.4: Database Readiness Pre-flight Check
         run_command([

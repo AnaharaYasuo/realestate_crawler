@@ -35,6 +35,7 @@ from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.gcp_resources import (
     scale_proxysql_mig as _gcp_scale_proxysql_mig,
     get_gcp_access_token as _get_gcp_access_token,
+    wait_for_proxysql_health,
 )
 
 try:
@@ -64,30 +65,6 @@ def scale_proxysql_mig(target_size: int = 1, project_id: str | None = None, regi
     if not res and bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")) and not dry_run:
         raise RuntimeError(f"ProxySQL MIG resize failed to scale to {target_size}")
     return res
-
-
-def wait_for_proxysql_health(host: str | None = None, port: int | None = None, timeout_sec: int = 60) -> bool:
-    """ProxySQL のポート (6033) 疎通を確認"""
-    target_host = host or os.getenv("DB_HOST", "127.0.0.1")
-    target_port = int(port or os.getenv("DB_PORT", "6033"))
-
-    # ローカルやコンテナで db:3306 の場合はそのままチェック
-    if not bool(os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")):
-        logger.info(f"[Local/Test] Skipping remote ProxySQL wait, checking {target_host}:{target_port}...")
-        return True
-
-    logger.info(f"Waiting for ProxySQL health at {target_host}:{target_port} (timeout: {timeout_sec}s)...")
-    start = time.time()
-    while time.time() - start < timeout_sec:
-        try:
-            with socket.create_connection((target_host, target_port), timeout=2.0):
-                logger.info(f"ProxySQL is healthy and reachable at {target_host}:{target_port}!")
-                return True
-        except OSError:
-            time.sleep(2)
-
-    logger.warning(f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution.")
-    return False
 
 
 def run_db_migration() -> bool:
