@@ -26,6 +26,7 @@ from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.gcp_resources import (
+    check_cloud_sql_status,
     patch_proxysql_autoscaler,
     scale_proxysql_mig,
     wait_for_proxysql_health,
@@ -100,6 +101,8 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
     if not os.environ.get("IS_CLOUD"):
         return
     if is_coordinator:
+        logger.info("🔍 [Startup: Coordinator] Verifying Cloud SQL instance status...")
+        check_cloud_sql_status()
         logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
         if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
             logger.error("❌ [Startup Error] Failed to restore ProxySQL Autoscaler.")
@@ -113,7 +116,7 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
         logger.info("⏳ [Startup: Worker] Waiting for Coordinator to bring up ProxySQL MIG...")
 
     logger.info("⏳ [Startup] Verifying ProxySQL port health (startup check)...")
-    healthy = wait_for_proxysql_health(timeout_sec=120)
+    healthy = wait_for_proxysql_health(timeout_sec=240)
     if not healthy:
         logger.error("❌ [Startup Error] ProxySQL port health check timed out.")
         raise RuntimeError("ProxySQL health check timed out during startup.")

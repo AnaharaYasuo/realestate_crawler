@@ -65,9 +65,11 @@ sequenceDiagram
 - **実行条件**: クラウド環境（`IS_CLOUD=true` 等）かつ Coordinator（または単一ジョブ実行）時、Step 0.4 (`wait_for_db.py`) の直前に実行。
 - **起動シーケンス**:
   1. `scale_proxysql_mig(target_size=1)` を呼び出し、ProxySQL MIG を 0 台から 1 台へスケールアウト。
-  2. `wait_for_proxysql_health(host=DB_HOST, port=DB_PORT, timeout_sec=120)` を実行し、ポート 6033 へのソケット接続確立をポーリング検証（起動チェック）。
-  3. タイムアウト（120秒）内に応答が得られない場合は例外を送出し、後続の DB 接続ハングを未然に防止。
-  4. Worker タスク（Task Index > 0）は Coordinator による ProxySQL 起動および DB マイグレーションの完了を待機。
+     - **Autoscaler 連携制御**: MIG が Autoscaler 管理下にある場合、GCP API 制約（直接 `resize` 禁止で HTTP 400 エラー）を自動回避し、`patch_proxysql_autoscaler` を通じて `min_replicas=1, max_replicas=2` を更新して安全にスケールアウトをトリガーする。Autoscaler が存在しない場合のみ直接 `resize` を呼び出す。
+  2. `check_cloud_sql_status` により Cloud SQL インスタンスが `RUNNABLE` 稼働中であるかを事前点検。停止中や異常時は即座に警告ログを記録。
+  3. `wait_for_proxysql_health(host=DB_HOST, port=DB_PORT, timeout_sec=240)` を実行し、ポート 6033 へのソケット接続確立をポーリング検証（起動チェック）。Debian VM ブート・初期パッケージ導入・ILB ヘルスチェック通過所要時間を考慮し、240 秒の安全マージンを確保。
+  4. タイムアウト（240秒）内に応答が得られない場合は例外を送出し、後続の DB 接続ハングを未然に防止。
+  5. Worker タスク（Task Index > 0）は Coordinator による ProxySQL 起動および DB マイグレーションの完了を待機。
 
 ### 3.5 DB 待機 Fail-Fast 制御 (`wait_for_db.py`)
 - **問題**: DB ホストが未起動またはネットワーク不通の場合、Django の `connection.ensure_connection()` は OS の TCP SYN タイムアウト（約 130 秒）までブロックされ、40 回リトライで 1 時間以上ハングする。
