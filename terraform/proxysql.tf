@@ -27,8 +27,8 @@ resource "google_compute_address" "proxysql_ip" {
 #trivy:ignore:AVD-GCP-0034
 #trivy:ignore:AVD-GCP-0039
 resource "google_compute_instance" "proxysql_instance" {
-  # checkov:skip=CKV_GCP_37: "Customer-supplied encryption keys not required for proxy layer"
-  # checkov:skip=CKV_GCP_38: "Confidential compute not required for stateless proxy"
+  # checkov:skip=CKV_GCP_37:Customer-supplied encryption keys not required for proxy layer
+  # checkov:skip=CKV_GCP_38:Customer-supplied encryption keys not required for proxy layer
   name                      = "proxysql-instance-${var.environment}"
   machine_type              = var.proxysql_machine_type
   zone                      = "${var.region}-a"
