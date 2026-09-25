@@ -76,7 +76,7 @@ class ResourceInspectionResult:
 class CloudRunExecutionInfo:
     name: str
     job_name: str
-    elapsed_sec: float
+    elapsed_sec: float | None = None
 
 
 def send_slack_alert(message: str, channel: str | None = None) -> None:
@@ -108,7 +108,10 @@ def _get_gcp_access_token() -> str | None:
     if google is not None:
         try:
             credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/compute"]
+                scopes=[
+                    "https://www.googleapis.com/auth/compute",
+                    "https://www.googleapis.com/auth/cloud-platform",
+                ]
             )
             req = google.auth.transport.requests.Request()
             credentials.refresh(req)
@@ -239,11 +242,14 @@ def _parse_timestamp_to_seconds_ago(timestamp_str: str | None) -> float | None:
     try:
         ts = str(timestamp_str).replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         return max(0.0, (now - dt).total_seconds())
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
         return None
+
 
 
 def _get_mig_uptime_seconds(
@@ -317,17 +323,36 @@ def _get_active_cloud_run_executions(
     project_id: str,
     region: str,
     job_prefixes: tuple[str, ...],
-) -> list[CloudRunExecutionInfo]:
-    """Returns active (RUNNING) executions for matching Cloud Run Jobs."""
+) -> tuple[list[CloudRunExecutionInfo], str]:
+    """Returns (active_executions, error_message). On failure, error_message is non-empty."""
     active_jobs: list[CloudRunExecutionInfo] = []
+    last_err: str = ""
 
     # 1. Try run_v2 ExecutionsClient
     if run_v2 is not None and hasattr(run_v2, "ExecutionsClient"):
         try:
             client = run_v2.ExecutionsClient()
+            jobs_client = getattr(run_v2, "JobsClient", None)
+            matched_job_names = []
+            if jobs_client is not None:
+                try:
+                    jc = jobs_client()
+                    for job_obj in jc.list_jobs(
+                        parent=f"projects/{project_id}/locations/{region}",
+                        timeout=10.0,
+                    ):
+                        j_short = getattr(job_obj, "name", "").split("/")[-1]
+                        if any(j_short.startswith(p) for p in job_prefixes):
+                            matched_job_names.append(job_obj.name)
+                except Exception as je:  # noqa: BLE001
+                    logger.debug(f"Failed to list jobs via run_v2 JobsClient: {je}")
+
             req_cls = getattr(run_v2, "ListExecutionsRequest", None)
-            for prefix in job_prefixes:
-                parent = f"projects/{project_id}/locations/{region}/jobs/{prefix}-prod"
+            parents = matched_job_names or [
+                f"projects/{project_id}/locations/{region}/jobs/{prefix}"
+                for prefix in job_prefixes
+            ]
+            for parent in parents:
                 try:
                     if req_cls is not None:
                         resp = client.list_executions(
@@ -343,63 +368,72 @@ def _get_active_cloud_run_executions(
                             elapsed = (
                                 _parse_timestamp_to_seconds_ago(str(create_time))
                                 if create_time
-                                else 0.0
+                                else None
                             )
                             name = getattr(ex, "name", "")
                             job_name = (
                                 name.split("/jobs/")[1].split("/")[0]
                                 if "/jobs/" in name
-                                else prefix
+                                else parent.split("/")[-1]
                             )
                             active_jobs.append(
                                 CloudRunExecutionInfo(
                                     name=name,
                                     job_name=job_name,
-                                    elapsed_sec=elapsed or 0.0,
+                                    elapsed_sec=elapsed,
                                 )
                             )
                 except Exception as inner_e:  # noqa: BLE001
-                    logger.debug(f"Could not list executions for job parent {parent}: {inner_e}")
+                    logger.debug(
+                        f"Could not list executions for job parent {parent}: {inner_e}"
+                    )
             if active_jobs:
-                return active_jobs
+                return active_jobs, ""
         except Exception as e:  # noqa: BLE001
+            last_err = str(e)
             logger.debug(f"Failed to list executions via run_v2: {e}")
 
     # 2. REST API fallback
     token = _get_gcp_access_token()
     if not token:
-        return active_jobs
+        return active_jobs, last_err or ERR_NO_COMPUTE_CLIENT
 
     headers = {"Authorization": f"Bearer {token}"}
     try:
         jobs_url = f"https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs"
         j_resp = requests.get(jobs_url, headers=headers, timeout=10)
-        if j_resp.status_code == 200:
-            jobs_data = j_resp.json().get("jobs", [])
-            for j in jobs_data:
-                j_full_name = j.get("name", "")
-                j_short_name = j_full_name.rstrip("/").split("/")[-1]
-                if any(j_short_name.startswith(p) for p in job_prefixes):
-                    exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
-                    e_resp = requests.get(exec_url, headers=headers, timeout=10)
-                    if e_resp.status_code == 200:
-                        for ex in e_resp.json().get("executions", []):
-                            is_completed = bool(ex.get("completionTime"))
-                            is_cancelled = bool(ex.get("cancelled"))
-                            if not is_completed and not is_cancelled:
-                                create_ts = ex.get("createTime") or ex.get("startTime")
-                                elapsed = _parse_timestamp_to_seconds_ago(create_ts) or 0.0
-                                active_jobs.append(
-                                    CloudRunExecutionInfo(
-                                        name=ex.get("name", ""),
-                                        job_name=j_short_name,
-                                        elapsed_sec=elapsed,
-                                    )
-                                )
+        if j_resp.status_code != 200:
+            return active_jobs, f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
+
+        jobs_data = j_resp.json().get("jobs", [])
+        for j in jobs_data:
+            j_full_name = j.get("name", "")
+            j_short_name = j_full_name.rstrip("/").split("/")[-1]
+            if any(j_short_name.startswith(p) for p in job_prefixes):
+                exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
+                e_resp = requests.get(exec_url, headers=headers, timeout=10)
+                if e_resp.status_code != 200:
+                    return (
+                        active_jobs,
+                        f"HTTP {e_resp.status_code} listing executions for {j_short_name}: {e_resp.text}",
+                    )
+                for ex in e_resp.json().get("executions", []):
+                    is_completed = bool(ex.get("completionTime"))
+                    is_cancelled = bool(ex.get("cancelled"))
+                    if not is_completed and not is_cancelled:
+                        create_ts = ex.get("createTime") or ex.get("startTime")
+                        elapsed = _parse_timestamp_to_seconds_ago(create_ts)
+                        active_jobs.append(
+                            CloudRunExecutionInfo(
+                                name=ex.get("name", ""),
+                                job_name=j_short_name,
+                                elapsed_sec=elapsed,
+                            )
+                        )
+        return active_jobs, ""
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed to query Cloud Run Executions via REST: {e}")
-
-    return active_jobs
+        return active_jobs, str(e)
 
 
 def _cancel_cloud_run_execution(execution_name: str) -> str:
@@ -523,16 +557,36 @@ def check_and_stop_proxysql_mig(
         )
 
     # 2. Check active Cloud Run Jobs (including crawler, ML pricing pipeline, migration)
-    active_jobs = _get_active_cloud_run_executions(
+    active_jobs, exec_err = _get_active_cloud_run_executions(
         project_id=project_id, region=region, job_prefixes=job_prefixes
     )
+    if exec_err:
+        err_msg = (
+            f":rotating_light: *【緊急】Cloud Run Executions取得失敗*: {exec_err}。"
+            f"安全のためProxySQL停止をスキップしました。"
+        )
+        logger.error(err_msg)
+        send_slack_alert(err_msg)
+        return ResourceInspectionResult(
+            was_leaked=True,
+            forced_stop=False,
+            leaked_size=current_target_size,
+            details=exec_err,
+            skipped_reason="api_error",
+        )
 
     if active_jobs:
-        hung_jobs = [j for j in active_jobs if j.elapsed_sec > timeout_threshold_sec]
+        # Unknown/missing elapsed_sec is treated as timed out (failsafe)
+        hung_jobs = [
+            j
+            for j in active_jobs
+            if j.elapsed_sec is None or j.elapsed_sec > timeout_threshold_sec
+        ]
         if not hung_jobs:
             # All active jobs are legitimately running within timeout
             job_desc = ", ".join(
-                f"`{j.job_name}` ({int(j.elapsed_sec)}s)" for j in active_jobs
+                f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+                for j in active_jobs
             )
             info_msg = (
                 f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました*\n"
@@ -551,7 +605,8 @@ def check_and_stop_proxysql_mig(
 
         # Hung jobs detected! Trigger Dual Hard-Kill
         hung_desc = ", ".join(
-            f"`{j.job_name}` ({int(j.elapsed_sec)}s)" for j in hung_jobs
+            f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+            for j in hung_jobs
         )
         warning_msg = (
             f":warning: *【ゾンビ課金アラート】ジョブ異常超過検知*\n"
@@ -572,10 +627,12 @@ def check_and_stop_proxysql_mig(
             )
 
         canceled_names = []
+        cancel_errors = []
         for j in hung_jobs:
             c_err = _cancel_cloud_run_execution(j.name)
             if c_err:
                 logger.warning(f"Failed to cancel {j.name}: {c_err}")
+                cancel_errors.append(f"{j.job_name}: {c_err}")
             else:
                 canceled_names.append(j.name)
 
@@ -585,12 +642,24 @@ def check_and_stop_proxysql_mig(
         else:
             stop_err = _resize_mig_to_zero(project_id, region, mig_name)
 
+        if cancel_errors or stop_err:
+            fail_items = []
+            if cancel_errors:
+                fail_items.append(
+                    f"Job cancel failures: {', '.join(cancel_errors)}"
+                )
+            if stop_err:
+                fail_items.append(f"ProxySQL stop failure: {stop_err}")
+            send_slack_alert(
+                f":rotating_light: *【緊急】強制停止処理で一部失敗が発生しました*: {'; '.join(fail_items)}"
+            )
+
         return ResourceInspectionResult(
             was_leaked=True,
-            forced_stop=not stop_err,
+            forced_stop=not stop_err and len(canceled_names) == len(hung_jobs),
             leaked_size=current_target_size,
             canceled_jobs=canceled_names,
-            details=stop_err,
+            details=stop_err or ("; ".join(cancel_errors)),
         )
 
     # 3. No active jobs (orphaned ProxySQL MIG)
