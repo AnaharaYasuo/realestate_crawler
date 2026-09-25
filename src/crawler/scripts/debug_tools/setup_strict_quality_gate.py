@@ -17,9 +17,11 @@ _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 if _crawler_root not in sys.path:
     sys.path.insert(0, _crawler_root)
 
-import setup_env
-
-setup_env.init_environment()
+try:
+    import setup_env
+    setup_env.init_environment()
+except ImportError:
+    pass
 
 logger = logging.getLogger(__name__)
 
