@@ -357,7 +357,7 @@ jobs:
               { name: 'CodeQL Scan', match: (n) => n.toLowerCase().includes('codeql scan') },
               { name: 'Trivy Security Scan', match: (n) => n.toLowerCase().includes('trivy') },
               { name: 'Semgrep SAST Scan', match: (n) => n.toLowerCase().includes('semgrep') },
-              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov') }
+              { name: 'Checkov IaC Scan', match: (n) => n.toLowerCase().includes('checkov iac') }
             ] : [];
 
             const allowedConclusions = ['success'];
@@ -366,7 +366,13 @@ jobs:
             const missingSecurityChecks = [];
 
             for (const req of requiredSecurityChecks) {
-              const matched = allCheckRuns.filter(c => req.match(c.name || ''));
+              const matched = allCheckRuns.filter(c => {
+                // Ignore external / SARIF ingestion runs from GitHub Advanced Security that queue asynchronously
+                if (c.app && c.app.slug && c.app.slug !== 'github-actions') {
+                  return false;
+                }
+                return req.match(c.name || '');
+              });
               if (matched.length === 0) {
                 missingSecurityChecks.push(req.name);
                 continue;
