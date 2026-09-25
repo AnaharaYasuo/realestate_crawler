@@ -77,48 +77,30 @@ terraform/
   - 実行引数: `["python", "src/crawler/scripts/ops/run_pipeline.py"]`
   - 共有メモリ設定: in-memory `emptyDir` ボリュームを `/dev/shm` にマウント（Playwright クラッシュ防止）
   - VPC コネクタ接続: `vpc_access.egress = ALL_TRAFFIC` (全外部通信を Cloud NAT 経由にして固定IP化)
-  - データベース接続: ProxySQL ILB (`google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address:6033`) へルーティング。環境変数 `DB_POOL_SIZE = "2"`, `DB_MAX_OVERFLOW = "1"` により各ワーカーのアイドル接続を抑制
+  - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "2"`, `DB_MAX_OVERFLOW = "1"` により各ワーカーのアイドル接続を抑制
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
 - `google_cloud_run_v2_job` (DBマイグレーション `migrate_job`):
   - DDL スキーマ更新のため、直接 Cloud SQL (`google_sql_database_instance.mysql_instance.private_ip_address:3306`) に接続
 - `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`):
-  - データベース接続: ProxySQL ILB (`google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address:6033`) へルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定
+  - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定
 
 ### 3.4 コネクションプーリング層 (`proxysql.tf`)
 - `google_service_account`: ProxySQL インスタンス専用の最小権限サービスアカウント (`proxysql-sa-${var.environment}`)
-- `google_compute_instance_template`:
-  - マシンタイプ: `e2-micro`
+- `google_compute_address.proxysql_ip`:
+  - サブネット内の静的プライベート IP (`10.0.0.10`)。ILB を用いず直接名前解決・ルーティング可能とする。
+- `google_compute_instance.proxysql_instance`:
+  - マシンタイプ: `var.proxysql_machine_type` (初期値: `e2-micro`。トラフィック増加時は垂直スケールアップ)
+  - ゾーン: `${var.region}-a`
   - OSイメージ: `debian-cloud/debian-12`
-  - ネットワーク: `google_compute_subnetwork.subnet.id` (外部IPなし、プライベートIPのみ)
-  - タグ: `["proxysql", "allow-health-check"]`
-  - 管理認証情報 (`admin_variables`): `random_password.proxysql_admin_password` により生成されたランダムパスワードを適用（デフォルト固定値の排除）
-  - バックエンド監視設定 (`mysql_variables`): `monitor_username = "monitor"`, `monitor_password = "${random_password.db_monitor_password.result}"`, `monitor_ping_interval = 10000`, `monitor_read_only_interval = 15000` を明示設定し、`Access denied (MY-010926)` を解消
-  - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、耐用上限ギリギリ（デフォルト 50 コネクション/台 = 2台で計100）のコネクション多重化設定、ポート 6033/6032 のリスニング開始
-- `google_compute_region_instance_group_manager`:
-  - リージョン配置 MIG (2ゾーン分散: `asia-northeast1-a`, `asia-northeast1-c`)
-  - ローリングアップデートポリシー: `PROACTIVE`, `minimal_action = REPLACE`, `max_surge_fixed = 2` (リージョンMIGのゾーン数に合わせゼロダウンタイム更新), `max_unavailable_fixed = 0`
-  - インスタンス管理は `google_compute_region_autoscaler` に委譲
-  - 自動復旧ポリシー: `google_compute_region_health_check` と連携し、異常インスタンスを自動再作成
-- `google_compute_region_autoscaler`:
-  - リージョン MIG オートスケーラー (`proxysql-autoscaler-${var.environment}`)
-  - 最小インスタンス数: 1 (`min_replicas = 1`)
-  - 最大インスタンス数: 2 (`max_replicas = 2`)
-  - スケーリングポリシー: CPU 使用率 70% (`cpu_utilization.target = 0.7`)
-- `google_compute_region_health_check`:
-  - プロトコル: TCP (ポート 6033)
-  - チェック間隔: 10秒, タイムアウト: 5秒, 正常判定: 2回, 異常判定: 3回
-- `google_compute_region_backend_service`:
-  - 内部TCPロードバランサー (ILB) 用バックエンドサービス (`load_balancing_scheme = "INTERNAL"`, `protocol = "TCP"`)
-  - バックエンド: `google_compute_region_instance_group_manager.proxysql_mig.instance_group`
-  - ヘルスチェック紐付け: `google_compute_region_health_check.proxysql_health_check.id`
-  - コネクションドレイン: `connection_draining_timeout_sec = 300` (スケールイン時のクエリ切断防止)
-- `google_compute_forwarding_rule`:
-  - ILB 転送ルール (`load_balancing_scheme = "INTERNAL"`, `ip_protocol = "TCP"`, `ports = ["6033"]`)
-  - サブネット: `google_compute_subnetwork.subnet.id`
-  - `allow_global_access = true`
+  - ネットワーク: `google_compute_subnetwork.subnet.id`、静的内部 IP (`google_compute_address.proxysql_ip.address`)、外部IPなし
+  - タグ: `["proxysql"]`
+  - 管理認証情報 (`admin_variables`): `random_password.proxysql_admin_password` により生成されたランダムパスワードを適用
+  - バックエンド監視設定 (`mysql_variables`): `monitor_username = "monitor"`, `monitor_password = "${random_password.db_monitor_password.result}"` を設定
+  - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、コネクション多重化設定、ポート 6033/6032 のリスニング開始
 - `google_compute_firewall`:
-  - `allow-proxysql-health-check`: GCP ヘルスチェック IP (`35.191.0.0/16`, `130.211.0.0/22`) からのポート 6032, 6033 アクセス許可
-  - `allow-proxysql-internal`: VPC 内部および VPC Connector (`10.0.0.0/24`, `10.8.0.0/28`) からのポート 6033 アクセス許可
+  - `allow-proxysql-internal`: VPC 内部サブネット (`10.0.0.0/24`) からのポート 6033 アクセス許可
+- **ILB (Forwarding Rule / Backend Service / Health Check) の廃止**:
+  - 常時課金が発生する転送ルールを完全削除し、Direct VPC Egress から ProxySQL の静的内部 IP への直結により月額固定費を削減。
 
 ### 3.5 コンテナリポジトリ & ライフサイクル設計 (`artifact_registry.tf`)
 - `google_artifact_registry_repository` (`crawler_repo`):

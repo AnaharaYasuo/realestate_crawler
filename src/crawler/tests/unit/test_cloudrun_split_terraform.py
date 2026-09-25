@@ -32,5 +32,5 @@ def test_terraform_crawler_worker_service_defined():
         "cloud_run_crawler_service.tf must define crawler_worker_service"
     assert "realestate-crawler-worker-" in content, \
         "crawler_worker_service must have name realestate-crawler-worker-${var.environment}"
-    assert "proxysql_forwarding_rule" in content, \
-        "crawler_worker_service must route DB_HOST to ProxySQL forwarding rule"
+    assert "proxysql_forwarding_rule" in content or "proxysql_ip" in content, \
+        "crawler_worker_service must route DB_HOST to ProxySQL (forwarding rule or static IP)"

@@ -7,7 +7,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
   depends_on = [
     google_project_service.enabled_services,
     google_sql_database_instance.mysql_instance,
-    google_vpc_access_connector.vpc_connector,
+    google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.estimation_api_key_version,
     google_secret_manager_secret_iam_member.secret_accessor
@@ -22,7 +22,10 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
     }
 
     vpc_access {
-      connector = google_vpc_access_connector.vpc_connector.id
+      network_interfaces {
+        network    = google_compute_network.vpc_network.name
+        subnetwork = google_compute_subnetwork.subnet.name
+      }
       egress    = "PRIVATE_RANGES_ONLY" # Cloud SQLへのDB通信のみVPC経由。NAT停止時も外部スクレイピング疎通可能
     }
 

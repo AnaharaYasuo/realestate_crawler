@@ -447,6 +447,208 @@ def _scale_direct_mig(
     return False
 
 
+
+def get_instance_status(
+    project_id: str,
+    zone: str,
+    instance_name: str,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> tuple[str, str]:
+    """Retrieve Compute Engine instance status (e.g. 'RUNNING', 'TERMINATED') and error message."""
+    last_err = ""
+    if compute_module is not None and hasattr(compute_module, "InstancesClient"):
+        try:
+            client = compute_module.InstancesClient()
+            inst = client.get(
+                project=project_id,
+                zone=zone,
+                instance=instance_name,
+                timeout=10.0,
+            )
+            raw_status = getattr(inst, "status", "")
+            return str(raw_status), ""
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to get instance status via compute_v1: {e}")
+            last_err = str(e)
+    else:
+        last_err = "compute_v1 not available"
+
+    token_fn = get_token_callback or get_gcp_access_token
+    token = token_fn()
+    if not token:
+        return "UNKNOWN", f"{last_err}; No GCP token"
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/zones/{zone}/instances/{instance_name}"
+    try:
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return str(data.get("status", "UNKNOWN")), ""
+        return "UNKNOWN", f"HTTP {resp.status_code}: {resp.text}"
+    except Exception as e:  # noqa: BLE001
+        return "UNKNOWN", str(e)
+
+
+def _execute_instance_action(
+    action: str,
+    project: str,
+    zone: str,
+    instance_name: str,
+    compute_module: Any,
+    token_fn: Callable[[], str | None],
+) -> bool:
+    """Execute start/stop action via compute_v1 or fallback to REST API."""
+    if compute_module is not None and hasattr(compute_module, "InstancesClient"):
+        try:
+            client = compute_module.InstancesClient()
+            method = getattr(client, action)
+            op = method(
+                project=project,
+                zone=zone,
+                instance=instance_name,
+            )
+            logger.info(
+                f"Instance {action} operation submitted via compute_v1: {getattr(op, 'name', op)}"
+            )
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to {action} instance via compute_v1: {e}")
+
+    token = token_fn()
+    if not token:
+        logger.error(f"No GCP access token available to {action} ProxySQL instance via REST.")
+        return False
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{zone}/instances/{instance_name}/{action}"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code in (200, 204):
+            logger.info(f"Instance {action} operation submitted via REST API: HTTP {resp.status_code}")
+            return True
+        logger.error(f"REST API {action} failed: HTTP {resp.status_code} - {resp.text}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"REST API {action} request error: {e}")
+
+    return False
+
+
+def start_proxysql_instance(
+    project_id: str | None = None,
+    zone: str | None = None,
+    instance_name: str | None = None,
+    dry_run: bool = False,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> bool:
+    """Start single ProxySQL Compute Engine instance."""
+    project = (
+        project_id
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
+    )
+    reg = os.getenv("GCP_REGION", "asia-northeast1")
+    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    inst_name = instance_name or os.getenv(
+        "PROXYSQL_INSTANCE_NAME", f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}"
+    )
+
+    logger.info(
+        f"Starting ProxySQL instance '{inst_name}' (project: {project}, zone: {inst_zone}, dry_run: {dry_run})"
+    )
+    if dry_run or not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        logger.info(f"[Dry-run/Local] ProxySQL instance '{inst_name}' started (mocked).")
+        return True
+
+    status, _ = get_instance_status(
+        project, inst_zone, inst_name, compute_module=compute_module, get_token_callback=get_token_callback
+    )
+    if status == "RUNNING":
+        logger.info(f"ProxySQL instance '{inst_name}' is already RUNNING.")
+        return True
+
+    return _execute_instance_action(
+        "start", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+    )
+
+
+def stop_proxysql_instance(
+    project_id: str | None = None,
+    zone: str | None = None,
+    instance_name: str | None = None,
+    dry_run: bool = False,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> bool:
+    """Stop single ProxySQL Compute Engine instance."""
+    project = (
+        project_id
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
+    )
+    reg = os.getenv("GCP_REGION", "asia-northeast1")
+    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    inst_name = instance_name or os.getenv(
+        "PROXYSQL_INSTANCE_NAME", f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}"
+    )
+
+    logger.info(
+        f"Stopping ProxySQL instance '{inst_name}' (project: {project}, zone: {inst_zone}, dry_run: {dry_run})"
+    )
+    if dry_run or not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        logger.info(f"[Dry-run/Local] ProxySQL instance '{inst_name}' stopped (mocked).")
+        return True
+
+    status, _ = get_instance_status(
+        project, inst_zone, inst_name, compute_module=compute_module, get_token_callback=get_token_callback
+    )
+    if status in ("TERMINATED", "STOPPED", "STOPPING"):
+        logger.info(f"ProxySQL instance '{inst_name}' is already {status}.")
+        return True
+
+    return _execute_instance_action(
+        "stop", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+    )
+
+
+def _delegate_to_single_instance(
+    target_size: int,
+    project: str,
+    reg: str,
+    instance_name: str,
+    dry_run: bool,
+    compute_module: Any,
+    get_token_callback: Callable[[], str | None] | None,
+) -> bool:
+    """Delegate scale request to single ProxySQL instance."""
+    zone = os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    if target_size > 0:
+        return start_proxysql_instance(
+            project_id=project,
+            zone=zone,
+            instance_name=instance_name,
+            dry_run=dry_run,
+            compute_module=compute_module,
+            get_token_callback=get_token_callback,
+        )
+    return stop_proxysql_instance(
+        project_id=project,
+        zone=zone,
+        instance_name=instance_name,
+        dry_run=dry_run,
+        compute_module=compute_module,
+        get_token_callback=get_token_callback,
+    )
+
+
 def scale_proxysql_mig(
     target_size: int = 1,
     project_id: str | None = None,
@@ -456,8 +658,9 @@ def scale_proxysql_mig(
     compute_module: Any = compute_v1,
     get_token_callback: Callable[[], str | None] | None = None,
 ) -> bool:
-    """ProxySQL MIG のサイズを変更 (0 -> 1 または 1 -> 0)。
+    """ProxySQL MIG または単一インスタンスのサイズを変更 (0 -> 1 または 1 -> 0)。
 
+    PROXYSQL_INSTANCE_NAME 環境変数が設定されている場合は単一インスタンスの起動/停止を実行。
     Autoscaler 管理下の MIG の場合は patch_proxysql_autoscaler を呼出し、
     直接 resize API (GCPにより拒否される) の発行を回避する。
     """
@@ -470,6 +673,13 @@ def scale_proxysql_mig(
     mig = mig_name or os.getenv(
         "PROXYSQL_MIG_NAME", f"proxysql-mig-{os.getenv('ENVIRONMENT', 'prod')}"
     )
+
+    # 単一インスタンス構成 (Direct VPC Egress 移行後) の自動委任
+    instance_name = os.getenv("PROXYSQL_INSTANCE_NAME")
+    if instance_name:
+        return _delegate_to_single_instance(
+            target_size, project, reg, instance_name, dry_run, compute_module, get_token_callback
+        )
 
     logger.info(
         f"Scaling ProxySQL MIG '{mig}' to size {target_size} (project: {project}, region: {reg}, dry_run: {dry_run})"

@@ -38,9 +38,14 @@ output "budget_pubsub_topic" {
   value       = google_pubsub_topic.budget_alert_topic.id
 }
 
+output "proxysql_ip" {
+  description = "Private IP address for ProxySQL Connection Pool"
+  value       = google_compute_address.proxysql_ip.address
+}
+
 output "proxysql_ilb_ip" {
-  description = "Internal Load Balancer Private IP for ProxySQL Connection Pool"
-  value       = google_compute_forwarding_rule.proxysql_forwarding_rule.ip_address
+  description = "Private IP for ProxySQL Connection Pool (Backward-compatibility alias)"
+  value       = google_compute_address.proxysql_ip.address
 }
 
 output "proxysql_port" {

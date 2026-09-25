@@ -35,3 +35,8 @@ GCP-0066
 # Dockerfile: クローラー実行コンテナおよびPlaywrightブラウザサンドボックス・cron常駐要件
 DS-0002
 DS-0026
+
+# ProxySQL 単一インスタンス OS Login (metadataにて設定済み)
+AVD-GCP-0036
+GCP-0036
+
