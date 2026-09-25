@@ -318,20 +318,33 @@ def _find_cloud_sql_by_prefix(
         resp = requests.get(
             list_url, headers={"Authorization": f"Bearer {token}"}, timeout=5
         )
-        if resp.status_code == 200:
-            items = resp.json().get("items", [])
-            for inst in items:
-                name = inst.get("name", "")
-                if name == prefix or name.startswith(f"{prefix}-"):
-                    state = inst.get("state", "UNKNOWN")
-                    act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
-                    logger.info(
-                        f"Cloud SQL '{name}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
-                    )
-                    return state == "RUNNABLE", state
+        if resp.status_code != 200:
+            return False, f"HTTP {resp.status_code}"
+
+        items = resp.json().get("items", [])
+        matches = [
+            inst
+            for inst in items
+            if inst.get("name") == prefix
+            or inst.get("name", "").startswith(f"{prefix}-")
+        ]
+        if len(matches) == 1:
+            inst = matches[0]
+            state = inst.get("state", "UNKNOWN")
+            act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
+            logger.info(
+                f"Cloud SQL '{inst.get('name')}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
+            )
+            return state == "RUNNABLE", state
+        if len(matches) > 1:
+            logger.warning(
+                f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in matches]}"
+            )
+            return False, "MULTIPLE_MATCHES"
+        return False, "HTTP 404"
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}")
-    return False, "HTTP 404"
+        return False, str(e)
 
 
 def check_cloud_sql_status(

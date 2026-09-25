@@ -378,11 +378,15 @@ def test_check_cloud_sql_status_404_prefix_match_success(monkeypatch):
         },
     )
 
-    with patch("requests.get", side_effect=[mock_404, mock_list_200]), \
+    with patch("requests.get", side_effect=[mock_404, mock_list_200]) as mock_get, \
          patch.object(gcp_resources, "get_gcp_access_token", return_value="fake-token"):
         ok, state = gcp_resources.check_cloud_sql_status()
         assert ok is True
         assert state == "RUNNABLE"
+        assert [call.args[0] for call in mock_get.call_args_list] == [
+            "https://sqladmin.googleapis.com/v1/projects/sumifu/instances/realestate-mysql-prod",
+            "https://sqladmin.googleapis.com/v1/projects/sumifu/instances",
+        ]
 
 
 def test_check_cloud_sql_status_404_prefix_match_not_found(monkeypatch):
@@ -397,11 +401,40 @@ def test_check_cloud_sql_status_404_prefix_match_not_found(monkeypatch):
         json=lambda: {"items": [{"name": "other-db-instance", "state": "RUNNABLE"}]},
     )
 
-    with patch("requests.get", side_effect=[mock_404, mock_list_empty]), \
+    with patch("requests.get", side_effect=[mock_404, mock_list_empty]) as mock_get, \
          patch.object(gcp_resources, "get_gcp_access_token", return_value="fake-token"):
         ok, state = gcp_resources.check_cloud_sql_status()
         assert ok is False
         assert state == "HTTP 404"
+        assert [call.args[0] for call in mock_get.call_args_list] == [
+            "https://sqladmin.googleapis.com/v1/projects/sumifu/instances/realestate-mysql-prod",
+            "https://sqladmin.googleapis.com/v1/projects/sumifu/instances",
+        ]
+
+
+def test_check_cloud_sql_status_404_multiple_matches(monkeypatch):
+    """Verify check_cloud_sql_status returns False and MULTIPLE_MATCHES when prefix is ambiguous."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("CLOUDSQL_INSTANCE_NAME", "realestate-mysql-prod")
+
+    mock_404 = MagicMock(status_code=404)
+    mock_list_multiple = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "items": [
+                {"name": "realestate-mysql-prod-aaa", "state": "RUNNABLE"},
+                {"name": "realestate-mysql-prod-bbb", "state": "RUNNABLE"},
+            ]
+        },
+    )
+
+    with patch("requests.get", side_effect=[mock_404, mock_list_multiple]), \
+         patch.object(gcp_resources, "get_gcp_access_token", return_value="fake-token"):
+        ok, state = gcp_resources.check_cloud_sql_status()
+        assert ok is False
+        assert state == "MULTIPLE_MATCHES"
+
 
 
 
