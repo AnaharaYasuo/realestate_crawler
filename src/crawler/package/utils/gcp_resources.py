@@ -309,6 +309,31 @@ def get_mig_info(
     return -1, f"{err}; {rest_err}", None
 
 
+def _find_cloud_sql_by_prefix(
+    project: str, prefix: str, token: str
+) -> tuple[bool, str]:
+    """Find Cloud SQL instance whose name matches prefix (e.g. realestate-mysql-prod-*) on 404."""
+    list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
+    try:
+        resp = requests.get(
+            list_url, headers={"Authorization": f"Bearer {token}"}, timeout=5
+        )
+        if resp.status_code == 200:
+            items = resp.json().get("items", [])
+            for inst in items:
+                name = inst.get("name", "")
+                if name == prefix or name.startswith(f"{prefix}-"):
+                    state = inst.get("state", "UNKNOWN")
+                    act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
+                    logger.info(
+                        f"Cloud SQL '{name}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
+                    )
+                    return state == "RUNNABLE", state
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}")
+    return False, "HTTP 404"
+
+
 def check_cloud_sql_status(
     project_id: str | None = None,
     instance_name: str | None = None,
@@ -350,6 +375,8 @@ def check_cloud_sql_status(
                 f"Cloud SQL '{instance}' state: {state}, activationPolicy: {act_policy}"
             )
             return state == "RUNNABLE", state
+        if resp.status_code == 404:
+            return _find_cloud_sql_by_prefix(project, instance, token)
         logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
         return False, f"HTTP {resp.status_code}"
     except Exception as e:  # noqa: BLE001
