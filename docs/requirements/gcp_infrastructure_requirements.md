@@ -75,9 +75,15 @@
   - 月額予算額（初期値: 10,000円）に対し、実費用の 50%, 80%, 100% 到達時、および「月末予測値が120%に達する見込み」の時点で即座にメールおよびPub/Subへアラートを発報すること。
 - **早期警戒 (Forecasted Alert)**:
   - クローラー暴走や不慮のリソース増大が発生した際、月末を待たずに早期検知できること。
-- **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails)**:
-  - バッチ異常終了やクラッシュによって ProxySQL MIG や Cloud NAT が停止しなかった場合に備え、夜間バッチ稼働時間帯（JST 02:00〜06:00 の毎時）にリソース停止状態を自動点検し、稼働中の場合は強制停止 (`size = 0`) して Slack へ警告を発報するデッドマンズスイッチを備えること。
-  - 日中帯（06:00〜24:00 JST）に ProxySQL インスタンスが稼働している場合は、Cloud Monitoring から重大度 ERROR で即時アラートを発報すること。
+- **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails / Execution-Aware Safety Net)**:
+  - 時刻ベースの単純強制停止ではなく、**Cloud Run Job Execution の稼働状態と因果関係に基づく動的停止判定**を行うこと。
+  - **稼働状態判定 & 執行猶予 (Grace Period)**:
+    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
+    - ProxySQL 起動（または target_size 変更）から 10分間（600秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）を完全に遮断すること。
+  - **完全停止戦略 (Dual Hard-Kill on Hang)**:
+    - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + 猶予）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL MIG (size -> 0) の両方を同時に強制停止**してコンテナ課金とインスタンス課金を完全に遮断すること。
+  - **親不在時の即時停止**:
+    - 関連する Cloud Run Job Execution が存在しない（親不在）かつ Grace Period を超過している場合は、直ちに ProxySQL MIG を 0 台に縮退して Slack へ通知すること。
 - **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
   - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL MIG を 0 台へ縮小（teardown）完了して終了すること。
   - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown（`scale_proxysql_mig(target_size=0)`）を実行して MIG の 0 台縮小を保証すること。
