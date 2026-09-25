@@ -96,3 +96,13 @@ SonarCloud API (`https://sonarcloud.io/api/issues/search?componentKeys=AnaharaYa
 - **NFR-004 (新規Issue検出率100%)**: PRまたはmasterにおいて、SonarCloudが検知した新規Issue（バグ、脆弱性、コードスメル）が1件以上存在する場合、CIが100%の確実性でFAILすること。
 - **NFR-005 (無関係なカバレッジ起因の誤検知排除)**: `sonar.coverage.exclusions=**` 環境下で、カバレッジ不足に起因する不要なQuality Gateエラーが発生しないこと。
 
+## 9. 第5期要件: gcp_resources 認知的複雑度低減 & ゼロIssue回復 (Issue #442)
+Strict Quality Gate導入に伴い、`src/crawler/package/utils/gcp_resources.py` の新規変更行周辺で検知された認知的複雑度超過（S3776）を完全解消する：
+1. **FR-021 (gcp_resources._find_cloud_sql_by_prefix 認知的複雑度低減)**:
+   - `_find_cloud_sql_by_prefix` の認知的複雑度（現状16）を許容上限15以下（目標<=12）へ低減する。
+   - インスタンスプレフィックスマッチ判定ロジックおよび結果評価ロジックを責務別に単機能関数へ抽出し、ループ・分岐ネストを平坦化する。
+2. **FR-022 (機能等価性と後方互換性の維持)**:
+   - 外部・内部インターフェース（戻り値型 `tuple[bool, str]`、例外ハンドリング、ログフォーマット）の完全な互換性を維持する。
+   - 既存の25件のユニットテストおよび追加テストが全件パスすること。
+
+

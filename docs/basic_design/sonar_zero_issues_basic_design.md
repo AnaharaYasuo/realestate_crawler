@@ -193,5 +193,24 @@ flowchart TD
 | **branch_coverage** | 未設定 | `< 80.0%` (罠) | **除外 (設定なし)** | カバレッジ未測定による誤爆防止 |
 | **violations** (全体) | 未設定 | `> 0` | **未設定または新コード優先** | master historical debtによる巻き込み防止 |
 
+## 6. 第5期: gcp_resources 認知的複雑度低減設計 (Issue #442)
+
+### 6.1 課題と構造分析
+- `src/crawler/package/utils/gcp_resources.py` の `_find_cloud_sql_by_prefix` は、Cloud SQLインスタンス一覧のページネーションループ (`while True`)、名前マッチング (`for` + `if ... or ...`)、マッチ件数に応じた評価分岐 (`len == 1`, `len > 1`, `len == 0`)、例外捕捉 (`try ... except`) が1関数内に同居しており、認知的複雑度 16（許容上限 15）に達していた。
+
+### 6.2 責務分割設計
+```mermaid
+flowchart TD
+    MAIN[_find_cloud_sql_by_prefix<br/>複雑度: 2]
+    
+    MAIN --> FETCH[_fetch_cloud_sql_instances_by_prefix<br/>ページネーション・HTTP取得<br/>複雑度: 12]
+    FETCH --> MATCH[_is_prefix_matched<br/>プレフィックス一致判定<br/>複雑度: 1]
+    
+    MAIN --> EVAL[_evaluate_sql_instances_matches<br/>件数判定・ステータス評価<br/>複雑度: 2]
+```
+
+- 各関数の認知的複雑度を最大でも 12（許容上限 15）以下に抑え、SonarCloud S3776 を完全クリアする。
+
+
 
 
