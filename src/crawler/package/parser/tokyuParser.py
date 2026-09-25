@@ -143,24 +143,27 @@ class TokyuParser(ParserBase):
                     'row_element': target_wrapper,
                 }
 
+    def _extract_specs_from_row(self, tr, header_selector, value_selector, specs: dict) -> None:
+        dds = tr.select(value_selector)
+        dts = tr.select(header_selector)
+        for j, th in enumerate(dts):
+            th_title = th.get_text(strip=True) if len(th.contents) > 0 else "Unknown"
+            if not th_title:
+                th_title = "Unknown"
+            th_title = th_title.rstrip("：").rstrip(":")
+            if len(dds) <= j:
+                continue
+            if th_title not in specs or specs[th_title]['value'] == "":
+                specs[th_title] = {
+                    'value': dds[j].get_text(strip=True),
+                    'element': dds[j],
+                    'links': [a.text for a in dds[j].select('a')],
+                    'row_element': tr,
+                }
+
     def _scrape_row_dt_dd(self, rows, header_selector, value_selector, specs: dict) -> None:
         for tr in rows:
-            dds = tr.select(value_selector)
-            dts = tr.select(header_selector)
-            for j, th in enumerate(dts):
-                th_title = th.get_text(strip=True) if len(th.contents) > 0 else "Unknown"
-                if not th_title:
-                    th_title = "Unknown"
-                th_title = th_title.rstrip("：").rstrip(":")
-                if len(dds) <= j:
-                    continue
-                if th_title not in specs or specs[th_title]['value'] == "":
-                    specs[th_title] = {
-                        'value': dds[j].get_text(strip=True),
-                        'element': dds[j],
-                        'links': [a.text for a in dds[j].select('a')],
-                        'row_element': tr,
-                    }
+            self._extract_specs_from_row(tr, header_selector, value_selector, specs)
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
         """

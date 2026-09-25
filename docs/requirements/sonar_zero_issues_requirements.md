@@ -60,3 +60,23 @@ SonarCloud API (`https://sonarcloud.io/api/issues/search?componentKeys=AnaharaYa
    - S1172 (1件): `tokyuParser` の未使用引数 `specs` を `_specs=None` に改名。
    - S7780 (1件): `slack_agent_host.js` の文字列エスケープを `String.raw` に置換。
 
+## 6. 第3期最終要件: SonarCloud残存オープン課題（最後の13件）の完全ゼロ化 (Issue #428)
+第2期対応後にSonarCloud上でオープンとして残存していた最終13件の課題を、コードリファクタリングおよびコメントコード削除により完全ゼロ化する：
+1. **FR-013 (S125 コメントアウトコード削除 - 1件)**:
+   - `src/crawler/package/utils/building_resolver.py:2-5`: モジュール冒頭のS125誤検知対象コメント・ブロックを削除。
+2. **FR-014 (S3776 パーサー系認知的複雑度低減 - 6件)**:
+   - `src/crawler/package/parser/tokyuParser.py:146`: `_scrape_row_dt_dd` から行単位抽出 `_extract_specs_from_row` を抽出し、二重ループのネスト複雑度を16から低減（<=15）。
+   - `src/crawler/package/parser/mitsuiParser.py:1169`: `_parsePropertyDetailPage` から動的ディスパッチ処理 `_delegate_shumoku_parser` を抽出し、複雑度を16から低減（<=15）。
+   - `src/crawler/package/parser/misawaParser.py:251`: `_getTrafficField` からバス交通フィールド抽出 `_extract_bus_field` を抽出し、分岐複雑度を22から低減（<=15）。
+   - `src/crawler/package/parser/nomuraParser.py:220`: `_getTrafficField` から `_extract_bus_field` および `_extract_railway_walk` を抽出し、複雑度を26から低減（<=15）。
+   - `src/crawler/package/parser/baseParser.py:1319`: `_parseMaguchi` から正規表現数値変換 `_extract_maguchi_decimal` を抽出し、複雑度を16から低減（<=15）。
+   - `src/crawler/package/parser/homesParser.py:583`: `_parsePropertyDetailPage` にテーブルテキスト抽出ヘルパー `_get_table_text` を導入し、三項演算子と分岐の連続による複雑度20を低減（<=15）。
+3. **FR-015 (S3776 機械学習・評価系認知的複雑度低減 - 5件)**:
+   - `src/crawler/package/ml/train.py:161`: `_extract_unit_price_record` から面積算出ロジック `_determine_eval_area` を抽出し、複雑度17を低減（<=15）。
+   - `src/crawler/package/ml/train.py:262`: `_generate_single_dummy_record` から面積サンプリング `_sample_dummy_areas` および種別属性生成 `_resolve_dummy_type_attributes` を抽出し、複雑度20を低減（<=15）。
+   - `src/crawler/package/ml/train.py:741`: `main` 内の種別別ループ処理を `_train_single_ptype_models` に抽出し、複雑度17を低減（<=15）。
+   - `src/crawler/package/ml/predict.py:330`: `_serialize_property` から `_prop_val`, `_prop_to_float`, `_serialize_chikunengetsu_field`, `_serialize_type_specific_fields` を抽出し、ネスト関数と複雑度20を低減（<=15）。
+   - `src/crawler/package/ml/investment_evaluator.py:44`: `parse_chikunen` から元号計算 `_parse_era_year` を抽出し、インライン `import re` を排除して複雑度19を低減（<=15）。
+4. **FR-016 (S3776 幾何解析系認知的複雑度低減 - 1件)**:
+   - `src/crawler/package/utils/plot_shape_analyzer.py:597`: `analyze_plot_shape` から接道間口・奥行推定 `_estimate_frontage_and_depth` および内接矩形・うなぎ判定 `_calculate_mir_and_unagi` を抽出し、複雑度17を低減（<=15）。
+

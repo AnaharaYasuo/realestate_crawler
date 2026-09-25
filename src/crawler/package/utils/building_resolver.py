@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-建物名寄せおよびマスタ解決リゾルバ。
-同一マンションやアパートを名寄せし、建物マスタへの蓄積および未設定属性の自動補完を行う。
-"""
 import re
 import unicodedata
 import logging

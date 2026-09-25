@@ -41,6 +41,21 @@ def detect_structure_type(kouzou_str):
     
     return "W"  # 判別できない場合は保守的に木造
 
+def _parse_era_year(chikunen_str: str, current_year: int):
+    eras = [
+        ("平成", 1988, r'平成(\d+|元)年'),
+        ("昭和", 1925, r'昭和(\d+)年'),
+        ("令和", 2018, r'令和(\d+|元)年'),
+    ]
+    for era_name, base_year, pattern in eras:
+        if era_name in chikunen_str:
+            m = re.search(pattern, chikunen_str)
+            if m:
+                val = m.group(1)
+                offset = 1 if val == "元" else int(val)
+                return max(0, current_year - (base_year + offset))
+    return None
+
 def parse_chikunen(chikunengetsu_date_or_str):
     """
     築年数を算出する。
@@ -57,28 +72,13 @@ def parse_chikunen(chikunengetsu_date_or_str):
         
     # 文字列型の場合
     chikunen_str = str(chikunengetsu_date_or_str)
-    import re
     years = re.findall(r'\d{4}', chikunen_str)
     if years:
         return max(0, current_year - int(years[0]))
     
-    # 元号対応（簡易）
-    if "平成" in chikunen_str:
-        m = re.search(r'平成(\d+|元)年', chikunen_str)
-        if m:
-            val = m.group(1)
-            h_year = 1 if val == "元" else int(val)
-            return max(0, current_year - (1988 + h_year))
-    elif "昭和" in chikunen_str:
-        m = re.search(r'昭和(\d+)年', chikunen_str)
-        if m:
-            return max(0, current_year - (1925 + int(m.group(1))))
-    elif "令和" in chikunen_str:
-        m = re.search(r'令和(\d+|元)年', chikunen_str)
-        if m:
-            val = m.group(1)
-            r_year = 1 if val == "元" else int(val)
-            return max(0, current_year - (2018 + r_year))
+    era_result = _parse_era_year(chikunen_str, current_year)
+    if era_result is not None:
+        return era_result
 
     # 築年数の直接数値表記 (例: "築25年")
     m = re.search(r'築(\d+)年', chikunen_str)

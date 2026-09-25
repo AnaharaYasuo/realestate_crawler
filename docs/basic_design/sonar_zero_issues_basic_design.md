@@ -122,3 +122,36 @@ flowchart TD
 - **S1172**: `tokyuParser.py:1085` の `_parseAddress(self, response, _specs=None)` に改名。
 - **S7780**: `slack_agent_host.js` の `replaceAll('"', String.raw`\"`)` に置換。
 
+## 4. 残存最終13件完全ゼロ化アーキテクチャ設計 (Issue #428)
+
+```mermaid
+flowchart TD
+    subgraph Final13[残存最終13件]
+        F1[コメントアウトコード S125: 1件<br/>building_resolver.py]
+        F2[パーサー系 認知的複雑度 S3776: 6件<br/>tokyu, mitsui, misawa, nomura, base, homes]
+        F3[ML・推論系 認知的複雑度 S3776: 5件<br/>train.py, predict.py, investment_evaluator.py]
+        F4[幾何解析 認知的複雑度 S3776: 1件<br/>plot_shape_analyzer.py]
+    end
+
+    F1 --> D1[冒頭 docstring ブロック削除]
+    F2 --> D2[二重ループ抽出, 動的ディスパッチ分離, 交通・間口・テーブル抽出共通化]
+    F3 --> D3[評価面積算出抽出, ダミー属性分解, バッチ学習ループ関数化, 固有シリアライズ分離, 元号ループ化]
+    F4 --> D4[接道・奥行推定分離, 内接矩形解析抽出]
+
+    D1 --> PV[局所検証 check_local_sonar.py --file]
+    D2 --> PV
+    D3 --> PV
+    D4 --> PV
+    PV --> UV[ユニットテスト全件検証 pytest 1,015件]
+    UV --> FIN[SonarCloud オープン課題 0件達成]
+```
+
+### 4.1 設計方針
+1. **認知的複雑度の徹底低減（S3776 <= 15）**:
+   - 多段ネスト（ループ内の条件分岐、二重ループ）の解消：内部ループや条件ブロックを責務ごとに単機能のプライベートヘルパーメソッドへ抽出。
+   - 連続する三項演算子（Ternary Operators）および多数の `elif` 分岐の平坦化・テーブル検索化。
+   - 関数内ローカル関数定義（Closure）の排除：モジュールスコープのヘルパー関数化により関数のネスト深度を加算させない。
+2. **安全性の担保**:
+   - シグネチャ・戻り値・型の一致を完全保証し、呼び出し元への破壊的変更（Breaking Change）をゼロに抑制。
+
+

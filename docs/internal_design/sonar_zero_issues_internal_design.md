@@ -113,3 +113,41 @@
 - **`sync_estat_municipalities.py`**:
   - `obj, created = ...` ➔ `_, created = ...`
 
+## 3. 第3期最終13件モジュール別詳細変換仕様 (Issue #428)
+
+### 3.1 `src/crawler/package/utils/building_resolver.py` (S125)
+- モジュール冒頭の docstring ブロック（`"""建物名寄せおよびマスタ解決リゾルバ..."""`）を削除。
+
+### 3.2 `src/crawler/package/parser/tokyuParser.py` (S3776)
+- `_scrape_row_dt_dd`: 行抽出処理を `_extract_specs_from_row(self, tr, header_selector, value_selector, specs)` へ抽出し、二重ループを1重ループへ平坦化。
+
+### 3.3 `src/crawler/package/parser/mitsuiParser.py` (S3776)
+- `_parsePropertyDetailPage`: 動的委譲ディスパッチ判定ブロックを `_delegate_shumoku_parser(self, item, response)` へ抽出し、主メソッドの複雑度を1に低減。
+
+### 3.4 `src/crawler/package/parser/misawaParser.py` (S3776)
+- `_getTrafficField`: バス関連フィールドの取得処理を `_extract_bus_field(self, field_to_get, walk_access, default)` へ抽出し、`elif` 連鎖を解消。
+
+### 3.5 `src/crawler/package/parser/nomuraParser.py` (S3776)
+- `_getTrafficField`: `_extract_bus_field(self, field_to_get, line, default_val)` および `_extract_railway_walk(self, field_to_get, line, default_val)` を抽出し、複雑度26を低減。
+
+### 3.6 `src/crawler/package/parser/baseParser.py` (S3776)
+- `_parseMaguchi`: 間口正規表現・Decimal変換処理を `@staticmethod def _extract_maguchi_decimal(val: str) -> Decimal | None` へ抽出。
+
+### 3.7 `src/crawler/package/parser/homesParser.py` (S3776)
+- `_parsePropertyDetailPage`: セレクターまたはヘッダー探索とテキスト抽出を共通化する `_get_table_text(self, response, selector, headers)` を導入し、重複する三項演算子と分岐を排除。
+
+### 3.8 `src/crawler/package/ml/train.py` (S3776)
+- `_extract_unit_price_record`: 面積決定ロジックを `_determine_eval_area(p, ptype: str) -> float` へ抽出。
+- `_generate_single_dummy_record`: 面積サンプリングを `_sample_dummy_areas(ptype, rng)`、種別固有属性解決を `_resolve_dummy_type_attributes(ptype, area, rng)` へ抽出。
+- `main`: 物件種別ごとのモデル学習・保存ループを `_train_single_ptype_models` へ抽出。
+
+### 3.9 `src/crawler/package/ml/predict.py` (S3776)
+- `_serialize_property`: 内部関数 `_val`, `_to_float` をモジュール関数 `_prop_val`, `_prop_to_float` に昇格し、`_serialize_chikunengetsu_field`, `_serialize_type_specific_fields` を抽出。
+
+### 3.10 `src/crawler/package/ml/investment_evaluator.py` (S3776)
+- `parse_chikunen`: 関数内インライン `import re` を削除し、元号別年数計算を `_parse_era_year(chikunen_str, current_year)` へループ処理化して抽出。
+
+### 3.11 `src/crawler/package/utils/plot_shape_analyzer.py` (S3776)
+- `analyze_plot_shape`: 接道・奥行推定を `_estimate_frontage_and_depth`、内接矩形・うなぎ判定を `_calculate_mir_and_unagi` へ抽出。
+
+
