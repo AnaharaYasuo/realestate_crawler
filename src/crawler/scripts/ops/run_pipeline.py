@@ -102,7 +102,10 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
         return
     if is_coordinator:
         logger.info("🔍 [Startup: Coordinator] Verifying Cloud SQL instance status...")
-        check_cloud_sql_status()
+        csql_ok, csql_status = check_cloud_sql_status()
+        if not csql_ok:
+            logger.error(f"❌ [Startup Error] Cloud SQL is not RUNNABLE: {csql_status}")
+            raise RuntimeError(f"Cloud SQL pre-flight check failed: {csql_status}")
         logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
         if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
             logger.error("❌ [Startup Error] Failed to restore ProxySQL Autoscaler.")

@@ -90,8 +90,12 @@ def test_scale_proxysql_mig_via_rest_api_fallback(monkeypatch):
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
+    mock_resp.json.return_value = {"targetSize": 0}
 
-    with patch("requests.post", return_value=mock_resp) as mock_post:
+    with (
+        patch("requests.get", return_value=mock_resp),
+        patch("requests.post", return_value=mock_resp) as mock_post,
+    ):
         res = gcp_resources.scale_proxysql_mig(
             target_size=0,
             compute_module=None,
@@ -317,4 +321,40 @@ def test_check_cloud_sql_status_stopped(monkeypatch):
         ok, state = gcp_resources.check_cloud_sql_status()
         assert ok is False
         assert state == "STOPPED"
+
+
+def test_get_gcp_access_token_custom_scope():
+    """Verify get_gcp_access_token uses custom scopes when provided."""
+    mock_creds = MagicMock()
+    mock_creds.token = "custom-token"
+    with patch.object(gcp_resources, "google") as mock_google:
+        mock_google.auth.default.return_value = (mock_creds, "test-proj")
+        token = gcp_resources.get_gcp_access_token(scopes=["custom-scope"])
+        assert token == "custom-token"
+        mock_google.auth.default.assert_called_once_with(scopes=["custom-scope"])
+
+
+def test_resize_mig_via_rest_no_token():
+    """Verify _resize_mig_via_rest returns False when token is None."""
+    assert gcp_resources._resize_mig_via_rest("proj", "reg", "mig", 1, None) is False
+
+
+def test_resize_mig_via_rest_http_error():
+    """Verify _resize_mig_via_rest returns False when REST API returns error."""
+    mock_resp = MagicMock(status_code=500, text="Internal Error")
+    with patch("requests.post", return_value=mock_resp):
+        assert gcp_resources._resize_mig_via_rest("proj", "reg", "mig", 1, "tok") is False
+
+
+def test_scale_proxysql_mig_fails_when_mig_inspection_errors(monkeypatch):
+    """Verify scale_proxysql_mig returns False when get_mig_info encounters an error."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+    monkeypatch.setenv("PROXYSQL_MIG_NAME", "proxysql-mig-prod")
+
+    with patch.object(gcp_resources, "get_mig_info", return_value=(-1, "API check failed", None)):
+        res = gcp_resources.scale_proxysql_mig(target_size=1)
+        assert res is False
+
 

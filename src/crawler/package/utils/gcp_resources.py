@@ -23,13 +23,12 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def get_gcp_access_token() -> str | None:
+def get_gcp_access_token(scopes: list[str] | None = None) -> str | None:
     """GCP 認証トークンを取得 (google.auth または メタデータサーバー経由)"""
+    target_scopes = scopes or ["https://www.googleapis.com/auth/cloud-platform"]
     if google is not None:
         try:
-            credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/compute"]
-            )
+            credentials, _ = google.auth.default(scopes=target_scopes)
             req = google.auth.transport.requests.Request()
             credentials.refresh(req)
             if credentials.token:
@@ -238,39 +237,37 @@ def _extract_autoscaler_name(autoscaler_url_or_name: Any) -> str | None:
     return val.rstrip("/").split("/")[-1]
 
 
-def get_mig_info(
-    project_id: str,
-    region: str,
-    mig_name: str,
-    compute_module: Any = compute_v1,
-    get_token_callback: Callable[[], str | None] | None = None,
+def _get_mig_via_compute_client(
+    compute_module: Any, project_id: str, region: str, mig_name: str
 ) -> tuple[int, str, str | None]:
-    """Retrieve MIG target_size, error message, and attached autoscaler."""
-    if compute_module is not None and hasattr(
+    if compute_module is None or not hasattr(
         compute_module, "RegionInstanceGroupManagersClient"
     ):
-        try:
-            client = compute_module.RegionInstanceGroupManagersClient()
-            igm = client.get(
-                project=project_id,
-                region=region,
-                instance_group_manager=mig_name,
-                timeout=10.0,
-            )
-            raw_size = getattr(igm, "target_size", 0)
-            target_size = int(raw_size) if isinstance(raw_size, (int, float)) else 0
-            status_obj = getattr(igm, "status", None)
-            autoscaler_val = getattr(status_obj, "autoscaler", None) if status_obj is not None else None
-            autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
-            return target_size, "", autoscaler
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed to get MIG info via compute_v1: {e}")
+        return -1, "No compute client", None
+    try:
+        client = compute_module.RegionInstanceGroupManagersClient()
+        igm = client.get(
+            project=project_id,
+            region=region,
+            instance_group_manager=mig_name,
+            timeout=10.0,
+        )
+        raw_size = getattr(igm, "target_size", 0)
+        target_size = int(raw_size) if isinstance(raw_size, (int, float)) else 0
+        status_obj = getattr(igm, "status", None)
+        autoscaler_val = getattr(status_obj, "autoscaler", None) if status_obj is not None else None
+        autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
+        return target_size, "", autoscaler
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to get MIG info via compute_v1: {e}")
+        return -1, str(e), None
 
-    token_fn = get_token_callback or get_gcp_access_token
-    token = token_fn()
+
+def _get_mig_via_rest(
+    project_id: str, region: str, mig_name: str, token: str | None
+) -> tuple[int, str, str | None]:
     if not token:
         return -1, "No GCP token", None
-
     url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}"
     try:
         resp = requests.get(
@@ -279,12 +276,37 @@ def get_mig_info(
         if resp.status_code != 200:
             return -1, f"HTTP {resp.status_code}: {resp.text}", None
         data = resp.json()
-        target_size = data.get("targetSize", 0)
+        target_size = int(data.get("targetSize", 0))
         autoscaler_val = data.get("status", {}).get("autoscaler") or data.get("autoscaler")
         autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
-        return int(target_size), "", autoscaler
+        return target_size, "", autoscaler
     except Exception as e:  # noqa: BLE001
         return -1, str(e), None
+
+
+def get_mig_info(
+    project_id: str,
+    region: str,
+    mig_name: str,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> tuple[int, str, str | None]:
+    """Retrieve MIG target_size, error message, and attached autoscaler."""
+    target_size, err, autoscaler = _get_mig_via_compute_client(
+        compute_module, project_id, region, mig_name
+    )
+    if not err:
+        return target_size, "", autoscaler
+
+    token_fn = get_token_callback or get_gcp_access_token
+    token = token_fn()
+    rest_size, rest_err, rest_auto = _get_mig_via_rest(
+        project_id, region, mig_name, token
+    )
+    if not rest_err:
+        return rest_size, "", rest_auto
+
+    return -1, f"{err}; {rest_err}", None
 
 
 def check_cloud_sql_status(
@@ -305,11 +327,15 @@ def check_cloud_sql_status(
         or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
     )
     instance = instance_name or os.getenv("CLOUDSQL_INSTANCE_NAME", "realestate-mysql-prod")
-    token_fn = get_token_callback or get_gcp_access_token
+    token_fn = get_token_callback or (
+        lambda: get_gcp_access_token(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    )
     token = token_fn()
     if not token:
-        logger.debug("No GCP token available for Cloud SQL status check. Skipping.")
-        return True, "UNKNOWN (no token)"
+        logger.error("No GCP token available for Cloud SQL status check.")
+        return False, "UNKNOWN (no token)"
 
     url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}"
     try:
@@ -324,11 +350,11 @@ def check_cloud_sql_status(
                 f"Cloud SQL '{instance}' state: {state}, activationPolicy: {act_policy}"
             )
             return state == "RUNNABLE", state
-        logger.debug(f"Cloud SQL API returned HTTP {resp.status_code}")
-        return True, f"HTTP {resp.status_code}"
+        logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
+        return False, f"HTTP {resp.status_code}"
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"Cloud SQL status check failed: {e}")
-        return True, str(e)
+        logger.error(f"Cloud SQL status check failed: {e}")
+        return False, str(e)
 
 
 def scale_proxysql_mig(
@@ -375,6 +401,7 @@ def scale_proxysql_mig(
     auto_name = _extract_autoscaler_name(autoscaler)
     if not auto_name and err and os.getenv("PROXYSQL_AUTOSCALER_NAME"):
         auto_name = os.getenv("PROXYSQL_AUTOSCALER_NAME")
+
     if auto_name:
         min_rep = target_size
         max_rep = max(2, target_size) if target_size > 0 else 0
@@ -391,6 +418,12 @@ def scale_proxysql_mig(
             compute_module=compute_module,
             get_token_callback=get_token_callback,
         )
+
+    if err:
+        logger.error(
+            f"Failed to inspect ProxySQL MIG '{mig}' before scaling: {err}. Refusing to resize directly."
+        )
+        return False
 
     # 2. compute_v1 クライアントライブラリ (Autoscaler なしの場合)
     if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
