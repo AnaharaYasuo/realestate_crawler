@@ -357,6 +357,25 @@ def check_cloud_sql_status(
         return False, str(e)
 
 
+def _scale_direct_mig(
+    compute_module: Any,
+    project: str,
+    reg: str,
+    mig: str,
+    target_size: int,
+    get_token_callback: Callable[[], str | None] | None,
+) -> bool:
+    if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
+        return True
+    token_fn = get_token_callback or get_gcp_access_token
+    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
+        return True
+    logger.error(
+        f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
+    )
+    return False
+
+
 def scale_proxysql_mig(
     target_size: int = 1,
     project_id: str | None = None,
@@ -425,19 +444,9 @@ def scale_proxysql_mig(
         )
         return False
 
-    # 2. compute_v1 クライアントライブラリ (Autoscaler なしの場合)
-    if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
-        return True
-
-    # 3. REST API フォールバック (Autoscaler なしの場合)
-    token_fn = get_token_callback or get_gcp_access_token
-    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
-        return True
-
-    logger.error(
-        f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
+    return _scale_direct_mig(
+        compute_module, project, reg, mig, target_size, get_token_callback
     )
-    return False
 
 
 def wait_for_proxysql_health(
