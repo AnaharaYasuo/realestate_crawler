@@ -334,6 +334,7 @@ def _get_active_cloud_run_executions(
             client = run_v2.ExecutionsClient()
             jobs_client = getattr(run_v2, "JobsClient", None)
             matched_job_names = []
+            run_v2_has_error = False
             if jobs_client is not None:
                 try:
                     jc = jobs_client()
@@ -346,12 +347,15 @@ def _get_active_cloud_run_executions(
                             matched_job_names.append(job_obj.name)
                 except Exception as je:  # noqa: BLE001
                     logger.debug(f"Failed to list jobs via run_v2 JobsClient: {je}")
+                    run_v2_has_error = True
+                    last_err = str(je)
 
             req_cls = getattr(run_v2, "ListExecutionsRequest", None)
             parents = matched_job_names or [
                 f"projects/{project_id}/locations/{region}/jobs/{prefix}"
                 for prefix in job_prefixes
             ]
+            run_v2_active: list[CloudRunExecutionInfo] = []
             for parent in parents:
                 try:
                     if req_cls is not None:
@@ -376,7 +380,7 @@ def _get_active_cloud_run_executions(
                                 if "/jobs/" in name
                                 else parent.split("/")[-1]
                             )
-                            active_jobs.append(
+                            run_v2_active.append(
                                 CloudRunExecutionInfo(
                                     name=name,
                                     job_name=job_name,
@@ -387,8 +391,10 @@ def _get_active_cloud_run_executions(
                     logger.debug(
                         f"Could not list executions for job parent {parent}: {inner_e}"
                     )
-            if active_jobs:
-                return active_jobs, ""
+                    run_v2_has_error = True
+                    last_err = str(inner_e)
+            if not run_v2_has_error:
+                return run_v2_active, ""
         except Exception as e:  # noqa: BLE001
             last_err = str(e)
             logger.debug(f"Failed to list executions via run_v2: {e}")
@@ -544,7 +550,18 @@ def check_and_stop_proxysql_mig(
 
     # 1. Grace Period check (avoid startup race conditions)
     mig_uptime = _get_mig_uptime_seconds(project_id, region, mig_name)
-    if mig_uptime is not None and mig_uptime <= grace_period_sec:
+    if mig_uptime is None:
+        logger.info(
+            f"ProxySQL MIG '{mig_name}' uptime could not be determined. "
+            f"Skipping stop to prevent terminating newly launched instances."
+        )
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=current_target_size,
+            skipped_reason="uptime_unknown",
+        )
+    if mig_uptime <= grace_period_sec:
         logger.info(
             f"ProxySQL MIG '{mig_name}' was launched {mig_uptime:.1f}s ago "
             f"(<= grace_period {grace_period_sec}s). Skipping stop."
@@ -635,6 +652,25 @@ def check_and_stop_proxysql_mig(
                 cancel_errors.append(f"{j.job_name}: {c_err}")
             else:
                 canceled_names.append(j.name)
+
+        # Check if there are other jobs legitimately running within timeout
+        healthy_jobs = [j for j in active_jobs if j not in hung_jobs]
+        if healthy_jobs:
+            healthy_desc = ", ".join(
+                f"`{j.job_name}` ({int(j.elapsed_sec) if j.elapsed_sec is not None else 'unknown'}s)"
+                for j in healthy_jobs
+            )
+            logger.info(
+                f"Hung jobs {[j.name for j in hung_jobs]} were cancelled, but healthy jobs "
+                f"({healthy_desc}) are still legitimately running. Skipping ProxySQL MIG stop."
+            )
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=current_target_size,
+                canceled_jobs=canceled_names,
+                skipped_reason="healthy_jobs_still_running",
+            )
 
         auto_name = _extract_autoscaler_name(autoscaler)
         if auto_name:

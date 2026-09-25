@@ -158,17 +158,21 @@ def test_proxysql_leaked_dry_run(mock_compute_client, mock_slack):
     mock_igm.target_size = 1
     mock_instance.get.return_value = mock_igm
 
-    result = check_and_stop_proxysql_mig(
-        project_id="test-proj",
-        region="asia-northeast1",
-        mig_name="proxysql-mig-prod",
-        dry_run=True,
-    )
+    with (
+        patch(f"{_MODULE_PATH}._get_mig_uptime_seconds", return_value=1200.0),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], None)),
+    ):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            dry_run=True,
+        )
 
-    assert result.was_leaked is True
-    assert result.forced_stop is False
-    mock_instance.resize.assert_not_called()
-    mock_slack.assert_called_once()
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        mock_instance.resize.assert_not_called()
+        mock_slack.assert_called_once()
 
 
 def test_proxysql_api_error_triggers_critical_alert(mock_compute_client, mock_slack):
@@ -773,6 +777,136 @@ def test_main_cli_execution():
         exit_code = main()
         assert exit_code == 0
         mock_check.assert_called_once()
+
+
+def test_proxysql_uptime_unknown_skips_stop(mock_compute_client, mock_slack):
+    """When MIG uptime is None (cannot be determined), stop is skipped for safety."""
+    mock_instance = MagicMock()
+    mock_compute_client.return_value = mock_instance
+    mock_igm = MagicMock()
+    mock_igm.target_size = 2
+    mock_igm.status = MagicMock(autoscaler=None)
+    mock_instance.get.return_value = mock_igm
+
+    with patch(f"{_MODULE_PATH}._get_mig_uptime_seconds", return_value=None):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "uptime_unknown"
+        mock_instance.resize.assert_not_called()
+        mock_slack.assert_not_called()
+
+
+def test_proxysql_hung_job_cancelled_but_healthy_job_prevents_proxysql_stop(
+    mock_compute_client, mock_slack
+):
+    """When one job is hung (>4200s) but another is healthy (within timeout), hung job is cancelled but ProxySQL MIG stop is skipped."""
+    mock_instance = MagicMock()
+    mock_compute_client.return_value = mock_instance
+    mock_igm = MagicMock()
+    mock_igm.target_size = 2
+    mock_igm.status = MagicMock(autoscaler=None)
+    mock_instance.get.return_value = mock_igm
+
+    hung_exec = MagicMock()
+    hung_exec.name = "projects/test-proj/locations/asia-northeast1/jobs/realestate-crawler-pipeline-prod/executions/hung-1"
+    hung_exec.job_name = "realestate-crawler-pipeline-prod"
+    hung_exec.elapsed_sec = 5000.0
+
+    healthy_exec = MagicMock()
+    healthy_exec.name = "projects/test-proj/locations/asia-northeast1/jobs/realestate-ml-pipeline-prod/executions/healthy-1"
+    healthy_exec.job_name = "realestate-ml-pipeline-prod"
+    healthy_exec.elapsed_sec = 800.0
+
+    with (
+        patch(f"{_MODULE_PATH}._get_mig_uptime_seconds", return_value=5100.0),
+        patch(
+            f"{_MODULE_PATH}._get_active_cloud_run_executions",
+            return_value=([hung_exec, healthy_exec], None),
+        ),
+        patch(f"{_MODULE_PATH}._cancel_cloud_run_execution", return_value="") as mock_cancel,
+    ):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            grace_period_sec=600.0,
+            timeout_threshold_sec=4200.0,
+            dry_run=False,
+        )
+
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "healthy_jobs_still_running"
+        assert result.canceled_jobs == [hung_exec.name]
+        mock_cancel.assert_called_once_with(hung_exec.name)
+        mock_instance.resize.assert_not_called()
+        mock_slack.assert_called_once()
+        assert "ジョブ異常超過検知" in mock_slack.call_args[0][0]
+
+
+def test_get_active_cloud_run_executions_direct_failure_paths(mock_compute_client, mock_slack):
+    """Directly test run_v2 exception and REST 403 failure in _get_active_cloud_run_executions and check_and_stop_proxysql_mig."""
+    try:
+        from scripts.ensure_resources_stopped import _get_active_cloud_run_executions
+    except ImportError:
+        from src.crawler.scripts.ensure_resources_stopped import _get_active_cloud_run_executions
+
+    mock_instance = MagicMock()
+    mock_compute_client.return_value = mock_instance
+    mock_igm = MagicMock()
+    mock_igm.target_size = 2
+    mock_igm.status = MagicMock(autoscaler=None)
+    mock_instance.get.return_value = mock_igm
+
+    # 1. run_v2 raises exception and REST returns 403 Forbidden
+    mock_run_v2 = MagicMock()
+    mock_run_client = MagicMock()
+    mock_run_client.list_executions.side_effect = RuntimeError("run_v2 gRPC transport broken")
+    mock_run_v2.ExecutionsClient.return_value = mock_run_client
+
+    mock_resp_403 = MagicMock()
+    mock_resp_403.status_code = 403
+    mock_resp_403.text = "Permission Denied"
+
+    with (
+        patch(f"{_MODULE_PATH}.run_v2", mock_run_v2),
+        patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value="fake-token"),
+        patch(f"{_MODULE_PATH}.requests.get", return_value=mock_resp_403),
+    ):
+        active, err = _get_active_cloud_run_executions("test-proj", "asia-northeast1", ("job-",))
+        assert active == []
+        assert "HTTP 403" in err
+
+    # 2. Verify that this API error passes through check_and_stop_proxysql_mig, skips stopping, and alerts
+    with (
+        patch(f"{_MODULE_PATH}._get_mig_uptime_seconds", return_value=1200.0),
+        patch(f"{_MODULE_PATH}.run_v2", mock_run_v2),
+        patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value="fake-token"),
+        patch(f"{_MODULE_PATH}.requests.get", return_value=mock_resp_403),
+    ):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        assert result.skipped_reason == "api_error"
+        mock_instance.resize.assert_not_called()
+        mock_slack.assert_called_once()
+        assert "【緊急】Cloud Run Executions取得失敗" in mock_slack.call_args[0][0]
+
 
 
 
