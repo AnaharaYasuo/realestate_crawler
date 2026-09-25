@@ -24,6 +24,8 @@ from django.core.exceptions import ValidationError
 from django.db import close_old_connections, OperationalError
 from builtins import Exception
 import logging
+
+logger = logging.getLogger(__name__)
 from decimal import Decimal
 from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.utils.report import CrawlerReporter
@@ -617,9 +619,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return aiohttp.ClientTimeout(total=_total)
 
     def _getUrl(self):
-        if os.getenv('IS_CLOUD', ''):
-            return "https://us-central1-sumifu.cloudfunctions.net"
-        return "http://127.0.0.1:8000"
+        return os.getenv("API_BASE_URL") or "http://127.0.0.1:8000"
 
     def get_seed_urls(self) -> list:
         """Return crawl seed URLs for smoke/guarantee tests (urlList or SEED_URL)."""
@@ -662,18 +662,15 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return response_context
 
     def _handle_local_execution(self, api_url, detail_url):
-        if os.getenv('IS_CLOUD', ''):
-            return None
-
         parsed = urlparse(api_url)
         path = parsed.path
         target_class = ApiRegistry.get(path)
         
         if not target_class:
-            logging.warning("No registry found for local route, falling back to HTTP")
+            logger.warning("No registry found for local route, falling back to HTTP")
             return None
 
-        logging.debug("Local routing to %s", target_class.__name__)
+        logger.debug("Local routing to %s", getattr(target_class, "__name__", str(target_class)))
         
         def run_in_new_loop():
             new_loop = asyncio.new_event_loop()
