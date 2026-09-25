@@ -57,8 +57,19 @@ sequenceDiagram
 - `--mig-name`: MIG 名（デフォルト: `proxysql-mig-prod`）
 - `--dry-run`: 判定のみ行い停止しないフラグ
 
-### 3.3 パイプライン異常時クリーンアップ (`run_pipeline.py` finally ブロック)
-- パイプラインのステップ（クローリング、データ検証、ML学習等）が途中で例外終了（Exit Code != 0）した場合でも、`try ... finally` ブロックにて確実に ProxySQL MIG の縮小・リソース解放を試行し、ゾンビ残存を根本防止。
+### 3.3 パイプライン異常時・タイムアウト時クリーンアップ (`run_pipeline.py`)
+- **多重防壁1: SIGTERM / SIGINT シグナルハンドラ**:
+  - Cloud Run がタスクタイムアウトや強制終了時にコンテナへ送出する `SIGTERM`（および `SIGINT`）を捕捉するシグナルハンドラを `run_pipeline.py` 冒頭で登録。
+  - シグナル受信時、実行中の子プロセス（クローラーや後続処理）があれば即座に終了させ、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、ProxySQL MIG を確実に 0 台へ縮退させる。
+  - `atexit.register(...)` にもセーフティネット teardown を二重登録し、プロセスの不慮の終了時でも停止シーケンスを保証。
+- **多重防壁2: 自律的早期シャットダウン (Self Graceful Shutdown before Timeout)**:
+  - ジョブ全体の最大許容実行時間（`PIPELINE_MAX_DURATION_SEC`、デフォルトは環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC`（初期値3600秒）から安全バッファ `SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒を差し引いた 3300 秒）を管理。
+  - 各ステップ開始前および実行中、残り時間が安全停止猶予（300秒）を下回った場合、後続ステップをスキップし、自律的に安全停止シーケンス（インライン teardown + Slack へのタイムアウト警告通知）へ移行して正常終了させる。
+  - これにより、Cloud Run 側からの不意の強制終了（SIGKILL等）を受ける前に、確実に ProxySQL MIG を 0 台に縮退させる。
+- **多重防壁3: 他タスク待機（`wait_for_all_tasks`）の動的タイムアウト制約**:
+  - `_run_crawler_step` 内の Coordinator による他タスク完了待機タイムアウトを、固定の 10800 秒（3時間）ではなく、パイプライン全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制御する。
+- **多重防壁4: インライン teardown によるオーバーヘッド排除**:
+  - `_execute_safety_teardown` において、サブプロセス（`ensure_resources_stopped.py`）の起動に依存せず、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` を発行し、10秒以内の緊急時でも最短時間で API コールを完了させる。
 - `scale_proxysql_mig` は `compute_v1`（`google-cloud-compute`）および REST API フォールバックを採用し、コンテナ内での `gcloud` 不在による `FileNotFoundError` を防止。
 
 ### 3.4 パイプライン起動時オンデマンド起動・起動チェック (`run_pipeline.py`)

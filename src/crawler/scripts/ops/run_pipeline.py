@@ -7,6 +7,8 @@ import logging
 import threading
 import json
 import argparse
+import signal
+import atexit
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -34,7 +36,101 @@ from package.utils.gcp_resources import (
 configure_logging()
 logger = logging.getLogger(__name__)
 
+# Global runtime state for graceful shutdown and signal handling (Issue #444)
+_active_proc: subprocess.Popen | None = None
+_is_coordinator: bool = False
+_teardown_done: bool = False
+_pipeline_start_time: float = time.time()
+DEFAULT_TIMEOUT_SEC: float = 3600.0
+SAFE_SHUTDOWN_BUFFER_SEC: float = 300.0
+
+
+def get_remaining_pipeline_time() -> float:
+    """Calculate remaining seconds before Cloud Run job timeout deadline."""
+    try:
+        total_limit = float(
+            os.environ.get("CLOUD_RUN_JOB_TIMEOUT_SEC")
+            or os.environ.get("PIPELINE_TIMEOUT_SEC")
+            or DEFAULT_TIMEOUT_SEC
+        )
+    except (ValueError, TypeError):
+        total_limit = DEFAULT_TIMEOUT_SEC
+    elapsed = time.time() - _pipeline_start_time
+    return max(0.0, total_limit - elapsed)
+
+
+def is_deadline_approaching(buffer: float = SAFE_SHUTDOWN_BUFFER_SEC) -> bool:
+    """Check if remaining execution time is below safe shutdown buffer."""
+    if not os.environ.get("IS_CLOUD"):
+        return False
+    return get_remaining_pipeline_time() <= buffer
+
+
+def check_deadline_or_raise(desc: str) -> None:
+    """Raise TimeoutError if approaching deadline to trigger graceful self-teardown."""
+    if is_deadline_approaching():
+        rem = int(get_remaining_pipeline_time())
+        logger.warning(
+            f"⚠️ [Deadline Warning] Remaining time ({rem}s) is below safe shutdown buffer ({int(SAFE_SHUTDOWN_BUFFER_SEC)}s). "
+            f"Aborting before Cloud Run force termination for step: '{desc}'"
+        )
+        raise TimeoutError(f"Step '{desc}' skipped: approaching Cloud Run timeout (remaining: {rem}s)")
+
+
+def _inline_stop_proxysql() -> None:
+    """Directly scales down ProxySQL MIG and Autoscaler to 0 inline without subprocess overhead."""
+    try:
+        logger.info("🛑 [Emergency/Inline Teardown] Scaling down ProxySQL MIG & Autoscaler to 0...")
+        patch_proxysql_autoscaler(min_replicas=0, max_replicas=0)
+        scale_proxysql_mig(target_size=0)
+        logger.info("✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG & Autoscaler to 0.")
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"❌ [Emergency/Inline Teardown Error] Failed to scale down ProxySQL MIG: {e}")
+
+
+def _sigterm_handler(signum: int, frame: object) -> None:
+    """Handles SIGTERM / SIGINT signals (e.g. from Cloud Run timeout) to enforce teardown."""
+    global _teardown_done
+    logger.warning(f"⚠️ [Signal Received] Caught signal {signum}. Initiating emergency teardown...")
+    if _active_proc is not None and _active_proc.poll() is None:
+        try:
+            logger.info(f"Terminating active subprocess PID {_active_proc.pid}...")
+            _active_proc.terminate()
+            try:
+                _active_proc.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                _active_proc.kill()
+                _active_proc.wait(timeout=2.0)
+        except Exception as proc_err:  # noqa: BLE001
+            logger.warning(f"Error terminating active subprocess: {proc_err}")
+
+    if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
+        _inline_stop_proxysql()
+        _teardown_done = True
+
+    sys.exit(128 + signum)
+
+
+def _atexit_teardown() -> None:
+    """Atexit handler as the ultimate safety net for unhandled exits."""
+    global _teardown_done
+    if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
+        logger.info("🧹 [Atexit Guard] Executing safety teardown via atexit...")
+        _inline_stop_proxysql()
+        _teardown_done = True
+
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
+signal.signal(signal.SIGINT, _sigterm_handler)
+atexit.register(_atexit_teardown)
+
+
 def run_command(cmd, desc, timeout: float | None = None):
+    global _active_proc
+    check_deadline_or_raise(desc)
+    if os.environ.get("IS_CLOUD"):
+        budget = max(1.0, get_remaining_pipeline_time() - SAFE_SHUTDOWN_BUFFER_SEC)
+        timeout = budget if timeout is None else min(timeout, budget)
     logger.info(f"=== [START] {desc} ===")
     logger.info(f"Command: {' '.join(cmd)}")
     start_time = time.time()
@@ -48,6 +144,7 @@ def run_command(cmd, desc, timeout: float | None = None):
         errors="replace",
         bufsize=1
     )
+    _active_proc = proc
     
     def _reader():
         if proc.stdout is not None:
@@ -68,6 +165,8 @@ def run_command(cmd, desc, timeout: float | None = None):
         elapsed = time.time() - start_time
         logger.error(f"=== [TIMEOUT] {desc} timed out after {timeout}s (elapsed: {int(elapsed)}s) ===")
         raise TimeoutError(f"Step '{desc}' timed out after {timeout}s")
+    finally:
+        _active_proc = None
 
     elapsed = time.time() - start_time
     
@@ -127,9 +226,14 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
 
 
 def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
+    global _teardown_done
     if is_coordinator and os.environ.get("IS_CLOUD"):
         try:
             logger.info("🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped...")
+            # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
+            _inline_stop_proxysql()
+            _teardown_done = True
+            # 2. Comprehensive check and notification via ensure_resources_stopped
             run_command([
                 sys.executable,
                 os.path.join(scripts_dir, "ensure_resources_stopped.py"),
@@ -158,12 +262,23 @@ def _run_crawler_step(
 
     if is_task_array and is_coordinator:
         logger.info(f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)...")
+        remaining = get_remaining_pipeline_time()
+        # Bound task waiting by remaining time minus safe shutdown buffer and polling interval
+        wait_interval = 15
+        wait_timeout = max(
+            0,
+            int(min(
+                10800 - wait_interval,
+                remaining - SAFE_SHUTDOWN_BUFFER_SEC - wait_interval,
+            )),
+        )
+        logger.info(f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)...")
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
             execution_date=datetime.datetime.now(datetime.timezone.utc).date(),
             task_count=task_count,
-            timeout_sec=10800,
-            interval_sec=15,
+            timeout_sec=wait_timeout,
+            interval_sec=wait_interval,
         )
         if not all_ok:
             logger.warning(f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。")
@@ -220,9 +335,11 @@ def main():
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
     args = parser.parse_args()
 
+    global _is_coordinator
     task_index, task_count = get_task_config()
     is_task_array = task_count > 1 and task_index is not None
     is_coordinator = not is_task_array or task_index == 0
+    _is_coordinator = is_coordinator
 
     logger.info(BORDER_LINE)
     logger.info(f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})")
