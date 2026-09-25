@@ -29,17 +29,22 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
       fix/issue-34-parse-error    -> 34
       feat: add auth (#123)       -> 123
     """
-    # 1. Check branch name pattern: feature/123-xxx or fix/123-xxx or cursor/fix-123-xxx
-    branch_match = re.search(r"(?:feature|fix|chore|refactor|issue|cursor)[/-](?:[-\w]+[-/])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
-    if branch_match:
-        return int(branch_match.group(1))
+    # 1. Check cursor branch pattern: cursor/fix-123-xxx or cursor/123-xxx
+    cursor_match = re.search(r"(?:^|/)cursor[/-](?:(?:feature|fix|chore|refactor|issue)[/-])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    if cursor_match:
+        return int(cursor_match.group(1))
 
-    # 2. Check generic number in branch
+    # 2. Standard branch pattern: feature/123-xxx, fix/123-xxx, fix/issue-123-xxx
+    standard_match = re.search(r"(?:^|/)(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    if standard_match:
+        return int(standard_match.group(1))
+
+    # 3. Check generic number in branch
     generic_match = re.search(r"(?:^|[-/_])(\d+)(?:[-/_]|$)", branch_name)
     if generic_match:
         return int(generic_match.group(1))
 
-    # 3. Check commit message
+    # 4. Check commit message
     if commit_msg:
         commit_match = re.search(r"(?:#|issue[ -]?#?)\s*(\d+)", commit_msg, re.IGNORECASE)
         if commit_match:

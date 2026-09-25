@@ -248,38 +248,42 @@ class MisawaParser(ParserBase):
     def _parseRailwayCount(self, response, _specs=None):
         return len(self._parseTrafficMatches(response))
 
-    def _getTrafficField(self, response, index, field_to_get, default):
-        matches = self._parseTrafficMatches(response)
-        if index > len(matches): return default
-        
-        match = matches[index-1]
-        railway, station, walk_access = match[0].strip(), match[1].strip(), match[2].strip()
-        
-        if field_to_get == 'transfer':
-            return f"{railway}「{station}」{walk_access}"
-        elif field_to_get == 'railway':
-            return railway
-        elif field_to_get == 'station':
-            return station
-        elif field_to_get == 'railwayWalkMinuteStr':
-            m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', walk_access)
-            return str(m_walk.group(1)) if m_walk else default
-        elif field_to_get == 'railwayWalkMinute':
-             m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', walk_access)
-             return int(m_walk.group(1)) if m_walk else 0
-        elif field_to_get == 'busWalkMinuteStr':
+    def _extract_bus_field(self, field_to_get: str, walk_access: str, default):
+        if field_to_get == 'busWalkMinuteStr':
             m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
             return str(m_bus.group(1)) if m_bus else default
-        elif field_to_get == 'busWalkMinute':
+        if field_to_get == 'busWalkMinute':
             m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
             return int(m_bus.group(1)) if m_bus else 0
-        elif field_to_get == 'busStation':
-             m_stop = re.search(r'「([^」]+)」', walk_access)
-             return m_stop.group(1) if m_stop else default
-        elif field_to_get == 'busUse':
-             return 1 if "バス" in walk_access else 0
-            
+        if field_to_get == 'busStation':
+            m_stop = re.search(r'「([^」]+)」', walk_access)
+            return m_stop.group(1) if m_stop else default
+        if field_to_get == 'busUse':
+            return 1 if "バス" in walk_access else 0
         return default
+
+    def _getTrafficField(self, response, index, field_to_get, default):
+        matches = self._parseTrafficMatches(response)
+        if index > len(matches):
+            return default
+
+        match = matches[index - 1]
+        railway, station, walk_access = match[0].strip(), match[1].strip(), match[2].strip()
+
+        if field_to_get == 'transfer':
+            return f"{railway}「{station}」{walk_access}"
+        if field_to_get == 'railway':
+            return railway
+        if field_to_get == 'station':
+            return station
+        if field_to_get == 'railwayWalkMinuteStr':
+            m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', walk_access)
+            return str(m_walk.group(1)) if m_walk else default
+        if field_to_get == 'railwayWalkMinute':
+            m_walk = re.search(r'(?:徒歩|停歩)\s*(\d+)\s*分', walk_access)
+            return int(m_walk.group(1)) if m_walk else 0
+
+        return self._extract_bus_field(field_to_get, walk_access, default)
 
     def _parseTransfer1(self, response, _specs=None): return self._getTrafficField(response, 1, 'transfer', "")
     def _parseRailway1(self, response, _specs=None): return self._getTrafficField(response, 1, 'railway', "")

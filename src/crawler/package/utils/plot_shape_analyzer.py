@@ -594,6 +594,37 @@ def _determine_shape_type_and_grade(
     return shape_type, shape_grade, shape_grade_num, shape_score_100
 
 
+def _estimate_frontage_and_depth(
+    is_flagpole: bool,
+    flagpole_passage_width: float,
+    obb_w: float,
+    obb_h: float
+) -> Tuple[float, float]:
+    """接道間口および奥行の推定"""
+    if is_flagpole and flagpole_passage_width > 0:
+        est_frontage = flagpole_passage_width
+    elif obb_w > 0:
+        est_frontage = max(1.0, min(obb_w, obb_h))
+    else:
+        est_frontage = 5.0
+
+    max_dim = max(obb_w, obb_h)
+    est_depth = max(1.0, max_dim) if max_dim > 0 else 10.0
+    return est_frontage, est_depth
+
+
+def _calculate_mir_and_unagi(
+    vertices: List[Tuple[float, float]],
+    plot_area: float
+) -> Tuple[float, float, float, bool]:
+    """最大内接矩形 (MIR) & 縦横比（うなぎの寝床判定）"""
+    mir_area, mir_short, mir_long = calculate_max_inscribed_rectangle(vertices, plot_area)
+    mir_effective_ratio = min(1.0, mir_area / plot_area) if plot_area > 0.0 else 1.0
+    mir_aspect_ratio = min(1.0, max(0.01, mir_short / mir_long)) if mir_long > 0.0 else 1.0
+    is_unagi = bool(mir_aspect_ratio < 0.25)
+    return mir_area, mir_effective_ratio, mir_aspect_ratio, is_unagi
+
+
 def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
     """
     敷地ポリゴンの幾何指標および不動産鑑定ペナルティスコアを一括算出。
@@ -627,29 +658,14 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
 
     # 2. 最小外接矩形 (OBB) & かげ地割合
     obb_area, obb_w, obb_h = calculate_obb(vertices)
-    if obb_area > 0.0:
-        shadow_area_ratio = max(0.0, min(1.0, (obb_area - plot_area) / obb_area))
-    else:
-        shadow_area_ratio = 0.0
+    shadow_area_ratio = max(0.0, min(1.0, (obb_area - plot_area) / obb_area)) if obb_area > 0.0 else 0.0
 
     # 3. 最大内接矩形 (MIR) & 縦横比（うなぎの寝床判定）
-    mir_area, mir_short, mir_long = calculate_max_inscribed_rectangle(vertices, plot_area)
-    mir_effective_ratio = min(1.0, mir_area / plot_area) if plot_area > 0.0 else 1.0
-
-    if mir_long > 0.0:
-        mir_aspect_ratio = min(1.0, max(0.01, mir_short / mir_long))
-    else:
-        mir_aspect_ratio = 1.0
-
-    # 1:4 (0.25) 未満はうなぎの寝床
-    is_unagi = bool(mir_aspect_ratio < 0.25)
+    mir_area, mir_effective_ratio, mir_aspect_ratio, is_unagi = _calculate_mir_and_unagi(vertices, plot_area)
 
     # 4. 凸包充足率 (Solidity) & 等周比 (Compactness)
     solidity = calculate_solidity(vertices, plot_area)
-    if perimeter > 0.0:
-        compactness = min(1.0, max(0.0, (4.0 * math.pi * plot_area) / (perimeter ** 2)))
-    else:
-        compactness = 1.0
+    compactness = min(1.0, max(0.0, (4.0 * math.pi * plot_area) / (perimeter ** 2))) if perimeter > 0.0 else 1.0
 
     # 5. 最大内接円 (MIC)、ボトルネック幅員、および旗竿地分解
     mic_profile = calculate_mic_and_bottleneck(vertices, plot_area)
@@ -667,12 +683,9 @@ def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
     nta_irreg = calculate_nta_irregular_discount(shadow_area_ratio)
 
     # 接道間口および奥行の推定
-    if is_flagpole and flagpole_passage_width > 0:
-        est_frontage = flagpole_passage_width
-    else:
-        est_frontage = max(1.0, min(obb_w, obb_h)) if obb_w > 0 else 5.0
-
-    est_depth = max(1.0, max(obb_w, obb_h)) if max(obb_w, obb_h) > 0 else 10.0
+    est_frontage, est_depth = _estimate_frontage_and_depth(
+        is_flagpole, flagpole_passage_width, obb_w, obb_h
+    )
     depth_ratio = max(1.0, est_depth / est_frontage)
 
     nta_front = calculate_nta_frontage_discount(est_frontage)

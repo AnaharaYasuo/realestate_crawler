@@ -327,76 +327,71 @@ def get_api_base_url():
         return "https://us-central1-sumifu.cloudfunctions.net/api/evaluation/predict/"
     return "http://localhost:8000/api/evaluation/predict/"
 
+def _prop_val(item, name, default=None):
+    if isinstance(item, dict):
+        return item.get(name, default)
+    return getattr(item, name, default)
+
+def _prop_to_float(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except Exception:
+        return None
+
+def _serialize_chikunengetsu_field(item):
+    chikunengetsu = _prop_val(item, "chikunengetsu", None)
+    if not chikunengetsu:
+        return _prop_val(item, "chikunengetsuStr", "")
+    if hasattr(chikunengetsu, "strftime"):
+        return chikunengetsu.strftime("%Y-%m-%d")
+    return str(chikunengetsu)
+
+def _serialize_type_specific_fields(data, item, ptype):
+    if ptype == "mansion":
+        data["senyuMenseki"] = _prop_to_float(_prop_val(item, "senyuMenseki"))
+        data["kanrihi"] = _prop_val(item, "kanrihi", None)
+        data["syuzenTsumitate"] = _prop_val(item, "syuzenTsumitate", None)
+        return
+
+    if ptype in ("kodate", "apartment", "tochi"):
+        data["tochiMenseki"] = _prop_to_float(_prop_val(item, "tochiMenseki"))
+        data["maguchi"] = _prop_to_float(_prop_val(item, "maguchi"))
+        data["roadWidth"] = _prop_to_float(_prop_val(item, "roadWidth"))
+        data["setsudou"] = _prop_val(item, "setsudou", "")
+
+    if ptype in ("kodate", "apartment"):
+        data["tatemonoMenseki"] = _prop_to_float(_prop_val(item, "tatemonoMenseki"))
+
+    if ptype == "apartment":
+        data["grossYield"] = _prop_to_float(_prop_val(item, "grossYield"))
+        data["annualRent"] = _prop_val(item, "annualRent", None)
+
 def _serialize_property(item, ptype):
     """Djangoモデルオブジェクトまたは辞書からAPI送信用のシリアライズ辞書を作成"""
-    def _val(name, default=None):
-        if isinstance(item, dict):
-            return item.get(name, default)
-        return getattr(item, name, default)
-
-    def _to_float(v):
-        if v is None:
-            return None
-        try:
-            return float(v)
-        except Exception:
-            return None
-
-    address = _val("address", "")
+    address = _prop_val(item, "address", "")
     if not address:
-        addr1 = _val("address1", "") or ""
-        addr2 = _val("address2", "") or ""
+        addr1 = _prop_val(item, "address1", "") or ""
+        addr2 = _prop_val(item, "address2", "") or ""
         address = f"{addr1}{addr2}".strip()
 
     data = {
-        "price": _val("price", None),
+        "price": _prop_val(item, "price", None),
         "address": address,
-        "station1": _val("station1", ""),
-        "railwayWalkMinute1": _val("railwayWalkMinute1", None),
-        "kouzou": _val("kouzou", ""),
-        "youseki": _to_float(_val("youseki")),
-        "kenpei": _to_float(_val("kenpei")),
-        "yousekiStr": str(_val("yousekiStr", "") or _val("youseki", "") or ""),
-        "kenpeiStr": str(_val("kenpeiStr", "") or _val("kenpei", "") or ""),
-        "tochikenri": _val("tochikenri", ""),
-        "biko": _val("biko", "")
+        "station1": _prop_val(item, "station1", ""),
+        "railwayWalkMinute1": _prop_val(item, "railwayWalkMinute1", None),
+        "kouzou": _prop_val(item, "kouzou", ""),
+        "youseki": _prop_to_float(_prop_val(item, "youseki")),
+        "kenpei": _prop_to_float(_prop_val(item, "kenpei")),
+        "yousekiStr": str(_prop_val(item, "yousekiStr", "") or _prop_val(item, "youseki", "") or ""),
+        "kenpeiStr": str(_prop_val(item, "kenpeiStr", "") or _prop_val(item, "kenpei", "") or ""),
+        "tochikenri": _prop_val(item, "tochikenri", ""),
+        "biko": _prop_val(item, "biko", ""),
+        "chikunengetsuStr": _serialize_chikunengetsu_field(item),
     }
     
-    # 築年月のシリアライズ (Date -> Str)
-    chikunengetsu = _val("chikunengetsu", None)
-    if chikunengetsu:
-        if hasattr(chikunengetsu, "strftime"):
-            data["chikunengetsuStr"] = chikunengetsu.strftime("%Y-%m-%d")
-        else:
-            data["chikunengetsuStr"] = str(chikunengetsu)
-    else:
-        data["chikunengetsuStr"] = _val("chikunengetsuStr", "")
-
-    # 物件種別ごとの固有フィールド
-    if ptype == "mansion":
-        data["senyuMenseki"] = _to_float(_val("senyuMenseki"))
-        data["kanrihi"] = _val("kanrihi", None)
-        data["syuzenTsumitate"] = _val("syuzenTsumitate", None)
-    elif ptype == "kodate":
-        data["tatemonoMenseki"] = _to_float(_val("tatemonoMenseki"))
-        data["tochiMenseki"] = _to_float(_val("tochiMenseki"))
-        data["maguchi"] = _to_float(_val("maguchi"))
-        data["roadWidth"] = _to_float(_val("roadWidth"))
-        data["setsudou"] = _val("setsudou", "")
-    elif ptype == "apartment":
-        data["tatemonoMenseki"] = _to_float(_val("tatemonoMenseki"))
-        data["tochiMenseki"] = _to_float(_val("tochiMenseki"))
-        data["maguchi"] = _to_float(_val("maguchi"))
-        data["roadWidth"] = _to_float(_val("roadWidth"))
-        data["setsudou"] = _val("setsudou", "")
-        data["grossYield"] = _to_float(_val("grossYield"))
-        data["annualRent"] = _val("annualRent", None)
-    elif ptype == "tochi":
-        data["tochiMenseki"] = _to_float(_val("tochiMenseki"))
-        data["maguchi"] = _to_float(_val("maguchi"))
-        data["roadWidth"] = _to_float(_val("roadWidth"))
-        data["setsudou"] = _val("setsudou", "")
-        
+    _serialize_type_specific_fields(data, item, ptype)
     return data
 
 def _call_predict_api(property_obj, interior_score=3.0, layout_score=3.0):

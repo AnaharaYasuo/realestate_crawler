@@ -580,42 +580,35 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
                 "Homes invest: missing annualRent on listing (skip and try next)"
             )
 
+    def _get_table_text(self, response: BeautifulSoup, selector: str, headers: list) -> str:
+        tag = response.select_one(selector) or self._find_by_table_header(response, headers)
+        return tag.get_text().strip() if tag else ""
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
 
         # 利回り
-        yield_tag = response.select_one("span.prg-rimawariTableItem") or self._find_by_table_header(response, ["利回り"])
-        yield_str = yield_tag.get_text().strip() if yield_tag else ""
+        yield_str = self._get_table_text(response, "span.prg-rimawariTableItem", ["利回り"])
         item.grossYield = converter.parse_ratio(yield_str)
         self._homes_parse_invest_rent(item, response)
 
-        status_tag = response.select_one("td.prg-statusTableItem") or self._find_by_table_header(response, ["現況", "入居状況"])
-        item.currentStatus = status_tag.get_text().strip() if status_tag else ""
+        item.currentStatus = self._get_table_text(response, "td.prg-statusTableItem", ["現況", "入居状況"])
 
-        land_tag = response.select_one(CSS_LAND_AREA) or self._find_by_table_header(response, ["土地面積", "敷地面積"])
-        item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
+        item.tochiMensekiStr = self._get_table_text(response, CSS_LAND_AREA, ["土地面積", "敷地面積"])
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        house_tag = response.select_one(CSS_HOUSE_AREA) or self._find_by_table_header(response, ["建物面積", "延床面積", "専有面積"])
-        item.tatemonoMensekiStr = house_tag.get_text().strip() if house_tag else ""
+        item.tatemonoMensekiStr = self._get_table_text(response, CSS_HOUSE_AREA, ["建物面積", "延床面積", "専有面積"])
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        ratio_tag = response.select_one(CSS_FLOOR_AREA_RATIO) or self._find_by_table_header(response, [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF])
-        kenpei_tag = response.select_one(CSS_BUILDING_COVERAGE) or self._find_by_table_header(response, ["建ぺい率"])
-        kenpei_text = kenpei_tag.get_text().strip() if kenpei_tag else ""
-        youseki_text = ratio_tag.get_text().strip() if ratio_tag else ""
+        kenpei_text = self._get_table_text(response, CSS_BUILDING_COVERAGE, ["建ぺい率"])
+        youseki_text = self._get_table_text(response, CSS_FLOOR_AREA_RATIO, [LABEL_KENPEI_YOUSEKI_FULL, LABEL_KENPEI_YOUSEKI_HALF])
         self._homes_apply_kenpei_youseki(item, kenpei_text, youseki_text)
 
-        setsudou_tag = response.select_one(CSS_ROAD_TABLE) or self._find_by_table_header(response, ["接道状況", "接道"])
-        item.setsudou = setsudou_tag.get_text().strip() if setsudou_tag else ""
-
-        chimoku_tag = response.select_one("td.prg-landCategoryTableItem") or self._find_by_table_header(response, ["地目"])
-        item.chimoku = chimoku_tag.get_text().strip() if chimoku_tag else ""
-
-        right_tag = response.select_one("td.prg-rightTableItem") or self._find_by_table_header(response, ["土地権利", "権利"])
-        item.tochikenri = right_tag.get_text().strip() if right_tag else ""
+        item.setsudou = self._get_table_text(response, CSS_ROAD_TABLE, ["接道状況", "接道"])
+        item.chimoku = self._get_table_text(response, "td.prg-landCategoryTableItem", ["地目"])
+        item.tochikenri = self._get_table_text(response, "td.prg-rightTableItem", ["土地権利", "権利"])
 
         return item
 

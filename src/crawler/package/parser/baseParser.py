@@ -1315,6 +1315,18 @@ class TochiParserBase(ParserBase):
         specs = specs or self._get_specs(response)
         return specs.get("用途地域", "")
 
+    @staticmethod
+    def _extract_maguchi_decimal(val: str) -> Decimal | None:
+        if not val:
+            return None
+        match = re.search(r'(?:(?:間口|約|幅員|道路)\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', val)
+        if match:
+            try:
+                return Decimal(match.group(1))
+            except Exception:
+                pass
+        return None
+
     @abstractmethod
     def _parseMaguchi(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         specs = specs or self._get_specs(response)
@@ -1323,14 +1335,7 @@ class TochiParserBase(ParserBase):
             tag = self._getValueByLabel(response, "間口") or self._getValueByLabel(response, "接道")
             if tag:
                 val = tag.get_text(strip=True) if hasattr(tag, 'get_text') else str(tag)
-        if val:
-            match = re.search(r'(?:(?:間口|約|幅員|道路)\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[mｍ]', val)
-            if match:
-                try:
-                    return Decimal(match.group(1))
-                except Exception:
-                    pass
-        return None
+        return self._extract_maguchi_decimal(val)
 
     @abstractmethod
     def _parseHikiwatashi(self, response: BeautifulSoup, specs=None) -> str:
