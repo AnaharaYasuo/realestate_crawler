@@ -90,8 +90,12 @@ def test_scale_proxysql_mig_via_rest_api_fallback(monkeypatch):
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
+    mock_resp.json.return_value = {"targetSize": 0}
 
-    with patch("requests.post", return_value=mock_resp) as mock_post:
+    with (
+        patch("requests.get", return_value=mock_resp),
+        patch("requests.post", return_value=mock_resp) as mock_post,
+    ):
         res = gcp_resources.scale_proxysql_mig(
             target_size=0,
             compute_module=None,
@@ -247,4 +251,110 @@ def test_patch_proxysql_autoscaler_fails_when_all_fail(monkeypatch):
             get_token_callback=lambda: "token",
         )
         assert res is False
+
+
+def test_scale_proxysql_mig_autoscaled_detected_scales_autoscaler(monkeypatch):
+    """Verify scale_proxysql_mig detects attached autoscaler and scales autoscaler instead of resize."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+    monkeypatch.setenv("PROXYSQL_MIG_NAME", "proxysql-mig-prod")
+
+    mock_client = MagicMock()
+    mock_compute = MagicMock()
+    mock_compute.RegionInstanceGroupManagersClient.return_value = mock_client
+
+    with (
+        patch.object(gcp_resources, "get_mig_info", return_value=(0, "", "proxysql-autoscaler-prod")),
+        patch.object(gcp_resources, "patch_proxysql_autoscaler", return_value=True) as mock_patch_auto,
+    ):
+        res = gcp_resources.scale_proxysql_mig(
+            target_size=1,
+            compute_module=mock_compute,
+        )
+        assert res is True
+        mock_patch_auto.assert_called_once_with(
+            min_replicas=1,
+            max_replicas=2,
+            project_id="sumifu",
+            region="asia-northeast1",
+            autoscaler_name="proxysql-autoscaler-prod",
+            dry_run=False,
+            compute_module=mock_compute,
+            get_token_callback=None,
+        )
+        # client.resize must NOT be called when autoscaler is detected
+        mock_client.resize.assert_not_called()
+
+
+def test_check_cloud_sql_status_runnable(monkeypatch):
+    """Verify check_cloud_sql_status returns (True, 'RUNNABLE') when instance is RUNNABLE."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"state": "RUNNABLE", "settings": {"activationPolicy": "ALWAYS"}}
+
+    with (
+        patch.object(gcp_resources, "get_gcp_access_token", return_value="token-123"),
+        patch("requests.get", return_value=mock_resp),
+    ):
+        ok, state = gcp_resources.check_cloud_sql_status()
+        assert ok is True
+        assert state == "RUNNABLE"
+
+
+def test_check_cloud_sql_status_stopped(monkeypatch):
+    """Verify check_cloud_sql_status returns (False, 'STOPPED') when instance is STOPPED."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"state": "STOPPED", "settings": {"activationPolicy": "NEVER"}}
+
+    with (
+        patch.object(gcp_resources, "get_gcp_access_token", return_value="token-123"),
+        patch("requests.get", return_value=mock_resp),
+    ):
+        ok, state = gcp_resources.check_cloud_sql_status()
+        assert ok is False
+        assert state == "STOPPED"
+
+
+def test_get_gcp_access_token_custom_scope():
+    """Verify get_gcp_access_token uses custom scopes when provided."""
+    mock_creds = MagicMock()
+    mock_creds.token = "custom-token"
+    with patch.object(gcp_resources, "google") as mock_google:
+        mock_google.auth.default.return_value = (mock_creds, "test-proj")
+        token = gcp_resources.get_gcp_access_token(scopes=["custom-scope"])
+        assert token == "custom-token"
+        mock_google.auth.default.assert_called_once_with(scopes=["custom-scope"])
+
+
+def test_resize_mig_via_rest_no_token():
+    """Verify _resize_mig_via_rest returns False when token is None."""
+    assert gcp_resources._resize_mig_via_rest("proj", "reg", "mig", 1, None) is False
+
+
+def test_resize_mig_via_rest_http_error():
+    """Verify _resize_mig_via_rest returns False when REST API returns error."""
+    mock_resp = MagicMock(status_code=500, text="Internal Error")
+    with patch("requests.post", return_value=mock_resp):
+        assert gcp_resources._resize_mig_via_rest("proj", "reg", "mig", 1, "tok") is False
+
+
+def test_scale_proxysql_mig_fails_when_mig_inspection_errors(monkeypatch):
+    """Verify scale_proxysql_mig returns False when get_mig_info encounters an error."""
+    monkeypatch.setenv("IS_CLOUD", "true")
+    monkeypatch.setenv("GCP_PROJECT", "sumifu")
+    monkeypatch.setenv("GCP_REGION", "asia-northeast1")
+    monkeypatch.setenv("PROXYSQL_MIG_NAME", "proxysql-mig-prod")
+
+    with patch.object(gcp_resources, "get_mig_info", return_value=(-1, "API check failed", None)):
+        res = gcp_resources.scale_proxysql_mig(target_size=1)
+        assert res is False
+
 

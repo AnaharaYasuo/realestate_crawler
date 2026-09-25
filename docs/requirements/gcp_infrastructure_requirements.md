@@ -59,6 +59,9 @@
   - DB疎通確認（`wait_for_db.py`）は、短時間のソケット疎通事前チェック（最大3〜5秒）を実施し、未起動・不通時に OS の TCP SYN タイムアウト（130秒×リトライ回数＝1時間）でハングせず迅速に Fail-Fast すること。
   - Terraform デプロイ時の Autoscaler `min_replicas`/`max_replicas` 上書きによる意図しない日中自動スケールアップを防止するため、Autoscaler リソースのポリシー変更を無視（`ignore_changes`）可能とすること。
   - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
+  - オートスケーラー管理下 MIG に対する直接 resize 禁止（GCP API 制約）を回避するため、スケールイン/アウトはオートスケーラー設定（`min_replicas`/`max_replicas`）を介して安全に行うこと。
+  - ProxySQL VM の初期化・パッケージ導入・ヘルスチェック通過までの所要時間を考慮し、ヘルスチェック待機時間は最低 240 秒のタイムアウトを確保すること。
+  - バックエンド Cloud SQL インスタンスの稼働状態（`RUNNABLE`）を事前に確認し、未起動時の原因究明を迅速化すること。
 - **Direct VPC Egress への統合**:
   - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台）を廃止し、Cloud Run の Direct VPC Egress 機能を用いて VPC サブネットへ直接接続し、常時固定費を削減すること。
 - **Artifact Registry ストレージ最適化 & ライフサイクル制御**:
