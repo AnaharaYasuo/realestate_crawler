@@ -583,8 +583,10 @@ def test_start_proxysql_instance_via_compute_v1(monkeypatch):
 
 
 def test_start_proxysql_instance_via_rest_fallback(monkeypatch):
-    """Verify start_proxysql_instance uses REST fallback if compute_v1 fails."""
+    """Verify start_proxysql_instance uses REST fallback if compute_v1 raises."""
     monkeypatch.setenv("IS_CLOUD", "true")
+    mock_compute = MagicMock()
+    mock_compute.InstancesClient.return_value.start.side_effect = RuntimeError("compute_v1 failed")
     mock_resp = MagicMock(status_code=200)
 
     with (
@@ -595,12 +597,39 @@ def test_start_proxysql_instance_via_rest_fallback(monkeypatch):
             project_id="sumifu",
             zone="asia-northeast1-b",
             instance_name="proxysql-instance-prod",
-            compute_module=None,
+            compute_module=mock_compute,
             get_token_callback=lambda: "mock-token",
         )
         assert res is True
         mock_post.assert_called_once()
         assert "proxysql-instance-prod/start" in mock_post.call_args[0][0]
+
+    # No token returns False
+    with (
+        patch.object(gcp_resources, "get_instance_status", return_value=("TERMINATED", "")),
+        patch.object(gcp_resources, "get_gcp_access_token", return_value=None),
+    ):
+        assert gcp_resources.start_proxysql_instance(
+            project_id="sumifu",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            compute_module=None,
+            get_token_callback=lambda: None,
+        ) is False
+
+    # HTTP 500 returns False
+    mock_err_resp = MagicMock(status_code=500, text="Internal Server Error")
+    with (
+        patch.object(gcp_resources, "get_instance_status", return_value=("TERMINATED", "")),
+        patch("requests.post", return_value=mock_err_resp),
+    ):
+        assert gcp_resources.start_proxysql_instance(
+            project_id="sumifu",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            compute_module=None,
+            get_token_callback=lambda: "mock-token",
+        ) is False
 
 
 def test_stop_proxysql_instance_already_stopped(monkeypatch):
@@ -639,8 +668,10 @@ def test_stop_proxysql_instance_via_compute_v1(monkeypatch):
 
 
 def test_stop_proxysql_instance_via_rest_fallback(monkeypatch):
-    """Verify stop_proxysql_instance uses REST fallback if compute_v1 fails."""
+    """Verify stop_proxysql_instance uses REST fallback if compute_v1 raises."""
     monkeypatch.setenv("IS_CLOUD", "true")
+    mock_compute = MagicMock()
+    mock_compute.InstancesClient.return_value.stop.side_effect = RuntimeError("compute_v1 failed")
     mock_resp = MagicMock(status_code=200)
 
     with (
@@ -651,12 +682,39 @@ def test_stop_proxysql_instance_via_rest_fallback(monkeypatch):
             project_id="sumifu",
             zone="asia-northeast1-b",
             instance_name="proxysql-instance-prod",
-            compute_module=None,
+            compute_module=mock_compute,
             get_token_callback=lambda: "mock-token",
         )
         assert res is True
         mock_post.assert_called_once()
         assert "proxysql-instance-prod/stop" in mock_post.call_args[0][0]
+
+    # No token returns False
+    with (
+        patch.object(gcp_resources, "get_instance_status", return_value=("RUNNING", "")),
+        patch.object(gcp_resources, "get_gcp_access_token", return_value=None),
+    ):
+        assert gcp_resources.stop_proxysql_instance(
+            project_id="sumifu",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            compute_module=None,
+            get_token_callback=lambda: None,
+        ) is False
+
+    # HTTP 500 returns False
+    mock_err_resp = MagicMock(status_code=500, text="Internal Server Error")
+    with (
+        patch.object(gcp_resources, "get_instance_status", return_value=("RUNNING", "")),
+        patch("requests.post", return_value=mock_err_resp),
+    ):
+        assert gcp_resources.stop_proxysql_instance(
+            project_id="sumifu",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            compute_module=None,
+            get_token_callback=lambda: "mock-token",
+        ) is False
 
 
 def test_scale_proxysql_mig_delegates_to_single_instance(monkeypatch):
@@ -665,13 +723,24 @@ def test_scale_proxysql_mig_delegates_to_single_instance(monkeypatch):
     monkeypatch.setenv("PROXYSQL_INSTANCE_NAME", "proxysql-instance-prod")
     monkeypatch.setenv("PROXYSQL_ZONE", "asia-northeast1-b")
 
-    with patch.object(gcp_resources, "start_proxysql_instance", return_value=True) as mock_start:
+    with (
+        patch.object(gcp_resources, "start_proxysql_instance", return_value=True) as mock_start,
+        patch.object(gcp_resources, "stop_proxysql_instance", return_value=True) as mock_stop,
+    ):
         assert gcp_resources.scale_proxysql_mig(target_size=1) is True
         mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs["instance_name"] == "proxysql-instance-prod"
+        assert mock_start.call_args.kwargs["zone"] == "asia-northeast1-b"
+        mock_stop.assert_not_called()
 
-    with patch.object(gcp_resources, "stop_proxysql_instance", return_value=True) as mock_stop:
+        mock_start.reset_mock()
+        mock_stop.reset_mock()
+
         assert gcp_resources.scale_proxysql_mig(target_size=0) is True
         mock_stop.assert_called_once()
+        assert mock_stop.call_args.kwargs["instance_name"] == "proxysql-instance-prod"
+        assert mock_stop.call_args.kwargs["zone"] == "asia-northeast1-b"
+        mock_start.assert_not_called()
 
 
 

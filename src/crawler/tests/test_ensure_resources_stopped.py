@@ -7,15 +7,17 @@ import pytest
 
 try:
     from scripts.ensure_resources_stopped import (
-        check_and_stop_proxysql_mig,
+        CloudRunExecutionInfo,
         check_and_stop_proxysql_instance,
+        check_and_stop_proxysql_mig,
     )
 
     _MODULE_PATH = "scripts.ensure_resources_stopped"
 except ImportError:
     from src.crawler.scripts.ensure_resources_stopped import (
-        check_and_stop_proxysql_mig,
+        CloudRunExecutionInfo,
         check_and_stop_proxysql_instance,
+        check_and_stop_proxysql_mig,
     )
 
     _MODULE_PATH = "src.crawler.scripts.ensure_resources_stopped"
@@ -943,8 +945,6 @@ def test_proxysql_instance_within_grace_period(mock_slack):
 
 def test_proxysql_instance_with_active_job_within_timeout_skips_stop(mock_slack):
     """When instance is RUNNING and active job is within timeout, stop is skipped."""
-    from scripts.ensure_resources_stopped import CloudRunExecutionInfo
-
     mock_job = CloudRunExecutionInfo(name="exec-1", job_name="crawler-job", elapsed_sec=120.0)
 
     with (
@@ -963,6 +963,58 @@ def test_proxysql_instance_with_active_job_within_timeout_skips_stop(mock_slack)
         assert result.skipped_reason == "job_running"
         mock_slack.assert_called_once()
         assert "正常実行中のためProxySQL停止をスキップしました" in mock_slack.call_args[0][0]
+
+
+def test_proxysql_instance_exact_grace_period_skips_stop(mock_slack):
+    """Boundary test: When instance uptime exactly equals grace_period (600.0s), stop is skipped."""
+    with patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 600.0)):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            dry_run=False,
+        )
+        assert result.was_leaked is False
+        assert result.forced_stop is False
+        assert result.skipped_reason == "grace_period"
+        mock_slack.assert_not_called()
+
+
+def test_proxysql_instance_info_error_alerts(mock_slack):
+    """When instance info retrieval fails, alert is sent and stop is skipped."""
+    with patch(f"{_MODULE_PATH}._get_instance_info", return_value=("UNKNOWN", "API error 500", None)):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            dry_run=False,
+        )
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        mock_slack.assert_called_once()
+        assert "状態取得失敗" in mock_slack.call_args[0][0]
+
+
+def test_proxysql_instance_dry_run_does_not_stop(mock_slack):
+    """When dry_run=True, orphaned instance is detected as leaked but stop is not executed."""
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 1200.0)),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._stop_instance") as mock_stop,
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+            grace_period_sec=600.0,
+            dry_run=True,
+        )
+        assert result.was_leaked is True
+        assert result.forced_stop is False
+        mock_stop.assert_not_called()
+        mock_slack.assert_called_once()
+        assert "[DRY-RUN]" in mock_slack.call_args[0][0]
 
 
 def test_proxysql_instance_orphaned_stopped(mock_slack):
@@ -988,8 +1040,6 @@ def test_proxysql_instance_orphaned_stopped(mock_slack):
 
 def test_proxysql_instance_hung_job_dual_kill(mock_slack):
     """When Cloud Run job exceeds timeout, cancels job and stops instance."""
-    from scripts.ensure_resources_stopped import CloudRunExecutionInfo
-
     mock_hung = CloudRunExecutionInfo(name="exec-hung", job_name="crawler-job", elapsed_sec=5000.0)
 
     with (
@@ -1012,6 +1062,25 @@ def test_proxysql_instance_hung_job_dual_kill(mock_slack):
         mock_stop.assert_called_once_with("test-proj", "asia-northeast1-b", "proxysql-instance-prod")
         assert mock_slack.call_count == 1
         assert "ジョブ異常超過検知" in mock_slack.call_args[0][0]
+
+
+def test_main_with_instance_name_invokes_check_instance(monkeypatch):
+    """Verify main() invokes check_and_stop_proxysql_instance when --instance-name is provided."""
+    from scripts.ensure_resources_stopped import ResourceInspectionResult, main
+
+    mock_result = ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0)
+    monkeypatch.setattr("sys.argv", [
+        "ensure_resources_stopped.py",
+        "--instance-name", "proxysql-instance-prod",
+        "--zone", "asia-northeast1-a",
+        "--project-id", "test-proj",
+    ])
+    with patch(f"{_MODULE_PATH}.check_and_stop_proxysql_instance", return_value=mock_result) as mock_check:
+        exit_code = main()
+        assert exit_code == 0
+        mock_check.assert_called_once()
+        assert mock_check.call_args.kwargs["instance_name"] == "proxysql-instance-prod"
+        assert mock_check.call_args.kwargs["zone"] == "asia-northeast1-a"
 
 
 

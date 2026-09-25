@@ -29,9 +29,10 @@ resource "google_compute_address" "proxysql_ip" {
 resource "google_compute_instance" "proxysql_instance" {
   # checkov:skip=CKV_GCP_37: "Customer-supplied encryption keys not required for proxy layer"
   # checkov:skip=CKV_GCP_38: "Confidential compute not required for stateless proxy"
-  name         = "proxysql-instance-${var.environment}"
-  machine_type = var.proxysql_machine_type
-  zone         = "${var.region}-a"
+  name                      = "proxysql-instance-${var.environment}"
+  machine_type              = var.proxysql_machine_type
+  zone                      = "${var.region}-a"
+  allow_stopping_for_update = true
 
   tags = ["proxysql"]
 
@@ -63,7 +64,9 @@ resource "google_compute_instance" "proxysql_instance" {
   }
 
   metadata = {
+    enable-oslogin         = "TRUE"
     block-project-ssh-keys = "true"
+    serial-port-enable     = "false"
   }
 
   metadata_startup_script = <<-EOF

@@ -1097,7 +1097,7 @@ def main() -> int:
 
     logger.info("=== [START] Checking for leaked GCP resources ===")
     if args.instance_name:
-        inst_zone = args.zone or f"{args.region}-b"
+        inst_zone = args.zone or os.environ.get("PROXYSQL_ZONE") or f"{args.region}-a"
         result = check_and_stop_proxysql_instance(
             project_id=args.project_id,
             zone=inst_zone,
