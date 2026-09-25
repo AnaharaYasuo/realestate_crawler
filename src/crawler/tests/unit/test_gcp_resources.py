@@ -436,5 +436,80 @@ def test_check_cloud_sql_status_404_multiple_matches(monkeypatch):
         assert state == "MULTIPLE_MATCHES"
 
 
+def test_is_prefix_matched():
+    """Verify _is_prefix_matched correctly matches exact prefix or prefix with hyphen."""
+    assert gcp_resources._is_prefix_matched("prod-db", "prod-db") is True
+    assert gcp_resources._is_prefix_matched("prod-db-1234", "prod-db") is True
+    assert gcp_resources._is_prefix_matched("prod-db2", "prod-db") is False
+    assert gcp_resources._is_prefix_matched("staging-db", "prod-db") is False
+
+
+def test_evaluate_sql_instances_matches():
+    """Verify _evaluate_sql_instances_matches handles 1 match, multiple matches, and 0 matches."""
+    # Single match RUNNABLE
+    ok, state = gcp_resources._evaluate_sql_instances_matches(
+        [{"name": "prod-db-1", "state": "RUNNABLE", "settings": {"activationPolicy": "ALWAYS"}}],
+        "prod-db",
+    )
+    assert ok is True
+    assert state == "RUNNABLE"
+
+    # Single match STOPPED
+    ok, state = gcp_resources._evaluate_sql_instances_matches(
+        [{"name": "prod-db-1", "state": "STOPPED", "settings": {"activationPolicy": "NEVER"}}],
+        "prod-db",
+    )
+    assert ok is False
+    assert state == "STOPPED"
+
+    # Multiple matches
+    ok, state = gcp_resources._evaluate_sql_instances_matches(
+        [{"name": "prod-db-1"}, {"name": "prod-db-2"}],
+        "prod-db",
+    )
+    assert ok is False
+    assert state == "MULTIPLE_MATCHES"
+
+    # Zero matches
+    ok, state = gcp_resources._evaluate_sql_instances_matches([], "prod-db")
+    assert ok is False
+    assert state == "HTTP 404"
+
+
+def test_fetch_cloud_sql_instances_by_prefix_pagination():
+    """Verify _fetch_cloud_sql_instances_by_prefix handles pagination across multiple pages."""
+    page1 = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "items": [{"name": "db-inst-1"}, {"name": "other-1"}],
+            "nextPageToken": "token-page-2",
+        },
+    )
+    page2 = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "items": [{"name": "db-inst-2"}],
+        },
+    )
+
+    with patch("requests.get", side_effect=[page1, page2]) as mock_get:
+        matches, err = gcp_resources._fetch_cloud_sql_instances_by_prefix("proj", "db-inst", "token")
+        assert err is None
+        assert len(matches) == 2
+        assert [m["name"] for m in matches] == ["db-inst-1", "db-inst-2"]
+        assert mock_get.call_count == 2
+        assert mock_get.call_args_list[1][1]["params"] == {"pageToken": "token-page-2"}
+
+
+def test_fetch_cloud_sql_instances_by_prefix_http_error():
+    """Verify _fetch_cloud_sql_instances_by_prefix returns error on HTTP non-200."""
+    mock_err = MagicMock(status_code=403)
+    with patch("requests.get", return_value=mock_err):
+        matches, err = gcp_resources._fetch_cloud_sql_instances_by_prefix("proj", "db-inst", "token")
+        assert matches is None
+        assert err == "HTTP 403"
+
+
+
 
 

@@ -189,5 +189,33 @@
 ### 4.4 残存 Issue 解消 (`src/crawler/package/utils/gcp_resources.py`)
 - line 356: `logger.error(f"Cloud SQL status check failed: {e}")` を `logger.exception(f"Cloud SQL status check failed: {e}")` へ変更。
 
+## 5. 第5期: gcp_resources 認知的複雑度低減詳細設計 (Issue #442)
+
+### 5.1 モジュール構成と責務分離 (`src/crawler/package/utils/gcp_resources.py`)
+
+1. **`_is_prefix_matched(name: str, prefix: str) -> bool`**:
+   - 単機能のプレフィックス一致判定（完全一致 または `<prefix>-` で始まるか）。
+   - 認知的複雑度: 1。
+
+2. **`_evaluate_sql_instances_matches(all_matches: list[dict], prefix: str) -> tuple[bool, str]`**:
+   - 抽出されたインスタンスリストの件数（1件、複数件、0件）に応じた状態判定とログ出力。
+   - 1件: `inst['state'] == 'RUNNABLE', inst['state']`
+   - 複数件: `False, 'MULTIPLE_MATCHES'`
+   - 0件: `False, 'HTTP 404'`
+   - 認知的複雑度: 2。
+
+3. **`_fetch_cloud_sql_instances_by_prefix(project: str, prefix: str, token: str) -> tuple[list[dict] | None, str | None]`**:
+   - Cloud SQL Admin API のページネーションループ (`pageToken`) および HTTP 応答処理。
+   - 各インスタンス名に対し `_is_prefix_matched` を適用して合致したものをリストへ蓄積。
+   - 認知的複雑度: 12。
+
+4. **`_find_cloud_sql_by_prefix(project: str, prefix: str, token: str) -> tuple[bool, str]`**:
+   - メインエントリポイント。
+   - `_fetch_cloud_sql_instances_by_prefix` を呼び出し、エラーがあれば即時返却。
+   - 取得結果を `_evaluate_sql_instances_matches` へ渡して結果を返却。
+   - 例外発生時は `logger.warning` 出力し `False, str(e)` を返却。
+   - 認知的複雑度: 2。
+
+
 
 
