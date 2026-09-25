@@ -4,6 +4,8 @@
 
 set -e
 
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-realestate_crawler}"
+
 zero="0000000000000000000000000000000000000000"
 
 run_pre_pr_check() {
