@@ -144,3 +144,34 @@ def test_invalid_scheme_raises_api_exception():
     with pytest.raises(SonarApiException) as exc_info:
         _execute_api_get("file:///etc/passwd")
     assert "Invalid URL scheme" in str(exc_info.value)
+
+
+def test_main_strict_zero_issues_pass(capsys):
+    """--strict-zero-issues: Quality Gate OK かつ issues 0 件なら exit code 0"""
+    with patch(
+        "scripts.debug_tools.check_sonar_remote.fetch_quality_gate",
+        return_value={"status": "OK", "conditions": []},
+    ), patch(
+        "scripts.debug_tools.check_sonar_remote.fetch_unresolved_issues",
+        return_value=([], 0),
+    ):
+        code = main(["--pr", "287", "--strict-zero-issues"])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "Zero-issues assertion passed" in captured.out
+
+
+def test_main_strict_zero_issues_fail_when_issues_exist(capsys):
+    """--strict-zero-issues: Quality Gate OK でも issues > 0 件なら exit code 1 で弾く"""
+    with patch(
+        "scripts.debug_tools.check_sonar_remote.fetch_quality_gate",
+        return_value={"status": "OK", "conditions": []},
+    ), patch(
+        "scripts.debug_tools.check_sonar_remote.fetch_unresolved_issues",
+        return_value=([{"rule": "python:S8572", "component": "gcp_resources.py", "line": 356, "message": "error"}], 1),
+    ):
+        code = main(["--pr", "287", "--strict-zero-issues"])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "[STRICT CHECK FAILED]" in captured.err or "[STRICT CHECK FAILED]" in captured.out
+

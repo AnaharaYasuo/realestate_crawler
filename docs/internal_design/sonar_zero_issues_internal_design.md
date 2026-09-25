@@ -150,4 +150,44 @@
 ### 3.11 `src/crawler/package/utils/plot_shape_analyzer.py` (S3776)
 - `analyze_plot_shape`: 接道・奥行推定を `_estimate_frontage_and_depth`、内接矩形・うなぎ判定を `_calculate_mir_and_unagi` へ抽出。
 
+## 4. 第4期: Strict Quality Gate ＆ 多層防御モジュール詳細設計 (Issue #436)
+
+### 4.1 Strict Quality Gate プロビジョニング (`src/crawler/scripts/debug_tools/setup_strict_quality_gate.py`)
+1. **API 仕様**:
+   - `GET /api/qualitygates/list?organization={org}`: 既存Quality Gate一覧を取得。
+   - `POST /api/qualitygates/create?name=Strict+Gate&organization={org}`: ゲートが存在しない場合に新規作成。
+   - `POST /api/qualitygates/create_condition`:
+     - `new_violations GT 0` (新規課題が1件でもあればエラー)
+     - `new_reliability_rating GT 1`
+     - `new_security_rating GT 1`
+     - `new_maintainability_rating GT 1`
+     - `new_duplicated_lines_density GT 3`
+     - `new_security_hotspots_reviewed LT 100`
+   - カバレッジ指標（`new_coverage`, `branch_coverage`）は一切追加しない。
+   - `POST /api/qualitygates/select?projectKey={project}&gateId={gate_id}&organization={org}`: プロジェクトに Strictly 適用。
+2. **引数インターフェース**:
+   - `--token`: SonarCloud Token（環境変数 `SONAR_TOKEN` 対応）
+   - `--org`: `anaharayasuo`
+   - `--project`: `AnaharaYasuo_realestate_crawler`
+   - `--dry-run`: 変更を行わず計画のみ出力
+
+### 4.2 CIレベル Issue 厳格アサーション (`src/crawler/scripts/debug_tools/check_sonar_remote.py`)
+1. **追加オプション**:
+   - `--strict-zero-issues`: スキャン完了後、PRまたはブランチの未解決Issue数が0件でない場合、詳細ログを出力して `sys.exit(1)` で終了する。
+2. **終了コード規定**:
+   - `0`: Quality Gate PASS かつ 未解決Issue 0件。
+   - `1`: Quality Gate FAIL、または未解決Issue >= 1件、またはAPIエラー。
+
+### 4.3 CI ワークフロー改修 (`.github/workflows/sonar.yml`)
+1. **Quality Gate プロビジョニングステップ**:
+   - 旧「Ensure Sonar way Quality Gate」を `setup_strict_quality_gate.py` 実行へ刷新。
+2. **Quality Gate スキャンステップ**:
+   - `-Dsonar.qualitygate.wait=true` を維持し、SonarCloud 側の Strict Gate 判定で即座にFAIL。
+3. **CI 多層防御ステップ**:
+   - スキャン後に `check_sonar_remote.py --strict-zero-issues` を実行し、万が一のすり抜けを完全遮断。
+
+### 4.4 残存 Issue 解消 (`src/crawler/package/utils/gcp_resources.py`)
+- line 356: `logger.error(f"Cloud SQL status check failed: {e}")` を `logger.exception(f"Cloud SQL status check failed: {e}")` へ変更。
+
+
 
