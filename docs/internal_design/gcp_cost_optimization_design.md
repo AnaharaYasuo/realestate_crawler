@@ -14,25 +14,25 @@ sequenceDiagram
     actor Cron1 as Cloud Scheduler (00:55 JST)
     actor Cron2 as Cloud Scheduler (05:00 JST / Safety Net)
     participant Coord as Cloud Run Crawler Pipeline
-    participant Proxy as ProxySQL MIG (e2-micro)
+    participant Proxy as ProxySQL Instance (e2-micro)
     participant NAT as Cloud NAT
     participant Slack as Slack Alert (#property_alert)
 
     Note over Cron1,Coord: [夜間バッチ実行フェーズ]
     Cron1->>Coord: 日次バッチ実行トリガー
-    Coord->>Proxy: MIG スケールアウト (size: 0 -> 1)
+    Coord->>Proxy: インスタンス起動 (start)
     Coord->>NAT: NAT 有効化
-    Coord->>Coord: クローリング & ML推論実行
-    Coord->>Proxy: 完了後 MIG スケールイン (size: 1 -> 0)
+    Coord->>Coord: Direct VPC経由でクローリング & ML推論実行
+    Coord->>Proxy: 完了後 インスタンス停止 (stop)
     Coord->>NAT: 完了後 NAT 無効化
 
     Note over Cron2,Slack: [朝05:00 セーフティネット検査フェーズ]
     Cron2->>Coord: ensure_resources_stopped 実行
-    alt リソースが size > 0 または NAT有効のまま放置
-        Coord->>Proxy: 強制停止 (size -> 0)
+    alt リソースが RUNNING または NAT有効のまま放置
+        Coord->>Proxy: 強制停止 (stop)
         Coord->>NAT: 強制無効化
         Coord->>Slack: ⚠️ 停止漏れ検知 & 強制停止アラート送信
-    else 正常に停止済み (size == 0)
+    else 正常に停止済み (TERMINATED)
         Coord->>Coord: 正常終了 (通知なし/監査ログのみ)
     end
 ```
@@ -43,13 +43,13 @@ sequenceDiagram
 
 ### 3.1 役割と責務
 - Cloud Scheduler 経由で定期実行（深夜帯 `0 17-21 * * *` 等）およびオンデマンドでキックされる、ゾンビ課金防止セーフティネット。
-- **因果関係駆動・Cloud Run Job 状態連動**: 単に ProxySQL のサイズだけを見て機械的に停止するのではなく、親リソースである Cloud Run Job（`realestate-crawler-pipeline-*`, `realestate-migrate-*`）の Execution 稼働状態と実行経過時間を確認して停止要否を動的判定。
+- **因果関係駆動・Cloud Run Job 状態連動**: 単に ProxySQL の稼働状態だけを見て機械的に停止するのではなく、親リソースである Cloud Run Job（`realestate-crawler-pipeline-*`, `realestate-migrate-*`）の Execution 稼働状態と実行経過時間を確認して停止要否を動的判定。
 - **起動直後レースコンディション防止 (Grace Period: 10分 / 600秒)**:
-  - ProxySQL のインスタンス作成日時または MIG 更新から 10分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ。
+  - ProxySQL のインスタンス作成日時または起動更新から 10分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ。
 - **完全停止戦略 (Dual Hard-Kill on Hang)**:
-  - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + バッファ）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL MIG (Autoscaler / size -> 0) を停止。
+  - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + バッファ）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL を停止。
 - **親不在時の安全停止**:
-  - 関連する Cloud Run Job Execution が RUNNING でない（存在しない）かつ Grace Period を超過している場合は、直ちに ProxySQL を 0 台に縮小して停止漏れを解消。
+  - 関連する Cloud Run Job Execution が RUNNING でない（存在しない）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して停止漏れを解消。
 - **安全側に倒すエラーハンドリング (Fail-Safe)**:
   - API 通信エラー、404 Not Found、認証エラー等が発生した場合、決して「正常停止中」と偽装せず、緊急 Slack アラート（`:rotating_light:`）を発報し非ゼロ（Exit Code 1）で終了。
 

@@ -23,14 +23,13 @@ flowchart TB
     end
 
     subgraph Network ["VPC Network (閉域網)"]
-        SVA[Serverless VPC Access\nConnector]
-        ILB["Internal Load Balancer (ILB)\nTCP: 6033"]
+        DVE["Direct VPC Egress\n(Subnet: 10.0.0.0/24)"]
         CR[Cloud Router]
         NAT["Cloud NAT\n(Static External IP)"]
     end
 
     subgraph ProxyLayer ["コネクションプーリング層"]
-        MIG["ProxySQL MIG (e2-micro x 2)\nオンデマンド (size: 0 <-> 1)\nMulti-Zone / Auto-healing"]
+        PROXY["ProxySQL 単一インスタンス (e2-micro)\n固定内部IP (10.0.0.10: 6033)\nオンデマンド (start <-> stop)\nスケールアップ対応"]
     end
 
     subgraph DataStore ["マネージド永続化層"]
@@ -44,24 +43,23 @@ flowchart TB
     end
 
     CS -->|01:00 Trigger| CRJ_Disp
-    CRJ_Disp -->|MIG起動 size:0->1| MIG
+    CRJ_Disp -->|起動 start| PROXY
     CRJ_Disp -->|タスク投入| CT
     CT -->|POST /api/crawl/task| CRS_Worker
 
-    CRS_Worker -->|Egress Route| SVA
+    CRS_Worker -->|Direct VPC| DVE
     CRS_Worker -->|Store Images| GCS
     CRS_Worker -.->|異常・0件検知| SLACK
 
     CRJ_ML -->|Read Secrets| SM
-    CRJ_ML -->|Egress Route| SVA
+    CRJ_ML -->|Direct VPC| DVE
     CRJ_ML -->|Alert / Recommend| SLACK
-    CRJ_ML -->|MIG停止 size:1->0| MIG
+    CRJ_ML -->|停止 stop| PROXY
     CRS -->|Socket / Webhook| SLACK
 
-    SVA -->|MySQL: 6033 (No App Pool)| ILB
-    ILB -->|TCP Load Balancing| MIG
-    MIG -->|Multiplexed DB Conns| CSQL
-    SVA -->|Route to Internet| CR
+    DVE -->|MySQL: 6033 (Direct IP)| PROXY
+    PROXY -->|Multiplexed DB Conns| CSQL
+    DVE -->|Route to Internet| CR
     CR --> NAT
     NAT -->|Fixed IP Access| SITES
 ```
@@ -72,11 +70,11 @@ flowchart TB
 
 | コンポーネント | GCPサービス | 仕様・サイジング | 役割・選定根拠 |
 |---|---|---|---|
-| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQL MIGをAutoscaler経由で安全にオンデマンド起動・240sヘルスチェック・Cloud SQL稼働確認し、完了時/異常時finallyで停止。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のMIGゾンビ残存を根本遮断。 |
+| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQLインスタンスを安全にオンデマンド起動・疎通確認し、完了時/異常時finallyで停止。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のゾンビ残存を根本遮断。 |
 | **定期トリガー** | Cloud Scheduler | 毎日 16:00 UTC (01:00 JST) 実行 | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。 |
-| **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL size=0, NAT）を検査する多重セーフティネット。Cloud Run Job Execution 稼働状態連動（RUNNING ジョブがあれば停止スキップ、タイムアウト超過時は Cloud Run キャンセル ＋ ProxySQL 両強制停止、起動後10分間 Grace Period 猶予）。 |
-| **コネクションプール** | Compute Engine MIG | `e2-micro` オンデマンド (Autoscaler: Min 0, Max 2), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `size = 0` で課金ゼロ化。バッチ起動時に Autoscaler 設定 (0 -> 1) により安全にスケールアウトし最大240秒疎通確認。 |
-| **内部負荷分散** | 内部TCPロードバランサー (ILB) | リージョン内部ロードバランサー, ポート 6033, TCPヘルスチェック, コネクションドレイン (300秒) | ProxySQL MIG へのトラフィック分散、障害時自動フェイルオーバー、スケールイン時のクエリ保護。 |
+| **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL stopped, NAT）を検査する多重セーフティネット。Cloud Run Job Execution 稼働状態連動（RUNNING ジョブがあれば停止スキップ、タイムアウト超過時は Cloud Run キャンセル ＋ ProxySQL 両強制停止、起動後10分間 Grace Period 猶予）。 |
+| **コネクションプール** | Compute Engine Instance | `e2-micro` (固定内部IP: `10.0.0.10`), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `TERMINATED (stop)` でCPU/メモリ課金ゼロ化。トラフィック増大時は垂直スケールアップ（`e2-small` / `e2-medium`）で対処。 |
+| **内部負荷分散** | 廃止 (直接ルーティング) | 削除 (ILB転送ルール廃止) | ILB転送ルール固定費（月額約4,360円）を完全排除。Direct VPC Egress から ProxySQL の固定プライベートIP (10.0.0.10:6033) へ直接接続。 |
 | **リレーショナルDB** | Cloud SQL for MySQL 8.0 | `db-f1-micro` または `db-g1-small`, SSD 20GB (自動拡張) | 物件マスタ、トランザクション、地価、評価データの格納。自動バックアップ対応。 |
 | **オブジェクトストレージ** | Cloud Storage (GCS) | Standard クラス, リージョン: `asia-northeast1` | 物件画像、エビデンス、モデルアーティファクト保存。MinIOからの完全代替。 |
 | **コンテナレジストリ** | Artifact Registry | Docker リポジトリ (`asia-northeast1`) | クローラーDockerイメージの保存・バージョン管理。古いイメージの自動削除ポリシー適用。 |
@@ -85,7 +83,7 @@ flowchart TB
 | **実行権限** | IAM Service Account | クローラー専用 SA / ProxySQL専用 SA | Cloud SQL クライアント、Storage オブジェクト管理者、Secret アクセサー等を最小権限で付与。 |
 | **予算・請求アラート** | Cloud Billing Budget + Cloud Monitoring | しきい値: 50%, 80%, 100%, 120%(予測) | メール及びPub/Sub通知により、リソース暴走や過大請求を即時防止。 |
 | **ログ重大度昇格 & 監視** | Cloud Logging + Cloud Monitoring | ログベースメトリクス + アラートポリシー (Severity: ERROR / CRITICAL) | MySQL 8.0 ログ `MY-010926` (Access denied) や `[ERROR]`, `MY-010048` (Too many connections) を捕捉し重大度 ERROR として即時アラート発報。 |
-| **日中帯ゾンビ監視** | Cloud Monitoring | `compute.googleapis.com/instance_group/size` | 日中帯 (JST 06:00〜24:00) に ProxySQL が稼働し続けている場合に ERROR 発報。 |
+| **日中帯ゾンビ監視** | Cloud Monitoring | `compute.googleapis.com/instance/uptime` | 日中帯 (JST 06:00〜24:00) に ProxySQL が稼働し続けている場合に ERROR 発報。 |
 | **ヘルスチェック監視認証** | Cloud SQL User (`monitor`) + ProxySQL | 専用 `monitor` ユーザー (USAGE権限のみ) + ランダムパスワード | ProxySQL の内部死活監視 (`ping`, `read_only`) の認証を正常化し、認証拒否スパムを根絶。 |
 
 
