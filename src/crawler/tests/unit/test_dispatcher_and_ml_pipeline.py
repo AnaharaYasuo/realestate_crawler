@@ -75,9 +75,14 @@ def test_scale_proxysql_mig_rest_fallback(monkeypatch):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
 
+    mock_get_resp = MagicMock()
+    mock_get_resp.status_code = 200
+    mock_get_resp.json.return_value = {"targetSize": 0}
+
     # Test dispatcher scale_proxysql_mig
     with patch.object(run_dispatcher, "compute_v1", None), \
          patch.object(run_dispatcher, "_get_gcp_access_token", return_value="fake-token", create=True), \
+         patch("requests.get", return_value=mock_get_resp), \
          patch("requests.post", return_value=mock_resp) as mock_post:
         res = run_dispatcher.scale_proxysql_mig(target_size=1, dry_run=False)
         assert res is True
@@ -88,10 +93,12 @@ def test_scale_proxysql_mig_rest_fallback(monkeypatch):
     # Test ml_pipeline scale_proxysql_mig
     with patch.object(run_ml_pipeline, "compute_v1", None), \
          patch.object(run_ml_pipeline, "_get_gcp_access_token", return_value="fake-token", create=True), \
+         patch("requests.get", return_value=mock_get_resp), \
          patch("requests.post", return_value=mock_resp) as mock_post_ml:
         res = run_ml_pipeline.scale_proxysql_mig(target_size=0, dry_run=False)
         assert res is True
         mock_post_ml.assert_called_once()
         url = mock_post_ml.call_args[0][0]
         assert "instanceGroupManagers/proxysql-mig-prod/resize?size=0" in url
+
 

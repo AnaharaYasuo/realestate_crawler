@@ -23,13 +23,12 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def get_gcp_access_token() -> str | None:
+def get_gcp_access_token(scopes: list[str] | None = None) -> str | None:
     """GCP 認証トークンを取得 (google.auth または メタデータサーバー経由)"""
+    target_scopes = scopes or ["https://www.googleapis.com/auth/cloud-platform"]
     if google is not None:
         try:
-            credentials, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/compute"]
-            )
+            credentials, _ = google.auth.default(scopes=target_scopes)
             req = google.auth.transport.requests.Request()
             credentials.refresh(req)
             if credentials.token:
@@ -229,6 +228,154 @@ def patch_proxysql_autoscaler(
     )
 
 
+def _extract_autoscaler_name(autoscaler_url_or_name: Any) -> str | None:
+    if not autoscaler_url_or_name or not isinstance(autoscaler_url_or_name, str):
+        return None
+    val = autoscaler_url_or_name.strip()
+    if not val:
+        return None
+    return val.rstrip("/").split("/")[-1]
+
+
+def _get_mig_via_compute_client(
+    compute_module: Any, project_id: str, region: str, mig_name: str
+) -> tuple[int, str, str | None]:
+    if compute_module is None or not hasattr(
+        compute_module, "RegionInstanceGroupManagersClient"
+    ):
+        return -1, "No compute client", None
+    try:
+        client = compute_module.RegionInstanceGroupManagersClient()
+        igm = client.get(
+            project=project_id,
+            region=region,
+            instance_group_manager=mig_name,
+            timeout=10.0,
+        )
+        raw_size = getattr(igm, "target_size", 0)
+        target_size = int(raw_size) if isinstance(raw_size, (int, float)) else 0
+        status_obj = getattr(igm, "status", None)
+        autoscaler_val = getattr(status_obj, "autoscaler", None) if status_obj is not None else None
+        autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
+        return target_size, "", autoscaler
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to get MIG info via compute_v1: {e}")
+        return -1, str(e), None
+
+
+def _get_mig_via_rest(
+    project_id: str, region: str, mig_name: str, token: str | None
+) -> tuple[int, str, str | None]:
+    if not token:
+        return -1, "No GCP token", None
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}"
+    try:
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code != 200:
+            return -1, f"HTTP {resp.status_code}: {resp.text}", None
+        data = resp.json()
+        target_size = int(data.get("targetSize", 0))
+        autoscaler_val = data.get("status", {}).get("autoscaler") or data.get("autoscaler")
+        autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
+        return target_size, "", autoscaler
+    except Exception as e:  # noqa: BLE001
+        return -1, str(e), None
+
+
+def get_mig_info(
+    project_id: str,
+    region: str,
+    mig_name: str,
+    compute_module: Any = compute_v1,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> tuple[int, str, str | None]:
+    """Retrieve MIG target_size, error message, and attached autoscaler."""
+    target_size, err, autoscaler = _get_mig_via_compute_client(
+        compute_module, project_id, region, mig_name
+    )
+    if not err:
+        return target_size, "", autoscaler
+
+    token_fn = get_token_callback or get_gcp_access_token
+    token = token_fn()
+    rest_size, rest_err, rest_auto = _get_mig_via_rest(
+        project_id, region, mig_name, token
+    )
+    if not rest_err:
+        return rest_size, "", rest_auto
+
+    return -1, f"{err}; {rest_err}", None
+
+
+def check_cloud_sql_status(
+    project_id: str | None = None,
+    instance_name: str | None = None,
+    dry_run: bool = False,
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> tuple[bool, str]:
+    """Check Cloud SQL instance state (RUNNABLE)."""
+    if dry_run or not bool(
+        os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
+    ):
+        return True, "RUNNABLE (mocked)"
+
+    project = (
+        project_id
+        or os.getenv("GCP_PROJECT")
+        or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
+    )
+    instance = instance_name or os.getenv("CLOUDSQL_INSTANCE_NAME", "realestate-mysql-prod")
+    token_fn = get_token_callback or (
+        lambda: get_gcp_access_token(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    )
+    token = token_fn()
+    if not token:
+        logger.error("No GCP token available for Cloud SQL status check.")
+        return False, "UNKNOWN (no token)"
+
+    url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances/{instance}"
+    try:
+        resp = requests.get(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=5
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            state = data.get("state", "UNKNOWN")
+            act_policy = data.get("settings", {}).get("activationPolicy", "UNKNOWN")
+            logger.info(
+                f"Cloud SQL '{instance}' state: {state}, activationPolicy: {act_policy}"
+            )
+            return state == "RUNNABLE", state
+        logger.error(f"Cloud SQL API returned HTTP {resp.status_code}: {resp.text}")
+        return False, f"HTTP {resp.status_code}"
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Cloud SQL status check failed: {e}")
+        return False, str(e)
+
+
+def _scale_direct_mig(
+    compute_module: Any,
+    project: str,
+    reg: str,
+    mig: str,
+    target_size: int,
+    get_token_callback: Callable[[], str | None] | None,
+) -> bool:
+    if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
+        return True
+    token_fn = get_token_callback or get_gcp_access_token
+    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
+        return True
+    logger.error(
+        f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
+    )
+    return False
+
+
 def scale_proxysql_mig(
     target_size: int = 1,
     project_id: str | None = None,
@@ -240,7 +387,8 @@ def scale_proxysql_mig(
 ) -> bool:
     """ProxySQL MIG のサイズを変更 (0 -> 1 または 1 -> 0)。
 
-    compute_v1 -> REST API -> gcloud CLI の順でフォールバック。
+    Autoscaler 管理下の MIG の場合は patch_proxysql_autoscaler を呼出し、
+    直接 resize API (GCPにより拒否される) の発行を回避する。
     """
     project = (
         project_id
@@ -261,25 +409,50 @@ def scale_proxysql_mig(
         logger.info(f"[Dry-run/Local] ProxySQL MIG scaled to {target_size} (mocked).")
         return True
 
-    # 1. compute_v1 クライアントライブラリ
-    if _resize_via_compute_client(compute_module, project, reg, mig, target_size):
-        return True
-
-    # 2. REST API フォールバック
-    token_fn = get_token_callback or get_gcp_access_token
-    if _resize_mig_via_rest(project, reg, mig, target_size, token_fn()):
-        return True
-
-    logger.error(
-        f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
+    # 1. Autoscaler 存在チェック (GCP は Autoscaler 管理下 MIG への直接 resize を禁止)
+    _, err, autoscaler = get_mig_info(
+        project,
+        reg,
+        mig,
+        compute_module=compute_module,
+        get_token_callback=get_token_callback,
     )
-    return False
+    auto_name = _extract_autoscaler_name(autoscaler)
+    if not auto_name and err and os.getenv("PROXYSQL_AUTOSCALER_NAME"):
+        auto_name = os.getenv("PROXYSQL_AUTOSCALER_NAME")
+
+    if auto_name:
+        min_rep = target_size
+        max_rep = max(2, target_size) if target_size > 0 else 0
+        logger.info(
+            f"ProxySQL MIG is managed by Autoscaler '{auto_name}'. Adjusting min={min_rep}, max={max_rep}."
+        )
+        return patch_proxysql_autoscaler(
+            min_replicas=min_rep,
+            max_replicas=max_rep,
+            project_id=project,
+            region=reg,
+            autoscaler_name=auto_name,
+            dry_run=dry_run,
+            compute_module=compute_module,
+            get_token_callback=get_token_callback,
+        )
+
+    if err:
+        logger.error(
+            f"Failed to inspect ProxySQL MIG '{mig}' before scaling: {err}. Refusing to resize directly."
+        )
+        return False
+
+    return _scale_direct_mig(
+        compute_module, project, reg, mig, target_size, get_token_callback
+    )
 
 
 def wait_for_proxysql_health(
     host: str | None = None,
     port: int | None = None,
-    timeout_sec: int = 120,
+    timeout_sec: int = 240,
 ) -> bool:
     """ProxySQL のポート (6033) 疎通を確認 (起動チェック)."""
     target_host = host or os.getenv("DB_HOST", "127.0.0.1")
@@ -311,4 +484,5 @@ def wait_for_proxysql_health(
         f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution."
     )
     return False
+
 
