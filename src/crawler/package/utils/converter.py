@@ -94,7 +94,14 @@ def parse_chikunengetsu(date_str):
             era = m.group(1)
             y_str = m.group(2)
             year = 1 if y_str == '元' else int(y_str)
-            month = int(m.group(3)) if m.group(3) else 1
+            if m.group(3):
+                month = int(m.group(3))
+            elif year == 1 and era == '令和':
+                month = 5
+            elif year == 1 and era == '昭和':
+                month = 12
+            else:
+                month = 1
             era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
             return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
     except Exception:
