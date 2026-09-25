@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.strict_zero_issues:
             if issues_total > 0:
                 is_ok = False
-            elif is_ok:
+            elif is_ok and not args.json:
                 print("\n[STRICT CHECK] Zero-issues assertion passed.")
 
         if args.json:

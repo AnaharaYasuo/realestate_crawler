@@ -57,17 +57,21 @@ def test_ensure_strict_quality_gate_update_existing():
             {
                 "id": 156760,
                 "name": "Strict Gate",
-                "conditions": [
-                    {"id": 1, "metric": "new_coverage", "op": "LT", "error": "80"},
-                    {"id": 2, "metric": "new_violations", "op": "GT", "error": "0"},
-                ],
             }
         ]
+    }
+    show_resp = {
+        "name": "Strict Gate",
+        "conditions": [
+            {"id": 1, "metric": "new_coverage", "op": "LT", "error": "80"},
+            {"id": 2, "metric": "new_violations", "op": "GT", "error": "0"},
+        ],
     }
 
     with patch("scripts.debug_tools.setup_strict_quality_gate.api_request") as mock_api:
         mock_api.side_effect = [
             list_resp,  # list
+            show_resp,  # show
             {},         # delete_condition (new_coverage)
             {},         # create_condition (missing 1)
             {},         # create_condition (missing 2)

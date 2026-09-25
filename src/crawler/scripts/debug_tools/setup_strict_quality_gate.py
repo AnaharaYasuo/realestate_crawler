@@ -106,7 +106,12 @@ def ensure_strict_quality_gate(
         existing_conditions = []
     else:
         gate_id = int(target_gate.get("id"))
-        existing_conditions = target_gate.get("conditions", [])
+        gate_resp = api_request(
+            "qualitygates/show",
+            params={"name": gate_name, "organization": org},
+            token=token,
+        )
+        existing_conditions = gate_resp.get("conditions", [])
         print(f"Found existing quality gate '{gate_name}' (ID: {gate_id})")
 
     # Clean up unwanted metrics (e.g. coverage metrics causing false failures)
