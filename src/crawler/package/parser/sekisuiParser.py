@@ -209,7 +209,51 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        val = (
+            specs.get("完成時期（築年月）", "")
+            or specs.get("築年月", "")
+            or specs.get("完成年月", "")
+            or specs.get("竣工年月", "")
+            or specs.get("築年", "")
+            or specs.get("完成時期", "")
+        )
+        if val:
+            return converter.parse_chikunengetsu(val)
         return super()._parseChikunengetsu(response, specs)
+
+    def _parseFloorTypeChijo(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("構造・階数", "") or specs.get("階数", "") or specs.get("建物構造", "")
+        if val:
+            m_chijo = re.search(r'地上\s*(\d+)階', val)
+            if m_chijo:
+                return int(m_chijo.group(1))
+            m_kai = re.search(r'(\d+)階建', val)
+            if m_kai:
+                return int(m_kai.group(1))
+        return None
+
+    def _parseFloorTypeChika(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("構造・階数", "") or specs.get("階数", "") or specs.get("建物構造", "")
+        if val:
+            m_chika = re.search(r'地下\s*(\d+)階', val)
+            if m_chika:
+                return int(m_chika.group(1))
+            if re.search(r'(\d+)階建', val) or re.search(r'地上\s*(\d+)階', val):
+                return 0
+        return 0
+
+    def _parseFloorTypeKai(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("所在階", "") or specs.get("階数", "")
+        if val:
+            m = re.search(r'(\d+)階', val)
+            if m:
+                return int(m.group(1))
+        return None
+
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -292,8 +336,13 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         item.kouzou = self._parseKouzou(response, specs)
+
+        item.floorType_chijo = self._parseFloorTypeChijo(response, specs)
+        item.floorType_chika = self._parseFloorTypeChika(response, specs)
+        item.floorType_kai = self._parseFloorTypeKai(response, specs)
         
         return item
+
 
 
 class SekisuiKodateParser(SekisuiParser, KodateParserBase):

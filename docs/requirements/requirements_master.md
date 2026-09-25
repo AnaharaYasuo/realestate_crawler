@@ -517,6 +517,9 @@ task stop
 - ネットワークエラー時: 10秒待機後に1回リトライ
 - DB接続エラー時: 30秒待機後に再試行
 - タイムアウト: 成功とみなして処理継続
+- CDN/WAF TLS互換性（Akamai/Cloudflare対策）: `ApiAsyncProcBase` の SSL コンテキストに `ssl.OP_NO_TICKET` を付与し、TLS Session Ticket 由来の 403 Forbidden ボット遮断を防止すること。
+- 和暦・西暦統一変換および階数パース: `converter.parse_chikunengetsu` は西暦・和暦双方を変換可能とし、パーサーは複合表記（完成時期（築年月）や構造・階数）から階数・築年月を欠損なく抽出すること。
+
 
 #### NFR-004: ログ出力・構造化ロギング要件
 - **Google Cloud Logging 構造化ログ（JSON）対応**:

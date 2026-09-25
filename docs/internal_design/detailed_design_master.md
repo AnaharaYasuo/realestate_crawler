@@ -550,7 +550,19 @@ graph TD
   - `wait_for_all_tasks` 完了後（タイムアウト時含む）、当日の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計。
   - 全タスクの成功件数、失敗件数、異常クローラー一覧、および過去24時間の新規取得件数内訳を集約した「全体統合クローリング実行状況レポート」を Slack に送信。タスク未完了やタイムアウトが発生した場合はそのタスク番号と未完了ジョブも明記し、全ジョブの稼働実績を100%可視化する。
 
+### 6.31 積水ハウスAkamai TLS抑止・和暦築年月および階数パース内部設計
+- **TLS Session Ticket抑止 (`ApiAsyncProcBase._generateConnector`)**:
+  - `ctx = ssl.create_default_context()` に対して `ctx.options |= ssl.OP_NO_TICKET` を設定。これにより Akamai CDN / Bot Manager による ClientHello の TLS セッションチケット検証による 403 Forbidden 遮断を解消。
+- **和暦築年月対応 (`package.utils.converter.parse_chikunengetsu`)**:
+  - 西暦パターン `(\d{4})[年/\.-](\d{1,2})` に加え、和暦パターン `(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?` を判定し、年オフセット（昭和: 1925, 平成: 1988, 令和: 2018）から `datetime.date` を生成。
+- **積水マンションパーサー拡張 (`SekisuiMansionParser`)**:
+  - 築年月キーに `"完成時期（築年月）"` を追加。
+  - `"構造・階数"`（例: `SRC11階建て`）および `"所在階"`（例: `6階`）から正規表現で地上階数 (`floorType_chijo`)、地下階数 (`floorType_chika`)、所在階 (`floorType_kai`) を分解。
+- **モデル定義のバリデーション許容性 (`SekisuiMansion`)**:
+  - `chikunengetsu`, `floorType_chijo`, `floorType_chika`, `floorType_kai` などの属性に `blank=True` を設定し、一部フィールド欠損時にも Django バリデーションエラーによる全件スキップを防止。
+
 ---
+
 
 ## 7. 参照ドキュメント
 

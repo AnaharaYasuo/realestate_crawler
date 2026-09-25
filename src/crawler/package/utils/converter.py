@@ -76,20 +76,31 @@ def parse_menseki(menseki_str):
 def parse_chikunengetsu(date_str):
     """
     築年月文字列を date オブジェクトに変換する
-    例: "1998年3月" -> date(1998, 3, 1)
+    例: "1998年3月" -> date(1998, 3, 1), "昭和54年12月" -> date(1979, 12, 1)
     """
-    if not date_str or date_str == "不詳" or date_str == "-":
+    if not date_str or str(date_str).strip() in ("不詳", "-", ""):
         return None
-    
+
     try:
-        match = re.search(r'(\d{4})年(\d{1,2})月', date_str)
+        s = str(date_str).strip()
+        match = re.search(r'(\d{4})[年/\.-](\d{1,2})', s)
         if match:
             year = int(match.group(1))
             month = int(match.group(2))
             return datetime.date(year, month, 1)
+
+        m = re.search(r'(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?', s)
+        if m:
+            era = m.group(1)
+            y_str = m.group(2)
+            year = 1 if y_str == '元' else int(y_str)
+            month = int(m.group(3)) if m.group(3) else 1
+            era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
+            return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
     except Exception:
         pass
     return None
+
 
 def parse_numeric(text):
     """
