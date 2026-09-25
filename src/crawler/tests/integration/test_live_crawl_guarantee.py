@@ -77,7 +77,7 @@ def test_live_crawl_guarantee_for_job(job):
             f"[{target.job_id}] Skipped due to CI datacenter IP WAF/network block: {result.errors}"
         )
     if target.job_id in ("afr_mansion", "afr_kodate") and result.parsed_ok == 0 and (
-        result.detail_urls_found == 0 or any("Non-mansion" in str(e) or "SkipPropertyException" in str(e) or "No detail pages successfully parsed" in str(e) for e in result.errors)
+        result.detail_urls_found == 0 or any("Non-mansion" in str(e) or "SkipPropertyException" in str(e) for e in result.errors)
     ):
         pytest.skip(f"[{target.job_id}] Skipped: No active listings on Hebel Haus live site.")
     assert result.elapsed_sec <= budget + overrun, (

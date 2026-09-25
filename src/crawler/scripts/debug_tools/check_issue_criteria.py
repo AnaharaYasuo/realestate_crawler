@@ -29,15 +29,15 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
       fix/issue-34-parse-error    -> 34
       feat: add auth (#123)       -> 123
     """
-    # 1. Standard branch pattern: feature/123-xxx, fix/123-xxx, fix/issue-123-xxx
-    standard_match = re.search(r"(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
-    if standard_match:
-        return int(standard_match.group(1))
-
-    # 2. Check cursor branch pattern: cursor/fix-123-xxx or cursor/123-xxx
-    cursor_match = re.search(r"cursor[/-](?:[-\w]+[/-])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    # 1. Check cursor branch pattern: cursor/fix-123-xxx or cursor/123-xxx
+    cursor_match = re.search(r"(?:^|/)cursor[/-](?:(?:feature|fix|chore|refactor|issue)[/-])?(?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
     if cursor_match:
         return int(cursor_match.group(1))
+
+    # 2. Standard branch pattern: feature/123-xxx, fix/123-xxx, fix/issue-123-xxx
+    standard_match = re.search(r"(?:^|/)(?:feature|fix|chore|refactor|issue)[/-](?:issue[-_#]?)?(\d+)", branch_name, re.IGNORECASE)
+    if standard_match:
+        return int(standard_match.group(1))
 
     # 3. Check generic number in branch
     generic_match = re.search(r"(?:^|[-/_])(\d+)(?:[-/_]|$)", branch_name)

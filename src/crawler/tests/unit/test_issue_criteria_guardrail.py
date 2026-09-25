@@ -18,6 +18,8 @@ def test_extract_issue_number_from_feature_branch():
     assert extract_issue_number("fix/42-resolve-parser-bug") == 42
     assert extract_issue_number("feature/issue-105-new-parser") == 105
     assert extract_issue_number("chore/99-update-deps") == 99
+    assert extract_issue_number("cursor/123-fix-456") == 123
+    assert extract_issue_number("fix/428-eliminate-last-13-sonar-issues") == 428
 
 
 def test_extract_issue_number_from_commit_message():
