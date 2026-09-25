@@ -23,11 +23,11 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
   ]
 }
 
-# Cloud Scheduler Job for Resource Safety-Net at 05:00 JST (20:00 UTC)
+# Cloud Scheduler Job for Resource Safety-Net (Hourly during 02:00-06:00 JST / 17:00-21:00 UTC)
 resource "google_cloud_scheduler_job" "crawler_safety_net_trigger" {
   name             = "realestate-safety-net-daily-${var.environment}"
-  description      = "Triggers safety net check daily at 05:00 JST (20:00 UTC) to ensure ProxySQL MIG & NAT are stopped"
-  schedule         = "0 20 * * *"
+  description      = "Triggers safety net check hourly during 02:00-06:00 JST (17:00-21:00 UTC) to ensure ProxySQL MIG & NAT are stopped"
+  schedule         = "0 17-21 * * *"
   time_zone        = "Etc/UTC"
   attempt_deadline = "300s"
 

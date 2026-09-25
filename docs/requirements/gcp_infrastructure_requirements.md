@@ -76,8 +76,12 @@
 - **早期警戒 (Forecasted Alert)**:
   - クローラー暴走や不慮のリソース増大が発生した際、月末を待たずに早期検知できること。
 - **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails)**:
-  - バッチ異常終了やクラッシュによって ProxySQL MIG や Cloud NAT が停止しなかった場合に備え、毎朝 05:00 JST にリソース停止状態を自動点検し、稼働中の場合は強制停止 (`size = 0`) して Slack へ警告を発報するデッドマンズスイッチを備えること。
+  - バッチ異常終了やクラッシュによって ProxySQL MIG や Cloud NAT が停止しなかった場合に備え、夜間バッチ稼働時間帯（JST 02:00〜06:00 の毎時）にリソース停止状態を自動点検し、稼働中の場合は強制停止 (`size = 0`) して Slack へ警告を発報するデッドマンズスイッチを備えること。
   - 日中帯（06:00〜24:00 JST）に ProxySQL インスタンスが稼働している場合は、Cloud Monitoring から重大度 ERROR で即時アラートを発報すること。
+- **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
+  - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL MIG を 0 台へ縮小（teardown）完了して終了すること。
+  - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown（`scale_proxysql_mig(target_size=0)`）を実行して MIG の 0 台縮小を保証すること。
+  - 他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に応じて動的にタイムアウト上限を制限し、Cloud Run のタイムアウトによる突然死・teardown スキップを未然に防止すること。
 - **リソースタグ・ラベル統一による費用分析**:
   - すべてのインフラリソースに対し、統一されたラベル（`project`, `environment`, `component`, `managed_by` 等）を付与し、BigQuery Billing Export による詳細なコスト内訳分析を可能とすること。
 
