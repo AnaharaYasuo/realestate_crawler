@@ -1085,7 +1085,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 )
             existing_record = await sync_to_async(get_existing)()
         except Exception as e:
-            logging.error(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}", exc_info=True)
+            logging.exception(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}")
             return
 
         if existing_record:
