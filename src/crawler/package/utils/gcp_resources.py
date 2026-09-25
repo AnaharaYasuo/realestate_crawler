@@ -313,32 +313,43 @@ def _find_cloud_sql_by_prefix(
     project: str, prefix: str, token: str
 ) -> tuple[bool, str]:
     """Find Cloud SQL instance whose name matches prefix (e.g. realestate-mysql-prod-*) on 404."""
-    list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
+    page_token = None
+    all_matches = []
     try:
-        resp = requests.get(
-            list_url, headers={"Authorization": f"Bearer {token}"}, timeout=5
-        )
-        if resp.status_code != 200:
-            return False, f"HTTP {resp.status_code}"
+        while True:
+            list_url = f"https://sqladmin.googleapis.com/v1/projects/{project}/instances"
+            params = {"pageToken": page_token} if page_token else None
+            resp = requests.get(
+                list_url,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                return False, f"HTTP {resp.status_code}"
 
-        items = resp.json().get("items", [])
-        matches = [
-            inst
-            for inst in items
-            if inst.get("name") == prefix
-            or inst.get("name", "").startswith(f"{prefix}-")
-        ]
-        if len(matches) == 1:
-            inst = matches[0]
+            data = resp.json()
+            items = data.get("items", [])
+            for inst in items:
+                name = inst.get("name", "")
+                if name == prefix or name.startswith(f"{prefix}-"):
+                    all_matches.append(inst)
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        if len(all_matches) == 1:
+            inst = all_matches[0]
             state = inst.get("state", "UNKNOWN")
             act_policy = inst.get("settings", {}).get("activationPolicy", "UNKNOWN")
             logger.info(
                 f"Cloud SQL '{inst.get('name')}' (prefix '{prefix}') state: {state}, activationPolicy: {act_policy}"
             )
             return state == "RUNNABLE", state
-        if len(matches) > 1:
+        if len(all_matches) > 1:
             logger.warning(
-                f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in matches]}"
+                f"Multiple Cloud SQL instances match prefix '{prefix}': {[m.get('name') for m in all_matches]}"
             )
             return False, "MULTIPLE_MATCHES"
         return False, "HTTP 404"
