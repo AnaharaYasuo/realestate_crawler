@@ -24,6 +24,8 @@ while True:
         break
     _cur = _parent
 
+from datetime import datetime, timezone
+
 import requests
 
 try:
@@ -35,6 +37,11 @@ try:
     from google.cloud import compute_v1
 except ImportError:
     compute_v1 = None
+
+try:
+    from google.cloud import run_v2
+except ImportError:
+    run_v2 = None
 
 try:
     import google.auth
@@ -61,6 +68,15 @@ class ResourceInspectionResult:
     forced_stop: bool
     leaked_size: int
     details: str = ""
+    skipped_reason: str = ""
+    canceled_jobs: list[str] | None = None
+
+
+@dataclass
+class CloudRunExecutionInfo:
+    name: str
+    job_name: str
+    elapsed_sec: float
 
 
 def send_slack_alert(message: str, channel: str | None = None) -> None:
@@ -217,6 +233,207 @@ def _stop_autoscaler(project_id: str, region: str, autoscaler_name: str) -> str:
         return str(e)
 
 
+def _parse_timestamp_to_seconds_ago(timestamp_str: str | None) -> float | None:
+    if not timestamp_str:
+        return None
+    try:
+        ts = str(timestamp_str).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts)
+        now = datetime.now(timezone.utc)
+        return max(0.0, (now - dt).total_seconds())
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to parse timestamp '{timestamp_str}': {e}")
+        return None
+
+
+def _get_mig_uptime_seconds(
+    project_id: str, region: str, mig_name: str
+) -> float | None:
+    """Returns minimum uptime in seconds of instances in the MIG, or None if unknown/empty."""
+    if compute_v1 is not None and hasattr(
+        compute_v1, "RegionInstanceGroupManagersClient"
+    ):
+        try:
+            client = compute_v1.RegionInstanceGroupManagersClient()
+            req_cls = getattr(
+                compute_v1,
+                "ListManagedInstancesRegionInstanceGroupManagersRequest",
+                None,
+            )
+            if req_cls is not None:
+                req = req_cls(
+                    project=project_id,
+                    region=region,
+                    instance_group_manager=mig_name,
+                )
+                resp = client.list_managed_instances(request=req, timeout=10.0)
+            else:
+                resp = client.list_managed_instances(
+                    project=project_id,
+                    region=region,
+                    instance_group_manager=mig_name,
+                    timeout=10.0,
+                )
+            uptimes = []
+            for item in getattr(resp, "managed_instances", resp):
+                ts = getattr(item, "creation_timestamp", None) or getattr(
+                    getattr(item, "instance_status", None), "creation_timestamp", None
+                )
+                sec = _parse_timestamp_to_seconds_ago(ts)
+                if sec is not None:
+                    uptimes.append(sec)
+            if uptimes:
+                return min(uptimes)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to list managed instances via compute_v1: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return None
+
+    url = f"https://compute.googleapis.com/compute/v1/projects/{project_id}/regions/{region}/instanceGroupManagers/{mig_name}/listManagedInstances"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            uptimes = []
+            for item in data.get("managedInstances", []):
+                ts = item.get("creationTimestamp") or item.get(
+                    "instanceStatus", {}
+                ).get("creationTimestamp")
+                sec = _parse_timestamp_to_seconds_ago(ts)
+                if sec is not None:
+                    uptimes.append(sec)
+            if uptimes:
+                return min(uptimes)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to list managed instances via REST API: {e}")
+    return None
+
+
+def _get_active_cloud_run_executions(
+    project_id: str,
+    region: str,
+    job_prefixes: tuple[str, ...],
+) -> list[CloudRunExecutionInfo]:
+    """Returns active (RUNNING) executions for matching Cloud Run Jobs."""
+    active_jobs: list[CloudRunExecutionInfo] = []
+
+    # 1. Try run_v2 ExecutionsClient
+    if run_v2 is not None and hasattr(run_v2, "ExecutionsClient"):
+        try:
+            client = run_v2.ExecutionsClient()
+            req_cls = getattr(run_v2, "ListExecutionsRequest", None)
+            for prefix in job_prefixes:
+                parent = f"projects/{project_id}/locations/{region}/jobs/{prefix}-prod"
+                try:
+                    if req_cls is not None:
+                        resp = client.list_executions(
+                            request=req_cls(parent=parent), timeout=10.0
+                        )
+                    else:
+                        resp = client.list_executions(parent=parent, timeout=10.0)
+                    for ex in resp:
+                        completion_time = getattr(ex, "completion_time", None)
+                        cancelled = getattr(ex, "cancelled", False)
+                        if not completion_time and not cancelled:
+                            create_time = getattr(ex, "create_time", None)
+                            elapsed = (
+                                _parse_timestamp_to_seconds_ago(str(create_time))
+                                if create_time
+                                else 0.0
+                            )
+                            name = getattr(ex, "name", "")
+                            job_name = (
+                                name.split("/jobs/")[1].split("/")[0]
+                                if "/jobs/" in name
+                                else prefix
+                            )
+                            active_jobs.append(
+                                CloudRunExecutionInfo(
+                                    name=name,
+                                    job_name=job_name,
+                                    elapsed_sec=elapsed or 0.0,
+                                )
+                            )
+                except Exception as inner_e:  # noqa: BLE001
+                    logger.debug(f"Could not list executions for job parent {parent}: {inner_e}")
+            if active_jobs:
+                return active_jobs
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to list executions via run_v2: {e}")
+
+    # 2. REST API fallback
+    token = _get_gcp_access_token()
+    if not token:
+        return active_jobs
+
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        jobs_url = f"https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs"
+        j_resp = requests.get(jobs_url, headers=headers, timeout=10)
+        if j_resp.status_code == 200:
+            jobs_data = j_resp.json().get("jobs", [])
+            for j in jobs_data:
+                j_full_name = j.get("name", "")
+                j_short_name = j_full_name.rstrip("/").split("/")[-1]
+                if any(j_short_name.startswith(p) for p in job_prefixes):
+                    exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
+                    e_resp = requests.get(exec_url, headers=headers, timeout=10)
+                    if e_resp.status_code == 200:
+                        for ex in e_resp.json().get("executions", []):
+                            is_completed = bool(ex.get("completionTime"))
+                            is_cancelled = bool(ex.get("cancelled"))
+                            if not is_completed and not is_cancelled:
+                                create_ts = ex.get("createTime") or ex.get("startTime")
+                                elapsed = _parse_timestamp_to_seconds_ago(create_ts) or 0.0
+                                active_jobs.append(
+                                    CloudRunExecutionInfo(
+                                        name=ex.get("name", ""),
+                                        job_name=j_short_name,
+                                        elapsed_sec=elapsed,
+                                    )
+                                )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to query Cloud Run Executions via REST: {e}")
+
+    return active_jobs
+
+
+def _cancel_cloud_run_execution(execution_name: str) -> str:
+    """Cancels a Cloud Run Job Execution."""
+    if run_v2 is not None and hasattr(run_v2, "ExecutionsClient"):
+        try:
+            client = run_v2.ExecutionsClient()
+            req_cls = getattr(run_v2, "CancelExecutionRequest", None)
+            if req_cls is not None:
+                client.cancel_execution(
+                    request=req_cls(name=execution_name), timeout=10.0
+                )
+            else:
+                client.cancel_execution(name=execution_name, timeout=10.0)
+            return ""
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to cancel execution via run_v2: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return ERR_NO_COMPUTE_CLIENT
+
+    url = f"https://run.googleapis.com/v2/{execution_name}:cancel"
+    try:
+        resp = requests.post(
+            url, headers={"Authorization": f"Bearer {token}"}, timeout=10
+        )
+        if resp.status_code in (200, 204):
+            return ""
+        return f"HTTP {resp.status_code}: {resp.text}"
+    except Exception as e:  # noqa: BLE001
+        return str(e)
+
+
 def _resize_mig_to_zero(project_id: str, region: str, mig_name: str) -> str:
     last_err = ""
     if compute_v1 is not None:
@@ -254,11 +471,22 @@ def check_and_stop_proxysql_mig(
     project_id: str,
     region: str,
     mig_name: str,
+    job_prefixes: tuple[str, ...] = (
+        "realestate-crawler-pipeline",
+        "realestate-ml-pipeline",
+        "realestate-migrate",
+    ),
+    grace_period_sec: float = 600.0,
+    timeout_threshold_sec: float = 4200.0,
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
     """
-    Checks if ProxySQL MIG target_size > 0. If leaked, forcibly stops it and notifies Slack.
-    Uses autoscaler scale-to-zero when autoscaler is attached, otherwise MIG resize.
+    Checks if ProxySQL MIG target_size > 0.
+    - If target_size == 0: returns safely stopped.
+    - If launched within grace_period_sec: skips stop (startup grace).
+    - If Cloud Run Jobs (crawler, ML, migrate) are actively RUNNING within timeout_threshold_sec: skips stop.
+    - If Cloud Run Jobs exceeded timeout_threshold_sec (hung): cancels executions and stops MIG (Dual Kill).
+    - If no active Cloud Run Jobs (orphaned): stops MIG immediately.
     """
     current_target_size, err, autoscaler = _get_mig_info(project_id, region, mig_name)
     if err:
@@ -274,10 +502,98 @@ def check_and_stop_proxysql_mig(
     if current_target_size == 0:
         logger.info("ProxySQL MIG is safely stopped (target_size = 0).")
         return ResourceInspectionResult(
-            was_leaked=False, forced_stop=False, leaked_size=0
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=0,
+            skipped_reason="stopped",
         )
 
-    # Leak detected!
+    # 1. Grace Period check (avoid startup race conditions)
+    mig_uptime = _get_mig_uptime_seconds(project_id, region, mig_name)
+    if mig_uptime is not None and mig_uptime <= grace_period_sec:
+        logger.info(
+            f"ProxySQL MIG '{mig_name}' was launched {mig_uptime:.1f}s ago "
+            f"(<= grace_period {grace_period_sec}s). Skipping stop."
+        )
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=current_target_size,
+            skipped_reason="grace_period",
+        )
+
+    # 2. Check active Cloud Run Jobs (including crawler, ML pricing pipeline, migration)
+    active_jobs = _get_active_cloud_run_executions(
+        project_id=project_id, region=region, job_prefixes=job_prefixes
+    )
+
+    if active_jobs:
+        hung_jobs = [j for j in active_jobs if j.elapsed_sec > timeout_threshold_sec]
+        if not hung_jobs:
+            # All active jobs are legitimately running within timeout
+            job_desc = ", ".join(
+                f"`{j.job_name}` ({int(j.elapsed_sec)}s)" for j in active_jobs
+            )
+            info_msg = (
+                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました*\n"
+                f"・プロジェクト: `{project_id}`\n"
+                f"・稼働ジョブ: {job_desc}\n"
+                f"・MIGサイズ: `{current_target_size}` 台"
+            )
+            logger.info(info_msg)
+            send_slack_alert(info_msg)
+            return ResourceInspectionResult(
+                was_leaked=False,
+                forced_stop=False,
+                leaked_size=current_target_size,
+                skipped_reason="job_running",
+            )
+
+        # Hung jobs detected! Trigger Dual Hard-Kill
+        hung_desc = ", ".join(
+            f"`{j.job_name}` ({int(j.elapsed_sec)}s)" for j in hung_jobs
+        )
+        warning_msg = (
+            f":warning: *【ゾンビ課金アラート】ジョブ異常超過検知*\n"
+            f"・プロジェクト: `{project_id}`\n"
+            f"・リージョン: `{region}`\n"
+            f"・超過ジョブ: {hung_desc}\n"
+            f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else 'Cloud Run Job キャンセル および ProxySQL MIG 自動強制停止 (size -> 0) を実行しました。'}"
+        )
+        logger.warning(warning_msg)
+        send_slack_alert(warning_msg)
+
+        if dry_run:
+            return ResourceInspectionResult(
+                was_leaked=True,
+                forced_stop=False,
+                leaked_size=current_target_size,
+                canceled_jobs=[j.name for j in hung_jobs],
+            )
+
+        canceled_names = []
+        for j in hung_jobs:
+            c_err = _cancel_cloud_run_execution(j.name)
+            if c_err:
+                logger.warning(f"Failed to cancel {j.name}: {c_err}")
+            else:
+                canceled_names.append(j.name)
+
+        auto_name = _extract_autoscaler_name(autoscaler)
+        if auto_name:
+            stop_err = _stop_autoscaler(project_id, region, auto_name)
+        else:
+            stop_err = _resize_mig_to_zero(project_id, region, mig_name)
+
+        return ResourceInspectionResult(
+            was_leaked=True,
+            forced_stop=not stop_err,
+            leaked_size=current_target_size,
+            canceled_jobs=canceled_names,
+            details=stop_err,
+        )
+
+    # 3. No active jobs (orphaned ProxySQL MIG)
     warning_msg = (
         f":warning: *【ゾンビ課金アラート】ProxySQL MIG停止漏れ検知*\n"
         f"・プロジェクト: `{project_id}`\n"
@@ -344,18 +660,39 @@ def main() -> int:
         help="ProxySQL Region IGM Name",
     )
     parser.add_argument(
+        "--job-prefixes",
+        default="realestate-crawler-pipeline,realestate-ml-pipeline,realestate-migrate",
+        help="Comma-separated prefixes of monitored Cloud Run Jobs",
+    )
+    parser.add_argument(
+        "--grace-period-sec",
+        type=float,
+        default=600.0,
+        help="Grace period in seconds for newly launched instances (default: 600s / 10m)",
+    )
+    parser.add_argument(
+        "--timeout-threshold-sec",
+        type=float,
+        default=4200.0,
+        help="Timeout threshold in seconds for active jobs before forced cancel (default: 4200s / 70m)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Check only without resizing",
     )
 
     args = parser.parse_args()
+    prefixes = tuple(p.strip() for p in args.job_prefixes.split(",") if p.strip())
 
     logger.info("=== [START] Checking for leaked GCP resources ===")
     result = check_and_stop_proxysql_mig(
         project_id=args.project_id,
         region=args.region,
         mig_name=args.mig_name,
+        job_prefixes=prefixes,
+        grace_period_sec=args.grace_period_sec,
+        timeout_threshold_sec=args.timeout_threshold_sec,
         dry_run=args.dry_run,
     )
 
@@ -368,9 +705,10 @@ def main() -> int:
         logger.error(f"Leaked resource detected but failed to stop: {result.details}")
         return 1
 
-    logger.info("=== [FINISH] All checked resources are safely stopped. ===")
+    logger.info("=== [FINISH] All checked resources are safely stopped or legitimately active. ===")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
