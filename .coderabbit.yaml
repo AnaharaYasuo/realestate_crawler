@@ -10,9 +10,32 @@ reviews:
   review_status: true
   collapse_walkthrough: false
   # docs / Markdown はコードレビュー対象外（書式・文言ノイズ防止）。Issue #345
+  # テストHTMLサンプル・一時ファイル・バイナリ等を除外してレビュー高速化。Issue #511
   path_filters:
     - "!docs/**"
     - "!**/*.md"
+    # テスト用サンプルHTML・メタデータ（約35万ファイル）
+    - "!src/crawler/tests/**/*.html"
+    - "!src/crawler/tests/**/*.txt"
+    - "!src/crawler/tests/**/*.csv"
+    - "!src/crawler/tests/**/*.tsv"
+    # クローリング一時キャッシュ・ランタイムログ
+    - "!src/crawler/Temp/**"
+    - "!src/crawler/logs/**"
+    - "!src/crawler/docs/**"
+    - "!Temp/**"
+    - "!logs/**"
+    # Python バイトコード・ML モデルバイナリ
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!**/*.joblib"
+    - "!src/crawler/catboost_info/**"
+    # 外部ライブラリ・git worktree コピー
+    - "!node_modules/**"
+    - "!.worktrees/**"
+    # Terraform 状態ファイル（シークレット漏洩防止）
+    - "!**/*.tfstate"
+    - "!**/*.tfstate.backup"
   # パス別レビュー観点。Issue #363
   path_instructions:
     - path: "src/crawler/package/parser/**"
