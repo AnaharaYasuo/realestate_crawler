@@ -9,8 +9,15 @@ TERRAFORM_DIR = os.path.abspath(
 )
 
 
+def _strip_hcl_line_comments(text: str) -> str:
+    """Remove Terraform # line comments so commented-out entries cannot pass."""
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 def test_iam_secret_accessor_includes_new_relic_license_key():
-    """terraform/iam.tf secret_accessor for_each must include new_relic_license_key."""
+    """terraform/iam.tf secret_accessor for_each must map new_relic_license_key actively."""
     iam_path = os.path.join(TERRAFORM_DIR, "iam.tf")
     assert os.path.exists(iam_path), f"File not found: {iam_path}"
 
@@ -22,14 +29,21 @@ def test_iam_secret_accessor_includes_new_relic_license_key():
         content,
     )
     assert match is not None, "secret_accessor resource not found in iam.tf"
-    block = match.group(1)
+    block = _strip_hcl_line_comments(match.group(1))
 
-    assert "new_relic_license_key" in block, (
-        "secret_accessor for_each must include new_relic_license_key "
-        "(Cloud Run SecretsAccessCheckFailed otherwise)"
+    for_each_match = re.search(r"for_each\s*=\s*\{([\s\S]*?)\}", block)
+    assert for_each_match is not None, "secret_accessor for_each map not found"
+    for_each_body = for_each_match.group(1)
+
+    entry_match = re.search(
+        r"new_relic_license_key\s*=\s*"
+        r"google_secret_manager_secret\.new_relic_license_key\.secret_id",
+        for_each_body,
     )
-    assert (
-        "google_secret_manager_secret.new_relic_license_key.secret_id" in block
-    ), "new_relic_license_key must reference google_secret_manager_secret.new_relic_license_key.secret_id"
+    assert entry_match is not None, (
+        "secret_accessor for_each must contain active map entry "
+        "new_relic_license_key = google_secret_manager_secret.new_relic_license_key.secret_id"
+    )
     assert "roles/secretmanager.secretAccessor" in block
     assert "google_service_account.crawler_runner.email" in block
+    assert re.search(r"secret_id\s*=\s*each\.value", block)
