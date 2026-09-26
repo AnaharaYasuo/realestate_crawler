@@ -64,7 +64,8 @@ run_pre_pr_check() {
             if [ -n "$main_git_parent" ] && [ -d "$main_git_parent" ]; then
                 mount_git_opt="-v ${main_git_parent}:${main_git_parent}"
             fi
-            docker run --rm -v "${toplevel}:/app" $mount_git_opt -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            docker run --rm -v "${toplevel}:/app" $mount_git_opt -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
+
         fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
@@ -177,15 +178,15 @@ do
         echo "✅ Issue #$issue_num のアクセプタンスクライテリア全件充足を確認しました。"
     fi
 
-    # 5. Pre-PR Local Guardrail (Linter, SonarCloud, CodeRabbit, Syntax, Branch Hygiene)
+    # 5. Pre-PR Local Guardrail (Linter, SonarCloud, Syntax, Branch Hygiene)
     if [ "$SKIP_PRE_PR_CHECK" = "1" ] || [ "$SKIP_PRE_PR_CHECK" = "true" ]; then
         echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
-        echo "🔍 Pre-PR ローカル高速事前検証 (SonarCloud, CodeRabbit CLI, Linter, 構文) を実行中..."
+        echo "🔍 Pre-PR ローカル高速事前検証 (SonarCloud, Linter, 構文) を実行中..."
         if ! run_pre_pr_check "$branch" "$local_sha"; then
             echo ""
             echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check: SonarCloud / CodeRabbit / Linter) でエラーが検出されました。"
+            echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check: SonarCloud / Linter) でエラーが検出されました。"
             echo "ローカルで問題を解消してから再度プッシュしてください。"
             echo "================================================================================"
             echo ""
@@ -193,6 +194,42 @@ do
         fi
         echo "✅ Pre-PR ローカル高速事前検証に合格しました。"
     fi
+
+    # 6. Host CodeRabbit CLI Guardrail
+    if [ "$SKIP_CODERABBIT" = "1" ] || [ "$SKIP_CODERABBIT" = "true" ]; then
+        echo "⚠️  SKIP_CODERABBIT is enabled. Bypassing CodeRabbit review guardrail."
+    elif command -v coderabbit >/dev/null 2>&1; then
+        echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
+        CR_OUTPUT=$(coderabbit review --agent 2>&1 || true)
+        CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type":"finding"' | wc -l || echo "0")
+        CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)":"(high|critical|error|major)"' || true)
+
+        if echo "$CR_OUTPUT" | grep -q '"type":"error"'; then
+            CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message":"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました。"
+            echo "  $CR_ERR_MSG"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
+
+        if [ -n "$CR_ERRORS" ]; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI より重大な指摘（Major / High / Critical）が検出されました。"
+            echo "指摘内容を解消してから再度プッシュしてください。"
+            echo "$CR_ERRORS"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
+        echo "✅ CodeRabbit CLI レビューに合格しました (指摘: ${CR_FINDINGS}件)。"
+    else
+        echo "⚠️  CodeRabbit CLI がホスト環境で見つかりません (CI/PR作成時に検証されます)。"
+    fi
 done
 
 exit 0
+
