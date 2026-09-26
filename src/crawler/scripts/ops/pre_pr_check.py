@@ -472,7 +472,12 @@ class PrePRChecker:
                 status = data.get("status")
                 if status in ("completed", "review_completed"):
                     has_completed_event = True
-                    findings_count = max(findings_count, data.get("findings", 0))
+                    raw_findings = data.get("findings")
+                    try:
+                        parsed_findings = int(raw_findings) if raw_findings is not None else 0
+                    except (ValueError, TypeError):
+                        parsed_findings = 0
+                    findings_count = max(findings_count, parsed_findings)
                 elif status == "review_skipped":
                     # Validate that changes are indeed empty
                     changed = self.get_changed_files()

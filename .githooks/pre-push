@@ -206,18 +206,39 @@ do
         echo ""
         exit 1
     else
+        # Verify current checkout matches the commit being pushed
+        current_head=$(git rev-parse HEAD 2>/dev/null || echo "")
+        if [ -n "$local_sha" ] && [ -n "$current_head" ] && [ "$current_head" != "$local_sha" ]; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] 現在チェックアウトされているコミット ($current_head) が"
+            echo "プッシュ対象コミット ($local_sha) と一致しません。"
+            echo "プッシュ対象のコミットをチェックアウトした状態でプッシュを実行してください。"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
+
         echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
         # Resolve merge-base for pushed commit to ensure clean review of committed changes
         cr_base=$(git merge-base origin/master "$local_sha" 2>/dev/null || git merge-base master "$local_sha" 2>/dev/null || echo "origin/master")
         CR_CMD="coderabbit review --agent --base-commit $cr_base --committed"
 
-        # Execute with finite timeout (1800s)
+        # Execute with finite timeout (1800s) ensuring set -e does not abort before reporting
         if command -v timeout >/dev/null 2>&1; then
-            CR_OUTPUT=$(timeout 1800s $CR_CMD 2>&1)
-            CR_EXIT_CODE=$?
+            if CR_OUTPUT=$(timeout 1800s $CR_CMD 2>&1); then
+                CR_EXIT_CODE=0
+            else
+                CR_EXIT_CODE=$?
+            fi
         else
-            CR_OUTPUT=$($CR_CMD 2>&1)
-            CR_EXIT_CODE=$?
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] 有限時間タイムアウトコマンド ('timeout') が環境に存在しません。"
+            echo "無限待機（ハング）を防止するため、timeout コマンドを導入するか、SKIP_CODERABBIT=1 を指定してください。"
+            echo "================================================================================"
+            echo ""
+            exit 1
         fi
 
         CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type":"finding"' | wc -l || echo "0")

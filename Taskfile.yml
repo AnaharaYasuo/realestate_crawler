@@ -207,7 +207,7 @@ tasks:
     desc: Run fast pre-push validation (SonarCloud local check, CodeRabbit CLI review, Ruff linter)
     cmds:
       - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
-      - coderabbit review --base master --include-untracked
+      - coderabbit review --base master --uncommitted --include-untracked
       - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit
 
   ci:precheck:
