@@ -157,18 +157,73 @@ class FailureReporter:
         return extra
 
     @classmethod
+    def _scan_log_files(cls, date_str: str) -> list[dict[str, Any]]:
+        """ローカルおよびGCS上のログファイルから ERROR / CRITICAL レベルのログエントリを抽出"""
+        error_logs: list[dict[str, Any]] = []
+        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        
+        # 1. ローカルログファイルの検索
+        log_files: list[Path] = []
+        if fallback_base.exists():
+            log_files.extend(fallback_base.glob(f"*{date_str}*.log"))
+            log_files.extend(fallback_base.glob("*.log"))
+            
+        for lpath in set(log_files):
+            try:
+                with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
+                    for line_num, line in enumerate(f, 1):
+                        if "ERROR" in line or "CRITICAL" in line:
+                            error_logs.append({
+                                "source": "log_file",
+                                "file_path": str(lpath),
+                                "line_number": line_num,
+                                "log_entry": line.strip(),
+                                "level": "CRITICAL" if "CRITICAL" in line else "ERROR"
+                            })
+            except Exception as le:  # noqa: BLE001
+                logger.warning("Failed to read log file %s: %s", lpath, le)
+
+        # 2. GCS ログファイルの検索 (runs/{date_str}/logs/ または logs/)
+        try:
+            sm = get_storage_manager()
+            gcs_log_prefix = f"runs/{date_str}/logs/"
+            for k in sm.list_files(prefix=gcs_log_prefix):
+                if not k.endswith(".log"):
+                    continue
+                try:
+                    content = sm.read_text(k)
+                    for line_num, line in enumerate(content.splitlines(), 1):
+                        if "ERROR" in line or "CRITICAL" in line:
+                            error_logs.append({
+                                "source": "gcs_log_file",
+                                "file_path": k,
+                                "line_number": line_num,
+                                "log_entry": line.strip(),
+                                "level": "CRITICAL" if "CRITICAL" in line else "ERROR"
+                            })
+                except Exception as gcle:  # noqa: BLE001
+                    logger.warning("Failed to read GCS log file %s: %s", k, gcle)
+        except Exception as se:  # noqa: BLE001
+            logger.debug("Storage manager log scan skipped or failed: %s", se)
+
+        return error_logs
+
+    @classmethod
     def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
-        """GCS（およびローカルフォールバック）から指定日付の全障害情報を集約ロード"""
+        """GCS（およびローカルフォールバック）から指定日付の全障害情報とログエラーを集約ロード"""
         if not date_str:
             date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
 
         failures, seen_keys, storage_error = cls._fetch_from_storage(date_str)
         fallback_failures = cls._fetch_from_local_fallback(date_str, seen_keys)
         failures.extend(fallback_failures)
+        log_errors = cls._scan_log_files(date_str)
 
         return {
             "date": date_str,
             "total_failures": len(failures),
+            "total_log_errors": len(log_errors),
             "storage_error": storage_error,
-            "failures": failures
+            "failures": failures,
+            "log_errors": log_errors
         }
