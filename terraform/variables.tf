@@ -146,4 +146,10 @@ variable "new_relic_log_ingest_url" {
   sensitive   = true
 }
 
+variable "github_actions_sa_email" {
+  type        = string
+  description = "GitHub Actions deploy service account email (needs logging.configWriter for New Relic log sinks)"
+  default     = "github-actions-crawler@sumifu.iam.gserviceaccount.com"
+}
+
 

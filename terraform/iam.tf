@@ -40,6 +40,16 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
   member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
+# Deploy SA needs logging.sinks.create (roles/editor no longer includes sink write).
+# Required for google_logging_project_sink.new_relic_log_sink in CI Terraform Apply.
+# Must match secrets.GCP_SERVICE_ACCOUNT (github-actions-crawler); that SA already has
+# roles/resourcemanager.projectIamAdmin so it can manage this binding itself.
+resource "google_project_iam_member" "github_actions_logging_config_writer" {
+  project = var.project_id
+  role    = "roles/logging.configWriter"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
+}
+
 # Service Account for Cloud Scheduler
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "scheduler-invoker-${var.environment}"
