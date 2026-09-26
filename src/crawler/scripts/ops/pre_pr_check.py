@@ -402,7 +402,9 @@ class PrePRChecker:
     def stage3_linter_and_sonar(self) -> StageResult:
         """Stage 3: Run Ruff Linter and SonarCloud Guardrail."""
         start = time.time()
-        changed, _ = self.get_changed_files()
+        changed, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(3, STAGE_LINTER_SONAR, False, errors=diff_errors, duration_sec=time.time() - start)
         py_files = [f for f in changed if f.endswith(".py") and os.path.isfile(os.path.join(self.repo_root, f))]
 
         if not py_files:

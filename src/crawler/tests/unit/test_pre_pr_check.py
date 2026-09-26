@@ -276,7 +276,7 @@ def test_stage_coderabbit_with_target_sha(monkeypatch):
 
 
 def test_get_changed_files_diff_error(monkeypatch):
-    """PrePRChecker.stage1_git_and_branch fails if both origin/master and master diffs fail."""
+    """PrePRChecker stages fail if both origin/master and master diffs fail."""
     checker = PrePRChecker(branch="feature/506-test")
 
     def mock_run_cmd(cmd, **_kwargs):
@@ -285,9 +285,18 @@ def test_get_changed_files_diff_error(monkeypatch):
         return 0, "", ""
 
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-    res = checker.stage1_git_and_branch()
-    assert res.passed is False
-    assert any("変更ファイル差分の取得に失敗しました" in e for e in res.errors)
+    r1 = checker.stage1_git_and_branch()
+    assert r1.passed is False
+    assert any("変更ファイル差分の取得に失敗しました" in e for e in r1.errors)
+
+    r3 = checker.stage3_linter_and_sonar()
+    assert r3.passed is False
+    assert any("変更ファイル差分の取得に失敗しました" in e for e in r3.errors)
+
+    r7 = checker.stage7_security()
+    assert r7.passed is False
+    assert any("変更ファイル差分の取得に失敗しました" in e for e in r7.errors)
+
 
 
 
