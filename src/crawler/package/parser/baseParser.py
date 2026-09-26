@@ -411,7 +411,11 @@ class ParserBase(metaclass=ABCMeta):
             href = link.get("href")
             if self._is_non_property_href(href):
                 continue
-            if self._href_fails_xpath_filters(href, xpath_pattern):
+            is_class_match = (
+                "sr-card__name" in (link.get("class") or [])
+                and "sr-card__name" in str(xpath_pattern)
+            )
+            if not is_class_match and self._href_fails_xpath_filters(href, xpath_pattern):
                 continue
             dest_url = self._resolve_http_dest_url(href, dest_url_fn)
             if dest_url:
