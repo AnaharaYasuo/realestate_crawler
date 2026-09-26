@@ -1,7 +1,4 @@
-"""
-GCSリアルタイム障害テレメトリ・一括オートヒール連携モジュール (failure_reporter.py)
-Issue #466
-"""
+"""GCS real-time failure telemetry and auto-heal integration module."""
 import datetime
 import hashlib
 import json
