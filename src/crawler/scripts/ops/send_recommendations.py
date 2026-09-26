@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# ruff: noqa: E402, F401
 import os
 import sys
 import logging
@@ -22,9 +22,17 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message
+from package.utils.slack import send_slack_message, send_crawling_summary_alert
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+
+def _notify_status(msg: str) -> None:
+    try:
+        async_to_sync(send_crawling_summary_alert)(msg)
+    except Exception as e:
+        logger.warning("Failed to send recommendation status alert: %s", e)
 
 LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
@@ -97,7 +105,7 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
         return False, "", 0.0
     discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
     if discount_pct >= 35.0 or discount_pct <= -35.0:
-        logging.warning(
+        logger.warning(
             f"Skipping alert (2-sigma error suspect): Property {prop.pageUrl} has extreme prediction gap of {discount_pct:.1f}% (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
         )
         return False, "", 0.0
@@ -222,7 +230,7 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
     msg = _build_recommendation_msg(eval_rec, prop, reason, p_name)
     channel_id = _get_target_slack_channel(eval_rec, prop, p_name)
 
-    logging.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
+    logger.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
     success = async_to_sync(send_slack_message)(msg, channel=channel_id)
     if success:
         with transaction.atomic():
@@ -244,7 +252,9 @@ def _fetch_recommendation_candidates():
     return candidates
 
 def send_recommendations():
-    logging.info("Scanning for new hot recommendation properties to send via Slack...")
+    logger.info("Scanning for new hot recommendation properties to send via Slack...")
+    _notify_status("🔍 【お宝物件スクリーニング開始】 未通知の割安物件・高利回り優良物件の抽出を開始します...")
+
     candidates = _fetch_recommendation_candidates()
     matched_candidates = []
 
@@ -256,16 +266,27 @@ def send_recommendations():
         if is_rec:
             matched_candidates.append((priority, eval_rec, prop, reason))
 
+    if not matched_candidates:
+        logger.info("No hot recommendation candidates found.")
+        _notify_status("ℹ️ 【お宝物件通知】 現在配信基準を満たす新規お宝物件はありませんでした (0件)。")
+        return
+
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
     top_candidates = matched_candidates[:15]
-    logging.info(f"Filtered {len(matched_candidates)} recommendation candidates down to top {len(top_candidates)} items.")
+    logger.info(f"Filtered {len(matched_candidates)} recommendation candidates down to top {len(top_candidates)} items.")
+    _notify_status(
+        f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {len(top_candidates)} 件を各Slackチャンネルへ配信します。"
+    )
 
     sent_count = 0
     for _, eval_rec, prop, reason in top_candidates:
         if _dispatch_single_recommendation(eval_rec, prop, reason):
             sent_count += 1
 
-    logging.info(f"Recommendation sending completed. Sent: {sent_count} properties.")
+    logger.info(f"Recommendation sending completed. Sent: {sent_count} properties.")
+    _notify_status(
+        f"✅ 【お宝物件配信完了】 計 {sent_count}/{len(top_candidates)} 件のお宝物件カードを配信完了しました。"
+    )
  
 def main():
     send_recommendations()

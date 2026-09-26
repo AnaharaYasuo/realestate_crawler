@@ -438,6 +438,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[proxysql_mig_client_param_requirements.md](docs/requirements/proxysql_mig_client_param_requirements.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック強化要件定義書
     *   **[gcs_failure_telemetry_requirements.md](docs/requirements/gcs_failure_telemetry_requirements.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466, #477)
     *   **[new_relic_monitoring_requirements.md](docs/requirements/new_relic_monitoring_requirements.md)**: New Relic 統合監視要件定義書 (APM・外形監視・コンテナ/DB・Cloud Logging・GenAI・Change Tracking・アラート) (Issue #471, #473, #478)
+    *   **[pipeline_resilience_and_slack_progress_requirements.md](docs/requirements/pipeline_resilience_and_slack_progress_requirements.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知要件定義書 (Issue #492)
 
 
 
@@ -452,6 +453,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[proxysql_mig_client_param_basic_design.md](docs/basic_design/proxysql_mig_client_param_basic_design.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック設計書
 *   **[gcs_failure_telemetry_basic_design.md](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール基本設計書 (Issue #466, #477)
 *   **[new_relic_monitoring_design.md](docs/basic_design/new_relic_monitoring_design.md)**: New Relic 統合監視基本設計書 (フルスタック可観測性・APM・Synthetics・Cloud Run・ログ統合) (Issue #471, #473, #478)
+*   **[pipeline_resilience_and_slack_progress_basic_design.md](docs/basic_design/pipeline_resilience_and_slack_progress_basic_design.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知基本設計書 (Issue #492)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -475,6 +477,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[ProxySQL MIG クライアント引数整合性修復およびフォールバック内部設計書](docs/internal_design/proxysql_mig_client_param_internal_design.md)** - RegionInstanceGroupManagersClient 引数不整合修復および多重防御フォールバック内部設計
 - **[GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)** - リアルタイム障害JSON/生HTML GCS出力・分散タスク集約・Slack DevAgentゼロタッチ連携内部設計書 (Issue #466, #477)
 - **[New Relic 統合監視内部詳細設計書](docs/internal_design/new_relic_monitoring_internal_design.md)** - New Relic APM初期化・Synthetics・GenAI監視・デプロイ追跡・NRQLアラート詳細設計 (Issue #471, #473, #478)
+- **[パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知内部詳細設計書](docs/internal_design/pipeline_resilience_and_slack_progress_internal_design.md)** - クローリング異常終了時の後続パイプライン継続実行およびバルク価格推定・お宝物件スクリーニング進捗Slack通知詳細設計書 (Issue #492)
 
 
 
