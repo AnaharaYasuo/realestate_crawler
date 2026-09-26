@@ -208,7 +208,7 @@ tasks:
     cmds:
       - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
       - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit
-      - coderabbit review --agent --base master
+      - coderabbit review --agent --base master --include-untracked
 
   ci:precheck:
     desc: Run fast pre-push CI check (Ruff, Sonar diff, Unit tests, PR mutation test)

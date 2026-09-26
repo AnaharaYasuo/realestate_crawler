@@ -449,7 +449,10 @@ class PrePRChecker:
             target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
             current_head = head_out.strip() if head_rc == 0 else ""
             target_commit = target_out.strip() if target_rc == 0 else ""
-            if current_head and target_commit and current_head != target_commit:
+            if not current_head or not target_commit:
+                err = f"コミットの解決に失敗しました: HEAD='{current_head}', target_sha='{target_commit}'"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            if current_head != target_commit:
                 err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
