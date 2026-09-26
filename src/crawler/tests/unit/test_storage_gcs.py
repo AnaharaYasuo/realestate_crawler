@@ -91,8 +91,11 @@ def test_object_storage_manager_s3_when_cloud_has_endpoint():
 
 
 def test_object_storage_manager_s3_fallback():
-    with patch.dict(os.environ, {"STORAGE_BACKEND": "minio", "STORAGE_BUCKET": "test-s3-bucket"}, clear=False), \
-         patch("boto3.client") as mock_boto:
+    with patch.dict(
+        os.environ,
+        {"IS_CLOUD": "false", "STORAGE_BACKEND": "minio", "STORAGE_BUCKET": "test-s3-bucket"},
+        clear=False,
+    ), patch("boto3.client") as mock_boto:
         mock_s3 = MagicMock()
         mock_boto.return_value = mock_s3
 

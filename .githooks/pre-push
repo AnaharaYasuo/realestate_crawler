@@ -28,9 +28,14 @@ run_pre_pr_check() {
 
     if command -v docker >/dev/null 2>&1; then
         if [ -n "$rel_path" ]; then
+            # In-repo worktree mounted under /app/.worktrees/...
             docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
-        else
+        elif [ "$toplevel" = "$main_root" ]; then
+            # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        else
+            # External worktree is outside the compose mount; inspect that checkout on the host
+            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
