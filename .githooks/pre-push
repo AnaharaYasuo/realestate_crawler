@@ -256,13 +256,22 @@ do
 
         if [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -q '"type":"error"'; then
             CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message":"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
-            echo ""
-            echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
-            echo "  $CR_ERR_MSG"
-            echo "================================================================================"
-            echo ""
-            exit 1
+            if echo "$CR_OUTPUT" | grep -q '"errorType":"rate_limit"' || echo "$CR_OUTPUT" | grep -qi 'rate limit'; then
+                echo ""
+                echo "⚠️  [CodeRabbit Warning] CodeRabbit CLI の利用制限（Rate limit / Monthly limit）に達しています。"
+                echo "   $CR_ERR_MSG"
+                echo "   GitHub PR 上の自動レビューおよび CI Review Gate にて最終レビューが実施されます。"
+                echo "   ローカル検証をスキップして続行します。"
+                echo ""
+            else
+                echo ""
+                echo "================================================================================"
+                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
+                echo "  $CR_ERR_MSG"
+                echo "================================================================================"
+                echo ""
+                exit 1
+            fi
         fi
 
         if [ -n "$CR_ERRORS" ]; then

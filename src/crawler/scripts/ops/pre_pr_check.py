@@ -506,7 +506,14 @@ class PrePRChecker:
                     else:
                         warnings.append(issue_text)
                 elif event_type == "error":
-                    errors.append(str(data.get("message") or "CodeRabbit CLI エラー"))
+                    err_msg = str(data.get("message") or "CodeRabbit CLI エラー")
+                    err_type = str(data.get("errorType") or "").lower()
+                    if err_type == "rate_limit" or "rate limit" in err_msg.lower():
+                        warnings.append(f"CodeRabbit CLI 利用制限 (Rate limit / Monthly limit): {err_msg} (GitHub PR CIでレビュー)")
+                        cmd_has_completed = True
+                        has_completed_event = True
+                    else:
+                        errors.append(err_msg)
                 elif event_type == "complete":
                     status = data.get("status")
                     if status in ("completed", "review_completed"):
@@ -526,7 +533,7 @@ class PrePRChecker:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
             cmd_added_errors = len(errors) > initial_error_count
-            if rc != 0 and not cmd_added_errors:
+            if rc != 0 and not cmd_added_errors and not cmd_has_completed:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
                 errors.append(err_msg)
 

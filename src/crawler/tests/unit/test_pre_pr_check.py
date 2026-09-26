@@ -298,6 +298,28 @@ def test_get_changed_files_diff_error(monkeypatch):
     assert any("変更ファイル差分の取得に失敗しました" in e for e in r7.errors)
 
 
+def test_stage_coderabbit_rate_limit_warning(monkeypatch):
+    """PrePRChecker passes with warning when CodeRabbit returns rate limit error."""
+    checker = PrePRChecker(skip_coderabbit=False)
+
+    rate_limit_output = (
+        '{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true}\n'
+    )
+
+    def mock_run_cmd(cmd, **_kwargs):
+        if cmd == ["coderabbit", "--version"]:
+            return 0, "0.8.1", ""
+        if cmd[0] == "git":
+            return 0, "base_commit_sha", ""
+        return 1, rate_limit_output, "Error: Rate limit exceeded"
+
+    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
+    res = checker.stage_coderabbit()
+    assert res.passed is True
+    assert any("Rate limit" in w for w in res.warnings)
+
+
+
 
 
 
