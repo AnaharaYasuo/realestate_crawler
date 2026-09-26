@@ -4,6 +4,17 @@
 - **いかなる調査・改修・開発作業の開始前にも、必ず `git checkout master && git pull origin master` を実行してローカル環境を最新の master に同期完了した上で、作業ブランチ（`fix/<issue_num>-<topic>` または `feature/<issue_num>-<topic>`）を作成・チェックアウトしてから作業を開始しなければならない。**
 - このルールは例外なく常時厳守される。
 
+## 【プロジェクト普遍ルール】常時 git worktree 運用原則 (Always Worktree Principle)
+- **メイン作業ツリー直接変更の厳禁**:
+  - いかなる調査・機能開発・不具合修正・リファクタリングにおいても、メインの作業ツリーで直接ブランチを切り替えて作業してはならない。
+  - **必ず `git worktree` を使用し、作業ブランチ専用の独立したワークツリー（`.worktrees/<branch-name>`）を作成して作業を実行すること**。
+  - これにより、並行作業時のコンフリクト、未コミット変更の巻き込み、別Issueへの混入を物理的に根絶する。
+- **標準ワークツリー運用フロー**:
+  1. `git checkout master && git pull origin master`（メインリポジトリの master 最新化）
+  2. `git worktree add .worktrees/<branch-name> -b <branch-name>`（専用ワークツリー作成）
+  3. 専用ワークツリー内で作業・テスト・Sonar/CodeRabbit検証・コミット・プッシュ・PR作成
+  4. マージ完了後、`git worktree remove .worktrees/<branch-name>` でクリーンアップ
+
 ## サブエージェント・メインエージェントのモデル利用方針
 - 簡単な作業（ブラウザでの単純な巡回、情報の収集、UI動作確認など）は、コスト効率の高い（安い）AIモデル（Gemini 3.5 Flash 等）のサブエージェントを利用して処理させる。
 - 高コストなモデル（Claude Opus 等）は使用せず、常にコスト効率の高いモデル（Gemini 3.5 Flash等）を利用することを遵守する。
@@ -224,9 +235,11 @@
   7. **PRメタデータ事前検査**: PRタイトルフォーマット（`[#<issue_num>] ...`）、本文の `Closes #<issue_num>`、およびPR本文に未完了チェックボックス（`- [ ]`）が存在しないこと
 - **チェック落ちの事前根絶**: 1つでも FAIL が検出された場合は PR 提出を即時中断し、ローカルで問題を完全に解消してから再検証・提出すること。
 
-## 【プロジェクト普遍ルール】PR作成前のローカル静的解析義務化ルール (Snyk & SonarLint Pre-PR Check)
-- **事前走査の義務化**: コード修正や新機能追加の後、GitHub に Pull Request を作成・プッシュする前に、必ずローカル環境で Snyk によるセキュリティ脆弱性スキャンおよび SonarLint / SonarQube による静的コード解析を実施すること。
-- **指摘事項の解消**: 検出された重大な脆弱性（High/Critical）、Code Smell、型エラー、未解決の指摘はすべて修正してからコミット・PR作成を行うこと。
+## 【プロジェクト普遍ルール】プッシュ前のCLIによるSonarCloud & CodeRabbit実施義務化ルール (SonarCloud & CodeRabbit Pre-Push Gate)
+- **事前走査・レビューの義務化**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つを実行し、指摘事項を解消してからプッシュしなければならない：
+  1. **SonarCloud / SonarLint**: `task sonar-check`（または `task sonar`）を実行し、認知複雑度（S3776 <= 15）、ReDoS（S8786）、Code Smell、型エラーをローカルでゼロに解消すること（IDE拡張機能の SonarLint Connected Mode と二重で検証）。
+  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review` / `coderabbit review --base master`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
+- **未解決指摘のプッシュ厳禁**: いずれかのツールで未解決の重大な指摘（Bug, Vulnerability, High/Critical, Code Smell）が残存した状態でのプッシュおよびPR作成は厳禁とする。
 
 ## 【プロジェクト普遍ルール】パーサー未整備サイトの自律検知およびパーサー新規作成義務化原則 (Parser Missing Detection & Backlog Creation Rule)
 - **パーサー未整備エラーの自動捕捉**:

@@ -1,31 +1,62 @@
 # New Relic 統合監視 基本設計書
 
 ## 1. システムアーキテクチャ概要
-本設計は、Cloud Run 上で動作する Flask アプリケーション（API・クローラー）に対し、New Relic によるフルスタック可観測性（APM、ログ、外形監視）を提供する構成を定義する。
+本設計は、Cloud Run、GCE (ProxySQL)、Cloud SQL、ローカル/Docker、および GitHub Actions CI/CD に対し、New Relic によるフルスタック可観測性（APM、インフラ、コンテナ、ログ、外形監視、GenAI、デプロイ追跡、NRQLアラート）を提供する包括的構成を定義する。
 
 ```mermaid
 flowchart TD
     subgraph NewRelic["New Relic Observability Cloud"]
-        NR_APM["New Relic APM / Tracing"]
+        NR_APM["New Relic APM / Distributed Tracing"]
+        NR_INFRA["Infrastructure & Container Monitoring"]
+        NR_LOGS["New Relic Log Management (Log in Context)"]
+        NR_GENAI["GenAI / LLM Observability"]
         NR_SYN["Synthetics Monitor (Ping / 5min)"]
-        NR_ALERT["Alert Policies & Slack"]
+        NR_CHANGE["Change Tracking (Deployments)"]
+        NR_ALERT["Alert Policies & Slack Notification"]
     end
 
     subgraph GCP["Google Cloud Platform (sumifu)"]
-        SM["Secret Manager\nrealestate-new-relic-license-key-prod"]
+        SM["Secret Manager\nNEW_RELIC_LICENSE_KEY"]
         
         subgraph CloudRun["Cloud Run Services"]
             API["realestate-api-prod\n(/health, /api/*)"]
             Worker["realestate-crawler-worker-prod"]
         end
+
+        subgraph GCE_ProxySQL["GCE VM"]
+            ProxySQL["ProxySQL Instance"]
+            HostAgent["newrelic-infra Agent\n+ nri-mysql"]
+        end
+
+        CloudSQL[("Cloud SQL\nMySQL 8.0")]
+        
+        LogSink["Cloud Logging Sink\n(Export to Pub/Sub)"]
+        LogTopic["Pub/Sub Topic\n(newrelic-log-topic)"]
+    end
+
+    subgraph CICD["GitHub Actions CI/CD"]
+        GHA["Deploy Workflows\n(master / production)"]
     end
 
     SM -->|Secret Inject| API
     SM -->|Secret Inject| Worker
-    API -->|Telemetry Data| NR_APM
-    Worker -->|Telemetry Data| NR_APM
+    API -->|APM Traces| NR_APM
+    Worker -->|APM Traces| NR_APM
+    Worker -->|LLM Metrics & Cost| NR_GENAI
+    ProxySQL --> CloudSQL
+    HostAgent -->|Metrics| NR_INFRA
+
+    API -->|Stdout Logs| LogSink
+    Worker -->|Stdout Logs| LogSink
+    CloudSQL -->|Audit & Slow Logs| LogSink
+    LogSink --> LogTopic
+    LogTopic -->|HTTP Push| NR_LOGS
+
     NR_SYN -->|HTTP GET /health| API
+    GHA -->|NerdGraph GraphQL| NR_CHANGE
     NR_APM --> NR_ALERT
+    NR_INFRA --> NR_ALERT
+    NR_GENAI --> NR_ALERT
 ```
 
 ## 2. コンポーネント設計
@@ -62,3 +93,25 @@ flowchart TD
 - **実行ロケーション**: `AP_NORTHEAST_1` (Tokyo), `AP_EAST_1` (Hong Kong)
 - **監視間隔**: 5分（`EVERY_5_MINUTES`）
 - **プロビジョニング**: NerdGraph GraphQL API を利用した自動スクリプト `setup_new_relic_synthetics.py`。
+
+### 2.5 コンテナ & インフラ深層監視 (Infrastructure & nri-docker)
+- **Docker コンテナ監視**:
+  - `docker-compose.newrelic.yml` にて `newrelic/infrastructure:latest` を定義。
+  - ホスト `/var/run/docker.sock` をマウントし、コンテナごとの CPU/Memory 使用量、スロットル時間、OOM 予兆を検知。
+- **ProxySQL & MySQL 監視**:
+  - `nri-mysql` 定義（ProxySQL 管理ポート 6032 および MySQL 3306）により接続数、スロークエリ、バッファプール使用率を収集。
+
+### 2.6 GCP Cloud Logging ➔ New Relic ログ統合 (Log in Context)
+- `terraform/new_relic_gcp_integration.tf` において以下を宣言:
+  - `google_pubsub_topic.new_relic_log_topic`: ログ集約用 Pub/Sub トピック。
+  - `google_logging_project_sink.new_relic_log_sink`: Cloud Run / Cloud SQL ログの抽出フィルタリング＆Pub/Sub ルーティング。
+  - `google_pubsub_subscription.new_relic_log_push`: New Relic HTTP インテークエンドポイント（`https://gcp-api.newrelic.com/log/v1`）宛ての Push サブスクリプション。
+- トレース ID 相関: Python APM がログ出力時に `trace.id` を付与し、New Relic 画面上で 1 クリックでトレースとログを横断検索可能。
+
+### 2.7 GenAI / LLM 監視 (New Relic AI Monitoring)
+- `src/crawler/package/utils/newrelic_helper.py` の `record_llm_event()` により、Gemini 等のモデル名、トークン消費量、レイテンシ、推定 USD コストを New Relic カスタムイベント（`LlmEvent`）として記録。
+
+### 2.8 デプロイ変更追跡 (Change Tracking) & クローラー NRQL アラート
+- **Change Tracking**: `src/crawler/scripts/notify_new_relic_deployment.py` により GitHub Actions から NerdGraph `changeTrackingCreateDeployment` を呼び出し。
+- **NRQL アラート**: `src/crawler/scripts/setup_new_relic_crawler_alerts.py` により「パース遅延」「0件取得失敗」「403/429急増」「メモリ高負荷」条件を一括自動プロビジョニング。
+

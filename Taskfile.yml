@@ -174,6 +174,16 @@ tasks:
     cmds:
       - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --all
 
+  coderabbit:
+    desc: Run CodeRabbit CLI review on uncommitted or branch changes
+    cmds:
+      - coderabbit review
+
+  coderabbit-base:
+    desc: Run CodeRabbit CLI review against master branch
+    cmds:
+      - coderabbit review --base master
+
   pr-check:
     desc: Run comprehensive pre-PR local verification (Issue criteria, Linter, Sonar, Tests, Mutation, Security)
     cmds:
