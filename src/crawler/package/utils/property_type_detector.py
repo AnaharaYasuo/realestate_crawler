@@ -7,8 +7,10 @@ from typing import Optional, Dict, Any
 
 try:
     from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
+    types = None
 
 
 class PropertyTypeDetector:
@@ -342,7 +344,8 @@ class PropertyTypeDetector:
             return default
 
         try:
-            with genai.Client(api_key=api_key) as client:
+            http_options = types.HttpOptions(timeout=10000) if types else None
+            with genai.Client(api_key=api_key, http_options=http_options) as client:
                 prompt = (
                     "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
                     "- mansion: 区分マンション、集合住宅の一室\n"

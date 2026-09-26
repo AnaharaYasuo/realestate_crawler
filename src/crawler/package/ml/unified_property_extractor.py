@@ -14,8 +14,10 @@ from package.utils.converter import parse_chidai
 
 try:
     from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
+    types = None
 
 
 @dataclass
@@ -222,7 +224,8 @@ class SingleUnifiedPropertyExtractor:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or not genai:
             return None
-        return genai.Client(api_key=api_key)
+        http_options = types.HttpOptions(timeout=30000) if types else None
+        return genai.Client(api_key=api_key, http_options=http_options)
 
     def extract(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
         """

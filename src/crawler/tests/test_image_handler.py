@@ -222,6 +222,8 @@ def test_analyze_property_images_with_gemini(monkeypatch):
 
     # Mock genai Client
     mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = False
     mock_gen_resp = MagicMock()
     mock_gen_resp.text = '{"shadow_area_ratio": 0.1, "retaining_wall_risk": "none"}'
     mock_client.models.generate_content.return_value = mock_gen_resp

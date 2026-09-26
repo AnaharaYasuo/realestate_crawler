@@ -244,12 +244,12 @@ def analyze_property_images_with_gemini(cleaned_images):
         logger.warning("No valid images downloaded. Using default analysis result.")
         return default_result
 
-    client = genai.Client(
-        api_key=api_key,
-        http_options=types.HttpOptions(timeout=30000)
-    )
-    with client:
-        prompt = """
+    try:
+        with genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=30000)
+        ) as client:
+            prompt = """
 あなたはお不動産買い付けのプロ査定士です。提供された画像群（区画図・配置図、間取り図、外観、内装など）から、
 画像からしか視認できない画地幾何指標およびコストリスクを厳密に査定し、以下のJSON形式で回答してください。
 
@@ -279,12 +279,11 @@ def analyze_property_images_with_gemini(cleaned_images):
 ```
 """
 
-        try:
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=[prompt] + images_to_send,
             )
             return _parse_gemini_analysis_response(response.text, default_result)
-        except Exception:
-            logger.exception("Error during Gemini image analysis")
-            return default_result
+    except Exception:
+        logger.exception("Error during Gemini image analysis")
+        return default_result
