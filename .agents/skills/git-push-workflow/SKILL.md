@@ -30,7 +30,7 @@ description: 開発作業が完了した後に、新しいブランチを作成�
 5. **プッシュ前ローカル解析 ＆ CodeRabbit レビューの実施（Pre-Push Gate 必須遵守）**
    - プッシュ前に必ずローカルCLIで以下を実行し、問題がないことを確認・解消する：
      - **SonarCloud**: `task sonar-check`（または `task sonar`）で認知複雑度・ReDoS・Code Smellのゼロ化を確認。
-     - **CodeRabbit**: `task coderabbit`（または `coderabbit review --plain`）で潜在バグ・設計の事前レビューを実施し解消。
+     - **CodeRabbit**: `task coderabbit`（または `coderabbit review`）で潜在バグ・設計の事前レビューを実施し解消。
 
 6. **リモートリポジトリへのプッシュ**
    - 作成したブランチをリモートリポジトリにプッシュする。

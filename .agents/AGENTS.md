@@ -227,7 +227,7 @@
 ## 【プロジェクト普遍ルール】プッシュ前のCLIによるSonarCloud & CodeRabbit実施義務化ルール (SonarCloud & CodeRabbit Pre-Push Gate)
 - **事前走査・レビューの義務化**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つを実行し、指摘事項を解消してからプッシュしなければならない：
   1. **SonarCloud / SonarLint**: `task sonar-check`（または `task sonar`）を実行し、認知複雑度（S3776 <= 15）、ReDoS（S8786）、Code Smell、型エラーをローカルでゼロに解消すること（IDE拡張機能の SonarLint Connected Mode と二重で検証）。
-  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review --plain` / `coderabbit review --base master --plain`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
+  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review` / `coderabbit review --base master`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
 - **未解決指摘のプッシュ厳禁**: いずれかのツールで未解決の重大な指摘（Bug, Vulnerability, High/Critical, Code Smell）が残存した状態でのプッシュおよびPR作成は厳禁とする。
 
 ## 【プロジェクト普遍ルール】パーサー未整備サイトの自律検知およびパーサー新規作成義務化原則 (Parser Missing Detection & Backlog Creation Rule)
