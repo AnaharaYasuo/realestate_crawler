@@ -4,6 +4,17 @@
 - **いかなる調査・改修・開発作業の開始前にも、必ず `git checkout master && git pull origin master` を実行してローカル環境を最新の master に同期完了した上で、作業ブランチ（`fix/<issue_num>-<topic>` または `feature/<issue_num>-<topic>`）を作成・チェックアウトしてから作業を開始しなければならない。**
 - このルールは例外なく常時厳守される。
 
+## 【プロジェクト普遍ルール】常時 git worktree 運用原則 (Always Worktree Principle)
+- **メイン作業ツリー直接変更の厳禁**:
+  - いかなる調査・機能開発・不具合修正・リファクタリングにおいても、メインの作業ツリーで直接ブランチを切り替えて作業してはならない。
+  - **必ず `git worktree` を使用し、作業ブランチ専用の独立したワークツリー（`.worktrees/<branch-name>`）を作成して作業を実行すること**。
+  - これにより、並行作業時のコンフリクト、未コミット変更の巻き込み、別Issueへの混入を物理的に根絶する。
+- **標準ワークツリー運用フロー**:
+  1. `git checkout master && git pull origin master`（メインリポジトリの master 最新化）
+  2. `git worktree add .worktrees/<branch-name> -b <branch-name>`（専用ワークツリー作成）
+  3. 専用ワークツリー内で作業・テスト・Sonar/CodeRabbit検証・コミット・プッシュ・PR作成
+  4. マージ完了後、`git worktree remove .worktrees/<branch-name>` でクリーンアップ
+
 ## サブエージェント・メインエージェントのモデル利用方針
 - 簡単な作業（ブラウザでの単純な巡回、情報の収集、UI動作確認など）は、コスト効率の高い（安い）AIモデル（Gemini 3.5 Flash 等）のサブエージェントを利用して処理させる。
 - 高コストなモデル（Claude Opus 等）は使用せず、常にコスト効率の高いモデル（Gemini 3.5 Flash等）を利用することを遵守する。
