@@ -73,23 +73,62 @@ def parse_menseki(menseki_str):
         pass
     return None
 
+def _is_valid_wareki_date(era: str, year: int, month: int) -> bool:
+    if not (1 <= month <= 12):
+        return False
+    if era == '昭和' and ((year == 1 and month < 12) or (year == 64 and month > 1) or year > 64):
+        return False
+    if era == '平成' and ((year == 31 and month > 4) or year > 31):
+        return False
+    return not (era == '令和' and (year == 1 and month < 5))
+
+
+def _parse_wareki(s: str):
+    m = re.search(r'(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?', s)
+    if not m:
+        return None
+
+    era = m.group(1)
+    y_str = m.group(2)
+    year = 1 if y_str == '元' else int(y_str)
+
+    if m.group(3):
+        month = int(m.group(3))
+    elif year == 1 and era == '令和':
+        month = 5
+    elif year == 1 and era == '昭和':
+        month = 12
+    else:
+        month = 1
+
+    if not _is_valid_wareki_date(era, year, month):
+        return None
+
+    era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
+    return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
+
+
 def parse_chikunengetsu(date_str):
     """
     築年月文字列を date オブジェクトに変換する
-    例: "1998年3月" -> date(1998, 3, 1)
+    例: "1998年3月" -> date(1998, 3, 1), "昭和54年12月" -> date(1979, 12, 1)
     """
-    if not date_str or date_str == "不詳" or date_str == "-":
+    if not date_str or str(date_str).strip() in ("不詳", "-", ""):
         return None
-    
+
     try:
-        match = re.search(r'(\d{4})年(\d{1,2})月', date_str)
+        s = str(date_str).strip()
+        match = re.search(r'(\d{4})[年/\.-](\d{1,2})', s)
         if match:
             year = int(match.group(1))
             month = int(match.group(2))
             return datetime.date(year, month, 1)
+
+        return _parse_wareki(s)
     except Exception:
         pass
     return None
+
 
 def parse_numeric(text):
     """

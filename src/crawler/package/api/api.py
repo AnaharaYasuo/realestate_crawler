@@ -631,6 +631,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         """Create a bounded aiohttp connector using the default TLS checks."""
         # SSL Context with secure defaults
         ctx = ssl.create_default_context()
+        ctx.options |= ssl.OP_NO_TICKET
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
     def _generateTimeout(self):
