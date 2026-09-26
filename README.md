@@ -620,12 +620,16 @@ task logs
 - **[Prodマージ高速化・CIトリガー最適化内部設計書](docs/internal_design/prod_merge_ci_speedup.md)**: auto-release-pr詳細実装、review-gate/dependabot/coderabbit設定仕様
 - **[CI/CD パイプライン最適化要件定義書](docs/requirements/ci_cd_optimization_requirements.md)**: master push 重複ジョブ廃止・PR提出時一本化・Production Gate 10秒化要件
 - **[CI/CD パイプライン最適化内部設計書](docs/internal_design/ci_cd_optimization_design.md)**: ワークフロー別トリガー見直し・production ブランチ保護ルール詳細仕様
+- **[PR事前全検証機構（Pre-PR Check）要件定義書](docs/requirements/pre_pr_check_requirements.md)**: SonarCloud / CodeRabbit CLI / Linter / 単体テスト一括水際検証要件
+- **[PR事前全検証機構（Pre-PR Check）基本設計書](docs/basic_design/pre_pr_check_design.md)**: 8大検証ステージ・Taskコマンド・Pre-Push Hook遮断アーキテクチャ
+- **[PR事前全検証機構（Pre-PR Check）内部設計仕様書](docs/internal_design/pre_pr_check_specification.md)**: pre_pr_check.py / StageResult / CLIオプション詳細仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
 - **[Taskコマンド完全リファレンス](docs/implementation/task_commands.md)**: Taskコマンド一覧および仕様
 - **[SonarCloud事前検証・コーディング規約ガイド](docs/implementation/sonar_guardrail_guide.md)**: SonarLint設定、S3776/S8786対策、ローカルガードレール運用
 - **[Terraformデプロイガイド](terraform/README.md)**: GCPインフラ一括プロビジョニング手順
+
 
 
 ---

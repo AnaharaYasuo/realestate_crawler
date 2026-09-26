@@ -203,6 +203,13 @@ tasks:
       - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
       - gh pr create --base master {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
 
+  verify:pre-push:
+    desc: Run fast pre-push validation (SonarCloud local check, CodeRabbit CLI review, Ruff linter)
+    cmds:
+      - docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+      - coderabbit review --base master --uncommitted --include-untracked
+      - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit
+
   ci:precheck:
     desc: Run fast pre-push CI check (Ruff, Sonar diff, Unit tests, PR mutation test)
     cmds:

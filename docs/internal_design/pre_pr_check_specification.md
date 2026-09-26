@@ -36,22 +36,28 @@ class StageResult:
 #### Stage 3: `check_linter_and_sonar()`
 - 変更ファイル特定 (`git diff --name-only origin/master...HEAD` 等)
 - `ruff check <files>` を実行 (インストール済みの場合は直接、または Docker 経由)
-- `check_local_sonar.scan_file` を用いて、S3776 (Cognitive Complexity <= 15) および S8786 (ReDoS Regex Risk) を高速検証
+- `check_local_sonar.scan_file` を用いて、S3776 (Cognitive Complexity <= 15) および S8786 (ReDoS Regex Risk) を高速検証。違反が1件でもある場合はプッシュ・PRを遮断。
 
-#### Stage 4: `run_pytest_suite()`
+#### Stage 4: `check_coderabbit()`
+- `coderabbit --version` でCLI導入状況を確認。
+- `coderabbit review --base origin/master --agent`（または差分対象）を実行。
+- CLI未インストール、未認証、実行失敗、または未解決の指摘（findings > 0）が存在する場合にエラーとし、プッシュ・PR作成を中断。
+- 環境都合（CI環境やコンテナ外特定状況等）でスキップが必要な場合は `--skip-coderabbit` により明示指定可能とする。
+
+#### Stage 5: `run_pytest_suite()`
 - 変更差分に基づき、テスト対象を特定
 - `pytest -n auto src/crawler/tests/unit/` を実行
 - テスト失敗件数 == 0 をアサート
 
-#### Stage 5: `run_mutation_testing()`
+#### Stage 6: `run_mutation_testing()`
 - `src.crawler.scripts.run_mutation_testing` の PR モード (`--pr-mode --threshold=80`) を実行
 - キル率 (Mutation Score) >= 80% をアサート
 
-#### Stage 6: `run_security_scan()`
+#### Stage 7: `run_security_scan()`
 - Python ファイル変更時: Semgrep スキャン
 - Terraform ファイル変更時: Checkov スキャン
 
-#### Stage 7: `validate_pr_metadata()`
+#### Stage 8: `validate_pr_metadata()`
 - PR タイトル形式 (`[#<issue_num>] ...`)
 - PR 本文の `Closes #<issue_num>` 存在確認
 - PR 本文中の `- [ ]` 残存検知（GitHub Actions Review Gate と同様の正規表現ロジック）
@@ -60,3 +66,4 @@ class StageResult:
 - 全ステージ合格時: `0`
 - いずれかのステージでエラー検知時: `1`
 - コンソール出力には、各ステージの成否一覧（絵文字およびサマリーテーブル）と具体的な失敗原因・是正ガイドを出力する。
+
