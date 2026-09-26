@@ -353,7 +353,7 @@ class PropertyTypeDetector:
                 "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
             )
             resp = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-2.5-flash",
                 contents=prompt,
             )
             raw_ans = (getattr(resp, "text", "") or "").strip().lower()

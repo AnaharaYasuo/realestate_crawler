@@ -179,7 +179,7 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
         )
 
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         if response and hasattr(response, "text") and response.text:

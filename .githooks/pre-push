@@ -50,13 +50,13 @@ run_pre_pr_check() {
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
-            # External worktree: try host python3, or if not found/shim, execute in app container
+            # External worktree: mount worktree into container to validate exact worktree files
             if python3 -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
                 python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
             elif python -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
                 python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
             else
-                docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+                docker compose --project-directory "$main_root" run --rm --no-deps -v "$toplevel:/worktree" -w /worktree app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
             fi
         fi
     else

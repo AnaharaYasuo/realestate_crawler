@@ -215,7 +215,7 @@ PROMPT_TEMPLATE = """あなたは不動産鑑定評価および機械学習価�
 class SingleUnifiedPropertyExtractor:
     """1物件1リクエスト完結型属性抽出器（テキスト・画像マルチモーダル一括対応）"""
 
-    def __init__(self, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model_name = model_name
 
     def _get_genai_client(self):

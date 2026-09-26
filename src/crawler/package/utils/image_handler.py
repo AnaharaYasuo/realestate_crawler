@@ -216,7 +216,7 @@ def analyze_property_images_with_gemini(cleaned_images):
 
     client = genai.Client(
         api_key=api_key,
-        http_options=types.HttpOptions(timeout=30.0)
+        http_options=types.HttpOptions(timeout=30000)
     )
 
     # Deduplicate by URL and prioritize 'plot_plan' first
