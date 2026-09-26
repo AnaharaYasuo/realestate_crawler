@@ -21,9 +21,10 @@ resource "google_storage_bucket_iam_member" "storage_admin" {
 # Grant Secret Manager Secret Accessor (Scoped to specific crawler secrets only)
 resource "google_secret_manager_secret_iam_member" "secret_accessor" {
   for_each = {
-    db_password = google_secret_manager_secret.db_password_secret.secret_id
-    slack_bot   = google_secret_manager_secret.slack_bot_token.secret_id
-    slack_app   = google_secret_manager_secret.slack_app_token.secret_id
+    db_password           = google_secret_manager_secret.db_password_secret.secret_id
+    slack_bot             = google_secret_manager_secret.slack_bot_token.secret_id
+    slack_app             = google_secret_manager_secret.slack_app_token.secret_id
+    new_relic_license_key = google_secret_manager_secret.new_relic_license_key.secret_id
   }
 
   project   = var.project_id

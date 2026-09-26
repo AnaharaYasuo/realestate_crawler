@@ -10,7 +10,8 @@
 - `src/crawler/scripts/setup_new_relic_crawler_alerts.py`: クローラー特化の NRQL アラートポリシー＆条件プロビジョニングスクリプト。
 - `src/crawler/tests/unit/test_new_relic_full_stack.py`: GenAI メトリクス、クローラーイベント、デプロイ通知、NRQL アラート設定の包括的単体テスト。
 - `terraform/secrets.tf`: Secret Manager 定義。
-- `terraform/cloud_run_api_service.tf`, `terraform/cloud_run_crawler_service.tf`: 環境変数注入設定。
+- `terraform/iam.tf`: `google_secret_manager_secret_iam_member.secret_accessor` の `for_each` に `new_relic_license_key` を含め、`crawler-runner` SA へ Secret Accessor を付与。
+- `terraform/cloud_run_api_service.tf`, `terraform/cloud_run_crawler_service.tf`, `terraform/cloud_run_job.tf`: 環境変数注入設定。
 
 ## 2. 実装詳細
 
@@ -150,4 +151,5 @@ record_crawler_metrics(
 - `test_notify_deployment_nerdgraph`: Change Tracking API の GraphQL ペイロード組み立てとレスポンスハンドリングを検証。
 - `test_crawler_alerts_provisioning`: NRQL アラートルール登録ペイロードと有限タイムアウト処理を検証。
 - `test_run_all_crawlers_records_crawler_metrics`: バッチクローラーが完了したジョブに対して `record_crawler_metrics` を呼び出すことを検証。
+- `test_iam_secret_accessor_includes_new_relic_license_key`: `terraform/iam.tf` の `secret_accessor` for_each に `new_relic_license_key` が含まれることを検証（Issue #484）。
 
