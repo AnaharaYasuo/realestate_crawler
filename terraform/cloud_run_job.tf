@@ -87,6 +87,14 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           value = "6033"
         }
         env {
+          name  = "PROXYSQL_INSTANCE_NAME"
+          value = google_compute_instance.proxysql_instance.name
+        }
+        env {
+          name  = "PROXYSQL_ZONE"
+          value = google_compute_instance.proxysql_instance.zone
+        }
+        env {
           name  = "CLOUDSQL_INSTANCE_NAME"
           value = google_sql_database_instance.mysql_instance.name
         }
@@ -306,6 +314,14 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
         env {
           name  = "SLACK_ALERT_PROPERTY_ALERT"
           value = "property_alert"
+        }
+        env {
+          name  = "PROXYSQL_INSTANCE_NAME"
+          value = google_compute_instance.proxysql_instance.name
+        }
+        env {
+          name  = "PROXYSQL_ZONE"
+          value = google_compute_instance.proxysql_instance.zone
         }
       }
     }

@@ -20,6 +20,7 @@ while True:
         if _parent not in sys.path:
             sys.path.insert(0, _parent)
         import setup_env
+
         break
     _cur = _parent
 
@@ -35,6 +36,7 @@ from package.utils.gcp_resources import (
     scale_proxysql_mig,
     wait_for_proxysql_health,
 )
+
 configure_logging()
 logger = logging.getLogger(__name__)
 
@@ -76,24 +78,35 @@ def check_deadline_or_raise(desc: str) -> None:
             f"⚠️ [Deadline Warning] Remaining time ({rem}s) is below safe shutdown buffer ({int(SAFE_SHUTDOWN_BUFFER_SEC)}s). "
             f"Aborting before Cloud Run force termination for step: '{desc}'"
         )
-        raise TimeoutError(f"Step '{desc}' skipped: approaching Cloud Run timeout (remaining: {rem}s)")
+        raise TimeoutError(
+            f"Step '{desc}' skipped: approaching Cloud Run timeout (remaining: {rem}s)"
+        )
 
 
 def _inline_stop_proxysql() -> None:
-    """Directly scales down ProxySQL MIG and Autoscaler to 0 inline without subprocess overhead."""
+    """Directly scales down ProxySQL MIG/Instance and Autoscaler to 0 inline without subprocess overhead."""
     try:
-        logger.info("🛑 [Emergency/Inline Teardown] Scaling down ProxySQL MIG & Autoscaler to 0...")
-        patch_proxysql_autoscaler(min_replicas=0, max_replicas=0)
+        logger.info(
+            "🛑 [Emergency/Inline Teardown] Scaling down ProxySQL MIG/Instance & Autoscaler to 0..."
+        )
+        if not os.environ.get("PROXYSQL_INSTANCE_NAME"):
+            patch_proxysql_autoscaler(min_replicas=0, max_replicas=0)
         scale_proxysql_mig(target_size=0)
-        logger.info("✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG & Autoscaler to 0.")
+        logger.info(
+            "✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG/Instance & Autoscaler to 0."
+        )
     except Exception as e:  # noqa: BLE001
-        logger.error(f"❌ [Emergency/Inline Teardown Error] Failed to scale down ProxySQL MIG: {e}")
+        logger.error(
+            f"❌ [Emergency/Inline Teardown Error] Failed to scale down ProxySQL: {e}"
+        )
 
 
 def _sigterm_handler(signum: int, frame: object) -> None:
     """Handles SIGTERM / SIGINT signals (e.g. from Cloud Run timeout) to enforce teardown."""
     global _teardown_done
-    logger.warning(f"⚠️ [Signal Received] Caught signal {signum}. Initiating emergency teardown...")
+    logger.warning(
+        f"⚠️ [Signal Received] Caught signal {signum}. Initiating emergency teardown..."
+    )
     if _active_proc is not None and _active_proc.poll() is None:
         try:
             logger.info(f"Terminating active subprocess PID {_active_proc.pid}...")
@@ -136,7 +149,7 @@ def run_command(cmd, desc, timeout: float | None = None):
     logger.info(f"=== [START] {desc} ===")
     logger.info(f"Command: {' '.join(cmd)}")
     start_time = time.time()
-    
+
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -144,14 +157,14 @@ def run_command(cmd, desc, timeout: float | None = None):
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1
+        bufsize=1,
     )
     _active_proc = proc
-    
+
     def _reader():
         if proc.stdout is not None:
-            for line in iter(proc.stdout.readline, ''):
-                print(line, end='', flush=True)
+            for line in iter(proc.stdout.readline, ""):
+                print(line, end="", flush=True)
             proc.stdout.close()
 
     reader_thread = threading.Thread(target=_reader, daemon=True)
@@ -165,17 +178,21 @@ def run_command(cmd, desc, timeout: float | None = None):
         proc.wait()
         reader_thread.join(timeout=2.0)
         elapsed = time.time() - start_time
-        logger.error(f"=== [TIMEOUT] {desc} timed out after {timeout}s (elapsed: {int(elapsed)}s) ===")
+        logger.error(
+            f"=== [TIMEOUT] {desc} timed out after {timeout}s (elapsed: {int(elapsed)}s) ==="
+        )
         raise TimeoutError(f"Step '{desc}' timed out after {timeout}s")
     finally:
         _active_proc = None
 
     elapsed = time.time() - start_time
-    
+
     if proc.returncode != 0:
-        logger.error(f"=== [FAILED] {desc} (Exit Code: {proc.returncode}, Time: {int(elapsed)}s) ===")
+        logger.error(
+            f"=== [FAILED] {desc} (Exit Code: {proc.returncode}, Time: {int(elapsed)}s) ==="
+        )
         raise RuntimeError(f"Step '{desc}' failed with exit code {proc.returncode}")
-        
+
     logger.info(f"=== [SUCCESS] {desc} (Time: {int(elapsed)}s) ===")
 
 
@@ -188,16 +205,22 @@ def _check_failed_slack_notifications(failed_slack_file: str) -> None:
     with open(failed_slack_file, "r", encoding="utf-8") as f:
         failed_msgs = json.load(f)
     if failed_msgs:
-        logger.critical(f"❌ 【深刻なエラー】 パイプライン中に送信されるべき Slack メッセージが不達となっています（計 {len(failed_msgs)} 件）。")
+        logger.critical(
+            f"❌ 【深刻なエラー】 パイプライン中に送信されるべき Slack メッセージが不達となっています（計 {len(failed_msgs)} 件）。"
+        )
         for m in failed_msgs:
             t = str(m.get("timestamp", "")).replace("\r", " ").replace("\n", " ")
             c = str(m.get("channel", "")).replace("\r", " ").replace("\n", " ")
             e = str(m.get("error", "")).replace("\r", " ").replace("\n", " ")
             p = str(m.get("message_preview", "")).replace("\r", " ").replace("\n", " ")
-            logger.critical("  - [%s] Channel: %s | Error: %s | Preview: %s", t, c, e, p)
-        raise RuntimeError("Pipeline finished but some Slack notifications were not delivered successfully.")
- 
- 
+            logger.critical(
+                "  - [%s] Channel: %s | Error: %s | Preview: %s", t, c, e, p
+            )
+        raise RuntimeError(
+            "Pipeline finished but some Slack notifications were not delivered successfully."
+        )
+
+
 def _execute_startup_resources(is_coordinator: bool) -> None:
     if not os.environ.get("IS_CLOUD"):
         return
@@ -207,17 +230,24 @@ def _execute_startup_resources(is_coordinator: bool) -> None:
         if not csql_ok:
             logger.error(f"❌ [Startup Error] Cloud SQL is not RUNNABLE: {csql_status}")
             raise RuntimeError(f"Cloud SQL pre-flight check failed: {csql_status}")
-        logger.info("🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)...")
-        if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
-            logger.error("❌ [Startup Error] Failed to restore ProxySQL Autoscaler.")
-            raise RuntimeError("ProxySQL Autoscaler restore failed.")
-        logger.info("🚀 [Startup: Coordinator] Scaling ProxySQL MIG (0 -> 1)...")
+        if not os.environ.get("PROXYSQL_INSTANCE_NAME"):
+            logger.info(
+                "🚀 [Startup: Coordinator] Restoring ProxySQL Autoscaler (min=1, max=2)..."
+            )
+            if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
+                logger.error(
+                    "❌ [Startup Error] Failed to restore ProxySQL Autoscaler."
+                )
+                raise RuntimeError("ProxySQL Autoscaler restore failed.")
+        logger.info("🚀 [Startup: Coordinator] Scaling ProxySQL (0 -> 1)...")
         success = scale_proxysql_mig(target_size=1)
         if not success:
-            logger.error("❌ [Startup Error] Failed to scale ProxySQL MIG to 1.")
-            raise RuntimeError("ProxySQL MIG startup failed.")
+            logger.error("❌ [Startup Error] Failed to scale ProxySQL to 1.")
+            raise RuntimeError("ProxySQL startup failed.")
     else:
-        logger.info("⏳ [Startup: Worker] Waiting for Coordinator to bring up ProxySQL MIG...")
+        logger.info(
+            "⏳ [Startup: Worker] Waiting for Coordinator to bring up ProxySQL MIG..."
+        )
 
     logger.info("⏳ [Startup] Verifying ProxySQL port health (startup check)...")
     healthy = wait_for_proxysql_health(timeout_sec=240)
@@ -231,17 +261,25 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
     global _teardown_done
     if is_coordinator and os.environ.get("IS_CLOUD"):
         try:
-            logger.info("🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped...")
+            logger.info(
+                "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
+            )
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
             _inline_stop_proxysql()
             _teardown_done = True
             # 2. Comprehensive check and notification via ensure_resources_stopped
-            run_command([
-                sys.executable,
-                os.path.join(scripts_dir, "ensure_resources_stopped.py"),
-            ], "Teardown: Ensure On-Demand Resources Stopped", timeout=60)
+            run_command(
+                [
+                    sys.executable,
+                    os.path.join(scripts_dir, "ensure_resources_stopped.py"),
+                ],
+                "Teardown: Ensure On-Demand Resources Stopped",
+                timeout=60,
+            )
         except Exception as cleanup_err:  # noqa: BLE001
-            logger.warning(f"⚠️ [Cleanup Warning] Failed to stop resources in teardown: {cleanup_err}")
+            logger.warning(
+                f"⚠️ [Cleanup Warning] Failed to stop resources in teardown: {cleanup_err}"
+            )
 
 
 def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> dict:
@@ -263,21 +301,27 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
         else:
             continue
         all_results.extend(results)
-        task_stats.append({
-            "task_index": task_idx,
-            "status": status,
-            "job_count": len(results),
-        })
+        task_stats.append(
+            {
+                "task_index": task_idx,
+                "status": status,
+                "job_count": len(results),
+            }
+        )
 
     success_jobs = sum(1 for r in all_results if r.get("status") == "success")
-    failed_list = [r for r in all_results if r.get("status") in ["failed", "timeout", "error"]]
+    failed_list = [
+        r for r in all_results if r.get("status") in ["failed", "timeout", "error"]
+    ]
     failed_jobs = len(failed_list)
     executed_jobs = len(all_results)
     missing_jobs = max(0, total_jobs - executed_jobs)
 
     msg_lines = ["📢 【クローリング全タスク集約レポート】"]
     msg_lines.append(f"実行タスク数: {len(task_records)} タスク")
-    msg_lines.append(f"総ジョブ数: {total_jobs} (実行完了: {executed_jobs}, 成功: {success_jobs}, 失敗: {failed_jobs}{f', 未実行: {missing_jobs}' if missing_jobs > 0 else ''})")
+    msg_lines.append(
+        f"総ジョブ数: {total_jobs} (実行完了: {executed_jobs}, 成功: {success_jobs}, 失敗: {failed_jobs}{f', 未実行: {missing_jobs}' if missing_jobs > 0 else ''})"
+    )
 
     if failed_list:
         msg_lines.append("\n⚠️ 異常・失敗が発生したクローラー:")
@@ -322,22 +366,30 @@ def _run_crawler_step(
     run_command(crawl_cmd, step1_title)
 
     if is_task_array and not is_coordinator:
-        logger.info(f"✔ [Worker] Task {task_index}/{task_count} のクローリングが完了しました。コンテナを終了します。")
+        logger.info(
+            f"✔ [Worker] Task {task_index}/{task_count} のクローリングが完了しました。コンテナを終了します。"
+        )
         return False
 
     if is_task_array and is_coordinator:
-        logger.info(f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)...")
+        logger.info(
+            f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)..."
+        )
         remaining = get_remaining_pipeline_time()
         # Bound task waiting by remaining time minus safe shutdown buffer and polling interval
         wait_interval = 15
         wait_timeout = max(
             0,
-            int(min(
-                10800 - wait_interval,
-                remaining - SAFE_SHUTDOWN_BUFFER_SEC - wait_interval,
-            )),
+            int(
+                min(
+                    10800 - wait_interval,
+                    remaining - SAFE_SHUTDOWN_BUFFER_SEC - wait_interval,
+                )
+            ),
         )
-        logger.info(f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)...")
+        logger.info(
+            f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)..."
+        )
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
             execution_date=datetime.datetime.now(datetime.timezone.utc).date(),
@@ -346,12 +398,18 @@ def _run_crawler_step(
             interval_sec=wait_interval,
         )
         if not all_ok:
-            logger.warning(f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。")
+            logger.warning(
+                f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。"
+            )
 
         # 全タスク集約レポートの生成 & Slack通知 (Issue #445)
         try:
             today = datetime.datetime.now(datetime.timezone.utc).date()
-            records = list(CrawlerTaskExecution.objects.filter(execution_date=today).order_by("task_index"))
+            records = list(
+                CrawlerTaskExecution.objects.filter(execution_date=today).order_by(
+                    "task_index"
+                )
+            )
             aggregated = aggregate_task_array_reports(records, total_jobs=89)
             logger.info(
                 f"📊 [Coordinator Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
@@ -360,7 +418,9 @@ def _run_crawler_step(
             if aggregated.get("slack_message"):
                 asyncio.run(send_crawling_summary_alert(aggregated["slack_message"]))
         except Exception as agg_err:
-            logger.warning(f"⚠️ [Aggregation Warning] Failed to aggregate task array reports: {agg_err}")
+            logger.warning(
+                f"⚠️ [Aggregation Warning] Failed to aggregate task array reports: {agg_err}"
+            )
     return True
 
 
@@ -372,46 +432,68 @@ def _run_post_crawl_pipeline(
     skip_portals: bool,
 ) -> None:
     # Step 1.5 (2/6): 不正データ自動検証 & クレンジング & HTMLエラー監視
-    run_command([
-        sys.executable,
-        os.path.join(maintenance_dir, "validate_data.py"),
-    ], "Step 2/6: Scraping Data Validation & Automated Cleansing")
+    run_command(
+        [
+            sys.executable,
+            os.path.join(maintenance_dir, "validate_data.py"),
+        ],
+        "Step 2/6: Scraping Data Validation & Automated Cleansing",
+    )
 
     # AI自己修復用のバグ指示書生成
-    run_command([
-        sys.executable,
-        os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
-    ], "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent")
+    run_command(
+        [
+            sys.executable,
+            os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+        ],
+        "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent",
+    )
 
     # Step 2 (3/6): 最新データによるMLモデル再学習
-    run_command([
-        sys.executable,
-        os.path.join(crawler_dir, "package", "ml", "train.py"),
-    ], "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
+    run_command(
+        [
+            sys.executable,
+            os.path.join(crawler_dir, "package", "ml", "train.py"),
+        ],
+        "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)",
+    )
 
     # Step 3 (4/6): 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
     eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
     if skip_portals:
         eval_cmd.append("--skip-portals")
-    run_command(eval_cmd, f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}")
+    run_command(
+        eval_cmd,
+        f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}",
+    )
 
     # Step 4 (5/6): お宝物件のスクリーニング & Slack通知
-    run_command([
-        sys.executable,
-        os.path.join(ops_dir, "send_recommendations.py"),
-    ], "Step 5/6: Slack Notification (Hot Property Recommendation)")
+    run_command(
+        [
+            sys.executable,
+            os.path.join(ops_dir, "send_recommendations.py"),
+        ],
+        "Step 5/6: Slack Notification (Hot Property Recommendation)",
+    )
 
     # Step 5 (6/6): 日次予測精度診断 & AIインサイト分析
-    run_command([
-        sys.executable,
-        os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
-        "--notify",
-    ], "Step 6/6: Daily ML Prediction Diagnostics & AI Insights")
+    run_command(
+        [
+            sys.executable,
+            os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
+            "--notify",
+        ],
+        "Step 6/6: Daily ML Prediction Diagnostics & AI Insights",
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(description="Real Estate Pipeline")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
+    parser.add_argument(
+        "--skip-portals",
+        action="store_true",
+        help="Skip large portal sites (homes, athome)",
+    )
     args = parser.parse_args()
 
     global _is_coordinator
@@ -421,14 +503,18 @@ def main():
     _is_coordinator = is_coordinator
 
     logger.info(BORDER_LINE)
-    logger.info(f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})")
+    logger.info(
+        f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})"
+    )
     if is_task_array:
-        logger.info(f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'})")
+        logger.info(
+            f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'})"
+        )
     logger.info(BORDER_LINE)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))  # .../scripts/ops
-    scripts_dir = os.path.dirname(current_dir)               # .../scripts
-    crawler_dir = os.path.dirname(scripts_dir)               # .../crawler
+    scripts_dir = os.path.dirname(current_dir)  # .../scripts
+    crawler_dir = os.path.dirname(scripts_dir)  # .../crawler
 
     debug_tools_dir = os.path.join(scripts_dir, "debug_tools")
     maintenance_dir = os.path.join(scripts_dir, "maintenance")
@@ -443,34 +529,50 @@ def main():
 
     try:
         # Step 0: Slack Connection Pre-flight Check
-        run_command([
-            sys.executable,
-            os.path.join(debug_tools_dir, "check_slack_connection.py"),
-        ], "Step 0/6: Slack Connection Pre-flight Check")
+        run_command(
+            [
+                sys.executable,
+                os.path.join(debug_tools_dir, "check_slack_connection.py"),
+            ],
+            "Step 0/6: Slack Connection Pre-flight Check",
+        )
 
         # Step 0.2: Start On-Demand Resources & Health Check (Coordinator in Cloud)
         _execute_startup_resources(is_coordinator)
 
         # Step 0.4: Database Readiness Pre-flight Check
-        run_command([
-            sys.executable,
-            os.path.join(debug_tools_dir, "wait_for_db.py"),
-        ], "Step 0.4/6: Database Readiness Pre-flight Check")
+        run_command(
+            [
+                sys.executable,
+                os.path.join(debug_tools_dir, "wait_for_db.py"),
+            ],
+            "Step 0.4/6: Database Readiness Pre-flight Check",
+        )
 
         # Step 0.5: Database Schema Migration
         if is_coordinator:
-            run_command([
-                sys.executable,
-                os.path.join(crawler_dir, "manage.py"),
-                "migrate",
-                "--noinput",
-            ], "Step 0.5/6: Database Schema Migration (Coordinator)")
+            run_command(
+                [
+                    sys.executable,
+                    os.path.join(crawler_dir, "manage.py"),
+                    "migrate",
+                    "--noinput",
+                ],
+                "Step 0.5/6: Database Schema Migration (Coordinator)",
+            )
         else:
-            logger.info("⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)...")
+            logger.info(
+                "⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)..."
+            )
             time.sleep(10)
 
         should_continue = _run_crawler_step(
-            is_task_array, is_coordinator, task_index, task_count, ops_dir, args.skip_portals
+            is_task_array,
+            is_coordinator,
+            task_index,
+            task_count,
+            ops_dir,
+            args.skip_portals,
         )
         if not should_continue:
             return
