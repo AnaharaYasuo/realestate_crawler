@@ -73,6 +73,41 @@ def parse_menseki(menseki_str):
         pass
     return None
 
+def _is_valid_wareki_date(era: str, year: int, month: int) -> bool:
+    if not (1 <= month <= 12):
+        return False
+    if era == '昭和' and ((year == 1 and month < 12) or (year == 64 and month > 1) or year > 64):
+        return False
+    if era == '平成' and ((year == 31 and month > 4) or year > 31):
+        return False
+    return not (era == '令和' and (year == 1 and month < 5))
+
+
+def _parse_wareki(s: str):
+    m = re.search(r'(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?', s)
+    if not m:
+        return None
+
+    era = m.group(1)
+    y_str = m.group(2)
+    year = 1 if y_str == '元' else int(y_str)
+
+    if m.group(3):
+        month = int(m.group(3))
+    elif year == 1 and era == '令和':
+        month = 5
+    elif year == 1 and era == '昭和':
+        month = 12
+    else:
+        month = 1
+
+    if not _is_valid_wareki_date(era, year, month):
+        return None
+
+    era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
+    return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
+
+
 def parse_chikunengetsu(date_str):
     """
     築年月文字列を date オブジェクトに変換する
@@ -89,35 +124,7 @@ def parse_chikunengetsu(date_str):
             month = int(match.group(2))
             return datetime.date(year, month, 1)
 
-        m = re.search(r'(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?', s)
-        if m:
-            era = m.group(1)
-            y_str = m.group(2)
-            year = 1 if y_str == '元' else int(y_str)
-            if m.group(3):
-                month = int(m.group(3))
-            elif year == 1 and era == '令和':
-                month = 5
-            elif year == 1 and era == '昭和':
-                month = 12
-            else:
-                month = 1
-
-            if not (1 <= month <= 12):
-                return None
-
-            if era == '昭和':
-                if (year == 1 and month < 12) or (year == 64 and month > 1) or year > 64:
-                    return None
-            elif era == '平成':
-                if (year == 31 and month > 4) or year > 31:
-                    return None
-            elif era == '令和':
-                if year == 1 and month < 5:
-                    return None
-
-            era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
-            return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
+        return _parse_wareki(s)
     except Exception:
         pass
     return None
