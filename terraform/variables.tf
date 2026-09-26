@@ -139,4 +139,11 @@ variable "proxysql_backend_max_connections" {
   default     = 50
 }
 
+variable "new_relic_log_ingest_url" {
+  type        = string
+  description = "New Relic GCP Log Streaming ingest endpoint URL (e.g. https://gcp-api.newrelic.com/log/v1?Api-Key=...)"
+  default     = ""
+  sensitive   = true
+}
+
 

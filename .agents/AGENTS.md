@@ -224,9 +224,11 @@
   7. **PRメタデータ事前検査**: PRタイトルフォーマット（`[#<issue_num>] ...`）、本文の `Closes #<issue_num>`、およびPR本文に未完了チェックボックス（`- [ ]`）が存在しないこと
 - **チェック落ちの事前根絶**: 1つでも FAIL が検出された場合は PR 提出を即時中断し、ローカルで問題を完全に解消してから再検証・提出すること。
 
-## 【プロジェクト普遍ルール】PR作成前のローカル静的解析義務化ルール (Snyk & SonarLint Pre-PR Check)
-- **事前走査の義務化**: コード修正や新機能追加の後、GitHub に Pull Request を作成・プッシュする前に、必ずローカル環境で Snyk によるセキュリティ脆弱性スキャンおよび SonarLint / SonarQube による静的コード解析を実施すること。
-- **指摘事項の解消**: 検出された重大な脆弱性（High/Critical）、Code Smell、型エラー、未解決の指摘はすべて修正してからコミット・PR作成を行うこと。
+## 【プロジェクト普遍ルール】プッシュ前のCLIによるSonarCloud & CodeRabbit実施義務化ルール (SonarCloud & CodeRabbit Pre-Push Gate)
+- **事前走査・レビューの義務化**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つを実行し、指摘事項を解消してからプッシュしなければならない：
+  1. **SonarCloud / SonarLint**: `task sonar-check`（または `task sonar`）を実行し、認知複雑度（S3776 <= 15）、ReDoS（S8786）、Code Smell、型エラーをローカルでゼロに解消すること（IDE拡張機能の SonarLint Connected Mode と二重で検証）。
+  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review --plain` / `coderabbit review --base master --plain`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
+- **未解決指摘のプッシュ厳禁**: いずれかのツールで未解決の重大な指摘（Bug, Vulnerability, High/Critical, Code Smell）が残存した状態でのプッシュおよびPR作成は厳禁とする。
 
 ## 【プロジェクト普遍ルール】パーサー未整備サイトの自律検知およびパーサー新規作成義務化原則 (Parser Missing Detection & Backlog Creation Rule)
 - **パーサー未整備エラーの自動捕捉**:
