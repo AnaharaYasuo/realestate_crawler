@@ -49,3 +49,19 @@ sequenceDiagram
   - `runs/{YYYYMMDD}/error_pages/{company}_{property_type}/{sha256_hash}_meta.json`
 - ライフサイクル管理:
   - 既存の GCS バケットライフサイクルルール（非現行30日削除、180日Nearline等）に従い、無駄なストレージ課金を防止。
+
+## 4. クローラー実行・ストレージ堅牢化方針 (Issue #477 / Issue #479)
+
+1. **ストレージ抽象化とネイティブ GCS**:
+   - `STORAGE_BACKEND=gcs` または `IS_CLOUD=true` 時は `google.cloud.storage.Client` による GCS API を使用。
+   - `STORAGE_BACKEND` 未指定または `minio` 時は従来の `boto3`（S3互換）を使用。
+2. **生 HTML の直接引き渡し**:
+   - パース失敗時のハンドラ `_save_error_html_by_url` に手元の `raw_html` を直接引き渡し。相手サーバーへの不要な再 GET リクエストを排除。
+3. **インプロセスルーティングの二重化**:
+   - `ApiRegistry` に正規パス（`/api/...`）とレガシー GCP パス（`/..._GCP`）の双方を登録。これにより `IS_CLOUD=true` の有無に関わらず常にインプロセスで解決。
+4. **レガシー暗号スイート適用**:
+   - `misawa.py` の全クラスに `MisawaInvestmentConnectorMixin` を適用。
+5. **Homes Mansion パーサー整合**:
+   - `homes.py` の `ParseHomesMansionDetailFuncAsync` / `ParseHomesMansionStartAsync` が `HomesMansionParser` を利用。
+6. **DecimalField 丸め整合**:
+   - `converter.py` の `parse_menseki` / `parse_ratio` で `quantize(Decimal('0.01'))` を適用。

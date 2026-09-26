@@ -29,3 +29,14 @@
 ### REQ-006: Slack DevAgent ゼロタッチ自動修復トリガー
 - クローリングバッチ完了時に異常終了したジョブが1件以上存在する場合、人間を介さず `#dev-agent` チャンネル宛に自動修復リクエスト（`@DevAgent` メンション）を自動投稿すること。
 - これにより常駐する Antigravity Bot が自動起動し、完全無人（ゼロタッチ）で GCS から障害情報を取得し、コード修正・テスト検証・PR作成までを自律完結できること。
+
+### REQ-007: ネイティブ GCS クライアントおよび生 HTML 直接受け渡し (Issue #477)
+- `ObjectStorageManager` は、`STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合に `google.cloud.storage.Client` を使用してネイティブに GCS と通信し、Cloud Run サービスアカウント権限でアップロード・一覧・読込を実行しなければならない。
+- ローカル環境（MinIO / S3 互換）との完全な後方互換性を維持すること。
+- パースエラー・フェッチエラー時に、すでに取得済みの生 HTML バイト列を `_sync_save_error_html_by_url` および `FailureReporter` に直接渡すことができ、相手サーバーへの再 HTTP リクエストなしで 100% 確実に生 HTML を永続化できること。相手サーバーが 403 ブロックまたはダウンしている場合でも生 HTML が欠損してはならない。
+
+### REQ-008: Cloud 実行インプロセスルーティング整合性とパーサー堅牢性 (Issue #479)
+- `IS_CLOUD=true` 時でも、`ApiRegistry` は `_GCP` 接尾辞を含む全 API パスを完全に解決・ディスパッチ可能とし、Flask 未起動のバッチ環境で HTTP 127.0.0.1:8000 へのフォールバックによる `ConnectionRefusedError` を根絶しなければならない。
+- ミサワホーム（`misawa.py`）の全種別（mansion, kodate, tochi）において、レガシー SSL 暗号スイート（`DEFAULT@SECLEVEL=1`）を有効化し、ハンドシェイク失敗（0件取得）を根絶すること。
+- `homes.py` のマンションパーサーは `HomesMansionParser` を正しくインスタンス化し、`HomesMansion` モデルに格納すること。
+- 面積・割合の数値コンバーター（`converter.py`）は小数点以下 2 桁へ `quantize`（四捨五入）を行い、Django モデルのバリデーションエラーを防止すること。

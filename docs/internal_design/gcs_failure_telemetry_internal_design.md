@@ -71,8 +71,22 @@ class FailureReporter:
 ```
 
 - **GCS クライアント初期化**:
-  - `IS_CLOUD=true` の場合は `google.cloud.storage.Client()` を使用。
-  - ローカル開発・テスト時は既存の `STORAGE_ENDPOINT`（MinIO / S3互換）またはローカルモックへ自動フォールバック。
+  - `STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合は `google.cloud.storage.Client()` を使用。
+  - `upload_bytes`, `upload_image_bytes`, `list_files`, `read_text` でネイティブ GCS API を呼び出す。
+  - ローカル開発・テスト時は既存の `STORAGE_ENDPOINT`（MinIO / S3互換）へ自動フォールバック。
+
+### 2.2 `api.py` の直接生 HTML 引き渡し
+- `_sync_save_error_html_by_url(url, model_name, reason, raw_html=None)`:
+  - `raw_html` が与えられた場合は `requests.get` をスキップし、手元の生 HTML をディスクおよび `FailureReporter.record_job_failure` に直接書き込む。
+  - `ParseMiddlePageAsyncBase`: パース例外発生時に `raw_html_content = str(response)` を直接渡す。
+
+### 2.3 `ApiRegistry` レガシー GCP パス互換登録
+- `package/api/registry.py` または各 API ファイルにおいて、`API_KEY_*_GCP` を正規の API ハンドラクラスと紐付けて登録。
+- `_handle_local_execution(api_url, detail_url)` で、`API_KEY_*_GCP` であっても常にローカルインプロセス実行クラスが解決されるようにする。
+
+### 2.4 `converter.py` の Decimal 2 桁丸め
+- `parse_menseki` および `parse_ratio`:
+  - `Decimal(str_val).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)` を適用し、Django の `DecimalField(decimal_places=2)` 制約に準拠させる。
 
 ### 2.2 `main.py` CLI 例外処理改修
 ```python

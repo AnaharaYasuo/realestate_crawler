@@ -4,6 +4,7 @@
 
 set -e
 
+export MSYS_NO_PATHCONV=1
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-realestate_crawler}"
 
 zero="0000000000000000000000000000000000000000"
@@ -11,8 +12,23 @@ zero="0000000000000000000000000000000000000000"
 run_pre_pr_check() {
     target_branch="$1"
     target_sha="$2"
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+    common_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "$toplevel/.git")
+    main_root=$(cd "$common_dir/.." && pwd -P 2>/dev/null || echo "$toplevel")
+    
+    rel_path=""
+    case "$toplevel" in
+        *"/.worktrees/"*)
+            rel_path=".worktrees/${toplevel##*/.worktrees/}"
+            ;;
+    esac
+
     if command -v docker >/dev/null 2>&1; then
-        docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        if [ -n "$rel_path" ]; then
+            docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        else
+            docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
     fi
