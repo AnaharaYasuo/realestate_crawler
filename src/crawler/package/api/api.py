@@ -7,7 +7,7 @@ import threading
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
-from typing import Dict, Any, Optional, Union
+from typing import Any, Dict, Optional, Tuple  # noqa: UP035
 from pathlib import Path
 import re
 import uuid
@@ -43,13 +43,38 @@ ERROR_PAGES_DIR = Path("src/crawler/tests/error_pages")
 CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
 DETAIL_ID_PATTERN = re.compile(r'detail_([^/]+)')
 BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
+_MODEL_NAME_PREFIXES = ("Parse",)
+_MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
+_KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
+
+
+def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
+    """Derive company / property_type from entity or Parse* class names."""
+    name = model_name or ""
+    for prefix in _MODEL_NAME_PREFIXES:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    for suffix in _MODEL_NAME_SUFFIXES:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    snake = CAMEL_TO_SNAKE_PATTERN.sub("_", name).lower().strip("_")
+    parts = [p for p in snake.split("_") if p]
+    if not parts:
+        return "unknown", "unknown"
+    if len(parts) >= 2 and parts[-1] in _KNOWN_PROPERTY_TYPES:
+        return parts[0], parts[-1]
+    if len(parts) >= 2:
+        return parts[0], "_".join(parts[1:])
+    return parts[0], "unknown"
 
 
 def _sync_save_error_html_by_url(
     url: str,
     model_name: str,
     reason: str = "Unknown Error",
-    raw_html: Optional[Union[bytes, str]] = None
+    raw_html: bytes | str | None = None
 ) -> None:
     """Save HTML of failed property/page synchronously in worker thread."""
     ERROR_PAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,7 +87,7 @@ def _sync_save_error_html_by_url(
 
     html_file = company_dir / f"{p_id}.html"
 
-    html_bytes: Optional[bytes] = None
+    html_bytes: bytes | None = None
     if raw_html is not None:
         html_bytes = raw_html.encode("utf-8") if isinstance(raw_html, str) else raw_html
     else:
@@ -71,9 +96,9 @@ def _sync_save_error_html_by_url(
             if response.status_code == 200:
                 html_bytes = response.content
             else:
-                logging.warning("Fallback GET for error HTML returned status %s for URL: %s", response.status_code, url)
+                logger.warning("Fallback GET for error HTML returned status %s for URL: %s", response.status_code, url)
         except Exception as req_err:  # noqa: BLE001
-            logging.warning("Failed to fetch fallback error HTML for %s: %s", url, req_err)
+            logger.warning("Failed to fetch fallback error HTML for %s: %s", url, req_err)
 
     if html_bytes is not None:
         with open(html_file, 'wb') as f:
@@ -81,14 +106,11 @@ def _sync_save_error_html_by_url(
         meta_file = company_dir / f"{p_id}_meta.txt"
         with open(meta_file, 'w', encoding='utf-8') as f:
             f.write(f"URL: {url}\nModel/Class: {model_name}\nTimestamp: {datetime.datetime.now()}\nReason: {reason}\n")
-        logging.info("Saved error HTML to %s", html_file)
+        logger.info("Saved error HTML to %s", html_file)
 
     # GCS障害テレメトリへも即時保存
     try:
-        parts = company_type.split("_", 1)
-        raw_comp = parts[0] if parts else "unknown"
-        comp = raw_comp[:-3] if raw_comp.endswith("API") else raw_comp
-        ptype = parts[1] if len(parts) > 1 else "unknown"
+        comp, ptype = _extract_company_and_ptype(model_name)
         FailureReporter.record_job_failure(
             company=comp,
             property_type=ptype,
@@ -99,7 +121,7 @@ def _sync_save_error_html_by_url(
             raw_html=html_bytes
         )
     except Exception as fe:  # noqa: BLE001
-        logging.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
+        logger.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
 
 
 TCP_CONNECTOR_LIMIT = 100
@@ -920,12 +942,12 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
         except Exception as e:
-            logging.error(f"Failed to parse middle page: {self.url}")
+            logger.error("Failed to parse middle page: %s", self.url)
             raw_html_content = str(response) if response is not None else None
             await self._save_error_html_by_url(
                 self.url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {str(e)}",
+                f"Middle Page Parse Failure: {e!s}",
                 raw_html=raw_html_content
             )
             raise e

@@ -16,10 +16,13 @@ run_pre_pr_check() {
     common_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "$toplevel/.git")
     main_root=$(cd "$common_dir/.." && pwd -P 2>/dev/null || echo "$toplevel")
     
+    # Only remap docker workdir for worktrees under main_root/.worktrees/
+    # (external worktrees outside the compose mount must run from /app)
     rel_path=""
+    wt_prefix="$main_root/.worktrees/"
     case "$toplevel" in
-        *"/.worktrees/"*)
-            rel_path=".worktrees/${toplevel##*/.worktrees/}"
+        "$wt_prefix"*)
+            rel_path=".worktrees/${toplevel#"$wt_prefix"}"
             ;;
     esac
 
@@ -27,7 +30,7 @@ run_pre_pr_check() {
         if [ -n "$rel_path" ]; then
             docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
-            docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"

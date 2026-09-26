@@ -21,12 +21,15 @@ def test_object_storage_manager_gcs_backend():
         # Test upload_bytes
         path = mgr.upload_bytes(b"hello world", "test/key.json", "application/json")
         assert path == "gs://test-gcs-bucket/test/key.json"
+        mock_bucket.blob.assert_called_with("test/key.json")
         mock_blob.upload_from_string.assert_called_once_with(b"hello world", content_type="application/json")
 
         # Test upload_image_bytes
         mock_blob.upload_from_string.reset_mock()
+        mock_bucket.blob.reset_mock()
         url = mgr.upload_image_bytes(b"image_bytes", "images/pic.jpg", "image/jpeg")
         assert url == "https://storage.googleapis.com/test-gcs-bucket/images/pic.jpg"
+        mock_bucket.blob.assert_called_with("images/pic.jpg")
         mock_blob.upload_from_string.assert_called_once_with(b"image_bytes", content_type="image/jpeg")
 
         # Test list_files
@@ -40,10 +43,51 @@ def test_object_storage_manager_gcs_backend():
         mock_client.list_blobs.assert_called_once_with(mock_bucket, prefix="test/")
 
         # Test read_text
+        mock_bucket.blob.reset_mock()
         mock_blob.download_as_text.return_value = '{"status": "ok"}'
         text = mgr.read_text("test/key.json")
         assert text == '{"status": "ok"}'
+        mock_bucket.blob.assert_called_with("test/key.json")
         mock_blob.download_as_text.assert_called_once()
+
+
+def test_object_storage_manager_gcs_via_is_cloud():
+    env = {
+        "IS_CLOUD": "true",
+        "STORAGE_BUCKET": "cloud-bucket",
+    }
+    # Ensure STORAGE_BACKEND / STORAGE_ENDPOINT do not force MinIO
+    clear_keys = ["STORAGE_BACKEND", "STORAGE_ENDPOINT"]
+    with patch.dict(os.environ, env, clear=False), \
+         patch("google.cloud.storage.Client") as mock_gcs_cls:
+        for key in clear_keys:
+            os.environ.pop(key, None)
+        mock_client = MagicMock()
+        mock_gcs_cls.return_value = mock_client
+        mock_client.bucket.return_value = MagicMock()
+
+        mgr = ObjectStorageManager()
+        assert mgr.is_gcs is True
+        assert mgr.bucket_name == "cloud-bucket"
+
+
+def test_object_storage_manager_s3_when_cloud_has_endpoint():
+    with patch.dict(
+        os.environ,
+        {
+            "IS_CLOUD": "true",
+            "STORAGE_ENDPOINT": "http://minio:9000",
+            "STORAGE_BACKEND": "minio",
+            "STORAGE_BUCKET": "test-s3-bucket",
+        },
+        clear=False,
+    ), patch("boto3.client") as mock_boto:
+        mock_s3 = MagicMock()
+        mock_boto.return_value = mock_s3
+
+        mgr = ObjectStorageManager()
+        assert mgr.is_gcs is False
+        assert mgr.bucket_name == "test-s3-bucket"
 
 
 def test_object_storage_manager_s3_fallback():
