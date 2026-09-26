@@ -222,7 +222,7 @@ def main():
     
     global active_processes
 
-    batch_start_dt = datetime.datetime.now()
+    batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
 
     while job_queue or active_processes:
         now = time.time()
@@ -290,7 +290,7 @@ def main():
                         property_type=ptype,
                         count=scraped_cnt,
                         duration_sec=float(elapsed),
-                        zero_count=(scraped_cnt == 0 and status == "success"),
+                        zero_count=(exit_code == 0 and scraped_cnt == 0),
                         status=status,
                         metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
                     )
@@ -401,7 +401,7 @@ def main():
                     )
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
-                except Exception:
+                except Exception as e:
                     logger.exception(f"Failed to start crawl job for {company} - {ptype}")
                     results.append({
                         "index": idx,
