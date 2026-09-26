@@ -157,18 +157,14 @@ class FailureReporter:
         return extra
 
     @classmethod
-    def _scan_log_files(cls, date_str: str) -> list[dict[str, Any]]:
-        """ローカルおよびGCS上のログファイルから ERROR / CRITICAL レベルのログエントリを抽出"""
+    def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
         error_logs: list[dict[str, Any]] = []
         fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
-        
-        # 1. ローカルログファイルの検索
-        log_files: list[Path] = []
-        if fallback_base.exists():
-            log_files.extend(fallback_base.glob(f"*{date_str}*.log"))
-            log_files.extend(fallback_base.glob("*.log"))
-            
-        for lpath in set(log_files):
+        if not fallback_base.exists():
+            return error_logs
+
+        log_files = set(fallback_base.glob(f"*{date_str}*.log")) | set(fallback_base.glob("*.log"))
+        for lpath in log_files:
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
                     for line_num, line in enumerate(f, 1):
@@ -182,8 +178,11 @@ class FailureReporter:
                             })
             except Exception as le:  # noqa: BLE001
                 logger.warning("Failed to read log file %s: %s", lpath, le)
+        return error_logs
 
-        # 2. GCS ログファイルの検索 (runs/{date_str}/logs/ または logs/)
+    @classmethod
+    def _scan_gcs_logs(cls, date_str: str) -> list[dict[str, Any]]:
+        error_logs: list[dict[str, Any]] = []
         try:
             sm = get_storage_manager()
             gcs_log_prefix = f"runs/{date_str}/logs/"
@@ -205,8 +204,12 @@ class FailureReporter:
                     logger.warning("Failed to read GCS log file %s: %s", k, gcle)
         except Exception as se:  # noqa: BLE001
             logger.debug("Storage manager log scan skipped or failed: %s", se)
-
         return error_logs
+
+    @classmethod
+    def _scan_log_files(cls, date_str: str) -> list[dict[str, Any]]:
+        """ローカルおよびGCS上のログファイルから ERROR / CRITICAL レベルのログエントリを抽出"""
+        return cls._scan_local_logs(date_str) + cls._scan_gcs_logs(date_str)
 
     @classmethod
     def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
