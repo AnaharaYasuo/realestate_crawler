@@ -60,12 +60,11 @@ run_pre_pr_check() {
             # Also mount main git repository so worktree .git reference resolves
             main_git_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
             main_git_parent=$(cd "$main_git_dir/.." 2>/dev/null && pwd -P || echo "")
-            mount_git_opt=""
             if [ -n "$main_git_parent" ] && [ -d "$main_git_parent" ]; then
-                mount_git_opt="-v ${main_git_parent}:${main_git_parent}"
+                docker run --rm -v "${toplevel}:/app" -v "${main_git_parent}:${main_git_parent}" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
+            else
+                docker run --rm -v "${toplevel}:/app" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
             fi
-            docker run --rm -v "${toplevel}:/app" $mount_git_opt -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
-
         fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
@@ -200,15 +199,16 @@ do
         echo "⚠️  SKIP_CODERABBIT is enabled. Bypassing CodeRabbit review guardrail."
     elif command -v coderabbit >/dev/null 2>&1; then
         echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
-        CR_OUTPUT=$(coderabbit review --agent 2>&1 || true)
+        CR_OUTPUT=$(coderabbit review --agent 2>&1)
+        CR_EXIT_CODE=$?
         CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type":"finding"' | wc -l || echo "0")
         CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)":"(high|critical|error|major)"' || true)
 
-        if echo "$CR_OUTPUT" | grep -q '"type":"error"'; then
+        if [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -q '"type":"error"'; then
             CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message":"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
             echo ""
             echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました。"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
             echo "  $CR_ERR_MSG"
             echo "================================================================================"
             echo ""

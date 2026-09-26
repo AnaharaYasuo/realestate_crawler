@@ -426,14 +426,19 @@ class PrePRChecker:
         # Build coderabbit review command
         cmd = ["coderabbit", "review", "--agent"]
         if self.target_sha:
-            _, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha])
-            merge_base = mb_out.strip() or "origin/master"
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha])
+            if mb_rc != 0:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha])
+            merge_base = mb_out.strip()
+            if not merge_base:
+                err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
             cmd.extend(["--base-commit", merge_base, "--committed"])
         else:
-            cmd.extend(["--base", "origin/master"])
+            cmd.extend(["--base", "origin/master", "--include-untracked"])
 
-        # Execute review with finite timeout (180s)
-        rc, stdout, stderr = self._run_cmd(cmd, timeout=180.0)
+        # Execute review with finite timeout (1800s / 30m for AI analysis)
+        rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
         errors = []
         warnings = []
         findings_count = 0
@@ -450,7 +455,7 @@ class PrePRChecker:
                     findings_count += 1
                     sev = data.get("severity", "info").upper()
                     file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
-                    msg = data.get("message", "")
+                    msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
                     issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
                     if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
                         errors.append(issue_text)
@@ -464,8 +469,12 @@ class PrePRChecker:
                         has_completed_event = True
                         findings_count = max(findings_count, data.get("findings", 0))
                     elif status == "review_skipped":
-                        # No changes to review is a clean pass
-                        has_completed_event = True
+                        # Validate that changes are indeed empty
+                        changed = self.get_changed_files()
+                        if changed:
+                            errors.append(f"変更ファイルが存在するにもかかわらず CodeRabbit レビューがスキップされました: {len(changed)} files")
+                        else:
+                            has_completed_event = True
                     else:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
             except Exception:

@@ -184,6 +184,7 @@ def test_stage_coderabbit_success_clean(monkeypatch):
         return 0, agent_output, ""
 
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
+    monkeypatch.setattr(checker, "get_changed_files", lambda: [])
 
     res = checker.stage_coderabbit()
     assert res.passed is True
