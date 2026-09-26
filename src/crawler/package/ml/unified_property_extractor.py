@@ -245,38 +245,39 @@ class SingleUnifiedPropertyExtractor:
             # APIキー未設定時はルールベースで返す
             return fallback_res
 
-        # 1物件1リクエスト用プロンプトの構築
-        prompt = PROMPT_TEMPLATE.format(
-            title=prop_data.get("title", ""),
-            site=prop_data.get("site", ""),
-            property_type=prop_data.get("property_type", "mansion"),
-            price_str=prop_data.get("price_str", ""),
-            specs_json=json.dumps(prop_data.get("specs", {}), ensure_ascii=False),
-            features_json=json.dumps(prop_data.get("features", []), ensure_ascii=False),
-            appeals_json=json.dumps(prop_data.get("appeals", []), ensure_ascii=False),
-            snippets_json=json.dumps(prop_data.get("snippets", []), ensure_ascii=False),
-        )
-
         try:
-            # 【厳格遵守】画像がある場合も一括同梱し、1物件につき厳格に1回のみ呼出
-            images = prop_data.get("images") or []
-            if images:
-                content_payload = list(images) + [prompt]
-            else:
-                content_payload = prompt
+            with client:
+                # 1物件1リクエスト用プロンプトの構築
+                prompt = PROMPT_TEMPLATE.format(
+                    title=prop_data.get("title", ""),
+                    site=prop_data.get("site", ""),
+                    property_type=prop_data.get("property_type", "mansion"),
+                    price_str=prop_data.get("price_str", ""),
+                    specs_json=json.dumps(prop_data.get("specs", {}), ensure_ascii=False),
+                    features_json=json.dumps(prop_data.get("features", []), ensure_ascii=False),
+                    appeals_json=json.dumps(prop_data.get("appeals", []), ensure_ascii=False),
+                    snippets_json=json.dumps(prop_data.get("snippets", []), ensure_ascii=False),
+                )
 
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=content_payload
-            )
-            raw_text = response.text.strip() if hasattr(response, "text") else ""
-            
-            # Markdown コードブロックの除去
-            cleaned_json = re.sub(r"^```json\s*", "", raw_text)
-            cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
+                # 【厳格遵守】画像がある場合も一括同梱し、1物件につき厳格に1回のみ呼出
+                images = prop_data.get("images") or []
+                if images:
+                    content_payload = list(images) + [prompt]
+                else:
+                    content_payload = prompt
 
-            data = json.loads(cleaned_json)
-            return self._dict_to_attributes(data, fallback_res)
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=content_payload
+                )
+                raw_text = response.text.strip() if hasattr(response, "text") else ""
+                
+                # Markdown コードブロックの除去
+                cleaned_json = re.sub(r"^```json\s*", "", raw_text)
+                cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
+
+                data = json.loads(cleaned_json)
+                return self._dict_to_attributes(data, fallback_res)
         except Exception as e:
             logging.warning(f"SingleUnifiedPropertyExtractor: LLM call or parse failed: {e}. Using fallback.")
             return fallback_res

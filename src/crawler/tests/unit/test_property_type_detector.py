@@ -231,6 +231,12 @@ def test_detect_with_ai_fallback_and_sanitizer(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.models = self
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
         def generate_content(self, model, contents):
             # プロンプト内のテキストに応じて応答をシミュレート
             if "山林" in contents:
@@ -273,6 +279,12 @@ def test_ai_called_once_per_property(monkeypatch):
     class CountingMockClient:
         def __init__(self, *args, **kwargs):
             self.models = self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
 
         def generate_content(self, model, contents):
             call_counts["count"] += 1

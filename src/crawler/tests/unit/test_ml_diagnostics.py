@@ -156,6 +156,12 @@ class TestAIDiagnostics:
             def __init__(self, *args, **kwargs):
                 self.models = self
 
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return False
+
             def generate_content(self, model, contents):
                 return MockResponse()
 

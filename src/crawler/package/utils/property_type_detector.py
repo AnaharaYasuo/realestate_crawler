@@ -342,26 +342,26 @@ class PropertyTypeDetector:
             return default
 
         try:
-            client = genai.Client(api_key=api_key)
-            prompt = (
-                "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
-                "- mansion: 区分マンション、集合住宅の一室\n"
-                "- kodate: 一戸建て、テラスハウス\n"
-                "- tochi: 売地、更地、土地\n"
-                "- apartment: 一棟アパート、一棟マンション、一棟ビル、収益物件、投資用物件\n\n"
-                f"物件情報:\n{prompt_text}\n\n"
-                "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
-            )
-            resp = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-            )
-            raw_ans = (getattr(resp, "text", "") or "").strip().lower()
+            with genai.Client(api_key=api_key) as client:
+                prompt = (
+                    "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
+                    "- mansion: 区分マンション、集合住宅の一室\n"
+                    "- kodate: 一戸建て、テラスハウス\n"
+                    "- tochi: 売地、更地、土地\n"
+                    "- apartment: 一棟アパート、一棟マンション、一棟ビル、収益物件、投資用物件\n\n"
+                    f"物件情報:\n{prompt_text}\n\n"
+                    "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
+                )
+                resp = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                )
+                raw_ans = (getattr(resp, "text", "") or "").strip().lower()
 
-            for candidate in ("apartment", "kodate", "tochi", "mansion"):
-                if candidate in raw_ans:
-                    return candidate
-            return default
+                for candidate in ("apartment", "kodate", "tochi", "mansion"):
+                    if candidate in raw_ans:
+                        return candidate
+                return default
         except Exception as e:
             logging.warning(f"PropertyTypeDetector: Gemini classification failed, fallback to '{default}': {e}")
             return default

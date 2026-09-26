@@ -15,6 +15,12 @@ class MockGeminiClient:
         self.call_count = 0
         self.models = self
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
     def generate_content(self, model, contents):
         self.call_count += 1
         mock_resp = MagicMock()

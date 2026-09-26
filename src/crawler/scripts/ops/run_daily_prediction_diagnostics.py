@@ -161,32 +161,31 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
         return None
     try:
         http_options = types.HttpOptions(timeout=10000) if types else None
-        client = genai.Client(api_key=api_key, http_options=http_options)
+        with genai.Client(api_key=api_key, http_options=http_options) as client:
+            sample_texts = []
+            for i, item in enumerate(worst_items[:6], 1):
+                direction = "過大評価 (推論 > 実売出)" if item.get("type") == "over_prediction" else "過小評価 (推論 < 実売出)"
+                sample_texts.append(
+                    f"【物件{i}】種別: {item.get('property_type')}, 方向: {direction}, "
+                    f"実売出: {item.get('actual_price_man')}万円, 推論: {item.get('predicted_price_man')}万円, "
+                    f"乖離率: {item.get('error_percent')}, 自動判定タグ: {', '.join(item.get('causes', []))}\n"
+                    f"物件概要・テキスト: {item.get('text', '')[:200]}"
+                )
 
-        sample_texts = []
-        for i, item in enumerate(worst_items[:6], 1):
-            direction = "過大評価 (推論 > 実売出)" if item.get("type") == "over_prediction" else "過小評価 (推論 < 実売出)"
-            sample_texts.append(
-                f"【物件{i}】種別: {item.get('property_type')}, 方向: {direction}, "
-                f"実売出: {item.get('actual_price_man')}万円, 推論: {item.get('predicted_price_man')}万円, "
-                f"乖離率: {item.get('error_percent')}, 自動判定タグ: {', '.join(item.get('causes', []))}\n"
-                f"物件概要・テキスト: {item.get('text', '')[:200]}"
+            prompt = (
+                "あなたは不動産鑑定士および機械学習データエンジニアです。以下の価格推定乖離ワースト物件を分析し、\n"
+                "1. 乖離の主因（なぜモデルがこの価格を推論したか、何を見落としているか）\n"
+                "2. パーサーまたは特徴量への即日改修アクション（具体的にどのフィールドや正規表現を追加すべきか）\n"
+                "を簡潔な日本語箇条書き（合計4〜6行程度）で出力してください。\n\n"
+                + "\n\n".join(sample_texts)
             )
 
-        prompt = (
-            "あなたは不動産鑑定士および機械学習データエンジニアです。以下の価格推定乖離ワースト物件を分析し、\n"
-            "1. 乖離の主因（なぜモデルがこの価格を推論したか、何を見落としているか）\n"
-            "2. パーサーまたは特徴量への即日改修アクション（具体的にどのフィールドや正規表現を追加すべきか）\n"
-            "を簡潔な日本語箇条書き（合計4〜6行程度）で出力してください。\n\n"
-            + "\n\n".join(sample_texts)
-        )
-
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
-        if response and hasattr(response, "text") and response.text:
-            return response.text.strip()
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            if response and hasattr(response, "text") and response.text:
+                return response.text.strip()
     except Exception as e:
         logger.warning(f"AI diagnostics analysis failed, fallback to rule-based: {e}")
     return None
