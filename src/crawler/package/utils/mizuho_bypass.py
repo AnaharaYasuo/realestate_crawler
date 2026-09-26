@@ -180,13 +180,13 @@ async def get_mizuho_links(url: str, limit: Optional[int] = None) -> list:
         "MizuhoBypass: sitemap empty for kind=%s; falling back to Playwright list",
         kind,
     )
-    links = await _get_mizuho_links_once(url)
+    links = await _get_mizuho_links_once(url, limit=sitemap_limit)
     if limit is not None:
         return links[: max(1, int(limit))]
     return links
 
 
-async def _get_mizuho_links_once(url: str) -> list:
+async def _get_mizuho_links_once(url: str, limit: int | None = None) -> list:
     links = []
     browser = None
     context = None
@@ -315,6 +315,13 @@ async def _get_mizuho_links_once(url: str) -> list:
                         )
     except Exception as e:  # noqa: BLE001
         logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
+    if not links:
+        try:
+            logger.info("MizuhoBypass: 0 links from Playwright. Falling back to official detail sitemaps...")
+            fallback_limit = max(1, int(limit)) if limit is not None else 500
+            links = await get_mizuho_links_from_sitemap(url, limit=fallback_limit)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("MizuhoBypass: Sitemap fallback failed: %s", exc)
 
     return links
 
