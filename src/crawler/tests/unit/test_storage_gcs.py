@@ -4,16 +4,22 @@ from unittest.mock import MagicMock, patch
 from package.utils.storage import ObjectStorageManager
 
 
-def test_object_storage_manager_gcs_backend():
-    with patch.dict(os.environ, {"STORAGE_BACKEND": "gcs", "STORAGE_BUCKET": "test-gcs-bucket"}, clear=False), \
-         patch("google.cloud.storage.Client") as mock_gcs_cls:
-        mock_client = MagicMock()
-        mock_bucket = MagicMock()
-        mock_blob = MagicMock()
-        mock_gcs_cls.return_value = mock_client
-        mock_client.bucket.return_value = mock_bucket
-        mock_bucket.blob.return_value = mock_blob
+def _patch_gcs_client(mock_client: MagicMock):
+    """Patch lazy GCS loader so tests run without google-cloud-storage installed."""
+    mock_mod = MagicMock()
+    mock_mod.Client.return_value = mock_client
+    return patch("package.utils.storage._load_gcs_storage", return_value=mock_mod)
 
+
+def test_object_storage_manager_gcs_backend():
+    mock_client = MagicMock()
+    mock_bucket = MagicMock()
+    mock_blob = MagicMock()
+    mock_client.bucket.return_value = mock_bucket
+    mock_bucket.blob.return_value = mock_blob
+
+    with patch.dict(os.environ, {"STORAGE_BACKEND": "gcs", "STORAGE_BUCKET": "test-gcs-bucket"}, clear=False), \
+         _patch_gcs_client(mock_client):
         mgr = ObjectStorageManager()
         assert mgr.is_gcs is True
         assert mgr.bucket_name == "test-gcs-bucket"
@@ -58,13 +64,11 @@ def test_object_storage_manager_gcs_via_is_cloud():
     }
     # Ensure STORAGE_BACKEND / STORAGE_ENDPOINT do not force MinIO
     clear_keys = ["STORAGE_BACKEND", "STORAGE_ENDPOINT"]
-    with patch.dict(os.environ, env, clear=False), \
-         patch("google.cloud.storage.Client") as mock_gcs_cls:
+    mock_client = MagicMock()
+    mock_client.bucket.return_value = MagicMock()
+    with patch.dict(os.environ, env, clear=False), _patch_gcs_client(mock_client):
         for key in clear_keys:
             os.environ.pop(key, None)
-        mock_client = MagicMock()
-        mock_gcs_cls.return_value = mock_client
-        mock_client.bucket.return_value = MagicMock()
 
         mgr = ObjectStorageManager()
         assert mgr.is_gcs is True
