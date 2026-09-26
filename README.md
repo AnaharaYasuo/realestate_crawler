@@ -436,6 +436,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[security_scan_workflow.md](docs/requirements/security_scan_workflow.md)**: セキュリティ自動スキャンワークフロー要件定義書 (Trivy, Semgrep, Checkov, Prowler)
     *   **[sonar_zero_issues_requirements.md](docs/requirements/sonar_zero_issues_requirements.md)**: SonarCloudオープン課題全件解消 ＆ Strict Quality Gate・多層防御要件定義書
     *   **[proxysql_mig_client_param_requirements.md](docs/requirements/proxysql_mig_client_param_requirements.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック強化要件定義書
+    *   **[gcs_failure_telemetry_requirements.md](docs/requirements/gcs_failure_telemetry_requirements.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466)
 
 
 
@@ -448,6 +449,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[security_scan_workflow.md](docs/basic_design/security_scan_workflow.md)**: セキュリティ自動スキャン基本設計書 (多層防御アーキテクチャ・並列ジョブ構成)
 *   **[sonar_zero_issues_basic_design.md](docs/basic_design/sonar_zero_issues_basic_design.md)**: SonarCloudオープン課題全件解消 ＆ Strict Quality Gateアーキテクチャ基本設計書
 *   **[proxysql_mig_client_param_basic_design.md](docs/basic_design/proxysql_mig_client_param_basic_design.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック設計書
+*   **[gcs_failure_telemetry_basic_design.md](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール基本設計書 (Issue #466)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -469,6 +471,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - [CodeRabbitレビュー＆マージゲート内部設計書](docs/internal_design/coderabbit_gate_internal_design.md) - CodeRabbit自動コードレビュー設定、未解決レビューコメント解決必須化、CIマージブロックゲート仕様
 - [セキュリティ自動スキャン内部設計書](docs/internal_design/security_scan_workflow.md) - Trivy, Semgrep, Checkov 並列スキャン、SARIFアップロード、Prowler GCPライブ監査仕様
 - **[ProxySQL MIG クライアント引数整合性修復およびフォールバック内部設計書](docs/internal_design/proxysql_mig_client_param_internal_design.md)** - RegionInstanceGroupManagersClient 引数不整合修復および多重防御フォールバック内部設計
+- **[GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)** - リアルタイム障害JSON/生HTML GCS出力・分散タスク集約・Slack DevAgentゼロタッチ連携内部設計書 (Issue #466)
 
 
 

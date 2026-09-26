@@ -1,0 +1,112 @@
+# GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書 (Issue #466)
+
+## 1. データ構造仕様
+
+### 1.1 障害メタデータ JSON (`FailureRecord`)
+各ジョブが異常検知時に GCS へ出力する構造体スキーマ:
+
+```json
+{
+  "run_id": "20260926-002926",
+  "task_index": 1,
+  "task_count": 8,
+  "company": "nomura",
+  "property_type": "mansion",
+  "status": "failed",
+  "exit_code": 1,
+  "error_type": "SelectorMismatch",
+  "error_message": "StrictExtractionFailed: address is empty for URL: https://www.nomu.com/mansion/...",
+  "target_url": "https://www.nomu.com/mansion/ensen_tokyo/2172/2172110/",
+  "gcs_html_path": "gs://realestate-images-prod/runs/20260926/error_pages/nomura_mansion/d41d8cd98f00b204e9800998ecf8427e.html",
+  "parser_file": "src/crawler/package/parser/nomuraParser.py",
+  "traceback": "Traceback (most recent call last):\n  File ...",
+  "timestamp": "2026-09-26T00:29:46.123456+09:00",
+  "duration_seconds": 16
+}
+```
+
+### 1.2 集約マニフェスト (`DailyFailureManifest`)
+`fetch_run_failures.py` が GCS の個別 JSON をワイルドカード取得し、Antigravity へ提供する集約データ:
+
+```json
+{
+  "date": "2026-09-26",
+  "total_failures": 4,
+  "failures": [
+    { /* FailureRecord 1 (nomura-mansion) */ },
+    { /* FailureRecord 2 (mitsui-kodate) */ },
+    { /* FailureRecord 3 (sekisui-kodate) */ },
+    { /* FailureRecord 4 (mitsui-invest_apartment) */ }
+  ]
+}
+```
+
+---
+
+## 2. モジュール詳細設計
+
+### 2.1 `FailureReporter` (`package.utils.failure_reporter`)
+```python
+class FailureReporter:
+    @classmethod
+    def record_job_failure(
+        cls,
+        company: str,
+        property_type: str,
+        error_type: str,
+        error_message: str,
+        target_url: str = "",
+        exit_code: int = 1,
+        traceback_str: str = "",
+        raw_html: Optional[bytes] = None,
+        duration_seconds: int = 0,
+        task_index: Optional[int] = None,
+        task_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """障害メタデータおよび生HTMLをGCSへ即時非同期/同期アップロード"""
+
+    @classmethod
+    def fetch_daily_failures(cls, date_str: Optional[str] = None) -> Dict[str, Any]:
+        """GCSから対象日付の全タスク障害JSONを取得・集約"""
+```
+
+- **GCS クライアント初期化**:
+  - `IS_CLOUD=true` の場合は `google.cloud.storage.Client()` を使用。
+  - ローカル開発・テスト時は既存の `STORAGE_ENDPOINT`（MinIO / S3互換）またはローカルモックへ自動フォールバック。
+
+### 2.2 `main.py` CLI 例外処理改修
+```python
+# Before
+except Exception as e:
+    logging.exception(f"Error during crawl execution: {e}")
+sys.exit(0)
+
+# After
+except Exception as e:
+    tb = traceback.format_exc()
+    logging.exception(f"Error during crawl execution: {e}")
+    # 障害レポーターへ記録
+    FailureReporter.record_job_failure(
+        company=company,
+        property_type=prop_type,
+        error_type=type(e).__name__,
+        error_message=str(e),
+        exit_code=1,
+        traceback_str=tb
+    )
+    sys.exit(1)
+```
+
+### 2.3 `run_all_crawlers.py` でのリアルタイム監視 & Slack `#dev-agent` トリガー
+- `active_processes` のループ内で、`exit_code != 0` または `0 items scraped (Zero count failure)` 検知時に直ちに `FailureReporter.record_job_failure` を呼び出し。
+- 全ジョブ終了後、失敗件数が 1 件以上ある場合:
+  ```python
+  if failed_list:
+      trigger_msg = (
+          f"[AGY-REQ:AUTO-HEAL] @DevAgent 【クローリング障害自動検知】\n"
+          f"本日 ({today_str}) のクローリングで {len(failed_list)} 件の異常を検知しました。\n"
+          f"GCSから障害情報を一括取得して自動修復してください。\n"
+          f"コマンド: python src/crawler/scripts/debug_tools/fetch_run_failures.py --date {today_str}"
+      )
+      send_slack_message(channel="#dev-agent", message=trigger_msg)
+  ```

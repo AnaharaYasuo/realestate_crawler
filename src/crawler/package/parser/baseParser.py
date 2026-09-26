@@ -11,10 +11,14 @@ from typing import Any, Optional
 from builtins import Exception
 
 import asyncio
+import datetime
+import hashlib
+from pathlib import Path
 from django.db import models
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
+from package.utils.failure_reporter import FailureReporter
 
 HTML_PARSER = "html.parser"
 TOKEN_INQUIRY = "/inquiry"
@@ -915,18 +919,31 @@ class ParserBase(metaclass=ABCMeta):
             raise LoadPropertyPageException(err_msg)
 
     def save_error_html(self, url: str, content: bytes, reason: str = "Parsing failed"):
-        """エラー発生時の生HTMLおよびメタデータをdocs/error_pages/配下に自動保存"""
-        import hashlib
-        from pathlib import Path
-        import datetime
+        """エラー発生時の生HTMLおよびメタデータをdocs/error_pages/およびGCSへ保存"""
         try:
-            error_dir = Path("docs/error_pages")
+            model_name = self.createEntity().__class__.__name__
+            company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
+            parts = company_type.split("_", 1)
+            comp = parts[0] if parts else "unknown"
+            ptype = parts[1] if len(parts) > 1 else "unknown"
+
+            # 1. GCS障害テレメトリへ即時保存
             try:
-                model_name = self.createEntity().__class__.__name__
-                company_type = re.sub(r'(?<!^)(?=[A-Z])', '_', model_name).lower()
-                company_dir = error_dir / company_type
-            except Exception:
-                company_dir = error_dir / "unknown"
+                FailureReporter.record_job_failure(
+                    company=comp,
+                    property_type=ptype,
+                    error_type="ParseHtmlError",
+                    error_message=reason,
+                    target_url=url,
+                    exit_code=1,
+                    raw_html=content
+                )
+            except Exception as fe:
+                logging.warning(f"FailureReporter failed in save_error_html: {fe}")
+
+            # 2. ローカル docs/error_pages/ 保存
+            error_dir = Path("docs/error_pages")
+            company_dir = error_dir / company_type
             company_dir.mkdir(parents=True, exist_ok=True)
             base_filename = hashlib.sha256(url.encode('utf-8')).hexdigest()
             html_filepath = company_dir / (base_filename + ".html")
@@ -934,7 +951,7 @@ class ParserBase(metaclass=ABCMeta):
             with open(html_filepath, "wb") as f:
                 f.write(content)
             with open(meta_filepath, "w", encoding="utf-8") as f:
-                f.write(f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
             logging.info(f"Saved error HTML to {company_dir}/{base_filename}")
         except Exception:
             logging.exception("Failed to save error HTML")
