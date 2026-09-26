@@ -366,7 +366,13 @@ def _run_crawler_step(
     if skip_portals:
         crawl_cmd.append("--skip-portals")
     step1_title = f"Step 1/6: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if skip_portals else ''}"
-    run_command(crawl_cmd, step1_title)
+    try:
+        run_command(crawl_cmd, step1_title)
+    except Exception as crawl_err:
+        logger.error(
+            f"❌ [Step 1/6 Failure] Parallel Crawling encountered an error: {crawl_err}. "
+            "Proceeding with post-crawl pipeline (validation, evaluation, and recommendation)..."
+        )
 
     if is_task_array and not is_coordinator:
         logger.info(
@@ -435,59 +441,80 @@ def _run_post_crawl_pipeline(
     skip_portals: bool,
 ) -> None:
     # Step 1.5 (2/6): 不正データ自動検証 & クレンジング & HTMLエラー監視
-    run_command(
-        [
-            sys.executable,
-            os.path.join(maintenance_dir, "validate_data.py"),
-        ],
-        "Step 2/6: Scraping Data Validation & Automated Cleansing",
-    )
+    try:
+        run_command(
+            [
+                sys.executable,
+                os.path.join(maintenance_dir, "validate_data.py"),
+            ],
+            "Step 2/6: Scraping Data Validation & Automated Cleansing",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 2/6 Error] Data validation step failed: {e}")
 
     # AI自己修復用のバグ指示書生成
-    run_command(
-        [
-            sys.executable,
-            os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
-        ],
-        "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent",
-    )
+    try:
+        run_command(
+            [
+                sys.executable,
+                os.path.join(debug_tools_dir, "auto_heal_parsers.py"),
+            ],
+            "Step 2.5/6: Auto-Heal Instruction Generation for AI Agent",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 2.5/6 Error] Auto-heal instruction generation failed: {e}")
 
-    # Step 2 (3/6): 最新データによるMLモデル再学習
-    run_command(
-        [
-            sys.executable,
-            os.path.join(crawler_dir, "package", "ml", "train.py"),
-        ],
-        "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)",
-    )
+    # Step 2 (3/6): 最新データによるMLモデル再学習 (失敗時も価格推定を継続)
+    try:
+        run_command(
+            [
+                sys.executable,
+                os.path.join(crawler_dir, "package", "ml", "train.py"),
+            ],
+            "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)",
+        )
+    except Exception as e:
+        logger.error(
+            f"❌ [Step 3/6 Error] ML Re-training failed: {e}. "
+            "Continuing with existing models for evaluation and recommendations."
+        )
 
     # Step 3 (4/6): 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
-    eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
-    if skip_portals:
-        eval_cmd.append("--skip-portals")
-    run_command(
-        eval_cmd,
-        f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}",
-    )
+    try:
+        eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
+        if skip_portals:
+            eval_cmd.append("--skip-portals")
+        run_command(
+            eval_cmd,
+            f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 4/6 Error] Batch Estimation & Investment Evaluation failed: {e}")
 
     # Step 4 (5/6): お宝物件のスクリーニング & Slack通知
-    run_command(
-        [
-            sys.executable,
-            os.path.join(ops_dir, "send_recommendations.py"),
-        ],
-        "Step 5/6: Slack Notification (Hot Property Recommendation)",
-    )
+    try:
+        run_command(
+            [
+                sys.executable,
+                os.path.join(ops_dir, "send_recommendations.py"),
+            ],
+            "Step 5/6: Slack Notification (Hot Property Recommendation)",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 5/6 Error] Slack recommendation sending failed: {e}")
 
     # Step 5 (6/6): 日次予測精度診断 & AIインサイト分析
-    run_command(
-        [
-            sys.executable,
-            os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
-            "--notify",
-        ],
-        "Step 6/6: Daily ML Prediction Diagnostics & AI Insights",
-    )
+    try:
+        run_command(
+            [
+                sys.executable,
+                os.path.join(ops_dir, "run_daily_prediction_diagnostics.py"),
+                "--notify",
+            ],
+            "Step 6/6: Daily ML Prediction Diagnostics & AI Insights",
+        )
+    except Exception as e:
+        logger.error(f"❌ [Step 6/6 Error] Daily ML Prediction Diagnostics failed: {e}")
 
 
 def main():
