@@ -54,33 +54,42 @@
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
 - **リソースオンデマンド・ライフサイクル制御**:
-  - 常時課金が発生する ProxySQL MIG（`min_replicas = 0`）および Cloud NAT は、クローリングバッチ稼働時間帯（01:00 JST等）のみオンデマンドで起動・有効化し、処理完了と同時に自動停止（スケールイン `size = 0`）すること。
-  - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL MIG をオンデマンド起動（`0 -> 1`）し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。
+  - ProxySQL は単一 Compute Engine インスタンス（`proxysql-instance-${var.environment}`）および Direct VPC Egress 構成を採用する。
+  - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL インスタンス（または設定に応じた MIG）の起動・稼働状態を検証し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。単一インスタンス構成時は存在しない MIG Autoscaler の操作をスキップし、HTTP 404 エラーによるクラッシュを防止すること。
+  - セーフティネット（`ensure_resources_stopped.py`）は、単一インスタンス名（`PROXYSQL_INSTANCE_NAME`）を優先検証し、MIG が存在しない場合でも 404 エラーで誤アラートを発報せず、単一インスタンスを安全に検査・停止すること。
   - DB疎通確認（`wait_for_db.py`）は、短時間のソケット疎通事前チェック（最大3〜5秒）を実施し、未起動・不通時に OS の TCP SYN タイムアウト（130秒×リトライ回数＝1時間）でハングせず迅速に Fail-Fast すること。
-  - Terraform デプロイ時の Autoscaler `min_replicas`/`max_replicas` 上書きによる意図しない日中自動スケールアップを防止するため、Autoscaler リソースのポリシー変更を無視（`ignore_changes`）可能とすること。
   - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
   - オートスケーラー管理下 MIG に対する直接 resize 禁止（GCP API 制約）を回避するため、スケールイン/アウトはオートスケーラー設定（`min_replicas`/`max_replicas`）を介して安全に行うこと。
   - ProxySQL VM の初期化・パッケージ導入・ヘルスチェック通過までの所要時間を考慮し、ヘルスチェック待機時間は最低 240 秒のタイムアウトを確保すること。
   - バックエンド Cloud SQL インスタンスの稼働状態（`RUNNABLE`）を事前に確認し、未起動時の原因究明を迅速化すること。
-- **Direct VPC Egress への統合**:
-  - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台）を廃止し、Cloud Run の Direct VPC Egress 機能を用いて VPC サブネットへ直接接続し、常時固定費を削減すること。
+- **Direct VPC Egress への統合 & Connector 廃止**:
+  - Serverless VPC Access Connector の常時稼働インスタンス（e2-micro 2台、月額約2,110円）を完全廃止し、Cloud Run の Direct VPC Egress 機能 (`network_interfaces`) を用いて VPC サブネットへ直接接続し、常時固定費を $0 化すること。
+- **ILB 撤廃 & ProxySQL 単一インスタンス・スケールアップ対応**:
+  - 常時課金が発生する内部ロードバランサー (ILB) 転送ルール（月額約4,360円）を完全撤廃すること。
+  - ProxySQL は固定内部 IP を持つ単一 Compute Engine インスタンス（初期値 `e2-micro`）として構成し、接続リクエストがインスタンスサイズに見合わなくなった場合はインスタンスタイプ変更（垂直スケールアップ: `e2-small` / `e2-medium`）により対処すること。
 - **Artifact Registry ストレージ最適化 & ライフサイクル制御**:
   - CI/CD パイプラインによる継続的なコンテナビルドに伴うイメージ蓄積を防止するため、Terraform により最新 3 世代のみを保持（`keep_count = 3`）し、タグなし（UNTAGGED）イメージを自動パージするクリーンアップポリシーを定義すること。
   - 本番デプロイ時（GitHub Actions `deploy-production.yml`）に、新イメージ push 直後に最新 3 世代を超過した古いイメージを即座に削除（プルーニング）し、ストレージ容量肥大化と保管コストを即時抑止すること。
 - **月額費用目安**:
-  - Cloud SQL 最小インスタンス（db-f1-micro / db-g1-small）および GCS、Cloud Run Jobs 稼働時間課金を含め、月額数千円〜1万円以内の範囲で運用可能であること。
+  - Cloud SQL 最小インスタンス（db-f1-micro / db-g1-small）および GCS、Cloud Run Jobs 稼働時間課金を含め、月額予算（2,000円〜数千円）の範囲内で運用可能であること。
 
 ### 3.4 予算管理 & 予期せぬ過大請求防止要件 (Budget Alerts & Safety Net)
 - **多段階アラート通知**:
-  - 月額予算額（初期値: 10,000円）に対し、実費用の 50%, 80%, 100% 到達時、および「月末予測値が120%に達する見込み」の時点で即座にメールおよびPub/Subへアラートを発報すること。
+  - 月額予算額（初期値: 2,000円）に対し、実費用の 50%, 80%, 100% 到達時、および「月末予測値が120%に達する見込み」の時点で即座にメールおよびPub/Subへアラートを発報すること。
 - **早期警戒 (Forecasted Alert)**:
   - クローラー暴走や不慮のリソース増大が発生した際、月末を待たずに早期検知できること。
-- **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails)**:
-  - バッチ異常終了やクラッシュによって ProxySQL MIG や Cloud NAT が停止しなかった場合に備え、夜間バッチ稼働時間帯（JST 02:00〜06:00 の毎時）にリソース停止状態を自動点検し、稼働中の場合は強制停止 (`size = 0`) して Slack へ警告を発報するデッドマンズスイッチを備えること。
-  - 日中帯（06:00〜24:00 JST）に ProxySQL インスタンスが稼働している場合は、Cloud Monitoring から重大度 ERROR で即時アラートを発報すること。
+- **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails / Execution-Aware Safety Net)**:
+  - 時刻ベースの単純強制停止ではなく、**Cloud Run Job Execution の稼働状態と因果関係に基づく動的停止判定**を行うこと。
+  - **稼働状態判定 & 執行猶予 (Grace Period)**:
+    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
+    - ProxySQL 起動から 10分間（600秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）を完全に遮断すること。
+  - **完全停止戦略 (Dual Hard-Kill on Hang)**:
+    - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + 猶予）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
+  - **親不在時の即時停止**:
+    - 関連する Cloud Run Job Execution が存在しない（親不在）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して Slack へ通知すること。
 - **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
-  - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL MIG を 0 台へ縮小（teardown）完了して終了すること。
-  - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown（`scale_proxysql_mig(target_size=0)`）を実行して MIG の 0 台縮小を保証すること。
+  - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
+  - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown を実行して ProxySQL 停止を保証すること。
   - 他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に応じて動的にタイムアウト上限を制限し、Cloud Run のタイムアウトによる突然死・teardown スキップを未然に防止すること。
 - **リソースタグ・ラベル統一による費用分析**:
   - すべてのインフラリソースに対し、統一されたラベル（`project`, `environment`, `component`, `managed_by` 等）を付与し、BigQuery Billing Export による詳細なコスト内訳分析を可能とすること。
@@ -89,12 +98,12 @@
 - **多重接続保護 & リソース管理効率化 (Connection Multiplexing & Saturation Prevention)**:
   - クライアント（大量並行クローラー、API等）からの無数の接続リクエストを受け止め、バックエンド Cloud SQL (MySQL 8.0) へはデータベースが安全に耐えられる上限ギリギリのコネクション数（設定値）を安定維持・多重化（Connection Multiplexing）してリソース効率を最大化すること。
   - バックエンド接続が上限に達した場合でも、ProxySQL 側でキューイング・バッファリングを行い、Cloud SQL 側の `Too many connections` や OOM によるクラッシュを完全に遮断すること。
-- **動的オートスケーリング & 高可用性 (Autoscaling: Min 1, Max 2 & Multi-Zone)**:
-  - 通常時は最小構成の 1 台（`min_replicas = 1`）で待機し、クローラー実行時やAPI高負荷時には CPU 利用率（70%等）に応じて最大 2 台（`max_replicas = 2`、2つの異なるゾーン）へ動的オートスケールすること。
-  - スケールイン（2台 ➔ 1台）時のクエリ切断を防止するため、内部ロードバランサー（ILB）側でコネクションドレイン（Connection Draining: 300秒）を適用すること。
-  - バックエンド Cloud SQL への接続数は、各インスタンス上限を 50 に設定し、2台スケール時でも計 100 接続以内に収めて Cloud SQL の耐用上限を安全に保護すること。
-- **負荷分散 & 透過的接続 (Internal Load Balancer)**:
-  - 内部TCPロードバランサー (ILB) を配置し、Cloud Run (VPC Access Connector 経由) からは単一のプライベート IP（ポート 6033）に向けて接続可能であること。
+- **単一インスタンス構成 & 垂直スケールアップ対応 (Single Instance & Scale-Up Strategy)**:
+  - ILB による水平分散オートスケールを廃止し、常時課金のない単一 Compute Engine インスタンスとして運用すること。
+  - 接続リクエストやトラフィックが現在のインスタンスサイズで見合わなくなった場合は、インスタンスタイプ変更（`e2-micro` ➔ `e2-small` ➔ `e2-medium`）による垂直スケールアップで対処すること。
+  - バックエンド Cloud SQL への接続数は、上限（50等）に設定し、Cloud SQL の耐用上限を安全に保護すること。
+- **固定内部 IP による直接ルーティング (Direct Routing with Static Private IP)**:
+  - サブネット内に固定内部 IP を割り当て、Cloud Run (Direct VPC Egress 経由) からは ILB を介さず単一のプライベート IP（ポート 6033）に向けて直接接続すること。
 - **Cloud Run / Service からの接続統一 (ProxySQL Direct Routing)**:
   - アプリ（Django）側でのコネクションプーリング（`dj_db_conn_pool` 等）を完全禁止し、`django.db.backends.mysql` かつ `CONN_MAX_AGE = 0` によりクエリ終了時に即時ソケットを切断すること。接続プーリング・多重化は ProxySQL 層に一元集約し、ワーカー急増時の不要なコネクション滞留を排除すること。
   - DBスキーママイグレーション（DDL）を実行する Migrate Job のみ、直接 Cloud SQL（ポート 3306）への接続を維持すること。

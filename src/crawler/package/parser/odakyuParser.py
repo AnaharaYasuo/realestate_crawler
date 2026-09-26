@@ -130,7 +130,7 @@ class OdakyuParser(ParserBase):
         item.tochikenri = self._parseRights(response, specs)
         item.torihiki = specs.get("取引態様", "")
 
-        return self.clean_parsed_item(item)
+        return item
 
     def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
         title_el = response.find("h1") or response.select_one(".detailTitle h2")

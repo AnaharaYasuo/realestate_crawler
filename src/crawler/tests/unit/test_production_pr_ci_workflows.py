@@ -110,42 +110,23 @@ def test_sonarcloud_is_transitively_skipped_with_change_detection():
     assert sonarcloud_job["if"] == "${{ needs.changes.outputs.app == 'true' }}"
 
 
-def test_review_gate_production_path_skips_only_coderabbit_pending_checks():
+def test_review_gate_targets_only_master_and_excludes_production():
     workflow = _load_workflow("review-gate.yml")
     pull_request_trigger = (workflow.get("on") or workflow.get(True))["pull_request"]
-    assert "production" in pull_request_trigger["branches"]
+    assert "master" in pull_request_trigger["branches"]
+    assert "production" not in pull_request_trigger["branches"]
 
     script = _github_script(workflow)
     assert "const targetBranch = pr.base && pr.base.ref;" in script
-
-    non_production_block, non_production_end = _extract_braced_block(
-        script, "if (targetBranch !== 'production')"
-    )
-    trailing = script[non_production_end:].lstrip()
-
-    assert "getCombinedStatusForRef" in non_production_block
-    assert "listForRef" in non_production_block
-    assert "crStatuses" in non_production_block
-    assert "crChecks" in non_production_block
-
-    # production PRs skip CodeRabbit/security gates and do not fetch check runs;
-    # review threads are scanned independently via GraphQL.
-    assert not trailing.startswith("else")
-    assert "Failed to fetch check runs" not in script
-    assert script.count("listForRef") == non_production_block.count("listForRef")
-    assert script.count("getCombinedStatusForRef") == non_production_block.count(
-        "getCombinedStatusForRef"
-    )
+    assert "if (targetBranch !== 'master')" in script
 
 
-def test_review_gate_production_path_has_no_required_security_checks():
+def test_review_gate_has_required_security_checks():
     script = _github_script(_load_workflow("review-gate.yml"))
     declaration_start = script.index("const requiredSecurityChecks")
-    declaration_end = script.index("] : [];", declaration_start) + len("] : [];")
+    declaration_end = script.index("];", declaration_start) + len("];")
     declaration = script[declaration_start:declaration_end]
 
-    assert "targetBranch !== 'production' ? [" in declaration
-    assert declaration.rstrip().endswith("] : [];")
     assert set(re.findall(r"name: '([^']+)'", declaration)) == {
         "CodeQL Scan",
         "Trivy Security Scan",
@@ -154,18 +135,9 @@ def test_review_gate_production_path_has_no_required_security_checks():
     }
 
 
-def test_code_scanning_alerts_are_queried_only_for_non_production_prs():
+def test_code_scanning_alerts_are_queried():
     script = _github_script(_load_workflow("review-gate.yml"))
-    alerts_start = script.index("const codeScanningAlerts = [];")
-    non_production_block, _ = _extract_braced_block(
-        script,
-        "if (targetBranch !== 'production')",
-        alerts_start,
-    )
+    assert "listAlertsForRepo" in script
+    assert "refs/pull/${prNumber}/merge" in script
+    assert "refs/heads/${pr.head.ref}" in script
 
-    assert non_production_block.count("listAlertsForRepo") == 2
-    assert "refs/pull/${prNumber}/merge" in non_production_block
-    assert "refs/heads/${pr.head.ref}" in non_production_block
-    assert script.count("listAlertsForRepo") == non_production_block.count(
-        "listAlertsForRepo"
-    )

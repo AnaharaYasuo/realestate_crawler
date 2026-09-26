@@ -242,13 +242,15 @@ graph TD
 - 疎通失敗時はメインパイプラインの起動前に即座に失敗ログを出力して停止する。
 
 ### 6.10.1 パイプライン起動時 ProxySQL オンデマンド起動・起動チェック ＆ タイムアウト安全停止設計原則 (Step 0.2 / Teardown)
-- クラウド環境（`IS_CLOUD=true` 等）におけるパイプライン（`run_pipeline.py`）の Coordinator 起動時、DB 接続待機（Step 0.4）に先立ち、ProxySQL MIG を `scale_proxysql_mig(target_size=1)` によりオンデマンド起動する。
+- クラウド環境（`IS_CLOUD=true` 等）におけるパイプライン（`run_pipeline.py`）の Coordinator 起動時、DB 接続待機（Step 0.4）に先立ち、ProxySQL の起動および稼働確認を `scale_proxysql_mig(target_size=1)` によりオンデマンド実行する。
+  - **単一 Compute Engine インスタンス構成（`PROXYSQL_INSTANCE_NAME`）対応**: 単一インスタンス構成（`proxysql-instance-${var.environment}`）時は、存在しない MIG Autoscaler へのパッチ（`patch_proxysql_autoscaler`）を安全にスキップし、単一 GCE インスタンスの起動状態確認およびポート 6033 の疎通チェックを行う。MIG 未存在による HTTP 404 エラーでのジョブ異常停止を完全に防止する。
+  - **MIG 構成互換**: `PROXYSQL_MIG_NAME` が明示され MIG が有効な環境では、従来通り Autoscaler / MIG リサイズを安全に実行する。
 - 起動直後にポート 6033 へのソケット疎通ポーリング（起動チェック: `wait_for_proxysql_health`、最大 240 秒）を実施し、ProxySQL がリクエスト受付可能状態になるまで確実に待機する。
 - **タイムアウト時フェイルセーフ ＆ SIGTERM シグナル処理**:
   - Cloud Run のコンテナタイムアウト到達による強制終了で teardown がスキップされる事態を防ぐため、`SIGTERM` および `SIGINT` シグナルハンドラ、ならびに `atexit` ハンドラを登録する。
-  - シグナル受信時は実行中の子プロセスを停止した上で、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、最短時間で ProxySQL MIG を 0 台へ縮小する。
+  - シグナル受信時は実行中の子プロセスを停止した上で、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、最短時間で ProxySQL インスタンス（または MIG）を安全に停止する。単一インスタンス構成時は MIG Autoscaler パッチをスキップする。
 - **自律的早期シャットダウン (Graceful Self-Shutdown)**:
-  - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 0台縮退 + Slack警告発報）へ移行して終了する。
+  - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 停止 + Slack警告発報）へ移行して終了する。
   - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
