@@ -26,8 +26,27 @@ def test_terraform_cloud_run_job_has_new_relic_config():
     assert 'value = "true"' in job_block, "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED must be true"
 
 
+def _extract_tf_resource(content: str, resource_type: str, resource_name: str) -> str:
+    """Extract one Terraform resource body (best-effort brace match)."""
+    header = f'resource "{resource_type}" "{resource_name}"'
+    start = content.find(header)
+    assert start >= 0, f"{header} not found"
+    brace = content.find("{", start)
+    assert brace >= 0, f"opening brace for {header} not found"
+    depth = 0
+    for idx in range(brace, len(content)):
+        ch = content[idx]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return content[brace : idx + 1]
+    raise AssertionError(f"closing brace for {header} not found")
+
+
 def test_terraform_log_sink_has_cloud_run_job_filter():
-    """new_relic_log_sink in terraform/new_relic_gcp_integration.tf must stream cloud_run_job logs."""
+    """new_relic_log_sink must stream cloud_run_job logs and depend on Deploy SA IAM."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     tf_path = os.path.join(root_dir, "terraform", "new_relic_gcp_integration.tf")
     assert os.path.exists(tf_path), f"File not found: {tf_path}"
@@ -35,10 +54,43 @@ def test_terraform_log_sink_has_cloud_run_job_filter():
     with open(tf_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    match = re.search(r'resource\s+"google_logging_project_sink"\s+"new_relic_log_sink"\s+\{([\s\S]*?)\n\}', content)
-    assert match is not None, "new_relic_log_sink resource not found"
-    sink_block = match.group(1)
-    assert 'resource.type = "cloud_run_job"' in sink_block, "resource.type = 'cloud_run_job' must be in new_relic_log_sink filter"
+    sink_block = _extract_tf_resource(content, "google_logging_project_sink", "new_relic_log_sink")
+    assert 'resource.type = "cloud_run_job"' in sink_block
+    assert "google_project_iam_member.github_actions_logging_config_writer" in sink_block
+
+    topic_iam = _extract_tf_resource(
+        content, "google_pubsub_topic_iam_member", "github_actions_newrelic_topic_iam"
+    )
+    assert 'role    = "projects/${var.project_id}/roles/pubsubTopicIamManager"' in topic_iam
+    assert "roles/pubsub.admin" not in topic_iam
+    assert "var.github_actions_sa_email" in topic_iam
+    assert "google_pubsub_topic.new_relic_log_topic.name" in topic_iam
+
+    publisher = _extract_tf_resource(content, "google_pubsub_topic_iam_member", "new_relic_sink_publisher")
+    assert "google_pubsub_topic_iam_member.github_actions_newrelic_topic_iam" in publisher
+
+
+def test_terraform_github_actions_has_logging_config_writer():
+    """Deploy SA IAM binding for logging.configWriter must be explicit at project level."""
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    iam_path = os.path.join(root_dir, "terraform", "iam.tf")
+    vars_path = os.path.join(root_dir, "terraform", "variables.tf")
+    assert os.path.exists(iam_path), f"File not found: {iam_path}"
+    assert os.path.exists(vars_path), f"File not found: {vars_path}"
+
+    with open(iam_path, "r", encoding="utf-8") as f:
+        iam = f.read()
+    with open(vars_path, "r", encoding="utf-8") as f:
+        variables = f.read()
+
+    logging_block = _extract_tf_resource(iam, "google_project_iam_member", "github_actions_logging_config_writer")
+    assert "project = var.project_id" in logging_block
+    assert 'role    = "roles/logging.configWriter"' in logging_block
+    assert "member  = \"serviceAccount:${var.github_actions_sa_email}\"" in logging_block
+    assert 'resource "google_project_iam_member" "github_actions_pubsub_admin"' not in iam
+
+    assert 'variable "github_actions_sa_email"' in variables
+    assert "github-actions-crawler@sumifu.iam.gserviceaccount.com" in variables
 
 
 def test_run_pipeline_initializes_new_relic():

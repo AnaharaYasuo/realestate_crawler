@@ -109,6 +109,7 @@ flowchart TD
   - `google_pubsub_topic.new_relic_log_topic`: ログ集約用 Pub/Sub トピック。
   - `google_logging_project_sink.new_relic_log_sink`: Cloud Run サービス（`cloud_run_revision`）、Cloud Run Job（`cloud_run_job`）、Cloud SQL、GCE ProxySQL のログ抽出フィルタリング＆Pub/Sub ルーティング。
   - `google_pubsub_subscription.new_relic_log_push`: New Relic HTTP インテークエンドポイント（`https://gcp-api.newrelic.com/log/v1`）宛ての Push サブスクリプション。
+- **Deploy SA IAM**: `terraform/iam.tf` の `google_project_iam_member.github_actions_logging_config_writer`（`roles/logging.configWriter`）と、`new_relic_gcp_integration.tf` の topic 限定 `google_pubsub_topic_iam_member.github_actions_newrelic_topic_iam`（当該 New Relic トピックのみカスタムロール `projects/${var.project_id}/roles/pubsubTopicIamManager`＝`get`/`getIamPolicy`/`setIamPolicy`）により、log sink 作成と sink writer の topic IAM 操作を可能にする。`roles/pubsub.admin` は付与しない（Trivy GCP-0007 / Checkov CKV_GCP_42）。カスタムロール定義は bootstrap（`gcloud iam roles create`）で作成し Terraform は membership のみ管理する。`var.github_actions_sa_email` は `secrets.GCP_SERVICE_ACCOUNT` と同一の Deploy SA を指すこと。
 - トレース ID 相関: Python APM がログ出力時に `trace.id` を付与し、New Relic 画面上で 1 クリックでトレースとログを横断検索可能。
 
 ### 2.7 GenAI / LLM 監視 (New Relic AI Monitoring)

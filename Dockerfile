@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && apt-get upgrade -y \
     && pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir "poetry>=2.0,<3" \
+    && pip install --no-cache-dir "poetry>=2.0,<3" "poetry-plugin-export>=1.8" \
     && poetry install --no-ansi --no-root \
     && apt-get purge -y --auto-remove build-essential pkg-config \
     && rm -rf /var/lib/apt/lists/*
