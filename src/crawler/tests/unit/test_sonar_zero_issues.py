@@ -1,7 +1,4 @@
 import inspect
-import re
-import pytest
-from bs4 import BeautifulSoup
 from package.utils.crawl_smoke_engine import _discover_repros_json_details
 from package.parser.heimParser import HeimMansionParser
 from package.parser.mitsuiParser import MitsuiMansionParser
@@ -50,7 +47,10 @@ def test_unreachable_yield_eliminated_in_base_parser():
 
 def test_show_migrations_no_trailing_junk():
     """Verify show_migrations.py has no trailing non-ascii characters (python:S905)."""
-    with open("src/crawler/scripts/debug_tools/show_migrations.py", "rb") as f:
+    import os
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    target = os.path.join(base_dir, "scripts", "debug_tools", "show_migrations.py")
+    with open(target, "rb") as f:
         content = f.read().decode("utf-8")
     assert "ー" not in content
 
