@@ -71,6 +71,8 @@ os.makedirs(log_dir, exist_ok=True)
 # 定義済みの全クロールジョブリスト
 from package.utils.crawl_jobs import CRAWL_JOBS  # noqa: E402  — SSOT for production + tests
 
+logger = logging.getLogger(__name__)
+
 
 
 
@@ -525,9 +527,9 @@ def main():
                     failed_jobs=failed_job_tuples
                 )
                 asyncio.run(send_slack_message(message=auto_heal_msg, channel="#dev-agent"))
-                logging.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
+                logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
             except Exception as dte:
-                logging.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
+                logger.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
     except Exception as ex:
         logging.exception(f"Failed to generate/send Slack crawl summary: {ex}")
         
