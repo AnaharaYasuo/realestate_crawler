@@ -230,10 +230,10 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get(KEY_STRUCTURE_FLOORS, "") or specs.get("階数", "") or specs.get("建物構造", "")
         if val:
-            m_chijo = re.search(r'地上\s*([0-9]{1,3})階', val)
+            m_chijo = re.search(r'地上\s*(\d{1,3})階', val)
             if m_chijo:
                 return int(m_chijo.group(1))
-            m_kai = re.search(r'([0-9]{1,3})階建', val)
+            m_kai = re.search(r'(\d{1,3})階建', val)
             if m_kai:
                 return int(m_kai.group(1))
         return None
@@ -242,10 +242,10 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get(KEY_STRUCTURE_FLOORS, "") or specs.get("階数", "") or specs.get("建物構造", "")
         if val:
-            m_chika = re.search(r'地下\s*([0-9]{1,3})階', val)
+            m_chika = re.search(r'地下\s*(\d{1,3})階', val)
             if m_chika:
                 return int(m_chika.group(1))
-            if re.search(r'([0-9]{1,3})階建', val) or re.search(r'地上\s*([0-9]{1,3})階', val):
+            if re.search(r'(\d{1,3})階建', val) or re.search(r'地上\s*(\d{1,3})階', val):
                 return 0
         return None
 
@@ -253,7 +253,7 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("所在階", "")
         if val:
-            m = re.search(r'([0-9]{1,3})階', val)
+            m = re.search(r'(\d{1,3})階', val)
             if m:
                 return int(m.group(1))
         return None
