@@ -504,7 +504,7 @@ class PrePRChecker:
                     else:
                         warnings.append(issue_text)
                 elif event_type == "error":
-                    errors.append(data.get("message", "CodeRabbit CLI エラー"))
+                    errors.append(str(data.get("message") or "CodeRabbit CLI エラー"))
                 elif event_type == "complete":
                     status = data.get("status")
                     if status in ("completed", "review_completed"):
