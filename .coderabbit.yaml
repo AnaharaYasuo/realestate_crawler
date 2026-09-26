@@ -31,7 +31,7 @@ reviews:
     - "!**/*.joblib"
     - "!src/crawler/catboost_info/**"
     # 外部ライブラリ・git worktree コピー
-    - "!node_modules/**"
+    - "!**/node_modules/**"
     - "!.worktrees/**"
     # Terraform 状態ファイル（シークレット漏洩防止）
     - "!**/*.tfstate"
