@@ -285,6 +285,11 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     }
 
     models = get_all_property_models(skip_portals=skip_portals)
+    if not models:
+        logger.error("❌ No property models found for evaluation.")
+        _notify_slack("⚠️ 【バルク価格推定エラー】 評価対象の物件モデルが0件でした。処理を中断します。")
+        sys.exit(1)
+
     _notify_slack(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
         f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{' [ポータル割愛]' if skip_portals else ''})..."
@@ -294,6 +299,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     skipped_count = 0
     failed_models = []
     BATCH_SIZE = 500
+    slack_progress_active = True
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
@@ -306,10 +312,14 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 cnt, skp = future.result()
                 evaluated_count += cnt
                 skipped_count += skp
-                if cnt > 0:
-                    _notify_slack(
-                        f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
-                    )
+                if cnt > 0 and slack_progress_active:
+                    try:
+                        _notify_slack(
+                            f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
+                        )
+                    except Exception as se:
+                        logger.warning("Per-model progress Slack notification failed, disabling further progress notifications: %s", se)
+                        slack_progress_active = False
             except Exception:
                 failed_models.append(m.__name__)
                 logger.exception("Failed evaluating %s", m.__name__)

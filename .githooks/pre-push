@@ -16,16 +16,14 @@ run_pre_pr_check() {
     common_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "$toplevel/.git")
     main_root=$(cd "$common_dir/.." && pwd -P 2>/dev/null || echo "$toplevel")
     
-    # Only remap docker workdir for worktrees under main_root/.worktrees/
-    # (external worktrees outside the compose mount must run from /app)
+    toplevel_norm=$(echo "$toplevel" | tr '\\' '/')
+    main_root_norm=$(echo "$main_root" | tr '\\' '/')
+    wt_prefix="$main_root_norm/.worktrees/"
+
     rel_path=""
-    case "$toplevel" in
-        *"/.worktrees/"*)
-            rel_path=".worktrees/${toplevel##*/.worktrees/}"
-            ;;
-        *"\\.worktrees\\"*)
-            rel_path=".worktrees/${toplevel##*\\.worktrees\\}"
-            rel_path=$(echo "$rel_path" | tr '\\' '/')
+    case "$toplevel_norm" in
+        "$wt_prefix"*)
+            rel_path=".worktrees/${toplevel_norm#"$wt_prefix"}"
             ;;
     esac
 
