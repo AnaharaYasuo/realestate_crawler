@@ -7,7 +7,11 @@ MLモデルをメモリ上に一度だけロードし、一括で一次・二次
 """
 import os
 import sys
+import time
 import logging
+from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from asgiref.sync import async_to_sync
 
 _scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _crawler_dir = os.path.dirname(_scripts_dir)
@@ -16,19 +20,36 @@ sys.path.insert(0, _crawler_dir)
 import realestateSettings
 realestateSettings.configure()
 
-from decimal import Decimal
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.db import close_old_connections
+from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 from package.ml.predict import bulk_predict_first_stage
 from package.ml.investment_evaluator import evaluate_investment_property
 from package.utils.converter import parse_chidai
 from package.utils.deduplication import find_duplicate_property
 from package.utils.text_risk_analyzer import analyze_text_risks
-from django.apps import apps
+from package.utils.slack import send_crawling_summary_alert
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def format_duration(seconds: int) -> str:
+    """Format duration seconds to readable string."""
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}時間{m}分{s}秒"
+    if m > 0:
+        return f"{m}分{s}秒"
+    return f"{s}秒"
+
+
+def _notify_slack(msg: str) -> None:
+    try:
+        async_to_sync(send_crawling_summary_alert)(msg)
+    except Exception as se:
+        logger.warning("Failed to send Slack progress alert: %s", se)
 
 PORTAL_COMPANIES = ["athome", "homes"]
 COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]
@@ -253,6 +274,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
         "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, force=%s, limit=%s, skip_portals=%s)...",
         concurrency, force, limit_per_model, skip_portals,
     )
+    start_time = time.time()
 
     # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
     existing_eval_map = {
@@ -263,10 +285,21 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     }
 
     models = get_all_property_models(skip_portals=skip_portals)
+    if not models:
+        logger.error("❌ No property models found for evaluation.")
+        _notify_slack("⚠️ 【バルク価格推定エラー】 評価対象の物件モデルが0件でした。処理を中断します。")
+        sys.exit(1)
+
+    _notify_slack(
+        f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
+        f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{' [ポータル割愛]' if skip_portals else ''})..."
+    )
+
     evaluated_count = 0
     skipped_count = 0
     failed_models = []
     BATCH_SIZE = 500
+    slack_progress_active = True
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
@@ -279,9 +312,28 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                 cnt, skp = future.result()
                 evaluated_count += cnt
                 skipped_count += skp
+                if cnt > 0 and slack_progress_active:
+                    try:
+                        _notify_slack(
+                            f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
+                        )
+                    except Exception as se:
+                        logger.warning("Per-model progress Slack notification failed, disabling further progress notifications: %s", se)
+                        slack_progress_active = False
             except Exception:
                 failed_models.append(m.__name__)
                 logger.exception("Failed evaluating %s", m.__name__)
+
+    duration_str = format_duration(int(time.time() - start_time))
+    finish_msg = (
+        f"✅ 【バルク価格推定完了】\n"
+        f"• 評価完了: {evaluated_count} 件\n"
+        f"• スキップ (評価済): {skipped_count} 件\n"
+        f"• 所要時間: {duration_str}"
+    )
+    if failed_models:
+        finish_msg += f"\n⚠️ 評価失敗モデル: {', '.join(failed_models)}"
+    _notify_slack(finish_msg)
 
     if failed_models:
         logger.error("❌ Bulk ML Evaluation failed on models: %s", failed_models)
