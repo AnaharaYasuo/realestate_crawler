@@ -109,13 +109,24 @@ class ObjectStorageManager:
         """
         指定したプレフィックスに一致するオブジェクトキー一覧を取得します。
         """
+        keys = []
+        continuation_token = None
         try:
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix
-            )
-            contents = response.get("Contents", [])
-            return [obj["Key"] for obj in contents if "Key" in obj]
+            while True:
+                kwargs = {
+                    "Bucket": self.bucket_name,
+                    "Prefix": prefix
+                }
+                if continuation_token:
+                    kwargs["ContinuationToken"] = continuation_token
+                response = self.s3_client.list_objects_v2(**kwargs)
+                contents = response.get("Contents", [])
+                keys.extend([obj["Key"] for obj in contents if "Key" in obj])
+                if response.get("IsTruncated"):
+                    continuation_token = response.get("NextContinuationToken")
+                else:
+                    break
+            return keys
         except Exception:
             logger.exception("Failed to list files with prefix '%s'", prefix)
             return []

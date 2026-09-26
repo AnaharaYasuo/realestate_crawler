@@ -1,6 +1,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 import setup_env  # noqa: F401
 from package.utils.failure_reporter import (
     FailureReporter,
@@ -162,4 +163,48 @@ class TestGcsFailureTelemetry466:
                 captured = capsys.readouterr()
                 assert "=== Crawling Failures Summary for 20260926 ===" in captured.out
                 assert "nomura - mansion" in captured.out
+
+    def test_fetch_run_failures_cli_storage_error_nonzero_exit(self, capsys):
+        """Test CLI exits with code 1 when storage fails and 0 fallback records exist."""
+        from scripts.debug_tools.fetch_run_failures import main
+
+        error_manifest = {
+            "date": "20260926",
+            "total_failures": 0,
+            "storage_error": "ConnectionTimeout",
+            "failures": []
+        }
+
+        with (
+            patch.object(FailureReporter, "fetch_daily_failures", return_value=error_manifest),
+            patch("sys.argv", ["fetch_run_failures.py", "--date", "20260926"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "ERROR: Failed to retrieve telemetry from storage" in captured.err
+
+    def test_storage_manager_list_files_pagination(self):
+        """Test ObjectStorageManager.list_files handles pagination correctly."""
+        from package.utils.storage import ObjectStorageManager
+
+        sm = ObjectStorageManager()
+        page1 = {
+            "Contents": [{"Key": "runs/20260926/failures/job1.json"}],
+            "IsTruncated": True,
+            "NextContinuationToken": "token123"
+        }
+        page2 = {
+            "Contents": [{"Key": "runs/20260926/failures/job2.json"}],
+            "IsTruncated": False
+        }
+
+        sm.s3_client = MagicMock()
+        sm.s3_client.list_objects_v2.side_effect = [page1, page2]
+
+        keys = sm.list_files(prefix="runs/20260926/failures/")
+        assert len(keys) == 2
+        assert keys == ["runs/20260926/failures/job1.json", "runs/20260926/failures/job2.json"]
+        assert sm.s3_client.list_objects_v2.call_count == 2
 

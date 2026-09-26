@@ -123,6 +123,7 @@ class FailureReporter:
 
         failures: list[dict[str, Any]] = []
         seen_keys = set()
+        storage_error: str | None = None
 
         # 1. オブジェクトストレージより取得
         try:
@@ -136,6 +137,7 @@ class FailureReporter:
                     failures.append(data)
                     seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
         except Exception as e:  # noqa: BLE001
+            storage_error = str(e)
             logger.warning("Failed to fetch daily failures from storage: %s", e)
 
         # 2. ローカルフォールバックも走査して補完
@@ -156,5 +158,6 @@ class FailureReporter:
         return {
             "date": date_str,
             "total_failures": len(failures),
+            "storage_error": storage_error,
             "failures": failures
         }

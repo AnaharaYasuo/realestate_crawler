@@ -1,7 +1,4 @@
-"""
-Antigravity 用 障害テレメトリ一括取得 CLI スクリプト (fetch_run_failures.py)
-Issue #466
-"""
+"""CLI script for bulk retrieving crawling failure telemetry."""
 import argparse
 import datetime
 import json
@@ -26,6 +23,14 @@ def main():
     args = parser.parse_args()
 
     manifest = FailureReporter.fetch_daily_failures(date_str=args.date)
+
+    if manifest.get("total_failures", 0) == 0 and manifest.get("storage_error"):
+        print(
+            f"ERROR: Failed to retrieve telemetry from storage ({manifest.get('storage_error')}) "
+            "and no local fallback records exist.",
+            file=sys.stderr
+        )
+        sys.exit(1)
 
     if args.summary:
         print(f"=== Crawling Failures Summary for {manifest['date']} ===")
