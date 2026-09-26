@@ -23,7 +23,7 @@
 
 ### FR-03: Terraform ＆ Secret Manager 管理
 - Secret Manager に `realestate-new-relic-license-key-${var.environment}` を定義すること。
-- Cloud Run API サービス（`realestate-api-${var.environment}`）およびクローラーサービスにおいて、Secret Manager から `NEW_RELIC_LICENSE_KEY` を安全に環境変数として注入すること。
+- Cloud Run API サービス（`realestate-api-${var.environment}`）、クローラーワーカーサービス、および Cloud Run Job（`realestate-crawler-pipeline-${var.environment}`）において、Secret Manager から `NEW_RELIC_LICENSE_KEY` を安全に環境変数として注入すること。
 
 ### FR-04: Synthetics 外形監視の自動構成
 - New Relic NerdGraph (GraphQL API) を介して、本番 API の `/health` エンドポイントに対する死活監視（Ping / Simple Monitor）を自動登録・構成できるスクリプトを提供すること。
@@ -34,7 +34,7 @@
 - ProxySQL および Cloud SQL (MySQL) 接続プール・スロークエリ監視のインテグレーション定義（`nri-mysql`）を提供すること。
 
 ### FR-06: GCP Cloud Logging ➔ New Relic ログ統合 (Log in Context)
-- Cloud Run / Cloud SQL / ProxySQL の GCP Cloud Logging ログを Pub/Sub トピック経由で New Relic Log Management へリアルタイム転送する Terraform 定義（`terraform/new_relic_gcp_integration.tf`）を整備すること。
+- Cloud Run サービス（`cloud_run_revision`）、Cloud Run Job（`cloud_run_job`）、Cloud SQL、ProxySQL の GCP Cloud Logging ログを Pub/Sub トピック経由で New Relic Log Management へリアルタイム転送する Terraform 定義（`terraform/new_relic_gcp_integration.tf`）を整備すること。
 - APM トレース ID（`trace.id`）との紐付け（Log in Context）により、障害発生時にトレースとログをシームレスに横断分析可能とすること。
 
 ### FR-07: GenAI / LLM 監視 (New Relic AI Monitoring)
@@ -51,6 +51,10 @@
   2. **パース性能劣化 (Parse Performance Degradation)**: 静的パーサーが 1.0 秒/件を超過した場合の警告。
   3. **対象サイト拒絶急増 (Target Site 403/429 Spike)**: スクレイピングブロックやレート制限の急増。
   4. **コンテナリソース高負荷 (Container High CPU/Memory)**: メモリ使用率 85% 超の OOM 予兆検知。
+
+### FR-10: パイプライン実行・バッチクローラー APM & メトリクス計装
+- Cloud Run Job エントリーポイント（`run_pipeline.py`）およびバッチクローラー（`run_all_crawlers.py`）の起動時に `init_new_relic()` を呼び出し、APM エージェントを初期化すること。
+- 各クロールジョブの終了時（正常終了・エラー・タイムアウト時）に `record_crawler_metrics()` を呼び出し、サイト別・種別別の取得件数、実行時間、ステータスを New Relic カスタムイベント（`CrawlerExecution`）へ送信すること。
 
 ## 4. 非機能要件
 - **NFR-01 (セキュリティ)**: ライセンスキー・API キー等の機密情報はリポジトリへコミットせず、`.env` および GCP Secret Manager にて秘匿管理すること。

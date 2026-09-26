@@ -84,8 +84,8 @@ flowchart TD
 - **シークレット定義**:
   - `google_secret_manager_secret.new_relic_license_key`: `realestate-new-relic-license-key-${var.environment}`
   - `google_secret_manager_secret_version.new_relic_license_key_version`: 初期プレースホルダーを登録し、`lifecycle { ignore_changes = [secret_data] }` により安全に本番キーを保持。
-- **Cloud Run サービス注入**:
-  - `cloud_run_api_service.tf` および `cloud_run_crawler_service.tf` に `NEW_RELIC_LICENSE_KEY` を Secret Key Ref として追加。
+- **Cloud Run サービス & ジョブ注入**:
+  - `cloud_run_api_service.tf`、`cloud_run_crawler_service.tf`、および `cloud_run_job.tf`（`realestate-crawler-pipeline-${var.environment}`）に `NEW_RELIC_LICENSE_KEY` を Secret Key Ref として追加。
 
 ### 2.4 New Relic Synthetics (外形監視)
 - **監視方式**: SIMPLE (HTTP Ping)
@@ -104,7 +104,7 @@ flowchart TD
 ### 2.6 GCP Cloud Logging ➔ New Relic ログ統合 (Log in Context)
 - `terraform/new_relic_gcp_integration.tf` において以下を宣言:
   - `google_pubsub_topic.new_relic_log_topic`: ログ集約用 Pub/Sub トピック。
-  - `google_logging_project_sink.new_relic_log_sink`: Cloud Run / Cloud SQL ログの抽出フィルタリング＆Pub/Sub ルーティング。
+  - `google_logging_project_sink.new_relic_log_sink`: Cloud Run サービス（`cloud_run_revision`）、Cloud Run Job（`cloud_run_job`）、Cloud SQL、GCE ProxySQL のログ抽出フィルタリング＆Pub/Sub ルーティング。
   - `google_pubsub_subscription.new_relic_log_push`: New Relic HTTP インテークエンドポイント（`https://gcp-api.newrelic.com/log/v1`）宛ての Push サブスクリプション。
 - トレース ID 相関: Python APM がログ出力時に `trace.id` を付与し、New Relic 画面上で 1 クリックでトレースとログを横断検索可能。
 
@@ -114,4 +114,9 @@ flowchart TD
 ### 2.8 デプロイ変更追跡 (Change Tracking) & クローラー NRQL アラート
 - **Change Tracking**: `src/crawler/scripts/notify_new_relic_deployment.py` により GitHub Actions から NerdGraph `changeTrackingCreateDeployment` を呼び出し。
 - **NRQL アラート**: `src/crawler/scripts/setup_new_relic_crawler_alerts.py` により「パース遅延」「0件取得失敗」「403/429急増」「メモリ高負荷」条件を一括自動プロビジョニング。
+
+### 2.9 パイプライン実行・バッチクローラー APM & メトリクス計装
+- **エントリーポイント計装**: `src/crawler/scripts/ops/run_pipeline.py` および `src/crawler/scripts/ops/run_all_crawlers.py` の冒頭で `init_new_relic()` を呼び出し、Cloud Run Job 実行全体の APM トレーシングを有効化。
+- **クローラー完了時イベント記録**: `run_all_crawlers.py` で各サイトのクロール処理終了時（正常終了・エラー・タイムアウト）に `record_crawler_metrics()` を呼び出し、サイト別・種別別の取得件数・所要時間・0件ステータスを `CrawlerExecution` カスタムイベントへ即座に送信。
+
 
