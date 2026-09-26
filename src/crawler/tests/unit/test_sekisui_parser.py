@@ -48,6 +48,10 @@ def test_converter_parse_chikunengetsu_wareki_and_seireki():
     assert converter.parse_chikunengetsu("不詳") is None
     assert converter.parse_chikunengetsu("-") is None
     assert converter.parse_chikunengetsu(None) is None
+    assert converter.parse_chikunengetsu("令和元年1月") is None
+    assert converter.parse_chikunengetsu("昭和元年1月") is None
+    assert converter.parse_chikunengetsu("平成31年5月") is None
+    assert converter.parse_chikunengetsu("昭和65年1月") is None
 
 
 def test_sekisui_mansion_chikunengetsu_and_floors_parsing():
@@ -72,6 +76,22 @@ def test_sekisui_mansion_chikunengetsu_and_floors_parsing():
     assert chijo == 11
     assert chika == 0
     assert kai == 6
+
+    # When property has basement floors
+    soup_with_basement = BeautifulSoup(
+        "<dl><dt>構造・階数</dt><dd>RC造地上14階地下2階建</dd></dl>", "html.parser"
+    )
+    specs_with_basement = parser._get_specs(soup_with_basement)
+    assert parser._parseFloorTypeChijo(soup_with_basement, specs_with_basement) == 14
+    assert parser._parseFloorTypeChika(soup_with_basement, specs_with_basement) == 2
+
+    # When structure field has only material but 階数 has floor count
+    soup_split_floors = BeautifulSoup(
+        "<dl><dt>構造・階数</dt><dd>SRC造</dd><dt>階数</dt><dd>10階建</dd></dl>", "html.parser"
+    )
+    specs_split_floors = parser._get_specs(soup_split_floors)
+    assert parser._parseFloorTypeChijo(soup_split_floors, specs_split_floors) == 10
+    assert parser._parseFloorTypeChika(soup_split_floors, specs_split_floors) == 0
 
     # When structure has no floor numbers, chika and chijo should return None
     soup_no_floors = BeautifulSoup("<dl><dt>構造・階数</dt><dd>SRC造</dd></dl>", "html.parser")

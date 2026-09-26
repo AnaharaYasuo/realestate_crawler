@@ -102,6 +102,20 @@ def parse_chikunengetsu(date_str):
                 month = 12
             else:
                 month = 1
+
+            if not (1 <= month <= 12):
+                return None
+
+            if era == '昭和':
+                if (year == 1 and month < 12) or (year == 64 and month > 1) or year > 64:
+                    return None
+            elif era == '平成':
+                if (year == 31 and month > 4) or year > 31:
+                    return None
+            elif era == '令和':
+                if year == 1 and month < 5:
+                    return None
+
             era_offsets = {'昭和': 1925, '平成': 1988, '令和': 2018}
             return datetime.date(era_offsets.get(era, 2000) + year, month, 1)
     except Exception:
