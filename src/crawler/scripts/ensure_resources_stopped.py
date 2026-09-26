@@ -251,7 +251,6 @@ def _parse_timestamp_to_seconds_ago(timestamp_str: str | None) -> float | None:
         return None
 
 
-
 def _get_mig_uptime_seconds(
     project_id: str, region: str, mig_name: str
 ) -> float | None:
@@ -814,6 +813,7 @@ def check_and_stop_proxysql_mig(
     grace_period_sec: float = 600.0,
     timeout_threshold_sec: float = 4200.0,
     dry_run: bool = False,
+    fallback_to_instance: bool = False,
 ) -> ResourceInspectionResult:
     """
     Checks if ProxySQL MIG target_size > 0.
@@ -825,6 +825,27 @@ def check_and_stop_proxysql_mig(
     """
     current_target_size, err, autoscaler = _get_mig_info(project_id, region, mig_name)
     if err:
+        # fallback_to_instance が有効で MIG が 404 (Not Found) の場合、単一 GCE インスタンス構成へフォールバック
+        err_lower = err.lower()
+        if fallback_to_instance and ("404" in err_lower or "not found" in err_lower):
+            fallback_instance = os.environ.get(
+                "PROXYSQL_INSTANCE_NAME",
+                f"proxysql-instance-{os.environ.get('ENVIRONMENT', 'prod')}",
+            )
+            fallback_zone = os.environ.get("PROXYSQL_ZONE", f"{region}-b")
+            logger.info(
+                f"ProxySQL MIG '{mig_name}' not found (404). Falling back to single GCE instance '{fallback_instance}' in zone '{fallback_zone}'."
+            )
+            return check_and_stop_proxysql_instance(
+                project_id=project_id,
+                zone=fallback_zone,
+                instance_name=fallback_instance,
+                job_prefixes=job_prefixes,
+                grace_period_sec=grace_period_sec,
+                timeout_threshold_sec=timeout_threshold_sec,
+                dry_run=dry_run,
+            )
+
         err_msg = f":rotating_light: *【緊急】ProxySQL MIG状態取得失敗*: {err}"
         logger.error(err_msg)
         send_slack_alert(err_msg)
@@ -976,9 +997,7 @@ def check_and_stop_proxysql_mig(
         if cancel_errors or stop_err:
             fail_items = []
             if cancel_errors:
-                fail_items.append(
-                    f"Job cancel failures: {', '.join(cancel_errors)}"
-                )
+                fail_items.append(f"Job cancel failures: {', '.join(cancel_errors)}")
             if stop_err:
                 fail_items.append(f"ProxySQL stop failure: {stop_err}")
             send_slack_alert(
@@ -1116,6 +1135,7 @@ def main() -> int:
             grace_period_sec=args.grace_period_sec,
             timeout_threshold_sec=args.timeout_threshold_sec,
             dry_run=args.dry_run,
+            fallback_to_instance=True,
         )
 
     if result.was_leaked:
@@ -1127,10 +1147,11 @@ def main() -> int:
         logger.error(f"Leaked resource detected but failed to stop: {result.details}")
         return 1
 
-    logger.info("=== [FINISH] All checked resources are safely stopped or legitimately active. ===")
+    logger.info(
+        "=== [FINISH] All checked resources are safely stopped or legitimately active. ==="
+    )
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
