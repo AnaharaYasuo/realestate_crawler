@@ -33,12 +33,24 @@ sequenceDiagram
 
 | モジュール | パス | 役割 |
 |---|---|---|
+| **ストレージ抽象マネージャー** | `src/crawler/package/utils/storage.py` | `STORAGE_BACKEND=gcs` 時の GCS ネイティブ SDK (`google-cloud-storage`) 連携およびローカル MinIO (boto3) ハイブリッド抽象 |
 | **障害テレメトリ管理** | `src/crawler/package/utils/failure_reporter.py` | 障害メタデータ生成、GCS 即時アップロード、GCS 一括回収 API |
 | **パーサー基底クラス** | `src/crawler/package/parser/baseParser.py` | パース例外・必須項目欠落検知時の生HTML GCS 自動保存フック |
-| **API ハンドラ基底** | `src/crawler/package/api/api.py` | 403・0件・Fetch 失敗時のエラー情報 GCS 連携 |
+| **API ハンドラ基底** | `src/crawler/package/api/api.py` | 403・0件・Fetch 失敗時の手元生HTML直接保存・エラー情報 GCS 連携（再リクエスト全廃） |
 | **CLI 実行エントリー** | `src/crawler/main.py` | 未捕捉例外時の非ゼロ終了（exit code 1）とトレース出力 |
 | **分散オーケストレーター** | `src/crawler/scripts/ops/run_all_crawlers.py` | 子プロセス異常監視、リアルタイム GCS 書き出し、Slack `#dev-agent` ゼロタッチトリガー発信 |
 | **一括回収 CLI** | `src/crawler/scripts/debug_tools/fetch_run_failures.py` | Antigravity が GCS から指定日全障害を 1 回でロードする CLI |
+
+## 2.1 ストレージバックエンド選定方針 (Issue #477)
+- **クラウド本番環境 (`STORAGE_BACKEND=gcs` または `IS_CLOUD=true`)**:
+  - `google-cloud-storage` を使用し、Cloud Run の実行サービスアカウント (ADC) により認証レスで GCS API を直接呼び出す。
+  - MinIO / boto3 への不要なリクエスト・接続タイムアウト・ローカルフォールバックを排除。
+- **ローカル開発環境 (`STORAGE_BACKEND!=gcs`)**:
+  - 既存の S3/MinIO (boto3) クライアントを維持し、ローカル開発およびモック環境の挙動を担保。
+
+## 2.2 生 HTML インメモリ直接永続化方針 (Issue #477)
+- パースエラー発生時、すでにクローラーが受信したレスポンスの HTML バイト列／文字列を手元から直接 `FailureReporter.record_job_failure` に渡す。
+- 相手サーバーへの2度目の `requests.get` を行わないため、403 ブロックやサーバー過負荷時でもエラー発生瞬間の HTML を 100% 確実に保存する。
 
 ## 3. GCS バケット構成とライフサイクル
 
