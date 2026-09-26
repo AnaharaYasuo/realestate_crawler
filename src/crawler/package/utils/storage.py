@@ -9,9 +9,16 @@ import os
 
 import boto3
 from botocore.client import Config
-from google.cloud import storage as gcs_storage
 
 logger = logging.getLogger(__name__)
+
+
+def _load_gcs_storage():
+    """Lazy-import google.cloud.storage so MinIO-only environments stay bootable."""
+    from google.cloud import storage as gcs_storage
+
+    return gcs_storage
+
 
 class ObjectStorageManager:
     def __init__(self):
@@ -25,6 +32,7 @@ class ObjectStorageManager:
         has_endpoint = bool(os.getenv("STORAGE_ENDPOINT", "").strip())
         if self.backend == "gcs" or (is_cloud_enabled and not has_endpoint):
             self.is_gcs = True
+            gcs_storage = _load_gcs_storage()
             self.gcs_client = gcs_storage.Client()
             self.gcs_bucket = self.gcs_client.bucket(self.bucket_name)
             self.s3_client = None

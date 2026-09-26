@@ -266,7 +266,7 @@ def test_all_seeds_prefers_athome_and_homes_deep_lists(monkeypatch):
     athome = _SampleTarget("athome", "invest_apartment")
     athome.seed_url = "https://www.athome.co.jp/buy_other/tokyo/city/"
     seeds = eng._all_seeds_for_target(athome)
-    assert seeds[0].endswith("edogawa-city/list/")
+    assert "shubetsu_toushi" in seeds[0]
 
     homes = _SampleTarget("homes", "invest_apartment")
     homes.seed_url = "https://toushi.homes.co.jp/bukkensearch/?tbg[]=1"

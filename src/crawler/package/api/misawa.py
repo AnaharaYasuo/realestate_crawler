@@ -7,6 +7,7 @@ from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMid
     API_KEY_MISAWA_TOCHI_START, API_KEY_MISAWA_TOCHI_LIST, API_KEY_MISAWA_TOCHI_DETAIL
 
 from package.api.registry import ApiRegistry
+from package.api.misawa_investment import MisawaInvestmentConnectorMixin
 
 DEFAULT_PARARELL_LIMIT = 1
 DETAIL_PARARELL_LIMIT = 3
@@ -15,7 +16,7 @@ DETAIL_PARARELL_LIMIT = 3
 # Mansion (Type 1 -> Misawa Type 3)
 # ==========================================
 
-class ParseMisawaMansionDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMisawaMansionDetailFuncAsync(MisawaInvestmentConnectorMixin, ParseDetailPageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaMansionParser
         return MisawaMansionParser()
@@ -32,7 +33,7 @@ class ParseMisawaMansionDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getApiKey(self):
         return ""
 
-class ParseMisawaMansionListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMisawaMansionListFuncAsync(MisawaInvestmentConnectorMixin, ParseMiddlePageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaMansionParser
         return MisawaMansionParser()
@@ -61,7 +62,7 @@ class ParseMisawaMansionListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self):
         return API_KEY_MISAWA_MANSION_LIST
 
-class ParseMisawaMansionStartAsync(ApiAsyncProcBase):
+class ParseMisawaMansionStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
     # Mansion = Type 3 (Web ID)
     urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=3"]
 
@@ -101,7 +102,7 @@ class ParseMisawaMansionStartAsync(ApiAsyncProcBase):
 # Kodate (Type 2 -> Misawa Type 2)
 # ==========================================
 
-class ParseMisawaKodateDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMisawaKodateDetailFuncAsync(MisawaInvestmentConnectorMixin, ParseDetailPageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaKodateParser
         return MisawaKodateParser()
@@ -118,7 +119,7 @@ class ParseMisawaKodateDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getApiKey(self):
         return ""
 
-class ParseMisawaKodateListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMisawaKodateListFuncAsync(MisawaInvestmentConnectorMixin, ParseMiddlePageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaKodateParser
         return MisawaKodateParser()
@@ -147,7 +148,7 @@ class ParseMisawaKodateListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self):
         return API_KEY_MISAWA_KODATE_LIST
 
-class ParseMisawaKodateStartAsync(ApiAsyncProcBase):
+class ParseMisawaKodateStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
     # Kodate = Type 2 (Web ID)
     urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=2"]
 
@@ -186,7 +187,7 @@ class ParseMisawaKodateStartAsync(ApiAsyncProcBase):
 # Tochi (Type 3 -> Misawa Type 1)
 # ==========================================
 
-class ParseMisawaTochiDetailFuncAsync(ParseDetailPageAsyncBase):
+class ParseMisawaTochiDetailFuncAsync(MisawaInvestmentConnectorMixin, ParseDetailPageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaTochiParser
         return MisawaTochiParser()
@@ -203,7 +204,7 @@ class ParseMisawaTochiDetailFuncAsync(ParseDetailPageAsyncBase):
     def _getApiKey(self):
         return ""
 
-class ParseMisawaTochiListFuncAsync(ParseMiddlePageAsyncBase):
+class ParseMisawaTochiListFuncAsync(MisawaInvestmentConnectorMixin, ParseMiddlePageAsyncBase):
     def _generateParser(self):
         from package.parser.misawaParser import MisawaTochiParser
         return MisawaTochiParser()
@@ -232,7 +233,7 @@ class ParseMisawaTochiListFuncAsync(ParseMiddlePageAsyncBase):
     def _getNextPageApiKey(self):
         return API_KEY_MISAWA_TOCHI_LIST
 
-class ParseMisawaTochiStartAsync(ApiAsyncProcBase):
+class ParseMisawaTochiStartAsync(MisawaInvestmentConnectorMixin, ApiAsyncProcBase):
     # Tochi = Type 1 (Web ID)
     urlList = ["https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=1"]
 
