@@ -14,13 +14,31 @@ run_pre_pr_check() {
     target_sha="$2"
     toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
     common_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "$toplevel/.git")
-    main_root=$(cd "$common_dir/.." && pwd -P 2>/dev/null || echo "$toplevel")
-    
+    main_root=$(git -C "$common_dir/.." rev-parse --show-toplevel 2>/dev/null || (cd "$common_dir/.." && pwd -P) 2>/dev/null || echo "$toplevel")
+
+    norm_path() {
+        _p=$(echo "$1" | tr '\\' '/')
+        case "$_p" in
+            [a-zA-Z]:/*)
+                _drive=$(echo "$_p" | cut -c1 | tr '[:upper:]' '[:lower:]')
+                _p="/${_drive}${_p#[a-zA-Z]:}"
+                ;;
+            /[a-zA-Z]/*)
+                _drive=$(echo "$_p" | cut -c2 | tr '[:upper:]' '[:lower:]')
+                _p="/${_drive}${_p#/[a-zA-Z]}"
+                ;;
+        esac
+        echo "$_p"
+    }
+
+    toplevel_norm=$(norm_path "$toplevel")
+    main_root_norm=$(norm_path "$main_root")
+    wt_prefix="$main_root_norm/.worktrees/"
+
     rel_path=""
-    case "$toplevel" in
-        *".worktrees"*)
-            wt_name=$(basename "$toplevel")
-            rel_path=".worktrees/$wt_name"
+    case "$toplevel_norm" in
+        "$wt_prefix"*)
+            rel_path=".worktrees/${toplevel_norm#"$wt_prefix"}"
             ;;
     esac
 
@@ -28,7 +46,7 @@ run_pre_pr_check() {
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
             docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
-        elif [ "$toplevel" = "$main_root" ]; then
+        elif [ "$toplevel_norm" = "$main_root_norm" ]; then
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
