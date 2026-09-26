@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 def _get_agent() -> Any | None:
     """Safely obtain newrelic.agent or mock from sys.modules."""
-    if newrelic is not None and hasattr(newrelic, "agent"):
-        return newrelic.agent
     if "newrelic.agent" in sys.modules:
         return sys.modules["newrelic.agent"]
     if "newrelic" in sys.modules and hasattr(sys.modules["newrelic"], "agent"):
         return sys.modules["newrelic"].agent
+    if newrelic is not None and hasattr(newrelic, "agent"):
+        return newrelic.agent
     return None
 
 
