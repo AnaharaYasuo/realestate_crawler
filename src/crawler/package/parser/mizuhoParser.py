@@ -7,7 +7,7 @@ import urllib.parse
 from typing import Optional
 
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, LoadPropertyPageException, ServerBusyException, ServerDownException
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, LoadPropertyPageException, ServerBusyException, ServerDownException, SkipPropertyException
 from package.models.mizuho import MizuhoMansion, MizuhoKodate, MizuhoTochi, MizuhoInvestment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -710,5 +710,10 @@ class MizuhoInvestmentParser(MizuhoParser, InvestmentParserBase):
 
         # 物件種別（Apartment, Mansion, Building）の判定 (共通化)
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
+
+        if not item.grossYield and not getattr(item, "annualRent", None):
+            raise SkipPropertyException(
+                f"Mizuho investment listing missing yield/rent: {(item.propertyName or '')[:60]}"
+            )
 
         return item

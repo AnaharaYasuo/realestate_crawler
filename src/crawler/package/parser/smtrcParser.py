@@ -9,6 +9,7 @@ from package.parser.baseParser import (
     KodateParserBase,
     MansionParserBase,
     ParserBase,
+    SkipPropertyException,
     TochiParserBase,
 )
 from package.utils import converter
@@ -458,6 +459,10 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         specs = self._get_specs(response)
 
         self._apply_invest_yield_and_rent(item, specs)
+        if not item.grossYield and not getattr(item, "annualRent", None):
+            raise SkipPropertyException(
+                f"Commercial/self-use listing without rent or yield on SMTRC: {getattr(item, 'pageUrl', '')}"
+            )
         self._apply_invest_structure_and_counts(item, specs)
         self._apply_invest_areas_and_ratios(item, specs)
 

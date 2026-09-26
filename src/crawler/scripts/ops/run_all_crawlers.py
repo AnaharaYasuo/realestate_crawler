@@ -81,7 +81,7 @@ active_processes = {}
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""
     global active_processes
-    for idx, (proc, company, ptype, start_t) in active_processes.items():
+    for idx, (proc, company, ptype, *_) in list(active_processes.items()):
         if proc.poll() is None:
             try:
                 pgid = os.getpgid(proc.pid)
