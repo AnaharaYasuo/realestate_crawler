@@ -86,6 +86,13 @@ jobs:
           java-version: 21
           distribution: 'temurin'
 
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: sonar-${{ runner.os }}-${{ hashFiles('sonar-project.properties') }}
+          restore-keys: sonar-${{ runner.os }}-
+
       - name: Ensure Strict Quality Gate (fail on any new issue)
         if: env.SONAR_TOKEN != ''
         env:
@@ -101,10 +108,9 @@ jobs:
           args: >
             "-Dsonar.sourceEncoding=UTF-8"
             "-Dsonar.qualitygate.wait=true"
-            "-Dsonar.scm.disabled=false"
-            "-Dsonar.exclusions=**/tests/**,**/testing/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/scripts/**"
+            "-Dsonar.exclusions=**/tests/**,**/testing/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/__pycache__/**,**/.ruff_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/scripts/**"
             "-Dsonar.coverage.exclusions=**"
-            "-Dsonar.cpd.exclusions=**/tests/**,**/testing/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**,**/scripts/**,**/parser/**"
+            "-Dsonar.cpd.exclusions=**/tests/**,**/testing/**,**/migrations/**,**/Temp/**,**/logs/**,**/catboost_info/**,**/.pytest_cache/**,**/__pycache__/**,**/.ruff_cache/**,**/docs/**,**/*.joblib,**/ml/models/**,**/ml/data/**,**/*.csv,**/*.png,**/*.jpg,**/*.jpeg,**/models/**,**/scripts/**,**/parser/**"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
