@@ -163,7 +163,7 @@ jobs:
           gcloud run jobs update realestate-safety-net-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ensure_resources_stopped.py \
-            --args=--project-id=sumifu,--region=asia-northeast1,--mig-name=proxysql-mig-prod \
+            --args=--project-id=sumifu,--region=asia-northeast1,--instance-name=proxysql-instance-prod \
             --region=asia-northeast1
 
 
