@@ -6,7 +6,7 @@ import logging
 from typing import Optional, Dict, Any
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
     genai = None
 
@@ -342,8 +342,7 @@ class PropertyTypeDetector:
             return default
 
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            client = genai.Client(api_key=api_key)
             prompt = (
                 "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
                 "- mansion: 区分マンション、集合住宅の一室\n"
@@ -353,7 +352,10 @@ class PropertyTypeDetector:
                 f"物件情報:\n{prompt_text}\n\n"
                 "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
             )
-            resp = model.generate_content(prompt)
+            resp = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=prompt,
+            )
             raw_ans = (getattr(resp, "text", "") or "").strip().lower()
 
             for candidate in ("apartment", "kodate", "tochi", "mansion"):

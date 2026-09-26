@@ -50,11 +50,21 @@ run_pre_pr_check() {
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
-            # External worktree is outside the compose mount; inspect that checkout on the host
-            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            # External worktree: try host python3, or if not found/shim, execute in app container
+            if python3 -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+                python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            elif python -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+                python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            else
+                docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            fi
         fi
     else
-        python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        if python3 -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        else
+            python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        fi
     fi
 }
 
@@ -144,8 +154,12 @@ do
     if [ "$SKIP_ISSUE_CHECK" = "1" ] || [ "$SKIP_ISSUE_CHECK" = "true" ] || echo "$branch" | grep -qE '^cursor/'; then
         echo "⚠️  自動化エージェントブランチまたは SKIP_ISSUE_CHECK が有効なため、受入基準ローカル検証をパスします。"
     else
+        toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        common_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "$toplevel/.git")
+        main_root=$(git -C "$common_dir/.." rev-parse --show-toplevel 2>/dev/null || (cd "$common_dir/.." && pwd -P) 2>/dev/null || echo "$toplevel")
+
         if command -v docker >/dev/null 2>&1; then
-            CHECK_CRITERIA_CMD="docker compose exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py --issue $issue_num"
+            CHECK_CRITERIA_CMD="docker compose --project-directory \"$main_root\" exec -T app python src/crawler/scripts/debug_tools/check_issue_criteria.py --issue $issue_num"
         else
             CHECK_CRITERIA_CMD="python3 src/crawler/scripts/debug_tools/check_issue_criteria.py --issue $issue_num"
         fi

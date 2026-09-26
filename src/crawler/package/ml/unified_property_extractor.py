@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 from package.utils.converter import parse_chidai
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
     genai = None
 
@@ -218,12 +218,11 @@ class SingleUnifiedPropertyExtractor:
     def __init__(self, model_name: str = "gemini-1.5-flash"):
         self.model_name = model_name
 
-    def _get_generative_model(self):
+    def _get_genai_client(self):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or not genai:
             return None
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(self.model_name)
+        return genai.Client(api_key=api_key)
 
     def extract(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
         """
@@ -233,8 +232,8 @@ class SingleUnifiedPropertyExtractor:
         # ルールベースの初期フォールバックを生成
         fallback_res = self._rule_based_fallback(prop_data)
 
-        model = self._get_generative_model()
-        if not model:
+        client = self._get_genai_client()
+        if not client:
             # APIキー未設定時はルールベースで返す
             return fallback_res
 
@@ -258,7 +257,10 @@ class SingleUnifiedPropertyExtractor:
             else:
                 content_payload = prompt
 
-            response = model.generate_content(content_payload)
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=content_payload
+            )
             raw_text = response.text.strip() if hasattr(response, "text") else ""
             
             # Markdown コードブロックの除去

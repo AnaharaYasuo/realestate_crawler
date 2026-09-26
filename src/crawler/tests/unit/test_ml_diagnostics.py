@@ -152,12 +152,15 @@ class TestAIDiagnostics:
         class MockResponse:
             text = "【AI乖離分析】物件1は借地権の減価が反映されていないため過大評価されています。パーサーの借地権抽出を改修してください。"
 
-        class MockModel:
-            def generate_content(self, prompt):
+        class MockClient:
+            def __init__(self, *args, **kwargs):
+                self.models = self
+
+            def generate_content(self, model, contents):
                 return MockResponse()
 
-        import google.generativeai as genai
-        monkeypatch.setattr(genai, "GenerativeModel", lambda model_name: MockModel())
+        from google import genai
+        monkeypatch.setattr(genai, "Client", MockClient)
 
         from scripts.ops.run_daily_prediction_diagnostics import generate_ai_diagnostics_insight
 

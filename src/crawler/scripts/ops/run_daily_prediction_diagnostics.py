@@ -32,7 +32,7 @@ from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_dev_report
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
     genai = None
 
@@ -158,8 +158,7 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
     if not genai:
         return None
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = genai.Client(api_key=api_key)
 
         sample_texts = []
         for i, item in enumerate(worst_items[:6], 1):
@@ -179,7 +178,10 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
             + "\n\n".join(sample_texts)
         )
 
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt
+        )
         if response and hasattr(response, "text") and response.text:
             return response.text.strip()
     except Exception as e:
