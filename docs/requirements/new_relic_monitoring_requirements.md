@@ -24,6 +24,7 @@
 ### FR-03: Terraform ＆ Secret Manager 管理
 - Secret Manager に `realestate-new-relic-license-key-${var.environment}` を定義すること。
 - Cloud Run API サービス（`realestate-api-${var.environment}`）、クローラーワーカーサービス、および Cloud Run Job（`realestate-crawler-pipeline-${var.environment}`）において、Secret Manager から `NEW_RELIC_LICENSE_KEY` を安全に環境変数として注入すること。
+- Cloud Run 実行 SA（`crawler-runner-${var.environment}`）に対し、当該 New Relic ライセンスキー Secret への `roles/secretmanager.secretAccessor` を Terraform（`terraform/iam.tf` の `secret_accessor`）で付与すること。付与漏れにより `SecretsAccessCheckFailed` で新リビジョンが Ready にならない状態を防止する。
 
 ### FR-04: Synthetics 外形監視の自動構成
 - New Relic NerdGraph (GraphQL API) を介して、本番 API の `/health` エンドポイントに対する死活監視（Ping / Simple Monitor）を自動登録・構成できるスクリプトを提供すること。

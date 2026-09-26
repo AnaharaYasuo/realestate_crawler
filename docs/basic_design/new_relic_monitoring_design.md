@@ -86,6 +86,9 @@ flowchart TD
   - `google_secret_manager_secret_version.new_relic_license_key_version`: 初期プレースホルダーを登録し、`lifecycle { ignore_changes = [secret_data] }` により安全に本番キーを保持。
 - **Cloud Run サービス & ジョブ注入**:
   - `cloud_run_api_service.tf`、`cloud_run_crawler_service.tf`、および `cloud_run_job.tf`（`realestate-crawler-pipeline-${var.environment}`）に `NEW_RELIC_LICENSE_KEY` を Secret Key Ref として追加。
+- **IAM（必須）**:
+  - `terraform/iam.tf` の `google_secret_manager_secret_iam_member.secret_accessor` の `for_each` に `new_relic_license_key` を含め、`crawler-runner-${var.environment}` へ `roles/secretmanager.secretAccessor` を付与する。
+  - Secret 参照のみで IAM を付与しない場合、Cloud Run は `SecretsAccessCheckFailed` となり最新リビジョンが Ready にならない。
 
 ### 2.4 New Relic Synthetics (外形監視)
 - **監視方式**: SIMPLE (HTTP Ping)
