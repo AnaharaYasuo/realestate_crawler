@@ -456,7 +456,7 @@ if __name__ == "__main__":
                     func()
             except Exception as e:
                 tb = traceback.format_exc()
-                logger.exception(f"Error during crawl execution: {e}")
+                logger.exception("Error during crawl execution")
                 try:
                     FailureReporter.record_job_failure(
                         company=company,
@@ -466,7 +466,7 @@ if __name__ == "__main__":
                         exit_code=1,
                         traceback_str=tb
                     )
-                except Exception as fre:
+                except Exception as fre:  # noqa: BLE001
                     logger.warning(f"Failed to record failure telemetry: {fre}")
                 sys.exit(1)
             logger.info(f"Execution finished for {company} {prop_type}")

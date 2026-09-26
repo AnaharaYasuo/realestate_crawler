@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 オブジェクトストレージ (MinIO / GCS 互換) 操作用ユーティリティ
 将来的な Google Cloud (Cloud Storage) 移管を見据え、
 S3/GCS互換のMinIOオブジェクトストレージへ画像をアップロード・管理するインターフェースを提供します。
 """
-import os
 import json
+import logging
+import os
+
 import boto3
 from botocore.client import Config
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class ObjectStorageManager:
         try:
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             logger.info(f"Bucket '{self.bucket_name}' already exists.")
-        except Exception:
+        except Exception:  # noqa: BLE001
             try:
                 # 公開読み取りポリシーを設定
                 policy = {
@@ -54,8 +54,8 @@ class ObjectStorageManager:
                 }
                 self.s3_client.put_bucket_policy(Bucket=self.bucket_name, Policy=json.dumps(policy))
                 logger.info(f"Successfully created bucket '{self.bucket_name}' with public-read policy.")
-            except Exception as e:
-                logger.exception(f"Failed to create bucket '{self.bucket_name}': {e}")
+            except Exception:
+                logger.exception("Failed to create bucket '%s'", self.bucket_name)
 
     def upload_image_bytes(self, image_bytes: bytes, filename: str, content_type: str = "image/jpeg") -> str:
         """
@@ -83,8 +83,8 @@ class ObjectStorageManager:
             public_url = f"{url_host}/{self.bucket_name}/{filename}"
             logger.info(f"Successfully uploaded image to storage: {public_url}")
             return public_url
-        except Exception as e:
-            logger.exception(f"Failed to upload image '{filename}' to storage: {e}")
+        except Exception:
+            logger.exception("Failed to upload image '%s' to storage", filename)
             raise
 
     def upload_bytes(self, data: bytes, key: str, content_type: str = "application/json") -> str:
@@ -101,8 +101,8 @@ class ObjectStorageManager:
             gcs_path = f"gs://{self.bucket_name}/{key}"
             logger.info(f"Successfully uploaded bytes to storage: {gcs_path}")
             return gcs_path
-        except Exception as e:
-            logger.exception(f"Failed to upload bytes '{key}' to storage: {e}")
+        except Exception:
+            logger.exception("Failed to upload bytes '%s' to storage", key)
             raise
 
     def list_files(self, prefix: str) -> list:
@@ -116,8 +116,8 @@ class ObjectStorageManager:
             )
             contents = response.get("Contents", [])
             return [obj["Key"] for obj in contents if "Key" in obj]
-        except Exception as e:
-            logger.exception(f"Failed to list files with prefix '{prefix}': {e}")
+        except Exception:
+            logger.exception("Failed to list files with prefix '%s'", prefix)
             return []
 
     def read_text(self, key: str) -> str:
@@ -131,8 +131,8 @@ class ObjectStorageManager:
             )
             body = response["Body"].read()
             return body.decode("utf-8")
-        except Exception as e:
-            logger.exception(f"Failed to read text file '{key}': {e}")
+        except Exception:
+            logger.exception("Failed to read text file '%s'", key)
             raise
 
 _storage_manager = None

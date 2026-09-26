@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import setup_env  # noqa: F401
 from package.utils.failure_reporter import (
     FailureReporter,
-    generate_auto_heal_trigger_message
+    generate_auto_heal_trigger_message,
 )
 
 

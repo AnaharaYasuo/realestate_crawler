@@ -528,7 +528,7 @@ def main():
                 )
                 asyncio.run(send_slack_message(message=auto_heal_msg, channel="#dev-agent"))
                 logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
-            except Exception as dte:
+            except Exception as dte:  # noqa: BLE001
                 logger.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
     except Exception as ex:
         logging.exception(f"Failed to generate/send Slack crawl summary: {ex}")
