@@ -301,16 +301,16 @@ def main():
                 
             elif timeout_sec > 0 and now - start_t > timeout_sec:
                 # タイムアウト
-                logging.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
+                logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
                 try:
                     pgid = os.getpgid(proc.pid)
                     os.killpg(pgid, signal.SIGKILL)
                     proc.communicate()
-                except Exception as ke:
-                    logging.exception(f"Failed to kill: {ke}")
+                except Exception:
+                    logger.exception("Failed to kill")
                 
                 elapsed = now - start_t
-                end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
                 duration_job_str = format_duration(int(elapsed))
                 try:
                     FailureReporter.record_job_failure(
@@ -382,7 +382,7 @@ def main():
                 next_job_index += 1
                 
                 is_pw = company.lower() in PLAYWRIGHT_COMPANIES
-                logging.info(f"[{idx}/{len(CRAWL_JOBS)}] Starting crawl for {company} - {ptype} (Playwright={is_pw})...")
+                logger.info(f"[{idx}/{len(CRAWL_JOBS)}] Starting crawl for {company} - {ptype} (Playwright={is_pw})...")
                 cmd = [
                     sys.executable,
                     main_py_path,
@@ -401,16 +401,16 @@ def main():
                     )
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
-                except Exception as e:
-                    logging.exception(f"Failed to start crawl job for {company} - {ptype}: {e}")
+                except Exception:
+                    logger.exception(f"Failed to start crawl job for {company} - {ptype}")
                     results.append({
                         "index": idx,
                         "company": company,
                         "property_type": ptype,
                         "status": "error",
                         "exit_code": -1,
-                        "start_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "end_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "start_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                        "end_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                         "duration": "0秒",
                         "elapsed_seconds": 0,
                         "items_count": 0,
@@ -438,7 +438,7 @@ def main():
         time.sleep(1)
             
     # レポート保存
-    batch_end_dt = datetime.datetime.now()
+    batch_end_dt = datetime.datetime.now(datetime.timezone.utc)
     elapsed_delta = batch_end_dt - batch_start_dt
     duration_str = format_duration(int(elapsed_delta.total_seconds()))
 
@@ -457,7 +457,7 @@ def main():
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
         
-    logging.info(f"All crawl jobs finished. Report written to {report_path}")
+    logger.info(f"All crawl jobs finished. Report written to {report_path}")
     
     # DB にタスク完了状態を記録
     if task_exec_record is not None:
@@ -467,9 +467,9 @@ def main():
             task_exec_record.jobs_failed = summary["failed_jobs"]
             task_exec_record.results_json = results
             task_exec_record.save()
-            logging.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
+            logger.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
         except Exception as dbe:
-            logging.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
+            logger.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
     
     # Slack notifications for crawl statuses
     try:
