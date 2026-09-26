@@ -259,6 +259,8 @@ def test_stage_coderabbit_with_target_sha(monkeypatch):
         executed_cmds.append((cmd, kwargs))
         if cmd == ["coderabbit", "--version"]:
             return 0, "0.8.1", ""
+        if cmd == ["git", "rev-parse", "HEAD"] or cmd == ["git", "rev-parse", "abc1234"]:
+            return 0, "abc1234", ""
         if cmd == ["git", "merge-base", "origin/master", "abc1234"]:
             return 0, "base_commit_hash", ""
         return 0, '{"type":"complete","status":"completed","findings":0}', ""
