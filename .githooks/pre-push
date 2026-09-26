@@ -60,7 +60,10 @@ run_pre_pr_check() {
             # Also mount shared Git metadata directory as read-only so worktree .git reference resolves
             main_git_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
             if [ -n "$main_git_dir" ] && [ -d "$main_git_dir" ]; then
-                docker run --rm -v "${toplevel}:/app" -v "${main_git_dir}:${main_git_dir}:ro" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
+                main_git_dir_norm=$(norm_path "$main_git_dir")
+                wt_git_dir=$(git rev-parse --git-dir 2>/dev/null || echo "")
+                wt_git_dir_norm=$(norm_path "$wt_git_dir")
+                docker run --rm -v "${toplevel}:/app" -v "${main_git_dir}:${main_git_dir_norm}:ro" -e GIT_DIR="${wt_git_dir_norm}" -e GIT_WORK_TREE=/app -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
             else
                 docker run --rm -v "${toplevel}:/app" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
             fi
