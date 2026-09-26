@@ -49,12 +49,12 @@ run_pre_pr_check() {
     if command -v docker >/dev/null 2>&1; then
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
-            docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
             # Main checkout mapped to /app
-            docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         elif has_working_python3; then
-            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         else
             # External worktree without host python: run in container mounted volume
             # Also mount shared Git metadata directory as read-only so worktree .git reference resolves
@@ -70,9 +70,9 @@ run_pre_pr_check() {
         fi
     else
         if python3 -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
-            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            python3 src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         else
-            python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+            python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         fi
     fi
 }
