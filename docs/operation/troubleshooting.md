@@ -395,6 +395,46 @@ SELECT * FROM crawler_mitsumansion ORDER BY inputDateTime DESC LIMIT 5;
 
 ---
 
+## GCPクラウドインシデント / Cloud Monitoring & Pub/Sub
+
+### Budget Alert (Pub/Sub Notification) PERMISSION_DENIED
+
+**症状:**
+```
+An error occurred while publishing notification to Cloud Pub/Sub topic projects/sumifu/topics/budget-alert-topic-prod.
+Possible causes: 1) you don't have the required role; or 2) Cloud Pub/Sub API is not enabled in your project: PERMISSION_DENIED
+```
+
+**原因:**
+1. GCP Cloud Monitoring Notification サービスエージェント（`service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com`）に Pub/Sub トピックへのパブリッシュ権限（`roles/pubsub.publisher`）が未割り当て。
+2. 対象プロジェクト（`sumifu`）で Cloud Pub/Sub API が有効化されていない。
+
+**修復手順:**
+
+1. **Pub/Sub API の有効化確認 & 有効化:**
+   ```bash
+   gcloud services enable pubsub.googleapis.com --project=sumifu
+   ```
+
+2. **Cloud Monitoring サービスエージェントアカウントの取得:**
+   プロジェクトの Monitoring Service Agent アカウント名を確認（`service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com`）。
+
+3. **Pub/Sub Publisher 権限の付与:**
+   ```bash
+   # プロジェクトレベルで付与する場合
+   gcloud projects add-iam-policy-binding sumifu \
+     --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com" \
+     --role="roles/pubsub.publisher"
+
+   # または特定トピックへの最小権限付与
+   gcloud pubsub topics add-iam-policy-binding budget-alert-topic-prod \
+     --project=sumifu \
+     --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com" \
+     --role="roles/pubsub.publisher"
+   ```
+
+---
+
 ## サポート
 
 上記の対処法で解決しない場合は、以下の情報を添えてIssueを作成してください：
@@ -404,3 +444,4 @@ SELECT * FROM crawler_mitsumansion ORDER BY inputDateTime DESC LIMIT 5;
 3. `task logs` の出力（最新100行程度）
 4. 実行したコマンド
 5. 環境情報（OS、Dockerバージョン等）
+
