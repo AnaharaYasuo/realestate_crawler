@@ -414,8 +414,8 @@ class PrePRChecker:
         if self.skip_coderabbit:
             return StageResult(4, STAGE_CODERABBIT, True, details="--skip-coderabbit によりスキップ", duration_sec=0.0)
 
-        # Check if coderabbit is installed
-        code, _out, _ = self._run_cmd(["coderabbit", "--version"])
+        # Check if coderabbit is installed (with 30s timeout)
+        code, _out, _ = self._run_cmd(["coderabbit", "--version"], timeout=30.0)
         if code != 0:
             err = (
                 "CodeRabbit CLI ('coderabbit') がインストールされていないか、PATHに存在しません。\n"
@@ -435,7 +435,7 @@ class PrePRChecker:
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
             cmd.extend(["--base-commit", merge_base, "--committed"])
         else:
-            cmd.extend(["--base", "origin/master", "--include-untracked"])
+            cmd.extend(["--base", "origin/master", "--uncommitted", "--include-untracked"])
 
         # Execute review with finite timeout (1800s / 30m for AI analysis)
         rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
@@ -451,34 +451,37 @@ class PrePRChecker:
                 continue
             try:
                 data = json.loads(line)
-                if data.get("type") == "finding":
-                    findings_count += 1
-                    sev = data.get("severity", "info").upper()
-                    file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
-                    msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
-                    issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
-                    if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
-                        errors.append(issue_text)
-                    else:
-                        warnings.append(issue_text)
-                elif data.get("type") == "error":
-                    errors.append(data.get("message", "CodeRabbit CLI エラー"))
-                elif data.get("type") == "complete":
-                    status = data.get("status")
-                    if status in ("completed", "review_completed"):
-                        has_completed_event = True
-                        findings_count = max(findings_count, data.get("findings", 0))
-                    elif status == "review_skipped":
-                        # Validate that changes are indeed empty
-                        changed = self.get_changed_files()
-                        if changed:
-                            errors.append(f"変更ファイルが存在するにもかかわらず CodeRabbit レビューがスキップされました: {len(changed)} files")
-                        else:
-                            has_completed_event = True
-                    else:
-                        errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
             except Exception:
-                pass
+                continue
+
+            event_type = data.get("type")
+            if event_type == "finding":
+                findings_count += 1
+                raw_sev = data.get("severity")
+                sev = str(raw_sev).strip().upper() if raw_sev else "INFO"
+                file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
+                msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
+                issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
+                if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
+                    errors.append(issue_text)
+                else:
+                    warnings.append(issue_text)
+            elif event_type == "error":
+                errors.append(data.get("message", "CodeRabbit CLI エラー"))
+            elif event_type == "complete":
+                status = data.get("status")
+                if status in ("completed", "review_completed"):
+                    has_completed_event = True
+                    findings_count = max(findings_count, data.get("findings", 0))
+                elif status == "review_skipped":
+                    # Validate that changes are indeed empty
+                    changed = self.get_changed_files()
+                    if changed:
+                        errors.append(f"変更ファイルが存在するにもかかわらず CodeRabbit レビューがスキップされました: {len(changed)} files")
+                    else:
+                        has_completed_event = True
+                else:
+                    errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
         if rc != 0 and not errors:
             err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました。"

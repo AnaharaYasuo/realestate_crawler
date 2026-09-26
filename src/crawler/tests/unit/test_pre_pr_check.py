@@ -235,15 +235,42 @@ def test_stage_coderabbit_timeout(monkeypatch):
     """PrePRChecker fails when CodeRabbit execution times out."""
     checker = PrePRChecker(skip_coderabbit=False)
 
-    def mock_run_cmd(cmd, **_kwargs):
+    def mock_run_cmd(cmd, **kwargs):
         if cmd == ["coderabbit", "--version"]:
+            assert kwargs.get("timeout") == 30.0
             return 0, "0.8.1", ""
-        return 124, "", "コマンドがタイムアウトしました (180秒)"
+        assert kwargs.get("timeout") == 1800.0
+        return 124, "", "コマンドがタイムアウトしました (1800秒)"
 
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
     res = checker.stage_coderabbit()
     assert res.passed is False
     assert any("タイムアウト" in e for e in res.errors)
+
+
+def test_stage_coderabbit_with_target_sha(monkeypatch):
+    """PrePRChecker invokes coderabbit with merge-base and finite timeout when target_sha is provided."""
+    checker = PrePRChecker(skip_coderabbit=False, sha="abc1234")
+    executed_cmds = []
+
+    def mock_run_cmd(cmd, **kwargs):
+        executed_cmds.append((cmd, kwargs))
+        if cmd == ["coderabbit", "--version"]:
+            return 0, "0.8.1", ""
+        if cmd == ["git", "merge-base", "origin/master", "abc1234"]:
+            return 0, "base_commit_hash", ""
+        return 0, '{"type":"complete","status":"completed","findings":0}', ""
+
+    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
+    res = checker.stage_coderabbit()
+    assert res.passed is True
+
+    review_call = [c for c, kw in executed_cmds if "review" in c][0]
+    review_kw = [kw for c, kw in executed_cmds if "review" in c][0]
+    assert "--base-commit" in review_call
+    assert "base_commit_hash" in review_call
+    assert "--committed" in review_call
+    assert review_kw.get("timeout") == 1800.0
 
 
 

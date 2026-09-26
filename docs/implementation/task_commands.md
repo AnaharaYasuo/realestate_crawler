@@ -425,13 +425,13 @@ task pr-create
 ### task verify:pre-push
 
 **説明:**  
-プッシュ前にローカルで SonarCloud 静的解析（S3776/S8786）、CodeRabbit CLI（`coderabbit review --uncommitted`）、および事前検証（`pre_pr_check.py --diff`）を一括実行し、リモートプッシュ前に水際で合格を確認します。
+プッシュ前にローカルで SonarCloud 静的解析（S3776/S8786）、CodeRabbit CLI（`coderabbit review --base master --include-untracked`）、および事前検証（`pre_pr_check.py --diff --skip-coderabbit`）を一括実行し、リモートプッシュ前に水際で合格を確認します。
 
 **内部動作:**
 ```bash
 docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
-coderabbit review --uncommitted
-docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff
+coderabbit review --base master --include-untracked
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit
 ```
 
 **使用例:**

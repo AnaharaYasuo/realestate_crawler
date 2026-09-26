@@ -197,10 +197,29 @@ do
     # 6. Host CodeRabbit CLI Guardrail
     if [ "$SKIP_CODERABBIT" = "1" ] || [ "$SKIP_CODERABBIT" = "true" ]; then
         echo "⚠️  SKIP_CODERABBIT is enabled. Bypassing CodeRabbit review guardrail."
-    elif command -v coderabbit >/dev/null 2>&1; then
+    elif ! command -v coderabbit >/dev/null 2>&1; then
+        echo ""
+        echo "================================================================================"
+        echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI ('coderabbit') がホスト環境にインストールされていません。"
+        echo "インストールするか、緊急時は SKIP_CODERABBIT=1 を指定してプッシュしてください。"
+        echo "================================================================================"
+        echo ""
+        exit 1
+    else
         echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
-        CR_OUTPUT=$(coderabbit review --agent 2>&1)
-        CR_EXIT_CODE=$?
+        # Resolve merge-base for pushed commit to ensure clean review of committed changes
+        cr_base=$(git merge-base origin/master "$local_sha" 2>/dev/null || git merge-base master "$local_sha" 2>/dev/null || echo "origin/master")
+        CR_CMD="coderabbit review --agent --base-commit $cr_base --committed"
+
+        # Execute with finite timeout (1800s)
+        if command -v timeout >/dev/null 2>&1; then
+            CR_OUTPUT=$(timeout 1800s $CR_CMD 2>&1)
+            CR_EXIT_CODE=$?
+        else
+            CR_OUTPUT=$($CR_CMD 2>&1)
+            CR_EXIT_CODE=$?
+        fi
+
         CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type":"finding"' | wc -l || echo "0")
         CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)":"(high|critical|error|major)"' || true)
 
@@ -226,8 +245,6 @@ do
             exit 1
         fi
         echo "✅ CodeRabbit CLI レビューに合格しました (指摘: ${CR_FINDINGS}件)。"
-    else
-        echo "⚠️  CodeRabbit CLI がホスト環境で見つかりません (CI/PR作成時に検証されます)。"
     fi
 done
 
