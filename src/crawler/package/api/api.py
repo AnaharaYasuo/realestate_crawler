@@ -35,6 +35,7 @@ from package.models.evaluation import PropertyPriceHistory
 from package.utils.url_matcher import UrlMatcher
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.converter import parse_chidai
+from package.utils.failure_reporter import FailureReporter
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -63,6 +64,23 @@ def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unkno
         with open(meta_file, 'w', encoding='utf-8') as f:
             f.write(f"URL: {url}\nModel/Class: {model_name}\nTimestamp: {datetime.datetime.now()}\nReason: {reason}\n")
         logging.info("Saved error HTML to %s", html_file)
+
+        # GCS障害テレメトリへも即時保存
+        try:
+            parts = company_type.split("_", 1)
+            comp = parts[0] if parts else "unknown"
+            ptype = parts[1] if len(parts) > 1 else "unknown"
+            FailureReporter.record_job_failure(
+                company=comp,
+                property_type=ptype,
+                error_type="FetchOrParseError",
+                error_message=reason,
+                target_url=url,
+                exit_code=1,
+                raw_html=response.content
+            )
+        except Exception as fe:
+            logging.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
 
 
 TCP_CONNECTOR_LIMIT = 100

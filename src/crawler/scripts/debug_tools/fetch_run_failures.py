@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 Antigravity 用 障害テレメトリ一括取得 CLI スクリプト (fetch_run_failures.py)
 Issue #466
 """
-import os
-import sys
-import json
 import argparse
 import datetime
+import json
+import os
+import sys
 
 _current_dir = os.path.dirname(os.path.abspath(__file__))
 _scripts_dir = os.path.dirname(_current_dir)
@@ -21,7 +20,8 @@ from package.utils.failure_reporter import FailureReporter
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch all crawling failure telemetry from GCS/storage for a given date.")
-    parser.add_argument("--date", type=str, default=datetime.date.today().strftime("%Y%m%d"), help="Target date YYYYMMDD")
+    default_date = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
+    parser.add_argument("--date", type=str, default=default_date, help="Target date YYYYMMDD")
     parser.add_argument("--summary", action="store_true", help="Print readable summary instead of raw JSON")
     args = parser.parse_args()
 

@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
 import json
-import pytest
 from unittest.mock import patch, MagicMock
 
 import setup_env  # noqa: F401
@@ -114,3 +112,55 @@ class TestGcsFailureTelemetry466:
         assert "fetch_run_failures.py" in msg
         assert "nomura - mansion" in msg
         assert "mitsui - kodate" in msg
+
+    def test_base_parser_save_error_html_calls_failure_reporter(self, tmp_path, monkeypatch):
+        """Test baseParser.save_error_html triggers FailureReporter.record_job_failure."""
+        from package.parser.nomuraParser import NomuraMansionParser
+
+        parser = NomuraMansionParser("")
+        with patch.object(FailureReporter, "record_job_failure") as mock_record:
+            parser.save_error_html(
+                url="https://www.nomu.com/mansion/test",
+                content=b"<html>error</html>",
+                reason="Test reason"
+            )
+            mock_record.assert_called_once()
+            kwargs = mock_record.call_args.kwargs
+            assert kwargs["company"] == "nomura"
+            assert kwargs["property_type"] == "mansion"
+            assert kwargs["error_type"] == "ParseHtmlError"
+            assert kwargs["error_message"] == "Test reason"
+            assert kwargs["raw_html"] == b"<html>error</html>"
+
+    def test_fetch_run_failures_cli_main(self, capsys):
+        """Test CLI main function in fetch_run_failures.py."""
+        from scripts.debug_tools.fetch_run_failures import main
+
+        sample_manifest = {
+            "date": "20260926",
+            "total_failures": 1,
+            "failures": [{
+                "company": "nomura",
+                "property_type": "mansion",
+                "error_type": "SelectorMismatch",
+                "error_message": "table missing",
+                "target_url": "https://test.com",
+                "parser_file": "src/crawler/package/parser/nomuraParser.py",
+                "gcs_html_path": "gs://test/html"
+            }]
+        }
+
+        with patch.object(FailureReporter, "fetch_daily_failures", return_value=sample_manifest):
+            with patch("sys.argv", ["fetch_run_failures.py", "--date", "20260926"]):
+                main()
+                captured = capsys.readouterr()
+                data = json.loads(captured.out)
+                assert data["total_failures"] == 1
+                assert data["failures"][0]["company"] == "nomura"
+
+            with patch("sys.argv", ["fetch_run_failures.py", "--date", "20260926", "--summary"]):
+                main()
+                captured = capsys.readouterr()
+                assert "=== Crawling Failures Summary for 20260926 ===" in captured.out
+                assert "nomura - mansion" in captured.out
+

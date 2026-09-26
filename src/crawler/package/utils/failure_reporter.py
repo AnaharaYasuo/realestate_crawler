@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 GCSリアルタイム障害テレメトリ・一括オートヒール連携モジュール (failure_reporter.py)
 Issue #466
 """
-import os
-import json
-import hashlib
-import logging
 import datetime
+import hashlib
+import json
+import logging
+import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 from package.utils.storage import get_storage_manager
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 def generate_auto_heal_trigger_message(
     date_str: str,
     failed_count: int,
-    failed_jobs: List[Any]
+    failed_jobs: list[Any]
 ) -> str:
     """Slack #dev-agent 宛の Antigravity 自動修復トリガーメッセージを生成"""
     jobs_summary = "\n".join([f"  • {c} - {p}" for c, p in failed_jobs])
@@ -45,22 +44,21 @@ class FailureReporter:
         target_url: str = "",
         exit_code: int = 1,
         traceback_str: str = "",
-        raw_html: Optional[bytes] = None,
+        raw_html: bytes | None = None,
         duration_seconds: int = 0,
-        task_index: Optional[int] = None,
-        task_count: Optional[int] = None,
-        date_str: Optional[str] = None
-    ) -> Dict[str, Any]:
+        task_index: int | None = None,
+        task_count: int | None = None,
+        date_str: str | None = None
+    ) -> dict[str, Any]:
         """障害メタデータおよび失敗生HTMLを即座にGCS（またはフォールバック）へ保存"""
         if not date_str:
-            date_str = datetime.date.today().strftime("%Y%m%d")
+            date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
 
         comp_clean = str(company).lower()
         type_clean = str(property_type).lower()
         job_key = f"{comp_clean}_{type_clean}"
 
         # HTML保存パス構築
-        gcs_html_path = None
         html_key = None
         if raw_html:
             url_hash = hashlib.sha256((target_url or job_key).encode("utf-8")).hexdigest()[:16]
@@ -68,7 +66,7 @@ class FailureReporter:
 
         metadata_key = f"runs/{date_str}/failures/{job_key}.json"
 
-        record: Dict[str, Any] = {
+        record: dict[str, Any] = {
             "date": date_str,
             "company": comp_clean,
             "property_type": type_clean,
@@ -99,7 +97,7 @@ class FailureReporter:
             sm.upload_bytes(meta_bytes, metadata_key, content_type="application/json")
             storage_uploaded = True
             logger.info("Successfully recorded failure telemetry to storage: %s", metadata_key)
-        except Exception as se:
+        except Exception as se:  # noqa: BLE001
             logger.warning("ObjectStorageManager upload failed, falling back to local: %s", se)
 
         # 2. ローカルフォールバック保存
@@ -121,12 +119,12 @@ class FailureReporter:
         return record
 
     @classmethod
-    def fetch_daily_failures(cls, date_str: Optional[str] = None) -> Dict[str, Any]:
+    def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
         """GCS（およびローカルフォールバック）から指定日付の全障害情報を集約ロード"""
         if not date_str:
-            date_str = datetime.date.today().strftime("%Y%m%d")
+            date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
 
-        failures: List[Dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
         seen_keys = set()
 
         # 1. オブジェクトストレージより取得
@@ -140,7 +138,7 @@ class FailureReporter:
                     data = json.loads(content)
                     failures.append(data)
                     seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning("Failed to fetch daily failures from storage: %s", e)
 
         # 2. ローカルフォールバックも走査して補完
@@ -155,7 +153,7 @@ class FailureReporter:
                     if jk not in seen_keys:
                         failures.append(data)
                         seen_keys.add(jk)
-                except Exception as fe:
+                except Exception as fe:  # noqa: BLE001
                     logger.warning("Failed to read local fallback %s: %fe", fpath, fe)
 
         return {
