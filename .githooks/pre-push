@@ -42,6 +42,10 @@ run_pre_pr_check() {
             ;;
     esac
 
+    has_working_python3() {
+        python3 -c "import sys" >/dev/null 2>&1
+    }
+
     if command -v docker >/dev/null 2>&1; then
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
@@ -49,7 +53,7 @@ run_pre_pr_check() {
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
-        elif command -v python3 >/dev/null 2>&1; then
+        elif has_working_python3; then
             python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
             # External worktree without host python: run in container mounted volume
@@ -66,6 +70,7 @@ run_pre_pr_check() {
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
     fi
 }
+
 
 
 
