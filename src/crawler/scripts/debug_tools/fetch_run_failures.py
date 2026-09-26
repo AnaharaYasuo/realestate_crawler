@@ -34,13 +34,18 @@ def main():
 
     if args.summary:
         print(f"=== Crawling Failures Summary for {manifest['date']} ===")
-        print(f"Total Failures: {manifest['total_failures']}")
+        print(f"Total Telemetry Failures: {manifest['total_failures']}")
+        print(f"Total Log Errors (ERROR/CRITICAL): {manifest.get('total_log_errors', 0)}")
         for idx, f in enumerate(manifest['failures'], 1):
             print(f"\n[{idx}] {f.get('company')} - {f.get('property_type')}")
             print(f"    Error: {f.get('error_type')} - {f.get('error_message')}")
             print(f"    URL: {f.get('target_url') or 'N/A'}")
             print(f"    Parser: {f.get('parser_file')}")
             print(f"    Raw HTML: {f.get('gcs_html_path') or 'N/A'}")
+        if manifest.get("log_errors"):
+            print("\n=== Parsed Log File Errors ===")
+            for idx, le in enumerate(manifest["log_errors"], 1):
+                print(f"[{idx}] ({le['level']}) {le['file_path']}:{le['line_number']} - {le['log_entry']}")
     else:
         print(json.dumps(manifest, ensure_ascii=False, indent=2))
 

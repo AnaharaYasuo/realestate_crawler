@@ -220,3 +220,27 @@ class TestGcsFailureTelemetry466:
         assert keys == ["runs/20260926/failures/job1.json", "runs/20260926/failures/job2.json"]
         assert sm.s3_client.list_objects_v2.call_count == 2
 
+    def test_fetch_daily_failures_includes_log_file_errors(self, tmp_path, monkeypatch):
+        """Test fetch_daily_failures scans and aggregates log file errors."""
+        monkeypatch.setenv("STORAGE_LOCAL_FALLBACK_DIR", str(tmp_path))
+        
+        log_file = tmp_path / "run_20260926.log"
+        log_file.write_text(
+            "2026-09-26 12:00:00 [INFO] Starting crawler\n"
+            "2026-09-26 12:00:05 [ERROR] [1] Crawl job FAILED for sumifu - tochi. Exit Code: 0, Scraped: 0 items, Error: 0 items scraped (Zero count failure)\n"
+            "2026-09-26 12:00:10 [CRITICAL] Database connection lost\n",
+            encoding="utf-8"
+        )
+
+        with patch("package.utils.failure_reporter.get_storage_manager", side_effect=Exception("Storage unavailable")):
+            manifest = FailureReporter.fetch_daily_failures(date_str="20260926")
+
+        assert manifest["date"] == "20260926"
+        assert manifest["total_log_errors"] == 2
+        assert len(manifest["log_errors"]) == 2
+        levels = [e["level"] for e in manifest["log_errors"]]
+        assert "ERROR" in levels
+        assert "CRITICAL" in levels
+        assert "sumifu - tochi" in manifest["log_errors"][0]["log_entry"]
+
+
