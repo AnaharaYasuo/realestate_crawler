@@ -68,7 +68,8 @@ def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unkno
         # GCS障害テレメトリへも即時保存
         try:
             parts = company_type.split("_", 1)
-            comp = parts[0] if parts else "unknown"
+            raw_comp = parts[0] if parts else "unknown"
+            comp = raw_comp[:-3] if raw_comp.endswith("API") else raw_comp
             ptype = parts[1] if len(parts) > 1 else "unknown"
             FailureReporter.record_job_failure(
                 company=comp,
@@ -79,7 +80,7 @@ def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unkno
                 exit_code=1,
                 raw_html=response.content
             )
-        except Exception as fe:
+        except Exception as fe:  # noqa: BLE001
             logging.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
 
 

@@ -1,3 +1,4 @@
+import hashlib
 import json
 from unittest.mock import MagicMock, patch
 
@@ -41,6 +42,17 @@ class TestGcsFailureTelemetry466:
         assert "nomura_mansion.json" in rec["metadata_key"]
         assert rec["gcs_html_path"] is not None
         assert mock_storage.upload_bytes.call_count == 2
+        expected_html_key = (
+            "runs/20260926/error_pages/nomura_mansion/"
+            f"{hashlib.sha256(b'https://www.nomu.com/mansion/test').hexdigest()[:16]}.html"
+        )
+        html_calls = [
+            c for c in mock_storage.upload_bytes.call_args_list
+            if c.kwargs.get("content_type") == "text/html"
+        ]
+        assert len(html_calls) == 1
+        assert html_calls[0].args[0] == b"<html><body>dummy error page</body></html>"
+        assert html_calls[0].args[1] == expected_html_key
 
     def test_record_job_failure_fallback_without_gcs(self, tmp_path, monkeypatch):
         """Test fallback when storage upload fails or is in fallback mode."""

@@ -132,10 +132,13 @@ class FailureReporter:
             keys = sm.list_files(prefix=prefix)
             for k in keys:
                 if k.endswith(".json"):
-                    content = sm.read_text(k)
-                    data = json.loads(content)
-                    failures.append(data)
-                    seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
+                    try:
+                        content = sm.read_text(k)
+                        data = json.loads(content)
+                        failures.append(data)
+                        seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
+                    except Exception as ke:  # noqa: BLE001
+                        logger.warning("Failed to parse failure JSON %s: %s", k, ke)
         except Exception as e:  # noqa: BLE001
             storage_error = str(e)
             logger.warning("Failed to fetch daily failures from storage: %s", e)
@@ -153,7 +156,7 @@ class FailureReporter:
                         failures.append(data)
                         seen_keys.add(jk)
                 except Exception as fe:  # noqa: BLE001
-                    logger.warning("Failed to read local fallback %s: %fe", fpath, fe)
+                    logger.warning("Failed to read local fallback %s: %s", fpath, fe)
 
         return {
             "date": date_str,
