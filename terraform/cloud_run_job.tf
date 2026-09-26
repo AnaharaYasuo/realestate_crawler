@@ -10,6 +10,7 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
     google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.slack_bot_token_version,
+    google_secret_manager_secret_version.new_relic_license_key_version,
     google_secret_manager_secret_iam_member.secret_accessor
   ]
 
@@ -161,6 +162,25 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
         env {
           name  = "SLACK_RECOMMEND_INVEST_KODATE"
           value = "C0BJ20EMQ67"
+        }
+
+        # New Relic 監視設定
+        env {
+          name = "NEW_RELIC_LICENSE_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.new_relic_license_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+        env {
+          name  = "NEW_RELIC_APP_NAME"
+          value = "realestate-crawler-pipeline-${var.environment}"
+        }
+        env {
+          name  = "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED"
+          value = "true"
         }
 
         # Playwright は --disable-dev-shm-usage フラグで /tmp を利用するため shm の個別マウント不要

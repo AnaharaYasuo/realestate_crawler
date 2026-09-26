@@ -20,9 +20,10 @@ resource "google_logging_project_sink" "new_relic_log_sink" {
   destination            = "pubsub.googleapis.com/${google_pubsub_topic.new_relic_log_topic.id}"
   unique_writer_identity = true
 
-  # Stream logs from Cloud Run, Cloud SQL, and GCE ProxySQL instances
+  # Stream logs from Cloud Run, Cloud Run Jobs, Cloud SQL, and GCE ProxySQL instances
   filter = <<-EOT
     resource.type = "cloud_run_revision" OR
+    resource.type = "cloud_run_job" OR
     resource.type = "cloudsql_database" OR
     resource.type = "gce_instance"
   EOT
