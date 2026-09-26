@@ -187,6 +187,51 @@ class FailureReporter:
         return cls._scan_local_logs(date_str) + cls._scan_gcs_logs(date_str)
 
     @classmethod
+    def _fetch_from_storage(cls, date_str: str) -> tuple[list[dict[str, Any]], set[str], str | None]:
+        failures: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        storage_error: str | None = None
+        try:
+            sm = get_storage_manager()
+            gcs_prefix = f"runs/{date_str}/failures/"
+            for k in sm.list_files(prefix=gcs_prefix):
+                if not k.endswith(".json"):
+                    continue
+                try:
+                    content = sm.read_text(k)
+                    data = json.loads(content)
+                    failures.append(data)
+                    job_key = Path(k).stem
+                    seen_keys.add(job_key)
+                except Exception as fe:  # noqa: BLE001
+                    logger.warning("Failed to parse telemetry file %s: %s", k, fe)
+        except Exception as se:  # noqa: BLE001
+            storage_error = str(se)
+            logger.warning("ObjectStorageManager list/read failed, relying on local fallback: %s", se)
+
+        return failures, seen_keys, storage_error
+
+    @classmethod
+    def _fetch_from_local_fallback(cls, date_str: str, seen_keys: set[str]) -> list[dict[str, Any]]:
+        failures: list[dict[str, Any]] = []
+        fallback_dir = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs")) / "runs" / date_str / "failures"
+        if not fallback_dir.exists():
+            return failures
+
+        for local_file in fallback_dir.glob("*.json"):
+            job_key = local_file.stem
+            if job_key in seen_keys:
+                continue
+            try:
+                with open(local_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    failures.append(data)
+            except Exception as fe:  # noqa: BLE001
+                logger.warning("Failed to parse local telemetry file %s: %s", local_file, fe)
+
+        return failures
+
+    @classmethod
     def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
         """GCS（およびローカルフォールバック）から指定日付の全障害情報とログエラーを集約ロード"""
         if not date_str:
@@ -205,3 +250,4 @@ class FailureReporter:
             "failures": failures,
             "log_errors": log_errors
         }
+
