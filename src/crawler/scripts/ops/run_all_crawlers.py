@@ -24,6 +24,9 @@ while True:
         break
     _cur = _parent
 
+from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics
+init_new_relic()
+
 from django.apps import apps
 from django.db.models import Q
 from django.utils import timezone
@@ -219,7 +222,7 @@ def main():
     
     global active_processes
 
-    batch_start_dt = datetime.datetime.now()
+    batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
 
     while job_queue or active_processes:
         now = time.time()
@@ -281,20 +284,33 @@ def main():
                     "error_message": error_msg
                 })
 
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=scraped_cnt,
+                        duration_sec=float(elapsed),
+                        zero_count=(exit_code == 0 and scraped_cnt == 0),
+                        status=status,
+                        metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
+
                 del active_processes[idx]
                 
             elif timeout_sec > 0 and now - start_t > timeout_sec:
                 # タイムアウト
-                logging.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
+                logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
                 try:
                     pgid = os.getpgid(proc.pid)
                     os.killpg(pgid, signal.SIGKILL)
                     proc.communicate()
-                except Exception as ke:
-                    logging.exception(f"Failed to kill: {ke}")
+                except Exception:
+                    logger.exception("Failed to kill")
                 
                 elapsed = now - start_t
-                end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
                 duration_job_str = format_duration(int(elapsed))
                 try:
                     FailureReporter.record_job_failure(
@@ -324,6 +340,20 @@ def main():
                     "items_count": 0,
                     "error_message": f"Timeout expired ({timeout_sec}s)"
                 })
+
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=0,
+                        duration_sec=float(elapsed),
+                        zero_count=True,
+                        status="timeout",
+                        metadata={"exit_code": -1, "error_msg": f"Timeout expired ({timeout_sec}s)"}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic timeout metrics for {company} - {ptype}: {nre}")
+
                 post_slack(f"❌ 【タイムアウト】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 制限時間 {timeout_sec}秒超過")
                 del active_processes[idx]
         
@@ -352,7 +382,7 @@ def main():
                 next_job_index += 1
                 
                 is_pw = company.lower() in PLAYWRIGHT_COMPANIES
-                logging.info(f"[{idx}/{len(CRAWL_JOBS)}] Starting crawl for {company} - {ptype} (Playwright={is_pw})...")
+                logger.info(f"[{idx}/{len(CRAWL_JOBS)}] Starting crawl for {company} - {ptype} (Playwright={is_pw})...")
                 cmd = [
                     sys.executable,
                     main_py_path,
@@ -372,20 +402,33 @@ def main():
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
-                    logging.exception(f"Failed to start crawl job for {company} - {ptype}: {e}")
+                    logger.exception(f"Failed to start crawl job for {company} - {ptype}")
                     results.append({
                         "index": idx,
                         "company": company,
                         "property_type": ptype,
                         "status": "error",
                         "exit_code": -1,
-                        "start_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "end_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "start_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                        "end_time": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                         "duration": "0秒",
                         "elapsed_seconds": 0,
                         "items_count": 0,
                         "error_message": str(e)
                     })
+
+                    try:
+                        record_crawler_metrics(
+                            site_name=company,
+                            property_type=ptype,
+                            count=0,
+                            duration_sec=0.0,
+                            zero_count=True,
+                            status="error",
+                            metadata={"exit_code": -1, "error_msg": str(e)}
+                        )
+                    except Exception as nre:
+                        logger.warning(f"Failed to record New Relic error metrics for {company} - {ptype}: {nre}")
                 
                 # 並行起動時にPCへ一度に負荷を集中させないよう、わずかなスリープ
                 time.sleep(2)
@@ -395,7 +438,7 @@ def main():
         time.sleep(1)
             
     # レポート保存
-    batch_end_dt = datetime.datetime.now()
+    batch_end_dt = datetime.datetime.now(datetime.timezone.utc)
     elapsed_delta = batch_end_dt - batch_start_dt
     duration_str = format_duration(int(elapsed_delta.total_seconds()))
 
@@ -414,7 +457,7 @@ def main():
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
         
-    logging.info(f"All crawl jobs finished. Report written to {report_path}")
+    logger.info(f"All crawl jobs finished. Report written to {report_path}")
     
     # DB にタスク完了状態を記録
     if task_exec_record is not None:
@@ -424,9 +467,9 @@ def main():
             task_exec_record.jobs_failed = summary["failed_jobs"]
             task_exec_record.results_json = results
             task_exec_record.save()
-            logging.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
+            logger.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
         except Exception as dbe:
-            logging.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
+            logger.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
     
     # Slack notifications for crawl statuses
     try:
