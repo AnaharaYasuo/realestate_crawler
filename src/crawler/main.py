@@ -1,6 +1,9 @@
 # ruff: noqa: E402
 import os
 import logging
+from package.utils.newrelic_helper import init_new_relic
+init_new_relic()
+
 import sys
 import signal
 import traceback
@@ -177,6 +180,16 @@ def parse_sumifu_start_mansion_async_pubsub(event, context):
     return sumifuMansionStart()
 
 parseSumifuStartMansionAsyncPubSub = parse_sumifu_start_mansion_async_pubsub
+
+
+@app.route('/health', methods=['GET'])
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({
+        "status": "ok",
+        "service": "realestate-api",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+    }), 200
 
 
 @app.route(API_KEY_MANSION_ALL_START, methods=['OPTIONS', 'POST', 'GET'])
