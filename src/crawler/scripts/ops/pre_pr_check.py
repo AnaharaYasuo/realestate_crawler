@@ -204,9 +204,16 @@ class PrePRChecker:
         """Get list of changed files against origin/master or master including staged, unstaged, and untracked."""
         files: set[str] = set()
         ref = self.target_sha or "HEAD"
+        base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"]
+        rc, stdout, _ = self._run_cmd(base_diff_cmd)
+        if rc != 0:
+            base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"]
+            rc, stdout, _ = self._run_cmd(base_diff_cmd)
+        for f in stdout.splitlines():
+            if f.strip():
+                files.add(f.strip().replace("\\", "/"))
+
         for cmd in [
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"],
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"],
             ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
             ["git", "-c", "diff.autoRefreshIndex=false", "diff", "--name-only", "--ignore-space-at-eol"],
             ["git", "ls-files", "--others", "--exclude-standard"],
