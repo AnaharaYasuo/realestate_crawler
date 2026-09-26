@@ -25,6 +25,7 @@ from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
+from package.utils.failure_reporter import FailureReporter
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -453,7 +454,20 @@ if __name__ == "__main__":
                 else:
                     func()
             except Exception as e:
+                tb = traceback.format_exc()
                 logging.exception(f"Error during crawl execution: {e}")
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=prop_type,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        exit_code=1,
+                        traceback_str=tb
+                    )
+                except Exception as fre:
+                    logging.warning(f"Failed to record failure telemetry: {fre}")
+                sys.exit(1)
             logging.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:

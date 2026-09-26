@@ -85,6 +85,52 @@ class ObjectStorageManager:
             return public_url
         except Exception as e:
             logger.exception(f"Failed to upload image '{filename}' to storage: {e}")
+    def upload_bytes(self, data: bytes, key: str, content_type: str = "application/json") -> str:
+        """
+        任意のバイト列をストレージにアップロードし、参照パスまたはURLを返します。
+        """
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=key,
+                Body=data,
+                ContentType=content_type
+            )
+            gcs_path = f"gs://{self.bucket_name}/{key}"
+            logger.info(f"Successfully uploaded bytes to storage: {gcs_path}")
+            return gcs_path
+        except Exception as e:
+            logger.exception(f"Failed to upload bytes '{key}' to storage: {e}")
+            raise e
+
+    def list_files(self, prefix: str) -> list:
+        """
+        指定したプレフィックスに一致するオブジェクトキー一覧を取得します。
+        """
+        try:
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.bucket_name,
+                Prefix=prefix
+            )
+            contents = response.get("Contents", [])
+            return [obj["Key"] for obj in contents if "Key" in obj]
+        except Exception as e:
+            logger.exception(f"Failed to list files with prefix '{prefix}': {e}")
+            return []
+
+    def read_text(self, key: str) -> str:
+        """
+        指定したキーのテキストコンテンツを取得します。
+        """
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=key
+            )
+            body = response["Body"].read()
+            return body.decode("utf-8")
+        except Exception as e:
+            logger.exception(f"Failed to read text file '{key}': {e}")
             raise e
 
 _storage_manager = None
