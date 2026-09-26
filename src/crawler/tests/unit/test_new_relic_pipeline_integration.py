@@ -58,15 +58,16 @@ def test_terraform_log_sink_has_cloud_run_job_filter():
     assert 'resource.type = "cloud_run_job"' in sink_block
     assert "google_project_iam_member.github_actions_logging_config_writer" in sink_block
 
-    topic_admin = _extract_tf_resource(
-        content, "google_pubsub_topic_iam_member", "github_actions_newrelic_topic_admin"
+    topic_iam = _extract_tf_resource(
+        content, "google_pubsub_topic_iam_member", "github_actions_newrelic_topic_iam"
     )
-    assert 'role    = "roles/pubsub.admin"' in topic_admin
-    assert "var.github_actions_sa_email" in topic_admin
-    assert "google_pubsub_topic.new_relic_log_topic.name" in topic_admin
+    assert 'role    = "projects/${var.project_id}/roles/pubsubTopicIamManager"' in topic_iam
+    assert "roles/pubsub.admin" not in topic_iam
+    assert "var.github_actions_sa_email" in topic_iam
+    assert "google_pubsub_topic.new_relic_log_topic.name" in topic_iam
 
     publisher = _extract_tf_resource(content, "google_pubsub_topic_iam_member", "new_relic_sink_publisher")
-    assert "google_pubsub_topic_iam_member.github_actions_newrelic_topic_admin" in publisher
+    assert "google_pubsub_topic_iam_member.github_actions_newrelic_topic_iam" in publisher
 
 
 def test_terraform_github_actions_has_logging_config_writer():
