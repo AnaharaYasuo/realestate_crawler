@@ -128,3 +128,33 @@ import {
   to = google_secret_manager_secret_version.estimation_api_key_version
 }
 
+# Secret for New Relic Ingest License Key
+resource "google_secret_manager_secret" "new_relic_license_key" {
+  secret_id = "realestate-new-relic-license-key-${var.environment}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.enabled_services]
+}
+
+resource "google_secret_manager_secret_version" "new_relic_license_key_version" {
+  secret      = google_secret_manager_secret.new_relic_license_key.id
+  secret_data = "placeholder-new-relic-key"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+import {
+  id = "projects/sumifu/secrets/realestate-new-relic-license-key-prod"
+  to = google_secret_manager_secret.new_relic_license_key
+}
+
+import {
+  id = "projects/sumifu/secrets/realestate-new-relic-license-key-prod/versions/1"
+  to = google_secret_manager_secret_version.new_relic_license_key_version
+}
+

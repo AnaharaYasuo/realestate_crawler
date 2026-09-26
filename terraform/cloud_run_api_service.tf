@@ -10,6 +10,7 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
     google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.estimation_api_key_version,
+    google_secret_manager_secret_version.new_relic_license_key_version,
     google_secret_manager_secret_iam_member.secret_accessor
   ]
 
@@ -88,6 +89,24 @@ resource "google_cloud_run_v2_service" "estimation_api_service" {
             version = "latest"
           }
         }
+      }
+
+      env {
+        name = "NEW_RELIC_LICENSE_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.new_relic_license_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
+        name  = "NEW_RELIC_APP_NAME"
+        value = "realestate-api-${var.environment}"
+      }
+      env {
+        name  = "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED"
+        value = "true"
       }
     }
   }
