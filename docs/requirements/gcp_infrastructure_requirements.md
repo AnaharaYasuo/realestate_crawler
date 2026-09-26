@@ -54,10 +54,10 @@
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
 - **リソースオンデマンド・ライフサイクル制御**:
-  - 常時課金が発生する ProxySQL MIG（`min_replicas = 0`）および Cloud NAT は、クローリングバッチ稼働時間帯（01:00 JST等）のみオンデマンドで起動・有効化し、処理完了と同時に自動停止（スケールイン `size = 0`）すること。
-  - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL MIG をオンデマンド起動（`0 -> 1`）し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。
+  - ProxySQL は単一 Compute Engine インスタンス（`proxysql-instance-${var.environment}`）および Direct VPC Egress 構成を採用する。
+  - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL インスタンス（または設定に応じた MIG）の起動・稼働状態を検証し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。単一インスタンス構成時は存在しない MIG Autoscaler の操作をスキップし、HTTP 404 エラーによるクラッシュを防止すること。
+  - セーフティネット（`ensure_resources_stopped.py`）は、単一インスタンス名（`PROXYSQL_INSTANCE_NAME`）を優先検証し、MIG が存在しない場合でも 404 エラーで誤アラートを発報せず、単一インスタンスを安全に検査・停止すること。
   - DB疎通確認（`wait_for_db.py`）は、短時間のソケット疎通事前チェック（最大3〜5秒）を実施し、未起動・不通時に OS の TCP SYN タイムアウト（130秒×リトライ回数＝1時間）でハングせず迅速に Fail-Fast すること。
-  - Terraform デプロイ時の Autoscaler `min_replicas`/`max_replicas` 上書きによる意図しない日中自動スケールアップを防止するため、Autoscaler リソースのポリシー変更を無視（`ignore_changes`）可能とすること。
   - Cloud Run コンテナ内での GCE リソース操作（ProxySQL MIG リサイズ）は、外部 CLI（`gcloud`）に依存せず `google-cloud-compute` または REST API により自己完結すること。
   - オートスケーラー管理下 MIG に対する直接 resize 禁止（GCP API 制約）を回避するため、スケールイン/アウトはオートスケーラー設定（`min_replicas`/`max_replicas`）を介して安全に行うこと。
   - ProxySQL VM の初期化・パッケージ導入・ヘルスチェック通過までの所要時間を考慮し、ヘルスチェック待機時間は最低 240 秒のタイムアウトを確保すること。

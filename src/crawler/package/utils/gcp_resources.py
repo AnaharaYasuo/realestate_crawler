@@ -205,6 +205,12 @@ def patch_proxysql_autoscaler(
         )
         return True
 
+    if os.getenv("PROXYSQL_INSTANCE_NAME"):
+        logger.info(
+            "[Single Instance Mode] ProxySQL Autoscaler patch skipped (managed as single GCE instance)."
+        )
+        return True
+
     project = (
         project_id
         or os.getenv("GCP_PROJECT")
@@ -255,7 +261,9 @@ def _get_mig_via_compute_client(
         raw_size = getattr(igm, "target_size", 0)
         target_size = int(raw_size) if isinstance(raw_size, (int, float)) else 0
         status_obj = getattr(igm, "status", None)
-        autoscaler_val = getattr(status_obj, "autoscaler", None) if status_obj is not None else None
+        autoscaler_val = (
+            getattr(status_obj, "autoscaler", None) if status_obj is not None else None
+        )
         autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
         return target_size, "", autoscaler
     except Exception as e:  # noqa: BLE001
@@ -277,7 +285,9 @@ def _get_mig_via_rest(
             return -1, f"HTTP {resp.status_code}: {resp.text}", None
         data = resp.json()
         target_size = int(data.get("targetSize", 0))
-        autoscaler_val = data.get("status", {}).get("autoscaler") or data.get("autoscaler")
+        autoscaler_val = data.get("status", {}).get("autoscaler") or data.get(
+            "autoscaler"
+        )
         autoscaler = autoscaler_val if isinstance(autoscaler_val, str) else None
         return target_size, "", autoscaler
     except Exception as e:  # noqa: BLE001
@@ -373,9 +383,10 @@ def _find_cloud_sql_by_prefix(
             return False, err
         return _evaluate_sql_instances_matches(matches or [], prefix)
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}")
+        logger.warning(
+            f"Failed to list Cloud SQL instances for prefix match '{prefix}': {e}"
+        )
         return False, str(e)
-
 
 
 def check_cloud_sql_status(
@@ -395,7 +406,9 @@ def check_cloud_sql_status(
         or os.getenv("GCP_PROJECT")
         or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
     )
-    instance = instance_name or os.getenv("CLOUDSQL_INSTANCE_NAME", "realestate-mysql-prod")
+    instance = instance_name or os.getenv(
+        "CLOUDSQL_INSTANCE_NAME", "realestate-mysql-prod"
+    )
     token_fn = get_token_callback or (
         lambda: get_gcp_access_token(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
@@ -445,7 +458,6 @@ def _scale_direct_mig(
         f"Failed to resize ProxySQL MIG '{mig}' to size {target_size} (all methods failed)."
     )
     return False
-
 
 
 def get_instance_status(
@@ -519,7 +531,9 @@ def _execute_instance_action(
 
     token = token_fn()
     if not token:
-        logger.error(f"No GCP access token available to {action} ProxySQL instance via REST.")
+        logger.error(
+            f"No GCP access token available to {action} ProxySQL instance via REST."
+        )
         return False
 
     url = f"https://compute.googleapis.com/compute/v1/projects/{project}/zones/{zone}/instances/{instance_name}/{action}"
@@ -528,7 +542,9 @@ def _execute_instance_action(
             url, headers={"Authorization": f"Bearer {token}"}, timeout=10
         )
         if resp.status_code in (200, 204):
-            logger.info(f"Instance {action} operation submitted via REST API: HTTP {resp.status_code}")
+            logger.info(
+                f"Instance {action} operation submitted via REST API: HTTP {resp.status_code}"
+            )
             return True
         logger.error(f"REST API {action} failed: HTTP {resp.status_code} - {resp.text}")
     except Exception as e:  # noqa: BLE001
@@ -554,7 +570,8 @@ def start_proxysql_instance(
     reg = os.getenv("GCP_REGION", "asia-northeast1")
     inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
     inst_name = instance_name or os.getenv(
-        "PROXYSQL_INSTANCE_NAME", f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}"
+        "PROXYSQL_INSTANCE_NAME",
+        f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}",
     )
 
     logger.info(
@@ -563,18 +580,29 @@ def start_proxysql_instance(
     if dry_run or not bool(
         os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
     ):
-        logger.info(f"[Dry-run/Local] ProxySQL instance '{inst_name}' started (mocked).")
+        logger.info(
+            f"[Dry-run/Local] ProxySQL instance '{inst_name}' started (mocked)."
+        )
         return True
 
     status, _ = get_instance_status(
-        project, inst_zone, inst_name, compute_module=compute_module, get_token_callback=get_token_callback
+        project,
+        inst_zone,
+        inst_name,
+        compute_module=compute_module,
+        get_token_callback=get_token_callback,
     )
     if status == "RUNNING":
         logger.info(f"ProxySQL instance '{inst_name}' is already RUNNING.")
         return True
 
     return _execute_instance_action(
-        "start", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+        "start",
+        project,
+        inst_zone,
+        inst_name,
+        compute_module,
+        get_token_callback or get_gcp_access_token,
     )
 
 
@@ -595,7 +623,8 @@ def stop_proxysql_instance(
     reg = os.getenv("GCP_REGION", "asia-northeast1")
     inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
     inst_name = instance_name or os.getenv(
-        "PROXYSQL_INSTANCE_NAME", f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}"
+        "PROXYSQL_INSTANCE_NAME",
+        f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}",
     )
 
     logger.info(
@@ -604,18 +633,29 @@ def stop_proxysql_instance(
     if dry_run or not bool(
         os.getenv("IS_CLOUD") or os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB")
     ):
-        logger.info(f"[Dry-run/Local] ProxySQL instance '{inst_name}' stopped (mocked).")
+        logger.info(
+            f"[Dry-run/Local] ProxySQL instance '{inst_name}' stopped (mocked)."
+        )
         return True
 
     status, _ = get_instance_status(
-        project, inst_zone, inst_name, compute_module=compute_module, get_token_callback=get_token_callback
+        project,
+        inst_zone,
+        inst_name,
+        compute_module=compute_module,
+        get_token_callback=get_token_callback,
     )
     if status in ("TERMINATED", "STOPPED", "STOPPING"):
         logger.info(f"ProxySQL instance '{inst_name}' is already {status}.")
         return True
 
     return _execute_instance_action(
-        "stop", project, inst_zone, inst_name, compute_module, get_token_callback or get_gcp_access_token
+        "stop",
+        project,
+        inst_zone,
+        inst_name,
+        compute_module,
+        get_token_callback or get_gcp_access_token,
     )
 
 
@@ -678,7 +718,13 @@ def scale_proxysql_mig(
     instance_name = os.getenv("PROXYSQL_INSTANCE_NAME")
     if instance_name:
         return _delegate_to_single_instance(
-            target_size, project, reg, instance_name, dry_run, compute_module, get_token_callback
+            target_size,
+            project,
+            reg,
+            instance_name,
+            dry_run,
+            compute_module,
+            get_token_callback,
         )
 
     logger.info(
@@ -765,5 +811,3 @@ def wait_for_proxysql_health(
         f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution."
     )
     return False
-
-
