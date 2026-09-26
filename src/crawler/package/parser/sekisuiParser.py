@@ -1,11 +1,14 @@
+import re
 from decimal import Decimal
-# -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
 from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 from package.models.sekisui import SekisuiMansion, SekisuiKodate, SekisuiTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
-import re
+
+KEY_COMPLETION_DATE = "完成時期（築年月）"
+KEY_STRUCTURE_FLOORS = "構造・階数"
+
 
 def _parse_sekisui_dl_specs(response: BeautifulSoup, specs: dict) -> None:
     for dl in response.find_all("dl"):
@@ -129,7 +132,8 @@ class SekisuiParser(ParserBase):
         title_elem = response.select_one(".detail-header__title, .property-title, .title")
         if title_elem:
             return title_elem.get_text().strip()
-        return ""
+        specs = _specs or self._get_specs(response)
+        return specs.get("物件名", "") or specs.get("建物名", "") or ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
         _ = specs
@@ -209,11 +213,65 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
+        specs = specs or self._get_specs(response)
+        candidates = [
+            specs.get("築年月", ""),
+            specs.get("完成年月", ""),
+            specs.get("竣工年月", ""),
+            specs.get("築年", ""),
+            specs.get(KEY_COMPLETION_DATE, ""),
+            specs.get("完成時期", ""),
+        ]
+        for val in candidates:
+            if val:
+                dt = converter.parse_chikunengetsu(val)
+                if dt is not None:
+                    return dt
         return super()._parseChikunengetsu(response, specs)
+
+    def _parseFloorTypeChijo(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        candidates = [specs.get(KEY_STRUCTURE_FLOORS, ""), specs.get("階数", ""), specs.get("建物構造", "")]
+        for val in candidates:
+            if not val:
+                continue
+            m_chijo = re.search(r'地上\s*(\d{1,3})階', val)
+            if m_chijo:
+                return int(m_chijo.group(1))
+            cleaned = re.sub(r'地下\s*\d{1,3}階(?:建)?', '', val)
+            m_kai = re.search(r'(\d{1,3})階建', cleaned)
+            if m_kai:
+                return int(m_kai.group(1))
+        return None
+
+    def _parseFloorTypeChika(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        candidates = [specs.get(KEY_STRUCTURE_FLOORS, ""), specs.get("階数", ""), specs.get("建物構造", "")]
+        has_floors = False
+        for val in candidates:
+            if not val:
+                continue
+            m_chika = re.search(r'地下\s*(\d{1,3})階', val)
+            if m_chika:
+                return int(m_chika.group(1))
+            cleaned = re.sub(r'地下\s*\d{1,3}階(?:建)?', '', val)
+            if re.search(r'(\d{1,3})階建', cleaned) or re.search(r'地上\s*(\d{1,3})階', val):
+                has_floors = True
+        return 0 if has_floors else None
+
+    def _parseFloorTypeKai(self, response: BeautifulSoup, specs=None) -> int | None:
+        specs = specs or self._get_specs(response)
+        val = specs.get("所在階", "")
+        if val:
+            m = re.search(r'(\d{1,3})階', val)
+            if m:
+                return int(m.group(1))
+        return None
+
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or specs.get("構造・階数", "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
+        return specs.get("構造", "") or specs.get(KEY_STRUCTURE_FLOORS, "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -257,20 +315,29 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
-        item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "")
+        item.kaisuStr = specs.get("所在階", "")
         if item.kaisuStr:
             item.floorType_kai = converter.parse_numeric(item.kaisuStr)
 
-        item.chikunengetsuStr = (
-            specs.get("築年月", "")
-            or specs.get("完成年月", "")
-            or specs.get("竣工年月", "")
-            or specs.get("築年", "")
-            or specs.get("完成時期（築年月）", "")
-            or specs.get("完成時期", "")
-        )
-        if item.chikunengetsuStr:
-            item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
+        chikunen_candidates = [
+            specs.get("築年月", ""),
+            specs.get("完成年月", ""),
+            specs.get("竣工年月", ""),
+            specs.get("築年", ""),
+            specs.get(KEY_COMPLETION_DATE, ""),
+            specs.get("完成時期", ""),
+        ]
+        item.chikunengetsuStr = ""
+        item.chikunengetsu = None
+        for val in chikunen_candidates:
+            if val:
+                dt = converter.parse_chikunengetsu(val)
+                if dt is not None:
+                    item.chikunengetsuStr = val
+                    item.chikunengetsu = dt
+                    break
+        if not item.chikunengetsuStr:
+            item.chikunengetsuStr = next((v for v in chikunen_candidates if v), "")
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "")
         if item.balconyMensekiStr:
@@ -292,8 +359,13 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         item.kouzou = self._parseKouzou(response, specs)
+
+        item.floorType_chijo = self._parseFloorTypeChijo(response, specs)
+        item.floorType_chika = self._parseFloorTypeChika(response, specs)
+        item.floorType_kai = self._parseFloorTypeKai(response, specs)
         
         return item
+
 
 
 class SekisuiKodateParser(SekisuiParser, KodateParserBase):
@@ -325,7 +397,7 @@ class SekisuiKodateParser(SekisuiParser, KodateParserBase):
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or specs.get("構造・階数", "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
+        return specs.get("構造", "") or specs.get(KEY_STRUCTURE_FLOORS, "") or specs.get("建物構造", "") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -367,7 +439,7 @@ class SekisuiKodateParser(SekisuiParser, KodateParserBase):
             or specs.get("完成年月", "")
             or specs.get("竣工年月", "")
             or specs.get("築年", "")
-            or specs.get("完成時期（築年月）", "")
+            or specs.get(KEY_COMPLETION_DATE, "")
             or specs.get("完成時期", "")
         )
         if item.chikunengetsuStr:
