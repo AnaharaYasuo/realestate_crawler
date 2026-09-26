@@ -116,47 +116,55 @@ class FailureReporter:
         return record
 
     @classmethod
+    def _fetch_from_storage(cls, date_str: str) -> tuple[list[dict[str, Any]], set[str], str | None]:
+        failures: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        storage_error: str | None = None
+        try:
+            sm = get_storage_manager()
+            prefix = f"runs/{date_str}/failures/"
+            for k in sm.list_files(prefix=prefix):
+                if not k.endswith(".json"):
+                    continue
+                try:
+                    data = json.loads(sm.read_text(k))
+                    failures.append(data)
+                    seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
+                except Exception as ke:  # noqa: BLE001
+                    logger.warning("Failed to parse failure JSON %s: %s", k, ke)
+        except Exception as e:  # noqa: BLE001
+            storage_error = str(e)
+            logger.warning("Failed to fetch daily failures from storage: %s", e)
+        return failures, seen_keys, storage_error
+
+    @classmethod
+    def _fetch_from_local_fallback(cls, date_str: str, seen_keys: set[str]) -> list[dict[str, Any]]:
+        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        local_dir = fallback_base / "runs" / date_str / "failures"
+        if not local_dir.exists():
+            return []
+        extra: list[dict[str, Any]] = []
+        for fpath in local_dir.glob("*.json"):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                jk = f"{data.get('company')}_{data.get('property_type')}"
+                if jk not in seen_keys:
+                    extra.append(data)
+                    seen_keys.add(jk)
+            except Exception as fe:  # noqa: BLE001
+                logger.warning("Failed to read local fallback %s: %s", fpath, fe)
+        return extra
+
+    @classmethod
     def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
         """GCS（およびローカルフォールバック）から指定日付の全障害情報を集約ロード"""
         if not date_str:
             date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
 
-        failures: list[dict[str, Any]] = []
-        seen_keys = set()
-        storage_error: str | None = None
-
-        # 1. オブジェクトストレージより取得
-        try:
-            sm = get_storage_manager()
-            prefix = f"runs/{date_str}/failures/"
-            keys = sm.list_files(prefix=prefix)
-            for k in keys:
-                if k.endswith(".json"):
-                    try:
-                        content = sm.read_text(k)
-                        data = json.loads(content)
-                        failures.append(data)
-                        seen_keys.add(f"{data.get('company')}_{data.get('property_type')}")
-                    except Exception as ke:  # noqa: BLE001
-                        logger.warning("Failed to parse failure JSON %s: %s", k, ke)
-        except Exception as e:  # noqa: BLE001
-            storage_error = str(e)
-            logger.warning("Failed to fetch daily failures from storage: %s", e)
-
-        # 2. ローカルフォールバックも走査して補完
-        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
-        local_dir = fallback_base / "runs" / date_str / "failures"
-        if local_dir.exists():
-            for fpath in local_dir.glob("*.json"):
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    jk = f"{data.get('company')}_{data.get('property_type')}"
-                    if jk not in seen_keys:
-                        failures.append(data)
-                        seen_keys.add(jk)
-                except Exception as fe:  # noqa: BLE001
-                    logger.warning("Failed to read local fallback %s: %s", fpath, fe)
+        failures, seen_keys, storage_error = cls._fetch_from_storage(date_str)
+        fallback_failures = cls._fetch_from_local_fallback(date_str, seen_keys)
+        failures.extend(fallback_failures)
 
         return {
             "date": date_str,
