@@ -184,7 +184,7 @@ def test_stage_coderabbit_success_clean(monkeypatch):
         return 0, agent_output, ""
 
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-    monkeypatch.setattr(checker, "get_changed_files", lambda: [])
+    monkeypatch.setattr(checker, "get_changed_files", list)
 
     res = checker.stage_coderabbit()
     assert res.passed is True
@@ -267,8 +267,8 @@ def test_stage_coderabbit_with_target_sha(monkeypatch):
     res = checker.stage_coderabbit()
     assert res.passed is True
 
-    review_call = [c for c, kw in executed_cmds if "review" in c][0]
-    review_kw = [kw for c, kw in executed_cmds if "review" in c][0]
+    review_call = next(c for c, kw in executed_cmds if "review" in c)
+    review_kw = next(kw for c, kw in executed_cmds if "review" in c)
     assert "--base-commit" in review_call
     assert "base_commit_hash" in review_call
     assert "--committed" in review_call

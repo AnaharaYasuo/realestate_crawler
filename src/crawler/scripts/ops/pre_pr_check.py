@@ -459,7 +459,10 @@ class PrePRChecker:
                     continue
                 try:
                     data = json.loads(line)
-                except Exception:
+                except json.JSONDecodeError:
+                    data = None
+
+                if not isinstance(data, dict):
                     continue
 
                 event_type = data.get("type")
