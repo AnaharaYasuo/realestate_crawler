@@ -89,7 +89,11 @@ def test_object_storage_manager_s3_when_cloud_has_endpoint():
         assert mgr.is_gcs is False
         assert mgr.bucket_name == "test-s3-bucket"
         mock_boto.assert_called_once()
+        assert mock_boto.call_args.args[0] == "s3"
         assert mock_boto.call_args.kwargs.get("endpoint_url") == "http://minio:9000"
+
+
+def test_object_storage_manager_s3_fallback():
     with patch.dict(
         os.environ,
         {"IS_CLOUD": "false", "STORAGE_BACKEND": "minio", "STORAGE_BUCKET": "test-s3-bucket"},
@@ -101,6 +105,8 @@ def test_object_storage_manager_s3_when_cloud_has_endpoint():
         mgr = ObjectStorageManager()
         assert mgr.is_gcs is False
         assert mgr.bucket_name == "test-s3-bucket"
+        mock_boto.assert_called_once()
+        assert mock_boto.call_args.args[0] == "s3"
 
         # Test upload_bytes
         path = mgr.upload_bytes(b"hello s3", "test/s3.json", "application/json")
