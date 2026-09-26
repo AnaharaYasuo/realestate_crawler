@@ -10,7 +10,7 @@
 - `src/crawler/scripts/setup_new_relic_crawler_alerts.py`: クローラー特化の NRQL アラートポリシー＆条件プロビジョニングスクリプト。
 - `src/crawler/tests/unit/test_new_relic_full_stack.py`: GenAI メトリクス、クローラーイベント、デプロイ通知、NRQL アラート設定の包括的単体テスト。
 - `terraform/secrets.tf`: Secret Manager 定義。
-- `terraform/iam.tf`: `google_secret_manager_secret_iam_member.secret_accessor` の `for_each` に `new_relic_license_key` を含め、`crawler-runner` SA へ Secret Accessor を付与。加えて `google_project_iam_member.github_actions_logging_config_writer` で Deploy SA へ `roles/logging.configWriter` を付与し、New Relic log sink 作成（`logging.sinks.create`）を可能にする。
+- `terraform/iam.tf`: `google_secret_manager_secret_iam_member.secret_accessor` の `for_each` に `new_relic_license_key` を含め、`crawler-runner` SA へ Secret Accessor を付与。加えて Deploy SA（`var.github_actions_sa_email` = `secrets.GCP_SERVICE_ACCOUNT`）へ `roles/logging.configWriter` と `roles/pubsub.admin` を付与し、New Relic log sink 作成および sink writer の topic IAM 付与を可能にする。
 - `terraform/cloud_run_api_service.tf`, `terraform/cloud_run_crawler_service.tf`, `terraform/cloud_run_job.tf`: 環境変数注入設定。
 
 ## 2. 実装詳細

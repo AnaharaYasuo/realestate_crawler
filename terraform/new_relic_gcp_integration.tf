@@ -28,8 +28,11 @@ resource "google_logging_project_sink" "new_relic_log_sink" {
     resource.type = "gce_instance"
   EOT
 
-  # Ensure Deploy SA has logging.sinks.create before creating this sink.
-  depends_on = [google_project_iam_member.github_actions_logging_config_writer]
+  # Ensure Deploy SA can create sinks and manage Pub/Sub topic IAM for writer_identity.
+  depends_on = [
+    google_project_iam_member.github_actions_logging_config_writer,
+    google_project_iam_member.github_actions_pubsub_admin,
+  ]
 }
 
 resource "google_pubsub_topic_iam_member" "new_relic_sink_publisher" {
@@ -37,6 +40,8 @@ resource "google_pubsub_topic_iam_member" "new_relic_sink_publisher" {
   topic   = google_pubsub_topic.new_relic_log_topic.name
   role    = "roles/pubsub.publisher"
   member  = google_logging_project_sink.new_relic_log_sink.writer_identity
+
+  depends_on = [google_project_iam_member.github_actions_pubsub_admin]
 }
 
 # Push subscription to New Relic HTTP log intake endpoint

@@ -42,9 +42,18 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
 
 # Deploy SA needs logging.sinks.create (roles/editor no longer includes sink write).
 # Required for google_logging_project_sink.new_relic_log_sink in CI Terraform Apply.
+# Must match secrets.GCP_SERVICE_ACCOUNT (github-actions-crawler); that SA already has
+# roles/resourcemanager.projectIamAdmin so it can manage this binding itself.
 resource "google_project_iam_member" "github_actions_logging_config_writer" {
   project = var.project_id
   role    = "roles/logging.configWriter"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# Deploy SA needs pubsub.topics.getIamPolicy/setIamPolicy to attach sink writer_identity.
+resource "google_project_iam_member" "github_actions_pubsub_admin" {
+  project = var.project_id
+  role    = "roles/pubsub.admin"
   member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
