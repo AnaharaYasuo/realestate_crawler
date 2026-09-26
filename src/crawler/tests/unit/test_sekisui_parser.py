@@ -99,6 +99,14 @@ def test_sekisui_mansion_chikunengetsu_and_floors_parsing():
     assert parser._parseFloorTypeChijo(soup_no_floors, specs_no_floors) is None
     assert parser._parseFloorTypeChika(soup_no_floors, specs_no_floors) is None
 
+    # When property has only basement floors (e.g. 地下2階建)
+    soup_only_basement = BeautifulSoup(
+        "<dl><dt>構造・階数</dt><dd>SRC造</dd><dt>階数</dt><dd>地下2階建</dd></dl>", "html.parser"
+    )
+    specs_only_basement = parser._get_specs(soup_only_basement)
+    assert parser._parseFloorTypeChijo(soup_only_basement, specs_only_basement) is None
+    assert parser._parseFloorTypeChika(soup_only_basement, specs_only_basement) == 2
+
     # When 所在階 is missing, floorType_kai should not fall back to total floors
     soup_no_kai = BeautifulSoup("<dl><dt>階数</dt><dd>11階</dd></dl>", "html.parser")
     specs_no_kai = parser._get_specs(soup_no_kai)

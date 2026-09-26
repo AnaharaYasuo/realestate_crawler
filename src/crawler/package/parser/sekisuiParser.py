@@ -238,7 +238,8 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
             m_chijo = re.search(r'地上\s*(\d{1,3})階', val)
             if m_chijo:
                 return int(m_chijo.group(1))
-            m_kai = re.search(r'(\d{1,3})階建', val)
+            cleaned = re.sub(r'地下\s*\d{1,3}階(?:建)?', '', val)
+            m_kai = re.search(r'(\d{1,3})階建', cleaned)
             if m_kai:
                 return int(m_kai.group(1))
         return None
@@ -253,7 +254,8 @@ class SekisuiMansionParser(SekisuiParser, MansionParserBase):
             m_chika = re.search(r'地下\s*(\d{1,3})階', val)
             if m_chika:
                 return int(m_chika.group(1))
-            if re.search(r'(\d{1,3})階建', val) or re.search(r'地上\s*(\d{1,3})階', val):
+            cleaned = re.sub(r'地下\s*\d{1,3}階(?:建)?', '', val)
+            if re.search(r'(\d{1,3})階建', cleaned) or re.search(r'地上\s*(\d{1,3})階', val):
                 has_floors = True
         return 0 if has_floors else None
 
