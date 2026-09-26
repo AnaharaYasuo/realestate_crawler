@@ -19,6 +19,7 @@ import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
 from package.utils.logging_config import configure_logging
 configure_logging()
+logger = logging.getLogger(__name__)
 
 # Import keys for remaining routes (if any) or shared usage
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
@@ -446,7 +447,7 @@ if __name__ == "__main__":
             signal.signal(signal.SIGTERM, handle_sigterm)
             signal.signal(signal.SIGINT, handle_sigterm)
 
-            logging.info(f"Starting {company} {prop_type} crawl via CLI...")
+            logger.info(f"Starting {company} {prop_type} crawl via CLI...")
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
@@ -455,7 +456,7 @@ if __name__ == "__main__":
                     func()
             except Exception as e:
                 tb = traceback.format_exc()
-                logging.exception(f"Error during crawl execution: {e}")
+                logger.exception(f"Error during crawl execution: {e}")
                 try:
                     FailureReporter.record_job_failure(
                         company=company,
@@ -466,13 +467,13 @@ if __name__ == "__main__":
                         traceback_str=tb
                     )
                 except Exception as fre:
-                    logging.warning(f"Failed to record failure telemetry: {fre}")
+                    logger.warning(f"Failed to record failure telemetry: {fre}")
                 sys.exit(1)
-            logging.info(f"Execution finished for {company} {prop_type}")
+            logger.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:
-            logging.error(f"Unknown combination: company={company}, type={prop_type}")
-            logging.info("Usage: python main.py --company=[sumifu|mitsui|tokyu|nomura|misawa] --type=[mansion|invest_kodate|invest_apartment|investment]")
+            logger.error(f"Unknown combination: company={company}, type={prop_type}")
+            logger.info("Usage: python main.py --company=[sumifu|mitsui|tokyu|nomura|misawa] --type=[mansion|invest_kodate|invest_apartment|investment]")
             sys.exit(1)
 
     port = int(os.getenv('PORT', '8000'))

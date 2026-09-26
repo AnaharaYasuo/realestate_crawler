@@ -85,6 +85,8 @@ class ObjectStorageManager:
             return public_url
         except Exception as e:
             logger.exception(f"Failed to upload image '{filename}' to storage: {e}")
+            raise
+
     def upload_bytes(self, data: bytes, key: str, content_type: str = "application/json") -> str:
         """
         任意のバイト列をストレージにアップロードし、参照パスまたはURLを返します。
@@ -101,7 +103,7 @@ class ObjectStorageManager:
             return gcs_path
         except Exception as e:
             logger.exception(f"Failed to upload bytes '{key}' to storage: {e}")
-            raise e
+            raise
 
     def list_files(self, prefix: str) -> list:
         """
@@ -131,7 +133,7 @@ class ObjectStorageManager:
             return body.decode("utf-8")
         except Exception as e:
             logger.exception(f"Failed to read text file '{key}': {e}")
-            raise e
+            raise
 
 _storage_manager = None
 

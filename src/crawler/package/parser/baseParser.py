@@ -951,7 +951,7 @@ class ParserBase(metaclass=ABCMeta):
             with open(html_filepath, "wb") as f:
                 f.write(content)
             with open(meta_filepath, "w", encoding="utf-8") as f:
-                f.write(f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n")
             logging.info(f"Saved error HTML to {company_dir}/{base_filename}")
         except Exception:
             logging.exception("Failed to save error HTML")
