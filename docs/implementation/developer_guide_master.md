@@ -61,7 +61,9 @@ task logs
 8. **APIクラスの実装**: `src/crawler/package/api/{company}.py` を作成。
 9. **ルート登録**: `src/crawler/main.py` にAPIエンドポイントを追加。
 10. **テスト＆検証**: `task test` および二段階検証で受入基準の充足を確認。
-11. **PR作成**: `gh pr create --base master --head feature/<issue_num>-... --title "[#<issue_num>] ..." --body "Closes #<issue_num>"`
+11. **プッシュ前CLI検証**: `task verify:pre-push` を実行し、SonarCloud静的解析（S3776/S8786）およびCodeRabbit CLIレビューに合格することを確認。
+12. **プッシュ＆PR作成**: `git push origin feature/<issue_num>-...`（`.githooks/pre-push` が自動で全検証を水際ブロック/許可）。合格後 `task pr-create` または `gh pr create` でPR提出。
+
 
 ---
 

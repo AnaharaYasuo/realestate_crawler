@@ -220,21 +220,23 @@ def test_analyze_property_images_with_gemini(monkeypatch):
 
     monkeypatch.setattr("requests.get", lambda url, timeout: mock_resp)
 
-    # Mock genai
-    mock_model = MagicMock()
+    # Mock genai Client
+    mock_client = MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = False
     mock_gen_resp = MagicMock()
     mock_gen_resp.text = '{"shadow_area_ratio": 0.1, "retaining_wall_risk": "none"}'
-    mock_model.generate_content.return_value = mock_gen_resp
+    mock_client.models.generate_content.return_value = mock_gen_resp
 
     monkeypatch.setenv("GEMINI_API_KEY", "fake_api_key")
-    monkeypatch.setattr("google.generativeai.GenerativeModel", lambda m: mock_model)
+    monkeypatch.setattr("google.genai.Client", lambda *args, **kwargs: mock_client)
 
     result = analyze_property_images_with_gemini(cleaned_images)
     assert result['shape_score_100'] == 90.0
     assert result['retaining_wall_risk'] == 'none'
 
     # Exception during generate_content -> returns default_result
-    mock_model.generate_content.side_effect = RuntimeError("API error")
+    mock_client.models.generate_content.side_effect = RuntimeError("API error")
     err_res = analyze_property_images_with_gemini(cleaned_images)
     assert err_res['shape_score_100'] is None
 

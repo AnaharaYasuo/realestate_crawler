@@ -9,12 +9,19 @@ from unittest.mock import MagicMock, patch
 from package.ml.unified_property_extractor import SingleUnifiedPropertyExtractor, UnifiedPropertyAttributes
 
 
-class MockGeminiModel:
+class MockGeminiClient:
     def __init__(self, response_text):
         self.response_text = response_text
         self.call_count = 0
+        self.models = self
 
-    def generate_content(self, prompt):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+    def generate_content(self, model, contents):
         self.call_count += 1
         mock_resp = MagicMock()
         mock_resp.text = self.response_text
@@ -106,12 +113,12 @@ def test_single_call_guarantee(sample_mansion_input, mock_mansion_json_response,
     monkeypatch.setenv("GEMINI_API_KEY", "mock-key")
     extractor = SingleUnifiedPropertyExtractor()
 
-    mock_model = MockGeminiModel(mock_mansion_json_response)
-    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+    mock_client = MockGeminiClient(mock_mansion_json_response)
+    with patch.object(extractor, "_get_genai_client", return_value=mock_client):
         res = extractor.extract(sample_mansion_input)
 
         # 呼び出し回数が厳格に1回であること
-        assert mock_model.call_count == 1
+        assert mock_client.call_count == 1
         assert isinstance(res, UnifiedPropertyAttributes)
         assert res.building_master.developer_brand == "三井不動産レジデンシャル（パークコート）"
         assert res.building_master.elevator_available is True
@@ -126,10 +133,10 @@ def test_fallback_on_llm_failure(sample_mansion_input, monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "mock-key")
     extractor = SingleUnifiedPropertyExtractor()
 
-    mock_model = MockGeminiModel("This is not valid JSON string!")
-    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+    mock_client = MockGeminiClient("This is not valid JSON string!")
+    with patch.object(extractor, "_get_genai_client", return_value=mock_client):
         res = extractor.extract(sample_mansion_input)
-        assert mock_model.call_count == 1
+        assert mock_client.call_count == 1
         assert isinstance(res, UnifiedPropertyAttributes)
         # フォールバックしてもクラッシュせず基本構造を返す
         assert res.property_overview.price_man_yen == 64800 or res.property_overview.property_type == "mansion"
@@ -155,12 +162,12 @@ def test_multimodal_single_call_with_images(sample_mansion_input, mock_mansion_j
     mock_images = [MagicMock(), MagicMock(), MagicMock()] # 間取り、外観、内装
     sample_mansion_input["images"] = mock_images
 
-    mock_model = MockGeminiModel(mock_mansion_json_response)
-    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+    mock_client = MockGeminiClient(mock_mansion_json_response)
+    with patch.object(extractor, "_get_genai_client", return_value=mock_client):
         res = extractor.extract(sample_mansion_input)
 
         # 画像が何枚あろうと呼び出し回数は厳格に1回
-        assert mock_model.call_count == 1
+        assert mock_client.call_count == 1
         assert isinstance(res, UnifiedPropertyAttributes)
 
 
@@ -201,8 +208,8 @@ def test_ground_rent_llm_and_fallback_extraction(monkeypatch):
         },
         "visual_features": {}
     })
-    mock_model = MockGeminiModel(mock_json)
-    with patch.object(extractor, "_get_generative_model", return_value=mock_model):
+    mock_client = MockGeminiClient(mock_json)
+    with patch.object(extractor, "_get_genai_client", return_value=mock_client):
         res_llm = extractor.extract(kodate_input)
         assert res_llm.rights_economic_conditions.ground_rent_monthly_yen == 20000
         assert res_llm.rights_economic_conditions.land_rights_type == "普通借地権"
