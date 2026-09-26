@@ -24,6 +24,9 @@ while True:
         break
     _cur = _parent
 
+from package.utils.newrelic_helper import init_new_relic
+init_new_relic()
+
 import datetime
 from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config

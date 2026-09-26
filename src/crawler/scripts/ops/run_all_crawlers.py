@@ -24,6 +24,9 @@ while True:
         break
     _cur = _parent
 
+from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics
+init_new_relic()
+
 from django.apps import apps
 from django.db.models import Q
 from django.utils import timezone
@@ -281,6 +284,19 @@ def main():
                     "error_message": error_msg
                 })
 
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=scraped_cnt,
+                        duration_sec=float(elapsed),
+                        zero_count=(scraped_cnt == 0 and status == "success"),
+                        status=status,
+                        metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
+
                 del active_processes[idx]
                 
             elif timeout_sec > 0 and now - start_t > timeout_sec:
@@ -324,6 +340,20 @@ def main():
                     "items_count": 0,
                     "error_message": f"Timeout expired ({timeout_sec}s)"
                 })
+
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=0,
+                        duration_sec=float(elapsed),
+                        zero_count=True,
+                        status="timeout",
+                        metadata={"exit_code": -1, "error_msg": f"Timeout expired ({timeout_sec}s)"}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic timeout metrics for {company} - {ptype}: {nre}")
+
                 post_slack(f"❌ 【タイムアウト】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 制限時間 {timeout_sec}秒超過")
                 del active_processes[idx]
         
@@ -386,6 +416,19 @@ def main():
                         "items_count": 0,
                         "error_message": str(e)
                     })
+
+                    try:
+                        record_crawler_metrics(
+                            site_name=company,
+                            property_type=ptype,
+                            count=0,
+                            duration_sec=0.0,
+                            zero_count=True,
+                            status="error",
+                            metadata={"exit_code": -1, "error_msg": str(e)}
+                        )
+                    except Exception as nre:
+                        logger.warning(f"Failed to record New Relic error metrics for {company} - {ptype}: {nre}")
                 
                 # 並行起動時にPCへ一度に負荷を集中させないよう、わずかなスリープ
                 time.sleep(2)

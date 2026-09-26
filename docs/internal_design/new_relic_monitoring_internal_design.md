@@ -122,6 +122,24 @@ SELECT average(duration_sec / count) FROM CrawlerExecution WHERE count > 0 FACET
 SELECT count(*) FROM CrawlerExecution WHERE status IN ('blocked_403', 'rate_limited_429') FACET site_name
 ```
 
+### 2.6 パイプライン・バッチクローラー実行時の計装
+```python
+# run_pipeline.py / run_all_crawlers.py 冒頭
+from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics
+init_new_relic()
+
+# run_all_crawlers.py での各ジョブ終了時
+record_crawler_metrics(
+    site_name=company,
+    property_type=ptype,
+    count=scraped_cnt,
+    duration_sec=float(elapsed),
+    zero_count=(scraped_cnt == 0 and status == "success"),
+    status=status,
+    metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
+)
+```
+
 ## 3. テスト計画
 - `test_health_endpoint`: `/` および `/health` が 200 OK かつ JSON 形式で `status: ok` を返すことを検証。
 - `test_new_relic_initialization_without_key`: `NEW_RELIC_LICENSE_KEY` 未設定時に `init_new_relic()` が `False` を返し、エラーを起こさないこと。
@@ -131,4 +149,5 @@ SELECT count(*) FROM CrawlerExecution WHERE status IN ('blocked_403', 'rate_limi
 - `test_notice_error`: 例外レポートとカスタムパラメータ転送を検証。
 - `test_notify_deployment_nerdgraph`: Change Tracking API の GraphQL ペイロード組み立てとレスポンスハンドリングを検証。
 - `test_crawler_alerts_provisioning`: NRQL アラートルール登録ペイロードと有限タイムアウト処理を検証。
+- `test_run_all_crawlers_records_crawler_metrics`: バッチクローラーが完了したジョブに対して `record_crawler_metrics` を呼び出すことを検証。
 
