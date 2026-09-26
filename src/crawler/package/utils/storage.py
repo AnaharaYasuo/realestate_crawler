@@ -9,26 +9,36 @@ import os
 
 import boto3
 from botocore.client import Config
+from google.cloud import storage as gcs_storage
 
 logger = logging.getLogger(__name__)
 
 class ObjectStorageManager:
     def __init__(self):
+        self.backend = os.getenv("STORAGE_BACKEND", "minio").lower()
+        self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
         self.endpoint_url = os.getenv("STORAGE_ENDPOINT", "http://minio:9000")
         self.access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
         self.secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")
-        self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
-        
-        self.s3_client = boto3.client(
-            's3',
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            config=Config(signature_version='s3v4'),
-            region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-        )
-        
-        self._ensure_bucket_exists()
+
+        if self.backend == "gcs" or (os.getenv("IS_CLOUD") and os.getenv("STORAGE_ENDPOINT") is None):
+            self.is_gcs = True
+            self.gcs_client = gcs_storage.Client()
+            self.gcs_bucket = self.gcs_client.bucket(self.bucket_name)
+            self.s3_client = None
+        else:
+            self.is_gcs = False
+            self.gcs_client = None
+            self.gcs_bucket = None
+            self.s3_client = boto3.client(
+                's3',
+                endpoint_url=self.endpoint_url,
+                aws_access_key_id=self.access_key,
+                aws_secret_access_key=self.secret_key,
+                config=Config(signature_version='s3v4'),
+                region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            )
+            self._ensure_bucket_exists()
 
     def _ensure_bucket_exists(self):
         """
@@ -66,6 +76,16 @@ class ObjectStorageManager:
         :param content_type: MimeType
         :return: 保存先URL
         """
+        if self.is_gcs:
+            try:
+                blob = self.gcs_bucket.blob(filename)
+                blob.upload_from_string(image_bytes, content_type=content_type)
+                public_url = f"https://storage.googleapis.com/{self.bucket_name}/{filename}"
+                logger.info("Successfully uploaded image to GCS: %s", public_url)
+                return public_url
+            except Exception:
+                logger.exception("Failed to upload image '%s' to GCS", filename)
+                raise
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
@@ -81,7 +101,7 @@ class ObjectStorageManager:
                 url_host = url_host.replace("minio:9000", "localhost:9000")
                 
             public_url = f"{url_host}/{self.bucket_name}/{filename}"
-            logger.info(f"Successfully uploaded image to storage: {public_url}")
+            logger.info("Successfully uploaded image to storage: %s", public_url)
             return public_url
         except Exception:
             logger.exception("Failed to upload image '%s' to storage", filename)
@@ -91,6 +111,16 @@ class ObjectStorageManager:
         """
         任意のバイト列をストレージにアップロードし、参照パスまたはURLを返します。
         """
+        if self.is_gcs:
+            try:
+                blob = self.gcs_bucket.blob(key)
+                blob.upload_from_string(data, content_type=content_type)
+                gcs_path = f"gs://{self.bucket_name}/{key}"
+                logger.info("Successfully uploaded bytes to GCS: %s", gcs_path)
+                return gcs_path
+            except Exception:
+                logger.exception("Failed to upload bytes '%s' to GCS", key)
+                raise
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
@@ -99,7 +129,7 @@ class ObjectStorageManager:
                 ContentType=content_type
             )
             gcs_path = f"gs://{self.bucket_name}/{key}"
-            logger.info(f"Successfully uploaded bytes to storage: {gcs_path}")
+            logger.info("Successfully uploaded bytes to storage: %s", gcs_path)
             return gcs_path
         except Exception:
             logger.exception("Failed to upload bytes '%s' to storage", key)
@@ -109,6 +139,13 @@ class ObjectStorageManager:
         """
         指定したプレフィックスに一致するオブジェクトキー一覧を取得します。
         """
+        if self.is_gcs:
+            try:
+                blobs = self.gcs_client.list_blobs(self.gcs_bucket, prefix=prefix)
+                return [b.name for b in blobs]
+            except Exception:
+                logger.exception("Failed to list GCS files with prefix '%s'", prefix)
+                return []
         keys = []
         continuation_token = None
         try:
@@ -135,6 +172,13 @@ class ObjectStorageManager:
         """
         指定したキーのテキストコンテンツを取得します。
         """
+        if self.is_gcs:
+            try:
+                blob = self.gcs_bucket.blob(key)
+                return blob.download_as_text(encoding="utf-8")
+            except Exception:
+                logger.exception("Failed to read GCS text file '%s'", key)
+                raise
         try:
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name,

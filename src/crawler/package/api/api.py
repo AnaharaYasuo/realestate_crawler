@@ -7,7 +7,7 @@ import threading
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any
 from pathlib import Path
 import re
 import uuid
@@ -45,7 +45,12 @@ DETAIL_ID_PATTERN = re.compile(r'detail_([^/]+)')
 BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
 
 
-def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unknown Error") -> None:
+def _sync_save_error_html_by_url(
+    url: str,
+    model_name: str,
+    reason: str = "Unknown Error",
+    raw_html: bytes | str | None = None
+) -> None:
     """Save HTML of failed property/page synchronously in worker thread."""
     ERROR_PAGES_DIR.mkdir(parents=True, exist_ok=True)
     company_type = CAMEL_TO_SNAKE_PATTERN.sub('_', model_name).lower()
@@ -56,32 +61,45 @@ def _sync_save_error_html_by_url(url: str, model_name: str, reason: str = "Unkno
     p_id = match.group(1) if match else str(int(datetime.datetime.now().timestamp()))
 
     html_file = company_dir / f"{p_id}.html"
-    response = requests.get(url, headers=header, timeout=30)
-    if response.status_code == 200:
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write(response.text)
+
+    html_bytes: bytes | None = None
+    if raw_html is not None:
+        html_bytes = raw_html.encode("utf-8") if isinstance(raw_html, str) else raw_html
+    else:
+        try:
+            response = requests.get(url, headers=header, timeout=30)
+            if response.status_code == 200:
+                html_bytes = response.content
+            else:
+                logger.warning("Fallback GET for error HTML returned status %s for URL: %s", response.status_code, url)
+        except Exception as req_err:  # noqa: BLE001
+            logger.warning("Failed to fetch fallback error HTML for %s: %s", url, req_err)
+
+    if html_bytes is not None:
+        with open(html_file, 'wb') as f:
+            f.write(html_bytes)
         meta_file = company_dir / f"{p_id}_meta.txt"
         with open(meta_file, 'w', encoding='utf-8') as f:
             f.write(f"URL: {url}\nModel/Class: {model_name}\nTimestamp: {datetime.datetime.now()}\nReason: {reason}\n")
-        logging.info("Saved error HTML to %s", html_file)
+        logger.info("Saved error HTML to %s", html_file)
 
-        # GCS障害テレメトリへも即時保存
-        try:
-            parts = company_type.split("_", 1)
-            raw_comp = parts[0] if parts else "unknown"
-            comp = raw_comp[:-3] if raw_comp.endswith("API") else raw_comp
-            ptype = parts[1] if len(parts) > 1 else "unknown"
-            FailureReporter.record_job_failure(
-                company=comp,
-                property_type=ptype,
-                error_type="FetchOrParseError",
-                error_message=reason,
-                target_url=url,
-                exit_code=1,
-                raw_html=response.content
-            )
-        except Exception as fe:  # noqa: BLE001
-            logging.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
+    # GCS障害テレメトリへも即時保存
+    try:
+        parts = company_type.split("_", 1)
+        raw_comp = parts[0] if parts else "unknown"
+        comp = raw_comp.removesuffix("API")
+        ptype = parts[1] if len(parts) > 1 else "unknown"
+        FailureReporter.record_job_failure(
+            company=comp,
+            property_type=ptype,
+            error_type="FetchOrParseError",
+            error_message=reason,
+            target_url=url,
+            exit_code=1,
+            raw_html=html_bytes
+        )
+    except Exception as fe:  # noqa: BLE001
+        logger.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
 
 
 TCP_CONNECTOR_LIMIT = 100
@@ -833,10 +851,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self._afterRunProc(run_result)
         return "finish", 200
 
-    async def _save_error_html_by_url(self, url, model_name, reason="Unknown Error"):
+    async def _save_error_html_by_url(self, url, model_name, reason="Unknown Error", raw_html=None):
         """Save HTML of failed property/page for debugging"""
         try:
-            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason)
+            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
         except Exception:
             logging.exception("Failed to save error HTML for %s", url)
 
@@ -902,8 +920,14 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
         except Exception as e:
-            logging.error(f"Failed to parse middle page: {self.url}")
-            await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Parse Failure: {str(e)}")
+            logger.error("Failed to parse middle page: %s", self.url)
+            raw_html_content = str(response) if response is not None else None
+            await self._save_error_html_by_url(
+                self.url,
+                self.__class__.__name__,
+                f"Middle Page Parse Failure: {e!s}",
+                raw_html=raw_html_content
+            )
             raise e
         finally:
             # 次のページを開く
@@ -1457,10 +1481,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     async def _callApi(self, url_list):
         return
 
-    async def _save_error_html_by_url(self, url, model_name, reason="Live Fetch Failure/Parsing Error"):
+    async def _save_error_html_by_url(self, url, model_name, reason="Live Fetch Failure/Parsing Error", raw_html=None):
         """Save HTML of failed property for debugging when we only have the URL"""
         try:
-            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason)
+            await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
         except Exception:
             logging.exception("Failed to save error HTML by URL")
 

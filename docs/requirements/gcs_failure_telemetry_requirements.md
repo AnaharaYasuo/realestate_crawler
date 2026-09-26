@@ -29,3 +29,12 @@
 ### REQ-006: Slack DevAgent ゼロタッチ自動修復トリガー
 - クローリングバッチ完了時に異常終了したジョブが1件以上存在する場合、人間を介さず `#dev-agent` チャンネル宛に自動修復リクエスト（`@DevAgent` メンション）を自動投稿すること。
 - これにより常駐する Antigravity Bot が自動起動し、完全無人（ゼロタッチ）で GCS から障害情報を取得し、コード修正・テスト検証・PR作成までを自律完結できること。
+
+### REQ-007: GCS ネイティブストレージバックエンド対応 (Issue #477)
+- `STORAGE_BACKEND="gcs"` または `IS_CLOUD="true"` の場合、`ObjectStorageManager` は MinIO (boto3) ではなく `google-cloud-storage` (`google.cloud.storage.Client`) を直接使用し、Cloud Run のサービスアカウント権限 (ADC) で GCS バケットへアップロード・一覧・読込を実行しなければならない。
+- ローカル環境 (`STORAGE_BACKEND!="gcs"`) では既存の MinIO (boto3) 動作との後方互換性を 100% 維持すること。
+
+### REQ-008: パースエラー時生 HTML のインメモリ直接永続化 (Issue #477)
+- パース例外・異常検知時、すでに手元に存在する生 HTML バイト列／文字列を `FailureReporter` および `_sync_save_error_html_by_url` に直接引き渡し、相手サーバーへの再 HTTP リクエスト (`requests.get`) を全廃すること。
+- これにより、相手サーバーが 403 ブロックや連続タイムアウト状態であっても、エラー発生時の生 HTML を 100% 確実に GCS へ保存でき、かつ無駄な HTTP リクエストによる遅延を根絶すること。
+- 接続タイムアウト等で生 HTML 自体が存在しない場合でも例外を握りつぶし、メタデータ JSON のみを安全に保存できること。
