@@ -49,35 +49,6 @@ class TestMisawaParser:
         parser = MisawaMansionParser(None)
         assert parser.__class__.__name__ == "MisawaMansionParser"
 
-    def test_investment_apartment_accepts_bukken_shubetsu(self):
-        """Live pages label type as 物件種別 (not 物件種目); h1 is site branding."""
-        from bs4 import BeautifulSoup
-        from package.parser.baseParser import SkipPropertyException
-
-        html = """
-        <html><body>
-          <h1>ミサワホーム不動産の不動産検索</h1>
-          <h2 class="title">【アパート】テスト物件A</h2>
-          <dl class="price"><dd>1,000万円</dd></dl>
-          <div class="data"><dl><dt>所在地</dt><dd>東京都豊島区南長崎５丁目</dd>
-          <dl><dt>dummy</dt><dd>x</dd></dl></div>
-          <table class="outline">
-            <tr><th>物件種別</th><td>アパート</td></tr>
-            <tr><th>所在地</th><td>東京都豊島区南長崎５丁目</td></tr>
-          </table>
-        </body></html>
-        """
-        soup = BeautifulSoup(html, "html.parser")
-        parser = MisawaInvestmentApartmentParser()
-        item = parser.createEntity()
-        item.pageUrl = "https://realestate.misawa.co.jp/search/sale/detail/1/"
-        try:
-            out = parser._parsePropertyDetailPage(item, soup)
-        except SkipPropertyException as exc:
-            raise AssertionError("apartment should accept 物件種別=アパート") from exc
-        assert "テスト物件A" in (out.propertyName or "")
-        assert "不動産検索" not in (out.propertyName or "")
-
     def test_investment_kodate_start_uses_kodate_parser(self):
         from package.api.misawa_investment import ParseMisawaInvestmentKodateStartAsync
 

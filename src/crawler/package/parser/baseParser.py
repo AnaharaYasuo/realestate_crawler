@@ -304,10 +304,17 @@ class ParserBase(metaclass=ABCMeta):
         """HTML内のth/td, dt/dd, .table-rowテーブルを標準解析し辞書として取得"""
         if not response:
             return {}
+        cached = getattr(response, "_cached_specs", None)
+        if cached is not None:
+            return cached
         specs = {}
         self._ingest_tr_specs(response, specs)
         self._ingest_dl_specs(response, specs)
         self._ingest_table_row_specs(response, specs)
+        try:
+            response._cached_specs = specs
+        except (AttributeError, TypeError):
+            pass
         return specs
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
