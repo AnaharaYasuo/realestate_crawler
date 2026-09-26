@@ -363,9 +363,18 @@ class AthomeParser(ParserBase):
         return normalized
 
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
+        if "RECOMMFLG=1" in href or "sref=nw_reco" in href:
+            return False
         if "bkdetail" in href:
             return True
-        pattern = r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?'
+        ptype = getattr(self, "property_type", "")
+        type_patterns = {
+            "kodate": r'/(kodate|buy/kodate)/\d{6,}/?',
+            "mansion": r'/(mansion|buy/mansion)/\d{6,}/?',
+            "tochi": r'/(tochi|buy/tochi)/\d{6,}/?',
+            "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/\d{6,}/?',
+        }
+        pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?')
         return bool(re.search(pattern, path))
 
     def _extract_detail_links_from_soup(self, soup: BeautifulSoup, base_domain: str):
@@ -723,6 +732,10 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         return AthomeKodate()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "")
+        name = self._parsePropertyName(response)
+        if any(kw in page_url for kw in ("/buy_other/", "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
+            raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
 
