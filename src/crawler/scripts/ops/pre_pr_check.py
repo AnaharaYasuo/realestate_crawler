@@ -200,18 +200,25 @@ class PrePRChecker:
         _, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         return stdout
 
-    def get_changed_files(self) -> list[str]:
-        """Get list of changed files against origin/master or master including staged, unstaged, and untracked."""
+    def get_changed_files(self) -> tuple[list[str], list[str]]:
+        """Get list of changed files against origin/master or master including staged, unstaged, and untracked.
+
+        Returns (files, errors).
+        """
         files: set[str] = set()
+        errors: list[str] = []
         ref = self.target_sha or "HEAD"
         base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"]
-        rc, stdout, _ = self._run_cmd(base_diff_cmd)
+        rc, stdout, err = self._run_cmd(base_diff_cmd)
         if rc != 0:
             base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"]
-            rc, stdout, _ = self._run_cmd(base_diff_cmd)
-        for f in stdout.splitlines():
-            if f.strip():
-                files.add(f.strip().replace("\\", "/"))
+            rc, stdout, err = self._run_cmd(base_diff_cmd)
+        if rc != 0:
+            errors.append(f"変更ファイル差分の取得に失敗しました (origin/master / master): {err}")
+        else:
+            for f in stdout.splitlines():
+                if f.strip():
+                    files.add(f.strip().replace("\\", "/"))
 
         for cmd in [
             ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
@@ -222,7 +229,7 @@ class PrePRChecker:
             for f in stdout.splitlines():
                 if f.strip():
                     files.add(f.strip().replace("\\", "/"))
-        return sorted(files)
+        return sorted(files), errors
 
     def stage1_git_and_branch(self) -> StageResult:
         """Stage 1: Verify Git branch and hygiene."""
@@ -232,7 +239,10 @@ class PrePRChecker:
         if not is_valid:
             return StageResult(1, STAGE_GIT_HYGIENE, False, errors=[msg], duration_sec=time.time() - start)
 
-        changed_files = self.get_changed_files()
+        changed_files, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(1, STAGE_GIT_HYGIENE, False, errors=diff_errors, duration_sec=time.time() - start)
+
         forbidden = check_forbidden_files(changed_files)
         if forbidden:
             err = f"危険・不要ファイルが変更/ステージングに含まれています: {forbidden}"
@@ -392,7 +402,7 @@ class PrePRChecker:
     def stage3_linter_and_sonar(self) -> StageResult:
         """Stage 3: Run Ruff Linter and SonarCloud Guardrail."""
         start = time.time()
-        changed = self.get_changed_files()
+        changed, _ = self.get_changed_files()
         py_files = [f for f in changed if f.endswith(".py") and os.path.isfile(os.path.join(self.repo_root, f))]
 
         if not py_files:

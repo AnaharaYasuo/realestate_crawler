@@ -430,8 +430,7 @@ task pr-create
 **内部動作:**
 ```bash
 docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
-coderabbit review --base master --uncommitted --include-untracked
-docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff
 ```
 
 **使用例:**

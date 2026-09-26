@@ -275,4 +275,20 @@ def test_stage_coderabbit_with_target_sha(monkeypatch):
     assert review_kw.get("timeout") == 1800.0
 
 
+def test_get_changed_files_diff_error(monkeypatch):
+    """PrePRChecker.stage1_git_and_branch fails if both origin/master and master diffs fail."""
+    checker = PrePRChecker(branch="feature/506-test")
+
+    def mock_run_cmd(cmd, **_kwargs):
+        if "diff" in cmd:
+            return 1, "", "fatal: ambiguous argument 'origin/master'"
+        return 0, "", ""
+
+    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
+    res = checker.stage1_git_and_branch()
+    assert res.passed is False
+    assert any("変更ファイル差分の取得に失敗しました" in e for e in res.errors)
+
+
+
 
