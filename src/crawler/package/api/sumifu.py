@@ -1,14 +1,44 @@
-import os
 import asyncio
+import os
+from typing import ClassVar
 
-from package.api.api import ApiAsyncProcBase, API_KEY_SUMIFU_MANSION_DETAIL_GCP, API_KEY_SUMIFU_MANSION_DETAIL, API_KEY_SUMIFU_MANSION_REGION_GCP, \
-API_KEY_SUMIFU_MANSION_REGION, API_KEY_SUMIFU_MANSION_AREA_GCP, API_KEY_SUMIFU_MANSION_AREA, API_KEY_SUMIFU_MANSION_LIST, API_KEY_SUMIFU_MANSION_LIST_GCP, API_KEY_SUMIFU_MANSION_START, \
-API_KEY_SUMIFU_TOCHI_DETAIL, API_KEY_SUMIFU_TOCHI_REGION, API_KEY_SUMIFU_TOCHI_AREA, API_KEY_SUMIFU_TOCHI_LIST, \
-API_KEY_SUMIFU_TOCHI_DETAIL_GCP, API_KEY_SUMIFU_TOCHI_REGION_GCP, API_KEY_SUMIFU_TOCHI_AREA_GCP, API_KEY_SUMIFU_TOCHI_LIST_GCP, API_KEY_SUMIFU_TOCHI_START, \
-API_KEY_SUMIFU_KODATE_DETAIL, API_KEY_SUMIFU_KODATE_REGION, API_KEY_SUMIFU_KODATE_AREA, API_KEY_SUMIFU_KODATE_LIST, \
-API_KEY_SUMIFU_KODATE_DETAIL_GCP, API_KEY_SUMIFU_KODATE_REGION_GCP, API_KEY_SUMIFU_KODATE_AREA_GCP, API_KEY_SUMIFU_KODATE_LIST_GCP, API_KEY_SUMIFU_KODATE_START, \
-    ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
-from package.parser.sumifuParser import SumifuMansionParser,SumifuTochiParser,SumifuKodateParser
+from package.api.api import (
+    API_KEY_SUMIFU_KODATE_AREA,
+    API_KEY_SUMIFU_KODATE_AREA_GCP,
+    API_KEY_SUMIFU_KODATE_DETAIL,
+    API_KEY_SUMIFU_KODATE_DETAIL_GCP,
+    API_KEY_SUMIFU_KODATE_LIST,
+    API_KEY_SUMIFU_KODATE_LIST_GCP,
+    API_KEY_SUMIFU_KODATE_REGION,
+    API_KEY_SUMIFU_KODATE_REGION_GCP,
+    API_KEY_SUMIFU_KODATE_START,
+    API_KEY_SUMIFU_MANSION_AREA,
+    API_KEY_SUMIFU_MANSION_AREA_GCP,
+    API_KEY_SUMIFU_MANSION_DETAIL,
+    API_KEY_SUMIFU_MANSION_DETAIL_GCP,
+    API_KEY_SUMIFU_MANSION_LIST,
+    API_KEY_SUMIFU_MANSION_LIST_GCP,
+    API_KEY_SUMIFU_MANSION_REGION,
+    API_KEY_SUMIFU_MANSION_REGION_GCP,
+    API_KEY_SUMIFU_MANSION_START,
+    API_KEY_SUMIFU_TOCHI_AREA,
+    API_KEY_SUMIFU_TOCHI_AREA_GCP,
+    API_KEY_SUMIFU_TOCHI_DETAIL,
+    API_KEY_SUMIFU_TOCHI_DETAIL_GCP,
+    API_KEY_SUMIFU_TOCHI_LIST,
+    API_KEY_SUMIFU_TOCHI_LIST_GCP,
+    API_KEY_SUMIFU_TOCHI_REGION,
+    API_KEY_SUMIFU_TOCHI_REGION_GCP,
+    API_KEY_SUMIFU_TOCHI_START,
+    ApiAsyncProcBase,
+    ParseDetailPageAsyncBase,
+    ParseMiddlePageAsyncBase,
+)
+from package.parser.sumifuParser import (
+    SumifuKodateParser,
+    SumifuMansionParser,
+    SumifuTochiParser,
+)
 
 DEFAULT_PARARELL_LIMIT = 1
 DETAIL_PARARELL_LIMIT = 3
@@ -102,13 +132,7 @@ class ParseSumifuMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
     
 class ParseSumifuMansionStartAsync(ApiAsyncProcBase):
 
-    urlList = ["https://www.stepon.co.jp/mansion/tokai/"
-    , "https://www.stepon.co.jp/mansion/shutoken/"
-    , "https://www.stepon.co.jp/mansion/kansai/"
-    , "https://www.stepon.co.jp/mansion/hokkaido/"
-    , "https://www.stepon.co.jp/mansion/tohoku/"
-    , "https://www.stepon.co.jp/mansion/chugoku/"
-    , "https://www.stepon.co.jp/mansion/kyushu/"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/mansion/area/"]
     
     def _generateParser(self):
         return SumifuMansionParser("")
@@ -232,13 +256,7 @@ class ParseSumifuTochiRegionFuncAsync(ParseMiddlePageAsyncBase):
     
 class ParseSumifuTochiStartAsync(ApiAsyncProcBase):
 
-    urlList = ["https://www.stepon.co.jp/tochi/tokai/"
-    , "https://www.stepon.co.jp/tochi/shutoken/"
-    , "https://www.stepon.co.jp/tochi/kansai/"
-    , "https://www.stepon.co.jp/tochi/hokkaido/"
-    , "https://www.stepon.co.jp/tochi/tohoku/"
-    , "https://www.stepon.co.jp/tochi/chugoku/"
-    , "https://www.stepon.co.jp/tochi/kyushu/"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/tochi/area/"]
     
     def _generateParser(self):
         return SumifuTochiParser("")
@@ -362,13 +380,7 @@ class ParseSumifuKodateRegionFuncAsync(ParseMiddlePageAsyncBase):
     
 class ParseSumifuKodateStartAsync(ApiAsyncProcBase):
 
-    urlList = ["https://www.stepon.co.jp/kodate/tokai/"
-    , "https://www.stepon.co.jp/kodate/shutoken/"
-    , "https://www.stepon.co.jp/kodate/kansai/"
-    , "https://www.stepon.co.jp/kodate/hokkaido/"
-    , "https://www.stepon.co.jp/kodate/tohoku/"
-    , "https://www.stepon.co.jp/kodate/chugoku/"
-    , "https://www.stepon.co.jp/kodate/kyushu/"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/kodate/area/"]
     
     def _generateParser(self):
         return SumifuKodateParser("")
