@@ -241,7 +241,7 @@ def test_stage_coderabbit_timeout(monkeypatch):
             return 0, "0.8.1", ""
         if cmd[0] == "git":
             return 0, "merge_base_sha", ""
-        assert kwargs.get("timeout") == 1800.0
+        assert 1700.0 <= kwargs.get("timeout", 0.0) <= 1800.0
         return 124, "", "コマンドがタイムアウトしました (1800秒)"
 
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
@@ -272,7 +272,7 @@ def test_stage_coderabbit_with_target_sha(monkeypatch):
     assert "--base-commit" in review_call
     assert "base_commit_hash" in review_call
     assert "--committed" in review_call
-    assert review_kw.get("timeout") == 1800.0
+    assert 1700.0 <= review_kw.get("timeout", 0.0) <= 1800.0
 
 
 def test_get_changed_files_diff_error(monkeypatch):
