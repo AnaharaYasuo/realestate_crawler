@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import os
-import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -88,7 +87,7 @@ def build_nrql_conditions(account_id: int, policy_id: int) -> list[dict[str, Any
             "policyId": policy_id,
             "enabled": True,
             "nrql": {
-                "query": "SELECT average(duration_sec / `count`) FROM CrawlerExecution WHERE `count` > 0 FACET site_name",
+                "query": "SELECT sum(duration_sec) / sum(`count`) FROM CrawlerExecution WHERE `count` > 0 FACET site_name",
             },
             "terms": [
                 {
@@ -146,7 +145,7 @@ def run_nerdgraph_query(
     endpoint: str = NERDGRAPH_ENDPOINTS["us"],
     timeout: float = DEFAULT_TIMEOUT_SEC,
 ) -> dict[str, Any]:
-    """Execute NerdGraph query with finite timeout across socket operations."""
+    """Execute NerdGraph query with finite timeout."""
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         endpoint,
@@ -158,13 +157,8 @@ def run_nerdgraph_query(
         },
         method="POST",
     )
-    old_timeout = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    finally:
-        socket.setdefaulttimeout(old_timeout)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
 
 def find_existing_policy_id(
@@ -219,6 +213,9 @@ def find_existing_condition_names(
     """Fetch existing NRQL condition names for the policy to prevent duplicates."""
     condition_names: set[str] = set()
     cursor = None
+    max_pages = 50
+    page_count = 0
+    seen_cursors: set[str] = set()
     query = """
     query SearchConditions($accountId: Int!, $policyId: ID!, $cursor: String) {
       actor {
@@ -237,6 +234,10 @@ def find_existing_condition_names(
     }
     """
     while True:
+        page_count += 1
+        if page_count > max_pages:
+            raise RuntimeError(f"Exceeded maximum page limit ({max_pages}) during condition search")
+
         payload = {"query": query, "variables": {"accountId": account_id, "policyId": str(policy_id), "cursor": cursor}}
         res = run_nerdgraph_query(payload, api_key, endpoint=endpoint, timeout=timeout)
         if res.get("errors"):
@@ -256,6 +257,9 @@ def find_existing_condition_names(
         cursor = nrql_search.get("nextCursor")
         if not cursor:
             break
+        if cursor in seen_cursors:
+            raise RuntimeError(f"Detected circular cursor in condition search: {cursor}")
+        seen_cursors.add(cursor)
 
     return condition_names
 

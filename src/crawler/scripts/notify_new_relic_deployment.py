@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import os
-import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -98,14 +97,9 @@ def send_nerdgraph_request(
         },
         method="POST",
     )
-    old_timeout = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(timeout)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
-            return json.loads(body)
-    finally:
-        socket.setdefaulttimeout(old_timeout)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body)
 
 
 def notify_deployment(

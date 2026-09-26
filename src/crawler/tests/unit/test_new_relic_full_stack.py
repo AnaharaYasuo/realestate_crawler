@@ -252,6 +252,23 @@ def test_provision_alerts_reuses_existing_policy():
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
                     res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
                     assert res is True
+                    assert mock_query.call_count == 4
+                    for call_item in mock_query.call_args_list:
+                        payload = call_item[0][0]
+                        assert "alertsPolicyCreate" not in payload.get("query", "")
+                        assert payload.get("variables", {}).get("policyId") == "99999"
+
+
+def test_provision_alerts_condition_failure_returns_false():
+    """NRQL条件の作成に失敗した場合はFalseを返すこと"""
+    with patch.dict(os.environ, {"NEW_RELIC_API_KEY": "fake_api_key"}):
+        with patch("scripts.setup_new_relic_crawler_alerts.find_existing_policy_id", return_value=99999):
+            with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value=set()):
+                with patch("scripts.setup_new_relic_crawler_alerts.run_nerdgraph_query") as mock_query:
+                    mock_query.return_value = {"errors": [{"message": "Invalid NRQL"}]}
+                    from scripts.setup_new_relic_crawler_alerts import provision_alerts
+                    res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
+                    assert res is False
 
 
 def test_provision_alerts_skips_existing_conditions():

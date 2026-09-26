@@ -2,12 +2,15 @@ version: '3.8'
 
 services:
   newrelic-infra:
-    image: newrelic/infrastructure:latest
+    image: newrelic/infrastructure:3.2.14
     container_name: newrelic-infra
     restart: unless-stopped
-    privileged: true
+    cap_add:
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
     network_mode: host
     pid: host
+    cgroup: host
     environment:
       NRIA_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
       NRIA_OVERRIDE_HOSTNAME: ${NEW_RELIC_APP_NAME:-realestate-crawler-host}
