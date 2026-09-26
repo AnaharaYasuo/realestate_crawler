@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  newrelic-infra:
+    image: newrelic/infrastructure:3.2.14
+    container_name: newrelic-infra
+    restart: unless-stopped
+    cap_add:
+      - SYS_PTRACE
+      - DAC_READ_SEARCH
+    network_mode: host
+    pid: host
+    cgroup: host
+    environment:
+      NRIA_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY}
+      NRIA_OVERRIDE_HOSTNAME: ${NEW_RELIC_APP_NAME:-realestate-crawler-host}
+      NRIA_DISPLAY_NAME: ${NEW_RELIC_APP_NAME:-realestate-crawler-host}
+      NRIA_CUSTOM_ATTRIBUTES_ENVIRONMENT: ${ENVIRONMENT:-development}
+      NRIA_PASSTHROUGH_ENVIRONMENT: "NEW_RELIC_*"
+    volumes:
+      - /:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro

@@ -68,3 +68,7 @@ override.tf.json
 terraform.rc
 terraform.tfvars
 !terraform.tfvars.example
+
+# Git Worktrees
+.worktrees/
+worktrees/

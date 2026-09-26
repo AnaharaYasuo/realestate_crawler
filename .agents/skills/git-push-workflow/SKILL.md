@@ -27,16 +27,21 @@ description: 開発作業が完了した後に、新しいブランチを作成�
    - どのような変更を行ったか、簡潔かつ分かりやすいコミットメッセージをつけてコミットする。
    - `git commit -m "<変更内容を説明するメッセージ>"`
 
-5. **リモートリポジトリへのプッシュ**
+5. **プッシュ前ローカル解析 ＆ CodeRabbit レビューの実施（Pre-Push Gate 必須遵守）**
+   - プッシュ前に必ずローカルCLIで以下を実行し、問題がないことを確認・解消する：
+     - **SonarCloud**: `task sonar-check`（または `task sonar`）で認知複雑度・ReDoS・Code Smellのゼロ化を確認。
+     - **CodeRabbit**: `task coderabbit`（または `coderabbit review`）で潜在バグ・設計の事前レビューを実施し解消。
+
+6. **リモートリポジトリへのプッシュ**
    - 作成したブランチをリモートリポジトリにプッシュする。
    - `git push origin <branch-name>`
    - ※ `.githooks/pre-push` により、Issue受入基準全件充足 (`check_issue_criteria`) およびローカル高速事前検証 (`pre_pr_check --diff`) が自動検証され、不備がある場合はプッシュが拒否される。
 
-6. **PR提出前ローカル全検証の実施（Pre-PR Gate 必須遵守）**
+7. **PR提出前ローカル全検証の実施（Pre-PR Gate 必須遵守）**
    - PR作成前に必ずローカルで `task pr-check` を実行し、Issue受入基準、Ruff Linter、SonarCloud、単体テスト、PRミューテーションテスト、セキュリティスキャンが **100% 合格（ALL CHECKS PASSED）** することを確認する。
    - エラーが1件でもある場合は、PRを提出せずローカルで完全に修正・解消すること。
 
-7. **二段階PRマージの実施（Production Gate 遵守）**
+8. **二段階PRマージの実施（Production Gate 遵守）**
    - 本リポジトリでは `production` への直接 push および作業ブランチからの直接 PR は GitHub Actions (`production-gate.yml`) でブロックされる。
    - **Step 1: 作業ブランチ ➔ `master` への PR & マージ**
      - 推奨: `task pr-create`（全チェック通過を自動検証して安全にPR提出）
@@ -47,7 +52,7 @@ description: 開発作業が完了した後に、新しいブランチを作成�
      - `gh pr create --base production --head master --title "release: ..." --body "..."`
      - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。
 
-8. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
+9. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
    - マージ後または作業完了後、`gh issue list --state open` を実行して該当 Issue が正常にクローズ（Closed）されたか確認する。
    - 自動クローズされずにオープン状態のまま残存している場合（閉じ漏れ）は、完了理由を添えて直ちに `gh issue close <issue_num> --comment "..."` を実行してステータスを完了状態へ進めること。
 

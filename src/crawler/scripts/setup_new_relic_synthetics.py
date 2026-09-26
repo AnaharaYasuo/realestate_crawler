@@ -72,7 +72,7 @@ def get_existing_monitors(api_key: str, account_id: int) -> list:
         raise RuntimeError(f"NerdGraph list query failed: {res['errors']}")
     data = res.get("data")
     if not isinstance(data, dict):
-        raise RuntimeError("NerdGraph list response does not contain data")
+        raise TypeError("NerdGraph list response does not contain data")
     entities = data.get("actor", {}).get("entitySearch", {}).get("results", {}).get("entities", [])
     return entities
 
