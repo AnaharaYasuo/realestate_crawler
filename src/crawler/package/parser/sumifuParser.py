@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import sys
 import asyncio
 
@@ -16,7 +15,6 @@ from package.utils import converter
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 import logging
 from package.utils.selector_loader import SelectorLoader
-import lxml.html
 import urllib.parse
 
 JAVASCRIPT_PREFIX = "javascript:"
@@ -83,7 +81,7 @@ class SumifuParser(ParserBase):
         return None
 
     def getRegionXpath(self):
-        return u''
+        return ''
 
     def getRegionDestUrl(self, link_url):
         if not link_url:
@@ -95,7 +93,7 @@ class SumifuParser(ParserBase):
             yield dest_url
 
     def getAreaXpath(self):
-        return u''
+        return ''
 
     def getAreaDestUrl(self, link_url):
         if not link_url:
@@ -111,7 +109,7 @@ class SumifuParser(ParserBase):
             yield dest_url
 
     def getPropertyListXpath(self):
-        xpath = self.selectors.get('property_list_xpath', u'')
+        xpath = self.selectors.get('property_list_xpath', '')
         logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
@@ -833,7 +831,6 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
     
     def _parse_type_specific_fields(self, item, response):
         """Override in subclass"""
-        pass
 
     def _set_type_specific_fields(self, item, response):
         """Override in subclass for type-specific field parsing"""
@@ -1009,6 +1006,9 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     def getAreaXpath(self):
         return self.selectors.get('area_xpath')
 
+    def getPropertyListXpath(self):
+        return self.selectors.get('property_list_xpath')
+
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
@@ -1175,7 +1175,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return Decimal(0)
 
     def _parseSaikou(self, response, _specs=None):
-        td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
+        td = self._getValueFromTable(response, "採光", partial_match=True) or self._getValueFromTable(response, "向き", partial_match=True)
         if td:
              val = self._getText(td)
              temp = re.split(r'[/／\n]', val)
@@ -1183,7 +1183,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         return ""
 
     def _parseKadobeya(self, response, _specs=None):
-        td = self._getValueFromTable(response, "採光") or self._getValueFromTable(response, "向き")
+        td = self._getValueFromTable(response, "採光", partial_match=True) or self._getValueFromTable(response, "向き", partial_match=True)
         if td:
              val = self._getText(td)
              temp = re.split(r'[/／\n]', val)

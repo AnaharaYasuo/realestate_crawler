@@ -9,12 +9,12 @@ mansion:
   
   # List page selectors
   next_page: "#searchCondition ul.pagination li:last-child a"
-  property_links: "a.property-info-anchor"
+  property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
   region_xpath: '//a[contains(@href,"/mansion/area_")]/@href'
-  area_xpath: '//a[contains(@href,"/mansion/area_") and contains(@href,"/list_")]/@href'
-  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/mansion/detail_")]/@href'
+  area_xpath: '//a[contains(@href,"/list_")]/@href'
+  property_list_xpath: '//a[contains(@class, "sr-card__name") or contains(@href, "/mansion/detail_")]/@href'
 
   # Table selectors
   table:
@@ -27,12 +27,12 @@ kodate:
   price: "div.article-header__price .price, span.price__number"
   address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   next_page: "#searchCondition ul.pagination li:last-child a"
-  property_links: "a.property-info-anchor"
+  property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
   region_xpath: '//a[contains(@href,"/kodate/area_")]/@href'
-  area_xpath: '//a[contains(@href,"/kodate/area_") and contains(@href,"/list_")]/@href'
-  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/kodate/detail_")]/@href'
+  area_xpath: '//a[contains(@href,"/list_")]/@href'
+  property_list_xpath: '//a[contains(@class, "sr-card__name") or contains(@href, "/kodate/detail_")]/@href'
 
   table:
     selector: "table.table-detail"
@@ -44,12 +44,12 @@ tochi:
   price: "div.article-header__price .price, span.price__number"
   address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   next_page: "#searchCondition ul.pagination li:last-child a"
-  property_links: "a.property-info-anchor"
+  property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
   region_xpath: '//a[contains(@href,"/tochi/area_")]/@href'
-  area_xpath: '//a[contains(@href,"/tochi/area_") and contains(@href,"/list_")]/@href'
-  property_list_xpath: '//div[@id="searchResultBlock"]//a[contains(@href, "/tochi/detail_")]/@href'
+  area_xpath: '//a[contains(@href,"/list_")]/@href'
+  property_list_xpath: '//a[contains(@class, "sr-card__name") or contains(@href, "/tochi/detail_")]/@href'
 
   table:
     selector: "table.table-detail"

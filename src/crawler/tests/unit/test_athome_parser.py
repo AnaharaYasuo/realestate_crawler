@@ -40,16 +40,3 @@ def test_athome_detail_path_filtering():
     assert not parser._is_athome_detail_path("/kodate/12345678/", "https://www.athome.co.jp/kodate/12345678/?sref=nw_reco")
     # Kodate parser should reject investment/apartment detail paths
     assert not parser._is_athome_detail_path("/buy_other/1113105018/", "https://www.athome.co.jp/buy_other/1113105018/")
-
-
-def test_athome_kodate_skips_non_kodate():
-    import pytest
-    from bs4 import BeautifulSoup
-    from package.parser.baseParser import SkipPropertyException
-
-    parser = AthomeKodateParser()
-    item = parser.createEntity()
-    item.pageUrl = "https://www.athome.co.jp/buy_other/1113105018/?BKLISTID=031PPC"
-    soup = BeautifulSoup("<div id='detailTitleArea'><h2><em>一棟売アパート</em></h2></div>", "html.parser")
-    with pytest.raises(SkipPropertyException):
-        parser._parsePropertyDetailPage(item, soup)

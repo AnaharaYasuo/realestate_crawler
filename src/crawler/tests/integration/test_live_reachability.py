@@ -20,6 +20,7 @@ from package.models.misawa import MisawaMansion, MisawaKodate
 from package.models.smtrc import SmtrcMansion
 from package.models.keio import KeioMansion
 from package.models.rearie import RearieMansion
+from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi
 
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser
 from package.parser.tokyuParser import TokyuMansionParser, TokyuKodateParser, TokyuTochiParser
@@ -27,6 +28,7 @@ from package.parser.misawaParser import MisawaMansionParser, MisawaKodateParser
 from package.parser.smtrcParser import SmtrcMansionParser
 from package.parser.keioParser import KeioMansionParser
 from package.parser.rearieParser import RearieMansionParser, RearieParser
+from package.parser.sumifuParser import SumifuMansionParser, SumifuKodateParser, SumifuTochiParser
 from package.parser.baseParser import ListingEndedException
 
 HEADERS = {
@@ -145,6 +147,34 @@ TARGET_SITES = [
         "parser_cls": RearieMansionParser,
         "model_cls": RearieMansion,
         "encoding": "utf-8",
+    },
+    # --- 住友不動産ステップ (Sumifu) ---
+    {
+        "site": "sumifu_mansion",
+        "list_url": "https://www.stepon.co.jp/mansion/area_13/list_13_101/?limit=1000&mode=2",
+        "base_url": "https://www.stepon.co.jp",
+        "detail_pattern": r"/mansion/detail_",
+        "parser_cls": SumifuMansionParser,
+        "model_cls": SumifuMansion,
+        "encoding": "cp932",
+    },
+    {
+        "site": "sumifu_kodate",
+        "list_url": "https://www.stepon.co.jp/kodate/area_13/list_13_102/?limit=1000&mode=2",
+        "base_url": "https://www.stepon.co.jp",
+        "detail_pattern": r"/kodate/detail_",
+        "parser_cls": SumifuKodateParser,
+        "model_cls": SumifuKodate,
+        "encoding": "cp932",
+    },
+    {
+        "site": "sumifu_tochi",
+        "list_url": "https://www.stepon.co.jp/tochi/area_13/list_13_102/?limit=1000&mode=2",
+        "base_url": "https://www.stepon.co.jp",
+        "detail_pattern": r"/tochi/detail_",
+        "parser_cls": SumifuTochiParser,
+        "model_cls": SumifuTochi,
+        "encoding": "cp932",
     },
 ]
 
@@ -284,14 +314,14 @@ async def run_single_site_test(target: dict):
                     print(f" [{site}] Skipped listing ended page: {detail_url} ({e})")
                     continue
 
-            parse_ms = (time.perf_counter() - start_parse) * 1000.0
-            print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")
-            assert parse_ms < 10000.0, f"[{site}] Pure parse time exceeded 10,000ms SLA: {parse_ms:.2f}ms"
+                parse_ms = (time.perf_counter() - start_parse) * 1000.0
+                print(f" [{site}] Pure parse time: {parse_ms:.2f}ms")
+                assert parse_ms < 10000.0, f"[{site}] Pure parse time exceeded 10,000ms SLA: {parse_ms:.2f}ms"
 
-            # 全フィールド検証
-            assert_full_model_fields(cleaned_item, model_cls, site)
-            parsed_count += 1
-            print(f" [{site}] Detail #{idx} SUCCESS: '{cleaned_item.propertyName}' - {cleaned_item.priceStr}")
+                # 全フィールド検証
+                assert_full_model_fields(cleaned_item, model_cls, site)
+                parsed_count += 1
+                print(f" [{site}] Detail #{idx} SUCCESS: '{cleaned_item.propertyName}' - {cleaned_item.priceStr}")
 
         assert parsed_count > 0, f"[{site}] No properties successfully parsed (all were skipped or listing ended)"
 

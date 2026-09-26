@@ -1,4 +1,5 @@
 from django.db import models
+
 from .base import PropertyBaseModel, TransportationMixin
 
 # Create your models here.
@@ -100,9 +101,9 @@ class SumifuMansion(SumifuModel):
     chikunengetsu = models.DateField(null=True)
 
     balconyMensekiStr = models.TextField()
-    saikouKadobeya = models.TextField()
-    saikou = models.TextField()
-    kadobeya = models.TextField()
+    saikouKadobeya = models.TextField(default="", blank=True)
+    saikou = models.TextField(default="", blank=True)
+    kadobeya = models.TextField(default="", blank=True)
     soukosuStr = models.TextField()
     soukosu = models.IntegerField(null=True)
     kanriKeitaiKaisya = models.TextField()

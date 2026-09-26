@@ -623,6 +623,9 @@ task logs
 - **[PR事前全検証機構（Pre-PR Check）要件定義書](docs/requirements/pre_pr_check_requirements.md)**: SonarCloud / CodeRabbit CLI / Linter / 単体テスト一括水際検証要件
 - **[PR事前全検証機構（Pre-PR Check）基本設計書](docs/basic_design/pre_pr_check_design.md)**: 8大検証ステージ・Taskコマンド・Pre-Push Hook遮断アーキテクチャ
 - **[PR事前全検証機構（Pre-PR Check）内部設計仕様書](docs/internal_design/pre_pr_check_specification.md)**: pre_pr_check.py / StageResult / CLIオプション詳細仕様
+- **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
+- **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
+- **[Google GenAI SDK 移行内部設計書](docs/internal_design/google_genai_sdk_migration.md)**: モジュール別詳細変更・テストモック仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造

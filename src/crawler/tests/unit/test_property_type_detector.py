@@ -227,24 +227,26 @@ def test_detect_with_ai_fallback_and_sanitizer(monkeypatch):
         def __init__(self, text):
             self.text = text
 
-    class MockModel:
-        def __init__(self, name):
-            self.name = name
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            self.models = self
 
-        def generate_content(self, prompt):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def generate_content(self, model, contents):
             # プロンプト内のテキストに応じて応答をシミュレート
-            if "山林" in prompt:
+            if "山林" in contents:
                 return MockResponse("tochi")
-            if "豪邸" in prompt:
+            if "豪邸" in contents:
                 return MockResponse("kodate")
             return MockResponse("mansion")
 
     class MockGenAI:
-        def configure(self, api_key):
-            pass
-
-        def GenerativeModel(self, name):
-            return MockModel(name)
+        Client = MockClient
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-1234")
     monkeypatch.setattr("package.utils.property_type_detector.genai", MockGenAI())
@@ -274,20 +276,22 @@ def test_ai_called_once_per_property(monkeypatch):
         def __init__(self, text):
             self.text = text
 
-    class CountingMockModel:
-        def __init__(self, name):
-            self.name = name
+    class CountingMockClient:
+        def __init__(self, *args, **kwargs):
+            self.models = self
 
-        def generate_content(self, prompt):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def generate_content(self, model, contents):
             call_counts["count"] += 1
             return MockResponse("kodate")
 
     class MockGenAI:
-        def configure(self, api_key):
-            pass
-
-        def GenerativeModel(self, name):
-            return CountingMockModel(name)
+        Client = CountingMockClient
 
     PropertyTypeDetector.clear_ai_cache()
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-1234")
@@ -329,19 +333,15 @@ def test_edge_cases_and_error_paths(monkeypatch):
     assert PropertyTypeDetector.detect(url="https://toushi.homes.co.jp/detail/123") == "apartment"
 
     # 7. detect_with_ai exception handling
-    class FailingMockModel:
-        def __init__(self, name):
-            pass
+    class FailingMockClient:
+        def __init__(self, *args, **kwargs):
+            self.models = self
 
-        def generate_content(self, prompt):
+        def generate_content(self, model, contents):
             raise RuntimeError("Gemini API timeout error")
 
     class FailingGenAI:
-        def configure(self, api_key):
-            pass
-
-        def GenerativeModel(self, name):
-            return FailingMockModel(name)
+        Client = FailingMockClient
 
     PropertyTypeDetector.clear_ai_cache()
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-1234")
