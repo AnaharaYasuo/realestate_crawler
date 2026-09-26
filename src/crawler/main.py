@@ -19,12 +19,14 @@ import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
 from package.utils.logging_config import configure_logging
 configure_logging()
+logger = logging.getLogger(__name__)
 
 # Import keys for remaining routes (if any) or shared usage
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
+from package.utils.failure_reporter import FailureReporter
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -445,7 +447,7 @@ if __name__ == "__main__":
             signal.signal(signal.SIGTERM, handle_sigterm)
             signal.signal(signal.SIGINT, handle_sigterm)
 
-            logging.info(f"Starting {company} {prop_type} crawl via CLI...")
+            logger.info(f"Starting {company} {prop_type} crawl via CLI...")
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
@@ -453,12 +455,25 @@ if __name__ == "__main__":
                 else:
                     func()
             except Exception as e:
-                logging.exception(f"Error during crawl execution: {e}")
-            logging.info(f"Execution finished for {company} {prop_type}")
+                tb = traceback.format_exc()
+                logger.exception("Error during crawl execution")
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=prop_type,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        exit_code=1,
+                        traceback_str=tb
+                    )
+                except Exception as fre:  # noqa: BLE001
+                    logger.warning(f"Failed to record failure telemetry: {fre}")
+                sys.exit(1)
+            logger.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:
-            logging.error(f"Unknown combination: company={company}, type={prop_type}")
-            logging.info("Usage: python main.py --company=[sumifu|mitsui|tokyu|nomura|misawa] --type=[mansion|invest_kodate|invest_apartment|investment]")
+            logger.error(f"Unknown combination: company={company}, type={prop_type}")
+            logger.info("Usage: python main.py --company=[sumifu|mitsui|tokyu|nomura|misawa] --type=[mansion|invest_kodate|invest_apartment|investment]")
             sys.exit(1)
 
     port = int(os.getenv('PORT', '8000'))

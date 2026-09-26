@@ -27,10 +27,11 @@ while True:
 from django.apps import apps
 from django.db.models import Q
 from django.utils import timezone
-from package.utils.slack import send_crawling_summary_alert
+from package.utils.slack import send_crawling_summary_alert, send_slack_message
 from package.utils.task_distribution import get_task_config, distribute_jobs
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -69,6 +70,8 @@ os.makedirs(log_dir, exist_ok=True)
 
 # 定義済みの全クロールジョブリスト
 from package.utils.crawl_jobs import CRAWL_JOBS  # noqa: E402  — SSOT for production + tests
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -247,6 +250,22 @@ def main():
                 else:
                     post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
 
+                if status != "success":
+                    try:
+                        FailureReporter.record_job_failure(
+                            company=company,
+                            property_type=ptype,
+                            error_type="ZeroCountFailure" if exit_code == 0 else "ProcessCrashFailure",
+                            error_message=error_msg,
+                            exit_code=exit_code,
+                            duration_seconds=int(elapsed),
+                            task_index=task_index,
+                            task_count=task_count,
+                            date_str=today_str
+                        )
+                    except Exception as fe:
+                        logging.warning(f"Failed to record failure telemetry for {company} - {ptype}: {fe}")
+
                 logging.info(f"[{idx}] Crawl job finished for {company} - {ptype}. Status: {status}, Code: {exit_code}, Time: {duration_job_str}")
                 results.append({
                     "index": idx,
@@ -277,6 +296,21 @@ def main():
                 elapsed = now - start_t
                 end_dt = timezone.now() if timezone is not None else datetime.datetime.now()
                 duration_job_str = format_duration(int(elapsed))
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=ptype,
+                        error_type="TimeoutFailure",
+                        error_message=f"Timeout expired ({timeout_sec}s)",
+                        exit_code=-1,
+                        duration_seconds=int(elapsed),
+                        task_index=task_index,
+                        task_count=task_count,
+                        date_str=today_str
+                    )
+                except Exception as tfe:
+                    logging.warning(f"Failed to record timeout failure for {company} - {ptype}: {tfe}")
+
                 results.append({
                     "index": idx,
                     "company": company,
@@ -475,16 +509,32 @@ def main():
                 et = f.get("end_time", "").split(" ")[-1]
                 dur = f.get("duration", format_duration(f.get("elapsed_seconds", 0)))
                 timing_str = f" (開始: {st}, 終了: {et}, 所要: {dur})" if st and et else ""
-                msg_lines.append(f"• {f['company']} - {f['property_type']}: {f['status']} (Code: {f['exit_code']}){timing_str}")
+                err_info = f" | {f['error_message']}" if f.get("error_message") else ""
+                msg_lines.append(f"• {f['company']} - {f['property_type']}: {f['status']} (Code: {f['exit_code']}){timing_str}{err_info}")
+            msg_lines.append(f"\n🛠️ Antigravity 一括修復コマンド:\npython src/crawler/scripts/debug_tools/fetch_run_failures.py --date {today_str}")
         else:
             msg_lines.append("\n✅ すべてのクローラーが正常終了しました。")
             
         asyncio.run(send_crawling_summary_alert("\n".join(msg_lines)))
+
+        # 異常ジョブが存在する場合、#dev-agent 宛に @DevAgent ゼロタッチ自動修復トリガーを発信
+        if failed_list:
+            try:
+                failed_job_tuples = [(f["company"], f["property_type"]) for f in failed_list]
+                auto_heal_msg = generate_auto_heal_trigger_message(
+                    date_str=today_str,
+                    failed_count=len(failed_list),
+                    failed_jobs=failed_job_tuples
+                )
+                asyncio.run(send_slack_message(message=auto_heal_msg, channel="#dev-agent"))
+                logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
+            except Exception as dte:  # noqa: BLE001
+                logger.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
     except Exception as ex:
         logging.exception(f"Failed to generate/send Slack crawl summary: {ex}")
         
     # monitor_error_pages.py のキック
-    monitor_script = os.path.join(_project_root, "src", "crawler", "scripts", "monitor_error_pages.py")
+    monitor_script = os.path.join(_project_root, "src", "crawler", "scripts", "ops", "monitor_error_pages.py")
     if os.path.exists(monitor_script):
         logging.info("Triggering monitor_error_pages.py...")
         subprocess.run([sys.executable, monitor_script])
