@@ -832,7 +832,7 @@ def check_and_stop_proxysql_mig(
                 "PROXYSQL_INSTANCE_NAME",
                 f"proxysql-instance-{os.environ.get('ENVIRONMENT', 'prod')}",
             )
-            fallback_zone = os.environ.get("PROXYSQL_ZONE", f"{region}-a")
+            fallback_zone = os.environ.get("PROXYSQL_ZONE", f"{region}-b")
             logger.info(
                 f"ProxySQL MIG '{mig_name}' not found (404). Falling back to single GCE instance '{fallback_instance}' in zone '{fallback_zone}'."
             )

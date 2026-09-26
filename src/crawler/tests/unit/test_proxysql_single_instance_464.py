@@ -81,11 +81,18 @@ def test_run_pipeline_inline_teardown_skips_autoscaler_in_single_instance_mode(
 
 
 def test_patch_proxysql_autoscaler_safe_noop_when_single_instance(monkeypatch):
-    """When PROXYSQL_INSTANCE_NAME is set, patch_proxysql_autoscaler returns True safely without error."""
+    """When PROXYSQL_INSTANCE_NAME is set in cloud mode, patch_proxysql_autoscaler returns True safely without updating Autoscaler."""
+    monkeypatch.setenv("IS_CLOUD", "true")
     monkeypatch.setenv("PROXYSQL_INSTANCE_NAME", "proxysql-instance-prod")
 
-    res = gcp_resources.patch_proxysql_autoscaler(min_replicas=1, max_replicas=2)
-    assert res is True
+    with (
+        patch.object(gcp_resources, "_patch_autoscaler_via_compute_v1") as mock_compute,
+        patch.object(gcp_resources, "_patch_autoscaler_via_rest") as mock_rest,
+    ):
+        res = gcp_resources.patch_proxysql_autoscaler(min_replicas=1, max_replicas=2)
+        assert res is True
+        mock_compute.assert_not_called()
+        mock_rest.assert_not_called()
 
 
 def test_ensure_resources_stopped_uses_instance_name_from_env_default(monkeypatch):
@@ -153,18 +160,37 @@ def test_ensure_resources_stopped_mig_404_falls_back_to_instance_without_alert(
 
         assert result.was_leaked is False
         mock_check_inst.assert_called_once()
+        assert mock_check_inst.call_args.kwargs.get("zone") == "asia-northeast1-b"
         # False emergency alert must NOT be sent
         mock_alert.assert_not_called()
 
 
 def test_terraform_and_workflows_config():
-    """Verify terraform and deploy-production.yml contain PROXYSQL_INSTANCE_NAME."""
+    """Verify terraform and deploy-production.yml contain PROXYSQL_INSTANCE_NAME and PROXYSQL_ZONE separately."""
     job_tf = os.path.join(TERRAFORM_DIR, "cloud_run_job.tf")
     with open(job_tf, "r", encoding="utf-8") as f:
         job_content = f.read()
 
-    assert 'name  = "PROXYSQL_INSTANCE_NAME"' in job_content, (
-        "cloud_run_job.tf must set PROXYSQL_INSTANCE_NAME"
+    # Split into job blocks to independently verify crawler_pipeline_job and resource_safety_net_job
+    crawler_block = job_content.split(
+        'resource "google_cloud_run_v2_job" "db_migrate_job"'
+    )[0]
+    safety_net_block = job_content.split(
+        'resource "google_cloud_run_v2_job" "resource_safety_net_job"'
+    )[1].split('resource "google_cloud_run_v2_job" "crawler_dispatcher_job"')[0]
+
+    assert 'name  = "PROXYSQL_INSTANCE_NAME"' in crawler_block, (
+        "crawler_pipeline_job must set PROXYSQL_INSTANCE_NAME"
+    )
+    assert 'name  = "PROXYSQL_ZONE"' in crawler_block, (
+        "crawler_pipeline_job must set PROXYSQL_ZONE"
+    )
+
+    assert 'name  = "PROXYSQL_INSTANCE_NAME"' in safety_net_block, (
+        "resource_safety_net_job must set PROXYSQL_INSTANCE_NAME"
+    )
+    assert 'name  = "PROXYSQL_ZONE"' in safety_net_block, (
+        "resource_safety_net_job must set PROXYSQL_ZONE"
     )
 
     deploy_yml = os.path.join(WORKFLOWS_DIR, "deploy-production.yml")
