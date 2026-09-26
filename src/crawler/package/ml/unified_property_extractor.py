@@ -13,9 +13,11 @@ from typing import Optional, List, Dict, Any
 from package.utils.converter import parse_chidai
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
+    types = None
 
 
 @dataclass
@@ -215,15 +217,15 @@ PROMPT_TEMPLATE = """あなたは不動産鑑定評価および機械学習価�
 class SingleUnifiedPropertyExtractor:
     """1物件1リクエスト完結型属性抽出器（テキスト・画像マルチモーダル一括対応）"""
 
-    def __init__(self, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model_name = model_name
 
-    def _get_generative_model(self):
+    def _get_genai_client(self):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key or not genai:
             return None
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(self.model_name)
+        http_options = types.HttpOptions(timeout=30000) if types else None
+        return genai.Client(api_key=api_key, http_options=http_options)
 
     def extract(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
         """
@@ -233,40 +235,52 @@ class SingleUnifiedPropertyExtractor:
         # ルールベースの初期フォールバックを生成
         fallback_res = self._rule_based_fallback(prop_data)
 
-        model = self._get_generative_model()
-        if not model:
+        try:
+            client = self._get_genai_client()
+        except Exception as e:
+            logging.warning(
+                f"SingleUnifiedPropertyExtractor: client construction failed: {e}. "
+                "Using fallback."
+            )
+            return fallback_res
+
+        if not client:
             # APIキー未設定時はルールベースで返す
             return fallback_res
 
-        # 1物件1リクエスト用プロンプトの構築
-        prompt = PROMPT_TEMPLATE.format(
-            title=prop_data.get("title", ""),
-            site=prop_data.get("site", ""),
-            property_type=prop_data.get("property_type", "mansion"),
-            price_str=prop_data.get("price_str", ""),
-            specs_json=json.dumps(prop_data.get("specs", {}), ensure_ascii=False),
-            features_json=json.dumps(prop_data.get("features", []), ensure_ascii=False),
-            appeals_json=json.dumps(prop_data.get("appeals", []), ensure_ascii=False),
-            snippets_json=json.dumps(prop_data.get("snippets", []), ensure_ascii=False),
-        )
-
         try:
-            # 【厳格遵守】画像がある場合も一括同梱し、1物件につき厳格に1回のみ呼出
-            images = prop_data.get("images") or []
-            if images:
-                content_payload = list(images) + [prompt]
-            else:
-                content_payload = prompt
+            with client:
+                # 1物件1リクエスト用プロンプトの構築
+                prompt = PROMPT_TEMPLATE.format(
+                    title=prop_data.get("title", ""),
+                    site=prop_data.get("site", ""),
+                    property_type=prop_data.get("property_type", "mansion"),
+                    price_str=prop_data.get("price_str", ""),
+                    specs_json=json.dumps(prop_data.get("specs", {}), ensure_ascii=False),
+                    features_json=json.dumps(prop_data.get("features", []), ensure_ascii=False),
+                    appeals_json=json.dumps(prop_data.get("appeals", []), ensure_ascii=False),
+                    snippets_json=json.dumps(prop_data.get("snippets", []), ensure_ascii=False),
+                )
 
-            response = model.generate_content(content_payload)
-            raw_text = response.text.strip() if hasattr(response, "text") else ""
-            
-            # Markdown コードブロックの除去
-            cleaned_json = re.sub(r"^```json\s*", "", raw_text)
-            cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
+                # 【厳格遵守】画像がある場合も一括同梱し、1物件につき厳格に1回のみ呼出
+                images = prop_data.get("images") or []
+                if images:
+                    content_payload = list(images) + [prompt]
+                else:
+                    content_payload = prompt
 
-            data = json.loads(cleaned_json)
-            return self._dict_to_attributes(data, fallback_res)
+                response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=content_payload
+                )
+                raw_text = response.text.strip() if hasattr(response, "text") else ""
+                
+                # Markdown コードブロックの除去
+                cleaned_json = re.sub(r"^```json\s*", "", raw_text)
+                cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
+
+                data = json.loads(cleaned_json)
+                return self._dict_to_attributes(data, fallback_res)
         except Exception as e:
             logging.warning(f"SingleUnifiedPropertyExtractor: LLM call or parse failed: {e}. Using fallback.")
             return fallback_res
