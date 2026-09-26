@@ -47,9 +47,9 @@ def run_nerdgraph_query(api_key: str, query: str, variables: dict | None = None)
 def get_existing_monitors(api_key: str, account_id: int) -> list:
     """List existing Synthetics monitors for the given account."""
     query = """
-    query GetSyntheticsMonitors($accountId: Int!) {
+    query GetSyntheticsMonitors($searchQuery: String!) {
       actor {
-        entitySearch(query: "type = 'MONITOR' AND domain = 'SYNTH'") {
+        entitySearch(query: $searchQuery) {
           results {
             entities {
               name
@@ -66,16 +66,22 @@ def get_existing_monitors(api_key: str, account_id: int) -> list:
       }
     }
     """
-    res = run_nerdgraph_query(api_key, query, {"accountId": account_id})
-    entities = res.get("data", {}).get("actor", {}).get("entitySearch", {}).get("results", {}).get("entities", [])
+    search_query = f"type = 'MONITOR' AND domain = 'SYNTH' AND accountId = {account_id}"
+    res = run_nerdgraph_query(api_key, query, {"searchQuery": search_query})
+    if res.get("errors"):
+        raise RuntimeError(f"NerdGraph list query failed: {res['errors']}")
+    data = res.get("data")
+    if not isinstance(data, dict):
+        raise RuntimeError("NerdGraph list response does not contain data")
+    entities = data.get("actor", {}).get("entitySearch", {}).get("results", {}).get("entities", [])
     return entities
 
 
 def create_or_verify_synthetics_monitor(
     api_key: str,
     account_id: int,
+    target_url: str,
     monitor_name: str = "RealEstate API Health Check",
-    target_url: str = "https://realestate-api-prod-62ys4zbasq-an.a.run.app/health",
 ) -> dict:
     """Create Synthetics Simple Monitor if not present, or return existing one."""
     logger.info(f"Checking existing Synthetics monitors for account {account_id}...")
@@ -130,11 +136,17 @@ def create_or_verify_synthetics_monitor(
 def main():
     load_dotenv()
     api_key = os.getenv("NEW_RELIC_API_KEY")
-    account_id_str = os.getenv("NEW_RELIC_ACCOUNT_ID", "8553111")
-    target_url = os.getenv("HEALTHCHECK_URL", "https://realestate-api-prod-62ys4zbasq-an.a.run.app/health")
+    account_id_str = os.getenv("NEW_RELIC_ACCOUNT_ID")
+    target_url = os.getenv("HEALTHCHECK_URL")
 
     if not api_key:
         logger.error("NEW_RELIC_API_KEY is not set in environment or .env")
+        sys.exit(1)
+    if not account_id_str:
+        logger.error("NEW_RELIC_ACCOUNT_ID is not set in environment or .env")
+        sys.exit(1)
+    if not target_url:
+        logger.error("HEALTHCHECK_URL is not set in environment or .env")
         sys.exit(1)
 
     try:
@@ -144,7 +156,11 @@ def main():
         sys.exit(1)
 
     try:
-        res = create_or_verify_synthetics_monitor(api_key, account_id, target_url=target_url)
+        res = create_or_verify_synthetics_monitor(
+            api_key=api_key,
+            account_id=account_id,
+            target_url=target_url,
+        )
         print(json.dumps(res, indent=2, ensure_ascii=False))
         sys.exit(0)
     except Exception:

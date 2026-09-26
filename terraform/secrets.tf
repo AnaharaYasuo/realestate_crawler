@@ -149,12 +149,12 @@ resource "google_secret_manager_secret_version" "new_relic_license_key_version" 
 }
 
 import {
-  id = "projects/sumifu/secrets/realestate-new-relic-license-key-prod"
+  id = "projects/${var.project_id}/secrets/realestate-new-relic-license-key-${var.environment}"
   to = google_secret_manager_secret.new_relic_license_key
 }
 
 import {
-  id = "projects/sumifu/secrets/realestate-new-relic-license-key-prod/versions/1"
+  id = "projects/${var.project_id}/secrets/realestate-new-relic-license-key-${var.environment}/versions/1"
   to = google_secret_manager_secret_version.new_relic_license_key_version
 }
 

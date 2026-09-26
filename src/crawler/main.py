@@ -1,6 +1,9 @@
 # ruff: noqa: E402
 import os
 import logging
+from package.utils.newrelic_helper import init_new_relic
+init_new_relic()
+
 import sys
 import signal
 import traceback
@@ -20,9 +23,6 @@ realestateSettings.configure()  # package.apiがインポートされる前に�
 from package.utils.logging_config import configure_logging
 configure_logging()
 logger = logging.getLogger(__name__)
-
-from package.utils.newrelic_helper import init_new_relic
-init_new_relic()
 
 # Import keys for remaining routes (if any) or shared usage
 from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
