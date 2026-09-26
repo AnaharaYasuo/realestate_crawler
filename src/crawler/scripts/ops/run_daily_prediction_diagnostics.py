@@ -33,8 +33,10 @@ from package.utils.slack import send_slack_message, send_dev_report
 
 try:
     from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
+    types = None
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -158,7 +160,8 @@ def _generate_gemini_insight(worst_items: list, api_key: str):
     if not genai:
         return None
     try:
-        client = genai.Client(api_key=api_key)
+        http_options = types.HttpOptions(timeout=10000) if types else None
+        client = genai.Client(api_key=api_key, http_options=http_options)
 
         sample_texts = []
         for i, item in enumerate(worst_items[:6], 1):

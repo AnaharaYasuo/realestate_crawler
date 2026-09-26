@@ -232,7 +232,15 @@ class SingleUnifiedPropertyExtractor:
         # ルールベースの初期フォールバックを生成
         fallback_res = self._rule_based_fallback(prop_data)
 
-        client = self._get_genai_client()
+        try:
+            client = self._get_genai_client()
+        except Exception as e:
+            logging.warning(
+                f"SingleUnifiedPropertyExtractor: client construction failed: {e}. "
+                "Using fallback."
+            )
+            return fallback_res
+
         if not client:
             # APIキー未設定時はルールベースで返す
             return fallback_res
