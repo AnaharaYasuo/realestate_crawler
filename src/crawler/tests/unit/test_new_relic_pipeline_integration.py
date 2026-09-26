@@ -39,6 +39,28 @@ def test_terraform_log_sink_has_cloud_run_job_filter():
     assert match is not None, "new_relic_log_sink resource not found"
     sink_block = match.group(1)
     assert 'resource.type = "cloud_run_job"' in sink_block, "resource.type = 'cloud_run_job' must be in new_relic_log_sink filter"
+    assert "github_actions_logging_config_writer" in sink_block, (
+        "new_relic_log_sink must depends_on github_actions_logging_config_writer"
+    )
+
+
+def test_terraform_github_actions_has_logging_config_writer():
+    """Deploy SA must be granted roles/logging.configWriter for sinks.create."""
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
+    iam_path = os.path.join(root_dir, "terraform", "iam.tf")
+    vars_path = os.path.join(root_dir, "terraform", "variables.tf")
+    assert os.path.exists(iam_path), f"File not found: {iam_path}"
+    assert os.path.exists(vars_path), f"File not found: {vars_path}"
+
+    with open(iam_path, "r", encoding="utf-8") as f:
+        iam = f.read()
+    with open(vars_path, "r", encoding="utf-8") as f:
+        variables = f.read()
+
+    assert 'resource "google_project_iam_member" "github_actions_logging_config_writer"' in iam
+    assert 'role    = "roles/logging.configWriter"' in iam
+    assert "var.github_actions_sa_email" in iam
+    assert 'variable "github_actions_sa_email"' in variables
 
 
 def test_run_pipeline_initializes_new_relic():

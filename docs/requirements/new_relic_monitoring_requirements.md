@@ -37,6 +37,7 @@
 ### FR-06: GCP Cloud Logging ➔ New Relic ログ統合 (Log in Context)
 - Cloud Run サービス（`cloud_run_revision`）、Cloud Run Job（`cloud_run_job`）、Cloud SQL、ProxySQL の GCP Cloud Logging ログを Pub/Sub トピック経由で New Relic Log Management へリアルタイム転送する Terraform 定義（`terraform/new_relic_gcp_integration.tf`）を整備すること。
 - APM トレース ID（`trace.id`）との紐付け（Log in Context）により、障害発生時にトレースとログをシームレスに横断分析可能とすること。
+- Deploy 用 GitHub Actions SA（`github-actions-crawler@...`）に `roles/logging.configWriter` を付与し、`google_logging_project_sink` の `logging.sinks.create` が CI Terraform Apply で成功すること（`roles/editor` だけでは sinks.create が不足する）。
 
 ### FR-07: GenAI / LLM 監視 (New Relic AI Monitoring)
 - 不動産パース時における Gemini 等の LLM 呼び出しに対し、プロンプト/完了トークン数、推論レイテンシ、推論コスト（推定 USD）、および成否ステータスを New Relic カスタムイベント（`LlmEvent`）またはメトリクスとして記録する共通ヘルパーを提供すること。

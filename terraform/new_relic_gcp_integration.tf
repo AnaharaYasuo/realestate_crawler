@@ -27,6 +27,9 @@ resource "google_logging_project_sink" "new_relic_log_sink" {
     resource.type = "cloudsql_database" OR
     resource.type = "gce_instance"
   EOT
+
+  # Ensure Deploy SA has logging.sinks.create before creating this sink.
+  depends_on = [google_project_iam_member.github_actions_logging_config_writer]
 }
 
 resource "google_pubsub_topic_iam_member" "new_relic_sink_publisher" {
