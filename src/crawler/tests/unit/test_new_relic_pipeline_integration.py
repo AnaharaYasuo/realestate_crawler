@@ -57,14 +57,20 @@ def test_terraform_log_sink_has_cloud_run_job_filter():
     sink_block = _extract_tf_resource(content, "google_logging_project_sink", "new_relic_log_sink")
     assert 'resource.type = "cloud_run_job"' in sink_block
     assert "google_project_iam_member.github_actions_logging_config_writer" in sink_block
-    assert "google_project_iam_member.github_actions_pubsub_admin" in sink_block
+
+    topic_admin = _extract_tf_resource(
+        content, "google_pubsub_topic_iam_member", "github_actions_newrelic_topic_admin"
+    )
+    assert 'role    = "roles/pubsub.admin"' in topic_admin
+    assert "var.github_actions_sa_email" in topic_admin
+    assert "google_pubsub_topic.new_relic_log_topic.name" in topic_admin
 
     publisher = _extract_tf_resource(content, "google_pubsub_topic_iam_member", "new_relic_sink_publisher")
-    assert "google_project_iam_member.github_actions_pubsub_admin" in publisher
+    assert "google_pubsub_topic_iam_member.github_actions_newrelic_topic_admin" in publisher
 
 
 def test_terraform_github_actions_has_logging_config_writer():
-    """Deploy SA IAM bindings for logging.configWriter and pubsub.admin must be explicit."""
+    """Deploy SA IAM binding for logging.configWriter must be explicit at project level."""
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     iam_path = os.path.join(root_dir, "terraform", "iam.tf")
     vars_path = os.path.join(root_dir, "terraform", "variables.tf")
@@ -80,11 +86,7 @@ def test_terraform_github_actions_has_logging_config_writer():
     assert "project = var.project_id" in logging_block
     assert 'role    = "roles/logging.configWriter"' in logging_block
     assert "member  = \"serviceAccount:${var.github_actions_sa_email}\"" in logging_block
-
-    pubsub_block = _extract_tf_resource(iam, "google_project_iam_member", "github_actions_pubsub_admin")
-    assert "project = var.project_id" in pubsub_block
-    assert 'role    = "roles/pubsub.admin"' in pubsub_block
-    assert "member  = \"serviceAccount:${var.github_actions_sa_email}\"" in pubsub_block
+    assert 'resource "google_project_iam_member" "github_actions_pubsub_admin"' not in iam
 
     assert 'variable "github_actions_sa_email"' in variables
     assert "github-actions-crawler@sumifu.iam.gserviceaccount.com" in variables

@@ -28,11 +28,17 @@ resource "google_logging_project_sink" "new_relic_log_sink" {
     resource.type = "gce_instance"
   EOT
 
-  # Ensure Deploy SA can create sinks and manage Pub/Sub topic IAM for writer_identity.
-  depends_on = [
-    google_project_iam_member.github_actions_logging_config_writer,
-    google_project_iam_member.github_actions_pubsub_admin,
-  ]
+  # Ensure Deploy SA can create sinks before this resource runs.
+  depends_on = [google_project_iam_member.github_actions_logging_config_writer]
+}
+
+# Topic-scoped admin (not project-wide) so Deploy SA can set sink writer_identity IAM
+# without roles/pubsub.admin at project level (Checkov CKV_GCP_42 / Trivy GCP-0007).
+resource "google_pubsub_topic_iam_member" "github_actions_newrelic_topic_admin" {
+  project = var.project_id
+  topic   = google_pubsub_topic.new_relic_log_topic.name
+  role    = "roles/pubsub.admin"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
 resource "google_pubsub_topic_iam_member" "new_relic_sink_publisher" {
@@ -41,7 +47,7 @@ resource "google_pubsub_topic_iam_member" "new_relic_sink_publisher" {
   role    = "roles/pubsub.publisher"
   member  = google_logging_project_sink.new_relic_log_sink.writer_identity
 
-  depends_on = [google_project_iam_member.github_actions_pubsub_admin]
+  depends_on = [google_pubsub_topic_iam_member.github_actions_newrelic_topic_admin]
 }
 
 # Push subscription to New Relic HTTP log intake endpoint

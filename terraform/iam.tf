@@ -50,13 +50,6 @@ resource "google_project_iam_member" "github_actions_logging_config_writer" {
   member  = "serviceAccount:${var.github_actions_sa_email}"
 }
 
-# Deploy SA needs pubsub.topics.getIamPolicy/setIamPolicy to attach sink writer_identity.
-resource "google_project_iam_member" "github_actions_pubsub_admin" {
-  project = var.project_id
-  role    = "roles/pubsub.admin"
-  member  = "serviceAccount:${var.github_actions_sa_email}"
-}
-
 # Service Account for Cloud Scheduler
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "scheduler-invoker-${var.environment}"
