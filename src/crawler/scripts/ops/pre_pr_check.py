@@ -439,8 +439,10 @@ class PrePRChecker:
             if mb_rc != 0:
                 mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", "HEAD"])
             merge_base = mb_out.strip()
-            if merge_base:
-                review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            if not merge_base:
+                err = "比較基準 (merge-base) を取得できませんでした: HEAD"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
             review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
 
         errors = []
