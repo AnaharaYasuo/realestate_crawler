@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
-import re
 import datetime
-from decimal import Decimal
+import re
 import unicodedata
+from decimal import ROUND_HALF_UP, Decimal
 
 DECIMAL_NUMBER_PATTERN = r'(\d+(?:\.\d+)?)'
 YEN_AMOUNT_PATTERN = r'(\d[\d,]*)\s*円'
@@ -68,7 +67,7 @@ def parse_menseki(menseki_str):
         val = menseki_str.replace(',', '').split('㎡')[0].strip()
         match = re.search(r'([\d.]+)', val)
         if match:
-            return Decimal(match.group(1))
+            return Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     except Exception:
         pass
     return None
@@ -174,7 +173,7 @@ def parse_ratio(text):
         val = text.replace('％', '').replace('%', '').strip()
         match = re.search(r'([\d.]+)', val)
         if match:
-            return Decimal(match.group(1))
+            return Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     except Exception:
         pass
     return None

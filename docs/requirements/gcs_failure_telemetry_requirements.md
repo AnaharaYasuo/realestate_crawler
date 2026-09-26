@@ -30,11 +30,13 @@
 - クローリングバッチ完了時に異常終了したジョブが1件以上存在する場合、人間を介さず `#dev-agent` チャンネル宛に自動修復リクエスト（`@DevAgent` メンション）を自動投稿すること。
 - これにより常駐する Antigravity Bot が自動起動し、完全無人（ゼロタッチ）で GCS から障害情報を取得し、コード修正・テスト検証・PR作成までを自律完結できること。
 
-### REQ-007: GCS ネイティブストレージバックエンド対応 (Issue #477)
-- `STORAGE_BACKEND="gcs"` または `IS_CLOUD="true"` の場合、`ObjectStorageManager` は MinIO (boto3) ではなく `google-cloud-storage` (`google.cloud.storage.Client`) を直接使用し、Cloud Run のサービスアカウント権限 (ADC) で GCS バケットへアップロード・一覧・読込を実行しなければならない。
-- ローカル環境 (`STORAGE_BACKEND!="gcs"`) では既存の MinIO (boto3) 動作との後方互換性を 100% 維持すること。
+### REQ-007: ネイティブ GCS クライアントおよび生 HTML 直接受け渡し (Issue #477)
+- `ObjectStorageManager` は、`STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合に `google.cloud.storage.Client` を使用してネイティブに GCS と通信し、Cloud Run サービスアカウント権限でアップロード・一覧・読込を実行しなければならない。
+- ローカル環境（MinIO / S3 互換）との完全な後方互換性を維持すること。
+- パースエラー・フェッチエラー時に、すでに取得済みの生 HTML バイト列を `_sync_save_error_html_by_url` および `FailureReporter` に直接渡すことができ、相手サーバーへの再 HTTP リクエストなしで 100% 確実に生 HTML を永続化できること。相手サーバーが 403 ブロックまたはダウンしている場合でも生 HTML が欠損してはならない。
 
-### REQ-008: パースエラー時生 HTML のインメモリ直接永続化 (Issue #477)
-- パース例外・異常検知時、すでに手元に存在する生 HTML バイト列／文字列を `FailureReporter` および `_sync_save_error_html_by_url` に直接引き渡し、相手サーバーへの再 HTTP リクエスト (`requests.get`) を全廃すること。
-- これにより、相手サーバーが 403 ブロックや連続タイムアウト状態であっても、エラー発生時の生 HTML を 100% 確実に GCS へ保存でき、かつ無駄な HTTP リクエストによる遅延を根絶すること。
-- 接続タイムアウト等で生 HTML 自体が存在しない場合でも例外を握りつぶし、メタデータ JSON のみを安全に保存できること。
+### REQ-008: Cloud 実行インプロセスルーティング整合性とパーサー堅牢性 (Issue #479)
+- `IS_CLOUD=true` 時でも、`ApiRegistry` は `_GCP` 接尾辞を含む全 API パスを完全に解決・ディスパッチ可能とし、Flask 未起動のバッチ環境で HTTP 127.0.0.1:8000 へのフォールバックによる `ConnectionRefusedError` を根絶しなければならない。
+- ミサワホーム（`misawa.py`）の全種別（mansion, kodate, tochi）において、レガシー SSL 暗号スイート（`DEFAULT@SECLEVEL=1`）を有効化し、ハンドシェイク失敗（0件取得）を根絶すること。
+- `homes.py` のマンションパーサーは `HomesMansionParser` を正しくインスタンス化し、`HomesMansion` モデルに格納すること。
+- 面積・割合の数値コンバーター（`converter.py`）は小数点以下 2 桁へ `quantize`（四捨五入）を行い、Django モデルのバリデーションエラーを防止すること。

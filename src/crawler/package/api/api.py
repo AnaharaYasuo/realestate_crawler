@@ -7,7 +7,7 @@ import threading
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, Optional  # noqa: UP035
+from typing import Any, Dict, Optional, Tuple  # noqa: UP035
 from pathlib import Path
 import re
 import uuid
@@ -43,6 +43,31 @@ ERROR_PAGES_DIR = Path("src/crawler/tests/error_pages")
 CAMEL_TO_SNAKE_PATTERN = re.compile(r'(?<!^)(?=[A-Z])')
 DETAIL_ID_PATTERN = re.compile(r'detail_([^/]+)')
 BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
+_MODEL_NAME_PREFIXES = ("Parse",)
+_MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
+_KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
+
+
+def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
+    """Derive company / property_type from entity or Parse* class names."""
+    name = model_name or ""
+    for prefix in _MODEL_NAME_PREFIXES:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    for suffix in _MODEL_NAME_SUFFIXES:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    snake = CAMEL_TO_SNAKE_PATTERN.sub("_", name).lower().strip("_")
+    parts = [p for p in snake.split("_") if p]
+    if not parts:
+        return "unknown", "unknown"
+    if len(parts) >= 2 and parts[-1] in _KNOWN_PROPERTY_TYPES:
+        return parts[0], parts[-1]
+    if len(parts) >= 2:
+        return parts[0], "_".join(parts[1:])
+    return parts[0], "unknown"
 
 
 def _sync_save_error_html_by_url(
@@ -85,10 +110,7 @@ def _sync_save_error_html_by_url(
 
     # GCS障害テレメトリへも即時保存
     try:
-        parts = company_type.split("_", 1)
-        raw_comp = parts[0] if parts else "unknown"
-        comp = raw_comp.removesuffix("API")
-        ptype = parts[1] if len(parts) > 1 else "unknown"
+        comp, ptype = _extract_company_and_ptype(model_name)
         FailureReporter.record_job_failure(
             company=comp,
             property_type=ptype,

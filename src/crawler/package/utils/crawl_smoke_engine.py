@@ -1437,7 +1437,8 @@ _DEEP_SEED_BY_COMPANY: dict[str, dict[str, str]] = {
         "mansion": "https://www.athome.co.jp/mansion/chuko/tokyo/edogawa-city/list/",
         "kodate": "https://www.athome.co.jp/kodate/chuko/tokyo/edogawa-city/list/",
         "tochi": "https://www.athome.co.jp/tochi/tokyo/edogawa-city/list/",
-        "invest_apartment": "https://www.athome.co.jp/buy_other/tokyo/edogawa-city/list/",
+        # Prefer investment-filtered listing over area buy_other (mixed types → type mismatch).
+        "invest_apartment": "https://www.athome.co.jp/buy_other/shubetsu_toushi/",
     },
     "sumifu": {
         "mansion": "https://www.stepon.co.jp/mansion/shutoken/",
