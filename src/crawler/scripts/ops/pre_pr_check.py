@@ -449,8 +449,15 @@ class PrePRChecker:
         has_completed_event = False
 
         for cmd in review_cmds:
+            initial_error_count = len(errors)
+            cmd_has_completed = False
+
             # Execute review with finite timeout (1800s / 30m for AI analysis)
             rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
+            if rc == 124:
+                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review コマンドがタイムアウトしました: {' '.join(cmd)}"
+                errors.append(err_msg)
+                break
 
             # Parse JSON lines emitted by coderabbit --agent
             for line in (stdout + "\n" + stderr).splitlines():
@@ -483,6 +490,7 @@ class PrePRChecker:
                     status = data.get("status")
                     if status in ("completed", "review_completed"):
                         has_completed_event = True
+                        cmd_has_completed = True
                         raw_findings = data.get("findings")
                         try:
                             parsed_findings = int(raw_findings) if raw_findings is not None else 0
@@ -492,12 +500,17 @@ class PrePRChecker:
                     elif status == "review_skipped":
                         # Review skipped on one sub-scope is acceptable if no errors
                         has_completed_event = True
+                        cmd_has_completed = True
                     else:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
-            if rc != 0 and not errors:
-                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました。"
+            cmd_added_errors = len(errors) > initial_error_count
+            if rc != 0 and not cmd_added_errors:
+                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
                 errors.append(err_msg)
+
+            if not cmd_has_completed and not cmd_added_errors and rc == 0:
+                errors.append(f"CodeRabbit レビュー完了イベントを受信できませんでした: {' '.join(cmd)}")
 
         if not has_completed_event and not errors:
             errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")
