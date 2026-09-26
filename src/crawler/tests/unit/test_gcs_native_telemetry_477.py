@@ -9,7 +9,7 @@ class TestGcsNativeTelemetry477:
     """Issue #477: Tests for native GCS client in ObjectStorageManager and direct HTML preservation."""
 
     def test_object_storage_manager_initializes_gcs_when_configured(self, monkeypatch):
-        """When STORAGE_BACKEND=gcs, ObjectStorageManager uses google.cloud.storage.Client."""
+        """When STORAGE_BACKEND=gcs or IS_CLOUD=true without endpoint, ObjectStorageManager uses GCS."""
         monkeypatch.setenv("STORAGE_BACKEND", "gcs")
         monkeypatch.setenv("STORAGE_BUCKET", "test-gcs-bucket")
 
@@ -24,6 +24,23 @@ class TestGcsNativeTelemetry477:
             assert sm.is_gcs is True
             assert sm.bucket_name == "test-gcs-bucket"
             mock_client_inst.bucket.assert_called_once_with("test-gcs-bucket")
+
+    def test_object_storage_manager_initializes_gcs_when_is_cloud_enabled(self, monkeypatch):
+        """When IS_CLOUD=true and STORAGE_ENDPOINT is empty, selects GCS backend."""
+        monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+        monkeypatch.setenv("IS_CLOUD", "true")
+        monkeypatch.delenv("STORAGE_ENDPOINT", raising=False)
+        monkeypatch.setenv("STORAGE_BUCKET", "cloud-bucket")
+
+        mock_gcs_client_cls = MagicMock()
+        mock_client_inst = MagicMock()
+        mock_gcs_client_cls.return_value = mock_client_inst
+        mock_client_inst.bucket.return_value = MagicMock()
+
+        with patch("google.cloud.storage.Client", mock_gcs_client_cls):
+            sm = ObjectStorageManager()
+            assert sm.is_gcs is True
+            assert sm.bucket_name == "cloud-bucket"
 
     def test_object_storage_manager_gcs_upload_and_read(self, monkeypatch):
         """Test upload_bytes, list_files, and read_text using GCS backend."""
@@ -122,7 +139,7 @@ class TestGcsNativeTelemetry477:
     def test_get_storage_manager_singleton(self, monkeypatch):
         """Test get_storage_manager returns the cached singleton instance."""
         import package.utils.storage as storage_mod
-        storage_mod._storage_manager = None
+        monkeypatch.setattr(storage_mod, "_storage_manager", None)
 
         monkeypatch.setenv("STORAGE_BACKEND", "gcs")
         mock_gcs = MagicMock()
@@ -192,6 +209,7 @@ class TestGcsNativeTelemetry477:
             assert saved_html.exists()
             assert saved_html.read_bytes() == dummy_content
             mock_reporter.assert_called_once()
+            assert mock_reporter.call_args.kwargs["raw_html"] == dummy_content
 
     def test_sync_save_error_html_handles_request_exception(self, tmp_path):
         """When fallback requests.get fails with timeout/connection error, handles gracefully."""
@@ -212,3 +230,6 @@ class TestGcsNativeTelemetry477:
             mock_reporter.assert_called_once()
             call_kwargs = mock_reporter.call_args.kwargs
             assert call_kwargs["raw_html"] is None
+
+            # When request fails, no HTML file should be created
+            assert not (tmp_path / "nomura_mansion" / "99999.html").exists()

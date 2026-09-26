@@ -7,7 +7,7 @@ import threading
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
-from typing import Any
+from typing import Any, Dict, Optional  # noqa: UP035
 from pathlib import Path
 import re
 import uuid

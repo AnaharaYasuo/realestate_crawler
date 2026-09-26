@@ -21,7 +21,9 @@ class ObjectStorageManager:
         self.access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
         self.secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")
 
-        if self.backend == "gcs" or (os.getenv("IS_CLOUD") and os.getenv("STORAGE_ENDPOINT") is None):
+        is_cloud_enabled = os.getenv("IS_CLOUD", "").strip().lower() in ("true", "1")
+        has_endpoint = bool(os.getenv("STORAGE_ENDPOINT", "").strip())
+        if self.backend == "gcs" or (is_cloud_enabled and not has_endpoint):
             self.is_gcs = True
             self.gcs_client = gcs_storage.Client()
             self.gcs_bucket = self.gcs_client.bucket(self.bucket_name)
