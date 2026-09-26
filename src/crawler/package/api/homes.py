@@ -7,7 +7,7 @@ from package.api.api import (
     ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase
 )
 from package.parser.homesParser import (
-    HomesKodateParser, HomesInvestmentApartmentParser, HomesTochiParser
+    HomesMansionParser, HomesKodateParser, HomesInvestmentApartmentParser, HomesTochiParser
 )
 from package.api.registry import ApiRegistry
 
@@ -16,7 +16,7 @@ DETAIL_PARARELL_LIMIT = 3
 # --- Mansion ---
 class ParseHomesMansionDetailFuncAsync(ParseDetailPageAsyncBase):
     def _generateParser(self):
-        return HomesInvestmentApartmentParser()
+        return HomesMansionParser()
 
     def _getLocalPararellLimit(self):
         return DETAIL_PARARELL_LIMIT
@@ -32,7 +32,7 @@ class ParseHomesMansionDetailFuncAsync(ParseDetailPageAsyncBase):
 
 class ParseHomesMansionStartAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self):
-        return HomesInvestmentApartmentParser()
+        return HomesMansionParser()
 
     def _getParserFunc(self):
         return getattr(self.parser, 'parseRootPage')

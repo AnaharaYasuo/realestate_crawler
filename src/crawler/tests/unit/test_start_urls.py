@@ -3,9 +3,14 @@
 全クローラーのスタートAPI・パーサーモデル・本物URLマッピング自動検証テスト
 """
 import pytest
+import importlib
+import pkgutil
 from package.api.registry import ApiRegistry
+import package.api
 
 # 全APIクラスをApiRegistryに登録するためにpackage.api配下をインポート
+for _, module_name, _ in pkgutil.walk_packages(package.api.__path__, package.api.__name__ + "."):
+    importlib.import_module(module_name)
 
 
 
