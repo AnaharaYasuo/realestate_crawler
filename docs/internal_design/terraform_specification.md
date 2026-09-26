@@ -132,5 +132,6 @@ terraform/
 - 最小権限ロール付与:
   - `roles/cloudsql.client` (Cloud SQL 接続)
   - `roles/storage.objectAdmin` (画像 GCS バケット)
-  - `roles/secretmanager.secretAccessor` (秘密情報取得)
+  - `roles/secretmanager.secretAccessor` (秘密情報取得。対象 Secret は `iam.tf` の `secret_accessor` for_each で限定: `db_password` / `slack_bot` / `slack_app` / `new_relic_license_key`)
   - `roles/run.invoker` (Cloud Scheduler からの Job 起動権限)
+- **New Relic ライセンスキー**: `secrets.tf` の `realestate-new-relic-license-key-${var.environment}` を Cloud Run が参照するため、必ず `secret_accessor` に含める（Issue #484）。欠落時は `SecretsAccessCheckFailed` となる。
