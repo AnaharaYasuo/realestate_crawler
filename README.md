@@ -620,6 +620,9 @@ task logs
 - **[Prodマージ高速化・CIトリガー最適化内部設計書](docs/internal_design/prod_merge_ci_speedup.md)**: auto-release-pr詳細実装、review-gate/dependabot/coderabbit設定仕様
 - **[CI/CD パイプライン最適化要件定義書](docs/requirements/ci_cd_optimization_requirements.md)**: master push 重複ジョブ廃止・PR提出時一本化・Production Gate 10秒化要件
 - **[CI/CD パイプライン最適化内部設計書](docs/internal_design/ci_cd_optimization_design.md)**: ワークフロー別トリガー見直し・production ブランチ保護ルール詳細仕様
+- **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
+- **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
+- **[Google GenAI SDK 移行内部設計書](docs/internal_design/google_genai_sdk_migration.md)**: モジュール別詳細変更・テストモック仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
