@@ -16,14 +16,16 @@ def parse_pubsub_permission_incident(payload: Dict[str, Any]) -> Tuple[bool, str
         Tuple of (is_pubsub_permission_denied, remediation_summary)
     """
     summary = payload.get("summary", "")
-    error_ref = payload.get("errorReference", "")
+    if not summary and "incident" in payload:
+        summary = payload["incident"].get("summary", "")
 
     if "PERMISSION_DENIED" in summary and "Cloud Pub/Sub" in summary:
         topic_name = "unknown"
-        if "projects/" in summary and "/topics/" in summary:
+        if "topics/" in summary:
             parts = summary.split("topics/")
             if len(parts) > 1:
-                topic_name = parts[1].split(".")[0].split(" ")[0]
+                raw_topic = parts[1].split()[0]
+                topic_name = raw_topic.rstrip(".:,;")
 
         remediation = (
             f"Pub/Sub Permission Denied for topic '{topic_name}'. "
