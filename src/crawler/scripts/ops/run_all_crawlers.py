@@ -254,6 +254,7 @@ def main():
                     post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
 
                 if status != "success":
+                    logging.error(f"[{idx}] Crawl job FAILED for {company} - {ptype}. Exit Code: {exit_code}, Scraped: {scraped_cnt} items, Error: {error_msg}")
                     try:
                         FailureReporter.record_job_failure(
                             company=company,
@@ -268,8 +269,8 @@ def main():
                         )
                     except Exception as fe:
                         logging.warning(f"Failed to record failure telemetry for {company} - {ptype}: {fe}")
-
-                logging.info(f"[{idx}] Crawl job finished for {company} - {ptype}. Status: {status}, Code: {exit_code}, Time: {duration_job_str}")
+                else:
+                    logging.info(f"[{idx}] Crawl job finished for {company} - {ptype}. Status: {status}, Code: {exit_code}, Time: {duration_job_str}")
                 results.append({
                     "index": idx,
                     "company": company,
