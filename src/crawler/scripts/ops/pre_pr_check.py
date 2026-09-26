@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Pre-PR Check Engine (pre_pr_check.py)
 Unified local verification and PR gatekeeper.
@@ -14,7 +13,7 @@ import re
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 # Initialize project environment
 _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,6 +52,7 @@ FORBIDDEN_PATH_PATTERNS = [
 STAGE_GIT_HYGIENE = "Git & ブランチ健全性"
 STAGE_ISSUE_AC = "Issue & 受入基準"
 STAGE_LINTER_SONAR = "Linter & SonarCloud"
+STAGE_CODERABBIT = "CodeRabbit AIレビュー"
 STAGE_TEST_SUITE = "Pytest テストスイート"
 STAGE_MUTATION = "PR Mutation Testing"
 STAGE_SECURITY = "Security & IaC"
@@ -65,12 +65,12 @@ class StageResult:
     name: str
     passed: bool
     details: str = ""
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     duration_sec: float = 0.0
 
 
-def validate_branch_name(branch_name: str) -> Tuple[bool, Optional[int], str]:
+def validate_branch_name(branch_name: str) -> tuple[bool, int | None, str]:
     """Validate current git branch against repository branch conventions."""
     if not branch_name:
         return False, None, "ブランチ名を取得できませんでした。"
@@ -89,7 +89,7 @@ def validate_branch_name(branch_name: str) -> Tuple[bool, Optional[int], str]:
     return True, issue_num, f"ブランチ '{branch_name}' は有効です (Issue #{issue_num})。"
 
 
-def check_forbidden_files(file_list: List[str]) -> List[str]:
+def check_forbidden_files(file_list: list[str]) -> list[str]:
     """Check for forbidden, secret, or temporary files in file list."""
     detected = []
     for filepath in file_list:
@@ -101,7 +101,7 @@ def check_forbidden_files(file_list: List[str]) -> List[str]:
     return detected
 
 
-def validate_pr_title_content(title: str, expected_issue: int) -> Tuple[bool, str]:
+def validate_pr_title_content(title: str, expected_issue: int) -> tuple[bool, str]:
     """Validate PR title conforms to [#<issue_num>] prefix format."""
     if not title:
         return False, "PRタイトルが空です。"
@@ -113,7 +113,7 @@ def validate_pr_title_content(title: str, expected_issue: int) -> Tuple[bool, st
     return True, "PRタイトル形式は正常です。"
 
 
-def validate_pr_metadata_content(body: str, expected_issue: int) -> Tuple[bool, str]:
+def validate_pr_metadata_content(body: str, expected_issue: int) -> tuple[bool, str]:
     """Validate PR body contains Closes #<issue_num> and no unchecked checkboxes."""
     if not body:
         return False, "PR本文が空です。"
@@ -155,16 +155,18 @@ class PrePRChecker:
         fix_mode: bool = False,
         skip_tests: bool = False,
         skip_mutation: bool = False,
-        branch: Optional[str] = None,
-        sha: Optional[str] = None,
+        skip_coderabbit: bool = False,
+        branch: str | None = None,
+        sha: str | None = None,
     ):
         self.diff_mode = diff_mode
         self.fix_mode = fix_mode
         self.skip_tests = skip_tests
         self.skip_mutation = skip_mutation
+        self.skip_coderabbit = skip_coderabbit
         self.target_branch = branch
         self.target_sha = sha
-        self.results: List[StageResult] = []
+        self.results: list[StageResult] = []
         self.repo_root = find_repo_root()
 
     @property
@@ -174,20 +176,23 @@ class PrePRChecker:
     def is_all_passed(self) -> bool:
         return all(r.passed for r in self.results)
 
-    def _run_cmd(self, cmd: List[str], cwd: Optional[str] = None) -> Tuple[int, str, str]:
-        """Execute a local shell command safely."""
+    def _run_cmd(self, cmd: list[str], cwd: str | None = None, timeout: float | None = None) -> tuple[int, str, str]:
+        """Execute a local shell command safely with optional timeout."""
         try:
             p = subprocess.run(
                 cmd,
                 cwd=cwd or self.repo_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 check=False,
+                timeout=timeout,
             )
             return p.returncode, p.stdout.strip(), p.stderr.strip()
+        except subprocess.TimeoutExpired:
+            return 124, "", f"コマンドがタイムアウトしました ({timeout}秒): {' '.join(cmd)}"
         except Exception as e:
             return 1, "", str(e)
+
 
     def get_current_branch(self) -> str:
         if self.target_branch:
@@ -195,22 +200,36 @@ class PrePRChecker:
         _, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         return stdout
 
-    def get_changed_files(self) -> List[str]:
-        """Get list of changed files against origin/master or master including staged, unstaged, and untracked."""
-        files: Set[str] = set()
+    def get_changed_files(self) -> tuple[list[str], list[str]]:
+        """Get list of changed files against origin/master or master including staged, unstaged, and untracked.
+
+        Returns (files, errors).
+        """
+        files: set[str] = set()
+        errors: list[str] = []
         ref = self.target_sha or "HEAD"
+        base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"]
+        rc, stdout, err = self._run_cmd(base_diff_cmd)
+        if rc != 0:
+            base_diff_cmd = ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"]
+            rc, stdout, err = self._run_cmd(base_diff_cmd)
+        if rc != 0:
+            errors.append(f"変更ファイル差分の取得に失敗しました (origin/master / master): {err}")
+        else:
+            for f in stdout.splitlines():
+                if f.strip():
+                    files.add(f.strip().replace("\\", "/"))
+
         for cmd in [
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"origin/master...{ref}"],
-            ["git", "diff", "--name-only", "--ignore-space-at-eol", f"master...{ref}"],
             ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
-            ["git", "-c", "diff.autoRefreshIndex=false", "diff", "--name-only", "--ignore-space-at-eol"],
+            ["git", "diff", "--name-only", "--ignore-space-at-eol"],
             ["git", "ls-files", "--others", "--exclude-standard"],
         ]:
             _, stdout, _ = self._run_cmd(cmd)
             for f in stdout.splitlines():
                 if f.strip():
                     files.add(f.strip().replace("\\", "/"))
-        return sorted(files)
+        return sorted(files), errors
 
     def stage1_git_and_branch(self) -> StageResult:
         """Stage 1: Verify Git branch and hygiene."""
@@ -220,7 +239,10 @@ class PrePRChecker:
         if not is_valid:
             return StageResult(1, STAGE_GIT_HYGIENE, False, errors=[msg], duration_sec=time.time() - start)
 
-        changed_files = self.get_changed_files()
+        changed_files, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(1, STAGE_GIT_HYGIENE, False, errors=diff_errors, duration_sec=time.time() - start)
+
         forbidden = check_forbidden_files(changed_files)
         if forbidden:
             err = f"危険・不要ファイルが変更/ステージングに含まれています: {forbidden}"
@@ -252,7 +274,7 @@ class PrePRChecker:
         det = f"Issue #{issue_num} 受入基準全{details.get('total_criteria', 0)}件完了 [x]"
         return StageResult(2, STAGE_ISSUE_AC, True, details=det, duration_sec=time.time() - start)
 
-    def _check_python_syntax(self, py_files: List[str]) -> List[str]:
+    def _check_python_syntax(self, py_files: list[str]) -> list[str]:
         """Validate Python syntax using ast.parse."""
         errors = []
         for f in py_files:
@@ -264,9 +286,9 @@ class PrePRChecker:
                 errors.append(f"構文エラー ({f}:{e.lineno}): {e.msg}")
         return errors
 
-    def _parse_diff_hunk_lines(self, diff_text: str) -> Set[int]:
+    def _parse_diff_hunk_lines(self, diff_text: str) -> set[int]:
         """Parse added/modified line numbers from git diff -U0 output."""
-        changed: Set[int] = set()
+        changed: set[int] = set()
         for line in diff_text.splitlines():
             if not line.startswith("@@"):
                 continue
@@ -277,7 +299,7 @@ class PrePRChecker:
                 changed.update(range(start, start + count))
         return changed
 
-    def _get_changed_lines_for_file(self, rel_path: str) -> Set[int]:
+    def _get_changed_lines_for_file(self, rel_path: str) -> set[int]:
         """Extract line numbers added or modified in git diff for rel_path against base ref."""
         ref_candidates = []
         if self.target_sha:
@@ -291,7 +313,7 @@ class PrePRChecker:
                 return self._parse_diff_hunk_lines(out)
         return set()
 
-    def _is_func_in_diff(self, func_line: int, full_path: str, changed_lines: Set[int]) -> bool:
+    def _is_func_in_diff(self, func_line: int, full_path: str, changed_lines: set[int]) -> bool:
         """Check if AST function starting at func_line overlaps with changed_lines."""
         try:
             with open(full_path, "r", encoding="utf-8") as fp:
@@ -304,7 +326,7 @@ class PrePRChecker:
             pass
         return False
 
-    def _is_issue_in_diff(self, iss: Dict[str, Any], changed_lines: Set[int], full_path: str) -> bool:
+    def _is_issue_in_diff(self, iss: dict[str, Any], changed_lines: set[int], full_path: str) -> bool:
         """Determine if a Sonar issue falls within lines or functions touched by the PR."""
         if not changed_lines or iss.get("line", 0) in changed_lines:
             return True
@@ -312,9 +334,9 @@ class PrePRChecker:
             return self._is_func_in_diff(iss.get("line", 0), full_path, changed_lines)
         return False
 
-    def _check_sonar_violations(self, py_files: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    def _check_sonar_violations(self, py_files: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
         """Scan Python files for SonarCloud S3776 & S8786 violations on new/modified code."""
-        issues: List[Dict[str, Any]] = []
+        issues: list[dict[str, Any]] = []
         errors = []
         for f in py_files:
             full_path = os.path.join(self.repo_root, f)
@@ -330,7 +352,7 @@ class PrePRChecker:
             errors.append(f"SonarCloud違反 [{iss.get('rule')}]: {iss.get('file')}:{iss.get('line')} - {iss.get('message')}")
         return issues, errors
 
-    def _filter_ruff_errors(self, ruff_json_out: str) -> List[str]:
+    def _filter_ruff_errors(self, ruff_json_out: str) -> list[str]:
         """Filter ruff diagnostics to only those falling on changed lines in PR diff."""
         try:
             diagnostics = json.loads(ruff_json_out)
@@ -350,7 +372,7 @@ class PrePRChecker:
                 errors.append(f"{rel}:{row}:{col}: {code} {msg}")
         return errors
 
-    def _run_ruff_linter(self, py_files: List[str]) -> Tuple[List[str], List[str]]:
+    def _run_ruff_linter(self, py_files: list[str]) -> tuple[list[str], list[str]]:
         """Run Ruff linter adapting to host or container environment."""
         errors = []
         warnings = []
@@ -380,7 +402,9 @@ class PrePRChecker:
     def stage3_linter_and_sonar(self) -> StageResult:
         """Stage 3: Run Ruff Linter and SonarCloud Guardrail."""
         start = time.time()
-        changed = self.get_changed_files()
+        changed, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(3, STAGE_LINTER_SONAR, False, errors=diff_errors, duration_sec=time.time() - start)
         py_files = [f for f in changed if f.endswith(".py") and os.path.isfile(os.path.join(self.repo_root, f))]
 
         if not py_files:
@@ -403,11 +427,152 @@ class PrePRChecker:
         det = f"検査Pythonファイル数: {len(py_files)}, Sonar違反: {len(sonar_issues)}"
         return StageResult(3, STAGE_LINTER_SONAR, passed, details=det, warnings=warnings, errors=errors, duration_sec=time.time() - start)
 
+    def stage_coderabbit(self) -> StageResult:
+        """Stage 4: Run CodeRabbit CLI Review."""
+        start = time.time()
+        if self.skip_coderabbit:
+            return StageResult(4, STAGE_CODERABBIT, True, details="--skip-coderabbit によりスキップ", duration_sec=0.0)
+
+        # Check if coderabbit is installed (with 30s timeout)
+        code, _out, _ = self._run_cmd(["coderabbit", "--version"], timeout=30.0)
+        if code != 0:
+            err = (
+                "CodeRabbit CLI ('coderabbit') がインストールされていないか、PATHに存在しません。\n"
+                "インストール方法: npm install -g coderabbit または公式ドキュメントを参照してください。"
+            )
+            return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+
+        # Build coderabbit review commands
+        review_cmds = []
+        if self.target_sha:
+            head_rc, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
+            target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
+            current_head = head_out.strip() if head_rc == 0 else ""
+            target_commit = target_out.strip() if target_rc == 0 else ""
+            if not current_head or not target_commit:
+                err = f"コミットの解決に失敗しました: HEAD='{current_head}', target_sha='{target_commit}'"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            if current_head != target_commit:
+                err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha], timeout=30.0)
+            if mb_rc != 0:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha], timeout=30.0)
+            merge_base = mb_out.strip() if mb_rc == 0 else ""
+            if mb_rc != 0 or not merge_base:
+                err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+        else:
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"], timeout=30.0)
+            if mb_rc != 0:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", "HEAD"], timeout=30.0)
+            merge_base = mb_out.strip() if mb_rc == 0 else ""
+            if mb_rc != 0 or not merge_base:
+                err = "比較基準 (merge-base) を取得できませんでした: HEAD"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
+
+        errors = []
+        warnings = []
+        findings_count = 0
+        has_completed_event = False
+        total_timeout_budget = 1800.0
+
+        for cmd in review_cmds:
+            initial_error_count = len(errors)
+            cmd_has_completed = False
+            is_rate_limited = False
+
+            remaining_budget = max(0.0, total_timeout_budget - (time.time() - start))
+            if remaining_budget <= 0.0:
+                errors.append(f"CodeRabbit review 全体タイムアウト予算 ({total_timeout_budget}秒) を超過しました: {' '.join(cmd)}")
+                break
+
+            # Execute review with remaining timeout budget
+            rc, stdout, stderr = self._run_cmd(cmd, timeout=remaining_budget)
+            if rc == 124:
+                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review コマンドがタイムアウトしました: {' '.join(cmd)}"
+                errors.append(err_msg)
+                break
+
+            # Parse JSON lines emitted by coderabbit --agent
+            for line in (stdout + "\n" + stderr).splitlines():
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    data = None
+
+                if not isinstance(data, dict):
+                    continue
+
+                event_type = data.get("type")
+                if event_type == "finding":
+                    findings_count += 1
+                    raw_sev = data.get("severity")
+                    sev = str(raw_sev).strip().upper() if raw_sev else "INFO"
+                    file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
+                    msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
+                    issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
+                    if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
+                        errors.append(issue_text)
+                    else:
+                        warnings.append(issue_text)
+                elif event_type == "error":
+                    err_msg = str(data.get("message") or "CodeRabbit CLI エラー")
+                    err_type = str(data.get("errorType") or "").lower()
+                    if err_type == "rate_limit" or "rate limit" in err_msg.lower():
+                        warnings.append(f"CodeRabbit CLI 利用制限 (Rate limit / Monthly limit): {err_msg} (GitHub PR CIでレビュー)")
+                        cmd_has_completed = True
+                        has_completed_event = True
+                        is_rate_limited = True
+                    else:
+                        errors.append(err_msg)
+                elif event_type == "complete":
+                    status = data.get("status")
+                    if status in ("completed", "review_completed"):
+                        has_completed_event = True
+                        cmd_has_completed = True
+                        raw_findings = data.get("findings")
+                        try:
+                            parsed_findings = int(raw_findings) if raw_findings is not None else 0
+                        except (ValueError, TypeError):
+                            parsed_findings = 0
+                        findings_count = max(findings_count, parsed_findings)
+                    elif status == "review_skipped":
+                        # Review skipped on one sub-scope is acceptable if no errors
+                        has_completed_event = True
+                        cmd_has_completed = True
+                    else:
+                        errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
+
+            cmd_added_errors = len(errors) > initial_error_count
+            if rc != 0 and not cmd_added_errors and not is_rate_limited:
+                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
+                errors.append(err_msg)
+
+            if not cmd_has_completed and not cmd_added_errors and rc == 0:
+                errors.append(f"CodeRabbit レビュー完了イベントを受信できませんでした: {' '.join(cmd)}")
+
+        if not has_completed_event and not errors:
+            errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")
+
+        passed = len(errors) == 0
+        details = f"CodeRabbit指摘: {findings_count}件 (重大エラー: {len(errors)}, 警告: {len(warnings)})"
+        return StageResult(4, STAGE_CODERABBIT, passed, details=details, warnings=warnings, errors=errors, duration_sec=time.time() - start)
+
+
+
     def _is_inside_container(self) -> bool:
         """Check if currently executing inside a Docker container."""
         return os.path.exists("/.dockerenv") or os.path.exists("/app")
 
-    def _build_python_command(self, script_or_module_args: List[str]) -> List[str]:
+    def _build_python_command(self, script_or_module_args: list[str]) -> list[str]:
         """Build python command adapting to container vs host execution."""
         if self._is_inside_container() or not self._has_docker():
             return [sys.executable] + script_or_module_args
@@ -418,11 +583,11 @@ class PrePRChecker:
         code, _, _ = self._run_cmd(["docker", "--version"])
         return code == 0
 
-    def stage4_tests(self) -> StageResult:
-        """Stage 4: Run unit and matrix tests."""
+    def stage5_tests(self) -> StageResult:
+        """Stage 5: Run unit and matrix tests."""
         start = time.time()
         if self.skip_tests:
-            return StageResult(4, STAGE_TEST_SUITE, True, details="--skip-tests によりスキップ", duration_sec=0.0)
+            return StageResult(5, STAGE_TEST_SUITE, True, details="--skip-tests によりスキップ", duration_sec=0.0)
 
         # Run unit tests via local pytest or docker compose
         if self._is_inside_container() or not self._has_docker():
@@ -434,26 +599,26 @@ class PrePRChecker:
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             failed_lines = [line_text for line_text in lines if "FAILED" in line_text or "ERROR" in line_text]
-            return StageResult(4, STAGE_TEST_SUITE, False, errors=failed_lines or ["テストが失敗しました。"], duration_sec=time.time() - start)
+            return StageResult(5, STAGE_TEST_SUITE, False, errors=failed_lines or ["テストが失敗しました。"], duration_sec=time.time() - start)
 
-        return StageResult(4, STAGE_TEST_SUITE, True, details="単体テスト全件合格", duration_sec=time.time() - start)
+        return StageResult(5, STAGE_TEST_SUITE, True, details="単体テスト全件合格", duration_sec=time.time() - start)
 
-    def stage5_mutation(self) -> StageResult:
-        """Stage 5: Run PR Mutation Testing."""
+    def stage6_mutation(self) -> StageResult:
+        """Stage 6: Run PR Mutation Testing."""
         start = time.time()
         if self.skip_mutation:
-            return StageResult(5, STAGE_MUTATION, True, details="--skip-mutation によりスキップ", duration_sec=0.0)
+            return StageResult(6, STAGE_MUTATION, True, details="--skip-mutation によりスキップ", duration_sec=0.0)
 
         mut_cmd = self._build_python_command(["src/crawler/scripts/run_mutation_testing.py", "--pr-mode", "--threshold=80"])
         code, out, err = self._run_cmd(mut_cmd)
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             err_summary = [line_text for line_text in lines if "FAIL" in line_text or "SCORE" in line_text or "SURVIVED" in line_text][-10:]
-            return StageResult(5, STAGE_MUTATION, False, errors=err_summary or ["ミューテーションスコア未達 (80%未満)"], duration_sec=time.time() - start)
+            return StageResult(6, STAGE_MUTATION, False, errors=err_summary or ["ミューテーションスコア未達 (80%未満)"], duration_sec=time.time() - start)
 
-        return StageResult(5, STAGE_MUTATION, True, details="キル率 >= 80% 合格", duration_sec=time.time() - start)
+        return StageResult(6, STAGE_MUTATION, True, details="キル率 >= 80% 合格", duration_sec=time.time() - start)
 
-    def _scan_terraform_iac(self) -> Tuple[List[str], List[str]]:
+    def _scan_terraform_iac(self) -> tuple[list[str], list[str]]:
         """Run Checkov Terraform scanner if installed."""
         errors = []
         details = []
@@ -469,7 +634,7 @@ class PrePRChecker:
             details.append("Checkov Terraform 検査合格")
         return errors, details
 
-    def _scan_python_sast(self) -> Tuple[List[str], List[str]]:
+    def _scan_python_sast(self) -> tuple[list[str], list[str]]:
         """Run Semgrep Python SAST scanner if installed."""
         errors = []
         details = []
@@ -485,10 +650,13 @@ class PrePRChecker:
             details.append("Semgrep SAST 検査合格")
         return errors, details
 
-    def stage6_security(self) -> StageResult:
-        """Stage 6: Security and IaC check."""
+    def stage7_security(self) -> StageResult:
+        """Stage 7: Security and IaC check."""
         start = time.time()
-        changed = self.get_changed_files()
+        changed, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(7, STAGE_SECURITY, False, errors=diff_errors, duration_sec=time.time() - start)
+
         tf_changed = any(f.startswith("terraform/") for f in changed)
         py_changed = any(f.endswith(".py") for f in changed)
 
@@ -507,19 +675,19 @@ class PrePRChecker:
 
         passed = len(errors) == 0
         det = ", ".join(details) or "セキュリティ検査完了"
-        return StageResult(6, STAGE_SECURITY, passed, details=det, errors=errors, duration_sec=time.time() - start)
+        return StageResult(7, STAGE_SECURITY, passed, details=det, errors=errors, duration_sec=time.time() - start)
 
-    def stage7_pr_metadata(self, title: Optional[str] = None, body: Optional[str] = None) -> StageResult:
-        """Stage 7: Verify PR title and body if provided or interactive."""
+    def stage8_pr_metadata(self, title: str | None = None, body: str | None = None) -> StageResult:
+        """Stage 8: Verify PR title and body if provided or interactive."""
         start = time.time()
         branch = self.get_current_branch()
         issue_num = extract_issue_number(branch)
         if not issue_num:
-            return StageResult(7, STAGE_METADATA, False, errors=["Issue番号不明"], duration_sec=time.time() - start)
+            return StageResult(8, STAGE_METADATA, False, errors=["Issue番号不明"], duration_sec=time.time() - start)
 
         if not title and not body:
             det = "PRメタデータ検証スキップ (PR作成時に --title/--body 検証)"
-            return StageResult(7, STAGE_METADATA, True, details=det, duration_sec=time.time() - start)
+            return StageResult(8, STAGE_METADATA, True, details=det, duration_sec=time.time() - start)
 
         errors = []
         if not title:
@@ -538,9 +706,9 @@ class PrePRChecker:
 
         passed = len(errors) == 0
         det = "PRタイトル・本文メタデータ正常" if passed else "PRメタデータ不備"
-        return StageResult(7, STAGE_METADATA, passed, details=det, errors=errors, duration_sec=time.time() - start)
+        return StageResult(8, STAGE_METADATA, passed, details=det, errors=errors, duration_sec=time.time() - start)
 
-    def run_all(self, title: Optional[str] = None, body: Optional[str] = None) -> bool:
+    def run_all(self, title: str | None = None, body: str | None = None) -> bool:
         """Execute full test suite."""
         self.results = []
         self.results.append(self.stage1_git_and_branch())
@@ -549,16 +717,18 @@ class PrePRChecker:
 
         self.results.append(self.stage2_issue_acceptance_criteria())
         self.results.append(self.stage3_linter_and_sonar())
+        self.results.append(self.stage_coderabbit())
 
         if not self.diff_mode:
-            self.results.append(self.stage4_tests())
-            self.results.append(self.stage5_mutation())
-            self.results.append(self.stage6_security())
-            self.results.append(self.stage7_pr_metadata(title=title, body=body))
+            self.results.append(self.stage5_tests())
+            self.results.append(self.stage6_mutation())
+            self.results.append(self.stage7_security())
+            self.results.append(self.stage8_pr_metadata(title=title, body=body))
         elif title or body:
-            self.results.append(self.stage7_pr_metadata(title=title, body=body))
+            self.results.append(self.stage8_pr_metadata(title=title, body=body))
 
         return self.is_all_passed()
+
 
     def print_summary(self) -> None:
         """Render formatted console summary table."""
@@ -593,6 +763,7 @@ def main() -> int:
     parser.add_argument("--fix", action="store_true", help="Auto-fix linter issues")
     parser.add_argument("--skip-tests", action="store_true", help="Skip pytest suite")
     parser.add_argument("--skip-mutation", action="store_true", help="Skip mutation testing")
+    parser.add_argument("--skip-coderabbit", action="store_true", help="Skip CodeRabbit CLI review")
     parser.add_argument("--branch", type=str, help="Target git branch name")
     parser.add_argument("--sha", type=str, help="Target git commit SHA")
     parser.add_argument("--title", type=str, help="PR title to validate")
@@ -608,6 +779,7 @@ def main() -> int:
         fix_mode=args.fix,
         skip_tests=args.skip_tests,
         skip_mutation=args.skip_mutation,
+        skip_coderabbit=args.skip_coderabbit,
         branch=args.branch,
         sha=args.sha,
     )

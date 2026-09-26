@@ -225,21 +225,24 @@
 - **ブランチの独立性**: 各ワークツリーは `master` から分岐した専用の作業ブランチ（`feature/<topic>` または `fix/<topic>`）に紐付け、作業完了後は通常フローに従って PR 作成・マージ後にワークツリーを安全に削除（`git worktree remove`）すること。
 
 ## 【プロジェクト普遍ルール】PR提出前ローカル全チェック義務化＆合格検証原則 (Pre-PR Local Verification Gate)
-- **PR提出前のローカル全検査義務**: Pull Request を提出する前、またはリモートへプッシュする前に、必ずローカル環境で `task pr-check`（または `task pr-create`）を実行し、以下の7大検証ステージにおいて **100% 全件合格 (ALL CHECKS PASSED)** することを客観的事実として裏付けなければならない：
+- **PR提出前のローカル全検査義務**: Pull Request を提出する前、またはリモートへプッシュする前に、必ずローカル環境で `task pr-check`（または `task pr-create`）を実行し、以下の8大検証ステージにおいて **100% 全件合格 (ALL CHECKS PASSED)** することを客観的事実として裏付けなければならない：
   1. **Git & ブランチ健全性**: ブランチ命名規則（`feature/<issue_num>-...`, `fix/<issue_num>-...`）、未コミット一時ファイル・機密情報の混入検査
   2. **GitHub Issue & 受入基準**: Issue実在確認および本文の全受入基準チェックボックス（`- [ ]`）がすべて完了（`- [x]`）していることの確認
   3. **Linter & SonarCloud**: Ruff、SonarCloud（S3776 認知複雑度 <= 15, S8786 ReDoS防止）、Python AST構文検査
-  4. **テストスイート実行**: `pytest -n auto src/crawler/tests/unit/` の全件合格
-  5. **PR Mutation Testing**: `run_mutation_testing.py --pr-mode --threshold=80`（キル率 >= 80%）
-  6. **セキュリティ & IaC スキャン**: Semgrep SAST（Python）、Checkov（Terraform変更時）
-  7. **PRメタデータ事前検査**: PRタイトルフォーマット（`[#<issue_num>] ...`）、本文の `Closes #<issue_num>`、およびPR本文に未完了チェックボックス（`- [ ]`）が存在しないこと
+  4. **CodeRabbit CLI ローカルレビュー**: `coderabbit review --agent` によるローカル差分AIレビュー（未認証・実行エラー、または重大な未解決指摘が存在する場合は遮断）
+  5. **テストスイート実行**: `pytest -n auto src/crawler/tests/unit/` の全件合格
+  6. **PR Mutation Testing**: `run_mutation_testing.py --pr-mode --threshold=80`（キル率 >= 80%）
+  7. **セキュリティ & IaC スキャン**: Semgrep SAST（Python）、Checkov（Terraform変更時）
+  8. **PRメタデータ事前検査**: PRタイトルフォーマット（`[#<issue_num>] ...`）、本文の `Closes #<issue_num>`、およびPR本文に未完了チェックボックス（`- [ ]`）が存在しないこと
 - **チェック落ちの事前根絶**: 1つでも FAIL が検出された場合は PR 提出を即時中断し、ローカルで問題を完全に解消してから再検証・提出すること。
 
 ## 【プロジェクト普遍ルール】プッシュ前のCLIによるSonarCloud & CodeRabbit実施義務化ルール (SonarCloud & CodeRabbit Pre-Push Gate)
-- **事前走査・レビューの義務化**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つを実行し、指摘事項を解消してからプッシュしなければならない：
+- **事前走査・レビューの仕組み上での強制**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つの検証を行い、指摘事項を解消してからプッシュしなければならない：
   1. **SonarCloud / SonarLint**: `task sonar-check`（または `task sonar`）を実行し、認知複雑度（S3776 <= 15）、ReDoS（S8786）、Code Smell、型エラーをローカルでゼロに解消すること（IDE拡張機能の SonarLint Connected Mode と二重で検証）。
-  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review` / `coderabbit review --base master`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
+  2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review --uncommitted` / `task verify:pre-push`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
+- **フックによる物理的ブロック**: リポジトリの Git フック（`.githooks/pre-push`）が `pre_pr_check.py --diff` を呼び出し、SonarCloud違反およびCodeRabbit未認証・重大指摘が存在する場合はプッシュを自動で Reject（拒否）する。
 - **未解決指摘のプッシュ厳禁**: いずれかのツールで未解決の重大な指摘（Bug, Vulnerability, High/Critical, Code Smell）が残存した状態でのプッシュおよびPR作成は厳禁とする。
+
 
 ## 【プロジェクト普遍ルール】パーサー未整備サイトの自律検知およびパーサー新規作成義務化原則 (Parser Missing Detection & Backlog Creation Rule)
 - **パーサー未整備エラーの自動捕捉**:
