@@ -625,7 +625,10 @@ class PrePRChecker:
     def stage7_security(self) -> StageResult:
         """Stage 7: Security and IaC check."""
         start = time.time()
-        changed = self.get_changed_files()
+        changed, diff_errors = self.get_changed_files()
+        if diff_errors:
+            return StageResult(7, STAGE_SECURITY, False, errors=diff_errors, duration_sec=time.time() - start)
+
         tf_changed = any(f.startswith("terraform/") for f in changed)
         py_changed = any(f.endswith(".py") for f in changed)
 
