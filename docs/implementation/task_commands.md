@@ -407,7 +407,7 @@ task pr-check-fast
 ### task pr-create
 
 **説明:**  
-PR提出前全検査（`pre_pr_check.py --full`）を自動実行し、すべてのチェック（Issue受入基準、Linter、SonarCloud、テスト、ミューテーション、セキュリティ）に100%合格した場合のみ `gh pr create --base master` を安全に呼び出します。1つでも違反がある場合はPR作成を即時中断し、未完了・違反内容をコンソールに出力します。
+PR提出前全検査（`pre_pr_check.py --full`）を自動実行し、すべてのチェック（Issue受入基準、Linter、SonarCloud、CodeRabbit CLI、テスト、ミューテーション、セキュリティ）に100%合格した場合のみ `gh pr create --base master` を安全に呼び出します。1つでも違反がある場合はPR作成を即時中断し、未完了・違反内容をコンソールに出力します。
 
 **内部動作:**
 ```bash
@@ -421,6 +421,26 @@ task pr-create
 ```
 
 ---
+
+### task verify:pre-push
+
+**説明:**  
+プッシュ前にローカルで SonarCloud 静的解析（S3776/S8786）、CodeRabbit CLI（`coderabbit review --uncommitted`）、および事前検証（`pre_pr_check.py --diff`）を一括実行し、リモートプッシュ前に水際で合格を確認します。
+
+**内部動作:**
+```bash
+docker compose exec -T app python src/crawler/scripts/debug_tools/check_local_sonar.py --diff
+coderabbit review --uncommitted
+docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff
+```
+
+**使用例:**
+```bash
+task verify:pre-push
+```
+
+---
+
 
 ## トラブルシューティング
 

@@ -49,14 +49,25 @@ run_pre_pr_check() {
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
-        else
-            # External worktree is outside the compose mount; inspect that checkout on the host
+        elif command -v python3 >/dev/null 2>&1; then
             python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
+        else
+            # External worktree without host python: run in container mounted volume
+            # Also mount main git repository so worktree .git reference resolves
+            main_git_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
+            main_git_parent=$(cd "$main_git_dir/.." 2>/dev/null && pwd -P || echo "")
+            mount_git_opt=""
+            if [ -n "$main_git_parent" ] && [ -d "$main_git_parent" ]; then
+                mount_git_opt="-v ${main_git_parent}:${main_git_parent}"
+            fi
+            docker run --rm -v "${toplevel}:/app" $mount_git_opt -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         fi
     else
         python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
     fi
 }
+
+
 
 while read -r local_ref local_sha remote_ref remote_sha
 do
@@ -161,15 +172,15 @@ do
         echo "✅ Issue #$issue_num のアクセプタンスクライテリア全件充足を確認しました。"
     fi
 
-    # 5. Pre-PR Local Guardrail (Linter, SonarCloud, Syntax, Branch Hygiene)
+    # 5. Pre-PR Local Guardrail (Linter, SonarCloud, CodeRabbit, Syntax, Branch Hygiene)
     if [ "$SKIP_PRE_PR_CHECK" = "1" ] || [ "$SKIP_PRE_PR_CHECK" = "true" ]; then
         echo "⚠️  SKIP_PRE_PR_CHECK is enabled. Bypassing Pre-PR local guardrail."
     else
-        echo "🔍 Pre-PR ローカル高速事前検証 (Linter, SonarCloud, 構文) を実行中..."
+        echo "🔍 Pre-PR ローカル高速事前検証 (SonarCloud, CodeRabbit CLI, Linter, 構文) を実行中..."
         if ! run_pre_pr_check "$branch" "$local_sha"; then
             echo ""
             echo "================================================================================"
-            echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check) でエラーが検出されました。"
+            echo "⛔ [PRE-PUSH REJECTED] PR事前検証 (pre_pr_check: SonarCloud / CodeRabbit / Linter) でエラーが検出されました。"
             echo "ローカルで問題を解消してから再度プッシュしてください。"
             echo "================================================================================"
             echo ""
