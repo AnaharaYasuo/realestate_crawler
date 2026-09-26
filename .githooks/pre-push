@@ -57,11 +57,10 @@ run_pre_pr_check() {
             python3 src/crawler/scripts/ops/pre_pr_check.py --diff --branch "$target_branch" --sha "$target_sha"
         else
             # External worktree without host python: run in container mounted volume
-            # Also mount main git repository so worktree .git reference resolves
+            # Also mount shared Git metadata directory as read-only so worktree .git reference resolves
             main_git_dir=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
-            main_git_parent=$(cd "$main_git_dir/.." 2>/dev/null && pwd -P || echo "")
-            if [ -n "$main_git_parent" ] && [ -d "$main_git_parent" ]; then
-                docker run --rm -v "${toplevel}:/app" -v "${main_git_parent}:${main_git_parent}" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
+            if [ -n "$main_git_dir" ] && [ -d "$main_git_dir" ]; then
+                docker run --rm -v "${toplevel}:/app" -v "${main_git_dir}:${main_git_dir}:ro" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
             else
                 docker run --rm -v "${toplevel}:/app" -w /app realestate_crawler-app:latest python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
             fi

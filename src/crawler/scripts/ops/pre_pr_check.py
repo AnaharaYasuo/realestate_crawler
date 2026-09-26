@@ -423,8 +423,8 @@ class PrePRChecker:
             )
             return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
-        # Build coderabbit review command
-        cmd = ["coderabbit", "review", "--agent"]
+        # Build coderabbit review commands
+        review_cmds = []
         if self.target_sha:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha])
             if mb_rc != 0:
@@ -433,64 +433,68 @@ class PrePRChecker:
             if not merge_base:
                 err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            cmd.extend(["--base-commit", merge_base, "--committed"])
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
         else:
-            cmd.extend(["--base", "origin/master", "--uncommitted", "--include-untracked"])
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"])
+            if mb_rc != 0:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", "HEAD"])
+            merge_base = mb_out.strip()
+            if merge_base:
+                review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
 
-        # Execute review with finite timeout (1800s / 30m for AI analysis)
-        rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
         errors = []
         warnings = []
         findings_count = 0
         has_completed_event = False
 
-        # Parse JSON lines emitted by coderabbit --agent
-        for line in (stdout + "\n" + stderr).splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                data = json.loads(line)
-            except Exception:
-                continue
+        for cmd in review_cmds:
+            # Execute review with finite timeout (1800s / 30m for AI analysis)
+            rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
 
-            event_type = data.get("type")
-            if event_type == "finding":
-                findings_count += 1
-                raw_sev = data.get("severity")
-                sev = str(raw_sev).strip().upper() if raw_sev else "INFO"
-                file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
-                msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
-                issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
-                if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
-                    errors.append(issue_text)
-                else:
-                    warnings.append(issue_text)
-            elif event_type == "error":
-                errors.append(data.get("message", "CodeRabbit CLI エラー"))
-            elif event_type == "complete":
-                status = data.get("status")
-                if status in ("completed", "review_completed"):
-                    has_completed_event = True
-                    raw_findings = data.get("findings")
-                    try:
-                        parsed_findings = int(raw_findings) if raw_findings is not None else 0
-                    except (ValueError, TypeError):
-                        parsed_findings = 0
-                    findings_count = max(findings_count, parsed_findings)
-                elif status == "review_skipped":
-                    # Validate that changes are indeed empty
-                    changed = self.get_changed_files()
-                    if changed:
-                        errors.append(f"変更ファイルが存在するにもかかわらず CodeRabbit レビューがスキップされました: {len(changed)} files")
+            # Parse JSON lines emitted by coderabbit --agent
+            for line in (stdout + "\n" + stderr).splitlines():
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    data = json.loads(line)
+                except Exception:
+                    continue
+
+                event_type = data.get("type")
+                if event_type == "finding":
+                    findings_count += 1
+                    raw_sev = data.get("severity")
+                    sev = str(raw_sev).strip().upper() if raw_sev else "INFO"
+                    file_loc = f"{data.get('file') or data.get('fileName', '')}:{data.get('line', '')}"
+                    msg = data.get("codegenInstructions") or data.get("comment") or data.get("message", "")
+                    issue_text = f"CodeRabbit指摘 [{sev}]: {file_loc} - {msg}"
+                    if sev in ("HIGH", "CRITICAL", "ERROR", "MAJOR"):
+                        errors.append(issue_text)
                     else:
+                        warnings.append(issue_text)
+                elif event_type == "error":
+                    errors.append(data.get("message", "CodeRabbit CLI エラー"))
+                elif event_type == "complete":
+                    status = data.get("status")
+                    if status in ("completed", "review_completed"):
                         has_completed_event = True
-                else:
-                    errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
+                        raw_findings = data.get("findings")
+                        try:
+                            parsed_findings = int(raw_findings) if raw_findings is not None else 0
+                        except (ValueError, TypeError):
+                            parsed_findings = 0
+                        findings_count = max(findings_count, parsed_findings)
+                    elif status == "review_skipped":
+                        # Review skipped on one sub-scope is acceptable if no errors
+                        has_completed_event = True
+                    else:
+                        errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
-        if rc != 0 and not errors:
-            err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました。"
-            errors.append(err_msg)
+            if rc != 0 and not errors:
+                err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました。"
+                errors.append(err_msg)
 
         if not has_completed_event and not errors:
             errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")

@@ -239,6 +239,8 @@ def test_stage_coderabbit_timeout(monkeypatch):
         if cmd == ["coderabbit", "--version"]:
             assert kwargs.get("timeout") == 30.0
             return 0, "0.8.1", ""
+        if cmd[0] == "git":
+            return 0, "merge_base_sha", ""
         assert kwargs.get("timeout") == 1800.0
         return 124, "", "コマンドがタイムアウトしました (1800秒)"
 
