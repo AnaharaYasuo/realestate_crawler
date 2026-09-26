@@ -445,20 +445,20 @@ class PrePRChecker:
         # Build coderabbit review commands
         review_cmds = []
         if self.target_sha:
-            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha])
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha], timeout=30.0)
             if mb_rc != 0:
-                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha])
-            merge_base = mb_out.strip()
-            if not merge_base:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha], timeout=30.0)
+            merge_base = mb_out.strip() if mb_rc == 0 else ""
+            if mb_rc != 0 or not merge_base:
                 err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
             review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
         else:
-            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"])
+            mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"], timeout=30.0)
             if mb_rc != 0:
-                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", "HEAD"])
-            merge_base = mb_out.strip()
-            if not merge_base:
+                mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", "HEAD"], timeout=30.0)
+            merge_base = mb_out.strip() if mb_rc == 0 else ""
+            if mb_rc != 0 or not merge_base:
                 err = "比較基準 (merge-base) を取得できませんでした: HEAD"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
             review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
@@ -468,13 +468,19 @@ class PrePRChecker:
         warnings = []
         findings_count = 0
         has_completed_event = False
+        total_timeout_budget = 1800.0
 
         for cmd in review_cmds:
             initial_error_count = len(errors)
             cmd_has_completed = False
 
-            # Execute review with finite timeout (1800s / 30m for AI analysis)
-            rc, stdout, stderr = self._run_cmd(cmd, timeout=1800.0)
+            remaining_budget = max(0.0, total_timeout_budget - (time.time() - start))
+            if remaining_budget <= 0.0:
+                errors.append(f"CodeRabbit review 全体タイムアウト予算 ({total_timeout_budget}秒) を超過しました: {' '.join(cmd)}")
+                break
+
+            # Execute review with remaining timeout budget
+            rc, stdout, stderr = self._run_cmd(cmd, timeout=remaining_budget)
             if rc == 124:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review コマンドがタイムアウトしました: {' '.join(cmd)}"
                 errors.append(err_msg)
