@@ -313,4 +313,43 @@ def test_record_container_sample_success():
             assert args[1]["containerName"] == "test-app"
             assert args[1]["containerId"] == "container-123"
             assert args[1]["cpu_percent"] == 12.5
+            assert "memoryUsageBytes" in args[1]
+            assert "cpuUsageUsec" in args[1]
+
+
+def test_record_container_sample_cgroup_v2():
+    """cgroup v2 のファイルが存在する場合に正しくCPU・メモリが計算されること"""
+    import io
+
+    mock_agent = MagicMock()
+    mock_module = MagicMock()
+    mock_module.agent = mock_agent
+
+    def fake_exists(path):
+        return path in ["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/cpu.stat"]
+
+    def fake_open(path, *args, **kwargs):
+        if path == "/sys/fs/cgroup/memory.current":
+            return io.StringIO("104857600\n")  # 100MB
+        if path == "/sys/fs/cgroup/memory.max":
+            return io.StringIO("209715200\n")  # 200MB
+        if path == "/sys/fs/cgroup/cpu.stat":
+            return io.StringIO("usage_usec 5000000\nuser_usec 3000000\n")
+        raise FileNotFoundError(path)
+
+    with patch.dict(os.environ, {"NEW_RELIC_LICENSE_KEY": "fake_key"}):
+        with patch.dict("sys.modules", {"newrelic": mock_module, "newrelic.agent": mock_agent}):
+            with patch("package.utils.newrelic_helper.os.path.exists", side_effect=fake_exists):
+                with patch("package.utils.newrelic_helper.open", side_effect=fake_open, create=True):
+                    res = record_container_sample()
+                    assert res is True
+                    mock_agent.record_custom_event.assert_called_once()
+                    event_type, params = mock_agent.record_custom_event.call_args[0]
+                    assert event_type == "ContainerSample"
+                    assert params["memoryUsageBytes"] == 104857600
+                    assert params["memoryLimitBytes"] == 209715200
+                    assert params["memoryPercent"] == 50.0
+                    assert params["cpuUsageUsec"] == 5000000
+                    assert params["cpuUsageSeconds"] == 5.0
+
 

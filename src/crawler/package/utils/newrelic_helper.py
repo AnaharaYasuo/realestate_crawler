@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Any
 
 try:
@@ -158,29 +160,46 @@ def record_container_sample(
         # 1. Read cgroup memory if running in Linux container
         mem_usage_bytes = 0
         mem_limit_bytes = 0
-        for usage_file in ["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]:
-            if os.path.exists(usage_file):
+        for usage_file, limit_file in [
+            ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+            ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+        ]:
+            if os.path.exists(usage_file) and os.path.exists(limit_file):
                 try:
                     with open(usage_file, "r") as f:
-                        mem_usage_bytes = int(f.read().strip())
+                        usage_bytes = int(f.read().strip())
+                    with open(limit_file, "r") as f:
+                        limit_val = f.read().strip()
+                    mem_usage_bytes = usage_bytes
+                    mem_limit_bytes = 0 if limit_val == "max" else int(limit_val)
                     break
                 except Exception:
                     pass
 
-        for limit_file in ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]:
-            if os.path.exists(limit_file):
-                try:
-                    with open(limit_file, "r") as f:
-                        val = f.read().strip()
-                        if val != "max":
-                            mem_limit_bytes = int(val)
-                    break
-                except Exception:
-                    pass
+        # 2. Read cgroup CPU usage if running in Linux container
+        cpu_usage_usec = 0
+        # cgroup v2: /sys/fs/cgroup/cpu.stat (usage_usec <num>)
+        if os.path.exists("/sys/fs/cgroup/cpu.stat"):
+            try:
+                with open("/sys/fs/cgroup/cpu.stat", "r") as f:
+                    for line in f:
+                        if line.startswith("usage_usec"):
+                            cpu_usage_usec = int(line.split()[1])
+                            break
+            except Exception:
+                pass
+        # cgroup v1 fallback: /sys/fs/cgroup/cpu/cpuacct.usage (nanoseconds)
+        elif os.path.exists("/sys/fs/cgroup/cpu/cpuacct.usage"):
+            try:
+                with open("/sys/fs/cgroup/cpu/cpuacct.usage", "r") as f:
+                    cpu_usage_usec = int(int(f.read().strip()) / 1000)
+            except Exception:
+                pass
 
         mem_usage_mb = round(mem_usage_bytes / (1024 * 1024), 2) if mem_usage_bytes > 0 else 0.0
         mem_limit_mb = round(mem_limit_bytes / (1024 * 1024), 2) if mem_limit_bytes > 0 else 0.0
         mem_percent = round((mem_usage_bytes / mem_limit_bytes) * 100, 2) if mem_limit_bytes > 0 else 0.0
+        cpu_usage_seconds = round(cpu_usage_usec / 1_000_000, 2) if cpu_usage_usec > 0 else 0.0
 
         params.update({
             "containerName": app_name,
@@ -190,6 +209,8 @@ def record_container_sample(
             "memoryLimitBytes": mem_limit_bytes,
             "memoryLimitMb": mem_limit_mb,
             "memoryPercent": mem_percent,
+            "cpuUsageUsec": cpu_usage_usec,
+            "cpuUsageSeconds": cpu_usage_seconds,
         })
 
         agent.record_custom_event("ContainerSample", params)
