@@ -24,8 +24,9 @@ while True:
         break
     _cur = _parent
 
-from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics
+from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics, record_container_sample
 init_new_relic()
+record_container_sample()
 
 from django.apps import apps
 from django.db.models import Q

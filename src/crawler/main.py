@@ -1,8 +1,9 @@
 # ruff: noqa: E402
 import os
 import logging
-from package.utils.newrelic_helper import init_new_relic
+from package.utils.newrelic_helper import init_new_relic, record_container_sample
 init_new_relic()
+record_container_sample()
 
 import sys
 import signal

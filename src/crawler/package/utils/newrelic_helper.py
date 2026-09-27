@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Any
 
 try:
@@ -136,4 +138,84 @@ def notice_error(error: Exception, custom_params: dict[str, Any] | None = None) 
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to report error to New Relic: {e}")
+        return False
+
+
+def _read_cgroup_memory() -> tuple[int, int]:
+    """Read memory usage and limit bytes from cgroup v2 or v1."""
+    for usage_file, limit_file in [
+        ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+        ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+    ]:
+        if os.path.exists(usage_file) and os.path.exists(limit_file):
+            try:
+                with open(usage_file, "r") as f:
+                    usage_bytes = int(f.read().strip())
+                with open(limit_file, "r") as f:
+                    limit_val = f.read().strip()
+                return usage_bytes, (0 if limit_val == "max" else int(limit_val))
+            except Exception:
+                pass
+    return 0, 0
+
+
+def _read_cgroup_cpu() -> int:
+    """Read CPU usage usec from cgroup v2 (cpu.stat) or v1 (cpuacct.usage)."""
+    if os.path.exists("/sys/fs/cgroup/cpu.stat"):
+        try:
+            with open("/sys/fs/cgroup/cpu.stat", "r") as f:
+                for line in f:
+                    if line.startswith("usage_usec"):
+                        return int(line.split()[1])
+        except Exception:
+            pass
+    elif os.path.exists("/sys/fs/cgroup/cpu/cpuacct.usage"):
+        try:
+            with open("/sys/fs/cgroup/cpu/cpuacct.usage", "r") as f:
+                return int(int(f.read().strip()) / 1000)
+        except Exception:
+            pass
+    return 0
+
+
+def record_container_sample(
+    service_name: str | None = None,
+    custom_metrics: dict[str, Any] | None = None,
+) -> bool:
+    """Record container CPU and memory resource consumption to New Relic (ContainerSample)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        app_name = service_name or os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
+        params: dict[str, Any] = dict(custom_metrics) if custom_metrics else {}
+
+        mem_usage_bytes, mem_limit_bytes = _read_cgroup_memory()
+        cpu_usage_usec = _read_cgroup_cpu()
+
+        mem_usage_mb = round(mem_usage_bytes / (1024 * 1024), 2) if mem_usage_bytes > 0 else 0.0
+        mem_limit_mb = round(mem_limit_bytes / (1024 * 1024), 2) if mem_limit_bytes > 0 else 0.0
+        mem_percent = round((mem_usage_bytes / mem_limit_bytes) * 100, 2) if mem_limit_bytes > 0 else 0.0
+        cpu_usage_seconds = round(cpu_usage_usec / 1_000_000, 2) if cpu_usage_usec > 0 else 0.0
+
+        params.update({
+            "containerName": app_name,
+            "containerId": os.getenv("HOSTNAME", "unknown"),
+            "memoryUsageBytes": mem_usage_bytes,
+            "memoryUsageMb": mem_usage_mb,
+            "memoryLimitBytes": mem_limit_bytes,
+            "memoryLimitMb": mem_limit_mb,
+            "memoryPercent": mem_percent,
+            "cpuUsageUsec": cpu_usage_usec,
+            "cpuUsageSeconds": cpu_usage_seconds,
+        })
+
+        agent.record_custom_event("ContainerSample", params)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic container sample: {e}")
         return False
