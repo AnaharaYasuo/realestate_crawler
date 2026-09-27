@@ -49,12 +49,20 @@ def test_push_endpoint_trims_license_key():
     with open(tf_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    match = re.search(r"push_endpoint\s*=\s*(.+)", content)
-    assert match is not None, "push_endpoint not found"
-    endpoint_expr = match.group(1)
-    assert re.search(
-        r"Api-Key=\$\{trimspace\(google_secret_manager_secret_version\."
-        r"new_relic_license_key_version\.secret_data\)\}",
-        endpoint_expr,
-    ), "push_endpoint must embed the license key via trimspace()"
-    assert "Api-Key=${google_secret_manager_secret_version" not in endpoint_expr
+    active_lines = [
+        line for line in content.splitlines() if not line.lstrip().startswith(("#", "//"))
+    ]
+    assignments = [
+        m.group(1)
+        for m in (re.match(r"\s*push_endpoint\s*=\s*(.+)", line) for line in active_lines)
+        if m
+    ]
+    assert len(assignments) == 1, f"expected exactly one active push_endpoint, found {len(assignments)}"
+    endpoint_expr = assignments[0].strip()
+    fallback_url = (
+        '"https://log-api.newrelic.com/log/v1?Api-Key='
+        '${trimspace(google_secret_manager_secret_version.new_relic_license_key_version.secret_data)}"'
+    )
+    assert endpoint_expr == (
+        'var.new_relic_log_ingest_url != "" ? var.new_relic_log_ingest_url : ' + fallback_url
+    ), "push_endpoint fallback must set Api-Key to exactly the trimspace()-normalized license key"
