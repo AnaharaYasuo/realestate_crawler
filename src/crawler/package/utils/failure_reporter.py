@@ -4,12 +4,15 @@ import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from package.utils.storage import get_storage_manager
 
 logger = logging.getLogger(__name__)
+
+_LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 
 def generate_auto_heal_trigger_message(
@@ -135,11 +138,16 @@ class FailureReporter:
 
     @classmethod
     def _parse_log_lines(
-        cls, lines: Any, source: str, file_path: str, line_prefix: str | None = None
+        cls,
+        lines: Any,
+        source: str,
+        file_path: str,
+        target_date: str | None = None,
+        require_date: bool = False,
     ) -> list[dict[str, Any]]:
         extracted: list[dict[str, Any]] = []
         for line_num, line in enumerate(lines, 1):
-            if line_prefix is not None and not line.startswith(line_prefix):
+            if target_date is not None and not cls._matches_log_date(line, target_date, require_date):
                 continue
             if "ERROR" in line or "CRITICAL" in line:
                 extracted.append({
@@ -151,6 +159,13 @@ class FailureReporter:
                 })
         return extracted
 
+    @staticmethod
+    def _matches_log_date(line: str, target_date: str, require_date: bool) -> bool:
+        match = _LOG_LINE_DATE_PATTERN.match(line)
+        if match is None:
+            return not require_date
+        return match.group(1) == target_date
+
     @classmethod
     def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
         error_logs: list[dict[str, Any]] = []
@@ -160,10 +175,12 @@ class FailureReporter:
 
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         for lpath in sorted(fallback_base.glob("*.log")):
-            line_prefix = None if date_str in lpath.name else iso_date
+            require_date = date_str not in lpath.name
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
-                    error_logs.extend(cls._parse_log_lines(f, "log_file", str(lpath), line_prefix))
+                    error_logs.extend(
+                        cls._parse_log_lines(f, "log_file", str(lpath), iso_date, require_date)
+                    )
             except Exception as le:  # noqa: BLE001
                 logger.warning("Failed to read log file %s: %s", lpath, le)
         return error_logs

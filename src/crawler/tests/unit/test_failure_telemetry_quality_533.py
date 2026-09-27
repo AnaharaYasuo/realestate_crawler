@@ -52,6 +52,22 @@ class TestLocalLogScanDateFilter533:
             "2026-09-26 12:00:00 ERROR: target day failure",
         ]
 
+    def test_dated_log_file_excludes_lines_with_other_explicit_date(self):
+        (self.base / "run_20260926.log").write_text(
+            "2026-09-25 23:59:59 ERROR: carried over from previous day\n"
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 ERROR: target day failure\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR without timestamp",
+            "2026-09-26 00:00:01 ERROR: target day failure",
+        ]
+        assert [e["line_number"] for e in errors] == [2, 3]
+
     def test_other_dated_log_file_is_filtered_by_line_date(self):
         (self.base / "run_20260925.log").write_text(
             "2026-09-25 23:59:59 ERROR: previous day\n",
