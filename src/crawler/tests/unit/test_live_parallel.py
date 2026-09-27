@@ -1,6 +1,9 @@
 """Unit tests for local vs CI live-guarantee parallel plans."""
 from __future__ import annotations
 
+import pytest
+
+from package.utils.crawl_jobs import CRAWL_JOBS
 from package.utils.live_parallel import (
     PLAYWRIGHT_COMPANIES,
     build_live_parallel_plan,
@@ -107,3 +110,122 @@ def test_wall_limit_sec_default_and_override():
     assert wall_limit_sec({}) == 300.0
     assert wall_limit_sec({"CRAWL_LIVE_WALL_LIMIT_SEC": "420"}) == 420.0
     assert wall_limit_sec({"CRAWL_LIVE_WALL_LIMIT_SEC": "bad"}) == 300.0
+
+
+_MIXED_JOBS = [
+    ("sumifu", "mansion"),
+    ("odakyu", "kodate"),
+    ("heim", "mansion"),
+    ("athome", "mansion"),
+    ("mizuho", "tochi"),
+    ("sekisui", "kodate"),
+    ("totate", "mansion"),
+]
+
+# Mirrors the live-guarantee matrix entries in .github/workflows/test.yml.
+_CI_MATRIX_ENVS = [
+    {"CRAWL_LIVE_BUCKETS": "static", "CRAWL_LIVE_STATIC_SHARD": "1/2"},
+    {"CRAWL_LIVE_BUCKETS": "static", "CRAWL_LIVE_STATIC_SHARD": "2/2"},
+    {"CRAWL_LIVE_BUCKETS": "pw-mizuho,pw-sekisui"},
+    {"CRAWL_LIVE_BUCKETS": "pw-athome"},
+]
+
+
+def _plan_job_ids(plan) -> list[str]:
+    return [
+        job_id
+        for inv in plan.invocations
+        for job_id in inv.sites_csv.split(",")
+        if job_id
+    ]
+
+
+def test_bucket_filter_keeps_only_requested_labels_in_order():
+    plan = build_live_parallel_plan(
+        _MIXED_JOBS,
+        environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", "CRAWL_LIVE_BUCKETS": "pw-sekisui, pw-mizuho"},
+    )
+    assert [inv.label for inv in plan.invocations] == ["pw-mizuho", "pw-sekisui"]
+    assert plan.invocations[0].sites_csv == "mizuho_tochi"
+    assert plan.invocations[1].sites_csv == "sekisui_kodate"
+
+
+def test_bucket_filter_static_only_drops_playwright():
+    plan = build_live_parallel_plan(
+        _MIXED_JOBS,
+        environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", "CRAWL_LIVE_BUCKETS": "static"},
+    )
+    assert [inv.label for inv in plan.invocations] == ["static"]
+    assert plan.invocations[0].sites_csv == "sumifu_mansion,odakyu_kodate,heim_mansion,totate_mansion"
+    assert plan.invocations[0].xdist_n == "auto"
+
+
+def test_bucket_filter_unset_or_blank_keeps_all():
+    for env in ({}, {"CRAWL_LIVE_BUCKETS": "  "}):
+        plan = build_live_parallel_plan(_MIXED_JOBS, environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", **env})
+        assert [inv.label for inv in plan.invocations] == ["static", "pw-mizuho", "pw-sekisui", "pw-athome"]
+
+
+def test_bucket_filter_unknown_label_raises():
+    with pytest.raises(ValueError, match="CRAWL_LIVE_BUCKETS"):
+        build_live_parallel_plan(_MIXED_JOBS, environ={"CRAWL_LIVE_BUCKETS": "static,pw-unknown"})
+
+
+def test_bucket_filter_only_commas_raises():
+    with pytest.raises(ValueError, match="CRAWL_LIVE_BUCKETS"):
+        build_live_parallel_plan(_MIXED_JOBS, environ={"CRAWL_LIVE_BUCKETS": ",,"})
+
+
+def test_static_shard_round_robin_split():
+    env = {"CRAWL_LIVE_PARALLEL_MODE": "ci"}
+    first = build_live_parallel_plan(_MIXED_JOBS, environ={**env, "CRAWL_LIVE_STATIC_SHARD": "1/2"})
+    second = build_live_parallel_plan(_MIXED_JOBS, environ={**env, "CRAWL_LIVE_STATIC_SHARD": "2/2"})
+    assert first.invocations[0].label == "static"
+    assert first.invocations[0].sites_csv == "sumifu_mansion,heim_mansion"
+    assert second.invocations[0].sites_csv == "odakyu_kodate,totate_mansion"
+    # Shard only narrows static; Playwright buckets are untouched.
+    assert [inv.label for inv in first.invocations[1:]] == ["pw-mizuho", "pw-sekisui", "pw-athome"]
+
+
+def test_static_shard_one_of_one_is_identity():
+    env = {"CRAWL_LIVE_PARALLEL_MODE": "ci"}
+    base = build_live_parallel_plan(_MIXED_JOBS, environ=env)
+    sharded = build_live_parallel_plan(_MIXED_JOBS, environ={**env, "CRAWL_LIVE_STATIC_SHARD": "1/1"})
+    assert sharded == base
+
+
+def test_static_shard_empty_drops_static_bucket():
+    jobs = [("sumifu", "mansion"), ("athome", "mansion")]
+    plan = build_live_parallel_plan(
+        jobs,
+        environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", "CRAWL_LIVE_STATIC_SHARD": "2/2"},
+    )
+    assert [inv.label for inv in plan.invocations] == ["pw-athome"]
+
+
+@pytest.mark.parametrize("raw", ["0/2", "3/2", "1/0", "a/2", "1-2", "2", "1/2/3", "-1/2"])
+def test_static_shard_invalid_raises(raw):
+    with pytest.raises(ValueError, match="CRAWL_LIVE_STATIC_SHARD"):
+        build_live_parallel_plan(_MIXED_JOBS, environ={"CRAWL_LIVE_STATIC_SHARD": raw})
+
+
+def test_ci_matrix_split_covers_all_crawl_jobs_exactly_once():
+    all_ids = [f"{c}_{t}" for c, t in CRAWL_JOBS]
+    covered: list[str] = []
+    for matrix_env in _CI_MATRIX_ENVS:
+        plan = build_live_parallel_plan(
+            CRAWL_JOBS, environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", **matrix_env}
+        )
+        assert plan.invocations, f"matrix entry selected nothing: {matrix_env}"
+        covered.extend(_plan_job_ids(plan))
+    assert len(covered) == len(set(covered)), "job selected by more than one matrix entry"
+    assert sorted(covered) == sorted(all_ids)
+
+
+def test_ci_matrix_playwright_entries_contain_no_static_jobs():
+    for matrix_env in _CI_MATRIX_ENVS[2:]:
+        plan = build_live_parallel_plan(
+            CRAWL_JOBS, environ={"CRAWL_LIVE_PARALLEL_MODE": "ci", **matrix_env}
+        )
+        for job_id in _plan_job_ids(plan):
+            assert job_id.split("_", 1)[0].lower() in PLAYWRIGHT_COMPANIES

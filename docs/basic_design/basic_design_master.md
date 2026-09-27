@@ -281,6 +281,7 @@ DETAIL_PARARELL_LIMIT = 10  # 6 → 10に変更
 *   **ローカル vs CI の並列プラン分離**:
     *   ローカル: 静的群 `-n 4` ＋ Playwright 各社バケット（`-n 0`）を上記スケジュール。`package.utils.live_parallel` がプランを生成し `run_live_crawl_guarantee.py` が実行。
     *   GitHub Actions: 静的群 `-n auto` ＋ Playwright 各社バケットを同上。PR integration は `-m "not live"` でネットワーク依存ライブを除外。
+    *   GitHub Actions ではライブ保証を 4 つの独立マトリクスジョブ（静的 1/2・静的 2/2・PW mizuho+sekisui・PW athome）に分割し、失敗ジョブのみ個別再実行可能とする（`CRAWL_LIVE_BUCKETS` / `CRAWL_LIVE_STATIC_SHARD`）。
 
 ---
 

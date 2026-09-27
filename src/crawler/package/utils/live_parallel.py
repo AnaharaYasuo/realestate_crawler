@@ -3,6 +3,10 @@ Local vs CI parallel schedules for live crawl-guarantee tests.
 
 Local (Docker Desktop): cap xdist workers + serialize Playwright companies.
 CI (GitHub Actions): -n auto for static HTML jobs; still serialize Playwright.
+
+CI splits the suite across matrix jobs via:
+  CRAWL_LIVE_BUCKETS       comma-separated bucket labels to keep (static, pw-<company>)
+  CRAWL_LIVE_STATIC_SHARD  k/n round-robin shard of the static bucket
 """
 from __future__ import annotations
 
@@ -17,6 +21,10 @@ from package.utils.crawl_jobs import CRAWL_JOBS
 PLAYWRIGHT_COMPANIES = frozenset({"athome", "mizuho", "sekisui"})
 # Order: mizuho sitemap is fastest; sekisui/athome after with remaining wall.
 PLAYWRIGHT_COMPANY_ORDER = ("mizuho", "sekisui", "athome")
+STATIC_BUCKET_LABEL = "static"
+KNOWN_BUCKET_LABELS = frozenset(
+    {STATIC_BUCKET_LABEL, *(f"pw-{c}" for c in PLAYWRIGHT_COMPANY_ORDER)}
+)
 
 LiveParallelMode = Literal["local", "ci"]
 
@@ -91,6 +99,37 @@ def _static_xdist_n(
     return (env.get("CRAWL_LIVE_XDIST_LOCAL") or DEFAULT_LOCAL_XDIST).strip() or DEFAULT_LOCAL_XDIST
 
 
+def parse_static_shard(env: Mapping[str, str]) -> tuple[int, int] | None:
+    """CRAWL_LIVE_STATIC_SHARD=k/n -> (k, n); None when unset. Raises on malformed input."""
+    raw = (env.get("CRAWL_LIVE_STATIC_SHARD") or "").strip()
+    if not raw:
+        return None
+    parts = raw.split("/")
+    if len(parts) != 2 or not all(p.strip().isdigit() for p in parts):
+        raise ValueError(f"CRAWL_LIVE_STATIC_SHARD must be 'k/n', got {raw!r}")
+    k, n = (int(p) for p in parts)
+    if n < 1 or not 1 <= k <= n:
+        raise ValueError(f"CRAWL_LIVE_STATIC_SHARD requires 1 <= k <= n, got {raw!r}")
+    return k, n
+
+
+def parse_bucket_filter(env: Mapping[str, str]) -> frozenset[str] | None:
+    """CRAWL_LIVE_BUCKETS -> label set; None when unset. Raises on unknown labels."""
+    raw = env.get("CRAWL_LIVE_BUCKETS")
+    if raw is None or not raw.strip():
+        return None
+    labels = frozenset(s.strip().lower() for s in raw.split(",") if s.strip())
+    if not labels:
+        raise ValueError(f"CRAWL_LIVE_BUCKETS has no labels: {raw!r}")
+    unknown = labels - KNOWN_BUCKET_LABELS
+    if unknown:
+        raise ValueError(
+            f"CRAWL_LIVE_BUCKETS has unknown labels {sorted(unknown)}; "
+            f"allowed: {sorted(KNOWN_BUCKET_LABELS)}"
+        )
+    return labels
+
+
 def build_live_parallel_plan(
     jobs: Sequence[tuple[str, str]] | None = None,
     *,
@@ -101,9 +140,14 @@ def build_live_parallel_plan(
       1) one static HTML bucket (all non-Playwright companies)
       2) one serial bucket per Playwright company (mizuho / sekisui / athome)
          — runner overlaps these with each other and with static.
+
+    Then narrow by CRAWL_LIVE_STATIC_SHARD (static jobs only) and
+    CRAWL_LIVE_BUCKETS (bucket labels). Invalid values raise ValueError.
     """
     env = environ if environ is not None else os.environ
     mode = detect_live_parallel_mode(env)
+    shard = parse_static_shard(env)
+    bucket_filter = parse_bucket_filter(env)
     selected = list(jobs if jobs is not None else CRAWL_JOBS)
 
     static_job_ids: list[str] = []
@@ -115,11 +159,15 @@ def build_live_parallel_plan(
             continue
         static_job_ids.append(f"{company}_{ptype}")
 
+    if shard is not None:
+        k, n = shard
+        static_job_ids = [j for i, j in enumerate(static_job_ids) if i % n == k - 1]
+
     invocations: list[PytestInvocation] = []
     if static_job_ids:
         invocations.append(
             PytestInvocation(
-                label="static",
+                label=STATIC_BUCKET_LABEL,
                 sites_csv=",".join(static_job_ids),
                 xdist_n=_static_xdist_n(mode, env, has_playwright=bool(pw_present)),
             )
@@ -140,6 +188,8 @@ def build_live_parallel_plan(
                 xdist_n="0",
             )
         )
+    if bucket_filter is not None:
+        invocations = [inv for inv in invocations if inv.label in bucket_filter]
     return LiveParallelPlan(mode=mode, invocations=tuple(invocations))
 
 
