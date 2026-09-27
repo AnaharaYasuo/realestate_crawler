@@ -67,7 +67,8 @@ flowchart TD
   1. 環境変数 `NEW_RELIC_LICENSE_KEY`
   2. 環境変数 `NEW_RELIC_APP_NAME` (既定値: `realestate-crawler`)
   3. 環境変数 `NEW_RELIC_DISTRIBUTED_TRACING_ENABLED` (既定値: `true`)
-- **フォールバック**: `NEW_RELIC_LICENSE_KEY` が空、または `newrelic` モジュールのロードに失敗した場合は警告ログを出力し、通常起動を継続する。
+- **キー正規化**: `NEW_RELIC_LICENSE_KEY` は前後の空白・改行を除去し、正規化後の値を環境変数へ書き戻してからエージェントを初期化する（エージェントは環境変数を直接参照するため）。
+- **フォールバック**: `NEW_RELIC_LICENSE_KEY` が空（空白のみを含む）、または `newrelic` モジュールのロードに失敗した場合は警告ログを出力し、通常起動を継続する。
 
 ### 2.2 ヘルスチェック設計
 - エンドポイント: `GET /` および `GET /health`
@@ -84,6 +85,7 @@ flowchart TD
 - **シークレット定義**:
   - `google_secret_manager_secret.new_relic_license_key`: `realestate-new-relic-license-key-${var.environment}`
   - `google_secret_manager_secret_version.new_relic_license_key_version`: 初期プレースホルダーを登録し、`lifecycle { ignore_changes = [secret_data] }` により安全に本番キーを保持。
+- **ログ転送 Push Endpoint**: `new_relic_log_push` の `push_endpoint` にライセンスキーを埋め込む際は `trimspace()` で正規化し、Secret 値の末尾改行が URL に混入しないようにする。
 - **Cloud Run サービス & ジョブ注入**:
   - `cloud_run_api_service.tf`、`cloud_run_crawler_service.tf`、および `cloud_run_job.tf`（`realestate-crawler-pipeline-${var.environment}`）に `NEW_RELIC_LICENSE_KEY` を Secret Key Ref として追加。
 - **IAM（必須）**:

@@ -19,10 +19,11 @@
 ### FR-02: Python APM エージェント自動計装
 - アプリケーション起動時に `NEW_RELIC_LICENSE_KEY` 環境変数が存在する場合、`newrelic.agent.initialize()` により自動的に APM 計装を開始すること。
 - 環境変数が未設定の場合（ローカル開発・テスト時など）は、エラー終了することなく透過的にスキップ（フォールバック）すること。
+- ライセンスキーの前後の空白・改行（Secret 登録時の末尾改行混入等）は除去してから利用し、空白のみの値は未設定として扱うこと（Issue #529）。
 - アプリケーション名（`NEW_RELIC_APP_NAME`）および分散トレーシング（`NEW_RELIC_DISTRIBUTED_TRACING_ENABLED`）の設定をサポートすること。
 
 ### FR-03: Terraform ＆ Secret Manager 管理
-- Secret Manager に `realestate-new-relic-license-key-${var.environment}` を定義すること。
+- Secret Manager に `realestate-new-relic-license-key-${var.environment}` を定義すること。Secret 値は前後の空白・改行を含めずに登録すること（`printf '%s'` 等で登録し、`echo` による末尾改行混入を避ける）。
 - Cloud Run API サービス（`realestate-api-${var.environment}`）、クローラーワーカーサービス、および Cloud Run Job（`realestate-crawler-pipeline-${var.environment}`）において、Secret Manager から `NEW_RELIC_LICENSE_KEY` を安全に環境変数として注入すること。
 - Cloud Run 実行 SA（`crawler-runner-${var.environment}`）に対し、当該 New Relic ライセンスキー Secret への `roles/secretmanager.secretAccessor` を Terraform（`terraform/iam.tf` の `secret_accessor`）で付与すること。付与漏れにより `SecretsAccessCheckFailed` で新リビジョンが Ready にならない状態を防止する。
 
