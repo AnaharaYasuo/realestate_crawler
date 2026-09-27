@@ -289,12 +289,13 @@ def _run_startup_functions(harness: str) -> subprocess.CompletedProcess:
         for name in ("wait_for_apt_locks", "apt_retry")
     )
     return subprocess.run(
-        ["bash", "-c", f"{functions}\n{harness}"],
+        ["bash", "-c", f"set -euo pipefail\n{functions}\n{harness}"],
         capture_output=True, text=True, timeout=30, check=False,
     )
 
 
 _APT_STUBS = """
+SLEEPS=""
 sleep() { SLEEPS="$SLEEPS $1"; }
 fuser() { return 1; }
 CALLS=0
@@ -315,8 +316,9 @@ def test_apt_retry_executes_with_bounded_exponential_backoff(succeed_at, expecte
     """Issue #518: apt_retry を実行し、成功で即 0、失敗継続なら 5 回・5/10/20/40 秒バックオフ後に 1 を返すこと"""
     harness = f"""{_APT_STUBS}
 SUCCEED_AT={succeed_at}
-apt_retry update
-echo "rc=$? calls=$CALLS"
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS"
 echo "sleeps:$SLEEPS"
 """
     result = _run_startup_functions(harness)
@@ -326,14 +328,71 @@ echo "sleeps:$SLEEPS"
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_waits_for_lock_before_every_attempt():
+    """Issue #518: リトライ中にロックが再取得されても、各 apt-get 試行の直前に必ずロック待ちを行うこと"""
+    harness = """
+SLEEPS=""
+EVENTS=""
+CALLS=0
+HELD_ONCE=0
+sleep() { SLEEPS="$SLEEPS $1"; }
+fuser() {
+  EVENTS="$EVENTS F"
+  if [ "$CALLS" -eq 1 ] && [ "$HELD_ONCE" -eq 0 ]; then HELD_ONCE=1; return 0; fi
+  return 1
+}
+apt-get() { EVENTS="$EVENTS A"; CALLS=$((CALLS + 1)); [ "$CALLS" -ge 3 ]; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc"
+echo "events:$EVENTS"
+echo "sleeps:$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-3] == "rc=0", result.stdout + result.stderr
+    assert out[-2].split(":", 1)[1].split() == ["F", "A", "F", "F", "A", "F", "A"], result.stdout
+    assert out[-1].split(":", 1)[1].split() == ["5", "2", "10"], result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_startup_apt_retry_calls_abort_on_persistent_failure():
+    """Issue #518: apt_retry が失敗し続けた場合、startup script が後続処理に進まず非 0 で終了すること"""
+    script = _read_proxysql_startup_script()
+    call_lines = [
+        line.strip() for line in script.splitlines()
+        if re.match(r"\s*apt_retry\s+(update|install)\b", line)
+    ]
+    for line in call_lines:
+        assert re.fullmatch(r"apt_retry\s+(update|install)\b[^|&;#]*", line), \
+            f"apt_retry call must not swallow failures: {line}"
+
+    lines = script.splitlines()
+    first_call = next(i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line))
+    flow = "\n".join([
+        "sleep() { :; }",
+        "fuser() { return 1; }",
+        "apt-get() { return 1; }",
+        *lines[: first_call + 1],
+        "echo REACHED_AFTER_APT",
+    ])
+    result = subprocess.run(["bash", "-c", flow], capture_output=True, text=True, timeout=30, check=False)
+    assert "syntax error" not in result.stderr, result.stderr
+    assert result.returncode != 0, result.stdout
+    assert "failed after 5 attempts" in result.stdout, result.stdout
+    assert "REACHED_AFTER_APT" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
 def test_wait_for_apt_locks_waits_until_lock_released():
     harness = """
 sleep() { SLEEPS=$((SLEEPS + 1)); }
 HELD=3
 fuser() { HELD=$((HELD - 1)); [ "$HELD" -ge 0 ]; }
 SLEEPS=0
-wait_for_apt_locks
-echo "rc=$? sleeps=$SLEEPS"
+rc=0
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
 """
     result = _run_startup_functions(harness)
     assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=3", result.stdout
@@ -345,8 +404,9 @@ def test_wait_for_apt_locks_gives_up_after_600_seconds():
 sleep() { SLEEPS=$((SLEEPS + 1)); }
 fuser() { return 0; }
 SLEEPS=0
-wait_for_apt_locks
-echo "rc=$? sleeps=$SLEEPS"
+rc=0
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
 """
     result = _run_startup_functions(harness)
     assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=300", result.stdout

@@ -217,21 +217,28 @@ def test_abort_kills_children_alerts_marks_failed_and_exits_nonzero():
     calls = []
     record = MagicMock()
     record.save.side_effect = lambda: calls.append("save")
-    rac.active_processes[1] = (MagicMock(), "keio", "mansion", 0.0, None)
-    rac.active_processes[2] = (MagicMock(), "odakyu", "kodate", 0.0, None)
+    procs = [MagicMock(pid=101), MagicMock(pid=202)]
+    for proc in procs:
+        proc.poll.return_value = None
+    rac.active_processes[1] = (procs[0], "keio", "mansion", 0.0, None)
+    rac.active_processes[2] = (procs[1], "odakyu", "kodate", 0.0, None)
 
     alert = AsyncMock(side_effect=lambda msg: calls.append(("alert", msg)))
     with (
-        patch(f"{_MOD}.cleanup_active_process", side_effect=lambda: calls.append("cleanup")) as mock_cleanup,
+        patch(f"{_MOD}.os.getpgid", side_effect=lambda pid: pid + 1000, create=True),
+        patch(f"{_MOD}.os.killpg", side_effect=lambda pgid, sig: calls.append("kill"), create=True) as mock_killpg,
         patch(f"{_MOD}.send_crawling_summary_alert", alert),
     ):
         with pytest.raises(SystemExit) as exc:
             rac.abort_on_db_liveness_loss(_lost_monitor(), record)
 
     assert exc.value.code == 1
-    mock_cleanup.assert_called_once()
-    assert [c if isinstance(c, str) else c[0] for c in calls] == ["cleanup", "alert", "save"]
-    msg = calls[1][1]
+    assert sorted(c.args for c in mock_killpg.call_args_list) == [(1101, signal.SIGKILL), (1202, signal.SIGKILL)]
+    for proc in procs:
+        proc.communicate.assert_called_once_with()
+    assert rac.active_processes == {}
+    assert [c if isinstance(c, str) else c[0] for c in calls] == ["kill", "kill", "alert", "save"]
+    msg = calls[2][1]
     assert "10.0.0.10:6033" in msg
     assert "keio - mansion" in msg and "odakyu - kodate" in msg
     assert "連続 1 回" in msg
