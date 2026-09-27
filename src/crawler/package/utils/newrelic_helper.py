@@ -1,8 +1,6 @@
 import logging
 import os
 import sys
-import threading
-import time
 from typing import Any
 
 try:
@@ -26,9 +24,11 @@ def _get_agent() -> Any | None:
 
 def init_new_relic() -> bool:
     """Initialize New Relic APM agent if NEW_RELIC_LICENSE_KEY is configured in the environment."""
-    license_key = os.getenv("NEW_RELIC_LICENSE_KEY")
+    license_key = os.getenv("NEW_RELIC_LICENSE_KEY", "").strip()
     if not license_key:
         return False
+    # The agent reads NEW_RELIC_LICENSE_KEY directly from the environment.
+    os.environ["NEW_RELIC_LICENSE_KEY"] = license_key
 
     app_name = os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
 

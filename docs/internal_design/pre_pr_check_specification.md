@@ -62,6 +62,10 @@ class StageResult:
 - PR 本文の `Closes #<issue_num>` 存在確認
 - PR 本文中の `- [ ]` 残存検知（GitHub Actions Review Gate と同様の正規表現ロジック）
 
+### 2.3 `.githooks/pre-push` のコンテナ実行時 git メタデータ受け渡し（Issue #530）
+- リポジトリ内 worktree（`.worktrees/<branch>`）の `.git` ファイルはホストの絶対パスを指すため、コンテナ内ではそのままでは解決できない。
+- リポジトリ内 worktree 分岐では、`git rev-parse --absolute-git-dir` をメインリポジトリルートからの相対パスに変換し、`docker compose exec -e GIT_DIR=/app/<相対パス> -e GIT_WORK_TREE=/app/.worktrees/<branch>` として `pre_pr_check.py --diff` に渡す。
+
 ## 3. エラーハンドリングおよび終了コード
 - 全ステージ合格時: `0`
 - いずれかのステージでエラー検知時: `1`

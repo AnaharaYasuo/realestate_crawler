@@ -49,7 +49,10 @@ run_pre_pr_check() {
     if command -v docker >/dev/null 2>&1; then
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
-            docker compose --project-directory "$main_root" exec -T -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
+            # Its .git file points to a host absolute path, so hand the container-side git dir explicitly.
+            wt_git_dir_norm=$(norm_path "$(git rev-parse --absolute-git-dir)")
+            rel_git_dir="${wt_git_dir_norm#"$main_root_norm/"}"
+            docker compose --project-directory "$main_root" exec -T -e GIT_DIR="/app/$rel_git_dir" -e GIT_WORK_TREE="/app/$rel_path" -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
             # Main checkout mapped to /app
             docker compose --project-directory "$main_root" exec -T app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"

@@ -25,9 +25,11 @@ logger = logging.getLogger(__name__)
 
 def init_new_relic() -> bool:
     """Initialize New Relic APM agent if NEW_RELIC_LICENSE_KEY is configured."""
-    license_key = os.getenv("NEW_RELIC_LICENSE_KEY")
+    license_key = os.getenv("NEW_RELIC_LICENSE_KEY", "").strip()
     if not license_key:
         return False
+    # エージェントは環境変数を直接参照するため、正規化済みの値を書き戻す (Issue #529)
+    os.environ["NEW_RELIC_LICENSE_KEY"] = license_key
 
     app_name = os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
     try:
@@ -152,4 +154,8 @@ record_crawler_metrics(
 - `test_crawler_alerts_provisioning`: NRQL アラートルール登録ペイロードと有限タイムアウト処理を検証。
 - `test_run_all_crawlers_records_crawler_metrics`: バッチクローラーが完了したジョブに対して `record_crawler_metrics` を呼び出すことを検証。
 - `test_iam_secret_accessor_includes_new_relic_license_key`: `terraform/iam.tf` の `secret_accessor` for_each に `new_relic_license_key` が含まれることを検証（Issue #484）。
+- `test_new_relic_license_key_newline_529.py`（Issue #529）:
+  - `init_new_relic()` が `NEW_RELIC_LICENSE_KEY` の前後空白・改行を除去して環境変数へ書き戻した上でエージェントを初期化すること。
+  - 空白・改行のみの値は未設定扱いとなり `False` を返し、エージェントを初期化しないこと。
+  - `terraform/new_relic_gcp_integration.tf` の `push_endpoint` がライセンスキーを `trimspace()` で正規化して埋め込むこと。
 
