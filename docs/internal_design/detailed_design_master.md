@@ -218,6 +218,7 @@ graph TD
   - `build_live_parallel_plan()`: 選択ジョブを静的バケット（Playwright 以外）と PW 会社バケット（mizuho → sekisui → athome、各 `-n 0`）に分割。
   - ローカル: 静的 `-n` = `CRAWL_LIVE_XDIST_LOCAL`（既定 `4`）、PW 各社 `-n 0`。
   - CI: 静的 `-n` = `CRAWL_LIVE_XDIST_CI`（既定 `auto`）、PW 各社 `-n 0`。
+  - 分割選択: `CRAWL_LIVE_STATIC_SHARD=k/n` で静的ジョブをラウンドロビン分配、`CRAWL_LIVE_BUCKETS` でバケットラベルを選択（不正値は `ValueError`）。CI は 4 マトリクスジョブで利用（[ci_cd_optimization_design.md](ci_cd_optimization_design.md) §3）。
   - 実行器: `scripts/ops/run_live_crawl_guarantee.py` が静的 ∥ (mizuho → (sekisui ∥ athome)) で起動（壁 ≈ max(static, mizuho + max(sekisui, athome))）。スコープ指定（`CRAWL_GUARANTEE_SITES` 等）時は該当ジョブのみでプラン再構成。
 - **命名規約強制**: Start API クラス名は `Parse{Company}{Type}StartAsync` に統一する（例: 京急戸建は `ParseKeikyuKodateStartAsync`）。規約逸脱はカタログ解決テストで FAIL。
 - **テスト配置**:
