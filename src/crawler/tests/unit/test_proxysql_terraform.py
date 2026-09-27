@@ -224,9 +224,11 @@ def test_proxysql_startup_script_waits_for_dpkg_lock_release():
     assert loop_body, "fuser wait loop must be closed with done."
     loop_text = loop_body.group(1)
     assert re.search(r"\bsleep\s+2\b", loop_text), "Lock wait loop must poll every 2 seconds."
-    assert re.search(r'if\s+\[\s+"?\$waited"?\s+-ge\s+600\s+\];\s*then\s*\n(.*?)\bbreak\b', loop_text, re.DOTALL), \
-        "Lock wait loop must break out after 600s (bounded wait) inside the loop."
-    assert re.search(r"waited=\$\(\(waited \+ 2\)\)", loop_text), "Lock wait loop must advance the elapsed counter."
+    assert re.search(r'if\s+\[\s+"?\$APT_LOCK_WAITED"?\s+-ge\s+600\s+\];\s*then\s*\n(.*?)\bbreak\b', loop_text, re.DOTALL), \
+        "Lock wait loop must break out once the shared 600s budget is exhausted."
+    assert re.search(r"APT_LOCK_WAITED=\$\(\(APT_LOCK_WAITED \+ 2\)\)", loop_text), \
+        "Lock wait loop must advance the shared elapsed counter."
+    assert "local waited" not in body, "Lock wait budget must not be reset per wait_for_apt_locks call."
 
 
 def test_proxysql_startup_script_retries_apt_get_with_exponential_backoff():
@@ -384,8 +386,65 @@ def test_startup_apt_retry_calls_abort_on_persistent_failure():
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_shares_lock_wait_budget_across_attempts():
+    """Issue #518: 永続ロック時、600 秒のロック待機予算を全試行で共有し (2 秒×300 回のみ)、予算消化後も apt-get を 5 回試行すること"""
+    harness = """
+LOCK_SLEEPS=0
+BACKOFF=""
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); else BACKOFF="$BACKOFF $1"; fi; }
+fuser() { return 0; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); return 1; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS lock_sleeps=$LOCK_SLEEPS"
+echo "backoff:$BACKOFF"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-2] == "rc=1 calls=5 lock_sleeps=300", result.stdout + result.stderr
+    assert out[-1].split(":", 1)[1].split() == ["5", "10", "20", "40"], result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_recovers_when_lock_released_after_budget_exhausted():
+    """Issue #518: 予算消化後にロックが解放された場合、apt-get のロック待機で回復して成功すること"""
+    harness = """
+LOCK_SLEEPS=0
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); fi; }
+fuser() { return 0; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); [ "$CALLS" -ge 2 ]; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS lock_sleeps=$LOCK_SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "rc=0 calls=2 lock_sleeps=300", result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_resets_lock_wait_budget_per_invocation():
+    """Issue #518: 予算は apt_retry 1 呼び出し単位であり、次の apt 操作では再び待機できること"""
+    harness = """
+LOCK_SLEEPS=0
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); fi; }
+HELD=0
+fuser() { [ "$HELD" -gt 0 ] && HELD=$((HELD - 1)) && return 0; return 1; }
+apt-get() { return 0; }
+APT_LOCK_WAITED=600
+HELD=3
+apt_retry update
+echo "lock_sleeps=$LOCK_SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "lock_sleeps=3", result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
 def test_wait_for_apt_locks_waits_until_lock_released():
     harness = """
+APT_LOCK_WAITED=0
 sleep() { SLEEPS=$((SLEEPS + 1)); }
 HELD=3
 fuser() { HELD=$((HELD - 1)); [ "$HELD" -ge 0 ]; }
@@ -401,15 +460,20 @@ echo "rc=$rc sleeps=$SLEEPS"
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
 def test_wait_for_apt_locks_gives_up_after_600_seconds():
     harness = """
+APT_LOCK_WAITED=0
 sleep() { SLEEPS=$((SLEEPS + 1)); }
 fuser() { return 0; }
 SLEEPS=0
 rc=0
 wait_for_apt_locks || rc=$?
 echo "rc=$rc sleeps=$SLEEPS"
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
 """
     result = _run_startup_functions(harness)
-    assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=300", result.stdout
+    out = [line for line in result.stdout.splitlines() if line.startswith("rc=")]
+    assert out == ["rc=0 sleeps=300", "rc=0 sleeps=300"], \
+        "exhausted budget must not be reset by a subsequent call: " + result.stdout
 
 
 def test_proxysql_startup_script_has_no_unescaped_shell_interpolation():

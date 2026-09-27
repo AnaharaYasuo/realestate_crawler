@@ -239,6 +239,7 @@ graph TD
   - 判定閾値: `DB_HEALTH_MAX_CONSECUTIVE_FAILURES`（既定 3 回）連続失敗で DB 応答喪失と判定。1 回でも成功すれば連続失敗カウンタをリセットする。
   - ループ内 DB 処理（取得件数集計等）が DB 不通時に OS 既定の TCP 接続待ち（約 130 秒）でブロックし監視が遅延しないよう、起動直後の最初の DB アクセス（`CrawlerTaskExecution` 登録）より前に `bound_db_connect_timeout()` で当該プロセスの MySQL 接続 `OPTIONS.connect_timeout` を 10 秒（`DB_CONNECT_TIMEOUT_SEC`）、`read_timeout`/`write_timeout` を 120 秒（`DB_QUERY_TIMEOUT_SEC`、正常な件数集計を誤って打ち切らない余裕値）に設定する（明示設定がある場合はそれを優先）。
   - 疎通判定は認証付きクエリではなく TCP 接続で行う。ProxySQL はバックエンド接続上限到達時に要求をキュー待ちさせるため、クエリ判定では正常な混雑を応答喪失と誤判定して全クロールを停止する恐れがあるため。
+  - DB 接続先が UNIX ソケット（`HOST` が `localhost` または `/` 始まりのソケットパス）の場合、MySQL クライアントは TCP を使用せず TCP 疎通監視では DB 正常時も誤検知するため、`resolve_db_endpoint()` は `None` を返し `DbLivenessMonitor` による監視を無効化する（警告ログを出力）。
 - 応答喪失判定時は `abort_on_db_liveness_loss` が以下を順に実行する（Fast-Fail）:
   1. `cleanup_active_process()` によりアクティブなクローラー子プロセスグループを即時 SIGKILL・回収する。
   2. `send_crawling_summary_alert` で停止理由・接続先・停止したジョブ一覧を Slack アラートチャンネルへ発報する（DB 不通時の DB 書込ハングで通知が遅延しないよう、DB 更新より先に実行）。

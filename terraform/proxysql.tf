@@ -77,16 +77,16 @@ resource "google_compute_instance" "proxysql_instance" {
     export DEBIAN_FRONTEND=noninteractive
 
     # 起動直後の unattended-upgrades 等による DPKG/APT ロック競合で set -e により即死しないよう解放を待つ
+    # 待機予算 600 秒は apt_retry の全試行で共有し、消化後は apt-get 側の DPkg::Lock::Timeout に委ねる
     wait_for_apt_locks() {
-      local waited=0
       while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
-        if [ "$waited" -ge 600 ]; then
-          echo "[WARN] DPKG/APT lock still held after 600s. Continuing with apt-get retry."
+        if [ "$APT_LOCK_WAITED" -ge 600 ]; then
+          echo "[WARN] DPKG/APT lock wait budget (600s) exhausted. Continuing with apt-get lock timeout."
           break
         fi
-        echo "Waiting for DPKG/APT lock release... ($waited s)"
+        echo "Waiting for DPKG/APT lock release... ($APT_LOCK_WAITED s)"
         sleep 2
-        waited=$((waited + 2))
+        APT_LOCK_WAITED=$((APT_LOCK_WAITED + 2))
       done
     }
 
@@ -95,6 +95,7 @@ resource "google_compute_instance" "proxysql_instance" {
       local attempt=1
       local max_attempts=5
       local delay=5
+      APT_LOCK_WAITED=0
       until wait_for_apt_locks && apt-get -o DPkg::Lock::Timeout=120 "$@"; do
         if [ "$attempt" -ge "$max_attempts" ]; then
           echo "[ERROR] apt-get $* failed after $max_attempts attempts."

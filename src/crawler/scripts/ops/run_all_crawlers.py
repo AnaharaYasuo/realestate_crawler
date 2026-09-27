@@ -148,6 +148,10 @@ def resolve_db_endpoint():
     settings_dict = getattr(connection, "settings_dict", None) or {}
     host = settings_dict.get("HOST") or os.getenv("DB_HOST", "127.0.0.1")
     port = int(settings_dict.get("PORT") or os.getenv("DB_PORT", "3306"))
+    # MySQL クライアントは localhost / ソケットパス指定時に TCP を使わないため、TCP 監視では DB 正常時も誤検知する
+    if host == "localhost" or host.startswith("/"):
+        logger.warning(f"DB 接続先 {host} は UNIX ソケット接続のため TCP 疎通監視を無効化します")
+        return None
     return host, port
 
 
@@ -346,10 +350,11 @@ def main():
     global active_processes
 
     batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
-    db_monitor = DbLivenessMonitor(*resolve_db_endpoint())
+    db_endpoint = resolve_db_endpoint()
+    db_monitor = DbLivenessMonitor(*db_endpoint) if db_endpoint else None
 
     while job_queue or active_processes:
-        if db_monitor.is_lost():
+        if db_monitor is not None and db_monitor.is_lost():
             abort_on_db_liveness_loss(db_monitor, task_exec_record)
 
         now = time.time()

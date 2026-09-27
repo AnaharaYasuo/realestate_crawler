@@ -167,6 +167,19 @@ def test_resolve_db_endpoint_falls_back_to_env(monkeypatch):
         assert rac.resolve_db_endpoint() == ("env-host", 6033)
 
 
+@pytest.mark.parametrize("host", ["localhost", "/var/run/mysqld/mysqld.sock", "/cloudsql/proj:region:inst"])
+def test_resolve_db_endpoint_disables_tcp_monitor_for_unix_socket(host):
+    fake_conn = MagicMock(settings_dict={"HOST": host, "PORT": "3306"})
+    with patch(f"{_MOD}.connection", fake_conn):
+        assert rac.resolve_db_endpoint() is None
+
+
+def test_resolve_db_endpoint_keeps_tcp_loopback():
+    fake_conn = MagicMock(settings_dict={"HOST": "127.0.0.1", "PORT": "3306"})
+    with patch(f"{_MOD}.connection", fake_conn):
+        assert rac.resolve_db_endpoint() == ("127.0.0.1", 3306)
+
+
 # --- bound_db_connect_timeout ---
 
 def test_bound_db_connect_timeout_sets_finite_timeout_for_mysql():
@@ -344,3 +357,42 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
     assert record.status == "FAILED"
     alert_msgs = [c.args[0] for c in alert.call_args_list]
     assert any("keio - mansion" in m and "10.0.0.10:6033" in m for m in alert_msgs)
+
+
+def test_main_loop_runs_without_monitor_for_unix_socket_endpoint(tmp_path):
+    """UNIX ソケット接続時は DbLivenessMonitor を生成せず、DB 監視で停止せずにジョブを完走する"""
+    args = argparse.Namespace(dry_run=False, parallel=1, playwright_parallel=1, skip_portals=False)
+    fake_proc = MagicMock(pid=1234, returncode=1)
+    fake_proc.poll.side_effect = [None, 1]
+    record = MagicMock()
+    task_exec = MagicMock()
+    task_exec.objects.update_or_create.return_value = (record, True)
+
+    with (
+        patch(f"{_MOD}.parse_args", return_value=args),
+        patch(f"{_MOD}.clean_zombies"),
+        patch(f"{_MOD}.get_task_config", return_value=(None, 1)),
+        patch(f"{_MOD}.CRAWL_JOBS", [("keio", "mansion")]),
+        patch(f"{_MOD}.select_next_job", return_value=(0, None)),
+        patch(f"{_MOD}.CrawlerTaskExecution", task_exec),
+        patch(f"{_MOD}.send_crawling_summary_alert", AsyncMock()),
+        patch(f"{_MOD}.send_slack_message", AsyncMock()),
+        patch(f"{_MOD}.FailureReporter"),
+        patch(f"{_MOD}.record_crawler_metrics"),
+        patch(f"{_MOD}.apps", MagicMock(get_models=MagicMock(return_value=[]))),
+        patch(f"{_MOD}.log_dir", str(tmp_path)),
+        patch(f"{_MOD}._project_root", str(tmp_path)),
+        patch(f"{_MOD}.bound_db_connect_timeout"),
+        patch(f"{_MOD}.resolve_db_endpoint", return_value=None),
+        patch(f"{_MOD}.DbLivenessMonitor") as monitor_cls,
+        patch(f"{_MOD}.abort_on_db_liveness_loss") as mock_abort,
+        patch(f"{_MOD}.subprocess.Popen", return_value=fake_proc) as mock_popen,
+        patch(f"{_MOD}.time.sleep"),
+    ):
+        rac.main()
+
+    monitor_cls.assert_not_called()
+    mock_abort.assert_not_called()
+    mock_popen.assert_called_once()
+    assert rac.active_processes == {}
+    assert record.status == "FAILED"
