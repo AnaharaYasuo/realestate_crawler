@@ -363,9 +363,9 @@ def reconcile_aborted_task_execution(task_index: int | None) -> bool:
         # DB 不通で切断された接続を再利用すると復旧後も失敗し続けるため、試行ごとに破棄する
         close_old_connections()
         try:
-            # run_all_crawlers.py と同じ execution_date / task_index で自タスクの行のみを対象とする
+            # run_all_crawlers.py と同じ execution_date (ローカル日付) / task_index で自タスクの行のみを対象とする
             updated = CrawlerTaskExecution.objects.filter(
-                execution_date=datetime.date.today(),
+                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
                 task_index=task_index or 0,
                 status="RUNNING",
             ).update(status="FAILED")

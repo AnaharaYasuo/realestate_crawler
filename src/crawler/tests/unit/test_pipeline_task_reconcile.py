@@ -13,6 +13,10 @@ from scripts.ops import run_pipeline
 _MOD = "scripts.ops.run_pipeline"
 
 
+def _today():
+    return datetime.datetime.now(datetime.timezone.utc).astimezone().date()
+
+
 @pytest.fixture(autouse=True)
 def _clean_task_executions():
     CrawlerTaskExecution.objects.all().delete()
@@ -22,7 +26,7 @@ def _clean_task_executions():
 
 def _create(task_index, status, task_count=2):
     return CrawlerTaskExecution.objects.create(
-        execution_date=datetime.date.today(), task_index=task_index, task_count=task_count, status=status
+        execution_date=_today(), task_index=task_index, task_count=task_count, status=status
     )
 
 
@@ -63,7 +67,7 @@ def test_reconcile_retries_until_db_recovers():
          patch(f"{_MOD}.time.sleep") as mock_sleep:
         assert run_pipeline.reconcile_aborted_task_execution(3) is True
 
-    mock_filter.assert_called_with(execution_date=datetime.date.today(), task_index=3, status="RUNNING")
+    mock_filter.assert_called_with(execution_date=_today(), task_index=3, status="RUNNING")
     qs.update.assert_called_with(status="FAILED")
     assert qs.update.call_count == 3
     assert mock_close.call_count == 3
@@ -92,7 +96,7 @@ def test_reconciled_task_lets_barrier_exit_without_waiting():
         run_pipeline.reconcile_aborted_task_execution(1)
     with patch("package.utils.pipeline_coordinator.time.sleep") as barrier_sleep:
         all_ok, failed = wait_for_all_tasks(
-            CrawlerTaskExecution, datetime.date.today(), task_count=2, timeout_sec=1800, interval_sec=15
+            CrawlerTaskExecution, _today(), task_count=2, timeout_sec=1800, interval_sec=15
         )
 
     assert (all_ok, failed) == (True, [1])

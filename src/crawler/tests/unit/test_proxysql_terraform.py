@@ -286,15 +286,16 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
 
 def test_proxysql_startup_script_apt_update_fails_on_any_fetch_error():
     """Issue #518: apt-get update の一時的な取得失敗も非ゼロ終了させ apt_retry の再試行対象とすること"""
-    script = _read_proxysql_startup_script()
-    update_calls = [
-        line.split("#", 1)[0].split()
-        for line in script.splitlines()
-        if re.match(r"\s*apt_retry\s+update\b", line)
-    ]
-    assert len(update_calls) >= 2, "Both base and ProxySQL repository index updates must go through apt_retry."
-    for args in update_calls:
+    lines = _read_proxysql_startup_script().splitlines()
+    update_calls = [(i, line.split("#", 1)[0].split()) for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+update\b", line)]
+    for _, args in update_calls:
         assert "--error-on=any" in args, f"apt_retry update must pass --error-on=any: {' '.join(args)}"
+
+    repo_lines = [i for i, line in enumerate(lines) if "/etc/apt/sources.list.d/proxysql.list" in line]
+    assert len(repo_lines) == 1, "ProxySQL repository must be registered exactly once."
+    repo_line = repo_lines[0]
+    assert any(i < repo_line for i, _ in update_calls), "Base index update must run before ProxySQL repo registration."
+    assert any(i > repo_line for i, _ in update_calls), "ProxySQL repo index update must run after its registration."
 
 
 def _run_startup_functions(harness: str) -> subprocess.CompletedProcess:
