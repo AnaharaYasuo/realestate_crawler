@@ -12,6 +12,7 @@ import signal
 import atexit
 import asyncio
 import socket
+import threading
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -87,6 +88,7 @@ timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 10800))
 DB_HEALTH_CHECK_INTERVAL_SEC = float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15"))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3"))
 DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
+DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
 
 active_processes = {}
 
@@ -159,6 +161,14 @@ def cleanup_active_process():
     active_processes.clear()
 
 
+def _mark_task_failed(task_exec_record):
+    try:
+        task_exec_record.status = "FAILED"
+        task_exec_record.save()
+    except Exception as dbe:
+        logger.warning(f"Failed to mark CrawlerTaskExecution FAILED after DB liveness loss: {dbe}")
+
+
 def abort_on_db_liveness_loss(monitor, task_exec_record=None):
     """DB 応答喪失時にクローラー子プロセス群を即時停止し、Slack 通知後に exit 1 で終了する (Fast-Fail)"""
     aborted_jobs = [f"{company} - {ptype}" for _, company, ptype, *_ in active_processes.values()]
@@ -181,11 +191,14 @@ def abort_on_db_liveness_loss(monitor, task_exec_record=None):
         logger.exception("Failed to post DB liveness loss alert")
 
     if task_exec_record is not None:
-        try:
-            task_exec_record.status = "FAILED"
-            task_exec_record.save()
-        except Exception as dbe:
-            logger.warning(f"Failed to mark CrawlerTaskExecution FAILED after DB liveness loss: {dbe}")
+        # DB 不通時は save() が TCP 接続待ちでブロックし得るため、有限時間で見切って終了する
+        saver = threading.Thread(target=_mark_task_failed, args=(task_exec_record,), daemon=True)
+        saver.start()
+        saver.join(DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC)
+        if saver.is_alive():
+            logger.warning(
+                f"CrawlerTaskExecution の FAILED 更新が {DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC}s 以内に完了しないため待機を打ち切ります。"
+            )
 
     raise SystemExit(1)
 

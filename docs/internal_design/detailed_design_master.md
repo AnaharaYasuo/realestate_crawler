@@ -240,7 +240,7 @@ graph TD
 - 応答喪失判定時は `abort_on_db_liveness_loss` が以下を順に実行する（Fast-Fail）:
   1. `cleanup_active_process()` によりアクティブなクローラー子プロセスグループを即時 SIGKILL・回収する。
   2. `send_crawling_summary_alert` で停止理由・接続先・停止したジョブ一覧を Slack アラートチャンネルへ発報する（DB 不通時の DB 書込ハングで通知が遅延しないよう、DB 更新より先に実行）。
-  3. `CrawlerTaskExecution` を `FAILED` に更新する（失敗しても後続処理は継続）。
+  3. `CrawlerTaskExecution` を `FAILED` に更新する。DB 不通時の `save()` ブロックで終了が遅延しないよう、デーモンスレッドで実行し最大 `DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC`（10 秒）で待機を打ち切る（失敗・タイムアウトしても後続処理は継続）。
   4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
 
 ### 6.9 0件取得失敗分類 ＆ 404掲載終了フィルタリング原則

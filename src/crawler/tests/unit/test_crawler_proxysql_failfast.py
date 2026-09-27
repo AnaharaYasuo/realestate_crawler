@@ -2,6 +2,8 @@
 """Issue #518: クローリング中の ProxySQL/DB 死活監視連動 Fast-Fail の単体テスト"""
 import argparse
 import signal
+import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -203,6 +205,33 @@ def test_abort_still_exits_when_alert_and_db_update_fail():
 
     assert exc.value.code == 1
     mock_cleanup.assert_called_once()
+
+
+def test_abort_does_not_hang_when_db_save_blocks():
+    """DB 不通で save() がブロックしても、有限時間で見切って exit 1 する"""
+    release = threading.Event()
+    record = MagicMock()
+    record.save.side_effect = lambda: release.wait(5)
+    try:
+        with (
+            patch(f"{_MOD}.cleanup_active_process"),
+            patch(f"{_MOD}.send_crawling_summary_alert", AsyncMock()),
+            patch(f"{_MOD}.DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC", 0.2),
+        ):
+            started = time.monotonic()
+            with pytest.raises(SystemExit) as exc:
+                rac.abort_on_db_liveness_loss(_lost_monitor(), record)
+            elapsed = time.monotonic() - started
+    finally:
+        release.set()
+
+    assert exc.value.code == 1
+    assert elapsed < 2.0
+    record.save.assert_called_once()
+
+
+def test_abort_save_timeout_default():
+    assert rac.DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC == 10.0
 
 
 def test_abort_without_task_record_and_no_active_jobs():
