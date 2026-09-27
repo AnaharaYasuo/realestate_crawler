@@ -137,6 +137,13 @@ def test_monitor_treats_timeout_as_failure():
     assert "timed out" in monitor.last_error
 
 
+@pytest.mark.parametrize("max_failures", [0, -1])
+def test_monitor_never_trips_before_first_failure_even_with_invalid_threshold(max_failures):
+    monitor, _ = _monitor([True], max_failures=max_failures)
+    assert monitor.max_failures == 1
+    assert monitor.is_lost() is False
+
+
 def test_monitor_coerces_string_port():
     monitor = rac.DbLivenessMonitor("db", "3306", connector=FakeConnector([True]), clock=FakeClock())
     assert monitor.port == 3306

@@ -85,8 +85,8 @@ logger = logging.getLogger(__name__)
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", 180))
 timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 10800))
 
-DB_HEALTH_CHECK_INTERVAL_SEC = float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15"))
-DB_HEALTH_MAX_CONSECUTIVE_FAILURES = int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3"))
+DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
+DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
 DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
 DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
 DB_CONNECT_TIMEOUT_SEC = 10
@@ -111,7 +111,7 @@ class DbLivenessMonitor:
         self.host = host
         self.port = int(port)
         self.interval_sec = interval_sec
-        self.max_failures = max_failures
+        self.max_failures = max(1, int(max_failures))
         self.timeout_sec = timeout_sec
         self._connector = connector
         self._clock = clock

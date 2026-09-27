@@ -2,6 +2,8 @@
 """ProxySQL Terraform 構成の単体テスト (TDD)"""
 import os
 import re
+import shutil
+import subprocess
 import pytest
 
 TERRAFORM_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "terraform"))
@@ -271,9 +273,83 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
     ]
     assert not direct_calls, f"apt-get must not be invoked directly outside apt_retry: {direct_calls}"
 
-    install_targets = " ".join(lines[i] for i in apt_retry_calls)
-    assert "default-mysql-client" in install_targets and "proxysql" in install_targets, \
-        "Both base packages and proxysql must be installed via apt_retry."
+    install_args = set()
+    for i in apt_retry_calls:
+        match = re.match(r"\s*apt_retry\s+install\s+(.*)$", lines[i].split("#", 1)[0])
+        if match:
+            install_args.update(match.group(1).split())
+    assert {"default-mysql-client", "proxysql"} <= install_args, \
+        f"Both base packages and proxysql must be installed via apt_retry: {install_args}"
+
+
+def _run_startup_functions(harness: str) -> subprocess.CompletedProcess:
+    script = _read_proxysql_startup_script()
+    functions = "\n".join(
+        f"{name}() {{\n{_extract_shell_function(script, name)}}}"
+        for name in ("wait_for_apt_locks", "apt_retry")
+    )
+    return subprocess.run(
+        ["bash", "-c", f"{functions}\n{harness}"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+
+
+_APT_STUBS = """
+sleep() { SLEEPS="$SLEEPS $1"; }
+fuser() { return 1; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); [ "$CALLS" -ge "$SUCCEED_AT" ]; }
+"""
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+@pytest.mark.parametrize(
+    "succeed_at, expected_rc, expected_calls, expected_sleeps",
+    [
+        (1, 0, 1, []),
+        (3, 0, 3, ["5", "10"]),
+        (99, 1, 5, ["5", "10", "20", "40"]),
+    ],
+)
+def test_apt_retry_executes_with_bounded_exponential_backoff(succeed_at, expected_rc, expected_calls, expected_sleeps):
+    """Issue #518: apt_retry を実行し、成功で即 0、失敗継続なら 5 回・5/10/20/40 秒バックオフ後に 1 を返すこと"""
+    harness = f"""{_APT_STUBS}
+SUCCEED_AT={succeed_at}
+apt_retry update
+echo "rc=$? calls=$CALLS"
+echo "sleeps:$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-2] == f"rc={expected_rc} calls={expected_calls}", result.stdout
+    assert out[-1].split(":", 1)[1].split() == expected_sleeps, result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_wait_for_apt_locks_waits_until_lock_released():
+    harness = """
+sleep() { SLEEPS=$((SLEEPS + 1)); }
+HELD=3
+fuser() { HELD=$((HELD - 1)); [ "$HELD" -ge 0 ]; }
+SLEEPS=0
+wait_for_apt_locks
+echo "rc=$? sleeps=$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=3", result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_wait_for_apt_locks_gives_up_after_600_seconds():
+    harness = """
+sleep() { SLEEPS=$((SLEEPS + 1)); }
+fuser() { return 0; }
+SLEEPS=0
+wait_for_apt_locks
+echo "rc=$? sleeps=$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=300", result.stdout
 
 
 def test_proxysql_startup_script_has_no_unescaped_shell_interpolation():
