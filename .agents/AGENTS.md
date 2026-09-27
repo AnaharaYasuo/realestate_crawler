@@ -20,6 +20,17 @@
 - 高コストなモデル（Claude Opus 等）は使用せず、常にコスト効率の高いモデル（Gemini 3.5 Flash等）を利用することを遵守する。
 - 開発者（AIエージェント）自身も作業を行う際は常にこの方針を念頭に置き、ユーザーからのすべての指示でコスト効率の高いモデルの使用を徹底する。
 
+## 【プロジェクト共通】Cursor Agent CLI 呼び出し規約
+- Antigravity側からのサブエージェント委譲やローカルCursor連携を行う際は、以下の仕様と呼び出しパスを厳守する：
+  - **実行コマンドパス**:
+    `C:\Users\weare\AppData\Roaming\Cursor\User\globalStorage\anysphere.cursor-agent-worker\agent-cli\.local\share\cursor-agent\versions\<version>\cursor-agent.cmd`
+    （※ `cursor.cmd` はVSCodeエディタ起動用のためCLIエージェント実行には使用不可。必ず上記 `cursor-agent.cmd` を使用する）
+  - **環境変数（SSL/TLS検証スキップ必須）**:
+    環境による証明書インスペクション（Connect-RPCエラー）を回避するため、必ず `$env:NODE_TLS_REJECT_UNAUTHORIZED="0"` を付与して実行する。
+  - **標準起動構文**:
+    `$env:NODE_TLS_REJECT_UNAUTHORIZED="0"; & "<cursor-agent.cmdの絶対パス>" -p --trust -f "指示プロンプト"`
+    （※ `-p` でプロンプトモード、`--trust` でワークスペース信頼確認を自動承認、`-f` で自律実行を許可する）
+
 ## 1物件1AIリクエスト原則（Single Unified LLM Request Per Property）
 - クローリング中、データパース時、またはML評価バッチ実行中において、同一物件に対してAI（Gemini等）を小分けに複数回呼び出すこと（種別判定で1回、設備で1回、画像で1回など）を厳禁とする。
 - 物件に対してAIを利用する場合は、タイトル、スペック、特徴タグ、アピール文、スニペット等の全情報を1つのプロンプトに集約し、**必ず「1物件につき1リクエスト」で必要な全観点（種別判定、建物マスタ属性、専有部スペック、土地固有スペック、権利関係、画像評価等）を一括して構造化JSONで抽出・判定**させること。
