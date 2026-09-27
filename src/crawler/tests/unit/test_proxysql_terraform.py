@@ -284,6 +284,19 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
         f"Both base packages and proxysql must be installed via apt_retry: {install_args}"
 
 
+def test_proxysql_startup_script_apt_update_fails_on_any_fetch_error():
+    """Issue #518: apt-get update の一時的な取得失敗も非ゼロ終了させ apt_retry の再試行対象とすること"""
+    script = _read_proxysql_startup_script()
+    update_calls = [
+        line.split("#", 1)[0].split()
+        for line in script.splitlines()
+        if re.match(r"\s*apt_retry\s+update\b", line)
+    ]
+    assert len(update_calls) >= 2, "Both base and ProxySQL repository index updates must go through apt_retry."
+    for args in update_calls:
+        assert "--error-on=any" in args, f"apt_retry update must pass --error-on=any: {' '.join(args)}"
+
+
 def _run_startup_functions(harness: str) -> subprocess.CompletedProcess:
     script = _read_proxysql_startup_script()
     functions = "\n".join(

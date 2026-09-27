@@ -245,6 +245,9 @@ graph TD
   2. `send_crawling_summary_alert` で停止理由・接続先・停止したジョブ一覧を Slack アラートチャンネルへ発報する（DB 不通時の DB 書込ハングで通知が遅延しないよう、DB 更新より先に実行）。
   3. `CrawlerTaskExecution` を `FAILED` に更新する。DB 不通時の `save()` ブロックで終了が遅延しないよう、デーモンスレッドで実行し最大 `DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC`（10 秒）で待機を打ち切る（失敗・タイムアウトしても後続処理は継続）。
   4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
+- 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
+  - 対象は自タスクの行（`execution_date=datetime.date.today()`・`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
+  - DB 復旧を待つため、`close_old_connections()` で切断済み接続を破棄しつつ最大 `TASK_RECONCILE_MAX_ATTEMPTS`（4 回）、`TASK_RECONCILE_INTERVAL_SEC`（15 秒）間隔で再試行する（有限時間保証、最大約 45 秒＋接続タイムアウト）。全試行失敗時は警告ログを出して後続処理を継続する。
 
 ### 6.9 0件取得失敗分類 ＆ 404掲載終了フィルタリング原則
 - **Zero-Count Failure**: クローリングプロセスが正常終了しても取得件数が 0 件の場合は「成功」として扱わず「0件取得異常」としてシステムログ・Slackへ失敗判定を発報する。

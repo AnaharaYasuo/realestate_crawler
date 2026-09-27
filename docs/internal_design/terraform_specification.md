@@ -99,6 +99,7 @@ terraform/
   - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、コネクション多重化設定、ポート 6033/6032 のリスニング開始
     - DPKG/APT ロック競合対策 (Issue #518): `wait_for_apt_locks` 関数で `/var/lib/dpkg/lock-frontend`・`/var/lib/dpkg/lock`・`/var/lib/apt/lists/lock` を `fuser` で監視し、解放まで 2 秒間隔で待機。待機予算 600 秒は `apt_retry` 1 呼び出し内の全試行で累積共有（`APT_LOCK_WAITED`、試行ごとにリセットしない）し、予算消化後も即時失敗させず `apt-get -o DPkg::Lock::Timeout=120` のロック待機に委ねる（永続ロック時の最悪所要: 600 + 5×120 + 75 秒 ≒ 21 分）
     - `apt_retry` 関数で `apt-get` を最大 5 回、指数バックオフ（5, 10, 20, 40 秒）でリトライし、`set -euo pipefail` 下での一時的競合・通信瞬断による即死を防止
+    - `apt-get update` は既定では一部リポジトリの一時的な取得失敗でも終了コード 0 を返し得るため、全 `update` 呼び出しに `--error-on=any` を指定して取得失敗を非ゼロ終了させ、`apt_retry` の再試行対象とする（古い・欠落した索引での後続 `install` を防止）
 - `google_compute_firewall`:
   - `allow-proxysql-internal`: VPC 内部サブネット (`10.0.0.0/24`) からのポート 6033 アクセス許可
 - **ILB (Forwarding Rule / Backend Service / Health Check) の廃止**:

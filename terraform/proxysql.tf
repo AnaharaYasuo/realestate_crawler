@@ -108,13 +108,14 @@ resource "google_compute_instance" "proxysql_instance" {
       done
     }
 
-    apt_retry update
+    # apt-get update は一時的な取得失敗でも 0 を返し得るため、--error-on=any で失敗させ再試行対象とする
+    apt_retry update --error-on=any
     apt_retry install -y lsb-release wget gnupg default-mysql-client
 
     # ProxySQL 公式リポジトリの登録とインストール
     wget -O - 'https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/repo_pub_key' | gpg --dearmor -o /etc/apt/trusted.gpg.d/proxysql.gpg
     echo deb https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/$(lsb_release -sc)/ ./ | tee /etc/apt/sources.list.d/proxysql.list
-    apt_retry update
+    apt_retry update --error-on=any
     apt_retry install -y proxysql
 
     # ProxySQL 初期設定ファイルの生成
