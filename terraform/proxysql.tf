@@ -74,12 +74,47 @@ resource "google_compute_instance" "proxysql_instance" {
     set -euo pipefail
 
     echo "=== [START] ProxySQL Setup and Configuration ==="
-    apt-get update && apt-get install -y lsb-release wget gnupg default-mysql-client
+    export DEBIAN_FRONTEND=noninteractive
+
+    # 起動直後の unattended-upgrades 等による DPKG/APT ロック競合で set -e により即死しないよう解放を待つ
+    wait_for_apt_locks() {
+      local waited=0
+      while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        if [ "$waited" -ge 600 ]; then
+          echo "[WARN] DPKG/APT lock still held after 600s. Continuing with apt-get retry."
+          break
+        fi
+        echo "Waiting for DPKG/APT lock release... ($waited s)"
+        sleep 2
+        waited=$((waited + 2))
+      done
+    }
+
+    # 一時的なロック競合・通信瞬断に備え、apt-get を最大 5 回まで指数バックオフでリトライする
+    apt_retry() {
+      local attempt=1
+      local max_attempts=5
+      local delay=5
+      until wait_for_apt_locks && apt-get -o DPkg::Lock::Timeout=120 "$@"; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          echo "[ERROR] apt-get $* failed after $max_attempts attempts."
+          return 1
+        fi
+        echo "[WARN] apt-get $* failed (attempt $attempt/$max_attempts). Retrying in $delay s..."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+      done
+    }
+
+    apt_retry update
+    apt_retry install -y lsb-release wget gnupg default-mysql-client
 
     # ProxySQL 公式リポジトリの登録とインストール
     wget -O - 'https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/repo_pub_key' | gpg --dearmor -o /etc/apt/trusted.gpg.d/proxysql.gpg
     echo deb https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/$(lsb_release -sc)/ ./ | tee /etc/apt/sources.list.d/proxysql.list
-    apt-get update && apt-get install -y proxysql
+    apt_retry update
+    apt_retry install -y proxysql
 
     # ProxySQL 初期設定ファイルの生成
     cat <<'CONFIG' > /etc/proxysql.cnf

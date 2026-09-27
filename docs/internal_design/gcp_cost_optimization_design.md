@@ -44,8 +44,8 @@ sequenceDiagram
 ### 3.1 役割と責務
 - Cloud Scheduler 経由で定期実行（深夜帯 `0 17-21 * * *` 等）およびオンデマンドでキックされる、ゾンビ課金防止セーフティネット。
 - **因果関係駆動・Cloud Run Job 状態連動**: 単に ProxySQL の稼働状態だけを見て機械的に停止するのではなく、親リソースである Cloud Run Job（`realestate-crawler-pipeline-*`, `realestate-migrate-*`）の Execution 稼働状態と実行経過時間を確認して停止要否を動的判定。
-- **起動直後レースコンディション防止 (Grace Period: 10分 / 600秒)**:
-  - ProxySQL のインスタンス作成日時または起動更新から 10分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ。
+- **起動直後レースコンディション防止 (Grace Period: 15分 / 900秒)**:
+  - ProxySQL のインスタンス作成日時または起動更新から 15分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ（Issue #518 で 10分から延長し、処理完了直後の早期停止による再起動ループを防止）。
 - **完全停止戦略 (Dual Hard-Kill on Hang)**:
   - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + バッファ）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL を停止。
 - **親不在時の安全停止**:
@@ -58,9 +58,9 @@ sequenceDiagram
 flowchart TD
     Start["ensure_resources_stopped 起動"] --> CheckMIG["ProxySQL MIG target_size 取得"]
     CheckMIG -->|target_size == 0| SafeEnd["正常停止中 (何もしない / Exit 0)"]
-    CheckMIG -->|target_size > 0| CheckGrace["起動から Grace Period (10分) 以内か?"]
+    CheckMIG -->|target_size > 0| CheckGrace["起動から Grace Period (15分) 以内か?"]
     CheckGrace -->|Yes (起動直後)| SkipGrace["[Grace Period] 停止スキップ / Slack通知なし / Exit 0"]
-    CheckGrace -->|No (10分超過)| CheckExec["Cloud Run Job Execution 取得 (crawler / migrate)"]
+    CheckGrace -->|No (15分超過)| CheckExec["Cloud Run Job Execution 取得 (crawler / migrate)"]
     
     CheckExec -->|RUNNING ジョブあり| CheckTimeout["実行経過時間 <= 許容タイムアウト上限か?"]
     CheckTimeout -->|Yes (正常実行中)| SkipRunning["[正常稼働中] 停止スキップ / Slack通知 / Exit 0"]
@@ -74,7 +74,7 @@ flowchart TD
 - `--region`: リージョン（デフォルト: `asia-northeast1`）
 - `--mig-name`: MIG 名（デフォルト: `proxysql-mig-prod`）
 - `--job-prefixes`: 監視対象 Cloud Run Job 名接頭辞（デフォルト: `realestate-crawler-pipeline,realestate-migrate`）
-- `--grace-period-sec`: 起動直後の執行猶予秒数（デフォルト: `600` 秒 / 10分）
+- `--grace-period-sec`: 起動直後の執行猶予秒数（デフォルト: `900` 秒 / 15分）
 - `--timeout-threshold-sec`: ジョブタイムアウト許容上限秒数（デフォルト: `4200` 秒 / 70分 = 3600s + 600s）
 - `--dry-run`: 判定のみ行い停止しないフラグ
 

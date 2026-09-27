@@ -97,6 +97,8 @@ terraform/
   - 管理認証情報 (`admin_variables`): `random_password.proxysql_admin_password` により生成されたランダムパスワードを適用
   - バックエンド監視設定 (`mysql_variables`): `monitor_username = "monitor"`, `monitor_password = "${random_password.db_monitor_password.result}"` を設定
   - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、コネクション多重化設定、ポート 6033/6032 のリスニング開始
+    - DPKG/APT ロック競合対策 (Issue #518): `wait_for_apt_locks` 関数で `/var/lib/dpkg/lock-frontend`・`/var/lib/dpkg/lock`・`/var/lib/apt/lists/lock` を `fuser` で監視し、解放まで 2 秒間隔で待機（最大 600 秒）
+    - `apt_retry` 関数で `apt-get` を最大 5 回、指数バックオフ（5, 10, 20, 40 秒）でリトライし、`set -euo pipefail` 下での一時的競合・通信瞬断による即死を防止
 - `google_compute_firewall`:
   - `allow-proxysql-internal`: VPC 内部サブネット (`10.0.0.0/24`) からのポート 6033 アクセス許可
 - **ILB (Forwarding Rule / Backend Service / Health Check) の廃止**:

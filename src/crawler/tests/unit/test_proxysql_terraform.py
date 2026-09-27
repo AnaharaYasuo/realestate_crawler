@@ -192,6 +192,84 @@ def test_proxysql_admin_credentials_not_default():
         "secrets.tf must store proxysql_admin_password in Secret Manager."
 
 
+def _read_proxysql_startup_script() -> str:
+    proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
+    with open(proxysql_tf, "r", encoding="utf-8") as f:
+        content = f.read()
+    match = re.search(r"metadata_startup_script\s*=\s*<<-EOF\n(.*?)\n\s*EOF\n", content, re.DOTALL)
+    assert match, "proxysql.tf must define metadata_startup_script as a <<-EOF heredoc."
+    return match.group(1)
+
+
+def _extract_shell_function(script: str, name: str) -> str:
+    match = re.search(rf"^\s*{name}\(\)\s*\{{\n(.*?)^\s*\}}\s*$", script, re.DOTALL | re.MULTILINE)
+    assert match, f"startup script must define shell function {name}()."
+    return match.group(1)
+
+
+def test_proxysql_startup_script_waits_for_dpkg_lock_release():
+    """Issue #518: apt-get 実行前に DPKG/APT ロック解放待ちループを行うこと"""
+    script = _read_proxysql_startup_script()
+    body = _extract_shell_function(script, "wait_for_apt_locks")
+
+    assert re.search(r"while\s+fuser\s+[^;\n]*/var/lib/dpkg/lock-frontend", body), \
+        "wait_for_apt_locks must loop while /var/lib/dpkg/lock-frontend is held (fuser)."
+    assert "/var/lib/dpkg/lock " in body or "/var/lib/dpkg/lock\n" in body or "/var/lib/dpkg/lock >" in body, \
+        "wait_for_apt_locks must also watch /var/lib/dpkg/lock."
+    assert "/var/lib/apt/lists/lock" in body, \
+        "wait_for_apt_locks must also watch /var/lib/apt/lists/lock."
+    assert re.search(r"\bsleep\s+2\b", body), "Lock wait loop must poll every 2 seconds."
+    assert re.search(r'-ge\s+600\b', body), "Lock wait must be bounded (max 600s) to avoid infinite hang."
+
+
+def test_proxysql_startup_script_retries_apt_get_with_exponential_backoff():
+    """Issue #518: apt-get を最大5回・指数バックオフでリトライし、ロック待ち後に実行すること"""
+    script = _read_proxysql_startup_script()
+    body = _extract_shell_function(script, "apt_retry")
+
+    assert re.search(r"max_attempts=5\b", body), "apt_retry must allow at most 5 attempts."
+    assert re.search(r"delay=\$\(\(delay \* 2\)\)", body), "apt_retry must double the delay (exponential backoff)."
+    assert re.search(r"attempt=\$\(\(attempt \+ 1\)\)", body), "apt_retry must increment attempt counter."
+    assert re.search(r'-ge\s+"?\$max_attempts"?', body), "apt_retry must give up after max_attempts."
+    assert re.search(r"return\s+1", body), "apt_retry must fail explicitly after exhausting retries."
+    assert re.search(r"wait_for_apt_locks\s*&&\s*apt-get\b", body), \
+        "apt_retry must wait for DPKG/APT locks before each apt-get attempt."
+    assert "DPkg::Lock::Timeout" in body, "apt_retry must pass DPkg::Lock::Timeout to apt-get."
+
+
+def test_proxysql_startup_script_routes_all_apt_get_through_retry():
+    """Issue #518: 関数定義外で apt-get を直接呼ばず、すべて apt_retry 経由であること"""
+    script = _read_proxysql_startup_script()
+    assert "set -euo pipefail" in script, "startup script must keep strict mode."
+
+    lines = script.splitlines()
+    apt_retry_calls = [i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line)]
+    assert apt_retry_calls, "startup script must call apt_retry for update/install."
+
+    first_call = apt_retry_calls[0]
+    def_lines = [i for i, line in enumerate(lines) if re.match(r"\s*(wait_for_apt_locks|apt_retry)\(\)\s*\{", line)]
+    assert len(def_lines) == 2 and max(def_lines) < first_call, \
+        "wait_for_apt_locks/apt_retry must be defined before the first apt_retry call."
+
+    direct_calls = [
+        line for line in lines[first_call:]
+        if re.search(r"(^|[;&|]\s*)apt-get\s", line.strip())
+    ]
+    assert not direct_calls, f"apt-get must not be invoked directly after setup: {direct_calls}"
+
+    install_targets = " ".join(lines[i] for i in apt_retry_calls)
+    assert "default-mysql-client" in install_targets and "proxysql" in install_targets, \
+        "Both base packages and proxysql must be installed via apt_retry."
+
+
+def test_proxysql_startup_script_has_no_unescaped_shell_interpolation():
+    """Terraform heredoc 内でシェル変数に ${} を使うと Terraform 補間と衝突するため、Terraform 参照以外は禁止"""
+    script = _read_proxysql_startup_script()
+    for ref in re.findall(r"(?<!\$)\$\{([^}]*)\}", script):
+        assert re.match(r"(random_password|google_|var\.)", ref), \
+            f"Unexpected Terraform interpolation '${{{ref}}}' in startup script (escape shell vars as $${{...}})."
+
+
 def test_proxysql_zombie_running_alert_filter():
     """ProxySQL 稼働監視・エラー監視アラートポリシーが alerting.tf に定義されていることを検証"""
     alerting_tf = os.path.join(TERRAFORM_DIR, "alerting.tf")

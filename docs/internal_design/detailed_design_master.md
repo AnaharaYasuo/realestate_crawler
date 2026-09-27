@@ -233,6 +233,16 @@ graph TD
 - 同一サイトに対するリクエストで連続 3 回以上のタイムアウト/通信不能が発生した場合、ジョブ実行エンジンが状態異常を検出して当該サイトの処理を即時 Abort（中断）する。
 - リトライの無限ループや後続処理の完全停止（ハングアップ）を防止する。
 
+### 6.8.1 DB/ProxySQL 死活監視連動クローラー即時停止設計 (Issue #518)
+- `run_all_crawlers.py` のジョブ実行ループ内で `DbLivenessMonitor` が DB 接続先（Django `connection.settings_dict` の `HOST`/`PORT`、未設定時は環境変数 `DB_HOST`/`DB_PORT`。本番は ProxySQL `10.0.0.10:6033`）へ `socket.create_connection` による疎通確認を行う。
+  - 監視間隔: `DB_HEALTH_CHECK_INTERVAL_SEC`（既定 15 秒）、ソケットタイムアウト: 3 秒（有限タイムアウト保証）。
+  - 判定閾値: `DB_HEALTH_MAX_CONSECUTIVE_FAILURES`（既定 3 回）連続失敗で DB 応答喪失と判定。1 回でも成功すれば連続失敗カウンタをリセットする。
+- 応答喪失判定時は `abort_on_db_liveness_loss` が以下を順に実行する（Fast-Fail）:
+  1. `cleanup_active_process()` によりアクティブなクローラー子プロセスグループを即時 SIGKILL・回収する。
+  2. `send_crawling_summary_alert` で停止理由・接続先・停止したジョブ一覧を Slack アラートチャンネルへ発報する（DB 不通時の DB 書込ハングで通知が遅延しないよう、DB 更新より先に実行）。
+  3. `CrawlerTaskExecution` を `FAILED` に更新する（失敗しても後続処理は継続）。
+  4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
+
 ### 6.9 0件取得失敗分類 ＆ 404掲載終了フィルタリング原則
 - **Zero-Count Failure**: クローリングプロセスが正常終了しても取得件数が 0 件の場合は「成功」として扱わず「0件取得異常」としてシステムログ・Slackへ失敗判定を発報する。
 - **404/掲載終了通知除外**: 対象詳細URLが 404 (Not Found) または掲載終了状態である場合は物件削除ライフサイクルとして検知し、Slack エラーアラートへの発報から自動除外する。
