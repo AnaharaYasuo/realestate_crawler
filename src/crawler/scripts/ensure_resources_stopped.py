@@ -60,6 +60,7 @@ logger = logging.getLogger(__name__)
 ERR_NO_COMPUTE_CLIENT: str = (
     "Neither google-cloud-compute nor valid GCP credentials available"
 )
+DEFAULT_GRACE_PERIOD_SEC: float = 900.0
 
 
 @dataclass
@@ -592,7 +593,7 @@ def check_and_stop_proxysql_instance(
         "realestate-ml-pipeline",
         "realestate-migrate",
     ),
-    grace_period_sec: float = 600.0,
+    grace_period_sec: float = DEFAULT_GRACE_PERIOD_SEC,
     timeout_threshold_sec: float = 4200.0,
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
@@ -810,7 +811,7 @@ def check_and_stop_proxysql_mig(
         "realestate-ml-pipeline",
         "realestate-migrate",
     ),
-    grace_period_sec: float = 600.0,
+    grace_period_sec: float = DEFAULT_GRACE_PERIOD_SEC,
     timeout_threshold_sec: float = 4200.0,
     dry_run: bool = False,
     fallback_to_instance: bool = False,
@@ -1086,8 +1087,8 @@ def main() -> int:
     parser.add_argument(
         "--grace-period-sec",
         type=float,
-        default=600.0,
-        help="Grace period in seconds for newly launched instances (default: 600s / 10m)",
+        default=DEFAULT_GRACE_PERIOD_SEC,
+        help="Grace period in seconds for newly launched instances (default: 900s / 15m)",
     )
     parser.add_argument(
         "--timeout-threshold-sec",

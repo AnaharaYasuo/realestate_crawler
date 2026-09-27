@@ -74,12 +74,49 @@ resource "google_compute_instance" "proxysql_instance" {
     set -euo pipefail
 
     echo "=== [START] ProxySQL Setup and Configuration ==="
-    apt-get update && apt-get install -y lsb-release wget gnupg default-mysql-client
+    export DEBIAN_FRONTEND=noninteractive
+
+    # 起動直後の unattended-upgrades 等による DPKG/APT ロック競合で set -e により即死しないよう解放を待つ
+    # 待機予算 600 秒は apt_retry の全試行で共有し、消化後は apt-get 側の DPkg::Lock::Timeout に委ねる
+    wait_for_apt_locks() {
+      while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        if [ "$APT_LOCK_WAITED" -ge 600 ]; then
+          echo "[WARN] DPKG/APT lock wait budget (600s) exhausted. Continuing with apt-get lock timeout."
+          break
+        fi
+        echo "Waiting for DPKG/APT lock release... ($APT_LOCK_WAITED s)"
+        sleep 2
+        APT_LOCK_WAITED=$((APT_LOCK_WAITED + 2))
+      done
+    }
+
+    # 一時的なロック競合・通信瞬断に備え、apt-get を最大 5 回まで指数バックオフでリトライする
+    apt_retry() {
+      local attempt=1
+      local max_attempts=5
+      local delay=5
+      APT_LOCK_WAITED=0
+      until wait_for_apt_locks && apt-get -o DPkg::Lock::Timeout=120 "$@"; do
+        if [ "$attempt" -ge "$max_attempts" ]; then
+          echo "[ERROR] apt-get $* failed after $max_attempts attempts."
+          return 1
+        fi
+        echo "[WARN] apt-get $* failed (attempt $attempt/$max_attempts). Retrying in $delay s..."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+      done
+    }
+
+    # apt-get update は一時的な取得失敗でも 0 を返し得るため、--error-on=any で失敗させ再試行対象とする
+    apt_retry update --error-on=any
+    apt_retry install -y lsb-release wget gnupg default-mysql-client
 
     # ProxySQL 公式リポジトリの登録とインストール
     wget -O - 'https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/repo_pub_key' | gpg --dearmor -o /etc/apt/trusted.gpg.d/proxysql.gpg
     echo deb https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/$(lsb_release -sc)/ ./ | tee /etc/apt/sources.list.d/proxysql.list
-    apt-get update && apt-get install -y proxysql
+    apt_retry update --error-on=any
+    apt_retry install -y proxysql
 
     # ProxySQL 初期設定ファイルの生成
     cat <<'CONFIG' > /etc/proxysql.cnf

@@ -2,22 +2,27 @@
 Unit tests for ensure_resources_stopped.py (GCP Zombie Resource Prevention & Safety Net)
 """
 
+import inspect
 from unittest.mock import MagicMock, patch
 import pytest
 
 try:
     from scripts.ensure_resources_stopped import (
         CloudRunExecutionInfo,
+        ResourceInspectionResult,
         check_and_stop_proxysql_instance,
         check_and_stop_proxysql_mig,
+        main as ensure_main,
     )
 
     _MODULE_PATH = "scripts.ensure_resources_stopped"
 except ImportError:
     from src.crawler.scripts.ensure_resources_stopped import (
         CloudRunExecutionInfo,
+        ResourceInspectionResult,
         check_and_stop_proxysql_instance,
         check_and_stop_proxysql_mig,
+        main as ensure_main,
     )
 
     _MODULE_PATH = "src.crawler.scripts.ensure_resources_stopped"
@@ -1081,6 +1086,100 @@ def test_main_with_instance_name_invokes_check_instance(monkeypatch):
         mock_check.assert_called_once()
         assert mock_check.call_args.kwargs["instance_name"] == "proxysql-instance-prod"
         assert mock_check.call_args.kwargs["zone"] == "asia-northeast1-a"
+
+
+# --- Issue #518: grace_period デフォルト 900秒 (15分) ---
+
+GRACE_PERIOD_DEFAULT_SEC = 900.0
+
+
+@pytest.mark.parametrize("func", [check_and_stop_proxysql_instance, check_and_stop_proxysql_mig])
+def test_grace_period_default_is_900_seconds(func):
+    """Issue #518: 停止判定関数の grace_period_sec デフォルトは 900秒 (15分)"""
+    assert inspect.signature(func).parameters["grace_period_sec"].default == GRACE_PERIOD_DEFAULT_SEC
+
+
+@pytest.mark.parametrize(
+    "extra_args, target",
+    [
+        (["--instance-name", "proxysql-instance-prod", "--zone", "asia-northeast1-a"], "check_and_stop_proxysql_instance"),
+        ([], "check_and_stop_proxysql_mig"),
+    ],
+)
+def test_cli_grace_period_default_is_900_seconds(monkeypatch, extra_args, target):
+    """Issue #518: CLI --grace-period-sec 未指定時は 900秒 (15分) が渡される"""
+    mock_result = ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0)
+    monkeypatch.delenv("PROXYSQL_INSTANCE_NAME", raising=False)
+    monkeypatch.setattr("sys.argv", ["ensure_resources_stopped.py", "--project-id", "test-proj", *extra_args])
+    with patch(f"{_MODULE_PATH}.{target}", return_value=mock_result) as mock_check:
+        assert ensure_main() == 0
+    assert mock_check.call_args.kwargs["grace_period_sec"] == GRACE_PERIOD_DEFAULT_SEC
+
+
+def test_cli_grace_period_explicit_value_is_respected(monkeypatch):
+    """--grace-period-sec を明示した場合はその値が優先される"""
+    mock_result = ResourceInspectionResult(was_leaked=False, forced_stop=False, leaked_size=0)
+    monkeypatch.delenv("PROXYSQL_INSTANCE_NAME", raising=False)
+    monkeypatch.setattr("sys.argv", ["ensure_resources_stopped.py", "--project-id", "test-proj", "--grace-period-sec", "120"])
+    with patch(f"{_MODULE_PATH}.check_and_stop_proxysql_mig", return_value=mock_result) as mock_check:
+        assert ensure_main() == 0
+    assert mock_check.call_args.kwargs["grace_period_sec"] == 120.0
+
+
+@pytest.mark.parametrize("uptime", [300.0, 601.0, 899.0, 900.0])
+def test_instance_default_grace_period_skips_stop_within_15_minutes(mock_slack, uptime):
+    """Issue #518: デフォルト設定では起動後 15分以内 (旧 10分超過も含む) は停止しない"""
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", uptime)),
+        patch(f"{_MODULE_PATH}._stop_instance") as mock_stop,
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+        )
+    assert result.skipped_reason == "grace_period"
+    assert result.forced_stop is False
+    mock_stop.assert_not_called()
+    mock_slack.assert_not_called()
+
+
+def test_instance_default_grace_period_stops_after_15_minutes(mock_slack):
+    """Issue #518: デフォルト設定で起動後 15分を超え親ジョブ不在なら停止する"""
+    with (
+        patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 901.0)),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._stop_instance", return_value="") as mock_stop,
+    ):
+        result = check_and_stop_proxysql_instance(
+            project_id="test-proj",
+            zone="asia-northeast1-b",
+            instance_name="proxysql-instance-prod",
+        )
+    assert result.forced_stop is True
+    mock_stop.assert_called_once_with("test-proj", "asia-northeast1-b", "proxysql-instance-prod")
+
+
+@pytest.mark.parametrize("uptime, expect_skip", [(899.0, True), (900.0, True), (901.0, False)])
+def test_mig_default_grace_period_boundary(mock_compute_client, mock_slack, uptime, expect_skip):
+    """Issue #518: MIG 構成でもデフォルト 900秒境界で停止スキップ/停止が切り替わる"""
+    with (
+        patch(f"{_MODULE_PATH}._get_mig_info", return_value=(1, "", None)),
+        patch(f"{_MODULE_PATH}._get_mig_uptime_seconds", return_value=uptime),
+        patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._resize_mig_to_zero", return_value="") as mock_resize,
+    ):
+        result = check_and_stop_proxysql_mig(
+            project_id="test-proj",
+            region="asia-northeast1",
+            mig_name="proxysql-mig-prod",
+        )
+    if expect_skip:
+        assert result.skipped_reason == "grace_period"
+        mock_resize.assert_not_called()
+    else:
+        assert result.forced_stop is True
+        mock_resize.assert_called_once_with("test-proj", "asia-northeast1", "proxysql-mig-prod")
 
 
 

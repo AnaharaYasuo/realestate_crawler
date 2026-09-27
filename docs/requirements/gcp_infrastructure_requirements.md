@@ -82,7 +82,7 @@
   - 時刻ベースの単純強制停止ではなく、**Cloud Run Job Execution の稼働状態と因果関係に基づく動的停止判定**を行うこと。
   - **稼働状態判定 & 執行猶予 (Grace Period)**:
     - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
-    - ProxySQL 起動から 10分間（600秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）を完全に遮断すること。
+    - ProxySQL 起動から 15分間（900秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）および処理完了直後の早期停止による再起動ループを完全に遮断すること（Issue #518 により 10分 ➔ 15分へ延長）。
   - **完全停止戦略 (Dual Hard-Kill on Hang)**:
     - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + 猶予）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
   - **親不在時の即時停止**:
@@ -102,6 +102,12 @@
   - ILB による水平分散オートスケールを廃止し、常時課金のない単一 Compute Engine インスタンスとして運用すること。
   - 接続リクエストやトラフィックが現在のインスタンスサイズで見合わなくなった場合は、インスタンスタイプ変更（`e2-micro` ➔ `e2-small` ➔ `e2-medium`）による垂直スケールアップで対処すること。
   - バックエンド Cloud SQL への接続数は、上限（50等）に設定し、Cloud SQL の耐用上限を安全に保護すること。
+- **起動スクリプトの APT ロック競合耐性 (Startup Script Lock-Contention Resilience)**:
+  - ProxySQL インスタンスの起動スクリプトは、OS 起動直後の自動更新（unattended-upgrades 等）による DPKG/APT ロック競合で `set -euo pipefail` により即死しないよう、`apt-get` 実行前に DPKG/APT ロック解放を待機すること。
+  - `apt-get` の実行は最大 5 回まで指数バックオフでリトライし、一時的なロック競合・通信瞬断でヘルスチェックタイムアウトに至らないこと（Issue #518）。
+- **クローリング中の DB/ProxySQL 死活監視連動 Fast-Fail (DB Liveness Fast-Fail)**:
+  - `run_all_crawlers.py` はジョブ実行ループ中に DB 接続先（ProxySQL `10.0.0.10:6033` 等）へのソケット疎通を定期監視（既定 15 秒間隔、有限タイムアウト 3 秒）すること。
+  - 連続 3 回の疎通失敗で DB 応答喪失と判定し、アクティブなクローラー子プロセス群を即時安全停止し、Slack アラートを発報した上でパイプラインを非ゼロ終了すること（Issue #518）。
 - **固定内部 IP による直接ルーティング (Direct Routing with Static Private IP)**:
   - サブネット内に固定内部 IP を割り当て、Cloud Run (Direct VPC Egress 経由) からは ILB を介さず単一のプライベート IP（ポート 6033）に向けて直接接続すること。
 - **Cloud Run / Service からの接続統一 (ProxySQL Direct Routing)**:
