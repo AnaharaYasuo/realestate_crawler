@@ -134,9 +134,13 @@ class FailureReporter:
         return record
 
     @classmethod
-    def _parse_log_lines(cls, lines: Any, source: str, file_path: str) -> list[dict[str, Any]]:
+    def _parse_log_lines(
+        cls, lines: Any, source: str, file_path: str, line_prefix: str | None = None
+    ) -> list[dict[str, Any]]:
         extracted: list[dict[str, Any]] = []
         for line_num, line in enumerate(lines, 1):
+            if line_prefix is not None and not line.startswith(line_prefix):
+                continue
             if "ERROR" in line or "CRITICAL" in line:
                 extracted.append({
                     "source": source,
@@ -154,11 +158,12 @@ class FailureReporter:
         if not fallback_base.exists():
             return error_logs
 
-        log_files = set(fallback_base.glob(f"*{date_str}*.log")) | set(fallback_base.glob("*.log"))
-        for lpath in log_files:
+        iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        for lpath in sorted(fallback_base.glob("*.log")):
+            line_prefix = None if date_str in lpath.name else iso_date
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
-                    error_logs.extend(cls._parse_log_lines(f, "log_file", str(lpath)))
+                    error_logs.extend(cls._parse_log_lines(f, "log_file", str(lpath), line_prefix))
             except Exception as le:  # noqa: BLE001
                 logger.warning("Failed to read log file %s: %s", lpath, le)
         return error_logs

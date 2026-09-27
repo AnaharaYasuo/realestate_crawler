@@ -1510,14 +1510,17 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception:
             logging.exception("Failed to save error HTML by URL")
 
-    def _save_error_html_record(self, item):
+    def _save_error_html_record(self, item, invalid_fields=None):
         """Save HTML of failed property for debugging"""
         try:
             url = getattr(item, 'pageUrl', '')
             if url:
                 model_name = item.__class__.__name__
                 prop_name = getattr(item, 'propertyName', 'UNKNOWN')
-                _sync_save_error_html_by_url(url, model_name, f"Property Name: {prop_name}")
+                reason = f"Property Name: {prop_name}"
+                if invalid_fields:
+                    reason += f" | Invalid fields: {', '.join(invalid_fields)}"
+                _sync_save_error_html_by_url(url, model_name, reason)
         except Exception:
             logging.exception("Failed to save error HTML")
 
@@ -1537,7 +1540,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             msg += f"Missing/invalid fields: {'; '.join(missing_fields)}"
             logging.warning(msg)
             logging.warning("Skipping save for this property due to validation errors.")
-            self._save_error_html_record(item)
+            self._save_error_html_record(item, sorted(ve.message_dict))
 
     def _save_item_with_retry(self, item, max_retries: int = 3):
         for attempt in range(max_retries):

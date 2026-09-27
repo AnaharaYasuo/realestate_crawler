@@ -70,6 +70,11 @@ class FailureReporter:
         """GCSから対象日付の全タスク障害JSONを取得・集約"""
 ```
 
+- **ローカルログ走査の日付限定 (Issue #533)**: `_scan_local_logs(date_str)` は `STORAGE_LOCAL_FALLBACK_DIR`（既定 `logs`）直下の `*.log` を走査し、
+  - ファイル名に `YYYYMMDD` を含むログ: 全 ERROR/CRITICAL 行を抽出
+  - それ以外のログ: 行頭が `YYYY-MM-DD`（対象日付）の ERROR/CRITICAL 行のみ抽出
+- **バリデーション失敗理由 (Issue #533)**: `ParseDetailPageAsyncBase._save_item_record` の `ValidationError` 捕捉時、`_save_error_html_record(item, invalid_fields)` へ `ve.message_dict` のキー（ソート済み）を渡し、`error_message` を `Property Name: <物件名> | Invalid fields: <f1>, <f2>` 形式で記録する。
+
 - **GCS クライアント初期化**:
   - `STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合は `google.cloud.storage.Client()` を使用。
   - `upload_bytes`, `upload_image_bytes`, `list_files`, `read_text` でネイティブ GCS API を呼び出す。
