@@ -47,6 +47,19 @@ _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
 
+_dispatched_detail_keys: set[tuple[str, str]] = set()
+_dispatched_detail_lock = threading.Lock()
+
+
+def _claim_detail_dispatch(api_url: str, detail_url: str) -> bool:
+    """同一プロセス内で (詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
+    key = (api_url, detail_url)
+    with _dispatched_detail_lock:
+        if key in _dispatched_detail_keys:
+            return False
+        _dispatched_detail_keys.add(key)
+        return True
+
 
 def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
     """Derive company / property_type from entity or Parse* class names."""
@@ -997,6 +1010,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
         tasks = []
         loop = self._getActiveEventLoop()
+        api_url = self._getApiUrl()
         for detail_item in to_fetch:
             if isinstance(detail_item, ListItem):
                 detail_url = detail_item.url
@@ -1005,8 +1019,9 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             else:
                 detail_url = str(detail_item)
 
-            colo = self._fetchWithEachSession(
-                detail_url, self._getApiUrl(), loop)
+            if not _claim_detail_dispatch(api_url, detail_url):
+                continue
+            colo = self._fetchWithEachSession(detail_url, api_url, loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 

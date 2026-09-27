@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 # Global runtime state for graceful shutdown and signal handling (Issue #444)
 _active_proc: subprocess.Popen | None = None
 _is_coordinator: bool = False
+_task_index: int | None = None
+_task_count: int = 1
 _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
 DEFAULT_TIMEOUT_SEC: float = 3600.0
@@ -108,6 +110,36 @@ def _inline_stop_proxysql() -> None:
         )
 
 
+def _can_stop_shared_proxysql() -> bool:
+    """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    if _task_count <= 1:
+        return True
+    try:
+        bound_mysql_timeouts(getattr(connection, "settings_dict", None))
+        records = list(
+            CrawlerTaskExecution.objects.filter(
+                execution_date=datetime.datetime.now(datetime.timezone.utc).date()
+            )
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"⚠️ [Teardown Guard] タスク状態を取得できないため ProxySQL 停止をスキップし Safety-Net に委譲します: {e}"
+        )
+        return False
+    status_map = {r.task_index: r.status for r in records}
+    pending = [
+        idx
+        for idx in range(_task_count)
+        if idx != _task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
+    ]
+    if pending:
+        logger.warning(
+            f"⚠️ [Teardown Guard] 未完了タスク {pending} が存在するため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+    return True
+
+
 def _sigterm_handler(signum: int, frame: object) -> None:
     """Handles SIGTERM / SIGINT signals (e.g. from Cloud Run timeout) to enforce teardown."""
     global _teardown_done
@@ -127,7 +159,8 @@ def _sigterm_handler(signum: int, frame: object) -> None:
             logger.warning(f"Error terminating active subprocess: {proc_err}")
 
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
-        _inline_stop_proxysql()
+        if _can_stop_shared_proxysql():
+            _inline_stop_proxysql()
         _teardown_done = True
 
     sys.exit(128 + signum)
@@ -138,7 +171,8 @@ def _atexit_teardown() -> None:
     global _teardown_done
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
         logger.info("🧹 [Atexit Guard] Executing safety teardown via atexit...")
-        _inline_stop_proxysql()
+        if _can_stop_shared_proxysql():
+            _inline_stop_proxysql()
         _teardown_done = True
 
 
@@ -272,7 +306,8 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
                 "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
             )
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
-            _inline_stop_proxysql()
+            if _can_stop_shared_proxysql():
+                _inline_stop_proxysql()
             _teardown_done = True
             # 2. Comprehensive check and notification via ensure_resources_stopped
             run_command(
@@ -580,11 +615,13 @@ def main():
     )
     args = parser.parse_args()
 
-    global _is_coordinator
+    global _is_coordinator, _task_index, _task_count
     task_index, task_count = get_task_config()
     is_task_array = task_count > 1 and task_index is not None
     is_coordinator = not is_task_array or task_index == 0
     _is_coordinator = is_coordinator
+    _task_index = task_index
+    _task_count = task_count if is_task_array else 1
 
     logger.info(BORDER_LINE)
     logger.info(

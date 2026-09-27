@@ -271,6 +271,15 @@ graph TD
 - **自律的早期シャットダウン (Graceful Self-Shutdown)**:
   - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 停止 + Slack警告発報）へ移行して終了する。
   - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
+- **共有 ProxySQL 停止ガード (Issue #536)**:
+  - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
+  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（UTC 日付、`wait_for_all_tasks` と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
+  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（`ensure_resources_stopped.py` の定時実行）に停止を委譲する。
+  - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
+
+### 6.10.3 詳細 URL 重複ディスパッチ防止 (Issue #537)
+- `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとするモジュールレベル集合 `_dispatched_detail_keys`（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
+- 同一一覧ページ内の重複、および同一プロセス（= 1 クロールジョブのサブプロセス）内の別一覧ページ間の重複はいずれも 1 回に集約される。プロセス終了で集合は破棄されるため、翌日の差分クロールには影響しない。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
