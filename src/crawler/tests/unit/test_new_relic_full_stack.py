@@ -4,6 +4,7 @@ from package.utils.newrelic_helper import (
     record_llm_event,
     record_crawler_metrics,
     notice_error,
+    record_container_sample,
 )
 from scripts.notify_new_relic_deployment import create_deployment_payload
 from scripts.setup_new_relic_crawler_alerts import (
@@ -287,4 +288,29 @@ def test_provision_alerts_skips_existing_conditions():
                     res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
                     assert res is True
                     mock_query.assert_not_called()
+
+
+def test_record_container_sample_without_license_key():
+    """NEW_RELIC_LICENSE_KEY未設定時はFalseを返すこと"""
+    with patch.dict(os.environ, {}, clear=True):
+        res = record_container_sample()
+        assert res is False
+
+
+def test_record_container_sample_success():
+    """NEW_RELIC_LICENSE_KEY設定時にContainerSampleが記録されること"""
+    mock_agent = MagicMock()
+    mock_module = MagicMock()
+    mock_module.agent = mock_agent
+
+    with patch.dict(os.environ, {"NEW_RELIC_LICENSE_KEY": "fake_key", "NEW_RELIC_APP_NAME": "test-app", "HOSTNAME": "container-123"}):
+        with patch.dict("sys.modules", {"newrelic": mock_module, "newrelic.agent": mock_agent}):
+            res = record_container_sample(custom_metrics={"cpu_percent": 12.5})
+            assert res is True
+            mock_agent.record_custom_event.assert_called_once()
+            args, _ = mock_agent.record_custom_event.call_args
+            assert args[0] == "ContainerSample"
+            assert args[1]["containerName"] == "test-app"
+            assert args[1]["containerId"] == "container-123"
+            assert args[1]["cpu_percent"] == 12.5
 

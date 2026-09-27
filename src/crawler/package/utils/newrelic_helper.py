@@ -137,3 +137,63 @@ def notice_error(error: Exception, custom_params: dict[str, Any] | None = None) 
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to report error to New Relic: {e}")
         return False
+
+
+def record_container_sample(
+    service_name: str | None = None,
+    custom_metrics: dict[str, Any] | None = None,
+) -> bool:
+    """Record container CPU and memory resource consumption to New Relic (ContainerSample)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        app_name = service_name or os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
+        params: dict[str, Any] = dict(custom_metrics) if custom_metrics else {}
+
+        # 1. Read cgroup memory if running in Linux container
+        mem_usage_bytes = 0
+        mem_limit_bytes = 0
+        for usage_file in ["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]:
+            if os.path.exists(usage_file):
+                try:
+                    with open(usage_file, "r") as f:
+                        mem_usage_bytes = int(f.read().strip())
+                    break
+                except Exception:
+                    pass
+
+        for limit_file in ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]:
+            if os.path.exists(limit_file):
+                try:
+                    with open(limit_file, "r") as f:
+                        val = f.read().strip()
+                        if val != "max":
+                            mem_limit_bytes = int(val)
+                    break
+                except Exception:
+                    pass
+
+        mem_usage_mb = round(mem_usage_bytes / (1024 * 1024), 2) if mem_usage_bytes > 0 else 0.0
+        mem_limit_mb = round(mem_limit_bytes / (1024 * 1024), 2) if mem_limit_bytes > 0 else 0.0
+        mem_percent = round((mem_usage_bytes / mem_limit_bytes) * 100, 2) if mem_limit_bytes > 0 else 0.0
+
+        params.update({
+            "containerName": app_name,
+            "containerId": os.getenv("HOSTNAME", "unknown"),
+            "memoryUsageBytes": mem_usage_bytes,
+            "memoryUsageMb": mem_usage_mb,
+            "memoryLimitBytes": mem_limit_bytes,
+            "memoryLimitMb": mem_limit_mb,
+            "memoryPercent": mem_percent,
+        })
+
+        agent.record_custom_event("ContainerSample", params)
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic container sample: {e}")
+        return False
