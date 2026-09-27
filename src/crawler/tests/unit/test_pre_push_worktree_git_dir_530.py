@@ -18,7 +18,8 @@ def _in_repo_worktree_branch() -> str:
 
 def test_in_repo_worktree_passes_git_dir_and_work_tree_to_container():
     block = _in_repo_worktree_branch()
-    exec_lines = [line for line in block.splitlines() if "docker compose" in line and "exec" in line]
+    active_lines = [line for line in block.splitlines() if not line.lstrip().startswith("#")]
+    exec_lines = [line for line in active_lines if "docker compose" in line and "exec" in line]
     assert len(exec_lines) == 1
     exec_line = exec_lines[0]
     assert '-e GIT_DIR="/app/$rel_git_dir"' in exec_line
@@ -28,6 +29,8 @@ def test_in_repo_worktree_passes_git_dir_and_work_tree_to_container():
 
 
 def test_in_repo_worktree_git_dir_is_derived_relative_to_main_root():
-    block = _in_repo_worktree_branch()
+    block = "\n".join(
+        line for line in _in_repo_worktree_branch().splitlines() if not line.lstrip().startswith("#")
+    )
     assert "git rev-parse --absolute-git-dir" in block
     assert re.search(r'rel_git_dir="\$\{wt_git_dir_norm#"\$main_root_norm/"\}"', block)
