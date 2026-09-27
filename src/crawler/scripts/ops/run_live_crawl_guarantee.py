@@ -12,6 +12,8 @@ Usage (inside container):
   python src/crawler/scripts/ops/run_live_crawl_guarantee.py
   CRAWL_GUARANTEE_SITES=sumifu python .../run_live_crawl_guarantee.py
   CRAWL_LIVE_PARALLEL_MODE=ci python .../run_live_crawl_guarantee.py
+  CRAWL_LIVE_BUCKETS=static CRAWL_LIVE_STATIC_SHARD=1/2 python .../run_live_crawl_guarantee.py
+  CRAWL_LIVE_BUCKETS=pw-athome python .../run_live_crawl_guarantee.py
 """
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ from package.utils.live_parallel import (
 )
 
 TEST_PATH = "src/crawler/tests/integration/test_live_crawl_guarantee.py"
+_SPLIT_ENV_KEYS = ("CRAWL_LIVE_BUCKETS", "CRAWL_LIVE_STATIC_SHARD")
 
 
 def _warn_bucket_failed(label: str, code: int) -> None:
@@ -208,10 +211,17 @@ def _run_plan(plan: LiveParallelPlan, extra: list[str], deadline: float) -> list
 def main(argv: list[str] | None = None) -> int:
     extra = list(argv if argv is not None else sys.argv[1:])
     jobs = jobs_from_env()
-    plan = build_live_parallel_plan(jobs)
+    try:
+        plan = build_live_parallel_plan(jobs)
+    except ValueError as exc:
+        print(f"FAIL: invalid live split configuration: {exc}", flush=True)
+        return 2
     for line in iter_plan_summary(plan):
         print(line, flush=True)
     if not plan.invocations:
+        if any(os.environ.get(k, "").strip() for k in _SPLIT_ENV_KEYS):
+            print("FAIL: live split configuration selected no jobs.", flush=True)
+            return 2
         print("No jobs selected; nothing to run.", flush=True)
         return 0
 

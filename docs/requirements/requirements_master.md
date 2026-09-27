@@ -372,6 +372,7 @@
   - **ローカル**: 静的 HTML 群は `pytest-xdist` のワーカー数を上限付き（既定 `-n 4`、`CRAWL_LIVE_XDIST_LOCAL` で変更可）とし、Playwright 必須会社（athome / mizuho / sekisui）は会社単位バケット（`-n 0`）を上記スケジュールで起動する。
   - **GitHub Actions (CI)**: 静的 HTML 群はランナーコアを活かす `-n auto`、Playwright 必須会社は同様に会社単位バケットを上記スケジュールで起動する。判定は `GITHUB_ACTIONS` / `CI=true`、または明示上書き `CRAWL_LIVE_PARALLEL_MODE=local|ci`。
   - PR 通常の integration マトリクスは `@pytest.mark.live` を除外（`-m "not live"`）し、ライブ保証は `task test-live`（環境別プラン）で実行する。
+  - GitHub Actions ではライブ保証を 4 マトリクスジョブ（静的 1/2・静的 2/2・PW mizuho+sekisui・PW athome）に分割し、`CRAWL_LIVE_BUCKETS` / `CRAWL_LIVE_STATIC_SHARD` で各ジョブの対象を選択する。各ジョブの壁時計上限は 300 秒で、失敗ジョブのみ個別に再実行できる（詳細: [ci_cd_optimization_requirements.md](ci_cd_optimization_requirements.md) FR-004）。
 - **二段階件数**: Phase 1（先頭3件スモーク）➔ Phase 2（最大20件）を環境変数 `CRAWL_SMOKE_SAMPLE_SIZE` で制御可能とする。
 - **実行入口**: `task test-live` および `@pytest.mark.live` 付き統合テスト（`test_live_crawl_guarantee.py`）で実行する。
 
