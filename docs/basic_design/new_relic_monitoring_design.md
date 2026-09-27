@@ -97,7 +97,11 @@ flowchart TD
 - **監視間隔**: 5分（`EVERY_5_MINUTES`）
 - **プロビジョニング**: NerdGraph GraphQL API を利用した自動スクリプト `setup_new_relic_synthetics.py`。
 
-### 2.5 コンテナ & インフラ深層監視 (Infrastructure & nri-docker)
+### 2.5 コンテナ & インフラ深層監視 (Infrastructure & ContainerSample)
+- **Linux cgroup コンテナリソース計測 (`record_container_sample`)**:
+  - `src/crawler/package/utils/newrelic_helper.py` の `record_container_sample()` により、Cloud Run コンテナ内の cgroup（`/sys/fs/cgroup/memory.current` / `memory.max`）からメモリ使用量（Bytes/MB/上限/使用率%）を直接読み取り。
+  - New Relic カスタムイベント `ContainerSample` として送信し、サーバーレス環境下でもコンテナごとの CPU/Memory 使用状況をリアルタイム監視・アラート検知可能とする。
+  - `src/crawler/main.py` および `src/crawler/scripts/ops/run_all_crawlers.py` の起動時に自動呼び出し。
 - **Docker コンテナ監視**:
   - `docker-compose.newrelic.yml` にて `newrelic/infrastructure:latest` を定義。
   - ホスト `/var/run/docker.sock` をマウントし、コンテナごとの CPU/Memory 使用量、スロットル時間、OOM 予兆を検知。
