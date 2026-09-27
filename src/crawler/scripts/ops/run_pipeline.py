@@ -381,7 +381,7 @@ def reconcile_aborted_task_execution(task_index: int | None) -> bool:
                 f"({attempt}/{TASK_RECONCILE_MAX_ATTEMPTS}): {e}"
             )
             if attempt < TASK_RECONCILE_MAX_ATTEMPTS:
-                if is_deadline_approaching():
+                if is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC):
                     break
                 time.sleep(TASK_RECONCILE_INTERVAL_SEC)
             continue

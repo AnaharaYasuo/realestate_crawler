@@ -237,7 +237,7 @@ graph TD
 - `run_all_crawlers.py` のジョブ実行ループ内で `DbLivenessMonitor` が DB 接続先（Django `connection.settings_dict` の `HOST`/`PORT`、未設定時は環境変数 `DB_HOST`/`DB_PORT`。本番は ProxySQL `10.0.0.10:6033`）へ `socket.create_connection` による疎通確認を行う。
   - 監視間隔: `DB_HEALTH_CHECK_INTERVAL_SEC`（既定 15 秒）、ソケットタイムアウト: 3 秒（有限タイムアウト保証）。
   - 判定閾値: `DB_HEALTH_MAX_CONSECUTIVE_FAILURES`（既定 3 回）連続失敗で DB 応答喪失と判定。1 回でも成功すれば連続失敗カウンタをリセットする。
-  - ループ内 DB 処理（取得件数集計等）が DB 不通時に OS 既定の TCP 接続待ち（約 130 秒）でブロックし監視が遅延しないよう、起動直後の最初の DB アクセス（`CrawlerTaskExecution` 登録）より前に `bound_db_connect_timeout()` で当該プロセスの MySQL 接続 `OPTIONS.connect_timeout` を 10 秒（`DB_CONNECT_TIMEOUT_SEC`）、`read_timeout`/`write_timeout` を 120 秒（`DB_QUERY_TIMEOUT_SEC`、正常な件数集計を誤って打ち切らない余裕値）に設定する（明示設定がある場合はそれを優先）。設定ロジックと定数は親プロセス `run_pipeline.py` と共有するため、import 時の副作用を持たない `package/utils/db_timeouts.py` の `bound_mysql_timeouts(settings_dict)` に集約し、`bound_db_connect_timeout()` はこれに委譲する。
+  - ループ内 DB 処理（取得件数集計等）が DB 不通時に OS 既定の TCP 接続待ち（約 130 秒）でブロックし監視が遅延しないよう、起動直後の最初の DB アクセス（`CrawlerTaskExecution` 登録）より前に `bound_db_connect_timeout()` で当該プロセスの MySQL 接続 `OPTIONS.connect_timeout` を 10 秒（`DB_CONNECT_TIMEOUT_SEC`）、`read_timeout`/`write_timeout` を 120 秒（`DB_QUERY_TIMEOUT_SEC`、正常な件数集計を誤って打ち切らない余裕値）に設定する（明示設定がある場合はそれを優先。ただし各値が正の整数秒でない場合（0 以下・bool・小数・文字列・None 等）は接続前に `ValueError` で拒否し、無期限待機につながる設定を許さない）。設定ロジックと定数は親プロセス `run_pipeline.py` と共有するため、import 時の副作用を持たない `package/utils/db_timeouts.py` の `bound_mysql_timeouts(settings_dict)` に集約し、`bound_db_connect_timeout()` はこれに委譲する。
   - 疎通判定は認証付きクエリではなく TCP 接続で行う。ProxySQL はバックエンド接続上限到達時に要求をキュー待ちさせるため、クエリ判定では正常な混雑を応答喪失と誤判定して全クロールを停止する恐れがあるため。
   - DB 接続先が UNIX ソケット（`HOST` が `localhost` または `/` 始まりのソケットパス）の場合、MySQL クライアントは TCP を使用せず TCP 疎通監視では DB 正常時も誤検知するため、`resolve_db_endpoint()` は `None` を返し `DbLivenessMonitor` による監視を無効化する（警告ログを出力）。
 - 応答喪失判定時は `abort_on_db_liveness_loss` が以下を順に実行する（Fast-Fail）:
@@ -249,7 +249,7 @@ graph TD
   - 対象は自タスクの行（`execution_date` は `run_all_crawlers.py` の登録時と同じローカル日付、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
   - DB 復旧を待つため、`close_old_connections()` で切断済み接続を破棄しつつ最大 `TASK_RECONCILE_MAX_ATTEMPTS`（4 回）、`TASK_RECONCILE_INTERVAL_SEC`（15 秒）間隔で再試行する（有限時間保証、最大約 45 秒＋接続タイムアウト）。全試行失敗時は警告ログを出して後続処理を継続する。
   - 親プロセスの MySQL 接続は子プロセスの `bound_db_connect_timeout()` の対象外のため、再試行ループの前に `bound_mysql_timeouts(connection.settings_dict)` で同じ有限の接続・読み書きタイムアウト（10 秒 / 120 秒）を適用し、各試行の `update()` が無期限にブロックしないようにする。
-  - 再同期の待機は `run_command()` のタイムアウト対象外で、Coordinator のバリア待機時間も再同期後に算出されるため、各試行の前およびリトライ待機の前に `is_deadline_approaching()` を確認し、Cloud Run のデッドラインが近づいている場合は再試行を打ち切って `False` を返す（後続の安全停止処理の猶予を消費しない）。
+  - 再同期の待機は `run_command()` のタイムアウト対象外で、Coordinator のバリア待機時間も再同期後に算出されるため、各試行の前に `is_deadline_approaching()`、リトライ待機の前にはこれから待機する時間を含めた `is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC)` を確認し、Cloud Run のデッドラインが近づいている場合は再試行を打ち切って `False` を返す（後続の安全停止処理の猶予を消費しない）。
 
 ### 6.9 0件取得失敗分類 ＆ 404掲載終了フィルタリング原則
 - **Zero-Count Failure**: クローリングプロセスが正常終了しても取得件数が 0 件の場合は「成功」として扱わず「0件取得異常」としてシステムログ・Slackへ失敗判定を発報する。

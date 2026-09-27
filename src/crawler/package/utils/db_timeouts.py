@@ -11,6 +11,12 @@ def bound_mysql_timeouts(settings_dict) -> None:
     options = settings_dict.get("OPTIONS")
     if options is None:
         options = settings_dict["OPTIONS"] = {}
-    options.setdefault("connect_timeout", DB_CONNECT_TIMEOUT_SEC)
-    options.setdefault("read_timeout", DB_QUERY_TIMEOUT_SEC)
-    options.setdefault("write_timeout", DB_QUERY_TIMEOUT_SEC)
+    for key, default in (
+        ("connect_timeout", DB_CONNECT_TIMEOUT_SEC),
+        ("read_timeout", DB_QUERY_TIMEOUT_SEC),
+        ("write_timeout", DB_QUERY_TIMEOUT_SEC),
+    ):
+        value = options.setdefault(key, default)
+        # bool は int のサブクラスのため明示的に除外する (mysqlclient は正の整数秒のみ受け付ける)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"MySQL OPTIONS['{key}'] must be a positive integer (seconds): {value!r}")

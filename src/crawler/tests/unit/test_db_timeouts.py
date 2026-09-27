@@ -47,6 +47,14 @@ def test_ignores_non_mysql_backends(settings_dict):
     assert settings_dict["OPTIONS"] == {}
 
 
+@pytest.mark.parametrize("key", ["connect_timeout", "read_timeout", "write_timeout"])
+@pytest.mark.parametrize("bad_value", [0, -1, True, False, 1.5, float("inf"), "10", None])
+def test_rejects_invalid_explicit_timeouts(key, bad_value):
+    settings_dict = {"ENGINE": "django.db.backends.mysql", "OPTIONS": {key: bad_value}}
+    with pytest.raises(ValueError, match=key):
+        bound_mysql_timeouts(settings_dict)
+
+
 @pytest.mark.parametrize("settings_dict", [None, {}])
 def test_ignores_missing_settings(settings_dict):
     bound_mysql_timeouts(settings_dict)

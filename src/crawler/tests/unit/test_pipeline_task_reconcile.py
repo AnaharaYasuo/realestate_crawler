@@ -137,6 +137,24 @@ def test_reconcile_stops_retrying_when_deadline_approaches_before_sleep():
     mock_sleep.assert_not_called()
 
 
+def test_reconcile_pre_sleep_deadline_check_accounts_for_wait_interval():
+    """リトライ待機前のデッドライン判定は、これから待機する時間も含めた猶予で行うこと"""
+    qs = MagicMock()
+    qs.update.side_effect = [OperationalError("gone"), 1]
+    with patch(f"{_MOD}.is_deadline_approaching", return_value=False) as mock_deadline, \
+         patch(f"{_MOD}.CrawlerTaskExecution.objects.filter", return_value=qs), \
+         patch(f"{_MOD}.close_old_connections"), \
+         patch(f"{_MOD}.time.sleep"):
+        assert run_pipeline.reconcile_aborted_task_execution(1) is True
+
+    buffers = [c.args[0] if c.args else None for c in mock_deadline.call_args_list]
+    assert buffers == [
+        None,
+        run_pipeline.SAFE_SHUTDOWN_BUFFER_SEC + run_pipeline.TASK_RECONCILE_INTERVAL_SEC,
+        None,
+    ]
+
+
 def test_reconciled_task_lets_barrier_exit_without_waiting():
     """再同期後はバリアが対象タスクを終端状態とみなし、待機せずに即時終了すること"""
     _create(0, "COMPLETED")
