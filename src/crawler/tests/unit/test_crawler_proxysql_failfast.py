@@ -166,21 +166,29 @@ def test_bound_db_connect_timeout_sets_finite_timeout_for_mysql():
     fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"charset": "utf8mb4"}})
     with patch(f"{_MOD}.connection", fake_conn):
         rac.bound_db_connect_timeout()
-    assert fake_conn.settings_dict["OPTIONS"] == {"charset": "utf8mb4", "connect_timeout": 10}
+    assert fake_conn.settings_dict["OPTIONS"] == {
+        "charset": "utf8mb4",
+        "connect_timeout": 10,
+        "read_timeout": 120,
+        "write_timeout": 120,
+    }
 
 
 def test_bound_db_connect_timeout_keeps_explicit_value():
-    fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"connect_timeout": 3}})
+    fake_conn = MagicMock(settings_dict={
+        "ENGINE": "django.db.backends.mysql",
+        "OPTIONS": {"connect_timeout": 3, "read_timeout": 30, "write_timeout": 40},
+    })
     with patch(f"{_MOD}.connection", fake_conn):
         rac.bound_db_connect_timeout()
-    assert fake_conn.settings_dict["OPTIONS"]["connect_timeout"] == 3
+    assert fake_conn.settings_dict["OPTIONS"] == {"connect_timeout": 3, "read_timeout": 30, "write_timeout": 40}
 
 
 def test_bound_db_connect_timeout_creates_options_when_missing():
     fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql"})
     with patch(f"{_MOD}.connection", fake_conn):
         rac.bound_db_connect_timeout()
-    assert fake_conn.settings_dict["OPTIONS"] == {"connect_timeout": 10}
+    assert fake_conn.settings_dict["OPTIONS"] == {"connect_timeout": 10, "read_timeout": 120, "write_timeout": 120}
 
 
 def test_bound_db_connect_timeout_ignores_non_mysql_backends():

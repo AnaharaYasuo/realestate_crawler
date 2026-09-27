@@ -237,7 +237,8 @@ graph TD
 - `run_all_crawlers.py` のジョブ実行ループ内で `DbLivenessMonitor` が DB 接続先（Django `connection.settings_dict` の `HOST`/`PORT`、未設定時は環境変数 `DB_HOST`/`DB_PORT`。本番は ProxySQL `10.0.0.10:6033`）へ `socket.create_connection` による疎通確認を行う。
   - 監視間隔: `DB_HEALTH_CHECK_INTERVAL_SEC`（既定 15 秒）、ソケットタイムアウト: 3 秒（有限タイムアウト保証）。
   - 判定閾値: `DB_HEALTH_MAX_CONSECUTIVE_FAILURES`（既定 3 回）連続失敗で DB 応答喪失と判定。1 回でも成功すれば連続失敗カウンタをリセットする。
-  - ループ内 DB 処理（取得件数集計等）が DB 不通時に OS 既定の TCP 接続待ち（約 130 秒）でブロックし監視が遅延しないよう、起動直後の最初の DB アクセス（`CrawlerTaskExecution` 登録）より前に `bound_db_connect_timeout()` で当該プロセスの MySQL 接続 `OPTIONS.connect_timeout` を 10 秒（`DB_CONNECT_TIMEOUT_SEC`、明示設定がある場合はそれを優先）に設定する。
+  - ループ内 DB 処理（取得件数集計等）が DB 不通時に OS 既定の TCP 接続待ち（約 130 秒）でブロックし監視が遅延しないよう、起動直後の最初の DB アクセス（`CrawlerTaskExecution` 登録）より前に `bound_db_connect_timeout()` で当該プロセスの MySQL 接続 `OPTIONS.connect_timeout` を 10 秒（`DB_CONNECT_TIMEOUT_SEC`）、`read_timeout`/`write_timeout` を 120 秒（`DB_QUERY_TIMEOUT_SEC`、正常な件数集計を誤って打ち切らない余裕値）に設定する（明示設定がある場合はそれを優先）。
+  - 疎通判定は認証付きクエリではなく TCP 接続で行う。ProxySQL はバックエンド接続上限到達時に要求をキュー待ちさせるため、クエリ判定では正常な混雑を応答喪失と誤判定して全クロールを停止する恐れがあるため。
 - 応答喪失判定時は `abort_on_db_liveness_loss` が以下を順に実行する（Fast-Fail）:
   1. `cleanup_active_process()` によりアクティブなクローラー子プロセスグループを即時 SIGKILL・回収する。
   2. `send_crawling_summary_alert` で停止理由・接続先・停止したジョブ一覧を Slack アラートチャンネルへ発報する（DB 不通時の DB 書込ハングで通知が遅延しないよう、DB 更新より先に実行）。

@@ -90,6 +90,7 @@ DB_HEALTH_MAX_CONSECUTIVE_FAILURES = int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FA
 DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
 DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
 DB_CONNECT_TIMEOUT_SEC = 10
+DB_QUERY_TIMEOUT_SEC = 120
 
 active_processes = {}
 
@@ -126,6 +127,8 @@ class DbLivenessMonitor:
         return self.consecutive_failures >= self.max_failures
 
     def _probe(self) -> None:
+        # 認証付きクエリで判定すると、ProxySQL がバックエンド接続上限で要求をキュー待ちさせた際の
+        # 正常な混雑を応答喪失と誤判定して全クロールを停止し得るため、TCP 疎通で判定する
         try:
             with self._connector((self.host, self.port), timeout=self.timeout_sec):
                 pass
@@ -149,7 +152,7 @@ def resolve_db_endpoint():
 
 
 def bound_db_connect_timeout():
-    """ループ内の DB 処理が DB 不通時に OS 既定の TCP 待ち (約130秒) でブロックしないよう接続タイムアウトを設ける"""
+    """ループ内の DB 処理が DB 不通時に OS 既定の TCP 待ちで長時間ブロックしないよう接続・読み書きタイムアウトを設ける"""
     settings_dict = getattr(connection, "settings_dict", None)
     if not settings_dict or not str(settings_dict.get("ENGINE", "")).endswith("mysql"):
         return
@@ -157,6 +160,8 @@ def bound_db_connect_timeout():
     if options is None:
         options = settings_dict["OPTIONS"] = {}
     options.setdefault("connect_timeout", DB_CONNECT_TIMEOUT_SEC)
+    options.setdefault("read_timeout", DB_QUERY_TIMEOUT_SEC)
+    options.setdefault("write_timeout", DB_QUERY_TIMEOUT_SEC)
 
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""

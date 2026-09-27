@@ -249,7 +249,9 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
 
     lines = script.splitlines()
     apt_retry_calls = [i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line)]
-    assert apt_retry_calls, "startup script must call apt_retry for update/install."
+    for sub_cmd in ("update", "install"):
+        assert any(re.match(rf"\s*apt_retry\s+{sub_cmd}\b", lines[i]) for i in apt_retry_calls), \
+            f"startup script must call 'apt_retry {sub_cmd}'."
 
     first_call = apt_retry_calls[0]
     def_lines = [i for i, line in enumerate(lines) if re.match(r"\s*(wait_for_apt_locks|apt_retry)\(\)\s*\{", line)]
