@@ -217,8 +217,14 @@ def test_proxysql_startup_script_waits_for_dpkg_lock_release():
     watched = loop_line.group(1).split()
     for lock_path in ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock"):
         assert lock_path in watched, f"fuser wait loop must watch {lock_path}."
-    assert re.search(r"\bsleep\s+2\b", body), "Lock wait loop must poll every 2 seconds."
-    assert re.search(r'-ge\s+600\b', body), "Lock wait must be bounded (max 600s) to avoid infinite hang."
+
+    loop_body = re.search(r"^\s*while\s+fuser\s+[^\n]*;\s*do\s*\n(.*?)^\s*done\s*$", body, re.DOTALL | re.MULTILINE)
+    assert loop_body, "fuser wait loop must be closed with done."
+    loop_text = loop_body.group(1)
+    assert re.search(r"\bsleep\s+2\b", loop_text), "Lock wait loop must poll every 2 seconds."
+    assert re.search(r'if\s+\[\s+"?\$waited"?\s+-ge\s+600\s+\];\s*then\s*\n(.*?)\bbreak\b', loop_text, re.DOTALL), \
+        "Lock wait loop must break out after 600s (bounded wait) inside the loop."
+    assert re.search(r"waited=\$\(\(waited \+ 2\)\)", loop_text), "Lock wait loop must advance the elapsed counter."
 
 
 def test_proxysql_startup_script_retries_apt_get_with_exponential_backoff():
@@ -259,7 +265,7 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
     assert "apt_retry()" not in outside_functions and "wait_for_apt_locks()" not in outside_functions
     direct_calls = [
         line for line in outside_functions.splitlines()
-        if re.search(r"(^|[;&|]\s*)apt-get\s", line.strip())
+        if not line.strip().startswith("#") and re.search(r"\bapt-get\b", line)
     ]
     assert not direct_calls, f"apt-get must not be invoked directly outside apt_retry: {direct_calls}"
 

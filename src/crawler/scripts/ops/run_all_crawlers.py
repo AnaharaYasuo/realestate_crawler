@@ -277,6 +277,7 @@ def main():
 
     # 起動時にゾンビプロセスを自動一掃
     clean_zombies()
+    bound_db_connect_timeout()
 
     def post_slack(msg):
         try:
@@ -340,7 +341,6 @@ def main():
     global active_processes
 
     batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
-    bound_db_connect_timeout()
     db_monitor = DbLivenessMonitor(*resolve_db_endpoint())
 
     while job_queue or active_processes:

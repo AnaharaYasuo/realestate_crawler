@@ -287,8 +287,9 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
     fake_monitor = MagicMock(host="10.0.0.10", port=6033, consecutive_failures=3, last_error="refused")
     fake_monitor.is_lost.side_effect = [False, True]
     record = MagicMock()
+    call_order = []
     task_exec = MagicMock()
-    task_exec.objects.update_or_create.return_value = (record, True)
+    task_exec.objects.update_or_create.side_effect = lambda **kw: call_order.append("update_or_create") or (record, True)
     alert = AsyncMock()
 
     with (
@@ -300,7 +301,7 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
         patch(f"{_MOD}.CrawlerTaskExecution", task_exec),
         patch(f"{_MOD}.send_crawling_summary_alert", alert),
         patch(f"{_MOD}.resolve_db_endpoint", return_value=("10.0.0.10", 6033)),
-        patch(f"{_MOD}.bound_db_connect_timeout") as mock_bound,
+        patch(f"{_MOD}.bound_db_connect_timeout", side_effect=lambda: call_order.append("bound")) as mock_bound,
         patch(f"{_MOD}.DbLivenessMonitor", return_value=fake_monitor) as monitor_cls,
         patch(f"{_MOD}.subprocess.Popen", return_value=fake_proc) as mock_popen,
         patch(f"{_MOD}.os.getpgid", return_value=4321, create=True),
@@ -312,6 +313,8 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
 
     assert exc.value.code == 1
     mock_bound.assert_called_once_with()
+    assert call_order.index("bound") < call_order.index("update_or_create"), \
+        "connect_timeout must be bounded before the first DB access"
     monitor_cls.assert_called_once_with("10.0.0.10", 6033)
     mock_popen.assert_called_once()
     mock_killpg.assert_called_once_with(4321, signal.SIGKILL)
