@@ -24,6 +24,13 @@ def _clean_task_executions():
     CrawlerTaskExecution.objects.all().delete()
 
 
+@pytest.fixture(autouse=True)
+def fake_connection():
+    conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"charset": "utf8mb4"}})
+    with patch(f"{_MOD}.connection", conn):
+        yield conn
+
+
 def _create(task_index, status, task_count=2):
     return CrawlerTaskExecution.objects.create(
         execution_date=_today(), task_index=task_index, task_count=task_count, status=status
@@ -85,6 +92,49 @@ def test_reconcile_gives_up_after_bounded_attempts():
 
     assert qs.update.call_count == run_pipeline.TASK_RECONCILE_MAX_ATTEMPTS == 4
     assert mock_sleep.call_count == run_pipeline.TASK_RECONCILE_MAX_ATTEMPTS - 1
+
+
+def test_reconcile_bounds_parent_db_timeouts_before_first_attempt(fake_connection):
+    """親プロセスの MySQL 接続にも有限の接続・読み書きタイムアウトを適用してから DB 更新を試行すること"""
+    options_at_update = []
+    qs = MagicMock()
+    qs.update.side_effect = lambda **kw: options_at_update.append(dict(fake_connection.settings_dict["OPTIONS"])) or 1
+    with patch(f"{_MOD}.CrawlerTaskExecution.objects.filter", return_value=qs), \
+         patch(f"{_MOD}.close_old_connections"):
+        assert run_pipeline.reconcile_aborted_task_execution(0) is True
+
+    assert options_at_update == [{
+        "charset": "utf8mb4",
+        "connect_timeout": 10,
+        "read_timeout": 120,
+        "write_timeout": 120,
+    }]
+
+
+def test_reconcile_skips_attempt_when_deadline_approaching():
+    """デッドライン接近時は DB 更新を試行せず False を返すこと"""
+    with patch(f"{_MOD}.is_deadline_approaching", return_value=True), \
+         patch(f"{_MOD}.CrawlerTaskExecution.objects.filter") as mock_filter, \
+         patch(f"{_MOD}.close_old_connections"), \
+         patch(f"{_MOD}.time.sleep") as mock_sleep:
+        assert run_pipeline.reconcile_aborted_task_execution(1) is False
+
+    mock_filter.assert_not_called()
+    mock_sleep.assert_not_called()
+
+
+def test_reconcile_stops_retrying_when_deadline_approaches_before_sleep():
+    """失敗後のリトライ待機前にデッドライン接近を検知したら待機せず打ち切ること"""
+    qs = MagicMock()
+    qs.update.side_effect = OperationalError("gone")
+    with patch(f"{_MOD}.is_deadline_approaching", side_effect=[False, True]), \
+         patch(f"{_MOD}.CrawlerTaskExecution.objects.filter", return_value=qs), \
+         patch(f"{_MOD}.close_old_connections"), \
+         patch(f"{_MOD}.time.sleep") as mock_sleep:
+        assert run_pipeline.reconcile_aborted_task_execution(1) is False
+
+    assert qs.update.call_count == 1
+    mock_sleep.assert_not_called()
 
 
 def test_reconciled_task_lets_barrier_exit_without_waiting():

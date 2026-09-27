@@ -39,6 +39,7 @@ from package.utils.task_distribution import get_task_config, distribute_jobs
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
+from package.utils.db_timeouts import bound_mysql_timeouts
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -90,8 +91,6 @@ DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVA
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
 DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
 DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
-DB_CONNECT_TIMEOUT_SEC = 10
-DB_QUERY_TIMEOUT_SEC = 120
 
 active_processes = {}
 
@@ -158,15 +157,7 @@ def resolve_db_endpoint():
 
 def bound_db_connect_timeout():
     """ループ内の DB 処理が DB 不通時に OS 既定の TCP 待ちで長時間ブロックしないよう接続・読み書きタイムアウトを設ける"""
-    settings_dict = getattr(connection, "settings_dict", None)
-    if not settings_dict or not str(settings_dict.get("ENGINE", "")).endswith("mysql"):
-        return
-    options = settings_dict.get("OPTIONS")
-    if options is None:
-        options = settings_dict["OPTIONS"] = {}
-    options.setdefault("connect_timeout", DB_CONNECT_TIMEOUT_SEC)
-    options.setdefault("read_timeout", DB_QUERY_TIMEOUT_SEC)
-    options.setdefault("write_timeout", DB_QUERY_TIMEOUT_SEC)
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
 
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""

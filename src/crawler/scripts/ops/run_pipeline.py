@@ -28,7 +28,8 @@ from package.utils.newrelic_helper import init_new_relic
 init_new_relic()
 
 import datetime
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
+from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
@@ -359,7 +360,12 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
 
 def reconcile_aborted_task_execution(task_index: int | None) -> bool:
     """失敗終了したクローラーの RUNNING 行を DB 復旧後に FAILED へ更新し、バリアが終端状態と判定できるようにする"""
+    # 子プロセスの bound_db_connect_timeout() は親プロセスの接続に及ばないため、update() の無期限ブロックを防ぐ
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
     for attempt in range(1, TASK_RECONCILE_MAX_ATTEMPTS + 1):
+        # 再同期の待機は run_command() のタイムアウト対象外のため、安全停止の猶予を消費しないよう打ち切る
+        if is_deadline_approaching():
+            break
         # DB 不通で切断された接続を再利用すると復旧後も失敗し続けるため、試行ごとに破棄する
         close_old_connections()
         try:
@@ -375,6 +381,8 @@ def reconcile_aborted_task_execution(task_index: int | None) -> bool:
                 f"({attempt}/{TASK_RECONCILE_MAX_ATTEMPTS}): {e}"
             )
             if attempt < TASK_RECONCILE_MAX_ATTEMPTS:
+                if is_deadline_approaching():
+                    break
                 time.sleep(TASK_RECONCILE_INTERVAL_SEC)
             continue
         if updated:
