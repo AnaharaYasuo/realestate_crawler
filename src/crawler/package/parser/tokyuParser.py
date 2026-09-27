@@ -530,7 +530,12 @@ class TokyuParser(ParserBase):
 
     def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return self._get_spec_val(specs, "階数") or self._get_spec_val(specs, "所在階") or self._get_spec_val(specs, "建物構造")
+        return (
+            self._get_spec_val(specs, "階数")
+            or self._get_spec_val(specs, "所在階")
+            or self._get_spec_val(specs, "所在階数")
+            or self._get_spec_val(specs, "建物構造")
+        )
 
 
 class TokyuMansionParser(TokyuParser, MansionParserBase):
@@ -637,14 +642,15 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = "所在階"
-        return self._get_spec_val(specs, key)
+        kaisu = self._get_spec_val(specs, "所在階")
+        if kaisu:
+            return kaisu
+        return self._get_spec_val(specs, "所在階数").split("/")[0].strip()
 
     def _parseTatemonoKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = "建物構造"
-        val = self._get_spec_val(specs, key)
-        match = re.search(r'地上(\d+)階', val)
+        val = self._get_spec_val(specs, "建物構造")
+        match = re.search(r'地上(\d+)階', val) or re.search(r'地上(\d+)階', self._get_spec_val(specs, "所在階数"))
         return match.group(0) if match else val
 
     def _parseBalconyMensekiStr(self, response: BeautifulSoup, specs=None) -> str:

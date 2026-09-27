@@ -1009,6 +1009,13 @@ class ParserBase(metaclass=ABCMeta):
             logging.info(f"Server busy for URL: {url}")
             raise ServerBusyException()
 
+    @staticmethod
+    def _is_sectional_unit_page(specs) -> bool:
+        """専有面積があり土地面積が無いスペック表は区分所有の住戸とみなす"""
+        if not specs:
+            return False
+        return "専有面積" in specs and "土地面積" not in specs
+
     def _maybe_switch_parser(self, url, title: str, soup: BeautifulSoup, specs: dict, item: models.Model):
         """Switch to a different parser when detected property type differs. Returns (parser, item)."""
         detected_type = PropertyTypeDetector.detect(
@@ -1019,6 +1026,12 @@ class ParserBase(metaclass=ABCMeta):
             default=self.property_type,
         )
         if not (detected_type and self.property_type and detected_type != self.property_type):
+            return self, item
+        if detected_type != "mansion" and self._is_sectional_unit_page(specs):
+            logging.info(
+                f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' "
+                "skipped (sectional unit)"
+            )
             return self, item
         target_parser = UrlRouter.create_parser(
             url=url,

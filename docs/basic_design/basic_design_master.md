@@ -852,6 +852,8 @@ sequenceDiagram
    - 切り替え後の `target_parser.createEntity()` により、正しいテーブルモデル（`SumifuKodate`, `MitsuiInvestApartment` 等）がインスタンス化され、種別特有のバリデーションを通過して正しいDBテーブルに永続化される。
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
+5. **区分住戸ガード (Issue #534)**:
+   - スペック表に `専有面積` があり `土地面積` が無いページは区分所有の住戸とみなし、検出種別が `mansion` 以外でも切り替えない（`[PropertyTypeSwitch] ... skipped (sectional unit)` を `INFO` ログ出力）。
 
 ---
 
