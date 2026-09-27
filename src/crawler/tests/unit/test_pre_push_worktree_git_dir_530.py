@@ -2,35 +2,80 @@
 """Issue #530: pre-push must pass container-side GIT_DIR/GIT_WORK_TREE for in-repo worktrees."""
 import os
 import re
+import shutil
+import subprocess
+
+import pytest
 
 HOOK_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".githooks", "pre-push")
 )
 
+pytestmark = pytest.mark.skipif(
+    shutil.which("sh") is None or shutil.which("git") is None, reason="requires POSIX sh and git"
+)
 
-def _in_repo_worktree_branch() -> str:
+
+def _run_pre_pr_check_function() -> str:
     with open(HOOK_PATH, "r", encoding="utf-8") as f:
         content = f.read()
-    match = re.search(r'if \[ -n "\$rel_path" \]; then\n([\s\S]*?)\n\s*elif ', content)
-    assert match is not None, "in-repo worktree branch not found in pre-push"
-    return match.group(1)
+    match = re.search(r"^run_pre_pr_check\(\) \{\n[\s\S]*?^\}\n", content, re.MULTILINE)
+    assert match is not None, "run_pre_pr_check() not found in pre-push"
+    return match.group(0)
 
 
-def test_in_repo_worktree_passes_git_dir_and_work_tree_to_container():
-    block = _in_repo_worktree_branch()
-    active_lines = [line for line in block.splitlines() if not line.lstrip().startswith("#")]
-    exec_lines = [line for line in active_lines if "docker compose" in line and "exec" in line]
-    assert len(exec_lines) == 1
-    exec_line = exec_lines[0]
-    assert '-e GIT_DIR="/app/$rel_git_dir"' in exec_line
-    assert '-e GIT_WORK_TREE="/app/$rel_path"' in exec_line
-    assert '-w "/app/$rel_path"' in exec_line
-    assert "pre_pr_check.py --diff --skip-coderabbit" in exec_line
+def _isolated_env(**extra):
+    # Inherited GIT_DIR/GIT_WORK_TREE would redirect these git calls to the caller's repository.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(extra)
+    return env
 
 
-def test_in_repo_worktree_git_dir_is_derived_relative_to_main_root():
-    block = "\n".join(
-        line for line in _in_repo_worktree_branch().splitlines() if not line.lstrip().startswith("#")
+def _git(cwd, *args):
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd, env=_isolated_env(), check=True, capture_output=True,
     )
-    assert "git rev-parse --absolute-git-dir" in block
-    assert re.search(r'rel_git_dir="\$\{wt_git_dir_norm#"\$main_root_norm/"\}"', block)
+
+
+def test_in_repo_worktree_invokes_docker_with_container_git_dir(tmp_path):
+    main_root = tmp_path / "repo"
+    main_root.mkdir()
+    _git(main_root, "init", "-q", "-b", "master")
+    _git(main_root, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(main_root, "worktree", "add", "-q", ".worktrees/fix-1-demo", "-b", "fix/1-demo")
+    worktree = main_root / ".worktrees" / "fix-1-demo"
+
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    args_log = tmp_path / "docker_args.log"
+    docker_stub = stub_dir / "docker"
+    docker_stub.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$DOCKER_ARGS_LOG"\n', encoding="utf-8")
+    docker_stub.chmod(0o755)
+
+    script = tmp_path / "run.sh"
+    script.write_text(
+        "set -e\n" + _run_pre_pr_check_function() + 'run_pre_pr_check "fix/1-demo" "deadbeef"\n',
+        encoding="utf-8",
+        newline="\n",
+    )
+    env = _isolated_env(
+        PATH=f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+        DOCKER_ARGS_LOG=str(args_log),
+    )
+    subprocess.run(["sh", str(script)], cwd=worktree, env=env, check=True, capture_output=True)
+
+    args = args_log.read_text(encoding="utf-8").splitlines()
+
+    def value_after(flag, prefix):
+        return [
+            args[i + 1] for i in range(len(args) - 1)
+            if args[i] == flag and args[i + 1].startswith(prefix)
+        ]
+
+    assert args[:4] == ["compose", "--project-directory", str(main_root), "exec"]
+    assert value_after("-e", "GIT_DIR=") == ["GIT_DIR=/app/.git/worktrees/fix-1-demo"]
+    assert value_after("-e", "GIT_WORK_TREE=") == ["GIT_WORK_TREE=/app/.worktrees/fix-1-demo"]
+    assert value_after("-w", "/app") == ["/app/.worktrees/fix-1-demo"]
+    assert "--skip-coderabbit" in args
+    assert args[args.index("--branch") + 1] == "fix/1-demo"
