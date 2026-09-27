@@ -62,7 +62,7 @@ resource "google_pubsub_subscription" "new_relic_log_push" {
   message_retention_duration = "86400s" # 1 day
 
   push_config {
-    push_endpoint = var.new_relic_log_ingest_url != "" ? var.new_relic_log_ingest_url : "https://gcp-api.newrelic.com/log/v1?Api-Key=${google_secret_manager_secret_version.new_relic_license_key_version.secret_data}"
+    push_endpoint = var.new_relic_log_ingest_url != "" ? var.new_relic_log_ingest_url : "https://log-api.newrelic.com/log/v1?Api-Key=${google_secret_manager_secret_version.new_relic_license_key_version.secret_data}"
     attributes = {
       "x-goog-version" = "v1"
     }
