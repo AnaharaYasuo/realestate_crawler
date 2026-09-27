@@ -28,6 +28,8 @@ from package.utils.newrelic_helper import init_new_relic
 init_new_relic()
 
 import datetime
+from django.db import close_old_connections, connection
+from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
 from package.utils.task_distribution import get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
@@ -50,6 +52,8 @@ _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
 DEFAULT_TIMEOUT_SEC: float = 3600.0
 SAFE_SHUTDOWN_BUFFER_SEC: float = 300.0
+TASK_RECONCILE_MAX_ATTEMPTS: int = 4
+TASK_RECONCILE_INTERVAL_SEC: float = 15.0
 
 
 def get_remaining_pipeline_time() -> float:
@@ -354,6 +358,39 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
     }
 
 
+def reconcile_aborted_task_execution(task_index: int | None) -> bool:
+    """失敗終了したクローラーの RUNNING 行を DB 復旧後に FAILED へ更新し、バリアが終端状態と判定できるようにする"""
+    # 子プロセスの bound_db_connect_timeout() は親プロセスの接続に及ばないため、update() の無期限ブロックを防ぐ
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
+    for attempt in range(1, TASK_RECONCILE_MAX_ATTEMPTS + 1):
+        # 再同期の待機は run_command() のタイムアウト対象外のため、安全停止の猶予を消費しないよう打ち切る
+        if is_deadline_approaching():
+            break
+        # DB 不通で切断された接続を再利用すると復旧後も失敗し続けるため、試行ごとに破棄する
+        close_old_connections()
+        try:
+            # run_all_crawlers.py と同じ execution_date (ローカル日付) / task_index で自タスクの行のみを対象とする
+            updated = CrawlerTaskExecution.objects.filter(
+                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
+                task_index=task_index or 0,
+                status="RUNNING",
+            ).update(status="FAILED")
+        except Exception as e:
+            logger.warning(
+                f"⚠️ CrawlerTaskExecution (task {task_index or 0}) の FAILED 再同期に失敗 "
+                f"({attempt}/{TASK_RECONCILE_MAX_ATTEMPTS}): {e}"
+            )
+            if attempt < TASK_RECONCILE_MAX_ATTEMPTS:
+                if is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC):
+                    break
+                time.sleep(TASK_RECONCILE_INTERVAL_SEC)
+            continue
+        if updated:
+            logger.info(f"✔ RUNNING のまま残った CrawlerTaskExecution (task {task_index or 0}) を FAILED に再同期しました")
+        return True
+    return False
+
+
 def _run_crawler_step(
     is_task_array: bool,
     is_coordinator: bool,
@@ -378,6 +415,7 @@ def _run_crawler_step(
             f"❌ [Step 1/6 Failure] Parallel Crawling encountered an error: {crawl_err}. "
             "Proceeding with post-crawl pipeline (validation, evaluation, and recommendation)..."
         )
+        reconcile_aborted_task_execution(task_index)
 
     if is_task_array and not is_coordinator:
         logger.info(

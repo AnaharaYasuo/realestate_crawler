@@ -11,6 +11,8 @@ import json
 import signal
 import atexit
 import asyncio
+import socket
+import threading
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -29,6 +31,7 @@ init_new_relic()
 record_container_sample()
 
 from django.apps import apps
+from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_slack_message
@@ -36,6 +39,7 @@ from package.utils.task_distribution import get_task_config, distribute_jobs
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
+from package.utils.db_timeouts import bound_mysql_timeouts
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -83,7 +87,77 @@ logger = logging.getLogger(__name__)
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", 180))
 timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 10800))
 
+DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
+DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
+DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
+DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
+
 active_processes = {}
+
+
+class DbLivenessMonitor:
+    """ProxySQL / DB への TCP 疎通を定期監視し、連続失敗回数で応答喪失を判定する"""
+
+    def __init__(
+        self,
+        host,
+        port,
+        interval_sec=DB_HEALTH_CHECK_INTERVAL_SEC,
+        max_failures=DB_HEALTH_MAX_CONSECUTIVE_FAILURES,
+        timeout_sec=DB_HEALTH_SOCKET_TIMEOUT_SEC,
+        connector=socket.create_connection,
+        clock=time.monotonic,
+    ):
+        self.host = host
+        self.port = int(port)
+        self.interval_sec = interval_sec
+        self.max_failures = max(1, int(max_failures))
+        self.timeout_sec = timeout_sec
+        self._connector = connector
+        self._clock = clock
+        self._last_checked_at = None
+        self.consecutive_failures = 0
+        self.last_error = ""
+
+    def is_lost(self) -> bool:
+        now = self._clock()
+        if self._last_checked_at is None or now - self._last_checked_at >= self.interval_sec:
+            self._last_checked_at = now
+            self._probe()
+        return self.consecutive_failures >= self.max_failures
+
+    def _probe(self) -> None:
+        # 認証付きクエリで判定すると、ProxySQL がバックエンド接続上限で要求をキュー待ちさせた際の
+        # 正常な混雑を応答喪失と誤判定して全クロールを停止し得るため、TCP 疎通で判定する
+        try:
+            with self._connector((self.host, self.port), timeout=self.timeout_sec):
+                pass
+        except OSError as e:
+            self.consecutive_failures += 1
+            self.last_error = str(e)
+            logger.warning(
+                f"DB/ProxySQL 疎通失敗 {self.host}:{self.port} "
+                f"({self.consecutive_failures}/{self.max_failures}): {e}"
+            )
+            return
+        self.consecutive_failures = 0
+
+
+def resolve_db_endpoint():
+    """Django 設定 (未設定時は環境変数) から DB 接続先 (ProxySQL 経由時は 10.0.0.10:6033) を取得する"""
+    settings_dict = getattr(connection, "settings_dict", None) or {}
+    host = settings_dict.get("HOST") or os.getenv("DB_HOST", "127.0.0.1")
+    port = int(settings_dict.get("PORT") or os.getenv("DB_PORT", "3306"))
+    # MySQL クライアントは localhost / ソケットパス指定時に TCP を使わないため、TCP 監視では DB 正常時も誤検知する
+    if host == "localhost" or host.startswith("/"):
+        logger.warning(f"DB 接続先 {host} は UNIX ソケット接続のため TCP 疎通監視を無効化します")
+        return None
+    return host, port
+
+
+def bound_db_connect_timeout():
+    """ループ内の DB 処理が DB 不通時に OS 既定の TCP 待ちで長時間ブロックしないよう接続・読み書きタイムアウトを設ける"""
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
 
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""
@@ -98,6 +172,49 @@ def cleanup_active_process():
             except Exception as e:
                 logging.exception(f"子プロセスのクリーンアップ中にエラー: {e}")
     active_processes.clear()
+
+
+def _mark_task_failed(task_exec_record):
+    try:
+        task_exec_record.status = "FAILED"
+        task_exec_record.save()
+    except Exception as dbe:
+        logger.warning(f"Failed to mark CrawlerTaskExecution FAILED after DB liveness loss: {dbe}")
+
+
+def abort_on_db_liveness_loss(monitor, task_exec_record=None):
+    """DB 応答喪失時にクローラー子プロセス群を即時停止し、Slack 通知後に exit 1 で終了する (Fast-Fail)"""
+    aborted_jobs = [f"{company} - {ptype}" for _, company, ptype, *_ in active_processes.values()]
+    endpoint = f"{monitor.host}:{monitor.port}"
+    logger.error(
+        f"DB/ProxySQL ({endpoint}) の応答喪失を検知 (連続 {monitor.consecutive_failures} 回失敗)。"
+        f"実行中クローラー {len(aborted_jobs)} 件を即時停止します。"
+    )
+    cleanup_active_process()
+
+    msg = (
+        f"🚨 【緊急停止: DB/ProxySQL 応答喪失】 クローリングを Fast-Fail 停止しました。\n"
+        f"・接続先: {endpoint}\n"
+        f"・判定: 連続 {monitor.consecutive_failures} 回の疎通失敗 (最終エラー: {monitor.last_error})\n"
+        f"・停止ジョブ: {', '.join(aborted_jobs) if aborted_jobs else 'なし'}"
+    )
+    try:
+        asyncio.run(send_crawling_summary_alert(msg))
+    except Exception:
+        logger.exception("Failed to post DB liveness loss alert")
+
+    if task_exec_record is not None:
+        # DB 不通時は save() が TCP 接続待ちでブロックし得るため、有限時間で見切って終了する
+        saver = threading.Thread(target=_mark_task_failed, args=(task_exec_record,), daemon=True)
+        saver.start()
+        saver.join(DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC)
+        if saver.is_alive():
+            logger.warning(
+                f"CrawlerTaskExecution の FAILED 更新が {DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC}s 以内に完了しないため待機を打ち切ります。"
+            )
+
+    raise SystemExit(1)
+
 
 def signal_handler(signum, frame):
     logging.info(f"シグナル {signum} を受信しました。アクティブなクローラーを強制終了します。")
@@ -161,6 +278,7 @@ def main():
 
     # 起動時にゾンビプロセスを自動一掃
     clean_zombies()
+    bound_db_connect_timeout()
 
     def post_slack(msg):
         try:
@@ -224,8 +342,13 @@ def main():
     global active_processes
 
     batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
+    db_endpoint = resolve_db_endpoint()
+    db_monitor = DbLivenessMonitor(*db_endpoint) if db_endpoint else None
 
     while job_queue or active_processes:
+        if db_monitor is not None and db_monitor.is_lost():
+            abort_on_db_liveness_loss(db_monitor, task_exec_record)
+
         now = time.time()
         
         # 1. 終了プロセスの回収およびタイムアウトのキル

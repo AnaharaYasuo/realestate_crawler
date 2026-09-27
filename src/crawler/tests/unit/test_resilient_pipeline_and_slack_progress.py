@@ -13,6 +13,7 @@ from scripts.ops.send_recommendations import send_recommendations
 def test_run_crawler_step_failure_continues():
     """クローリングステップ（Step 1/6）が失敗しても、Coordinator/通常実行では後続パイプラインを続行すること"""
     with patch("scripts.ops.run_pipeline.run_command", side_effect=RuntimeError("Crawl failed with exit code 1")), \
+         patch("scripts.ops.run_pipeline.reconcile_aborted_task_execution"), \
          patch("scripts.ops.run_pipeline.logger") as mock_logger:
 
         should_continue, crawler_ok = run_pipeline._run_crawler_step(

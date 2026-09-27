@@ -2,6 +2,8 @@
 """ProxySQL Terraform 構成の単体テスト (TDD)"""
 import os
 import re
+import shutil
+import subprocess
 import pytest
 
 TERRAFORM_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "terraform"))
@@ -190,6 +192,310 @@ def test_proxysql_admin_credentials_not_default():
         "ProxySQL admin credentials must use dynamic random password."
     assert 'realestate-proxysql-admin-password-' in secrets_content, \
         "secrets.tf must store proxysql_admin_password in Secret Manager."
+
+
+def _read_proxysql_startup_script() -> str:
+    proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
+    with open(proxysql_tf, "r", encoding="utf-8") as f:
+        content = f.read()
+    match = re.search(r"metadata_startup_script\s*=\s*<<-EOF\n(.*?)\n\s*EOF\n", content, re.DOTALL)
+    assert match, "proxysql.tf must define metadata_startup_script as a <<-EOF heredoc."
+    return match.group(1)
+
+
+def _extract_shell_function(script: str, name: str) -> str:
+    match = re.search(rf"^\s*{name}\(\)\s*\{{\n(.*?)^\s*\}}\s*$", script, re.DOTALL | re.MULTILINE)
+    assert match, f"startup script must define shell function {name}()."
+    return match.group(1)
+
+
+def test_proxysql_startup_script_waits_for_dpkg_lock_release():
+    """Issue #518: apt-get 実行前に DPKG/APT ロック解放待ちループを行うこと"""
+    script = _read_proxysql_startup_script()
+    body = _extract_shell_function(script, "wait_for_apt_locks")
+
+    loop_line = re.search(r"^\s*while\s+fuser\s+([^;\n]*);\s*do\s*$", body, re.MULTILINE)
+    assert loop_line, "wait_for_apt_locks must loop while fuser reports a held lock."
+    watched = loop_line.group(1).split()
+    for lock_path in ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock"):
+        assert lock_path in watched, f"fuser wait loop must watch {lock_path}."
+
+    loop_body = re.search(r"^\s*while\s+fuser\s+[^\n]*;\s*do\s*\n(.*?)^\s*done\s*$", body, re.DOTALL | re.MULTILINE)
+    assert loop_body, "fuser wait loop must be closed with done."
+    loop_text = loop_body.group(1)
+    assert re.search(r"\bsleep\s+2\b", loop_text), "Lock wait loop must poll every 2 seconds."
+    assert re.search(r'if\s+\[\s+"?\$APT_LOCK_WAITED"?\s+-ge\s+600\s+\];\s*then\s*\n(.*?)\bbreak\b', loop_text, re.DOTALL), \
+        "Lock wait loop must break out once the shared 600s budget is exhausted."
+    assert re.search(r"APT_LOCK_WAITED=\$\(\(APT_LOCK_WAITED \+ 2\)\)", loop_text), \
+        "Lock wait loop must advance the shared elapsed counter."
+    assert "local waited" not in body, "Lock wait budget must not be reset per wait_for_apt_locks call."
+
+
+def test_proxysql_startup_script_retries_apt_get_with_exponential_backoff():
+    """Issue #518: apt-get を最大5回・指数バックオフでリトライし、ロック待ち後に実行すること"""
+    script = _read_proxysql_startup_script()
+    body = _extract_shell_function(script, "apt_retry")
+
+    assert re.search(r"max_attempts=5\b", body), "apt_retry must allow at most 5 attempts."
+    assert re.search(r"delay=\$\(\(delay \* 2\)\)", body), "apt_retry must double the delay (exponential backoff)."
+    assert re.search(r"attempt=\$\(\(attempt \+ 1\)\)", body), "apt_retry must increment attempt counter."
+    assert re.search(r'-ge\s+"?\$max_attempts"?', body), "apt_retry must give up after max_attempts."
+    assert re.search(r"return\s+1", body), "apt_retry must fail explicitly after exhausting retries."
+    assert re.search(r"wait_for_apt_locks\s*&&\s*apt-get\b", body), \
+        "apt_retry must wait for DPKG/APT locks before each apt-get attempt."
+    assert "DPkg::Lock::Timeout" in body, "apt_retry must pass DPkg::Lock::Timeout to apt-get."
+
+
+def test_proxysql_startup_script_routes_all_apt_get_through_retry():
+    """Issue #518: 関数定義外で apt-get を直接呼ばず、すべて apt_retry 経由であること"""
+    script = _read_proxysql_startup_script()
+    assert "set -euo pipefail" in script, "startup script must keep strict mode."
+
+    lines = script.splitlines()
+    apt_retry_calls = [i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line)]
+    for sub_cmd in ("update", "install"):
+        assert any(re.match(rf"\s*apt_retry\s+{sub_cmd}\b", lines[i]) for i in apt_retry_calls), \
+            f"startup script must call 'apt_retry {sub_cmd}'."
+
+    first_call = apt_retry_calls[0]
+    def_lines = [i for i, line in enumerate(lines) if re.match(r"\s*(wait_for_apt_locks|apt_retry)\(\)\s*\{", line)]
+    assert len(def_lines) == 2 and max(def_lines) < first_call, \
+        "wait_for_apt_locks/apt_retry must be defined before the first apt_retry call."
+
+    outside_functions = re.sub(
+        r"^\s*(wait_for_apt_locks|apt_retry)\(\)\s*\{\n.*?^\s*\}\s*$",
+        "",
+        script,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert "apt_retry()" not in outside_functions and "wait_for_apt_locks()" not in outside_functions
+    direct_calls = [
+        line for line in outside_functions.splitlines()
+        if not line.strip().startswith("#") and re.search(r"\bapt-get\b", line)
+    ]
+    assert not direct_calls, f"apt-get must not be invoked directly outside apt_retry: {direct_calls}"
+
+    install_args = set()
+    for i in apt_retry_calls:
+        match = re.match(r"\s*apt_retry\s+install\s+(.*)$", lines[i].split("#", 1)[0])
+        if match:
+            install_args.update(match.group(1).split())
+    assert {"default-mysql-client", "proxysql"} <= install_args, \
+        f"Both base packages and proxysql must be installed via apt_retry: {install_args}"
+
+
+def test_proxysql_startup_script_apt_update_fails_on_any_fetch_error():
+    """Issue #518: apt-get update の一時的な取得失敗も非ゼロ終了させ apt_retry の再試行対象とすること"""
+    lines = _read_proxysql_startup_script().splitlines()
+    update_calls = [(i, line.split("#", 1)[0].split()) for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+update\b", line)]
+    for _, args in update_calls:
+        assert "--error-on=any" in args, f"apt_retry update must pass --error-on=any: {' '.join(args)}"
+
+    repo_lines = [i for i, line in enumerate(lines) if "/etc/apt/sources.list.d/proxysql.list" in line]
+    assert len(repo_lines) == 1, "ProxySQL repository must be registered exactly once."
+    repo_line = repo_lines[0]
+    assert any(i < repo_line for i, _ in update_calls), "Base index update must run before ProxySQL repo registration."
+    assert any(i > repo_line for i, _ in update_calls), "ProxySQL repo index update must run after its registration."
+
+
+def _run_startup_functions(harness: str) -> subprocess.CompletedProcess:
+    script = _read_proxysql_startup_script()
+    functions = "\n".join(
+        f"{name}() {{\n{_extract_shell_function(script, name)}}}"
+        for name in ("wait_for_apt_locks", "apt_retry")
+    )
+    return subprocess.run(
+        ["bash", "-c", f"set -euo pipefail\n{functions}\n{harness}"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+
+
+_APT_STUBS = """
+SLEEPS=""
+sleep() { SLEEPS="$SLEEPS $1"; }
+fuser() { return 1; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); [ "$CALLS" -ge "$SUCCEED_AT" ]; }
+"""
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+@pytest.mark.parametrize(
+    "succeed_at, expected_rc, expected_calls, expected_sleeps",
+    [
+        (1, 0, 1, []),
+        (3, 0, 3, ["5", "10"]),
+        (99, 1, 5, ["5", "10", "20", "40"]),
+    ],
+)
+def test_apt_retry_executes_with_bounded_exponential_backoff(succeed_at, expected_rc, expected_calls, expected_sleeps):
+    """Issue #518: apt_retry を実行し、成功で即 0、失敗継続なら 5 回・5/10/20/40 秒バックオフ後に 1 を返すこと"""
+    harness = f"""{_APT_STUBS}
+SUCCEED_AT={succeed_at}
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS"
+echo "sleeps:$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-2] == f"rc={expected_rc} calls={expected_calls}", result.stdout
+    assert out[-1].split(":", 1)[1].split() == expected_sleeps, result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_waits_for_lock_before_every_attempt():
+    """Issue #518: リトライ中にロックが再取得されても、各 apt-get 試行の直前に必ずロック待ちを行うこと"""
+    harness = """
+SLEEPS=""
+EVENTS=""
+CALLS=0
+HELD_ONCE=0
+sleep() { SLEEPS="$SLEEPS $1"; }
+fuser() {
+  EVENTS="$EVENTS F"
+  if [ "$CALLS" -eq 1 ] && [ "$HELD_ONCE" -eq 0 ]; then HELD_ONCE=1; return 0; fi
+  return 1
+}
+apt-get() { EVENTS="$EVENTS A"; CALLS=$((CALLS + 1)); [ "$CALLS" -ge 3 ]; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc"
+echo "events:$EVENTS"
+echo "sleeps:$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-3] == "rc=0", result.stdout + result.stderr
+    assert out[-2].split(":", 1)[1].split() == ["F", "A", "F", "F", "A", "F", "A"], result.stdout
+    assert out[-1].split(":", 1)[1].split() == ["5", "2", "10"], result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_startup_apt_retry_calls_abort_on_persistent_failure():
+    """Issue #518: apt_retry が失敗し続けた場合、startup script が後続処理に進まず非 0 で終了すること"""
+    script = _read_proxysql_startup_script()
+    call_lines = [
+        line.strip() for line in script.splitlines()
+        if re.match(r"\s*apt_retry\s+(update|install)\b", line)
+    ]
+    for line in call_lines:
+        assert re.fullmatch(r"apt_retry\s+(update|install)\b[^|&;#]*", line), \
+            f"apt_retry call must not swallow failures: {line}"
+
+    lines = script.splitlines()
+    first_call = next(i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line))
+    flow = "\n".join([
+        "sleep() { :; }",
+        "fuser() { return 1; }",
+        "apt-get() { return 1; }",
+        *lines[: first_call + 1],
+        "echo REACHED_AFTER_APT",
+    ])
+    result = subprocess.run(["bash", "-c", flow], capture_output=True, text=True, timeout=30, check=False)
+    assert "syntax error" not in result.stderr, result.stderr
+    assert result.returncode != 0, result.stdout
+    assert "failed after 5 attempts" in result.stdout, result.stdout
+    assert "REACHED_AFTER_APT" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_shares_lock_wait_budget_across_attempts():
+    """Issue #518: 永続ロック時、600 秒のロック待機予算を全試行で共有し (2 秒×300 回のみ)、予算消化後も apt-get を 5 回試行すること"""
+    harness = """
+LOCK_SLEEPS=0
+BACKOFF=""
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); else BACKOFF="$BACKOFF $1"; fi; }
+fuser() { return 0; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); return 1; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS lock_sleeps=$LOCK_SLEEPS"
+echo "backoff:$BACKOFF"
+"""
+    result = _run_startup_functions(harness)
+    out = result.stdout.strip().splitlines()
+    assert out[-2] == "rc=1 calls=5 lock_sleeps=300", result.stdout + result.stderr
+    assert out[-1].split(":", 1)[1].split() == ["5", "10", "20", "40"], result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_recovers_when_lock_released_after_budget_exhausted():
+    """Issue #518: 予算消化後にロックが解放された場合、apt-get のロック待機で回復して成功すること"""
+    harness = """
+LOCK_SLEEPS=0
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); fi; }
+fuser() { return 0; }
+CALLS=0
+apt-get() { CALLS=$((CALLS + 1)); [ "$CALLS" -ge 2 ]; }
+rc=0
+apt_retry update || rc=$?
+echo "rc=$rc calls=$CALLS lock_sleeps=$LOCK_SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "rc=0 calls=2 lock_sleeps=300", result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_apt_retry_resets_lock_wait_budget_per_invocation():
+    """Issue #518: 予算は apt_retry 1 呼び出し単位であり、次の apt 操作では再び待機できること"""
+    harness = """
+LOCK_SLEEPS=0
+sleep() { if [ "$1" = "2" ]; then LOCK_SLEEPS=$((LOCK_SLEEPS + 1)); fi; }
+HELD=0
+fuser() { [ "$HELD" -gt 0 ] && HELD=$((HELD - 1)) && return 0; return 1; }
+apt-get() { return 0; }
+APT_LOCK_WAITED=600
+HELD=3
+apt_retry update
+echo "lock_sleeps=$LOCK_SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "lock_sleeps=3", result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_wait_for_apt_locks_waits_until_lock_released():
+    harness = """
+APT_LOCK_WAITED=0
+sleep() { SLEEPS=$((SLEEPS + 1)); }
+HELD=3
+fuser() { HELD=$((HELD - 1)); [ "$HELD" -ge 0 ]; }
+SLEEPS=0
+rc=0
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    assert result.stdout.strip().splitlines()[-1] == "rc=0 sleeps=3", result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to execute the startup script functions")
+def test_wait_for_apt_locks_gives_up_after_600_seconds():
+    harness = """
+APT_LOCK_WAITED=0
+sleep() { SLEEPS=$((SLEEPS + 1)); }
+fuser() { return 0; }
+SLEEPS=0
+rc=0
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
+wait_for_apt_locks || rc=$?
+echo "rc=$rc sleeps=$SLEEPS"
+"""
+    result = _run_startup_functions(harness)
+    out = [line for line in result.stdout.splitlines() if line.startswith("rc=")]
+    assert out == ["rc=0 sleeps=300", "rc=0 sleeps=300"], \
+        "exhausted budget must not be reset by a subsequent call: " + result.stdout
+
+
+def test_proxysql_startup_script_has_no_unescaped_shell_interpolation():
+    """Terraform heredoc 内でシェル変数に ${} を使うと Terraform 補間と衝突するため、Terraform 参照以外は禁止"""
+    script = _read_proxysql_startup_script()
+    for ref in re.findall(r"(?<!\$)\$\{([^}]*)\}", script):
+        assert re.match(r"(random_password|google_|var\.)", ref), \
+            f"Unexpected Terraform interpolation '${{{ref}}}' in startup script (escape shell vars as $${{...}})."
 
 
 def test_proxysql_zombie_running_alert_filter():
