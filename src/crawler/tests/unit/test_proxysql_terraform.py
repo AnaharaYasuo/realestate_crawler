@@ -212,12 +212,11 @@ def test_proxysql_startup_script_waits_for_dpkg_lock_release():
     script = _read_proxysql_startup_script()
     body = _extract_shell_function(script, "wait_for_apt_locks")
 
-    assert re.search(r"while\s+fuser\s+[^;\n]*/var/lib/dpkg/lock-frontend", body), \
-        "wait_for_apt_locks must loop while /var/lib/dpkg/lock-frontend is held (fuser)."
-    assert "/var/lib/dpkg/lock " in body or "/var/lib/dpkg/lock\n" in body or "/var/lib/dpkg/lock >" in body, \
-        "wait_for_apt_locks must also watch /var/lib/dpkg/lock."
-    assert "/var/lib/apt/lists/lock" in body, \
-        "wait_for_apt_locks must also watch /var/lib/apt/lists/lock."
+    loop_line = re.search(r"^\s*while\s+fuser\s+([^;\n]*);\s*do\s*$", body, re.MULTILINE)
+    assert loop_line, "wait_for_apt_locks must loop while fuser reports a held lock."
+    watched = loop_line.group(1).split()
+    for lock_path in ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock"):
+        assert lock_path in watched, f"fuser wait loop must watch {lock_path}."
     assert re.search(r"\bsleep\s+2\b", body), "Lock wait loop must poll every 2 seconds."
     assert re.search(r'-ge\s+600\b', body), "Lock wait must be bounded (max 600s) to avoid infinite hang."
 
@@ -251,11 +250,18 @@ def test_proxysql_startup_script_routes_all_apt_get_through_retry():
     assert len(def_lines) == 2 and max(def_lines) < first_call, \
         "wait_for_apt_locks/apt_retry must be defined before the first apt_retry call."
 
+    outside_functions = re.sub(
+        r"^\s*(wait_for_apt_locks|apt_retry)\(\)\s*\{\n.*?^\s*\}\s*$",
+        "",
+        script,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert "apt_retry()" not in outside_functions and "wait_for_apt_locks()" not in outside_functions
     direct_calls = [
-        line for line in lines[first_call:]
+        line for line in outside_functions.splitlines()
         if re.search(r"(^|[;&|]\s*)apt-get\s", line.strip())
     ]
-    assert not direct_calls, f"apt-get must not be invoked directly after setup: {direct_calls}"
+    assert not direct_calls, f"apt-get must not be invoked directly outside apt_retry: {direct_calls}"
 
     install_targets = " ".join(lines[i] for i in apt_retry_calls)
     assert "default-mysql-client" in install_targets and "proxysql" in install_targets, \

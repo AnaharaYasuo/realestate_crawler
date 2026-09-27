@@ -89,6 +89,7 @@ DB_HEALTH_CHECK_INTERVAL_SEC = float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3"))
 DB_HEALTH_SOCKET_TIMEOUT_SEC = 3.0
 DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
+DB_CONNECT_TIMEOUT_SEC = 10
 
 active_processes = {}
 
@@ -145,6 +146,17 @@ def resolve_db_endpoint():
     host = settings_dict.get("HOST") or os.getenv("DB_HOST", "127.0.0.1")
     port = int(settings_dict.get("PORT") or os.getenv("DB_PORT", "3306"))
     return host, port
+
+
+def bound_db_connect_timeout():
+    """ループ内の DB 処理が DB 不通時に OS 既定の TCP 待ち (約130秒) でブロックしないよう接続タイムアウトを設ける"""
+    settings_dict = getattr(connection, "settings_dict", None)
+    if not settings_dict or not str(settings_dict.get("ENGINE", "")).endswith("mysql"):
+        return
+    options = settings_dict.get("OPTIONS")
+    if options is None:
+        options = settings_dict["OPTIONS"] = {}
+    options.setdefault("connect_timeout", DB_CONNECT_TIMEOUT_SEC)
 
 def cleanup_active_process():
     """現在アクティブなすべての子プロセスグループを安全かつ完全にキルする"""
@@ -328,6 +340,7 @@ def main():
     global active_processes
 
     batch_start_dt = datetime.datetime.now(datetime.timezone.utc)
+    bound_db_connect_timeout()
     db_monitor = DbLivenessMonitor(*resolve_db_endpoint())
 
     while job_queue or active_processes:

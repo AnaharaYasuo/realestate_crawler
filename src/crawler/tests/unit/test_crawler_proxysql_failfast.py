@@ -160,6 +160,36 @@ def test_resolve_db_endpoint_falls_back_to_env(monkeypatch):
         assert rac.resolve_db_endpoint() == ("env-host", 6033)
 
 
+# --- bound_db_connect_timeout ---
+
+def test_bound_db_connect_timeout_sets_finite_timeout_for_mysql():
+    fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"charset": "utf8mb4"}})
+    with patch(f"{_MOD}.connection", fake_conn):
+        rac.bound_db_connect_timeout()
+    assert fake_conn.settings_dict["OPTIONS"] == {"charset": "utf8mb4", "connect_timeout": 10}
+
+
+def test_bound_db_connect_timeout_keeps_explicit_value():
+    fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"connect_timeout": 3}})
+    with patch(f"{_MOD}.connection", fake_conn):
+        rac.bound_db_connect_timeout()
+    assert fake_conn.settings_dict["OPTIONS"]["connect_timeout"] == 3
+
+
+def test_bound_db_connect_timeout_creates_options_when_missing():
+    fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql"})
+    with patch(f"{_MOD}.connection", fake_conn):
+        rac.bound_db_connect_timeout()
+    assert fake_conn.settings_dict["OPTIONS"] == {"connect_timeout": 10}
+
+
+def test_bound_db_connect_timeout_ignores_non_mysql_backends():
+    fake_conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.sqlite3", "OPTIONS": {}})
+    with patch(f"{_MOD}.connection", fake_conn):
+        rac.bound_db_connect_timeout()
+    assert fake_conn.settings_dict["OPTIONS"] == {}
+
+
 # --- abort_on_db_liveness_loss ---
 
 def _lost_monitor():
@@ -270,6 +300,7 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
         patch(f"{_MOD}.CrawlerTaskExecution", task_exec),
         patch(f"{_MOD}.send_crawling_summary_alert", alert),
         patch(f"{_MOD}.resolve_db_endpoint", return_value=("10.0.0.10", 6033)),
+        patch(f"{_MOD}.bound_db_connect_timeout") as mock_bound,
         patch(f"{_MOD}.DbLivenessMonitor", return_value=fake_monitor) as monitor_cls,
         patch(f"{_MOD}.subprocess.Popen", return_value=fake_proc) as mock_popen,
         patch(f"{_MOD}.os.getpgid", return_value=4321, create=True),
@@ -280,6 +311,7 @@ def test_main_loop_fast_fails_running_crawlers_when_db_is_lost():
             rac.main()
 
     assert exc.value.code == 1
+    mock_bound.assert_called_once_with()
     monitor_cls.assert_called_once_with("10.0.0.10", 6033)
     mock_popen.assert_called_once()
     mock_killpg.assert_called_once_with(4321, signal.SIGKILL)
