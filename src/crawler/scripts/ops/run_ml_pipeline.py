@@ -63,32 +63,31 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
     )
 
 
+def _latest_execution_tasks(target_date: datetime.date) -> list:
+    """対象日の直近のクローラー実行 (空でない実行 ID を優先、無ければ空 ID の行) のタスク行を返す"""
+    rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date).order_by("-created_at"))
+    latest_id = next((r.execution_id for r in rows if r.execution_id), "")
+    return [r for r in rows if r.execution_id == latest_id]
+
+
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
     """DB のタスク状況を点検し、ML 実行基準を満たしているか検証"""
     target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
     try:
-        latest_execution_id = (
-            CrawlerTaskExecution.objects.filter(execution_date=target_date)
-            .exclude(execution_id="")
-            .order_by("-created_at")
-            .values_list("execution_id", flat=True)
-            .first()
-        )
-        tasks = (
-            []
-            if latest_execution_id is None
-            else list(
-                CrawlerTaskExecution.objects.filter(execution_date=target_date, execution_id=latest_execution_id)
-            )
-        )
+        tasks = _latest_execution_tasks(target_date)
         if not tasks:
             logger.warning(f"No task records found for {target_date}. Proceeding with existing DB data.")
             return True, []
 
-        total = len(tasks)
-        completed = [t for t in tasks if t.status == "COMPLETED"]
-        failed = [str(t.task_index) for t in tasks if t.status in ("FAILED", "PENDING")]
+        total = max(t.task_count for t in tasks)
+        missing = set(range(total)) - {t.task_index for t in tasks}
+        failed_indexes = {t.task_index for t in tasks if t.status in ("FAILED", "PENDING")} | missing
+        failed = [str(i) for i in sorted(failed_indexes)]
+        if missing:
+            logger.warning(f"Task registrations missing for indexes {sorted(missing)} (task_count={total}).")
+            return False, failed
 
+        completed = [t for t in tasks if t.status == "COMPLETED"]
         success_ratio = len(completed) / total
         logger.info(f"Barrier verification: {len(completed)}/{total} tasks completed (ratio: {success_ratio:.2%}).")
 

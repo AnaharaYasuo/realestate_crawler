@@ -911,42 +911,71 @@ def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
     assert kwargs["execution_id"] == EXECUTION_ID
 
 
-def _task_rows(*rows):
-    return [SimpleNamespace(execution_id=e, task_index=i, status=s) for e, i, s in rows]
+def _task_rows(*rows, task_count=None):
+    count = task_count or len(rows)
+    return [
+        SimpleNamespace(execution_id=e, task_index=i, status=s, task_count=count) for e, i, s in rows
+    ]
 
 
-def _ml_model(latest_execution_id, rows):
+def _ml_model(rows):
+    """created_at 降順で返る対象日の行を模擬する"""
     model = MagicMock()
-    latest_qs = model.objects.filter.return_value.exclude.return_value.order_by.return_value.values_list.return_value
-    latest_qs.first.return_value = latest_execution_id
-    model.objects.filter.side_effect = lambda **kw: (
-        rows if "execution_id" in kw else model.objects.filter.return_value
-    )
+    model.objects.filter.return_value.order_by.return_value = rows
     return model
 
 
-def test_ml_barrier_scopes_to_latest_crawler_execution(monkeypatch):
-    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"))
-    model = _ml_model(EXECUTION_ID, rows)
+def _run_ml_barrier(monkeypatch, rows, **kwargs):
+    model = _ml_model(rows)
     monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", model)
-    ok, failed = run_ml_pipeline.verify_barrier_completion(PINNED_DATE, min_success_ratio=0.5)
-    assert (ok, failed) == (True, ["1"])
-    scoped = [c.kwargs for c in model.objects.filter.call_args_list if "execution_id" in c.kwargs]
-    assert scoped == [{"execution_date": PINNED_DATE, "execution_id": EXECUTION_ID}]
-    model.objects.filter.return_value.exclude.assert_called_once_with(execution_id="")
-    model.objects.filter.return_value.exclude.return_value.order_by.assert_called_once_with("-created_at")
+    return run_ml_pipeline.verify_barrier_completion(PINNED_DATE, **kwargs), model
+
+
+def test_ml_barrier_scopes_to_latest_crawler_execution(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED")) + _task_rows(
+        ("older-exec", 0, "FAILED"), ("older-exec", 1, "FAILED")
+    )
+    (result, model) = _run_ml_barrier(monkeypatch, rows, min_success_ratio=0.5)
+    assert result == (True, ["1"])
+    model.objects.filter.assert_called_once_with(execution_date=PINNED_DATE)
+    model.objects.filter.return_value.order_by.assert_called_once_with("-created_at")
+
+
+def test_ml_barrier_prefers_non_empty_execution_id_over_newer_empty_rows(monkeypatch):
+    rows = _task_rows(("", 7, "FAILED"), task_count=1) + _task_rows(
+        (EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "COMPLETED")
+    )
+    (result, _) = _run_ml_barrier(monkeypatch, rows)
+    assert result == (True, [])
+
+
+def test_ml_barrier_evaluates_rows_with_only_empty_execution_id(monkeypatch):
+    rows = _task_rows(("", 0, "FAILED"), ("", 1, "FAILED"))
+    (result, _) = _run_ml_barrier(monkeypatch, rows)
+    assert result == (False, ["0", "1"])
+
+
+def test_ml_barrier_missing_registrations_are_incomplete(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 2, "COMPLETED"), task_count=4)
+    (result, _) = _run_ml_barrier(monkeypatch, rows, min_success_ratio=0.1)
+    assert result == (False, ["1", "3"])
 
 
 def test_ml_barrier_below_threshold_reports_failed_task_indexes(monkeypatch):
     rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"), (EXECUTION_ID, 2, "PENDING"))
-    monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", _ml_model(EXECUTION_ID, rows))
-    assert run_ml_pipeline.verify_barrier_completion(PINNED_DATE, min_success_ratio=0.85) == (False, ["1", "2"])
+    (result, _) = _run_ml_barrier(monkeypatch, rows, min_success_ratio=0.85)
+    assert result == (False, ["1", "2"])
+
+
+def test_ml_barrier_at_threshold_passes(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"))
+    (result, _) = _run_ml_barrier(monkeypatch, rows, min_success_ratio=0.5)
+    assert result == (True, ["1"])
 
 
 def test_ml_barrier_without_rows_proceeds(monkeypatch):
-    monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", _ml_model(None, []))
-    assert run_ml_pipeline.verify_barrier_completion(PINNED_DATE) == (True, [])
-
+    (result, _) = _run_ml_barrier(monkeypatch, [])
+    assert result == (True, [])
 
 def test_task_rows_are_unique_per_execution():
     assert set(CrawlerTaskExecution._meta.unique_together) == {("execution_date", "task_index", "execution_id")}
