@@ -1,0 +1,293 @@
+import datetime
+import os
+from unittest.mock import MagicMock, patch
+
+import pytest
+import setup_env  # noqa: F401
+from django.core.exceptions import ValidationError
+from package.api import api as api_module
+from package.api.sumifu_investment import ParseSumifuInvestApartmentDetailFuncAsync
+from package.utils.failure_reporter import FailureReporter
+
+
+class TestLocalLogScanDateFilter533:
+    """Issue #533: ローカルログ走査は指定日付分のエラー行のみを集計する。"""
+
+    @pytest.fixture(autouse=True)
+    def _isolate(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("STORAGE_LOCAL_FALLBACK_DIR", str(tmp_path))
+        self.base = tmp_path
+
+    def test_undated_log_file_only_counts_lines_of_target_date(self):
+        (self.base / "pipeline.log").write_text(
+            "2026-07-18 13:37:43 ERROR: old failure\n"
+            "2026-09-26 12:00:00 ERROR: target day failure\n"
+            "2026-09-26 12:00:01 INFO: not an error\n"
+            "2026-09-26 12:00:02 CRITICAL: target day critical\n"
+            "Traceback ERROR without timestamp\n"
+            "2026-09-27 00:00:00 ERROR: next day failure\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        entries = [e["log_entry"] for e in errors]
+        assert entries == [
+            "2026-09-26 12:00:00 ERROR: target day failure",
+            "2026-09-26 12:00:02 CRITICAL: target day critical",
+        ]
+        assert [e["level"] for e in errors] == ["ERROR", "CRITICAL"]
+        assert [e["line_number"] for e in errors] == [2, 4]
+
+    def test_dated_log_file_counts_all_error_lines(self):
+        (self.base / "run_20260926.log").write_text(
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 12:00:00 ERROR: target day failure\n"
+            "2026-09-26 12:00:01 INFO: ok\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR without timestamp",
+            "2026-09-26 12:00:00 ERROR: target day failure",
+        ]
+
+    def test_dated_log_file_excludes_lines_with_other_explicit_date(self):
+        (self.base / "run_20260926.log").write_text(
+            "2026-09-25 23:59:59 ERROR: carried over from previous day\n"
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 ERROR: target day failure\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR without timestamp",
+            "2026-09-26 00:00:01 ERROR: target day failure",
+        ]
+        assert [e["line_number"] for e in errors] == [2, 3]
+
+    def test_rotated_dated_log_file_is_scanned_once(self):
+        (self.base / "run_20260926.log.1").write_text(
+            "Traceback ERROR rotated\n", encoding="utf-8"
+        )
+        (self.base / "run_20260926.log").write_text(
+            "Traceback ERROR current\n", encoding="utf-8"
+        )
+        (self.base / "run_20260925.log.1").write_text(
+            "Traceback ERROR other day rotated\n", encoding="utf-8"
+        )
+        (self.base / "report_20260926.json").write_text(
+            '{"level": "ERROR"}\n', encoding="utf-8"
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR current",
+            "Traceback ERROR rotated",
+        ]
+
+    def test_undated_rotated_log_file_is_filtered_by_line_date(self):
+        (self.base / "pipeline.log.1").write_text(
+            "2026-09-25 23:59:59 ERROR: previous day\n"
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 01:00:00 ERROR: target day rotated\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 01:00:00 ERROR: target day rotated"]
+
+    def test_embedded_non_standalone_date_in_name_is_treated_as_undated(self):
+        (self.base / "build_120260926.log").write_text(
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 ERROR: target\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
+
+    @pytest.mark.parametrize("suffix", [".gz", ".bz2", ".xz", ".zip"])
+    def test_compressed_rotated_log_is_excluded(self, suffix):
+        (self.base / f"pipeline.log.1{suffix}").write_text(
+            "2026-09-26 00:00:01 ERROR: compressed\n", encoding="utf-8"
+        )
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_iso_dated_rotated_log_keeps_undated_error_lines(self):
+        (self.base / "pipeline.log.2026-09-26").write_text(
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 CRITICAL: target\n",
+            encoding="utf-8",
+        )
+        (self.base / "pipeline.log.2026-09-25").write_text(
+            "Traceback ERROR other day\n", encoding="utf-8"
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR without timestamp",
+            "2026-09-26 00:00:01 CRITICAL: target",
+        ]
+
+    def test_multi_dated_log_name_keeps_undated_lines(self):
+        (self.base / "run_20260925_20260926.log").write_text(
+            "Traceback ERROR spanning run\n"
+            "2026-09-25 23:59:59 ERROR: other day\n"
+            "2026-09-26 00:00:01 ERROR: target\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR spanning run",
+            "2026-09-26 00:00:01 ERROR: target",
+        ]
+
+    def test_iso_dated_log_name_is_recognized(self):
+        (self.base / "run_2026-09-25.log").write_text(
+            "2026-09-26 00:00:01 ERROR: other day file\n", encoding="utf-8"
+        )
+        (self.base / "run_2026-09-26.log").write_text(
+            "Traceback ERROR undated\n", encoding="utf-8"
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["Traceback ERROR undated"]
+
+    @pytest.mark.parametrize("name", ["pipeline.log.2026-09-26_03", "pipeline.log.2026-09-26_03-15-00"])
+    def test_hourly_rotated_log_is_scanned(self, name):
+        (self.base / name).write_text("Traceback ERROR hourly\n", encoding="utf-8")
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["Traceback ERROR hourly"]
+
+    @pytest.mark.parametrize("name", ["pipeline.log.bak", "pipeline.log.old", "pipeline.log.1.tmp"])
+    def test_non_rotation_backup_is_excluded(self, name):
+        (self.base / name).write_text("2026-09-26 00:00:01 ERROR: backup\n", encoding="utf-8")
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_other_dated_log_file_is_not_opened(self):
+        (self.base / "run_20260925.log").write_text(
+            "2026-09-26 00:00:01 ERROR: late line in previous day file\n",
+            encoding="utf-8",
+        )
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_undated_log_last_modified_before_target_date_is_not_opened(self):
+        old = self.base / "pipeline.log"
+        old.write_text("2026-09-26 00:00:01 ERROR: never read\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 20, 12, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
+        os.utime(old, (ts, ts))
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_undated_log_modified_on_utc_day_before_target_is_opened(self):
+        log = self.base / "pipeline.log"
+        log.write_text("2026-09-26 08:30:00 ERROR: local morning\n2026-09-25 22:00:00 ERROR: previous\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 25, 23, 30, 0, tzinfo=datetime.timezone.utc).timestamp()
+        os.utime(log, (ts, ts))
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 08:30:00 ERROR: local morning"]
+
+    def test_undated_log_modified_two_utc_days_before_target_is_not_opened(self):
+        log = self.base / "pipeline.log"
+        log.write_text("2026-09-26 00:00:01 ERROR: never read\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 24, 23, 59, 0, tzinfo=datetime.timezone.utc).timestamp()
+        os.utime(log, (ts, ts))
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_undated_log_modified_on_or_after_target_date_is_opened(self):
+        log = self.base / "pipeline.log"
+        log.write_text("2026-09-26 00:00:01 ERROR: target\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 26, 12, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
+        os.utime(log, (ts, ts))
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
+
+    def test_other_dated_log_file_is_filtered_by_line_date(self):
+        (self.base / "run_20260925.log").write_text(
+            "2026-09-25 23:59:59 ERROR: previous day\n",
+            encoding="utf-8",
+        )
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_fetch_daily_failures_excludes_old_log_errors(self):
+        (self.base / "pipeline.log").write_text(
+            "2026-07-18 13:37:43 ERROR: old failure\n"
+            "2026-09-26 12:00:00 ERROR: target day failure\n",
+            encoding="utf-8",
+        )
+
+        with patch("package.utils.failure_reporter.get_storage_manager", side_effect=Exception("down")):
+            manifest = FailureReporter.fetch_daily_failures(date_str="20260926")
+
+        assert manifest["total_log_errors"] == 1
+        assert manifest["log_errors"][0]["log_entry"] == "2026-09-26 12:00:00 ERROR: target day failure"
+
+
+class TestValidationFailureReason533:
+    """Issue #533: バリデーション失敗テレメトリに不正フィールド名を含める。"""
+
+    def _make_item(self):
+        item = MagicMock()
+        item.pageUrl = "https://www.stepon.co.jp/mansion/detail_16133137/"
+        item.propertyName = "ライオンズプラザ町屋"
+        item.__class__.__name__ = "SumifuInvestmentApartment"
+        item.full_clean.side_effect = ValidationError(
+            {"tochiMensekiStr": ["This field cannot be blank."], "kaisu": ["This field cannot be blank."]}
+        )
+        return item
+
+    def test_error_message_contains_invalid_fields(self):
+        proc = object.__new__(ParseSumifuInvestApartmentDetailFuncAsync)
+        item = self._make_item()
+
+        with patch.object(api_module, "_sync_save_error_html_by_url") as mock_save:
+            proc._save_item_record(item)
+
+        mock_save.assert_called_once()
+        url, model_name, reason = mock_save.call_args.args
+        assert url == "https://www.stepon.co.jp/mansion/detail_16133137/"
+        assert model_name == item.__class__.__name__
+        assert reason == "Property Name: ライオンズプラザ町屋 | Invalid fields: kaisu, tochiMensekiStr"
+        item.save.assert_not_called()
+
+    def test_error_message_without_invalid_fields_keeps_legacy_format(self):
+        proc = object.__new__(ParseSumifuInvestApartmentDetailFuncAsync)
+        item = self._make_item()
+
+        with patch.object(api_module, "_sync_save_error_html_by_url") as mock_save:
+            proc._save_error_html_record(item)
+
+        assert mock_save.call_args.args[2] == "Property Name: ライオンズプラザ町屋"
+
+    def test_no_url_skips_saving(self):
+        proc = object.__new__(ParseSumifuInvestApartmentDetailFuncAsync)
+        item = self._make_item()
+        item.pageUrl = ""
+
+        with patch.object(api_module, "_sync_save_error_html_by_url") as mock_save:
+            proc._save_error_html_record(item, ["kaisu"])
+
+        mock_save.assert_not_called()
