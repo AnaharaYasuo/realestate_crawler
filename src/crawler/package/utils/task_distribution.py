@@ -4,7 +4,7 @@ Cloud Run Jobs タスク分散ユーティリティ
 """
 import datetime
 import os
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
 EXECUTION_DATE_ENV = "CRAWLER_EXECUTION_DATE"
 
