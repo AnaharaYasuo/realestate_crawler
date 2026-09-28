@@ -367,7 +367,7 @@ def _update_task_record(task_rec: Any, success: bool) -> None:
 def execute_crawl_task(
     company: str,
     prop_type: str,
-    execution_date: str = None,
+    execution_date: str | None = None,
     execution_id: str | None = None,
     task_index: int = 0,
     task_count: int = 1,
