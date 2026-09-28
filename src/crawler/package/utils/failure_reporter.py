@@ -13,6 +13,7 @@ from package.utils.storage import get_storage_manager
 logger = logging.getLogger(__name__)
 
 _LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
+_LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{8})(?!\d)")
 
 
 def generate_auto_heal_trigger_message(
@@ -166,6 +167,19 @@ class FailureReporter:
             return not require_date
         return match.group(1) == target_date
 
+    @staticmethod
+    def _is_log_candidate(lpath: Path, date_str: str, iso_date: str) -> bool:
+        """別日付名のログ、および対象日より前に最終更新された日付なしログは開かない"""
+        name_dates = _LOG_NAME_DATE_PATTERN.findall(lpath.name)
+        if name_dates:
+            return date_str in name_dates
+        try:
+            mtime = lpath.stat().st_mtime
+        except OSError:
+            return False
+        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).astimezone()
+        return modified.date().isoformat() >= iso_date
+
     @classmethod
     def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
         error_logs: list[dict[str, Any]] = []
@@ -176,6 +190,8 @@ class FailureReporter:
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         log_files = set(fallback_base.glob("*.log")) | set(fallback_base.glob("*.log.*"))
         for lpath in sorted(log_files):
+            if not cls._is_log_candidate(lpath, date_str, iso_date):
+                continue
             require_date = date_str not in lpath.name
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:

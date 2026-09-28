@@ -1,3 +1,5 @@
+import datetime
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -100,6 +102,32 @@ class TestLocalLogScanDateFilter533:
         errors = FailureReporter._scan_local_logs("20260926")
 
         assert [e["log_entry"] for e in errors] == ["2026-09-26 01:00:00 ERROR: target day rotated"]
+
+    def test_other_dated_log_file_is_not_opened(self):
+        (self.base / "run_20260925.log").write_text(
+            "2026-09-26 00:00:01 ERROR: late line in previous day file\n",
+            encoding="utf-8",
+        )
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_undated_log_last_modified_before_target_date_is_not_opened(self):
+        old = self.base / "pipeline.log"
+        old.write_text("2026-09-26 00:00:01 ERROR: never read\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 20, 12, 0, 0).timestamp()
+        os.utime(old, (ts, ts))
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
+    def test_undated_log_modified_on_or_after_target_date_is_opened(self):
+        log = self.base / "pipeline.log"
+        log.write_text("2026-09-26 00:00:01 ERROR: target\n", encoding="utf-8")
+        ts = datetime.datetime(2026, 9, 26, 0, 0, 5).timestamp()
+        os.utime(log, (ts, ts))
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
 
     def test_other_dated_log_file_is_filtered_by_line_date(self):
         (self.base / "run_20260925.log").write_text(
