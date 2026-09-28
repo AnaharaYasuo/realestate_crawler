@@ -1057,8 +1057,8 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                     loop=self._getActiveEventLoop(),
                     retry_times=0,
                 )
-            except Exception as npe:
-                logging.warning(f"Failed to fetch next page {next_page_url}: {npe}")
+            except Exception as npe:  # noqa: BLE001
+                logger.warning(f"Failed to fetch next page {next_page_url}: {npe}")
 
     def _getTreatPageArg(self):
         return
