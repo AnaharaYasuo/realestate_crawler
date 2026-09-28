@@ -286,7 +286,8 @@ graph TD
 - 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
 - キー集合はクロール実行単位で分離する。独立した `ApiAsyncProcBase.main()` は `_enter_crawl_run()` でスレッドローカル `_crawl_run_state` に新しい集合を割り当て、終了時に破棄する（並行する別実行とは共有しない）。ローカルルーティング（`_handle_local_execution`）で子スレッドにネスト実行される一覧・詳細の `main()` は、親の集合を引き継いで共有する。実行外から `_callApi` が呼ばれた場合は呼び出しごとの集合でページ内重複のみ除外する。
 - 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。ローカルルーティングの子スレッドで `main()` が例外終了した場合、`_handle_local_execution` は成功（`LocalSync`）ではなく `(詳細 URL, 500, "LocalError")` を返し、同じ規則でキーを解除する。
-- HTTP ディスパッチの POST タイムアウトは `ClientTimeout(total=3.0, sock_connect=2.0)` とし、接続確立フェーズを総時間より短く区切る。接続確立前にタイムアウトした場合（`aiohttp.ConnectionTimeoutError`、リクエスト未送信）は `(詳細 URL, 504, "ConnectTimeout")` を返してキーを解除する。送信後の応答待ちタイムアウトは Fire-and-Forget（受信側で処理継続）として成功扱いとし、キーを保持する（再送すると重複処理となるため）。
+- HTTP ディスパッチの POST タイムアウトは `ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)` とし、DNS 解決・コネクションプール待ちを含む接続確立フェーズを総時間より短く区切る。接続確立前にタイムアウトした場合（`aiohttp.ConnectionTimeoutError`、リクエスト未送信）は `(詳細 URL, 504, "ConnectTimeout")` を返してキーを解除する。
+- 送信完了はセッションに登録した `TraceConfig`（`_request_sent_trace_config()`、`on_request_chunk_sent` で `trace_request_ctx["sent"] = True`）で確認する。本文送信を確認できたタイムアウトのみ Fire-and-Forget（受信側で処理継続）として成功扱いとしキーを保持し（再送すると重複処理となるため）、送信を確認できないタイムアウトは `(詳細 URL, 504, "Timeout")` を返してキーを解除し再取得を妨げない。
 - 詳細 `main()` 内で処理済みの失敗（パース・バリデーション失敗等。`_getContent` で通信リトライ済み、FailureReporter に記録済み）は再ディスパッチしない。決定的な失敗を一覧ページごとに再クロールする重複を防ぐためである。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)

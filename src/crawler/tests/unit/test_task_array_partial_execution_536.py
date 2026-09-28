@@ -15,6 +15,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
+import aiohttp.test_utils
+import aiohttp.web
 import pytest
 
 _cur = os.path.abspath(__file__)
@@ -693,12 +695,79 @@ def test_post_timeout_bounds_connect_phase_before_total():
     timeout = session.post.call_args.kwargs["timeout"]
     assert timeout.sock_connect is not None
     assert 0 < timeout.sock_connect < timeout.total
+    assert timeout.connect is not None
+    assert 0 < timeout.connect < timeout.total
+
+
+def _timeout_after(sent):
+    async def _post(*_args, trace_request_ctx=None, **_kwargs):
+        if sent:
+            trace_request_ctx["sent"] = True
+        raise asyncio.TimeoutError()
+
+    return _post
 
 
 def test_read_timeout_after_send_stays_fire_and_forget():
-    result = _fetch_with_post_error(_DummyMiddlePage(), asyncio.TimeoutError())
+    result = _fetch_with_post_error(_DummyMiddlePage(), _timeout_after(sent=True))
     assert result == ("https://a/12", 200, "FireAndForget")
     assert api_module._is_retryable_dispatch_result(result) is False
+
+
+def test_timeout_before_send_is_retryable_failure():
+    result = _fetch_with_post_error(_DummyMiddlePage(), _timeout_after(sent=False))
+    assert result == ("https://a/12", 504, "Timeout")
+    assert api_module._is_retryable_dispatch_result(result) is True
+
+
+def test_request_sent_trace_marks_context():
+    trace_config = api_module._request_sent_trace_config()
+    ctx = {"sent": False}
+    for callback in trace_config.on_request_chunk_sent:
+        asyncio.run(callback(None, SimpleNamespace(trace_request_ctx=ctx), None))
+    assert ctx["sent"] is True
+
+
+def test_fetch_session_registers_request_sent_trace():
+    page = _DummyMiddlePage()
+    page.semaphore = asyncio.Semaphore(1)
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    session.close = AsyncMock()
+    with patch.object(api_module.aiohttp, "ClientSession", return_value=session) as mock_cls, \
+         patch.object(page, "_generateConnector", return_value=None), \
+         patch.object(page, "_getActiveEventLoop", return_value=None), \
+         patch.object(page, "_fetch", AsyncMock(return_value=("u", 200, "ok"))):
+        asyncio.run(page._fetchWithEachSession("u", "http://api", None))
+    trace_configs = mock_cls.call_args.kwargs["trace_configs"]
+    assert len(trace_configs) == 1
+    assert trace_configs[0].on_request_chunk_sent
+
+
+def test_real_slow_server_timeout_after_send_is_fire_and_forget():
+    """実サーバーで送信完了後の応答待ちタイムアウトが Fire-and-Forget となり、送信確認が機能すること"""
+    received = []
+
+    async def _slow(request):
+        received.append(await request.read())
+        await asyncio.sleep(10)
+        return aiohttp.web.Response(text="late")
+
+    async def _run():
+        app = aiohttp.web.Application()
+        app.router.add_post("/detail", _slow)
+        async with aiohttp.test_utils.TestServer(app) as server, aiohttp.ClientSession(
+            trace_configs=[api_module._request_sent_trace_config()]
+        ) as session:
+            page = _DummyMiddlePage()
+            with patch.object(page, "_handle_local_execution", return_value=None), patch.object(
+                page, "_apply_middlewares_request", AsyncMock(return_value=None)
+            ), patch.object(api_module.os.path, "exists", return_value=False):
+                return await page._fetch(session, "https://a/14", str(server.make_url("/detail")), None, 0)
+
+    assert asyncio.run(_run()) == ("https://a/14", 200, "FireAndForget")
+    assert received
 
 
 def test_main_owns_run_state_only_while_running():

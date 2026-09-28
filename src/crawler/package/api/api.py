@@ -91,6 +91,17 @@ def _is_retryable_dispatch_result(result: Any) -> bool:
     return isinstance(status, int) and (status >= 500 or status in _RETRYABLE_DISPATCH_STATUSES)
 
 
+async def _mark_request_sent(_session, trace_config_ctx, _params) -> None:
+    trace_config_ctx.trace_request_ctx["sent"] = True
+
+
+def _request_sent_trace_config() -> aiohttp.TraceConfig:
+    """リクエスト本文の送信完了を trace_request_ctx["sent"] に記録する (Fire-and-Forget 判定用)"""
+    trace_config = aiohttp.TraceConfig()
+    trace_config.on_request_chunk_sent.append(_mark_request_sent)
+    return trace_config
+
+
 def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
     """Derive company / property_type from entity or Parse* class names."""
     name = model_name or ""
@@ -743,7 +754,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     async def _fetchWithEachSession(self, detail_url, api_url, loop):
         await self.semaphore.acquire()
         try:
-            async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=self._generateConnector(self._getActiveEventLoop()),
+                timeout=self._generateTimeout(),
+                trace_configs=[_request_sent_trace_config()],
+            ) as _session:
                 try:
                     return await self._fetch(_session, detail_url, api_url, loop, retry_times=0)
                 finally:
@@ -828,7 +844,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if mw_result is not None:
             return mw_result
 
-        _timeout = aiohttp.ClientTimeout(total=3.0, sock_connect=2.0)
+        _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
+        send_state = {"sent": False}
 
         local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
@@ -837,7 +854,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         post_json_data = json.dumps(
             '{"url":"' + detail_url + '"}').encode("utf-8")
         try:
-            response: aiohttp.ClientResponse = await session.post(api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+            response: aiohttp.ClientResponse = await session.post(
+                api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout, trace_request_ctx=send_state
+            )
         except aiohttp.client_exceptions.ClientConnectorError:
             if retry_times > 0:
                 await asyncio.sleep(10)
@@ -854,8 +873,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             logger.warning("Connect timeout before request was sent: %s", detail_url)
             return detail_url, 504, "ConnectTimeout"
         except (asyncio.TimeoutError, TimeoutError):
-            # Fire-and-Forget Success Path
-            logging.info("Fire and forget - Timeout (assumed success): " + detail_url)
+            if not send_state["sent"]:
+                logger.warning("Timeout before request body was sent: %s", detail_url)
+                return detail_url, 504, "Timeout"
+            logging.info("Fire and forget - Timeout after request was sent (assumed success): " + detail_url)
             return detail_url, 200, "FireAndForget"
         except Exception:
             logging.exception("fetch error: %s", detail_url)
