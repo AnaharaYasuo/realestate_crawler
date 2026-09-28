@@ -1067,6 +1067,19 @@ def test_dispatcher_assigns_one_execution_id_and_sequential_indexes(monkeypatch)
     ]
 
 
+def test_dispatcher_dry_run_records_no_pending_rows(monkeypatch):
+    model = MagicMock()
+    sent = []
+    monkeypatch.setenv("IS_CLOUD", "1")
+    monkeypatch.setattr(run_dispatcher, "tasks_v2", MagicMock())
+    monkeypatch.setattr(run_dispatcher, "CrawlerTaskExecution", model)
+    monkeypatch.setattr(run_dispatcher, "CRAWL_JOBS", [("sumifu", "mansion"), ("mitsui", "kodate")])
+    monkeypatch.setattr(run_dispatcher, "_dispatch_task_to_cloud", lambda *a: sent.append(a[-1]))
+    assert run_dispatcher.enqueue_crawl_tasks(dry_run=True) == 2
+    assert sent == []
+    model.objects.update_or_create.assert_not_called()
+
+
 def test_dispatcher_generates_distinct_execution_ids_without_cloud_run_execution(monkeypatch):
     monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
     ids = []

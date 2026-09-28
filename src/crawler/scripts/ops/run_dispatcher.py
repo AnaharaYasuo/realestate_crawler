@@ -140,9 +140,8 @@ def enqueue_crawl_tasks(project_id: str | None = None, region: str | None = None
     task_count = len(jobs)
 
     for task_index, (company, prop_type) in enumerate(jobs):
-        _record_pending_task(today, execution_id, task_index, task_count)
-
         if tasks_client is not None:
+            _record_pending_task(today, execution_id, task_index, task_count)
             payload = {
                 "company": company,
                 "property_type": prop_type,
