@@ -783,7 +783,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             _crawl_run_state.keys = parent_keys
             try:
                 target_class().main(detail_url)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 child_errors.append(exc)
             finally:
                 _crawl_run_state.keys = None
