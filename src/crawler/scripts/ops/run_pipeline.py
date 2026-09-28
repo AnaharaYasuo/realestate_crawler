@@ -9,7 +9,6 @@ import json
 import argparse
 import signal
 import atexit
-import asyncio
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -36,9 +35,7 @@ from package.utils.task_distribution import (
     get_task_config,
     pin_execution_date,
 )
-from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
-from package.utils.slack import send_crawling_summary_alert
 from package.utils.gcp_resources import (
     check_cloud_sql_status,
     patch_proxysql_autoscaler,
@@ -359,75 +356,6 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
             )
 
 
-def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> dict:
-    """
-    Aggregates results_json from all CrawlerTaskExecution records.
-    Handles both model instances and plain dictionaries.
-    """
-    all_results = []
-    task_stats = []
-    for rec in task_records:
-        if hasattr(rec, "results_json"):
-            results = rec.results_json or []
-            task_idx = getattr(rec, "task_index", None)
-            status = getattr(rec, "status", "UNKNOWN")
-        elif isinstance(rec, dict):
-            results = rec.get("results_json", [])
-            task_idx = rec.get("task_index")
-            status = rec.get("status", "UNKNOWN")
-        else:
-            continue
-        all_results.extend(results)
-        task_stats.append(
-            {
-                "task_index": task_idx,
-                "status": status,
-                "job_count": len(results),
-            }
-        )
-
-    success_jobs = sum(1 for r in all_results if r.get("status") == "success")
-    failed_list = [
-        r for r in all_results if r.get("status") in ["failed", "timeout", "error"]
-    ]
-    failed_jobs = len(failed_list)
-    executed_jobs = len(all_results)
-    missing_jobs = max(0, total_jobs - executed_jobs)
-
-    msg_lines = ["📢 【クローリング全タスク集約レポート】"]
-    msg_lines.append(f"実行タスク数: {len(task_records)} タスク")
-    msg_lines.append(
-        f"総ジョブ数: {total_jobs} (実行完了: {executed_jobs}, 成功: {success_jobs}, 失敗: {failed_jobs}{f', 未実行: {missing_jobs}' if missing_jobs > 0 else ''})"
-    )
-
-    if failed_list:
-        msg_lines.append("\n⚠️ 異常・失敗が発生したクローラー:")
-        for f in failed_list:
-            company = f.get("company", "unknown")
-            ptype = f.get("property_type", "unknown")
-            status = f.get("status", "failed")
-            code = f.get("exit_code", "?")
-            dur = f.get("duration", "")
-            dur_str = f", 所要: {dur}" if dur else ""
-            msg_lines.append(f"• {company} - {ptype}: {status} (Code: {code}{dur_str})")
-    else:
-        msg_lines.append(f"\n✅ 全 {executed_jobs} ジョブが正常に実行・完了しました。")
-
-    slack_message = "\n".join(msg_lines)
-
-    return {
-        "total_jobs": total_jobs,
-        "executed_jobs": executed_jobs,
-        "success_jobs": success_jobs,
-        "failed_jobs": failed_jobs,
-        "missing_jobs": missing_jobs,
-        "all_results": all_results,
-        "failed_list": failed_list,
-        "task_stats": task_stats,
-        "slack_message": slack_message,
-    }
-
-
 def reconcile_aborted_task_execution(task_index: int | None) -> bool:
     """失敗終了したクローラーの RUNNING 行を DB 復旧後に FAILED へ更新し、バリアが終端状態と判定できるようにする"""
     # 子プロセスの bound_db_connect_timeout() は親プロセスの接続に及ばないため、update() の無期限ブロックを防ぐ
@@ -487,63 +415,17 @@ def _run_crawler_step(
         )
         reconcile_aborted_task_execution(task_index)
 
-    if is_task_array and not is_coordinator:
+    # 他タスクの完了待機はタスクのタイムアウト枠を消費するため行わない。完了確認・集約・ML は
+    # クローラーの最遅終了時刻より後に日次起動される ML Pipeline Job が担う (Issue #549)。
+    # 共有 ProxySQL は ML Pipeline Job が引き続き利用し、その終了時 (finally) に停止する。
+    # ML Pipeline Job が起動しない場合は Safety-Net (ensure_resources_stopped.py) が実行中ジョブ無しを確認して停止する。
+    if is_task_array:
         logger.info(
-            f"✔ [Worker] Task {task_index}/{task_count} のクローリングが完了しました。コンテナを終了します。"
+            f"✔ [{'Coordinator' if is_coordinator else 'Worker'}] Task {task_index}/{task_count} のクローリングが完了しました。"
+            "集約レポート・学習・価格推定は ML Pipeline Job が実行します。コンテナを終了します。"
         )
         return False, crawler_ok
 
-    if is_task_array and is_coordinator:
-        logger.info(
-            f"⏳ [Coordinator] 他全タスクのクローリング完了を待機します (全 {task_count} タスク)..."
-        )
-        remaining = get_remaining_pipeline_time()
-        # Bound task waiting by remaining time minus safe shutdown buffer and polling interval
-        wait_interval = 15
-        wait_timeout = max(
-            0,
-            int(
-                min(
-                    10800 - wait_interval,
-                    remaining - SAFE_SHUTDOWN_BUFFER_SEC - wait_interval,
-                )
-            ),
-        )
-        logger.info(
-            f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)..."
-        )
-        _bind_parent_db_timeouts()
-        execution_filters = _current_execution_filters()
-        all_ok, failed_tasks = wait_for_all_tasks(
-            model=CrawlerTaskExecution,
-            execution_date=execution_filters["execution_date"],
-            task_count=task_count,
-            timeout_sec=wait_timeout,
-            interval_sec=wait_interval,
-            execution_id=execution_filters["execution_id"],
-        )
-        if not all_ok:
-            crawler_ok = False
-            logger.warning(
-                f"⚠️ 一部タスクが未完了または失敗しています (失敗タスク番号: {failed_tasks})。完了分で後続パイプラインを続行します。"
-            )
-
-        # 全タスク集約レポートの生成 & Slack通知 (Issue #445)
-        try:
-            records = list(
-                CrawlerTaskExecution.objects.filter(**execution_filters).order_by("task_index")
-            )
-            aggregated = aggregate_task_array_reports(records, total_jobs=89)
-            logger.info(
-                f"📊 [Coordinator Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
-                f"Executed: {aggregated['executed_jobs']}, Success: {aggregated['success_jobs']}, Failed: {aggregated['failed_jobs']}"
-            )
-            if aggregated.get("slack_message"):
-                asyncio.run(send_crawling_summary_alert(aggregated["slack_message"]))
-        except Exception as agg_err:
-            logger.warning(
-                f"⚠️ [Aggregation Warning] Failed to aggregate task array reports: {agg_err}"
-            )
     return True, crawler_ok
 
 
@@ -732,6 +614,9 @@ def main():
             args.skip_portals,
         )
         if not should_continue:
+            if not crawler_ok:
+                logger.error(f"❌ Task {task_index}/{task_count} のクローリングが失敗しました。")
+                sys.exit(1)
             return
 
         failed_steps = _run_post_crawl_pipeline(
