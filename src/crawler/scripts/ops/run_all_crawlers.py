@@ -180,11 +180,11 @@ def record_task_start(task_index, task_count, jobs_assigned):
         record, _ = CrawlerTaskExecution.objects.update_or_create(
             execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
             task_index=task_index or 0,
+            execution_id=get_execution_id(),
             defaults={
                 "task_count": task_count,
                 "status": "RUNNING",
                 "jobs_assigned": jobs_assigned,
-                "execution_id": get_execution_id(),
             },
         )
     except Exception as dbe:

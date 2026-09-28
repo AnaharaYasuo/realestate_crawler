@@ -18,4 +18,4 @@ class CrawlerTaskExecution(models.Model):
 
     class Meta:
         db_table = "crawler_task_execution"
-        unique_together = ("execution_date", "task_index")
+        unique_together = ("execution_date", "task_index", "execution_id")

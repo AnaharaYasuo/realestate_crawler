@@ -13,4 +13,8 @@ class Migration(migrations.Migration):
             name='execution_id',
             field=models.CharField(blank=True, db_index=True, default='', max_length=128),
         ),
+        migrations.AlterUniqueTogether(
+            name='crawlertaskexecution',
+            unique_together={('execution_date', 'task_index', 'execution_id')},
+        ),
     ]

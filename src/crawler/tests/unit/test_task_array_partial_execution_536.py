@@ -32,6 +32,7 @@ while True:
 
 from package.api import api as api_module
 from package.api.api import ParseMiddlePageAsyncBase
+from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils import pipeline_coordinator, task_distribution
 from scripts.ops import run_all_crawlers, run_pipeline
 
@@ -633,13 +634,14 @@ def test_record_task_start_stores_execution_id(monkeypatch):
     monkeypatch.setattr(run_all_crawlers, "CrawlerTaskExecution", model)
     assert run_all_crawlers.record_task_start(3, 8, 11) == "rec"
     kwargs = model.objects.update_or_create.call_args.kwargs
+    assert kwargs["execution_date"] == _local_today()
     assert kwargs["task_index"] == 3
-    assert kwargs["defaults"] == {
-        "task_count": 8,
-        "status": "RUNNING",
-        "jobs_assigned": 11,
-        "execution_id": EXECUTION_ID,
-    }
+    assert kwargs["execution_id"] == EXECUTION_ID
+    assert kwargs["defaults"] == {"task_count": 8, "status": "RUNNING", "jobs_assigned": 11}
+
+
+def test_task_rows_are_unique_per_execution():
+    assert set(CrawlerTaskExecution._meta.unique_together) == {("execution_date", "task_index", "execution_id")}
 
 
 def test_record_task_start_returns_none_on_db_error(monkeypatch):
