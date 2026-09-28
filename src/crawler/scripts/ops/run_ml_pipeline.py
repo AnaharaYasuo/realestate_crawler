@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 SEPARATOR = "============================================================="
+SLACK_REPORT_TIMEOUT_SEC = 10  # NFR-021: 外部 API 呼び出しの有限タイムアウト上限
 
 
 def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, region: str | None = None, mig_name: str | None = None, dry_run: bool = False) -> bool:
@@ -158,7 +159,10 @@ def send_aggregated_crawl_report(execution_date: datetime.date | None = None) ->
             f"📊 [Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
             f"Executed: {aggregated['executed_jobs']}, Success: {aggregated['success_jobs']}, Failed: {aggregated['failed_jobs']}"
         )
-        return bool(asyncio.run(send_crawling_summary_alert(aggregated["slack_message"])))
+        return bool(asyncio.run(asyncio.wait_for(
+            send_crawling_summary_alert(aggregated["slack_message"]),
+            timeout=SLACK_REPORT_TIMEOUT_SEC,
+        )))
     except Exception as e:
         logger.warning(f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}")
         return False

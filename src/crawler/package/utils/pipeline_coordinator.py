@@ -84,7 +84,7 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
             task_idx = getattr(rec, "task_index", None)
             status = getattr(rec, "status", "UNKNOWN")
         elif isinstance(rec, dict):
-            results = rec.get("results_json", [])
+            results = rec.get("results_json") or []
             task_idx = rec.get("task_index")
             status = rec.get("status", "UNKNOWN")
         else:

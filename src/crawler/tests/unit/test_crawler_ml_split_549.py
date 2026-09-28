@@ -2,6 +2,7 @@
 """
 Issue #549: クローラージョブと ML Pipeline Job の分離、および自動再実行 (max_retries) 禁止の回帰テスト。
 """
+import asyncio
 import datetime
 import inspect
 import os
@@ -403,3 +404,25 @@ def test_aggregated_report_returns_false_when_slack_delivery_fails(monkeypatch):
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=[_task(0, [])]))
     monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", AsyncMock(return_value=False))
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
+
+
+def test_aggregated_report_slack_send_is_time_bounded(monkeypatch):
+    async def never_returns(_message):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=[_task(0, [])]))
+    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", never_returns)
+    monkeypatch.setattr(run_ml_pipeline, "SLACK_REPORT_TIMEOUT_SEC", 0.05)
+    assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
+
+
+def test_aggregated_report_timeout_is_finite_and_within_limit():
+    assert 0 < run_ml_pipeline.SLACK_REPORT_TIMEOUT_SEC <= 10
+
+
+def test_aggregator_treats_null_results_json_in_dict_as_empty():
+    aggregated = pipeline_coordinator.aggregate_task_array_reports(
+        [{"task_index": 0, "results_json": None}], total_jobs=89
+    )
+    assert aggregated["executed_jobs"] == 0
+    assert aggregated["total_jobs"] == 89
