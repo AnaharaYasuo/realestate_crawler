@@ -271,7 +271,7 @@ class TestTokyuFloorLabel535:
 class TestTokyuTochiOptionalFields538:
     """Issue #538: 東急土地の任意項目は空欄でもバリデーションを通過する。"""
 
-    OPTIONAL_FIELDS = ["chisei", "boukaChiiki", "saikenchiku", "sonotaChiiki", "kokudoHou"]
+    OPTIONAL_FIELDS = ("chisei", "boukaChiiki", "saikenchiku", "sonotaChiiki", "kokudoHou")
 
     @staticmethod
     def _valid_tochi(**overrides):
@@ -282,7 +282,7 @@ class TestTokyuTochiOptionalFields538:
             if isinstance(f, (models.IntegerField, models.BigIntegerField)):
                 setattr(item, f.attname, 1)
             elif isinstance(f, models.DecimalField):
-                setattr(item, f.attname, Decimal("1"))
+                setattr(item, f.attname, Decimal(1))
             elif isinstance(f, (models.TextField, models.CharField)):
                 setattr(item, f.attname, "x")
         for name, value in overrides.items():
