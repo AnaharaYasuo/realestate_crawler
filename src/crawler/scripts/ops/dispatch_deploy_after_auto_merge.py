@@ -87,29 +87,38 @@ def dispatch_deploy(gh):
     return DISPATCH if rc == 0 else DISPATCH_FAILED
 
 
-def _head_deployed(gh, sleep):
-    """Whether the current production head has a deploy run; None on lookup failure."""
+def _head_deployed(gh, sleep, dispatched):
+    """(head, whether it has a deploy run); found is None on lookup failure."""
     head = get_production_head(gh)
     if head is None:
-        return None
-    return lookup_deploy_run(gh, head, sleep)
+        return None, None
+    if head in dispatched:
+        return head, True
+    return head, lookup_deploy_run(gh, head, sleep)
 
 
-def ensure_production_deployed(gh, grace_sec, sleep=time.sleep):
+def ensure_production_deployed(gh, grace_sec, sleep=time.sleep, dispatched=None):
     """Dispatch only if the current production head still has no deploy run after the grace period.
 
     The head is re-read after waiting so the check always targets what dispatch would deploy.
+    Heads in ``dispatched`` count as deployed because a fresh dispatch is not listed immediately.
     """
-    found = _head_deployed(gh, sleep)
+    dispatched = set() if dispatched is None else dispatched
+    _, found = _head_deployed(gh, sleep, dispatched)
     if found is None:
         return LOOKUP_FAILED
     if found:
         return ALREADY_DEPLOYED
     sleep(grace_sec)
-    found = _head_deployed(gh, sleep)
+    head, found = _head_deployed(gh, sleep, dispatched)
     if found is None:
         return LOOKUP_FAILED
-    return ALREADY_DEPLOYED if found else dispatch_deploy(gh)
+    if found:
+        return ALREADY_DEPLOYED
+    result = dispatch_deploy(gh)
+    if result == DISPATCH:
+        dispatched.add(head)
+    return result
 
 
 def find_release_pr(gh):
@@ -177,11 +186,13 @@ def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic):
     parser.add_argument("--interval-sec", type=int, default=30)
     parser.add_argument("--grace-sec", type=int, default=90)
     parser.add_argument("--max-consecutive-errors", type=int, default=10)
+    parser.add_argument("--reconcile-only", action="store_true")
     args = parser.parse_args(argv)
+    dispatched = set()
 
-    reconciled = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep)
+    reconciled = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep, dispatched=dispatched)
     print(f"{annotation_for(reconciled)}Startup reconcile of production head: {reconciled}")
-    if reconciled in FAILURE_RESULTS:
+    if reconciled in FAILURE_RESULTS or args.reconcile_only:
         return exit_code_for(reconciled)
 
     # An empty number (PR step failed) must not drop a merge a cancelled older waiter was watching.
@@ -190,15 +201,18 @@ def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic):
         print(f"{annotation_for(LOOKUP_FAILED)}Could not look up the open release PR.")
         return exit_code_for(LOOKUP_FAILED)
     if not pr_number:
-        print("No open master -> production release PR to wait for.")
-        return 0
+        # The release PR may have merged after the startup reconcile.
+        action = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep, dispatched=dispatched)
+        print(f"{annotation_for(action)}No open master -> production release PR to wait for; "
+              f"production head: {action}")
+        return exit_code_for(action)
 
     action, merge_sha = wait_for_merge(pr_number, args.timeout_sec, args.interval_sec,
                                        run_gh=run_gh, sleep=sleep, clock=clock,
                                        max_errors=args.max_consecutive_errors)
     if action == MERGED:
         print(f"Release PR #{pr_number} merged as {merge_sha}; ensuring production is deployed.")
-        action = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep)
+        action = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep, dispatched=dispatched)
     print(f"{annotation_for(action)}Release PR #{pr_number}: {action}")
     return exit_code_for(action)
 

@@ -326,6 +326,49 @@ def test_main_without_pr_number_reacquires_open_release_pr():
     assert gh.dispatch_calls == [DISPATCH_CALL]
 
 
+def test_main_without_open_pr_rechecks_head_merged_after_startup():
+    gh = FakeGh(heads=[OLD_SHA, MERGE_SHA], runs={OLD_SHA: [DEPLOYED], MERGE_SHA: [[]]},
+                open_prs="[]")
+    assert dd.main(["--pr-number", "", "--grace-sec", "0"], run_gh=gh, sleep=_no_sleep) == 0
+    assert gh.dispatch_calls == [DISPATCH_CALL]
+
+
+def test_main_redispatches_only_for_a_newer_head_after_startup_dispatch():
+    gh = FakeGh(views=[_merged()], heads=[MERGE_SHA, MERGE_SHA, NEWER_SHA],
+                runs={MERGE_SHA: [[]], NEWER_SHA: [[]]})
+    code = dd.main(["--pr-number", "544", "--grace-sec", "0"], run_gh=gh, sleep=_no_sleep,
+                   clock=lambda: 0.0)
+    assert code == 0
+    assert gh.dispatch_calls == [DISPATCH_CALL, DISPATCH_CALL]
+
+
+def test_ensure_skips_head_already_dispatched_in_this_run():
+    gh = FakeGh(heads=[MERGE_SHA], runs={MERGE_SHA: [[]]})
+    dispatched = set()
+    assert dd.ensure_production_deployed(gh, 0, sleep=_no_sleep, dispatched=dispatched) == dd.DISPATCH
+    assert dispatched == {MERGE_SHA}
+    assert dd.ensure_production_deployed(gh, 0, sleep=_no_sleep, dispatched=dispatched) == dd.ALREADY_DEPLOYED
+    assert gh.dispatch_calls == [DISPATCH_CALL]
+
+
+def test_main_without_open_pr_fails_when_recheck_fails():
+    gh = FakeGh(heads=[OLD_SHA, None], runs={OLD_SHA: [DEPLOYED]}, open_prs="[]")
+    assert dd.main(["--pr-number", ""], run_gh=gh, sleep=_no_sleep) == 1
+
+
+def test_main_reconcile_only_skips_pr_wait():
+    gh = FakeGh(heads=[MERGE_SHA], runs={MERGE_SHA: [[]]}, open_prs='[{"number": 544}]')
+    assert dd.main(["--reconcile-only", "--grace-sec", "0"], run_gh=gh, sleep=_no_sleep) == 0
+    assert gh.dispatch_calls == [DISPATCH_CALL]
+    assert not any(c[:2] in (["pr", "view"], ["pr", "list"]) for c in gh.calls)
+
+
+def test_main_reconcile_only_already_deployed_does_nothing():
+    gh = FakeGh(runs={OLD_SHA: [DEPLOYED]})
+    assert dd.main(["--reconcile-only"], run_gh=gh, sleep=_no_sleep) == 0
+    assert gh.dispatch_calls == []
+
+
 def test_main_fails_when_release_pr_lookup_fails():
     gh = FakeGh(runs={OLD_SHA: [DEPLOYED]}, open_prs=None)
     assert dd.main(["--pr-number", ""], run_gh=gh, sleep=_no_sleep) == 1
@@ -382,3 +425,20 @@ def test_auto_release_pr_passes_pr_number_to_dispatch_job():
     run_steps = " ".join(step.get("run", "") for step in job["steps"])
     assert "dispatch_deploy_after_auto_merge.py" in run_steps
     assert "needs.create-or-update-release-pr.outputs.pr_number" in json.dumps(job["steps"])
+    assert "github.event_name == 'push'" in job["if"]
+    assert create_job["if"] == "github.event_name == 'push'"
+
+
+def test_auto_release_pr_schedules_reconcile_only_job():
+    workflow = _load("auto-release-pr.yml")
+    assert _on(workflow)["schedule"][0]["cron"].split()[1] == "*/3"
+    job = workflow["jobs"]["reconcile-production-deploy"]
+    assert job["if"] == "github.event_name == 'schedule'"
+    assert "needs" not in job
+    assert job["permissions"]["actions"] == "write"
+    assert job["concurrency"] == {"group": "release-pr-deploy-reconcile", "cancel-in-progress": False}
+    watcher_group = workflow["jobs"]["dispatch-deploy-after-auto-merge"]["concurrency"]["group"]
+    assert job["concurrency"]["group"] != watcher_group
+    assert 0 < job["timeout-minutes"] <= 15
+    run_steps = " ".join(step.get("run", "") for step in job["steps"])
+    assert "dispatch_deploy_after_auto_merge.py --reconcile-only" in run_steps

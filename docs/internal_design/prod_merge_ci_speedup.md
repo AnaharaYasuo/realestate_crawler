@@ -36,12 +36,18 @@
           - `gh` のタイムアウト・非 0 終了・JSON 不正は待機継続とするが、連続 10 回で exit 1（監視不能を成功扱いしない）。成功したポーリングで連続回数はリセットする。
        3. dispatch 失敗時は exit 1。
      - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD の取得失敗時は `lookup_failed` として exit 1 とする。
-     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければリコンサイルのみで終了。
+     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければ（起動時リコンサイル後に PR がマージされた可能性があるため）`ensure_production_deployed` を再実行して終了する。
+     - 同一実行内で dispatch 済みの HEAD は「デプロイ済み」とみなす（dispatch 直後は実行一覧に現れないことがあるため、同じ HEAD の二重 dispatch を防ぐ）。
      - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
+  4. `reconcile-production-deploy` ジョブ（Issue #546、`schedule: '23 */3 * * *'` のときのみ実行）:
+     - 60 分の待機後にマージされた Release PR を、次の master push を待たずに 3 時間以内に回収する。
+     - `dispatch_deploy_after_auto_merge.py --reconcile-only --grace-sec 90` で `ensure_production_deployed` のみを実行する（PR の作成・待機はしない）。`timeout-minutes: 10`。
+     - `concurrency: { group: release-pr-deploy-reconcile, cancel-in-progress: false }` とし、マージ待機ジョブとは別グループにして待機ジョブのキャンセル・置き換えを起こさない（同一 HEAD への同時 dispatch は `deploy-production` の concurrency で直列化され、取りこぼしは生じない）。
+     - schedule 実行時は `create-or-update-release-pr` / `dispatch-deploy-after-auto-merge` を `if: github.event_name == 'push'` でスキップする。
 
 ### 1.1a `deploy-production.yml` のトリガー（Issue #546）
 * `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。
-* `concurrency: { group: deploy-production, cancel-in-progress: false }` で本番デプロイを直列化する。
+* `concurrency: { group: deploy-production, cancel-in-progress: false }` で本番デプロイを直列化する。待機中の実行が新しい実行に置き換えられても、新しい実行は自身の `github.sha`（マージでのみ進む `production` の新しいコミットで古い変更を包含）をデプロイするため取りこぼしは生じない。
 
 ### 1.2 `review-gate.yml` の Production Fast-Pass ロジック設計
 

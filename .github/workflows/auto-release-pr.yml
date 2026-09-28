@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - master
+  # Reconciles release PRs that merged after the dispatch job's wait timed out.
+  schedule:
+    - cron: '23 */3 * * *'
 
 permissions:
   contents: write
@@ -14,6 +17,7 @@ permissions:
 jobs:
   create-or-update-release-pr:
     name: Ensure Production Release PR
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       pr_number: ${{ steps.release_pr.outputs.pr_number }}
@@ -94,7 +98,7 @@ jobs:
     name: Dispatch Production Deploy After Auto-merge
     needs: create-or-update-release-pr
     # Runs even if PR creation failed so the startup reconcile can still deploy an undeployed production head.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 65
     permissions:
@@ -113,3 +117,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ needs.create-or-update-release-pr.outputs.pr_number }}
         run: python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py --pr-number "$PR_NUMBER" --timeout-sec 3600 --interval-sec 30 --grace-sec 90
+
+  reconcile-production-deploy:
+    name: Reconcile Undeployed Production Head
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    concurrency:
+      # Separate from the merge watcher so a scheduled run never replaces a queued watcher.
+      group: release-pr-deploy-reconcile
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Dispatch deploy if production head is undeployed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py --reconcile-only --grace-sec 90

@@ -63,7 +63,7 @@ flowchart TD
   2. なければ直近のコミットメッセージ・Issue番号からタイトル・本文を生成して `gh pr create` を実行。
   3. `gh pr merge <PR_NUMBER> --auto --merge` を設定。
   4. 既存PRがあれば自動で最新コミットが反映される。
-  5. （Issue #546）`dispatch-deploy-after-auto-merge` ジョブが、起動時に `production` HEAD が未デプロイなら dispatch して取りこぼしを回収し、その後 Release PR のマージを最大 60 分待機する。マージ後の `production` HEAD に対する `deploy-production.yml` の実行が猶予時間内に作成されなければ `gh workflow run deploy-production.yml --ref production` で本番デプロイを起動する（`GITHUB_TOKEN` による auto-merge の push は他ワークフローを起動しないため）。人間によるマージ時は `push: production` の実行が存在するため dispatch しない。
+  5. （Issue #546）`dispatch-deploy-after-auto-merge` ジョブが、起動時に `production` HEAD が未デプロイなら dispatch して取りこぼしを回収し、その後 Release PR のマージを最大 60 分待機する。マージ後の `production` HEAD に対する `deploy-production.yml` の実行が猶予時間内に作成されなければ `gh workflow run deploy-production.yml --ref production` で本番デプロイを起動する（`GITHUB_TOKEN` による auto-merge の push は他ワークフローを起動しないため）。人間によるマージ時は `push: production` の実行が存在するため dispatch しない。また 3 時間ごとの schedule 実行（`reconcile-production-deploy` ジョブ）で未デプロイの `production` HEAD を回収し、60 分の待機後にマージされた場合も取りこぼさない。
 - `deploy-production.yml` は `push: production` に加えて `workflow_dispatch` を受け付け、`concurrency: deploy-production`（`cancel-in-progress: false`）で直列化する。
 
 ### 2.5 Dependabot 設定 (`.github/dependabot.yml`)
