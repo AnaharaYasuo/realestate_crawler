@@ -30,6 +30,7 @@ def test_ml_pipeline_execution_and_mig_stop():
     from scripts.ops import run_ml_pipeline
 
     with patch.object(run_ml_pipeline, "verify_barrier_completion") as mock_barrier, \
+         patch.object(run_ml_pipeline, "send_aggregated_crawl_report") as mock_report, \
          patch.object(run_ml_pipeline, "run_command") as mock_run_cmd, \
          patch.object(run_ml_pipeline, "scale_proxysql_mig") as mock_scale:
 
@@ -39,6 +40,7 @@ def test_ml_pipeline_execution_and_mig_stop():
         exit_code = run_ml_pipeline.main(argv=[])
         assert exit_code == 0
         mock_barrier.assert_called_once()
+        mock_report.assert_called_once()
         assert mock_run_cmd.call_count >= 4
         # finally で必ず scale_proxysql_mig(target_size=0, dry_run=False) が呼ばれること
         mock_scale.assert_called_with(target_size=0, dry_run=False)
@@ -49,6 +51,7 @@ def test_ml_pipeline_stops_mig_even_on_failure():
     from scripts.ops import run_ml_pipeline
 
     with patch.object(run_ml_pipeline, "verify_barrier_completion") as mock_barrier, \
+         patch.object(run_ml_pipeline, "send_aggregated_crawl_report"), \
          patch.object(run_ml_pipeline, "run_command") as mock_run_cmd, \
          patch.object(run_ml_pipeline, "scale_proxysql_mig") as mock_scale:
 

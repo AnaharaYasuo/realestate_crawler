@@ -197,19 +197,13 @@ def test_worker_crawl_failure_reconciles_own_task():
     mock_reconcile.assert_called_once_with(1)
 
 
-def test_coordinator_crawl_failure_reconciles_before_barrier():
-    """Coordinator でクローラーが失敗終了した場合、バリア待機より前に自タスクを再同期すること"""
-    calls = []
+def test_coordinator_crawl_failure_reconciles_own_task_and_exits():
+    """Coordinator でクローラーが失敗終了した場合、自タスクを再同期して終了すること (Issue #549: 後続は ML Pipeline Job)"""
     with patch(f"{_MOD}.run_command", side_effect=RuntimeError("exit code 1")), \
-         patch(f"{_MOD}.reconcile_aborted_task_execution", side_effect=lambda idx: calls.append(("reconcile", idx))), \
-         patch(f"{_MOD}.wait_for_all_tasks", side_effect=lambda **kw: calls.append(("barrier", None)) or (True, [0])), \
-         patch(f"{_MOD}.CrawlerTaskExecution.objects.filter") as mock_filter, \
-         patch(f"{_MOD}.send_crawling_summary_alert"):
-        mock_filter.return_value.order_by.return_value = []
-        should_continue, crawler_ok = _run_step(True, True, 0)
+         patch(f"{_MOD}.reconcile_aborted_task_execution") as mock_reconcile:
+        assert _run_step(True, True, 0) == (False, False)
 
-    assert should_continue is True and crawler_ok is False
-    assert calls[:2] == [("reconcile", 0), ("barrier", None)]
+    mock_reconcile.assert_called_once_with(0)
 
 
 def test_crawl_success_does_not_reconcile():

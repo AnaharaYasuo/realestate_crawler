@@ -77,33 +77,6 @@ def test_execute_safety_teardown_invokes_inline_scale_proxysql_mig(monkeypatch):
         assert mock_cmd.called
 
 
-def test_wait_for_all_tasks_timeout_bounded_by_remaining_time(monkeypatch):
-    """Verify wait_for_all_tasks dynamically constrains timeout based on remaining pipeline time."""
-    from scripts.ops import run_pipeline
-
-    monkeypatch.setenv("IS_CLOUD", "true")
-    # Set maximum pipeline duration to 1000s, elapsed time 600s -> remaining time 400s
-    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", 1000.0)
-    monkeypatch.setattr(run_pipeline, "get_remaining_pipeline_time", lambda: 400.0)
-
-    with patch.object(run_pipeline, "wait_for_all_tasks") as mock_wait, \
-         patch.object(run_pipeline, "run_command"):
-        mock_wait.return_value = (True, [])
-        run_pipeline._run_crawler_step(
-            is_task_array=True,
-            is_coordinator=True,
-            task_index=0,
-            task_count=2,
-            ops_dir="/fake/ops",
-            skip_portals=False,
-        )
-
-        assert mock_wait.called
-        call_kwargs = mock_wait.call_args.kwargs
-        # The timeout passed must be bounded by remaining time (400 - safe_buffer)
-        assert call_kwargs["timeout_sec"] <= 400 - run_pipeline.SAFE_SHUTDOWN_BUFFER_SEC
-
-
 def test_self_graceful_shutdown_when_timeout_approaching(monkeypatch):
     """Verify pipeline initiates self graceful shutdown at the safe threshold."""
     from scripts.ops import run_pipeline
