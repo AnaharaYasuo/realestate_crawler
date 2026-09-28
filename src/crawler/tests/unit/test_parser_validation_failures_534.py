@@ -123,6 +123,69 @@ class TestSectionalUnitSwitchGuard534:
         assert used_parser is target_parser
         assert used_item is target_parser.createEntity.return_value
 
+    def test_labels_with_internal_whitespace_are_recognized(self):
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "65m²", "土地面積 （公簿）": "80m²"}) is False
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "65m²", "土地面積\u3000(実測)": "80m²"}) is False
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積 （壁芯）": "20m²"}) is True
+        assert SumifuMansionParser._is_sectional_unit_page({" 専有面積 ": "20m²"}) is True
+
+    def test_terrace_house_with_spaced_land_label_still_switches(self):
+        parser = SumifuMansionParser("")
+        item = parser.createEntity()
+        specs = {"専有面積": "65.10m²", "土地面積 （公簿）": "80.00m²"}
+        target_parser = MagicMock()
+
+        with patch.object(PropertyTypeDetector, "detect", return_value="kodate"), patch.object(
+            UrlRouter, "create_parser", return_value=target_parser
+        ) as mock_create:
+            used_parser, _ = parser._maybe_switch_parser(
+                SUMIFU_UNIT_URL, "テラスハウス", _soup("テラスハウス"), specs, item
+            )
+
+        mock_create.assert_called_once()
+        assert used_parser is target_parser
+
+    def test_senyu_only_in_summary_chip_is_guarded(self):
+        parser = SumifuMansionParser("")
+        item = parser.createEntity()
+        soup = BeautifulSoup(
+            '<html><body><span class="text">専有面積66.51m² （壁芯)</span><p>賃貸中</p></body></html>',
+            "html.parser",
+        )
+
+        with patch.object(PropertyTypeDetector, "detect", return_value="apartment"), patch.object(
+            UrlRouter, "create_parser"
+        ) as mock_create:
+            used_parser, used_item = parser._maybe_switch_parser(
+                SUMIFU_UNIT_URL, "ライオンズ", soup, {"現況": "賃貸中"}, item
+            )
+
+        mock_create.assert_not_called()
+        assert used_parser is parser
+        assert used_item is item
+
+    def test_summary_chip_with_land_area_still_switches(self):
+        parser = SumifuMansionParser("")
+        item = parser.createEntity()
+        soup = BeautifulSoup(
+            '<html><body><span class="text">専有面積66.51m²</span></body></html>', "html.parser"
+        )
+        target_parser = MagicMock()
+
+        with patch.object(PropertyTypeDetector, "detect", return_value="kodate"), patch.object(
+            UrlRouter, "create_parser", return_value=target_parser
+        ):
+            used_parser, _ = parser._maybe_switch_parser(
+                SUMIFU_UNIT_URL, "戸建て", soup, {"土地面積": "80m²"}, item
+            )
+
+        assert used_parser is target_parser
+
+    def test_senyu_outside_specs_hook_defaults_to_empty(self):
+        soup = BeautifulSoup('<span class="text">専有面積66.51m²</span>', "html.parser")
+        assert AthomeMansionParser()._senyu_area_outside_specs(soup) == ""
+        assert SumifuMansionParser("")._senyu_area_outside_specs(soup) == "専有面積66.51m²"
+
     def test_is_sectional_unit_page(self):
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²"}) is True
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²", "土地面積": "80m²"}) is False
