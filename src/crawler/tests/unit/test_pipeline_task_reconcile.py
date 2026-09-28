@@ -25,6 +25,12 @@ def _clean_task_executions():
 
 
 @pytest.fixture(autouse=True)
+def _local_execution_scope(monkeypatch):
+    monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
+    monkeypatch.delenv("CRAWLER_EXECUTION_DATE", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def fake_connection():
     conn = MagicMock(settings_dict={"ENGINE": "django.db.backends.mysql", "OPTIONS": {"charset": "utf8mb4"}})
     with patch(f"{_MOD}.connection", conn):
@@ -74,7 +80,7 @@ def test_reconcile_retries_until_db_recovers():
          patch(f"{_MOD}.time.sleep") as mock_sleep:
         assert run_pipeline.reconcile_aborted_task_execution(3) is True
 
-    mock_filter.assert_called_with(execution_date=_today(), task_index=3, status="RUNNING")
+    mock_filter.assert_called_with(execution_date=_today(), execution_id="", task_index=3, status="RUNNING")
     qs.update.assert_called_with(status="FAILED")
     assert qs.update.call_count == 3
     assert mock_close.call_count == 3

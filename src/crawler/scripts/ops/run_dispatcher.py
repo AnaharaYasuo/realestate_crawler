@@ -16,6 +16,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -83,22 +84,17 @@ def run_db_migration() -> bool:
     return True
 
 
-def _record_pending_task(today: datetime.date, company: str, prop_type: str) -> None:
-    """DB に初期ステータス PENDING を登録"""
+def _record_pending_task(today: datetime.date, execution_id: str, task_index: int, task_count: int) -> None:
+    """DB に今回のディスパッチ実行のタスク行を初期ステータス PENDING で登録"""
     try:
         CrawlerTaskExecution.objects.update_or_create(
             execution_date=today,
-            task_id=f"{company}_{prop_type}",
-            defaults={
-                "status": "PENDING",
-                "company": company,
-                "property_type": prop_type,
-                "scraped_count": 0,
-                "error_message": "",
-            },
+            task_index=task_index,
+            execution_id=execution_id,
+            defaults={"status": "PENDING", "task_count": task_count, "jobs_assigned": 1},
         )
     except Exception as e:
-        logger.debug(f"Could not record PENDING status for {company}-{prop_type}: {e}")
+        logger.warning(f"Could not record PENDING status for task {task_index} of {execution_id}: {e}")
 
 
 def _dispatch_task_to_cloud(tasks_client, parent: str, url: str, sa_email: str, payload: dict) -> None:
@@ -139,14 +135,21 @@ def enqueue_crawl_tasks(project_id: str | None = None, region: str | None = None
     tasks_client = tasks_v2.CloudTasksClient() if (is_cloud and tasks_v2 is not None and not dry_run) else None
     parent = tasks_client.queue_path(project, reg, queue) if tasks_client is not None else ""
 
-    for company, prop_type in CRAWL_JOBS:
-        if skip_portals and company.lower() in portal_companies:
-            continue
+    jobs = [(c, t) for c, t in CRAWL_JOBS if not (skip_portals and c.lower() in portal_companies)]
+    execution_id = os.getenv("CLOUD_RUN_EXECUTION") or f"dispatch-{uuid.uuid4().hex}"
+    task_count = len(jobs)
 
-        _record_pending_task(today, company, prop_type)
-
+    for task_index, (company, prop_type) in enumerate(jobs):
         if tasks_client is not None:
-            payload = {"company": company, "property_type": prop_type, "execution_date": today_str}
+            _record_pending_task(today, execution_id, task_index, task_count)
+            payload = {
+                "company": company,
+                "property_type": prop_type,
+                "execution_date": today_str,
+                "execution_id": execution_id,
+                "task_index": task_index,
+                "task_count": task_count,
+            }
             _dispatch_task_to_cloud(tasks_client, parent, url, sa_email, payload)
 
         enqueued_count += 1

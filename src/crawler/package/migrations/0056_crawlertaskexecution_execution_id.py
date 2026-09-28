@@ -1,0 +1,20 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    dependencies = [  # noqa: RUF012
+        ('package', '0055_tokyutochi_optional_fields_blank'),
+    ]
+
+    operations = [  # noqa: RUF012
+        migrations.AddField(
+            model_name='crawlertaskexecution',
+            name='execution_id',
+            field=models.CharField(blank=True, db_index=True, default='', max_length=128),
+        ),
+        migrations.AlterUniqueTogether(
+            name='crawlertaskexecution',
+            unique_together={('execution_date', 'task_index', 'execution_id')},
+        ),
+    ]

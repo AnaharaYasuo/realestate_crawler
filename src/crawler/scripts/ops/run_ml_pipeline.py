@@ -31,6 +31,7 @@ while True:
 
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
 from package.utils.gcp_resources import (
     scale_proxysql_mig as _gcp_scale_proxysql_mig,
     get_gcp_access_token as _get_gcp_access_token,
@@ -63,19 +64,47 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
     )
 
 
+def _latest_execution_tasks(target_date: datetime.date) -> list | None:
+    """対象日で開始 (最初のタスク行登録) が最も新しいクローラー実行のタスク行を返す。
+
+    空の実行 ID の行 (別実行同士で上書きされ得る) と単独実行 cloud-tasks-* の行 (日次クロール全体を表さない) は
+    評価対象外とし、行が存在するのに識別可能な実行が無い場合は None を返す。
+    """
+    rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
+    by_execution: dict[str, list] = {}
+    for row in rows:
+        if row.execution_id and not row.execution_id.startswith(STANDALONE_EXECUTION_PREFIX):
+            by_execution.setdefault(row.execution_id, []).append(row)
+    if not by_execution:
+        return None if rows else []
+    latest_id = max(by_execution, key=lambda k: min(r.created_at for r in by_execution[k]))
+    return by_execution[latest_id]
+
+
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
     """DB のタスク状況を点検し、ML 実行基準を満たしているか検証"""
     target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
     try:
-        tasks = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
+        tasks = _latest_execution_tasks(target_date)
+        if tasks is None:
+            logger.warning(f"Task records for {target_date} have no identifiable execution_id. Cannot verify barrier.")
+            return False, []
         if not tasks:
             logger.warning(f"No task records found for {target_date}. Proceeding with existing DB data.")
             return True, []
 
-        total = len(tasks)
-        completed = [t for t in tasks if t.status == "COMPLETED"]
-        failed = [t.task_id for t in tasks if t.status in ("FAILED", "PENDING")]
+        total = max(t.task_count for t in tasks)
+        if total <= 0:
+            logger.warning(f"Invalid task_count={total} for the latest execution on {target_date}.")
+            return False, []
+        missing = set(range(total)) - {t.task_index for t in tasks}
+        failed_indexes = {t.task_index for t in tasks if t.status in ("FAILED", "PENDING")} | missing
+        failed = [str(i) for i in sorted(failed_indexes)]
+        if missing:
+            logger.warning(f"Task registrations missing for indexes {sorted(missing)} (task_count={total}).")
+            return False, failed
 
+        completed = [t for t in tasks if t.status == "COMPLETED"]
         success_ratio = len(completed) / total
         logger.info(f"Barrier verification: {len(completed)}/{total} tasks completed (ratio: {success_ratio:.2%}).")
 
