@@ -212,6 +212,8 @@ def test_single_run_still_continues_to_post_crawl():
 def pipeline_main(monkeypatch):
     monkeypatch.setattr("sys.argv", ["run_pipeline.py"])
     monkeypatch.setattr(run_pipeline, "pin_execution_date", lambda: None)
+    for name in ("_is_coordinator", "_task_index", "_task_count"):
+        monkeypatch.setattr(run_pipeline, name, getattr(run_pipeline, name))
     mocks = SimpleNamespace(
         run_command=MagicMock(),
         startup=MagicMock(),
