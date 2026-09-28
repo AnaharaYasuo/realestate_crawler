@@ -43,8 +43,9 @@ terraform/
 | `db_user` | `string` | `"sumifu"` | MySQL ユーザー名 |
 | `crawler_cpu` | `string` | `"2"` | Cloud Run Jobs CPU コア数 |
 | `crawler_memory` | `string` | `"4Gi"` | Cloud Run Jobs メモリ割り当て |
-| `crawler_timeout` | `string` | `"86400s"` | Cloud Run Jobs タイムアウト（最大24時間） |
+| `crawler_timeout` | `string` | `"7200s"` | クローラー Cloud Run Job の 1 タスクあたりのタイムアウト（2 時間。Cloud Run Jobs の上限は 24 時間 = `86400s` だが、Safety-Net の hung 判定 7800s・`ml_pipeline_schedule_cron`・バックアップ開始時刻と整合させるため validation で `1s`〜`7200s` に制限）。同値の秒数を環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC` としてジョブに渡し、`run_pipeline.py` の内部締め切りと一致させる（Issue #550） |
 | `schedule_cron` | `string` | `"0 16 * * *"` | Cloud Scheduler 実行cron式（UTC 16:00 = JST 01:00） |
+| `ml_pipeline_schedule_cron` | `string` | `"10 18 * * *"` | ML Pipeline Job 起動cron式（UTC 18:10 = JST 03:10）。`schedule_cron` + `crawler_timeout`（最遅 18:00 UTC）より後であること（Issue #550） |
 
 ---
 
@@ -66,7 +67,7 @@ terraform/
   - プライベート IP 有効 (`private_network = google_compute_network.id`)
   - パラメータ: `character_set_server = utf8mb4`, `collation_server = utf8mb4_unicode_ci`, `max_connections = 1000`
   - セキュリティフラグ: `cloudsql_iam_authentication = on`, `local_infile = off`, `skip_show_database = on`
-  - バックアップ設定: 有効（毎日自動バックアップ）
+  - バックアップ設定: 有効（毎日自動バックアップ、開始 `20:00` UTC = JST 05:00。クローラー最遅終了 18:00 UTC・ML Pipeline Job 最遅終了 19:10 UTC 以降。Issue #550）
 - `google_sql_user.db_user`: アプリケーション接続用 MySQL ユーザー (`var.db_user`)
 - `google_sql_user.monitor_user`: ProxySQL ヘルスチェック監視専用 MySQL ユーザー (`name = "monitor"`, 最小 USAGE 権限)
 - `random_password.db_monitor_password`: 監視用ランダムパスワード (24桁、Secret Manager 格納)

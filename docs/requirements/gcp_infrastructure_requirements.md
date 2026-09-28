@@ -84,21 +84,27 @@
     - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
     - ProxySQL 起動から 15分間（900秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）および処理完了直後の早期停止による再起動ループを完全に遮断すること（Issue #518 により 10分 ➔ 15分へ延長）。
   - **完全停止戦略 (Dual Hard-Kill on Hang)**:
-    - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + 猶予）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
+    - Cloud Run Job Execution がタイムアウト上限（最長ジョブのクローラー 7200秒 + 猶予 600秒 = 7800秒。Issue #550）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
   - **親不在時の即時停止**:
     - 関連する Cloud Run Job Execution が存在しない（親不在）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して Slack へ通知すること。
 - **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
-  - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
+  - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（7200秒。Issue #550 で 3600 秒から延長）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
   - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown を実行して ProxySQL 停止を保証すること。
   - 他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に応じて動的にタイムアウト上限を制限し、Cloud Run のタイムアウトによる突然死・teardown スキップを未然に防止すること。
   - タスクアレイモードの Coordinator は、自タスク以外に終端状態（COMPLETED / FAILED）でないタスク（`CrawlerTaskExecution` 未登録を含む）が存在する場合、teardown / atexit / SIGTERM のいずれの経路でも共有 ProxySQL を停止してはならない。タスク状態を DB から取得できない場合も停止をスキップし、停止は Safety-Net に委譲すること（Issue #536）。停止判定・完了バリア・集約レポートは同一 Cloud Run 実行（`CLOUD_RUN_EXECUTION`）のタスク行のみを対象とし、同日の別実行の終端行で停止・バリア通過を許可してはならない。実行日はパイプライン起動時に一度だけ確定し、日付を跨ぐ実行でもタスク登録と照会で同一の実行日を用いること。停止をスキップした場合は後続の終了経路（atexit 等）で再判定できること。
   - Cloud Run Job の同時実行数（`crawler_parallelism`）はタスク数（`crawler_task_count`）と同値とし、全タスクを同時に起動すること。2 巡目のタスクが Coordinator の停止後に起動して DB 不通で全滅する事態、および Safety-Net の hung 判定閾値超過を防止する（Issue #536）。
 - **クロールと ML パイプラインのジョブ分離 & 自動再実行禁止 (Issue #549)**:
-  - クローラージョブ（`realestate-crawler-pipeline-*`）のタスクアレイ実行（`task_count > 1`）では、Coordinator を含む全タスクが自タスクのクロールのみを実行して終了すること。他タスク完了待機・全タスク集約レポート・データ検証・学習・価格推定・お宝通知・精度診断をクローラージョブ内で実行してはならない（1 タスクのタイムアウト 3600 秒にクロールと ML を詰め込むことによる恒常的タイムアウトを防止）。単一実行（`task_count <= 1`、ローカル実行等）は従来どおりクロール後に後続ステップを実行してよい。
-  - 集約レポート・データ検証・学習・価格推定・お宝通知・精度診断は ML Pipeline Job（`realestate-ml-pipeline-*`）が日次 1 回だけ実行すること。ML Pipeline Job は Cloud Scheduler により、クローラー起動（16:00 UTC）からクローラーのタイムアウト（3600 秒）経過後の 17:10 UTC に起動し、完了バリア未達の場合も完了分のデータで続行すること（`--force`）。
+  - クローラージョブ（`realestate-crawler-pipeline-*`）のタスクアレイ実行（`task_count > 1`）では、Coordinator を含む全タスクが自タスクのクロールのみを実行して終了すること。他タスク完了待機・全タスク集約レポート・データ検証・学習・価格推定・お宝通知・精度診断をクローラージョブ内で実行してはならない（1 タスクのタイムアウト（当時 3600 秒）にクロールと ML を詰め込むことによる恒常的タイムアウトを防止）。単一実行（`task_count <= 1`、ローカル実行等）は従来どおりクロール後に後続ステップを実行してよい。
+  - 集約レポート・データ検証・学習・価格推定・お宝通知・精度診断は ML Pipeline Job（`realestate-ml-pipeline-*`）が日次 1 回だけ実行すること。ML Pipeline Job は Cloud Scheduler により、クローラー起動（16:00 UTC）からクローラーのタイムアウト（7200 秒、Issue #550）経過後の 18:10 UTC に起動し、完了バリア未達の場合も完了分のデータで続行すること（`--force`）。
   - ML Pipeline Job は起動時に Cloud SQL 稼働確認・ProxySQL 起動・疎通確認・DB 待機を自ら行い、終了時（異常時を含む）に ProxySQL を停止すること。
   - クローラージョブおよび ML Pipeline Job の `max_retries` は 0 とすること。タイムアウトや失敗は同じ処理を再実行しても解消しないため、自動再実行による課金の倍増・ProxySQL の停止/再起動の繰り返し・重複 Slack 通知を禁止する。
-  - ML Pipeline Job のタイムアウトは Safety-Net の hung 判定閾値（4200 秒）未満の 3600 秒とし、正常実行中の ML パイプラインが Safety-Net にキャンセルされないこと。
+  - ML Pipeline Job のタイムアウトは Safety-Net の hung 判定閾値（7800 秒）未満の 3600 秒とし、正常実行中の ML パイプラインが Safety-Net にキャンセルされないこと。
+- **クローラータスク上限の 2 時間化と連動スケジュール (Issue #550)**:
+  - クローラージョブの 1 タスクあたりのタイムアウトは 7200 秒（2 時間）とし、Terraform `crawler_timeout` から導出した `CLOUD_RUN_JOB_TIMEOUT_SEC` をジョブへ渡して、アプリの内部締め切り（安全停止マージン 300 秒前）を Cloud Run のタスクタイムアウトと一致させること。
+  - Safety-Net の hung 判定閾値は最長ジョブのタスクタイムアウト（7200 秒）+ 猶予（600 秒）= 7800 秒以上とし、2 時間以内で正常稼働中の実行をキャンセルしないこと。
+  - ML Pipeline Job はクローラー最遅終了（16:00 UTC + 7200 秒 = 18:00 UTC）後の 18:10 UTC（03:10 JST）に起動すること。
+  - Cloud SQL 自動バックアップはクローラー最遅終了および ML Pipeline Job 最遅終了（18:10 UTC + 3600 秒 = 19:10 UTC）以降の 20:00 UTC（05:00 JST）に開始すること。
+  - Safety-Net（17-21 UTC 毎時）はクローラー最遅終了（18:00 UTC）および ML Pipeline Job 最遅終了（19:10 UTC）以降にも起動すること。
 - **クロール詳細 URL の重複ディスパッチ防止**:
   - 一覧（中間）ページから抽出した詳細 URL は、同一ページ内・同一クロールプロセス内の別一覧ページ間で重複して詳細処理にディスパッチしてはならない（詳細 API ごとに 1 回）。バリデーション失敗で保存されない物件の再取得ループによるクロール時間浪費を防止する（Issue #537）。
 - **リソースタグ・ラベル統一による費用分析**:

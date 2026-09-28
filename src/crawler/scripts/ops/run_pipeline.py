@@ -53,7 +53,7 @@ _task_index: int | None = None
 _task_count: int = 1
 _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
-DEFAULT_TIMEOUT_SEC: float = 3600.0
+DEFAULT_TIMEOUT_SEC: float = 7200.0
 SAFE_SHUTDOWN_BUFFER_SEC: float = 300.0
 TASK_RECONCILE_MAX_ATTEMPTS: int = 4
 TASK_RECONCILE_INTERVAL_SEC: float = 15.0
@@ -187,9 +187,14 @@ def _sigterm_handler(signum: int, frame: object) -> None:
         except Exception as proc_err:  # noqa: BLE001
             logger.warning(f"Error terminating active subprocess: {proc_err}")
 
-    if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
-        if _can_stop_shared_proxysql() and _inline_stop_proxysql():
-            _teardown_done = True
+    if (
+        _is_coordinator
+        and os.environ.get("IS_CLOUD")
+        and not _teardown_done
+        and _can_stop_shared_proxysql()
+        and _inline_stop_proxysql()
+    ):
+        _teardown_done = True
 
     sys.exit(128 + signum)
 
