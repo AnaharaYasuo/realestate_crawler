@@ -4,12 +4,11 @@ Cloud Run Jobs タスク分散ユーティリティ
 """
 import datetime
 import os
-from typing import List, Optional, Tuple
 
 EXECUTION_DATE_ENV = "CRAWLER_EXECUTION_DATE"
 
 
-def get_task_config() -> Tuple[Optional[int], int]:
+def get_task_config() -> tuple[int | None, int]:
     """環境変数から Cloud Run Jobs のタスク番号と総タスク数を取得"""
     raw_index = os.getenv("CLOUD_RUN_TASK_INDEX")
     raw_count = os.getenv("CLOUD_RUN_TASK_COUNT")
@@ -46,10 +45,10 @@ def pin_execution_date() -> datetime.date:
 
 
 def distribute_jobs(
-    jobs: List[Tuple[str, str]],
-    task_index: Optional[int] = None,
+    jobs: list[tuple[str, str]],
+    task_index: int | None = None,
     task_count: int = 1
-) -> List[Tuple[str, str]]:
+) -> list[tuple[str, str]]:
     """
     全ジョブリストをタスクインデックスに応じて Modulo 分割して返す。
     task_count <= 1 または task_index is None の場合は全ジョブを返す。
