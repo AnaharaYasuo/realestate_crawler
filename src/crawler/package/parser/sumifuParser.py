@@ -950,6 +950,8 @@ class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase, InvestmentPars
 
 
 class SumifuMansionParser(SumifuParser, MansionParserBase):
+    sectional_unit_guard_enabled = True
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
@@ -1112,6 +1114,9 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
             if "専有面積" in text:
                 return text
         return ""
+
+    def _senyu_area_outside_specs(self, soup) -> str:
+        return self._senyu_from_summary_chip(soup)
 
     def _parseSenyuMensekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
