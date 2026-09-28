@@ -124,7 +124,7 @@ def _inline_stop_proxysql() -> bool:
 
 
 def _current_execution_filters() -> dict:
-    """run_all_crawlers.py の行登録と同じ実行日 (ローカル日付) と実行 ID で今回の実行のタスク行を特定する"""
+    """main() 起動時に pin_execution_date() で固定した実行日 (子プロセスへ CRAWLER_EXECUTION_DATE で継承) と実行 ID で今回の実行のタスク行を特定する"""
     return {"execution_date": get_execution_date(), "execution_id": get_execution_id()}
 
 
