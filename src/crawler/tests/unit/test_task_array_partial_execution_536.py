@@ -36,7 +36,7 @@ from package.api import api as api_module
 from package.api.api import ParseMiddlePageAsyncBase
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils import pipeline_coordinator, task_distribution
-from scripts.ops import run_all_crawlers, run_ml_pipeline, run_pipeline
+from scripts.ops import run_all_crawlers, run_dispatcher, run_ml_pipeline, run_pipeline
 import main as crawler_main
 
 TERRAFORM_DIR = os.path.abspath(
@@ -896,8 +896,8 @@ def test_main_pins_execution_date_before_running(monkeypatch):
     assert calls[:1] == ["pin"]
 
 
-def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
-    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+@pytest.fixture
+def crawl_task_model(monkeypatch):
     model = MagicMock()
     model.objects.update_or_create.return_value = (MagicMock(), True)
     monkeypatch.setattr(crawler_main, "CrawlerTaskExecution", model)
@@ -905,14 +905,102 @@ def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
     monkeypatch.setattr(crawler_main, "_execute_crawl_func", lambda *a: True)
     monkeypatch.setattr(crawler_main, "_count_scraped_items", lambda *a: 0)
     monkeypatch.setattr(crawler_main, "_update_task_record", lambda *a: None)
-    crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
-    kwargs = model.objects.update_or_create.call_args.kwargs
+    return model
+
+
+def test_crawl_task_registers_row_with_dispatched_execution(crawl_task_model, monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    crawler_main.execute_crawl_task(
+        "sumifu", "mansion", "2020-01-02", execution_id="dispatch-1", task_index=3, task_count=7
+    )
+    kwargs = crawl_task_model.objects.update_or_create.call_args.kwargs
     assert kwargs["execution_date"] == PINNED_DATE
-    assert kwargs["execution_id"] == EXECUTION_ID
+    assert kwargs["execution_id"] == "dispatch-1"
+    assert kwargs["task_index"] == 3
+    assert kwargs["defaults"]["task_count"] == 7
+
+
+def test_crawl_task_without_dispatched_execution_is_standalone(crawl_task_model, monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
+    kwargs = crawl_task_model.objects.update_or_create.call_args.kwargs
+    assert (kwargs["execution_id"], kwargs["task_index"], kwargs["defaults"]["task_count"]) == (EXECUTION_ID, 0, 1)
 
     monkeypatch.delenv("CLOUD_RUN_EXECUTION")
-    crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
-    assert model.objects.update_or_create.call_args.kwargs["execution_id"] == "cloud-tasks-2020-01-02"
+    ids = []
+    for _ in range(2):
+        crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
+        ids.append(crawl_task_model.objects.update_or_create.call_args.kwargs["execution_id"])
+    assert all(i.startswith("cloud-tasks-") for i in ids)
+    assert ids[0] != ids[1]
+
+
+@pytest.fixture
+def crawl_client():
+    crawler_main.app.config["TESTING"] = True
+    with crawler_main.app.test_client() as client:
+        yield client
+
+
+def test_crawl_task_handler_forwards_dispatch_fields(crawl_client):
+    payload = {
+        "company": "mitsui", "property_type": "mansion", "execution_date": "2020-01-02",
+        "execution_id": "dispatch-1", "task_index": 2, "task_count": 5,
+    }
+    with patch.object(crawler_main, "execute_crawl_task", return_value=(True, 1, 1)) as execute:
+        assert crawl_client.post("/api/crawl/task", json=payload).status_code == 200
+    execute.assert_called_once_with(
+        "mitsui", "mansion", "2020-01-02", execution_id="dispatch-1", task_index=2, task_count=5
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{"task_index": "x"}, {"task_count": 0}, {"task_index": 5, "task_count": 5}, {"task_index": -1}],
+)
+def test_crawl_task_handler_rejects_invalid_dispatch_fields(crawl_client, extra):
+    payload = {"company": "mitsui", "property_type": "mansion", **extra}
+    with patch.object(crawler_main, "execute_crawl_task") as execute:
+        assert crawl_client.post("/api/crawl/task", json=payload).status_code == 400
+    execute.assert_not_called()
+
+
+def _run_dispatch(monkeypatch):
+    client = MagicMock()
+    client.queue_path.return_value = "queue"
+    model = MagicMock()
+    monkeypatch.setenv("IS_CLOUD", "1")
+    monkeypatch.setattr(run_dispatcher, "tasks_v2", MagicMock(CloudTasksClient=lambda: client))
+    monkeypatch.setattr(run_dispatcher, "CrawlerTaskExecution", model)
+    monkeypatch.setattr(run_dispatcher, "CRAWL_JOBS", [("sumifu", "mansion"), ("mitsui", "kodate"), ("homes", "tochi")])
+    sent = []
+    monkeypatch.setattr(run_dispatcher, "_dispatch_task_to_cloud", lambda *a: sent.append(a[-1]))
+    count = run_dispatcher.enqueue_crawl_tasks(skip_portals=True)
+    return count, sent, model
+
+
+def test_dispatcher_assigns_one_execution_id_and_sequential_indexes(monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    count, sent, model = _run_dispatch(monkeypatch)
+    assert count == 2
+    assert [(p["execution_id"], p["task_index"], p["task_count"]) for p in sent] == [
+        (EXECUTION_ID, 0, 2), (EXECUTION_ID, 1, 2)
+    ]
+    pending = [c.kwargs for c in model.objects.update_or_create.call_args_list]
+    assert [(k["execution_id"], k["task_index"], k["defaults"]["task_count"], k["defaults"]["status"]) for k in pending] == [
+        (EXECUTION_ID, 0, 2, "PENDING"), (EXECUTION_ID, 1, 2, "PENDING")
+    ]
+
+
+def test_dispatcher_generates_distinct_execution_ids_without_cloud_run_execution(monkeypatch):
+    monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
+    ids = []
+    for _ in range(2):
+        _, sent, _ = _run_dispatch(monkeypatch)
+        assert len({p["execution_id"] for p in sent}) == 1
+        ids.append(sent[0]["execution_id"])
+    assert all(i.startswith("dispatch-") for i in ids)
+    assert ids[0] != ids[1]
 
 
 def _task_rows(*rows, task_count=None, started=0):

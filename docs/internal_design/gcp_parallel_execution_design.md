@@ -67,9 +67,14 @@ sequenceDiagram
   {
     "company": "mitsui",
     "property_type": "mansion",
-    "execution_date": "2026-09-19"
+    "execution_date": "2026-09-19",
+    "execution_id": "realestate-crawler-dispatcher-prod-abc12",
+    "task_index": 0,
+    "task_count": 45
   }
   ```
+  - `execution_id` / `task_index` / `task_count` はディスパッチャー（`run_dispatcher.enqueue_crawl_tasks`）が 1 回のディスパッチにつき 1 つ払い出す実行 ID（自身の `CLOUD_RUN_EXECUTION`、無ければ `dispatch-<uuid>`）と、投入ジョブの連番・総数（Issue #536）。ディスパッチャーは同じ値で `CrawlerTaskExecution` に PENDING 行を登録する。
+  - 省略時は単独実行（実行 ID はワーカーの `CLOUD_RUN_EXECUTION`、無ければ `cloud-tasks-<uuid>`、`task_index=0` / `task_count=1`）として扱い、`0 <= task_index < task_count` を満たさない値は HTTP 400 を返す。
 - **処理内容**:
   1. `main.py` 内のディスパッチマップから対象関数を特定。
   2. クローラーを実行し、新規保存件数および所要時間を計測。

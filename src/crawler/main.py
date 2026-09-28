@@ -13,6 +13,7 @@ import inspect
 import asyncio
 import datetime
 import html
+import uuid
 from typing import Any
 from flask import Flask, jsonify, request
 from django.apps import apps
@@ -363,7 +364,15 @@ def _update_task_record(task_rec: Any, success: bool) -> None:
     task_rec.save()
 
 
-def execute_crawl_task(company: str, prop_type: str, execution_date: str = None):
+def execute_crawl_task(
+    company: str,
+    prop_type: str,
+    execution_date: str = None,
+    execution_id: str | None = None,
+    task_index: int = 0,
+    task_count: int = 1,
+):
+    """ディスパッチャーが払い出した実行 ID / 連番でタスク行を登録してクロールする (未指定なら単独実行 0/1)"""
     dispatch = get_dispatch_map()
     func = dispatch.get((company.lower(), prop_type.lower()))
     if not func:
@@ -375,9 +384,9 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
 
     task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
         execution_date=exec_dt,
-        task_index=abs(hash(f"{company}_{prop_type}")) % 1000,
-        execution_id=get_execution_id() or f"cloud-tasks-{exec_dt.isoformat()}",
-        defaults={"task_count": 1, "status": "RUNNING", "jobs_assigned": 1}
+        task_index=task_index,
+        execution_id=execution_id or get_execution_id() or f"cloud-tasks-{uuid.uuid4().hex}",
+        defaults={"task_count": task_count, "status": "RUNNING", "jobs_assigned": 1}
     )
 
     success = _execute_crawl_func(func, company, prop_type)
@@ -386,6 +395,18 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
     _update_task_record(task_rec, success)
 
     return success, scraped_count, elapsed
+
+
+def _dispatch_position(data: dict) -> tuple[int, int] | None:
+    """ペイロードの task_index / task_count を検証して返す (0 <= task_index < task_count でなければ None)"""
+    try:
+        task_index = int(data.get("task_index", 0))
+        task_count = int(data.get("task_count", 1))
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= task_index < task_count:
+        return None
+    return task_index, task_count
 
 
 @app.route('/api/crawl/task', methods=['POST'])
@@ -402,12 +423,22 @@ def handle_crawl_task():
 
         if not company or not prop_type:
             return jsonify({"error": "Missing company or property_type"}), 400
+        position = _dispatch_position(data)
+        if position is None:
+            return jsonify({"error": "Invalid task_index or task_count"}), 400
 
         dispatch = get_dispatch_map()
         if (company, prop_type) not in dispatch:
             return jsonify({"error": f"Unknown job: {safe_company} - {safe_prop_type}"}), 404
 
-        success, count, elapsed = execute_crawl_task(company, prop_type, execution_date)
+        success, count, elapsed = execute_crawl_task(
+            company,
+            prop_type,
+            execution_date,
+            execution_id=str(data.get("execution_id") or "")[:128] or None,
+            task_index=position[0],
+            task_count=position[1],
+        )
         if success:
             return jsonify({"status": "success", "company": safe_company, "property_type": safe_prop_type, "scraped_count": count, "elapsed_seconds": elapsed}), 200
         else:
