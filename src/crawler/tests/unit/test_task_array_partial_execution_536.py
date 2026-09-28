@@ -281,6 +281,54 @@ def test_safety_teardown_respects_guard(cloud_coordinator, can_stop):
     assert run_pipeline._teardown_done is can_stop
 
 
+def test_rejected_safety_teardown_logs_safety_net_handoff(cloud_coordinator):
+    with patch.object(run_pipeline, "_can_stop_shared_proxysql", return_value=False), \
+         patch.object(run_pipeline, "_inline_stop_proxysql"), \
+         patch.object(run_pipeline, "run_command"), \
+         patch.object(run_pipeline.logger, "warning") as mock_warn:
+        run_pipeline._execute_safety_teardown(is_coordinator=True, scripts_dir="/fake")
+    assert any("Safety-Net" in str(c.args[0]) for c in mock_warn.call_args_list)
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _cron_hours(content, resource):
+    block = content.split(f'"{resource}"', 1)[1]
+    return re.search(r'schedule\s*=\s*"([^"]+)"', block).group(1).split()[1]
+
+
+def test_safety_net_runs_after_latest_possible_crawler_end():
+    """停止スキップ時も、クローラー最遅終了後に Safety-Net が有限時間内に必ず 1 回以上起動すること"""
+    variables = _read(os.path.join(TERRAFORM_DIR, "variables.tf"))
+    scheduler = _read(os.path.join(TERRAFORM_DIR, "scheduler.tf"))
+    job = _read(os.path.join(TERRAFORM_DIR, "cloud_run_job.tf"))
+
+    crawler_start = int(re.search(r'variable\s+"schedule_cron"[^}]*?default\s*=\s*"\d+ (\d+) ', variables, re.DOTALL).group(1))
+    timeout_sec = int(re.search(r'variable\s+"crawler_timeout"[^}]*?default\s*=\s*"(\d+)s"', variables, re.DOTALL).group(1))
+    retries = int(re.search(r"max_retries\s*=\s*(\d+)", job).group(1))
+    latest_end_hour = crawler_start + timeout_sec * (retries + 1) / 3600
+
+    first, last = (int(h) for h in _cron_hours(scheduler, "crawler_safety_net_trigger").split("-"))
+    assert first > crawler_start
+    assert last >= latest_end_hour
+
+
+def test_safety_net_job_is_deployed_with_stop_script():
+    """Terraform のプレースホルダ image/command はデプロイ時に停止スクリプト入りイメージへ置換されること"""
+    job = _read(os.path.join(TERRAFORM_DIR, "cloud_run_job.tf"))
+    safety_block = job.split('"resource_safety_net_job"', 1)[1].split("\nresource ", 1)[0]
+    assert "template[0].template[0].containers[0].image" in safety_block
+    assert "template[0].template[0].containers[0].command" in safety_block
+
+    deploy = _read(os.path.join(TERRAFORM_DIR, "..", ".github", "workflows", "deploy-production.yml"))
+    step = deploy.split("gcloud run jobs update realestate-safety-net-prod", 1)[1].split("- name:", 1)[0]
+    assert "--image=asia-northeast1-docker.pkg.dev/" in step
+    assert "--command=python,src/crawler/scripts/ensure_resources_stopped.py" in step
+
+
 @pytest.mark.parametrize("can_stop", [True, False])
 def test_atexit_teardown_respects_guard(cloud_coordinator, can_stop):
     with patch.object(run_pipeline, "_can_stop_shared_proxysql", return_value=can_stop), \

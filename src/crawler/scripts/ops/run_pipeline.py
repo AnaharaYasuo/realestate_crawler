@@ -329,6 +329,10 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
                 "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
             )
             if not _can_stop_shared_proxysql():
+                logger.warning(
+                    "⚠️ [Cleanup] 他タスクが稼働中のため共有 ProxySQL の停止をスキップしました。"
+                    "停止は Safety-Net (realestate-safety-net, 17-21 UTC 毎時) が実行終了後に行います。"
+                )
                 return
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
             if _inline_stop_proxysql():
