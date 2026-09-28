@@ -1028,18 +1028,28 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
     def _getTreatPageArg(self):
         return
 
+    def _differentialModelClass(self):
+        if not (hasattr(self, "parser") and self.parser):
+            return None
+        try:
+            entity = self.parser.createEntity()
+        except Exception:  # noqa: BLE001
+            return None
+        return entity.__class__ if entity is not None else None
+
+    @staticmethod
+    def _detailItemUrl(detail_item) -> str:
+        if isinstance(detail_item, ListItem):
+            return detail_item.url
+        if isinstance(detail_item, (tuple, list)):
+            return detail_item[0]
+        return str(detail_item)
+
     async def _callApi(self, url_list):
         if not url_list:
             return []
 
-        model_class = None
-        if hasattr(self, "parser") and self.parser:
-            try:
-                entity = self.parser.createEntity()
-                if entity is not None:
-                    model_class = entity.__class__
-            except Exception:
-                model_class = None
+        model_class = self._differentialModelClass()
 
         to_fetch = url_list
         if model_class is not None:
@@ -1061,13 +1071,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         if keys is None:
             keys = set()
         for detail_item in to_fetch:
-            if isinstance(detail_item, ListItem):
-                detail_url = detail_item.url
-            elif isinstance(detail_item, (tuple, list)):
-                detail_url = detail_item[0]
-            else:
-                detail_url = str(detail_item)
-
+            detail_url = self._detailItemUrl(detail_item)
             if not _claim_detail_dispatch(keys, api_url, detail_url):
                 continue
             colo = self._fetchDetailOnce(keys, detail_url, api_url, loop)

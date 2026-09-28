@@ -501,6 +501,33 @@ def test_tuple_and_list_items_use_first_element_as_url(run_keys):
     assert called == ["https://a/1", "https://a/2"]
 
 
+def test_detail_item_url_supports_list_item_tuple_list_and_str():
+    item = api_module.ListItem(url="https://a/li", price=1)
+    assert ParseMiddlePageAsyncBase._detailItemUrl(item) == "https://a/li"
+    assert ParseMiddlePageAsyncBase._detailItemUrl(("https://a/t", 1)) == "https://a/t"
+    assert ParseMiddlePageAsyncBase._detailItemUrl(["https://a/l", 2]) == "https://a/l"
+    assert ParseMiddlePageAsyncBase._detailItemUrl(123) == "123"
+
+
+class _Entity:
+    pass
+
+
+@pytest.mark.parametrize(
+    ("parser", "expected"),
+    [
+        (None, None),
+        (SimpleNamespace(createEntity=lambda: _Entity()), _Entity),
+        (SimpleNamespace(createEntity=lambda: None), None),
+        (SimpleNamespace(createEntity=MagicMock(side_effect=RuntimeError("x"))), None),
+    ],
+)
+def test_differential_model_class(parser, expected):
+    page = _DummyMiddlePage()
+    page.parser = parser
+    assert page._differentialModelClass() is expected
+
+
 def test_claim_and_release_detail_dispatch():
     keys = set()
     assert api_module._claim_detail_dispatch(keys, "api", "u") is True
