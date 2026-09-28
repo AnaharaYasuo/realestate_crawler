@@ -133,6 +133,8 @@ jobs:
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_pipeline.py \
             --max-retries=0 \
+            --task-timeout=7200s \
+            --update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=7200 \
             --region=asia-northeast1
 
       - name: Update Cloud Run Service Image

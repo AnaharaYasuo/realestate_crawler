@@ -54,8 +54,13 @@ variable "crawler_memory" {
 
 variable "crawler_timeout" {
   type        = string
-  description = "Execution timeout for Cloud Run Job (up to 1h: 3600s)"
-  default     = "3600s"
+  description = "Per-task execution timeout for the crawler Cloud Run Job (default 2h: 7200s, Cloud Run Jobs max: 86400s). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"
+  default     = "7200s"
+
+  validation {
+    condition     = can(regex("^[0-9]+s$", var.crawler_timeout)) && tonumber(trimsuffix(var.crawler_timeout, "s")) > 0 && tonumber(trimsuffix(var.crawler_timeout, "s")) <= 86400
+    error_message = "crawler_timeout must be \"<seconds>s\" between 1s and 86400s (Cloud Run Jobs limit)."
+  }
 }
 
 variable "crawler_task_count" {
@@ -78,8 +83,8 @@ variable "schedule_cron" {
 
 variable "ml_pipeline_schedule_cron" {
   type        = string
-  description = "ML pipeline cron in UTC. Must start after schedule_cron + crawler_timeout (10 17 * * * is JST 02:10)"
-  default     = "10 17 * * *"
+  description = "ML pipeline cron in UTC. Must start after schedule_cron + crawler_timeout (10 18 * * * is JST 03:10)"
+  default     = "10 18 * * *"
 }
 
 # Budget Alert Variables

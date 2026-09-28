@@ -58,6 +58,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           value = "utf-8"
         }
         env {
+          name  = "CLOUD_RUN_JOB_TIMEOUT_SEC"
+          value = trimsuffix(var.crawler_timeout, "s")
+        }
+        env {
           name  = "CLOUD_DETAIL_CONCURRENCY"
           value = "5"
         }
@@ -500,7 +504,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   template {
     template {
       service_account = google_service_account.crawler_runner.email
-      timeout         = "3600s" # Safety-Net のハング判定 (4200s) 未満
+      timeout         = "3600s" # Safety-Net のハング判定 (7800s) 未満
       max_retries     = 0
 
       vpc_access {

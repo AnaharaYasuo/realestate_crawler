@@ -70,13 +70,13 @@ flowchart TB
 
 | コンポーネント | GCPサービス | 仕様・サイジング | 役割・選定根拠 |
 |---|---|---|---|
-| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, max_retries 0, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映とクロールを実行（タスクアレイ時は各タスクが自タスクのクロールのみ実行して終了し、ML は ML Pipeline Job に分離。Issue #549）。task_count=8 / parallelism=8 で全タスク同時起動。Coordinator起動時にProxySQLインスタンスを安全にオンデマンド起動・疎通確認し、完了時/異常時finallyで停止（タスクアレイ時は他全タスクが終端状態の場合のみ停止し、未完了・状態不明時は Safety-Net に委譲）。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のゾンビ残存を根本遮断。 |
-| **ML パイプライン実行基盤** | Cloud Run Jobs (`realestate-ml-pipeline-*`) | 4 vCPU, 8 GiB RAM, タイムアウト 3600s (Safety-Net hung 判定 4200s 未満), max_retries 0, 引数 `--force` | 全タスク集約レポート ➔ データ検証 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を日次 1 回実行。起動時に Cloud SQL 確認・ProxySQL 起動・疎通確認・DB 待機を行い、終了時に ProxySQL を停止（Issue #549）。 |
-| **定期トリガー** | Cloud Scheduler | クローラー: 毎日 16:00 UTC (01:00 JST)、ML パイプライン: 毎日 17:10 UTC (02:10 JST) | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。ML パイプラインはクローラーのタイムアウト（3600s）経過後に起動する。 |
+| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 7200s（Issue #550、`CLOUD_RUN_JOB_TIMEOUT_SEC` として同値をアプリへ伝達）, max_retries 0, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映とクロールを実行（タスクアレイ時は各タスクが自タスクのクロールのみ実行して終了し、ML は ML Pipeline Job に分離。Issue #549）。task_count=8 / parallelism=8 で全タスク同時起動。Coordinator起動時にProxySQLインスタンスを安全にオンデマンド起動・疎通確認し、完了時/異常時finallyで停止（タスクアレイ時は他全タスクが終端状態の場合のみ停止し、未完了・状態不明時は Safety-Net に委譲）。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のゾンビ残存を根本遮断。 |
+| **ML パイプライン実行基盤** | Cloud Run Jobs (`realestate-ml-pipeline-*`) | 4 vCPU, 8 GiB RAM, タイムアウト 3600s (Safety-Net hung 判定 7800s 未満), max_retries 0, 引数 `--force` | 全タスク集約レポート ➔ データ検証 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を日次 1 回実行。起動時に Cloud SQL 確認・ProxySQL 起動・疎通確認・DB 待機を行い、終了時に ProxySQL を停止（Issue #549）。 |
+| **定期トリガー** | Cloud Scheduler | クローラー: 毎日 16:00 UTC (01:00 JST)、ML パイプライン: 毎日 18:10 UTC (03:10 JST)、Safety-Net: 17-21 UTC 毎時 | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。ML パイプラインはクローラーのタイムアウト（7200s）経過後に起動する（Issue #550）。 |
 | **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL stopped, NAT）を検査する多重セーフティネット。Cloud Run Job Execution 稼働状態連動（RUNNING ジョブがあれば停止スキップ、タイムアウト超過時は Cloud Run キャンセル ＋ ProxySQL 両強制停止、起動後15分間 Grace Period 猶予）。 |
 | **コネクションプール** | Compute Engine Instance | `e2-micro` (固定内部IP: `10.0.0.10`), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `TERMINATED (stop)` でCPU/メモリ課金ゼロ化。トラフィック増大時は垂直スケールアップ（`e2-small` / `e2-medium`）で対処。 |
 | **内部負荷分散** | 廃止 (直接ルーティング) | 削除 (ILB転送ルール廃止) | ILB転送ルール固定費（月額約4,360円）を完全排除。Direct VPC Egress から ProxySQL の固定プライベートIP (10.0.0.10:6033) へ直接接続。 |
-| **リレーショナルDB** | Cloud SQL for MySQL 8.0 | `db-f1-micro` または `db-g1-small`, SSD 20GB (自動拡張) | 物件マスタ、トランザクション、地価、評価データの格納。自動バックアップ対応。 |
+| **リレーショナルDB** | Cloud SQL for MySQL 8.0 | `db-f1-micro` または `db-g1-small`, SSD 20GB (自動拡張) | 物件マスタ、トランザクション、地価、評価データの格納。自動バックアップ対応（開始 20:00 UTC / 05:00 JST。クローラー・ML パイプラインの最遅終了 19:10 UTC 以降。Issue #550）。 |
 | **オブジェクトストレージ** | Cloud Storage (GCS) | Standard クラス, リージョン: `asia-northeast1` | 物件画像、エビデンス、モデルアーティファクト保存。MinIOからの完全代替。 |
 | **コンテナレジストリ** | Artifact Registry | Docker リポジトリ (`asia-northeast1`) | クローラーDockerイメージの保存・バージョン管理。古いイメージの自動削除ポリシー適用。 |
 | **送信元IP固定** | Direct VPC Egress + Cloud NAT | サブネット直接アタッチ (Connector廃止), 手動静的外部IP 1本 | クロール先ポータルからのBot検知・IPブロックを回避。バッチ連動でオンデマンド有効化。 |
