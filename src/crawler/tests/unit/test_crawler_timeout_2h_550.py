@@ -135,10 +135,20 @@ def _deploy_run_block(job_name):
     return content.split(head, 1)[0].rsplit("run: |", 1)[1] + head + _deploy_step(job_name)
 
 
+def _gcloud_command_args(job_name):
+    args = []
+    for line in _deploy_step(job_name).splitlines():
+        args.append(line.strip().rstrip("\\").strip())
+        if not line.rstrip().endswith("\\"):
+            break
+    return [a for a in args if a]
+
+
 def test_deploy_applies_crawler_timeout_and_env_from_variable():
-    step = _deploy_step("realestate-crawler-pipeline-prod")
-    assert "--task-timeout=${CRAWLER_TIMEOUT_SEC}s" in step
-    assert "--update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC}" in step
+    args = _gcloud_command_args("realestate-crawler-pipeline-prod")
+    assert "--task-timeout=${CRAWLER_TIMEOUT_SEC}s" in args
+    assert "--update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC}" in args
+    assert args[-1] == "--region=asia-northeast1"
 
 
 @pytest.mark.skipif(shutil.which("awk") is None, reason="awk not available")
@@ -181,18 +191,16 @@ def test_internal_deadline_without_env_matches_crawler_timeout(monkeypatch):
     assert _remaining(monkeypatch, {}) == _crawler_timeout_sec()
 
 
-def test_deadline_not_approaching_before_two_hour_limit(monkeypatch):
-    """旧上限 (3600s - 300s) を超えた時点でも自己打ち切りしないこと"""
+@pytest.mark.parametrize(("offset_before_timeout", "expected"), [(301, False), (299, True)])
+def test_deadline_boundary_at_two_hour_limit(monkeypatch, offset_before_timeout, expected):
+    """自己打ち切りはタスクタイムアウトの 300 秒前からのみ発動すること"""
     timeout = _crawler_timeout_sec()
     monkeypatch.setenv("IS_CLOUD", "true")
     monkeypatch.setenv("CLOUD_RUN_JOB_TIMEOUT_SEC", str(timeout))
     now = time.time()
-    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", now - 3400)
+    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", now - (timeout - offset_before_timeout))
     with patch.object(run_pipeline.time, "time", return_value=now):
-        assert run_pipeline.is_deadline_approaching() is False
-    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", now - (timeout - 299))
-    with patch.object(run_pipeline.time, "time", return_value=now):
-        assert run_pipeline.is_deadline_approaching() is True
+        assert run_pipeline.is_deadline_approaching() is expected
 
 
 # ---------------------------------------------------------------------------
@@ -239,8 +247,12 @@ def _inspect_with_elapsed(elapsed_sec):
     return result, cancel
 
 
-def test_running_crawler_within_two_hours_is_not_cancelled():
-    result, cancel = _inspect_with_elapsed(float(_crawler_timeout_sec()))
+@pytest.mark.parametrize(
+    "elapsed_sec",
+    [float(_crawler_timeout_sec()), ensure_resources_stopped.DEFAULT_HUNG_THRESHOLD_SEC - 1],
+)
+def test_running_crawler_below_hung_threshold_is_not_cancelled(elapsed_sec):
+    result, cancel = _inspect_with_elapsed(elapsed_sec)
     assert result.skipped_reason == "job_running"
     assert result.forced_stop is False
     cancel.assert_not_called()
