@@ -25,6 +25,16 @@ TOKEN_INQUIRY = "/inquiry"
 TOKEN_CONTACT = "/contact"
 DECIMAL_REGEX = re.compile(r'([\d\.]+)')
 DIGIT_REGEX = re.compile(r'(\d+)')
+_BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―"})
+
+
+def _spec_has_value(specs, key: str) -> bool:
+    val = specs.get(key)
+    if isinstance(val, dict):
+        val = val.get("value")
+    if val is None:
+        return False
+    return str(val).strip() not in _BLANK_SPEC_VALUES
 
 
 class ReadPropertyNameException(Exception):
@@ -1014,7 +1024,7 @@ class ParserBase(metaclass=ABCMeta):
         """専有面積があり土地面積が無いスペック表は区分所有の住戸とみなす"""
         if not specs:
             return False
-        return "専有面積" in specs and "土地面積" not in specs
+        return _spec_has_value(specs, "専有面積") and not _spec_has_value(specs, "土地面積")
 
     def _maybe_switch_parser(self, url, title: str, soup: BeautifulSoup, specs: dict, item: models.Model):
         """Switch to a different parser when detected property type differs. Returns (parser, item)."""
@@ -1027,7 +1037,7 @@ class ParserBase(metaclass=ABCMeta):
         )
         if not (detected_type and self.property_type and detected_type != self.property_type):
             return self, item
-        if detected_type != "mansion" and self._is_sectional_unit_page(specs):
+        if self.property_type == "mansion" and self._is_sectional_unit_page(specs):
             logging.info(
                 f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' "
                 "skipped (sectional unit)"

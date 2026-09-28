@@ -10,7 +10,7 @@ from package.parser.sumifuParser import (
     SumifuKodateParser,
     SumifuMansionParser,
 )
-from package.parser.tokyuParser import TokyuMansionParser
+from package.parser.tokyuParser import TokyuKodateParser, TokyuMansionParser
 from package.utils.url_router import UrlRouter
 
 SUMIFU_UNIT_URL = "https://www.stepon.co.jp/mansion/detail_16133137/"
@@ -79,12 +79,38 @@ class TestSectionalUnitSwitchGuard534:
 
         assert isinstance(used_parser, SumifuInvestmentApartmentParser)
 
+    def test_non_mansion_parser_still_switches_on_sectional_page(self):
+        parser = SumifuKodateParser("")
+        item = parser.createEntity()
+        specs = {"専有面積": "20.52m²", "表面利回り": "7.5%"}
+
+        used_parser, used_item = parser._maybe_switch_parser(
+            SUMIFU_UNIT_URL, "投資用区分", _soup("表面利回り 7.5%"), specs, item
+        )
+
+        assert isinstance(used_parser, SumifuInvestmentApartmentParser)
+        assert used_item is not item
+
     def test_is_sectional_unit_page(self):
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²"}) is True
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²", "土地面積": "80m²"}) is False
         assert SumifuMansionParser._is_sectional_unit_page({"土地面積": "80m²"}) is False
         assert SumifuMansionParser._is_sectional_unit_page({}) is False
         assert SumifuMansionParser._is_sectional_unit_page(None) is False
+
+    @pytest.mark.parametrize("blank", ["", "  ", "-", "－", "―", None])
+    def test_blank_land_area_is_treated_as_absent(self, blank):
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²", "土地面積": blank}) is True
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": blank}) is False
+
+    def test_dict_spec_values_are_inspected(self):
+        assert SumifuMansionParser._is_sectional_unit_page(
+            {"専有面積": {"value": "20m²"}, "土地面積": {"value": "-"}}
+        ) is True
+        assert SumifuMansionParser._is_sectional_unit_page(
+            {"専有面積": {"value": "20m²"}, "土地面積": {"value": "80m²"}}
+        ) is False
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": {"value": ""}}) is False
 
 
 class TestTokyuFloorLabel535:
@@ -123,7 +149,17 @@ class TestTokyuFloorLabel535:
         specs = {"建物構造": {"value": "鉄筋コンクリート造"}}
 
         assert self.parser._parseKaisu(None, specs) == ""
-        assert self.parser._parseKaisuStr(None, specs) == "鉄筋コンクリート造"
+        assert self.parser._parseKaisuStr(None, specs) == ""
+
+    def test_floor_count_label_has_priority(self):
+        specs = {"階数": {"value": "地上9階"}, "所在階": {"value": "5階"}}
+
+        assert self.parser._parseKaisuStr(None, specs) == "地上9階"
+
+    def test_kodate_keeps_structure_fallback(self):
+        specs = {"建物構造": {"value": "木造2階建"}}
+
+        assert TokyuKodateParser()._parseKaisuStr(None, specs) == "木造2階建"
 
 
 class TestTokyuTochiOptionalFields538:

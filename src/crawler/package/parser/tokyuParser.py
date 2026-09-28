@@ -530,12 +530,7 @@ class TokyuParser(ParserBase):
 
     def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        return (
-            self._get_spec_val(specs, "階数")
-            or self._get_spec_val(specs, "所在階")
-            or self._get_spec_val(specs, "所在階数")
-            or self._get_spec_val(specs, "建物構造")
-        )
+        return self._get_spec_val(specs, "階数") or self._get_spec_val(specs, "所在階") or self._get_spec_val(specs, "建物構造")
 
 
 class TokyuMansionParser(TokyuParser, MansionParserBase):
@@ -639,6 +634,14 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseSenyuMenseki(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         return converter.parse_menseki(self._parseSenyuMensekiStr(response, specs))
+
+    def _parseKaisuStr(self, response: BeautifulSoup, specs=None) -> str:
+        if specs is None: specs = self._scrape_specs(response)
+        return (
+            self._get_spec_val(specs, "階数")
+            or self._get_spec_val(specs, "所在階")
+            or self._get_spec_val(specs, "所在階数")
+        )
 
     def _parseKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)

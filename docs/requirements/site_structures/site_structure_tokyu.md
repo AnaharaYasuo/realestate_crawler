@@ -44,7 +44,7 @@
 | :--- | :--- | :--- |
 | **間取り** | `madori` | |
 | **専有面積** | `senyuMenseki` | |
-| **所在階** / **所在階数** | `kaisu` / `kaisuStr` / `tatemonoKaisu` | 例: `4階 / 地上9階` → `kaisu`=`4階`（「/」前）、`kaisuStr`=全体、`tatemonoKaisu`=`地上9階`（Issue #535） |
+| **所在階** / **所在階数** | `kaisu` / `kaisuStr` / `tatemonoKaisu` | 例: `4階 / 地上9階` → `kaisu`=`4階`（「/」前）、`kaisuStr`=全体（マンションは `階数`→`所在階`→`所在階数` の順で採用し、`建物構造` へはフォールバックしない）、`tatemonoKaisu`=`地上9階`（Issue #535） |
 | **建物構造** | `kouzou` | RC, SRCなど |
 | **築年月** | `chikunengetsu` | |
 | **バルコニー** | `balconyArea` | |
