@@ -22,13 +22,18 @@
   3. `dispatch-deploy-after-auto-merge` ジョブ（Issue #546、`needs: create-or-update-release-pr`）:
      - 権限: `actions: write`（`gh workflow run`）、`pull-requests: read`。
      - `concurrency: { group: release-pr-deploy-dispatch, cancel-in-progress: true }` とし、新しい master push の実行が古い待機を置き換えて多重 dispatch を防ぐ。`timeout-minutes: 65`。
-     - 実装は標準ライブラリのみの `src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py`（`python3 ... --timeout-sec 3600 --interval-sec 30`）。`gh` 呼び出しは 1 回あたり 10 秒のタイムアウトを付け、タイムアウト・一時エラーは待機継続とする。
-     - `gh pr list --base production --head master --state open` で待機対象 PR を特定（なければ終了）。
-     - 30 秒間隔・最大 60 分、`gh pr view <PR> --json state,mergedBy` をポーリング。
-       - `MERGED` かつ `mergedBy.login` が `app/github-actions` または `github-actions`: `gh workflow run deploy-production.yml --ref production` を実行して終了（dispatch 失敗時は exit 1）。
-       - `MERGED` かつそれ以外（人間/エージェントのトークン）: `push: production` で起動済みのため dispatch せず終了。
-       - `CLOSED`（未マージ）: 何もせず終了。
-       - 60 分経過: `::warning::` を出して正常終了（未マージのため後続の実行または手動マージに委ねる）。
+     - 実装は標準ライブラリのみの `src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py`（`python3 ... --pr-number <前段ジョブ出力> --timeout-sec 3600 --interval-sec 30 --grace-sec 90`）。`gh` 呼び出しは 1 回あたり 10 秒のタイムアウトを付ける。
+     - 待機対象 PR 番号は `create-or-update-release-pr` ジョブの output `pr_number`（`$GITHUB_OUTPUT` に書き出し、`env: PR_NUMBER` 経由で渡す）から受け取る（開始時点で既にマージ済みでも取りこぼさない）。
+     - `if: ${{ !cancelled() }}` とし、前段の PR 作成が失敗しても（`pr_number` 空）起動時リコンサイルだけは実行する。
+     - 判定はマージ実行者ではなく「コミットに対するデプロイ実行の有無」で行う（アクター名の表記揺れに依存しない）。デプロイ実行の有無は `gh run list --workflow deploy-production.yml --commit <sha> --json status,conclusion` で `cancelled` 以外の実行が 1 件以上あるかで判定する。
+     - 手順:
+       1. **起動時リコンサイル**: `production` の HEAD コミットにデプロイ実行がなく、かつコミット時刻から猶予（90 秒）以上経過している場合は dispatch する。過去の待機ジョブがタイムアウト・concurrency キャンセルで取りこぼしたマージを次回の master push で回収する。
+       2. 30 秒間隔・最大 60 分、`gh pr view <PR> --json state,mergeCommit` をポーリング。
+          - `MERGED`: 猶予（90 秒）待ってからマージコミットのデプロイ実行を確認し、なければ `gh workflow run deploy-production.yml --ref production` を実行する。人間によるマージでは `push: production` の実行が存在するため dispatch しない。
+          - `CLOSED`（未マージ）: 何もせず終了。
+          - 60 分経過: `::warning::` を出して正常終了（次回実行の起動時リコンサイルで回収）。
+          - `gh` のタイムアウト・非 0 終了・JSON 不正は待機継続とするが、連続 10 回で exit 1（監視不能を成功扱いしない）。成功したポーリングで連続回数はリセットする。
+       3. dispatch 失敗時は exit 1。
 
 ### 1.1a `deploy-production.yml` のトリガー（Issue #546）
 * `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。

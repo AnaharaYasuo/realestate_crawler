@@ -15,6 +15,8 @@ jobs:
   create-or-update-release-pr:
     name: Ensure Production Release PR
     runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.release_pr.outputs.pr_number }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7.0.1
@@ -22,6 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure release PR exists and enable auto-merge
+        id: release_pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -30,6 +33,7 @@ jobs:
           if [ -n "$EXISTING_PR" ]; then
             echo "Release PR #$EXISTING_PR already exists. Ensuring auto-merge is active..."
             gh pr merge "$EXISTING_PR" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$EXISTING_PR"
+            echo "pr_number=$EXISTING_PR" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -83,11 +87,14 @@ jobs:
           if [ -n "$NEW_PR_NUM" ]; then
             echo "Enabling auto-merge for PR #$NEW_PR_NUM..."
             gh pr merge "$NEW_PR_NUM" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$NEW_PR_NUM"
+            echo "pr_number=$NEW_PR_NUM" >> "$GITHUB_OUTPUT"
           fi
 
   dispatch-deploy-after-auto-merge:
     name: Dispatch Production Deploy After Auto-merge
     needs: create-or-update-release-pr
+    # Runs even if PR creation failed so the startup reconcile can still deploy an undeployed production head.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 65
     permissions:
@@ -104,4 +111,5 @@ jobs:
       - name: Wait for release PR merge and dispatch deploy
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py --timeout-sec 3600 --interval-sec 30
+          PR_NUMBER: ${{ needs.create-or-update-release-pr.outputs.pr_number }}
+        run: python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py --pr-number "$PR_NUMBER" --timeout-sec 3600 --interval-sec 30 --grace-sec 90

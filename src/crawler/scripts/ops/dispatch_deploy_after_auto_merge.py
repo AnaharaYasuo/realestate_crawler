@@ -1,8 +1,8 @@
-"""Wait for the master -> production release PR to merge and dispatch the production deploy.
+"""Ensure production is deployed after the master -> production release PR merges.
 
 Pushes made by GITHUB_TOKEN (auto-merge enabled by auto-release-pr.yml) do not trigger
-deploy-production.yml, so the deploy is dispatched explicitly in that case only.
-Merges by a human token trigger the push event themselves and must not be dispatched again.
+deploy-production.yml, so the deploy is dispatched whenever a merged production commit has no
+deploy run of its own. A merge by a user token creates its own push run and is not dispatched.
 Uses only the standard library so it runs on a bare GitHub Actions runner.
 """
 import argparse
@@ -10,18 +10,24 @@ import json
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 GH_TIMEOUT_SEC = 10
 DEPLOY_WORKFLOW = "deploy-production.yml"
 PRODUCTION_BRANCH = "production"
-AUTO_MERGE_ACTORS = frozenset({"app/github-actions", "github-actions"})
 
+MERGED = "merged"
+WAIT = "wait"
 DISPATCH = "dispatch"
 DISPATCH_FAILED = "dispatch_failed"
-SKIP_HUMAN_MERGE = "skip_human_merge"
+ALREADY_DEPLOYED = "already_deployed"
 SKIP_CLOSED = "skip_closed"
+SKIP_RECENT = "skip_recent"
+SKIP_UNKNOWN = "skip_unknown"
 TIMED_OUT = "timed_out"
-WAIT = "wait"
+POLL_FAILED = "poll_failed"
+
+FAILURE_RESULTS = frozenset({DISPATCH_FAILED, POLL_FAILED})
 
 
 def run_gh(args):
@@ -31,82 +37,133 @@ def run_gh(args):
     return proc.returncode, proc.stdout
 
 
-def decide_action(state, merged_by_login):
+def parse_iso8601(value):
+    return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).timestamp()
+
+
+def decide_action(state):
     if state == "MERGED":
-        return DISPATCH if merged_by_login in AUTO_MERGE_ACTORS else SKIP_HUMAN_MERGE
+        return MERGED
     if state == "CLOSED":
         return SKIP_CLOSED
     return WAIT
 
 
-def find_release_pr(gh=run_gh):
-    rc, out = gh(
-        ["pr", "list", "--base", PRODUCTION_BRANCH, "--head", "master", "--state", "open",
-         "--json", "number"]
-    )
-    if rc != 0 or not out.strip():
-        return None
-    prs = json.loads(out)
-    return str(prs[0]["number"]) if prs else None
-
-
-def _poll_action(pr_number, gh):
+def has_deploy_run(gh, sha):
+    """True if a non-cancelled deploy run exists for sha, None if it cannot be determined."""
     try:
-        rc, out = gh(["pr", "view", pr_number, "--json", "state,mergedBy"])
+        rc, out = gh(["run", "list", "--workflow", DEPLOY_WORKFLOW, "--commit", sha,
+                      "--json", "status,conclusion"])
         if rc != 0:
-            return WAIT
-        data = json.loads(out)
-    except (subprocess.TimeoutExpired, ValueError) as exc:
-        print(f"::notice::Transient error while polling PR #{pr_number}: {exc}")
-        return WAIT
-    merged_by = (data.get("mergedBy") or {}).get("login")
-    return decide_action(data.get("state"), merged_by)
+            return None
+        runs = json.loads(out or "[]")
+    except (subprocess.TimeoutExpired, ValueError):
+        return None
+    return any(run.get("conclusion") != "cancelled" for run in runs)
 
 
-def _dispatch(gh):
+def dispatch_deploy(gh):
     rc, _ = gh(["workflow", "run", DEPLOY_WORKFLOW, "--ref", PRODUCTION_BRANCH])
     return DISPATCH if rc == 0 else DISPATCH_FAILED
 
 
-def wait_and_dispatch(pr_number, timeout_sec, interval_sec, run_gh=run_gh, sleep=time.sleep,
-                      clock=time.monotonic):
+def ensure_deployed(gh, sha, grace_sec, sleep=time.sleep):
+    sleep(grace_sec)
+    if has_deploy_run(gh, sha):
+        return ALREADY_DEPLOYED
+    return dispatch_deploy(gh)
+
+
+def reconcile_production(gh, grace_sec, wall_clock=time.time):
+    """Dispatch if the production head was never deployed and is past the push-run grace period."""
+    rc, sha = gh(["api", f"repos/{{owner}}/{{repo}}/branches/{PRODUCTION_BRANCH}",
+                  "--jq", ".commit.sha"])
+    sha = sha.strip()
+    if rc != 0 or not sha:
+        return SKIP_UNKNOWN
+    if has_deploy_run(gh, sha):
+        return ALREADY_DEPLOYED
+    rc, committed_at = gh(["api", f"repos/{{owner}}/{{repo}}/commits/{sha}",
+                           "--jq", ".commit.committer.date"])
+    if rc == 0 and _is_recent(committed_at, grace_sec, wall_clock):
+        return SKIP_RECENT
+    return dispatch_deploy(gh)
+
+
+def _is_recent(iso_timestamp, grace_sec, wall_clock):
+    try:
+        return wall_clock() - parse_iso8601(iso_timestamp) < grace_sec
+    except ValueError:
+        return False
+
+
+def _poll(pr_number, gh):
+    """Return (action, merge_sha), or None when the poll itself failed."""
+    try:
+        rc, out = gh(["pr", "view", pr_number, "--json", "state,mergeCommit"])
+        if rc != 0:
+            return None
+        data = json.loads(out)
+    except (subprocess.TimeoutExpired, ValueError) as exc:
+        print(f"::notice::Transient error while polling PR #{pr_number}: {exc}")
+        return None
+    merge_sha = (data.get("mergeCommit") or {}).get("oid")
+    return decide_action(data.get("state")), merge_sha
+
+
+def wait_for_merge(pr_number, timeout_sec, interval_sec, run_gh=run_gh, sleep=time.sleep,
+                   clock=time.monotonic, max_errors=10):
     deadline = clock() + timeout_sec
+    errors = 0
     while True:
-        action = _poll_action(pr_number, run_gh)
-        if action == DISPATCH:
-            return _dispatch(run_gh)
-        if action != WAIT:
-            return action
+        polled = _poll(pr_number, run_gh)
+        if polled is None:
+            errors += 1
+            if errors >= max_errors:
+                return POLL_FAILED, None
+        else:
+            errors = 0
+            if polled[0] != WAIT:
+                return polled
         if clock() + interval_sec > deadline:
-            return TIMED_OUT
+            return TIMED_OUT, None
         sleep(interval_sec)
 
 
 def exit_code_for(result):
-    return 1 if result == DISPATCH_FAILED else 0
+    return 1 if result in FAILURE_RESULTS else 0
 
 
-def main(argv=None, run_gh=run_gh):
+def annotation_for(result):
+    if result in FAILURE_RESULTS:
+        return "::error::"
+    if result == TIMED_OUT:
+        return "::warning::"
+    return ""
+
+
+def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic, wall_clock=time.time):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pr-number", default="")
     parser.add_argument("--timeout-sec", type=int, default=3600)
     parser.add_argument("--interval-sec", type=int, default=30)
+    parser.add_argument("--grace-sec", type=int, default=90)
+    parser.add_argument("--max-consecutive-errors", type=int, default=10)
     args = parser.parse_args(argv)
 
-    pr_number = find_release_pr(run_gh)
-    if pr_number is None:
-        print("No open master -> production release PR; nothing to wait for.")
-        return 0
+    reconciled = reconcile_production(run_gh, args.grace_sec, wall_clock=wall_clock)
+    print(f"Startup reconcile of production head: {reconciled}")
+    if reconciled in FAILURE_RESULTS or not args.pr_number.strip():
+        return exit_code_for(reconciled)
 
-    result = wait_and_dispatch(pr_number, args.timeout_sec, args.interval_sec, run_gh=run_gh)
-    messages = {
-        DISPATCH: f"PR #{pr_number} was auto-merged by github-actions; dispatched {DEPLOY_WORKFLOW}.",
-        DISPATCH_FAILED: f"::error::Failed to dispatch {DEPLOY_WORKFLOW} after PR #{pr_number} merged.",
-        SKIP_HUMAN_MERGE: f"PR #{pr_number} was merged by a user token; push trigger deploys it.",
-        SKIP_CLOSED: f"PR #{pr_number} was closed without merge; no deploy.",
-        TIMED_OUT: f"::warning::PR #{pr_number} not merged within {args.timeout_sec}s; no deploy dispatched.",
-    }
-    print(messages[result])
-    return exit_code_for(result)
+    pr_number = args.pr_number.strip()
+    action, merge_sha = wait_for_merge(pr_number, args.timeout_sec, args.interval_sec,
+                                       run_gh=run_gh, sleep=sleep, clock=clock,
+                                       max_errors=args.max_consecutive_errors)
+    if action == MERGED:
+        action = ensure_deployed(run_gh, merge_sha, args.grace_sec, sleep=sleep)
+    print(f"{annotation_for(action)}Release PR #{pr_number}: {action}")
+    return exit_code_for(action)
 
 
 if __name__ == "__main__":
