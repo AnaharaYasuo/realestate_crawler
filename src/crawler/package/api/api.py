@@ -1038,14 +1038,27 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             if parser_next_func is not None:
                 next_page_url = await parser_next_func(response)
                 if len(next_page_url) > 0:
-                    async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as another_session:
-                        try:
-                            await self._fetch(session=another_session, detail_url=next_page_url, api_url=self._getUrl(
-                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retry_times=0)
-                        except Exception as npe:
-                            logging.warning(f"Failed to fetch next page {next_page_url}: {npe}")
+                    await self._fetchNextPage(next_page_url)
 
         return detail_url_list
+
+    async def _fetchNextPage(self, next_page_url):
+        async with aiohttp.ClientSession(
+            headers=header,
+            connector=self._generateConnector(self._getActiveEventLoop()),
+            timeout=self._generateTimeout(),
+            trace_configs=[_request_sent_trace_config()],
+        ) as another_session:
+            try:
+                await self._fetch(
+                    session=another_session,
+                    detail_url=next_page_url,
+                    api_url=self._getUrl() + (self._getNextPageApiKey() or ''),
+                    loop=self._getActiveEventLoop(),
+                    retry_times=0,
+                )
+            except Exception as npe:
+                logging.warning(f"Failed to fetch next page {next_page_url}: {npe}")
 
     def _getTreatPageArg(self):
         return
@@ -1100,8 +1113,13 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             task = asyncio.create_task(colo)
             tasks.append(task)
 
-        responses = await asyncio.gather(*tasks)
-        return responses
+        try:
+            return await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def _fetchDetailOnce(self, keys, detail_url, api_url, loop):
         try:

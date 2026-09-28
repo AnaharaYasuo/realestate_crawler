@@ -139,6 +139,11 @@ def _can_stop_shared_proxysql() -> bool:
     """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
     if _task_count <= 1:
         return True
+    if _task_index is None:
+        logger.warning(
+            "⚠️ [Teardown Guard] タスク番号 (CLOUD_RUN_TASK_INDEX) が無く自タスクを特定できないため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
     execution_filters = _current_execution_filters()
     if not execution_filters["execution_id"]:
         logger.warning(
@@ -652,7 +657,7 @@ def main():
     is_coordinator = not is_task_array or task_index == 0
     _is_coordinator = is_coordinator
     _task_index = task_index
-    _task_count = task_count if is_task_array else 1
+    _task_count = task_count
 
     logger.info(BORDER_LINE)
     logger.info(

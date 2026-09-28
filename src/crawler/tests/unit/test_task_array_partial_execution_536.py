@@ -142,6 +142,27 @@ def test_task_array_without_execution_id_blocks_stop_without_query(task_array, m
     task_array.objects.filter.assert_not_called()
 
 
+def test_task_array_without_task_index_blocks_stop_without_query(task_array, monkeypatch):
+    monkeypatch.setattr(run_pipeline, "_task_index", None)
+    task_array.objects.filter.return_value = _records(
+        {0: "COMPLETED", 1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
+    )
+    assert run_pipeline._can_stop_shared_proxysql() is False
+    task_array.objects.filter.assert_not_called()
+
+
+def test_main_keeps_task_count_when_task_index_missing(monkeypatch):
+    monkeypatch.setattr(run_pipeline, "pin_execution_date", lambda: None)
+    monkeypatch.setattr(run_pipeline, "get_task_config", lambda: (None, 4))
+    monkeypatch.setattr(run_pipeline, "_task_count", 1)
+    monkeypatch.setattr(run_pipeline, "_task_index", 0)
+    monkeypatch.setattr(sys, "argv", ["run_pipeline.py"])
+    monkeypatch.setattr(run_pipeline.logger, "info", MagicMock(side_effect=SystemExit(0)))
+    with pytest.raises(SystemExit):
+        run_pipeline.main()
+    assert (run_pipeline._task_index, run_pipeline._task_count) == (None, 4)
+
+
 def test_bounds_mysql_timeouts_before_query(task_array):
     task_array.objects.filter.return_value = _records(
         {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
@@ -554,6 +575,31 @@ def test_failed_fetch_releases_key_for_retry(run_keys):
     assert called == ["https://a/1"]
 
 
+def test_failed_fetch_cancels_and_releases_unfinished_detail_tasks(run_keys):
+    page = _DummyMiddlePage()
+    page.parser = None
+    cancelled = []
+
+    async def fetch(url, api_url, loop):
+        if url == "https://a/fail":
+            raise RuntimeError("boom")
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.append(url)
+            raise
+        return url
+
+    async def run():
+        with patch.object(page, "_fetchWithEachSession", fetch), \
+             patch.object(page, "_getActiveEventLoop", return_value=None), \
+             pytest.raises(RuntimeError):
+            await page._callApi(["https://a/slow", "https://a/fail"])
+        return list(cancelled), set(run_keys)
+
+    assert asyncio.run(asyncio.wait_for(run(), timeout=5)) == (["https://a/slow"], set())
+
+
 @pytest.mark.parametrize("status", [408, 429, 500, 503])
 def test_retryable_status_releases_key(run_keys, status):
     _dispatch(_DummyMiddlePage(), ["https://a/1"], result=("https://a/1", status, "busy"))
@@ -744,6 +790,35 @@ def test_fetch_session_registers_request_sent_trace():
     trace_configs = mock_cls.call_args.kwargs["trace_configs"]
     assert len(trace_configs) == 1
     assert trace_configs[0].on_request_chunk_sent
+
+
+def test_next_page_session_registers_request_sent_trace():
+    page = _DummyMiddlePage()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    fetch = AsyncMock(return_value=("u", 200, "ok"))
+    with patch.object(api_module.aiohttp, "ClientSession", return_value=session) as mock_cls, \
+         patch.object(page, "_generateConnector", return_value=None), \
+         patch.object(page, "_getActiveEventLoop", return_value=None), \
+         patch.object(page, "_fetch", fetch):
+        asyncio.run(page._fetchNextPage("https://a/page2"))
+    trace_configs = mock_cls.call_args.kwargs["trace_configs"]
+    assert len(trace_configs) == 1
+    assert trace_configs[0].on_request_chunk_sent
+    assert fetch.call_args.kwargs["detail_url"] == "https://a/page2"
+
+
+def test_next_page_fetch_failure_is_logged_not_raised():
+    page = _DummyMiddlePage()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=False)
+    with patch.object(api_module.aiohttp, "ClientSession", return_value=session), \
+         patch.object(page, "_generateConnector", return_value=None), \
+         patch.object(page, "_getActiveEventLoop", return_value=None), \
+         patch.object(page, "_fetch", AsyncMock(side_effect=RuntimeError("x"))):
+        asyncio.run(page._fetchNextPage("https://a/page2"))
 
 
 def test_real_slow_server_timeout_after_send_is_fire_and_forget():
