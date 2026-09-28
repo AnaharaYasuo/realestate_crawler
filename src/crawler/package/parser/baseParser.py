@@ -28,13 +28,22 @@ DIGIT_REGEX = re.compile(r'(\d+)')
 _BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―"})
 
 
-def _spec_has_value(specs, key: str) -> bool:
-    val = specs.get(key)
+def _is_filled_spec_value(val) -> bool:
     if isinstance(val, dict):
         val = val.get("value")
     if val is None:
         return False
     return str(val).strip() not in _BLANK_SPEC_VALUES
+
+
+def _spec_has_value(specs, key: str) -> bool:
+    """key と一致、または「key（壁芯）」等の修飾付きラベルのいずれかに値があるか"""
+    qualified = (f"{key}（", f"{key}(")
+    return any(
+        _is_filled_spec_value(val)
+        for label, val in specs.items()
+        if isinstance(label, str) and (label == key or label.startswith(qualified))
+    )
 
 
 class ReadPropertyNameException(Exception):

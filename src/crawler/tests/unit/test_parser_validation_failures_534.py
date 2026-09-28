@@ -103,6 +103,14 @@ class TestSectionalUnitSwitchGuard534:
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²", "土地面積": blank}) is True
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": blank}) is False
 
+    def test_qualified_labels_are_recognized(self):
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積（壁芯）": "20m²"}) is True
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積(登記)": "20m²"}) is True
+        assert SumifuMansionParser._is_sectional_unit_page(
+            {"専有面積（壁芯）": "20m²", "土地面積（公簿）": "80m²"}
+        ) is False
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積率": "20%"}) is False
+
     def test_dict_spec_values_are_inspected(self):
         assert SumifuMansionParser._is_sectional_unit_page(
             {"専有面積": {"value": "20m²"}, "土地面積": {"value": "-"}}

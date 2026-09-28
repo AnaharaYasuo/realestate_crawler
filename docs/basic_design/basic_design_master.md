@@ -853,7 +853,7 @@ sequenceDiagram
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
 5. **区分住戸ガード (Issue #534)**:
-   - 現在のパーサーが `mansion` で、スペック表の `専有面積` に値があり `土地面積` が無い（キー欠落、または空欄・`-` 等）ページは区分所有の住戸とみなし、検出種別が `mansion` 以外でも切り替えない（`[PropertyTypeSwitch] ... skipped (sectional unit)` を `INFO` ログ出力）。スペック値は文字列・`{"value": ...}` 形式の両方を評価する。
+   - 現在のパーサーが `mansion` で、スペック表の `専有面積` に値があり `土地面積` が無い（キー欠落、または空欄・`-` 等）ページは区分所有の住戸とみなし、検出種別が `mansion` 以外でも切り替えない（`[PropertyTypeSwitch] ... skipped (sectional unit)` を `INFO` ログ出力）。スペック値は文字列・`{"value": ...}` 形式の両方を評価し、ラベルは完全一致に加え `専有面積（壁芯）` / `土地面積(公簿)` 等の括弧付き修飾ラベルも同一項目として扱う。
    - 現在のパーサーが `mansion` 以外の場合はガードを適用せず、従来どおり検出種別のパーサーへ切り替える。
 
 ---
