@@ -86,6 +86,8 @@ def start_on_demand_resources(dry_run: bool = False) -> None:
     logger.info("🚀 [Startup] Scaling ProxySQL (0 -> 1)...")
     if not scale_proxysql_mig(target_size=1, dry_run=dry_run):
         raise RuntimeError("ProxySQL startup failed.")
+    if dry_run:
+        return
     if not wait_for_proxysql_health(timeout_sec=240):
         raise RuntimeError("ProxySQL health check timed out during startup.")
     logger.info("✔ [Startup] ProxySQL is healthy and operational!")
@@ -230,13 +232,12 @@ def main(argv=None):
 
         # Step 1: バリア完了検証
         ok, failed = verify_barrier_completion()
+        send_aggregated_crawl_report()
         if not ok and not args.force:
             logger.warning(f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。")
             return 1
         if not ok:
             logger.warning(f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。")
-
-        send_aggregated_crawl_report()
 
         # Step 2: データ検証 & クレンジング
         run_command([

@@ -283,6 +283,7 @@ def test_ml_startup_dry_run_does_not_modify_resources(ml_resources):
     run_ml_pipeline.start_on_demand_resources(dry_run=True)
     ml_resources.autoscaler.assert_not_called()
     ml_resources.scale.assert_called_once_with(target_size=1, dry_run=True)
+    ml_resources.health.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -328,11 +329,9 @@ def test_ml_main_order_with_force(ml_main):
     ]
 
 
-def test_ml_main_aborts_on_barrier_without_force_but_stops_proxysql(ml_main):
+def test_ml_main_aborts_on_barrier_without_force_but_reports_and_stops_proxysql(ml_main):
     assert run_ml_pipeline.main(argv=[]) == 1
-    assert "report" not in ml_main
-    assert "train.py" not in ml_main
-    assert ml_main[-1] == "scale:0"
+    assert ml_main == ["startup", "wait_for_db.py", "barrier", "report", "scale:0"]
 
 
 def test_ml_main_startup_failure_skips_steps_and_stops_proxysql(ml_main, monkeypatch):
@@ -418,6 +417,15 @@ def test_aggregated_report_slack_send_is_time_bounded(monkeypatch):
 
 def test_aggregated_report_timeout_is_finite_and_within_limit():
     assert 0 < run_ml_pipeline.SLACK_REPORT_TIMEOUT_SEC <= 10
+
+
+def test_aggregator_does_not_claim_all_success_when_jobs_missing():
+    aggregated = pipeline_coordinator.aggregate_task_array_reports(
+        [_task(0, [{"company": "mitsui", "property_type": "mansion", "status": "success"}])], total_jobs=3
+    )
+    message = aggregated["slack_message"]
+    assert "正常に実行・完了しました" not in message
+    assert "未実行ジョブが 2 件あります" in message
 
 
 def test_aggregator_treats_null_results_json_in_dict_as_empty():

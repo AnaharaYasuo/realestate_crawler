@@ -122,6 +122,8 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
             dur = f.get("duration", "")
             dur_str = f", 所要: {dur}" if dur else ""
             msg_lines.append(f"• {company} - {ptype}: {status} (Code: {code}{dur_str})")
+    elif missing_jobs > 0:
+        msg_lines.append(f"\n⚠️ 未実行ジョブが {missing_jobs} 件あります（タスクのタイムアウト・未完了の可能性）。")
     else:
         msg_lines.append(f"\n✅ 全 {executed_jobs} ジョブが正常に実行・完了しました。")
 
