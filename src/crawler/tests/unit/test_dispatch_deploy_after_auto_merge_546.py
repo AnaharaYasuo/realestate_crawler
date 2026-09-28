@@ -421,7 +421,9 @@ def test_auto_release_pr_passes_pr_number_to_dispatch_job():
     workflow = _load("auto-release-pr.yml")
     create_job = workflow["jobs"]["create-or-update-release-pr"]
     assert "pr_number" in create_job["outputs"]
-    assert "GITHUB_OUTPUT" in " ".join(s.get("run", "") for s in create_job["steps"])
+    writer = next(s for s in create_job["steps"] if 'pr_number=' in s.get("run", ""))
+    assert '>> "$GITHUB_OUTPUT"' in writer["run"]
+    assert create_job["outputs"]["pr_number"] == f"${{{{ steps.{writer['id']}.outputs.pr_number }}}}"
 
     job = workflow["jobs"]["dispatch-deploy-after-auto-merge"]
     assert job["needs"] == "create-or-update-release-pr"
@@ -429,16 +431,20 @@ def test_auto_release_pr_passes_pr_number_to_dispatch_job():
     assert job["permissions"]["actions"] == "write"
     assert job["concurrency"]["group"] == "release-pr-deploy-dispatch"
     assert 0 < job["timeout-minutes"] <= 70
-    run_steps = " ".join(step.get("run", "") for step in job["steps"])
-    assert "dispatch_deploy_after_auto_merge.py" in run_steps
-    assert "needs.create-or-update-release-pr.outputs.pr_number" in json.dumps(job["steps"])
+    step = next(s for s in job["steps"] if "dispatch_deploy_after_auto_merge.py" in s.get("run", ""))
+    assert step["run"].startswith("python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py ")
+    assert '--pr-number "$PR_NUMBER"' in step["run"]
+    assert step["env"]["PR_NUMBER"] == "${{ needs.create-or-update-release-pr.outputs.pr_number }}"
     assert "github.event_name == 'push'" in job["if"]
     assert create_job["if"] == "github.event_name == 'push'"
 
 
 def test_auto_release_pr_schedules_reconcile_only_job():
     workflow = _load("auto-release-pr.yml")
-    assert _on(workflow)["schedule"][0]["cron"].split()[1] == "*/3"
+    minute, hour, *daily = _on(workflow)["schedule"][0]["cron"].split()
+    assert minute.isdigit() and 0 <= int(minute) <= 59
+    assert hour == "*/3"
+    assert daily == ["*", "*", "*"]
     job = workflow["jobs"]["reconcile-production-deploy"]
     assert job["if"] == "github.event_name == 'schedule'"
     assert "needs" not in job
