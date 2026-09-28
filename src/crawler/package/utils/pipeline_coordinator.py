@@ -38,17 +38,17 @@ def wait_for_all_tasks(
     task_count: int,
     timeout_sec: int = 1800,
     interval_sec: int = 15,
-    execution_id: str = "",
+    execution_id: str | None = None,
 ) -> Tuple[bool, List[int]]:
     """
     Task 0 が他全タスクの完了を DB ポーリングで待機するバリア関数。
-    execution_id 指定時は同日の別実行の行を除外する。
+    execution_id 指定時 (空文字を含む) は同一実行 ID の行のみを対象とし、同日の別実行の行を除外する。
     """
     if task_count <= 1:
         return True, []
 
     filters = {"execution_date": execution_date}
-    if execution_id:
+    if execution_id is not None:
         filters["execution_id"] = execution_id
     start_time = time.time()
     logger.info(f"⏳ [Coordinator Barrier] 全 {task_count} タスクの完了待機を開始 (タイムアウト: {timeout_sec}秒)")

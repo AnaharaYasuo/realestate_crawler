@@ -125,11 +125,7 @@ def _inline_stop_proxysql() -> bool:
 
 def _current_execution_filters() -> dict:
     """run_all_crawlers.py の行登録と同じ実行日 (ローカル日付) と実行 ID で今回の実行のタスク行を特定する"""
-    filters = {"execution_date": get_execution_date()}
-    execution_id = get_execution_id()
-    if execution_id:
-        filters["execution_id"] = execution_id
-    return filters
+    return {"execution_date": get_execution_date(), "execution_id": get_execution_id()}
 
 
 def _bind_parent_db_timeouts() -> None:
@@ -143,9 +139,15 @@ def _can_stop_shared_proxysql() -> bool:
     """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
     if _task_count <= 1:
         return True
+    execution_filters = _current_execution_filters()
+    if not execution_filters["execution_id"]:
+        logger.warning(
+            "⚠️ [Teardown Guard] 実行 ID (CLOUD_RUN_EXECUTION) が無く今回の実行のタスク行を特定できないため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
     try:
         _bind_parent_db_timeouts()
-        records = list(CrawlerTaskExecution.objects.filter(**_current_execution_filters()))
+        records = list(CrawlerTaskExecution.objects.filter(**execution_filters))
     except Exception as e:  # noqa: BLE001
         logger.warning(
             f"⚠️ [Teardown Guard] タスク状態を取得できないため ProxySQL 停止をスキップし Safety-Net に委譲します: {e}"
@@ -513,7 +515,7 @@ def _run_crawler_step(
             task_count=task_count,
             timeout_sec=wait_timeout,
             interval_sec=wait_interval,
-            execution_id=execution_filters.get("execution_id", ""),
+            execution_id=execution_filters["execution_id"],
         )
         if not all_ok:
             crawler_ok = False

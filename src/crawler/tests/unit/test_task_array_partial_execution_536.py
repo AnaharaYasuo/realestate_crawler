@@ -126,13 +126,17 @@ def test_queries_current_execution_rows_only(task_array):
     assert kwargs == {"execution_date": _local_today(), "execution_id": EXECUTION_ID}
 
 
-def test_queries_by_date_only_without_execution_id(task_array, monkeypatch):
-    monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
+@pytest.mark.parametrize("raw", [None, ""])
+def test_task_array_without_execution_id_blocks_stop_without_query(task_array, monkeypatch, raw):
+    if raw is None:
+        monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
+    else:
+        monkeypatch.setenv("CLOUD_RUN_EXECUTION", raw)
     task_array.objects.filter.return_value = _records(
         {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
     )
-    run_pipeline._can_stop_shared_proxysql()
-    assert task_array.objects.filter.call_args.kwargs == {"execution_date": _local_today()}
+    assert run_pipeline._can_stop_shared_proxysql() is False
+    task_array.objects.filter.assert_not_called()
 
 
 def test_bounds_mysql_timeouts_before_query(task_array):
@@ -190,7 +194,10 @@ def test_current_execution_filters(monkeypatch):
         "execution_id": EXECUTION_ID,
     }
     monkeypatch.setenv("CLOUD_RUN_EXECUTION", "")
-    assert run_pipeline._current_execution_filters() == {"execution_date": _local_today()}
+    assert run_pipeline._current_execution_filters() == {
+        "execution_date": _local_today(),
+        "execution_id": "",
+    }
 
 
 def test_established_connection_is_reopened_with_bounded_timeouts(task_array):
@@ -699,7 +706,7 @@ def test_get_execution_id_reads_cloud_run_execution(monkeypatch):
     ("execution_id", "expected"),
     [
         (EXECUTION_ID, {"execution_date": "d", "execution_id": EXECUTION_ID}),
-        ("", {"execution_date": "d"}),
+        ("", {"execution_date": "d", "execution_id": ""}),
     ],
 )
 def test_wait_for_all_tasks_scopes_by_execution_id(execution_id, expected):
@@ -710,6 +717,15 @@ def test_wait_for_all_tasks_scopes_by_execution_id(execution_id, expected):
     )
     assert (ok, failed) == (True, [1])
     assert model.objects.filter.call_args.kwargs == expected
+
+
+def test_wait_for_all_tasks_omitted_execution_id_filters_by_date_only():
+    model = MagicMock()
+    model.objects.filter.return_value = _records({0: "COMPLETED", 1: "COMPLETED"})
+    pipeline_coordinator.wait_for_all_tasks(
+        model=model, execution_date="d", task_count=2, timeout_sec=5, interval_sec=0
+    )
+    assert model.objects.filter.call_args.kwargs == {"execution_date": "d"}
 
 
 def test_record_task_start_stores_execution_id(monkeypatch):
