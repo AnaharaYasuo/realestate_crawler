@@ -5,6 +5,31 @@
 #       Too many connections / MY-010048) など、通常 NOTICE/DEFAULT 扱いされるログを
 #       ログベースメトリクスで捕捉し、重大度 ERROR / CRITICAL のアラートとして即時通知する。
 
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+# Topic-scoped custom role so Deploy SA can set topic IAM without roles/pubsub.admin.
+# Bootstrap (first apply only): gcloud pubsub topics add-iam-policy-binding
+#   budget-alert-topic-<env> --member=serviceAccount:<Deploy SA>
+#   --role=projects/<project>/roles/pubsubTopicIamManager
+resource "google_pubsub_topic_iam_member" "github_actions_budget_topic_iam" {
+  project = var.project_id
+  topic   = google_pubsub_topic.budget_alert_topic.name
+  role    = "projects/${var.project_id}/roles/pubsubTopicIamManager"
+  member  = "serviceAccount:${var.github_actions_sa_email}"
+}
+
+# Without this grant, Monitoring notifications to the topic fail with PERMISSION_DENIED.
+resource "google_pubsub_topic_iam_member" "monitoring_notification_publisher" {
+  project = var.project_id
+  topic   = google_pubsub_topic.budget_alert_topic.name
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
+
+  depends_on = [google_pubsub_topic_iam_member.github_actions_budget_topic_iam]
+}
+
 # 0. Pub/Sub 通知チャンネル (Slack / インシデント通知用)
 resource "google_monitoring_notification_channel" "alert_pubsub" {
   display_name = "Real Estate Incident Alert Pub/Sub (${var.environment})"
@@ -14,7 +39,10 @@ resource "google_monitoring_notification_channel" "alert_pubsub" {
     topic = google_pubsub_topic.budget_alert_topic.id
   }
 
-  depends_on = [google_project_service.enabled_services]
+  depends_on = [
+    google_project_service.enabled_services,
+    google_pubsub_topic_iam_member.monitoring_notification_publisher
+  ]
 }
 
 # 1.1 MySQL 認証拒否ログメトリクス (MY-010926 / Access denied for user)
