@@ -27,11 +27,15 @@ while True:
 from package.utils.newrelic_helper import init_new_relic
 init_new_relic()
 
-import datetime
 from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
-from package.utils.task_distribution import get_task_config
+from package.utils.task_distribution import (
+    get_execution_date,
+    get_execution_id,
+    get_task_config,
+    pin_execution_date,
+)
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.slack import send_crawling_summary_alert
@@ -48,6 +52,8 @@ logger = logging.getLogger(__name__)
 # Global runtime state for graceful shutdown and signal handling (Issue #444)
 _active_proc: subprocess.Popen | None = None
 _is_coordinator: bool = False
+_task_index: int | None = None
+_task_count: int = 1
 _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
 DEFAULT_TIMEOUT_SEC: float = 3600.0
@@ -90,22 +96,80 @@ def check_deadline_or_raise(desc: str) -> None:
         )
 
 
-def _inline_stop_proxysql() -> None:
+def _inline_stop_proxysql() -> bool:
     """Directly scales down ProxySQL MIG/Instance and Autoscaler to 0 inline without subprocess overhead."""
     try:
         logger.info(
             "🛑 [Emergency/Inline Teardown] Scaling down ProxySQL MIG/Instance & Autoscaler to 0..."
         )
+        autoscaler_ok = True
         if not os.environ.get("PROXYSQL_INSTANCE_NAME"):
-            patch_proxysql_autoscaler(min_replicas=0, max_replicas=0)
-        scale_proxysql_mig(target_size=0)
+            autoscaler_ok = bool(patch_proxysql_autoscaler(min_replicas=0, max_replicas=0))
+        mig_ok = bool(scale_proxysql_mig(target_size=0))
+        if not (autoscaler_ok and mig_ok):
+            logger.error(
+                f"❌ [Emergency/Inline Teardown Error] ProxySQL scale-down incomplete "
+                f"(autoscaler_ok={autoscaler_ok}, mig_ok={mig_ok})"
+            )
+            return False
         logger.info(
             "✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG/Instance & Autoscaler to 0."
         )
+        return True
     except Exception as e:  # noqa: BLE001
         logger.error(
             f"❌ [Emergency/Inline Teardown Error] Failed to scale down ProxySQL: {e}"
         )
+        return False
+
+
+def _current_execution_filters() -> dict:
+    """main() 起動時に pin_execution_date() で固定した実行日 (子プロセスへ CRAWLER_EXECUTION_DATE で継承) と実行 ID で今回の実行のタスク行を特定する"""
+    return {"execution_date": get_execution_date(), "execution_id": get_execution_id()}
+
+
+def _bind_parent_db_timeouts() -> None:
+    """親プロセスの ORM 接続に有限タイムアウトを適用する (確立済みの接続は閉じ、次回クエリで設定付きで再接続させる)"""
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
+    if getattr(connection, "connection", None) is not None:
+        connection.close()
+
+
+def _can_stop_shared_proxysql() -> bool:
+    """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    if _task_count <= 1:
+        return True
+    if _task_index is None:
+        logger.warning(
+            "⚠️ [Teardown Guard] タスク番号 (CLOUD_RUN_TASK_INDEX) が無く自タスクを特定できないため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+    execution_filters = _current_execution_filters()
+    if not execution_filters["execution_id"]:
+        logger.warning(
+            "⚠️ [Teardown Guard] 実行 ID (CLOUD_RUN_EXECUTION) が無く今回の実行のタスク行を特定できないため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+    try:
+        _bind_parent_db_timeouts()
+        records = list(CrawlerTaskExecution.objects.filter(**execution_filters))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"⚠️ [Teardown Guard] タスク状態を取得できないため ProxySQL 停止をスキップし Safety-Net に委譲します: {e}"
+        )
+        return False
+    status_map = {r.task_index: r.status for r in records}
+    pending = [
+        idx
+        for idx in range(_task_count)
+        if idx != _task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
+    ]
+    if pending:
+        logger.warning(
+            f"⚠️ [Teardown Guard] 未完了タスク {pending} が存在するため ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+    return True
 
 
 def _sigterm_handler(signum: int, frame: object) -> None:
@@ -127,8 +191,8 @@ def _sigterm_handler(signum: int, frame: object) -> None:
             logger.warning(f"Error terminating active subprocess: {proc_err}")
 
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
-        _inline_stop_proxysql()
-        _teardown_done = True
+        if _can_stop_shared_proxysql() and _inline_stop_proxysql():
+            _teardown_done = True
 
     sys.exit(128 + signum)
 
@@ -138,8 +202,8 @@ def _atexit_teardown() -> None:
     global _teardown_done
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
         logger.info("🧹 [Atexit Guard] Executing safety teardown via atexit...")
-        _inline_stop_proxysql()
-        _teardown_done = True
+        if _can_stop_shared_proxysql() and _inline_stop_proxysql():
+            _teardown_done = True
 
 
 signal.signal(signal.SIGTERM, _sigterm_handler)
@@ -271,9 +335,15 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
             logger.info(
                 "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
             )
+            if not _can_stop_shared_proxysql():
+                logger.warning(
+                    "⚠️ [Cleanup] 他タスクが稼働中のため共有 ProxySQL の停止をスキップしました。"
+                    "停止は Safety-Net (realestate-safety-net, 17-21 UTC 毎時) が実行終了後に行います。"
+                )
+                return
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
-            _inline_stop_proxysql()
-            _teardown_done = True
+            if _inline_stop_proxysql():
+                _teardown_done = True
             # 2. Comprehensive check and notification via ensure_resources_stopped
             run_command(
                 [
@@ -371,7 +441,7 @@ def reconcile_aborted_task_execution(task_index: int | None) -> bool:
         try:
             # run_all_crawlers.py と同じ execution_date (ローカル日付) / task_index で自タスクの行のみを対象とする
             updated = CrawlerTaskExecution.objects.filter(
-                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
+                **_current_execution_filters(),
                 task_index=task_index or 0,
                 status="RUNNING",
             ).update(status="FAILED")
@@ -442,12 +512,15 @@ def _run_crawler_step(
         logger.info(
             f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)..."
         )
+        _bind_parent_db_timeouts()
+        execution_filters = _current_execution_filters()
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
-            execution_date=datetime.datetime.now(datetime.timezone.utc).date(),
+            execution_date=execution_filters["execution_date"],
             task_count=task_count,
             timeout_sec=wait_timeout,
             interval_sec=wait_interval,
+            execution_id=execution_filters["execution_id"],
         )
         if not all_ok:
             crawler_ok = False
@@ -457,11 +530,8 @@ def _run_crawler_step(
 
         # 全タスク集約レポートの生成 & Slack通知 (Issue #445)
         try:
-            today = datetime.datetime.now(datetime.timezone.utc).date()
             records = list(
-                CrawlerTaskExecution.objects.filter(execution_date=today).order_by(
-                    "task_index"
-                )
+                CrawlerTaskExecution.objects.filter(**execution_filters).order_by("task_index")
             )
             aggregated = aggregate_task_array_reports(records, total_jobs=89)
             logger.info(
@@ -579,12 +649,15 @@ def main():
         help="Skip large portal sites (homes, athome)",
     )
     args = parser.parse_args()
+    pin_execution_date()
 
-    global _is_coordinator
+    global _is_coordinator, _task_index, _task_count
     task_index, task_count = get_task_config()
     is_task_array = task_count > 1 and task_index is not None
     is_coordinator = not is_task_array or task_index == 0
     _is_coordinator = is_coordinator
+    _task_index = task_index
+    _task_count = task_count
 
     logger.info(BORDER_LINE)
     logger.info(

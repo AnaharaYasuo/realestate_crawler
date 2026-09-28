@@ -7,6 +7,7 @@ class CrawlerTaskExecution(models.Model):
     execution_date = models.DateField(db_index=True)
     task_index = models.IntegerField(default=0)
     task_count = models.IntegerField(default=1)
+    execution_id = models.CharField(max_length=128, blank=True, default="", db_index=True)
     status = models.CharField(max_length=20, default="RUNNING")  # RUNNING, COMPLETED, FAILED
     jobs_assigned = models.IntegerField(default=0)
     jobs_success = models.IntegerField(default=0)
@@ -17,4 +18,4 @@ class CrawlerTaskExecution(models.Model):
 
     class Meta:
         db_table = "crawler_task_execution"
-        unique_together = ("execution_date", "task_index")
+        unique_together = ("execution_date", "task_index", "execution_id")

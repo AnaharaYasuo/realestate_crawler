@@ -247,7 +247,7 @@ graph TD
   3. `CrawlerTaskExecution` を `FAILED` に更新する。DB 不通時の `save()` ブロックで終了が遅延しないよう、デーモンスレッドで実行し最大 `DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC`（10 秒）で待機を打ち切る（失敗・タイムアウトしても後続処理は継続）。
   4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
 - 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
-  - 対象は自タスクの行（`execution_date` は `run_all_crawlers.py` の登録時と同じローカル日付、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
+  - 対象は自タスクの行（`execution_date` は起動時に固定した実行日 `get_execution_date()`、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
   - DB 復旧を待つため、`close_old_connections()` で切断済み接続を破棄しつつ最大 `TASK_RECONCILE_MAX_ATTEMPTS`（4 回）、`TASK_RECONCILE_INTERVAL_SEC`（15 秒）間隔で再試行する（有限時間保証、最大約 45 秒＋接続タイムアウト）。全試行失敗時は警告ログを出して後続処理を継続する。
   - 親プロセスの MySQL 接続は子プロセスの `bound_db_connect_timeout()` の対象外のため、再試行ループの前に `bound_mysql_timeouts(connection.settings_dict)` で同じ有限の接続・読み書きタイムアウト（10 秒 / 120 秒）を適用し、各試行の `update()` が無期限にブロックしないようにする。
   - 再同期の待機は `run_command()` のタイムアウト対象外で、Coordinator のバリア待機時間も再同期後に算出されるため、各試行の前に `is_deadline_approaching()`、リトライ待機の前にはこれから待機する時間を含めた `is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC)` を確認し、Cloud Run のデッドラインが近づいている場合は再試行を打ち切って `False` を返す（後続の安全停止処理の猶予を消費しない）。
@@ -271,6 +271,24 @@ graph TD
 - **自律的早期シャットダウン (Graceful Self-Shutdown)**:
   - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 停止 + Slack警告発報）へ移行して終了する。
   - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
+- **共有 ProxySQL 停止ガード (Issue #536)**:
+  - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
+  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、`_current_execution_filters()` で今回の実行の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
+  - `_current_execution_filters()` は実行日（`task_distribution.get_execution_date()`）と実行 ID（`get_execution_id()` = 環境変数 `CLOUD_RUN_EXECUTION`。同一実行の全タスクで共通）で行を絞り込む。実行日は `run_pipeline.main()` 起動直後に `pin_execution_date()` がローカル日付を環境変数 `CRAWLER_EXECUTION_DATE`（ISO 形式）へ固定し、子プロセス `run_all_crawlers.py` の `record_task_start()` を含む登録・停止判定・完了バリア・集約のすべてが同じ値を参照する（日付を跨ぐ実行でも登録日と照会日がずれない。未固定・不正値の場合はローカル日付にフォールバック）。`record_task_start()` は登録時に `execution_id` を記録し、同日の前回実行の終端行を除外する。フィルタは実行 ID が空文字でも常に `execution_id` を含め（ローカル実行は `execution_id=""` の行のみ）、`wait_for_all_tasks(execution_id=None)` の省略時のみ実行日単独で絞り込む（`None` と空文字を区別）。タスクアレイモードで実行 ID が空の場合は今回の実行の行を特定できないため、`_can_stop_shared_proxysql()` は DB を照会せず停止をスキップして Safety-Net に委譲する。`CLOUD_RUN_TASK_COUNT > 1` なのにタスク番号（`CLOUD_RUN_TASK_INDEX`）が無い場合も自タスクを特定できないため、同様に DB を照会せず停止をスキップする（`_task_count` はタスク番号の有無に関わらず実際のタスク数を保持する）。
+  - 同じ絞り込みを Coordinator バリア `wait_for_all_tasks(..., execution_id=...)`、全タスク集約レポートのクエリ、および `reconcile_aborted_task_execution()` の FAILED 再同期にも適用し、停止判定と同じ実行日・実行 ID のタスク行を参照する。
+  - `_inline_stop_proxysql()` は Autoscaler 停止（単一インスタンス構成 `PROXYSQL_INSTANCE_NAME` 指定時は省略）と `scale_proxysql_mig(target_size=0)` の戻り値をすべて確認し、必要な全ステップが成功した場合のみ `True` を返す（Autoscaler 停止が失敗しても MIG 縮退は試行する）。`_teardown_done` は停止が成功した場合のみ `True` とし、ガードで停止をスキップした場合・停止に失敗した場合は未完了のまま残して、後続の終了経路（`_atexit_teardown` 等）で再判定させる。
+  - 照会前および Coordinator バリア `wait_for_all_tasks()` の前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。
+  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする（同プロセスからの呼び出しは自実行が稼働中と判定され停止されないため）。委譲先の有限時間性は次で保証する: Safety-Net ジョブ `realestate-safety-net-<env>` は 17-21 UTC 毎時に起動し（クローラー起動 16:00 UTC + タイムアウト 3600s × (max_retries 1 + 1) の最遅終了 18:00 UTC 以降にも必ず起動）、稼働中の Cloud Run 実行が無い場合に ProxySQL を停止する。Terraform 上の image/command はプレースホルダだが `lifecycle.ignore_changes` 対象で、`deploy-production.yml` がデプロイ時に本番イメージ・`ensure_resources_stopped.py` へ置換する（`test_safety_net_runs_after_latest_possible_crawler_end` / `test_safety_net_job_is_deployed_with_stop_script` で回帰検証）。
+  - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
+
+### 6.10.3 詳細 URL 重複ディスパッチ防止 (Issue #537)
+- `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとする実行単位のキー集合（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
+- 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
+- キー集合はクロール実行単位で分離する。独立した `ApiAsyncProcBase.main()` は `_enter_crawl_run()` でスレッドローカル `_crawl_run_state` に新しい集合を割り当て、終了時に破棄する（並行する別実行とは共有しない）。ローカルルーティング（`_handle_local_execution`）で子スレッドにネスト実行される一覧・詳細の `main()` は、親の集合を引き継いで共有する。実行外から `_callApi` が呼ばれた場合は呼び出しごとの集合でページ内重複のみ除外する。
+- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。ローカルルーティングの子スレッドで `main()` が例外終了した場合、`_handle_local_execution` は成功（`LocalSync`）ではなく `(詳細 URL, 500, "LocalError")` を返し、同じ規則でキーを解除する。1 件のディスパッチが例外で失敗した場合、`_callApi` は未完了の他タスクをキャンセルして終了を待ってから例外を伝播し、キャンセルされたタスクのキーも同様に解除する（完了済みタスクのキーは保持）。
+- HTTP ディスパッチの POST タイムアウトは `ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)` とし、DNS 解決・コネクションプール待ちを含む接続確立フェーズを総時間より短く区切る。接続確立前にタイムアウトした場合（`aiohttp.ConnectionTimeoutError`、リクエスト未送信）は `(詳細 URL, 504, "ConnectTimeout")` を返してキーを解除する。
+- 送信完了は詳細ディスパッチ用セッションおよび次ページ取得用セッション（`_fetchNextPage`）に登録した `TraceConfig`（`_request_sent_trace_config()`、`on_request_chunk_sent` で `trace_request_ctx["sent"] = True`）で確認する。本文送信を確認できたタイムアウトのみ Fire-and-Forget（受信側で処理継続）として成功扱いとしキーを保持し（再送すると重複処理となるため）、送信を確認できないタイムアウトは `(詳細 URL, 504, "Timeout")` を返してキーを解除し再取得を妨げない。
+- 詳細 `main()` 内で処理済みの失敗（パース・バリデーション失敗等。`_getContent` で通信リトライ済み、FailureReporter に記録済み）は再ディスパッチしない。決定的な失敗を一覧ページごとに再クロールする重複を防ぐためである。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
@@ -564,11 +582,12 @@ graph TD
 ### 6.30 タスクアレイ並列分散クローリング全件統合レポート可視化内部設計
 - **タスク実行結果モデルの拡張 (`CrawlerTaskExecution`)**:
   - `results_json = models.JSONField(default=list, blank=True)` フィールドを追加し、各タスクが実行した全ジョブの詳細結果（会社、種別、ステータス、新規件数、所要時間、エラー内容）を永続化。
+  - `execution_id = models.CharField(max_length=128, blank=True, default="", db_index=True)`（migration 0056、Issue #536）に Cloud Run の実行名 `CLOUD_RUN_EXECUTION` を記録し、同日の別実行の行と区別する。一意制約は `(execution_date, task_index, execution_id)` とし、`record_task_start()` の `update_or_create` ルックアップにも `execution_id` を含めて、同日に重なって実行された別実行の行を上書きしない。Cloud Tasks 経由の単一ジョブ実行（`main.execute_crawl_task`）は、ディスパッチャーがペイロードで渡す `execution_id` / `task_index` / `task_count`（1 ディスパッチにつき 1 つの実行 ID と連番。`gcp_parallel_execution_design.md` §4）で行を登録し、省略時は単独実行（`get_execution_id()`、無ければ `cloud-tasks-<uuid>`、0/1）として登録する。別ジョブで起動する ML パイプラインのバリア点検（`run_ml_pipeline.verify_barrier_completion`）はクローラーの実行 ID を知り得ないため、対象日の行を `execution_id` ごとにまとめ、空でない `execution_id` のうち、実行の開始時刻（その実行の行の最小 `created_at`）が最も新しい実行に絞り込む（`_latest_execution_tasks`。行の登録順では判定しない）。空 ID の行（別実行同士で上書きされ得る）と単独実行 `cloud-tasks-*` の行（日次クロール全体を表さない）は評価対象外とし、行が存在するのに識別可能な実行 ID が無い場合は判定不能として `False` を返す。`max(task_count)` が 0 以下なら不正として `False` を返し、`range(max(task_count))` のうち未登録の `task_index` があれば未完了として `False` を返し、全件登録済みの場合のみ完了率を判定する。未完了・未登録タスクは `task_index` で報告する。
 - **個社クローラー実行状況レポート出力の透明化 (`run_all_crawlers.py`)**:
   - タスクアレイ実行時（`task_count > 1`）、サマリー表示を `総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {success}, 失敗: {failed})` に改修し、担当件数と全体件数を明示。
   - タスクアレイのワーカータスク（`task_index > 0`）による重複サマリー発報を抑制し、Coordinator での統合通知を主軸とする。
 - **Coordinator 全タスク結果統合＆Slack発報 (`run_pipeline.py`)**:
-  - `wait_for_all_tasks` 完了後（タイムアウト時含む）、当日の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計。
+  - `wait_for_all_tasks` 完了後（タイムアウト時含む）、今回の実行（当日かつ同一 `execution_id`）の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計。
   - 全タスクの成功件数、失敗件数、異常クローラー一覧、および過去24時間の新規取得件数内訳を集約した「全体統合クローリング実行状況レポート」を Slack に送信。タスク未完了やタイムアウトが発生した場合はそのタスク番号と未完了ジョブも明記し、全ジョブの稼働実績を100%可視化する。
 
 ### 6.31 積水ハウスAkamai TLS抑止・和暦築年月および階数パース内部設計
