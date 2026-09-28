@@ -126,6 +126,11 @@ terraform/
   - `mysql_too_many_connections_alert`: 重大度 `CRITICAL`。接続上限到達で発報
   - `proxysql_unhealthy_alert`: 重大度 `ERROR`。`condition_matched_log` によるログ監視。ProxySQL MIG (`gce_instance_group_manager`) 異常インスタンス検知（UNHEALTHY）時に発報
   - 通知チャンネル: メール (`var.alert_email`) および Pub/Sub トピック (`google_pubsub_topic.budget_alert_topic`) へ集約
+- **Pub/Sub 通知チャンネルの発行権限 (Issue #543)**:
+  - `google_project_service_identity.monitoring_notification_agent`（`google-beta`、`service = "monitoring.googleapis.com"`）: Monitoring 通知サービスエージェント `service-<PROJECT_NUMBER>@gcp-sa-monitoring-notification.iam.gserviceaccount.com` を明示的に生成・取得する。新規プロジェクトで通知チャンネル作成前にエージェントが未作成でも IAM 付与が失敗しないようにするため。
+  - `google_pubsub_topic_iam_member.monitoring_notification_publisher`: 上記エージェント（`google_project_service_identity.monitoring_notification_agent.email`。メールアドレスはハードコードしない）に `budget_alert_topic` 限定で `roles/pubsub.publisher` を付与する（`google_project_iam_member` / `google_project_iam_binding` によるプロジェクトレベル付与はしない）。未付与だと通知発行が `PERMISSION_DENIED` となる。
+  - `google_pubsub_topic_iam_member.github_actions_budget_topic_iam`: Deploy SA（`var.github_actions_sa_email`）に `budget_alert_topic` 限定でカスタムロール `projects/${var.project_id}/roles/pubsubTopicIamManager` を付与し、CI の Terraform Apply が上記 topic IAM を更新できるようにする（New Relic トピックと同一方式。`roles/pubsub.admin` は付与しない）。Deploy SA は自身にこのロールを付与できないため、新規環境では (1) 一度 Apply してトピックを作成（この回は topic IAM リソースが失敗する）→ (2) トピックの `setIamPolicy` 権限を持つ管理者が `gcloud pubsub topics add-iam-policy-binding budget-alert-topic-${environment} --member=serviceAccount:<Deploy SA> --role=projects/<project>/roles/pubsubTopicIamManager` を実行 → (3) 再 Apply、の順で bootstrap する（本番 `sumifu` は 2026-09-28 に実施済み）。
+  - `google_monitoring_notification_channel.alert_pubsub` は `monitoring_notification_publisher` に `depends_on` する。
 
 
 ---
