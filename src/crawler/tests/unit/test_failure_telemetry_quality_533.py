@@ -89,6 +89,18 @@ class TestLocalLogScanDateFilter533:
             "Traceback ERROR rotated",
         ]
 
+    def test_undated_rotated_log_file_is_filtered_by_line_date(self):
+        (self.base / "pipeline.log.1").write_text(
+            "2026-09-25 23:59:59 ERROR: previous day\n"
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 01:00:00 ERROR: target day rotated\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 01:00:00 ERROR: target day rotated"]
+
     def test_other_dated_log_file_is_filtered_by_line_date(self):
         (self.base / "run_20260925.log").write_text(
             "2026-09-25 23:59:59 ERROR: previous day\n",

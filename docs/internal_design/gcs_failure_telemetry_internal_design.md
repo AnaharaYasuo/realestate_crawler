@@ -70,7 +70,7 @@ class FailureReporter:
         """GCSから対象日付の全タスク障害JSONを取得・集約"""
 ```
 
-- **ローカルログ走査の日付限定 (Issue #533)**: `_scan_local_logs(date_str)` は `STORAGE_LOCAL_FALLBACK_DIR`（既定 `logs`）直下の `*.log` と対象日付を含むローテーション済みログ `*YYYYMMDD*.log*` の和集合（重複なし・ファイル名順）を走査し、
+- **ローカルログ走査の日付限定 (Issue #533)**: `_scan_local_logs(date_str)` は `STORAGE_LOCAL_FALLBACK_DIR`（既定 `logs`）直下の `*.log` とローテーション済みログ `*.log.*` の和集合（重複なし・ファイル名順）を走査し、
   - ファイル名に `YYYYMMDD` を含むログ: 行頭に日付を持たない行（Traceback 等）と行頭が対象日付の ERROR/CRITICAL 行を抽出し、行頭が別日付の行は除外（`_matches_log_date(line, iso_date, require_date=False)`）
   - それ以外のログ: 行頭が `YYYY-MM-DD`（対象日付）の ERROR/CRITICAL 行のみ抽出（`require_date=True`）
 - **バリデーション失敗理由 (Issue #533)**: `ParseDetailPageAsyncBase._save_item_record` の `ValidationError` 捕捉時、`_save_error_html_record(item, invalid_fields)` へ `ve.message_dict` のキー（ソート済み）を渡し、`error_message` を `Property Name: <物件名> | Invalid fields: <f1>, <f2>` 形式で記録する。

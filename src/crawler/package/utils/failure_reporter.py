@@ -174,7 +174,7 @@ class FailureReporter:
             return error_logs
 
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-        log_files = set(fallback_base.glob(f"*{date_str}*.log*")) | set(fallback_base.glob("*.log"))
+        log_files = set(fallback_base.glob("*.log")) | set(fallback_base.glob("*.log.*"))
         for lpath in sorted(log_files):
             require_date = date_str not in lpath.name
             try:
