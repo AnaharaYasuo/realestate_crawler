@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [  # noqa: RUF012
-        ('package', '0054_crawlertaskexecution_results_json'),
+        ('package', '0055_tokyutochi_optional_fields_blank'),
     ]
 
     operations = [  # noqa: RUF012
