@@ -876,7 +876,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if not send_state["sent"]:
                 logger.warning("Timeout before request body was sent: %s", detail_url)
                 return detail_url, 504, "Timeout"
-            logging.info("Fire and forget - Timeout after request was sent (assumed success): " + detail_url)
+            logger.info("Fire and forget - Timeout after request was sent (assumed success): %s", detail_url)
             return detail_url, 200, "FireAndForget"
         except Exception:
             logging.exception("fetch error: %s", detail_url)
