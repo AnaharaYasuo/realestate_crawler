@@ -174,8 +174,9 @@ class FailureReporter:
             mtime = lpath.stat().st_mtime
         except OSError:
             return False
-        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc)
-        return modified.date().isoformat() >= iso_date
+        # ログ行はローカル時刻のため、UTC 日付では前日扱いとなる対象日早朝の更新も許容し、行日付で最終判定する
+        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).date()
+        return modified >= datetime.date.fromisoformat(iso_date) - datetime.timedelta(days=1)
 
     @classmethod
     def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
