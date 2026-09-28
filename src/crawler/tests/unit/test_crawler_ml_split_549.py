@@ -448,6 +448,14 @@ def test_aggregator_does_not_claim_all_success_when_jobs_missing():
     assert "未実行ジョブが 2 件あります" in message
 
 
+def test_aggregator_skips_unsupported_records():
+    aggregated = pipeline_coordinator.aggregate_task_array_reports(
+        [object(), {"task_index": 1, "status": "COMPLETED", "results_json": [{"status": "success"}]}], total_jobs=1
+    )
+    assert aggregated["task_stats"] == [{"task_index": 1, "status": "COMPLETED", "job_count": 1}]
+    assert aggregated["success_jobs"] == 1
+
+
 def test_aggregator_treats_null_results_json_in_dict_as_empty():
     aggregated = pipeline_coordinator.aggregate_task_array_reports(
         [{"task_index": 0, "results_json": None}], total_jobs=89

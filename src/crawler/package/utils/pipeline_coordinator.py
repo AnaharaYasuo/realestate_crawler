@@ -71,6 +71,15 @@ def wait_for_all_tasks(
     return False, failed
 
 
+def _task_record_fields(rec) -> tuple | None:
+    """Returns (results, task_index, status) from a model instance or dict, or None if unsupported."""
+    if hasattr(rec, "results_json"):
+        return rec.results_json or [], getattr(rec, "task_index", None), getattr(rec, "status", "UNKNOWN")
+    if isinstance(rec, dict):
+        return rec.get("results_json") or [], rec.get("task_index"), rec.get("status", "UNKNOWN")
+    return None
+
+
 def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> dict:
     """
     Aggregates results_json from all CrawlerTaskExecution records.
@@ -79,16 +88,10 @@ def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> di
     all_results = []
     task_stats = []
     for rec in task_records:
-        if hasattr(rec, "results_json"):
-            results = rec.results_json or []
-            task_idx = getattr(rec, "task_index", None)
-            status = getattr(rec, "status", "UNKNOWN")
-        elif isinstance(rec, dict):
-            results = rec.get("results_json") or []
-            task_idx = rec.get("task_index")
-            status = rec.get("status", "UNKNOWN")
-        else:
+        fields = _task_record_fields(rec)
+        if fields is None:
             continue
+        results, task_idx, status = fields
         all_results.extend(results)
         task_stats.append(
             {
