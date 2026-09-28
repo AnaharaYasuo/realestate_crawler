@@ -76,6 +76,12 @@ variable "schedule_cron" {
   default     = "0 16 * * *"
 }
 
+variable "ml_pipeline_schedule_cron" {
+  type        = string
+  description = "ML pipeline cron in UTC. Must start after schedule_cron + crawler_timeout (10 17 * * * is JST 02:10)"
+  default     = "10 17 * * *"
+}
+
 # Budget Alert Variables
 variable "billing_account_id" {
   type        = string

@@ -242,39 +242,11 @@ def test_unopened_connection_is_not_closed(task_array):
     run_pipeline.connection.close.assert_not_called()
 
 
-def test_barrier_wait_uses_bounded_db_timeouts(task_array, monkeypatch):
-    order = []
+def test_task_array_coordinator_does_not_query_other_tasks_after_crawl(task_array, monkeypatch):
+    """Issue #549: Coordinator は他タスクの完了待機・集約を行わず (DB 照会なし)、自タスクのクロール後に終了する"""
     monkeypatch.setattr(run_pipeline, "run_command", MagicMock())
-    monkeypatch.setattr(run_pipeline, "_bind_parent_db_timeouts", lambda: order.append("bind"))
-
-    def _wait(**_kwargs):
-        order.append("wait")
-        return True, []
-
-    monkeypatch.setattr(run_pipeline, "wait_for_all_tasks", _wait)
-    task_array.objects.filter.return_value.order_by.return_value = []
-    run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False)
-    assert order[:2] == ["bind", "wait"]
-
-
-def test_barrier_and_aggregation_use_same_execution_scope_as_guard(task_array, monkeypatch):
-    seen = {}
-    monkeypatch.setattr(run_pipeline, "run_command", MagicMock())
-    monkeypatch.setattr(run_pipeline, "_bind_parent_db_timeouts", MagicMock())
-
-    def _wait(**kwargs):
-        seen.update(kwargs)
-        return True, []
-
-    monkeypatch.setattr(run_pipeline, "wait_for_all_tasks", _wait)
-    task_array.objects.filter.return_value.order_by.return_value = []
-    run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False)
-    assert seen["execution_date"] == _local_today()
-    assert seen["execution_id"] == EXECUTION_ID
-    assert task_array.objects.filter.call_args.kwargs == {
-        "execution_date": _local_today(),
-        "execution_id": EXECUTION_ID,
-    }
+    assert run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False) == (False, True)
+    task_array.objects.filter.assert_not_called()
 
 
 def test_reconcile_targets_own_row_of_current_execution(task_array):

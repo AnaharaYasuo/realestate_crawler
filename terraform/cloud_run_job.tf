@@ -22,7 +22,7 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
     template {
       service_account = google_service_account.crawler_runner.email
       timeout         = var.crawler_timeout
-      max_retries     = 1
+      max_retries     = 0 # タイムアウト時に全タスクを丸ごと再実行する二重課金を防ぐ (Issue #549)
 
       vpc_access {
         network_interfaces {
@@ -482,7 +482,7 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
   }
 }
 
-# Cloud Run Job for ML Pipeline (全クロール完了後の学習・バルク推論・ProxySQL停止用: 15〜30分)
+# Cloud Run Job for ML Pipeline (クロール終了後に日次1回: 集約レポート・学習・バルク推論・ProxySQL停止)
 resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   name     = "realestate-ml-pipeline-${var.environment}"
   location = var.region
@@ -500,8 +500,8 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   template {
     template {
       service_account = google_service_account.crawler_runner.email
-      timeout         = "7200s" # 2時間
-      max_retries     = 1
+      timeout         = "3600s" # Safety-Net のハング判定 (4200s) 未満
+      max_retries     = 0
 
       vpc_access {
         network_interfaces {
@@ -513,6 +513,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
 
       containers {
         image = "python:3.11-slim"
+        args  = ["--force"]
 
         resources {
           limits = {
@@ -532,6 +533,14 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
         env {
           name  = "PYTHONIOENCODING"
           value = "utf-8"
+        }
+        env {
+          name  = "ML_NUM_THREADS"
+          value = "-1"
+        }
+        env {
+          name  = "BULK_EVAL_CONCURRENCY"
+          value = "4"
         }
         env {
           name  = "DB_HOST"
@@ -561,6 +570,14 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           name  = "PROXYSQL_MIG_NAME"
           value = google_compute_instance.proxysql_instance.name
         }
+        env {
+          name  = "PROXYSQL_ZONE"
+          value = google_compute_instance.proxysql_instance.zone
+        }
+        env {
+          name  = "CLOUDSQL_INSTANCE_NAME"
+          value = google_sql_database_instance.mysql_instance.name
+        }
 
         env {
           name = "DB_PASSWORD"
@@ -571,6 +588,17 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
             }
           }
         }
+
+        # ストレージ設定 (GCS)
+        env {
+          name  = "STORAGE_BACKEND"
+          value = "gcs"
+        }
+        env {
+          name  = "STORAGE_BUCKET"
+          value = google_storage_bucket.property_images.name
+        }
+
         env {
           name = "SLACK_BOT_TOKEN"
           value_source {
@@ -579,6 +607,40 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
               version = "latest"
             }
           }
+        }
+
+        # Slack チャンネル設定 (集約レポート・お宝物件通知・診断)
+        env {
+          name  = "SLACK_CHANNEL_ID"
+          value = "C0BGJF4E737"
+        }
+        env {
+          name  = "SLACK_DEV_CHANNEL"
+          value = "C0BKBHWD26T"
+        }
+        env {
+          name  = "SLACK_ALERT_PROPERTY_ALERT"
+          value = "property_alert"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_MANSION"
+          value = "C0BJ87V7BM0"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_KODATE"
+          value = "C0BJ87VEV0S"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_TOCHI"
+          value = "C0BJA5D1GMP"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_INVEST_APARTMENT"
+          value = "C0BJBUMSYGL"
+        }
+        env {
+          name  = "SLACK_RECOMMEND_INVEST_KODATE"
+          value = "C0BJ20EMQ67"
         }
       }
     }

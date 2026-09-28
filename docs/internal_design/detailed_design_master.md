@@ -270,16 +270,29 @@ graph TD
   - シグナル受信時は実行中の子プロセスを停止した上で、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、最短時間で ProxySQL インスタンス（または MIG）を安全に停止する。単一インスタンス構成時は MIG Autoscaler パッチをスキップする。
 - **自律的早期シャットダウン (Graceful Self-Shutdown)**:
   - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 停止 + Slack警告発報）へ移行して終了する。
-  - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
+  - タスクアレイモード（`task_count > 1`）では、`_run_crawler_step()` は Coordinator を含む全タスクで自タスクのクロール完了後に `(False, crawler_ok)` を返し、`main()` は後続ステップ（他タスク完了待機・集約レポート・`_run_post_crawl_pipeline`）を実行せずに終了する（Issue #549）。集約レポートと後続ステップは §6.10.1.1 の ML Pipeline Job が担う。単一実行（`task_count <= 1`）はクロール後に `_run_post_crawl_pipeline` を従来どおり実行する。
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
   - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、`_current_execution_filters()` で今回の実行の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
   - `_current_execution_filters()` は実行日（`task_distribution.get_execution_date()`）と実行 ID（`get_execution_id()` = 環境変数 `CLOUD_RUN_EXECUTION`。同一実行の全タスクで共通）で行を絞り込む。実行日は `run_pipeline.main()` 起動直後に `pin_execution_date()` がローカル日付を環境変数 `CRAWLER_EXECUTION_DATE`（ISO 形式）へ固定し、子プロセス `run_all_crawlers.py` の `record_task_start()` を含む登録・停止判定・完了バリア・集約のすべてが同じ値を参照する（日付を跨ぐ実行でも登録日と照会日がずれない。未固定・不正値の場合はローカル日付にフォールバック）。`record_task_start()` は登録時に `execution_id` を記録し、同日の前回実行の終端行を除外する。フィルタは実行 ID が空文字でも常に `execution_id` を含め（ローカル実行は `execution_id=""` の行のみ）、`wait_for_all_tasks(execution_id=None)` の省略時のみ実行日単独で絞り込む（`None` と空文字を区別）。タスクアレイモードで実行 ID が空の場合は今回の実行の行を特定できないため、`_can_stop_shared_proxysql()` は DB を照会せず停止をスキップして Safety-Net に委譲する。`CLOUD_RUN_TASK_COUNT > 1` なのにタスク番号（`CLOUD_RUN_TASK_INDEX`）が無い場合も自タスクを特定できないため、同様に DB を照会せず停止をスキップする（`_task_count` はタスク番号の有無に関わらず実際のタスク数を保持する）。
-  - 同じ絞り込みを Coordinator バリア `wait_for_all_tasks(..., execution_id=...)`、全タスク集約レポートのクエリ、および `reconcile_aborted_task_execution()` の FAILED 再同期にも適用し、停止判定と同じ実行日・実行 ID のタスク行を参照する。
+  - 同じ絞り込みを `reconcile_aborted_task_execution()` の FAILED 再同期にも適用し、停止判定と同じ実行日・実行 ID のタスク行を参照する。
   - `_inline_stop_proxysql()` は Autoscaler 停止（単一インスタンス構成 `PROXYSQL_INSTANCE_NAME` 指定時は省略）と `scale_proxysql_mig(target_size=0)` の戻り値をすべて確認し、必要な全ステップが成功した場合のみ `True` を返す（Autoscaler 停止が失敗しても MIG 縮退は試行する）。`_teardown_done` は停止が成功した場合のみ `True` とし、ガードで停止をスキップした場合・停止に失敗した場合は未完了のまま残して、後続の終了経路（`_atexit_teardown` 等）で再判定させる。
-  - 照会前および Coordinator バリア `wait_for_all_tasks()` の前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。
-  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする（同プロセスからの呼び出しは自実行が稼働中と判定され停止されないため）。委譲先の有限時間性は次で保証する: Safety-Net ジョブ `realestate-safety-net-<env>` は 17-21 UTC 毎時に起動し（クローラー起動 16:00 UTC + タイムアウト 3600s × (max_retries 1 + 1) の最遅終了 18:00 UTC 以降にも必ず起動）、稼働中の Cloud Run 実行が無い場合に ProxySQL を停止する。Terraform 上の image/command はプレースホルダだが `lifecycle.ignore_changes` 対象で、`deploy-production.yml` がデプロイ時に本番イメージ・`ensure_resources_stopped.py` へ置換する（`test_safety_net_runs_after_latest_possible_crawler_end` / `test_safety_net_job_is_deployed_with_stop_script` で回帰検証）。
+  - 照会前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。
+  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする（同プロセスからの呼び出しは自実行が稼働中と判定され停止されないため）。委譲先の有限時間性は次で保証する: Safety-Net ジョブ `realestate-safety-net-<env>` は 17-21 UTC 毎時に起動し（クローラー起動 16:00 UTC + タイムアウト 3600s（max_retries 0）の最遅終了 17:00 UTC、および ML Pipeline Job 起動 17:10 UTC + タイムアウト 3600s の最遅終了 18:10 UTC 以降にも必ず起動）、稼働中の Cloud Run 実行が無い場合に ProxySQL を停止する。Terraform 上の image/command はプレースホルダだが `lifecycle.ignore_changes` 対象で、`deploy-production.yml` がデプロイ時に本番イメージ・`ensure_resources_stopped.py` へ置換する（`test_safety_net_runs_after_latest_possible_crawler_end` / `test_safety_net_job_is_deployed_with_stop_script` で回帰検証）。
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
+  - `crawler_pipeline_job` の `max_retries` は 0 とする（Issue #549）。タイムアウト・失敗したタスクを Cloud Run が再実行すると、クロールを最初からやり直して再びタイムアウトし、課金と ProxySQL の停止/再起動が倍増するため。
+
+#### 6.10.1.1 ML Pipeline Job 分離設計 (Issue #549)
+- **起動**: Cloud Scheduler `realestate-ml-pipeline-daily-<env>`（`var.ml_pipeline_schedule_cron`、既定 `10 17 * * *` = 02:10 JST）が `realestate-ml-pipeline-<env>` を `jobs:run` で起動する。スケジューラ用 SA には ML Pipeline Job 限定で `roles/run.invoker` を付与する。
+- **ジョブ設定**: `max_retries = 0`、`timeout = "3600s"`（Safety-Net `ensure_resources_stopped.py` の hung 判定 `timeout_threshold_sec = 4200` 未満）。コンテナ引数 `args = ["--force"]` を Terraform で定義し、完了バリア未達でも完了分のデータで続行する。Terraform apply は手動のため、`deploy-production.yml` の Job 更新でも同値（クローラージョブ `--max-retries=0`、ML Pipeline Job `--args=--force` / `--max-retries=0` / `--task-timeout=3600s`）を適用し、デプロイ時点で本番に反映させる。環境変数は後続ステップが参照する Slack チャンネル（`SLACK_CHANNEL_ID` / `SLACK_DEV_CHANNEL` / `SLACK_ALERT_PROPERTY_ALERT` / `SLACK_RECOMMEND_*`）、ProxySQL（`PROXYSQL_INSTANCE_NAME` / `PROXYSQL_ZONE`）、Cloud SQL（`CLOUDSQL_INSTANCE_NAME`）、ストレージ（`STORAGE_BACKEND` / `STORAGE_BUCKET`）、ML 並列度（`ML_NUM_THREADS` / `BULK_EVAL_CONCURRENCY`）をクローラージョブと同値で定義する。
+- **処理順 (`run_ml_pipeline.main`)**:
+  1. `start_on_demand_resources()`（クラウド環境のみ）: `check_cloud_sql_status()` で RUNNABLE を確認し、単一インスタンス構成（`PROXYSQL_INSTANCE_NAME`）以外では Autoscaler を `min=1,max=2` に復元、`scale_proxysql_mig(target_size=1)` で起動、`wait_for_proxysql_health(timeout_sec=240)` で疎通を確認する。いずれかが失敗した場合は `RuntimeError` を送出して後続を実行しない。
+  2. `wait_for_db.py` で DB 接続可能になるまで待機する。
+  3. `verify_barrier_completion()` で最新クローラー実行の完了率を点検する（未達かつ `--force` 無しの場合は中断）。
+  4. `send_aggregated_crawl_report()`: `_latest_execution_tasks()` で得た最新実行のタスク行を `pipeline_coordinator.aggregate_task_array_reports()` で集約し、`send_crawling_summary_alert()` で全タスク集約レポートを 1 回送信する。行が無い場合・識別可能な実行が無い場合は送信しない。集約・送信の失敗は警告ログに留め後続を継続する。
+  5. データ検証 ➔ Auto-Heal 指示書生成 ➔ 学習 ➔ バルク価格推定 ➔ お宝通知 ➔ 精度診断を順に実行する。
+  6. `finally` で `scale_proxysql_mig(target_size=0)` を実行し ProxySQL を停止する。
+- **集約関数の配置**: `aggregate_task_array_reports()` は `package/utils/pipeline_coordinator.py` に置く（`run_pipeline` は import 時にシグナルハンドラを登録するため、ML Pipeline Job から import しない）。`run_pipeline.py` は集約・他タスク完了待機・集約レポート送信を行わないため、これらを import しない。
 
 ### 6.10.3 詳細 URL 重複ディスパッチ防止 (Issue #537)
 - `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとする実行単位のキー集合（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
@@ -586,8 +599,8 @@ graph TD
 - **個社クローラー実行状況レポート出力の透明化 (`run_all_crawlers.py`)**:
   - タスクアレイ実行時（`task_count > 1`）、サマリー表示を `総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {success}, 失敗: {failed})` に改修し、担当件数と全体件数を明示。
   - タスクアレイのワーカータスク（`task_index > 0`）による重複サマリー発報を抑制し、Coordinator での統合通知を主軸とする。
-- **Coordinator 全タスク結果統合＆Slack発報 (`run_pipeline.py`)**:
-  - `wait_for_all_tasks` 完了後（タイムアウト時含む）、今回の実行（当日かつ同一 `execution_id`）の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計。
+- **ML Pipeline Job による全タスク結果統合＆Slack発報 (`run_ml_pipeline.py`、Issue #549)**:
+  - クローラージョブ終了後に起動する ML Pipeline Job が、最新クローラー実行（`_latest_execution_tasks()`）の全 `CrawlerTaskExecution` をクエリし、全89ジョブの実行状況を合算集計（§6.10.1.1）。クローラージョブの Coordinator は他タスクの完了を待機しない。
   - 全タスクの成功件数、失敗件数、異常クローラー一覧、および過去24時間の新規取得件数内訳を集約した「全体統合クローリング実行状況レポート」を Slack に送信。タスク未完了やタイムアウトが発生した場合はそのタスク番号と未完了ジョブも明記し、全ジョブの稼働実績を100%可視化する。
 
 ### 6.31 積水ハウスAkamai TLS抑止・和暦築年月および階数パース内部設計

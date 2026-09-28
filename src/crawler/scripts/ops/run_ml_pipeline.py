@@ -1,7 +1,8 @@
 # ruff: noqa: E402, F401
 """
-Cloud Run ML Pipeline Job:
-1. クローラータスク完了確認 (Barrier Check)
+Cloud Run ML Pipeline Job (クローラージョブ終了後に Cloud Scheduler から日次 1 回起動):
+0. Cloud SQL 稼働確認・ProxySQL 起動・疎通確認・DB 待機
+1. クローラータスク完了確認 (Barrier Check) & 全タスク集約レポート Slack 送信
 2. 不正データ検証 & クレンジング (validate_data.py)
 3. MLモデル再学習 (package/ml/train.py)
 4. バルクML価格推定・投資評価 (run_bulk_ml_evaluation.py)
@@ -12,6 +13,7 @@ Cloud Run ML Pipeline Job:
 import os
 import sys
 import time
+import asyncio
 import logging
 import argparse
 import datetime
@@ -32,7 +34,12 @@ while True:
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
+from package.utils.pipeline_coordinator import aggregate_task_array_reports
+from package.utils.slack import send_crawling_summary_alert
 from package.utils.gcp_resources import (
+    check_cloud_sql_status,
+    patch_proxysql_autoscaler,
+    wait_for_proxysql_health,
     scale_proxysql_mig as _gcp_scale_proxysql_mig,
     get_gcp_access_token as _get_gcp_access_token,
 )
@@ -62,6 +69,25 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
         compute_module=comp_mod,
         get_token_callback=token_fn,
     )
+
+
+def start_on_demand_resources(dry_run: bool = False) -> None:
+    """クローラージョブ終了時に停止された Cloud SQL 経路 (ProxySQL) を起動し、疎通を確認する"""
+    if not os.environ.get("IS_CLOUD"):
+        return
+    ok, status = check_cloud_sql_status()
+    if not ok:
+        raise RuntimeError(f"Cloud SQL pre-flight check failed: {status}")
+    if not os.environ.get("PROXYSQL_INSTANCE_NAME") and not dry_run:
+        logger.info("🚀 [Startup] Restoring ProxySQL Autoscaler (min=1, max=2)...")
+        if not patch_proxysql_autoscaler(min_replicas=1, max_replicas=2):
+            raise RuntimeError("ProxySQL Autoscaler restore failed.")
+    logger.info("🚀 [Startup] Scaling ProxySQL (0 -> 1)...")
+    if not scale_proxysql_mig(target_size=1, dry_run=dry_run):
+        raise RuntimeError("ProxySQL startup failed.")
+    if not wait_for_proxysql_health(timeout_sec=240):
+        raise RuntimeError("ProxySQL health check timed out during startup.")
+    logger.info("✔ [Startup] ProxySQL is healthy and operational!")
 
 
 def _latest_execution_tasks(target_date: datetime.date) -> list | None:
@@ -118,6 +144,26 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
         return True, []
 
 
+def send_aggregated_crawl_report(execution_date: datetime.date | None = None) -> bool:
+    """最新クローラー実行の全タスク結果を集約し、全タスク集約レポートを Slack に 1 回送信する"""
+    target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
+    try:
+        tasks = _latest_execution_tasks(target_date)
+        if not tasks:
+            logger.warning(f"⚠️ [Aggregation] No identifiable crawler execution for {target_date}. Skipping aggregated report.")
+            return False
+        records = sorted(tasks, key=lambda t: t.task_index)
+        aggregated = aggregate_task_array_reports(records, total_jobs=89)
+        logger.info(
+            f"📊 [Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
+            f"Executed: {aggregated['executed_jobs']}, Success: {aggregated['success_jobs']}, Failed: {aggregated['failed_jobs']}"
+        )
+        return bool(asyncio.run(send_crawling_summary_alert(aggregated["slack_message"])))
+    except Exception as e:
+        logger.warning(f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}")
+        return False
+
+
 def run_command(cmd: list[str], desc: str):
     """リアルタイムログ付きで外部コマンドを実行"""
     logger.info(f"=== [START] {desc} ===")
@@ -171,11 +217,22 @@ def main(argv=None):
     logger.info(SEPARATOR)
 
     try:
+        # Step 0: Cloud SQL 確認・ProxySQL 起動・疎通確認・DB 待機
+        start_on_demand_resources(dry_run=args.dry_run)
+        run_command([
+            sys.executable,
+            os.path.join(debug_tools_dir, "wait_for_db.py")
+        ], "Step 0/5: Database Readiness Pre-flight Check")
+
         # Step 1: バリア完了検証
         ok, failed = verify_barrier_completion()
         if not ok and not args.force:
             logger.warning(f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。")
             return 1
+        if not ok:
+            logger.warning(f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。")
+
+        send_aggregated_crawl_report()
 
         # Step 2: データ検証 & クレンジング
         run_command([

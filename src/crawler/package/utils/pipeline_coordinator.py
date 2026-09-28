@@ -69,3 +69,72 @@ def wait_for_all_tasks(
     records = list(model.objects.filter(**filters))
     _, failed = check_all_tasks_completed(records, task_count)
     return False, failed
+
+
+def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> dict:
+    """
+    Aggregates results_json from all CrawlerTaskExecution records.
+    Handles both model instances and plain dictionaries.
+    """
+    all_results = []
+    task_stats = []
+    for rec in task_records:
+        if hasattr(rec, "results_json"):
+            results = rec.results_json or []
+            task_idx = getattr(rec, "task_index", None)
+            status = getattr(rec, "status", "UNKNOWN")
+        elif isinstance(rec, dict):
+            results = rec.get("results_json", [])
+            task_idx = rec.get("task_index")
+            status = rec.get("status", "UNKNOWN")
+        else:
+            continue
+        all_results.extend(results)
+        task_stats.append(
+            {
+                "task_index": task_idx,
+                "status": status,
+                "job_count": len(results),
+            }
+        )
+
+    success_jobs = sum(1 for r in all_results if r.get("status") == "success")
+    failed_list = [
+        r for r in all_results if r.get("status") in ["failed", "timeout", "error"]
+    ]
+    failed_jobs = len(failed_list)
+    executed_jobs = len(all_results)
+    missing_jobs = max(0, total_jobs - executed_jobs)
+
+    msg_lines = ["📢 【クローリング全タスク集約レポート】"]
+    msg_lines.append(f"実行タスク数: {len(task_records)} タスク")
+    msg_lines.append(
+        f"総ジョブ数: {total_jobs} (実行完了: {executed_jobs}, 成功: {success_jobs}, 失敗: {failed_jobs}{f', 未実行: {missing_jobs}' if missing_jobs > 0 else ''})"
+    )
+
+    if failed_list:
+        msg_lines.append("\n⚠️ 異常・失敗が発生したクローラー:")
+        for f in failed_list:
+            company = f.get("company", "unknown")
+            ptype = f.get("property_type", "unknown")
+            status = f.get("status", "failed")
+            code = f.get("exit_code", "?")
+            dur = f.get("duration", "")
+            dur_str = f", 所要: {dur}" if dur else ""
+            msg_lines.append(f"• {company} - {ptype}: {status} (Code: {code}{dur_str})")
+    else:
+        msg_lines.append(f"\n✅ 全 {executed_jobs} ジョブが正常に実行・完了しました。")
+
+    slack_message = "\n".join(msg_lines)
+
+    return {
+        "total_jobs": total_jobs,
+        "executed_jobs": executed_jobs,
+        "success_jobs": success_jobs,
+        "failed_jobs": failed_jobs,
+        "missing_jobs": missing_jobs,
+        "all_results": all_results,
+        "failed_list": failed_list,
+        "task_stats": task_stats,
+        "slack_message": slack_message,
+    }

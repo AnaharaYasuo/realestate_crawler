@@ -121,6 +121,7 @@ jobs:
           gcloud run jobs update realestate-crawler-pipeline-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_pipeline.py \
+            --max-retries=0 \
             --region=asia-northeast1
 
       - name: Update Cloud Run Service Image
@@ -156,6 +157,9 @@ jobs:
           gcloud run jobs update realestate-ml-pipeline-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_ml_pipeline.py \
+            --args=--force \
+            --max-retries=0 \
+            --task-timeout=3600s \
             --region=asia-northeast1
 
       - name: Update Safety Net Job Image

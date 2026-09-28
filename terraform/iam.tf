@@ -65,6 +65,15 @@ resource "google_cloud_run_v2_job_iam_member" "run_invoker" {
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
 
+# Grant Cloud Run Invoker to Scheduler Service Account (ML pipeline job)
+resource "google_cloud_run_v2_job_iam_member" "ml_pipeline_run_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.ml_pipeline_job.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
 # Grant Cloud Run Invoker to Scheduler Service Account (Safety net job)
 resource "google_cloud_run_v2_job_iam_member" "safety_net_run_invoker" {
   project  = var.project_id

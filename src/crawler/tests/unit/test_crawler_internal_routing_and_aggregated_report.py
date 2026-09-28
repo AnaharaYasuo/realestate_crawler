@@ -8,7 +8,7 @@ from package.api.api import ApiAsyncProcBase
 from package.api.registry import ApiRegistry
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.ml.predict import get_api_base_url as predict_get_api_base_url
-from scripts.ops.run_pipeline import aggregate_task_array_reports
+from package.utils.pipeline_coordinator import aggregate_task_array_reports
 
 
 class DummyApi(ApiAsyncProcBase):
