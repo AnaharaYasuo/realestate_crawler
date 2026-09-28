@@ -917,7 +917,7 @@ def _task_rows(*rows):
 
 def _ml_model(latest_execution_id, rows):
     model = MagicMock()
-    latest_qs = model.objects.filter.return_value.order_by.return_value.values_list.return_value
+    latest_qs = model.objects.filter.return_value.exclude.return_value.order_by.return_value.values_list.return_value
     latest_qs.first.return_value = latest_execution_id
     model.objects.filter.side_effect = lambda **kw: (
         rows if "execution_id" in kw else model.objects.filter.return_value
@@ -933,7 +933,8 @@ def test_ml_barrier_scopes_to_latest_crawler_execution(monkeypatch):
     assert (ok, failed) == (True, ["1"])
     scoped = [c.kwargs for c in model.objects.filter.call_args_list if "execution_id" in c.kwargs]
     assert scoped == [{"execution_date": PINNED_DATE, "execution_id": EXECUTION_ID}]
-    model.objects.filter.return_value.order_by.assert_called_once_with("-created_at")
+    model.objects.filter.return_value.exclude.assert_called_once_with(execution_id="")
+    model.objects.filter.return_value.exclude.return_value.order_by.assert_called_once_with("-created_at")
 
 
 def test_ml_barrier_below_threshold_reports_failed_task_indexes(monkeypatch):

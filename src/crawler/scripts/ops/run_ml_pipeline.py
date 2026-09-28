@@ -69,6 +69,7 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
     try:
         latest_execution_id = (
             CrawlerTaskExecution.objects.filter(execution_date=target_date)
+            .exclude(execution_id="")
             .order_by("-created_at")
             .values_list("execution_id", flat=True)
             .first()
