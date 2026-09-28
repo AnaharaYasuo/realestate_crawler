@@ -910,6 +910,10 @@ def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
     assert kwargs["execution_date"] == PINNED_DATE
     assert kwargs["execution_id"] == EXECUTION_ID
 
+    monkeypatch.delenv("CLOUD_RUN_EXECUTION")
+    crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
+    assert model.objects.update_or_create.call_args.kwargs["execution_id"] == "cloud-tasks-2020-01-02"
+
 
 def _task_rows(*rows, task_count=None, started=0):
     count = task_count if task_count is not None else len(rows)
@@ -967,10 +971,10 @@ def test_ml_barrier_prefers_non_empty_execution_id_over_newer_empty_rows(monkeyp
     assert result == (True, [])
 
 
-def test_ml_barrier_evaluates_rows_with_only_empty_execution_id(monkeypatch):
-    rows = _task_rows(("", 0, "FAILED"), ("", 1, "FAILED"))
+def test_ml_barrier_rows_without_identifiable_execution_fail(monkeypatch):
+    rows = _task_rows(("", 0, "COMPLETED"), ("", 1, "COMPLETED"))
     (result, _) = _run_ml_barrier(monkeypatch, rows)
-    assert result == (False, ["0", "1"])
+    assert result == (False, [])
 
 
 def test_ml_barrier_missing_registrations_are_incomplete(monkeypatch):

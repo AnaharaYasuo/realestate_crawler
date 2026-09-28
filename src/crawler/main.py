@@ -376,7 +376,7 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
     task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
         execution_date=exec_dt,
         task_index=abs(hash(f"{company}_{prop_type}")) % 1000,
-        execution_id=get_execution_id(),
+        execution_id=get_execution_id() or f"cloud-tasks-{exec_dt.isoformat()}",
         defaults={"task_count": 1, "status": "RUNNING", "jobs_assigned": 1}
     )
 

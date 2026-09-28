@@ -63,16 +63,21 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
     )
 
 
-def _latest_execution_tasks(target_date: datetime.date) -> list:
-    """対象日で開始 (最初のタスク行登録) が最も新しいクローラー実行のタスク行を返す (空でない実行 ID を優先)"""
+def _latest_execution_tasks(target_date: datetime.date) -> list | None:
+    """対象日で開始 (最初のタスク行登録) が最も新しいクローラー実行のタスク行を返す。
+
+    空の実行 ID の行は別実行同士で上書きされ得るため評価対象外とし、
+    行が存在するのに識別可能な実行が無い場合は None を返す。
+    """
+    rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
     by_execution: dict[str, list] = {}
-    for row in CrawlerTaskExecution.objects.filter(execution_date=target_date):
-        by_execution.setdefault(row.execution_id, []).append(row)
-    candidates = {k: v for k, v in by_execution.items() if k} or by_execution
-    if not candidates:
-        return []
-    latest_id = max(candidates, key=lambda k: min(r.created_at for r in candidates[k]))
-    return candidates[latest_id]
+    for row in rows:
+        if row.execution_id:
+            by_execution.setdefault(row.execution_id, []).append(row)
+    if not by_execution:
+        return None if rows else []
+    latest_id = max(by_execution, key=lambda k: min(r.created_at for r in by_execution[k]))
+    return by_execution[latest_id]
 
 
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
@@ -80,6 +85,9 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
     target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
     try:
         tasks = _latest_execution_tasks(target_date)
+        if tasks is None:
+            logger.warning(f"Task records for {target_date} have no identifiable execution_id. Cannot verify barrier.")
+            return False, []
         if not tasks:
             logger.warning(f"No task records found for {target_date}. Proceeding with existing DB data.")
             return True, []
