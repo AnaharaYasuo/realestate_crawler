@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - production
+  # Auto-merge by GITHUB_TOKEN does not emit a push that triggers workflows; auto-release-pr.yml dispatches instead.
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 permissions:
   contents: read

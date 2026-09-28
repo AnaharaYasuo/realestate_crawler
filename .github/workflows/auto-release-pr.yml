@@ -84,3 +84,24 @@ jobs:
             echo "Enabling auto-merge for PR #$NEW_PR_NUM..."
             gh pr merge "$NEW_PR_NUM" --auto --merge || echo "::warning::Failed to enable auto-merge on PR #$NEW_PR_NUM"
           fi
+
+  dispatch-deploy-after-auto-merge:
+    name: Dispatch Production Deploy After Auto-merge
+    needs: create-or-update-release-pr
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
+    concurrency:
+      group: release-pr-deploy-dispatch
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Wait for release PR merge and dispatch deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py --timeout-sec 3600 --interval-sec 30

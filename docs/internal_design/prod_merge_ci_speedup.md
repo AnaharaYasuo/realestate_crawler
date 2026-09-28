@@ -19,6 +19,20 @@
        - コミットログから `(#\d+)` または `[#\d+]` を抽出し、`Closes #...` のリストを生成。
        - タイトルを `release: <latest_master_subject>` として `gh pr create`。
        - `gh pr merge <PR_NUMBER> --auto --merge` を実行（auto-merge有効化に失敗してもパイプライン全体は落とさず警告扱いとする）。
+  3. `dispatch-deploy-after-auto-merge` ジョブ（Issue #546、`needs: create-or-update-release-pr`）:
+     - 権限: `actions: write`（`gh workflow run`）、`pull-requests: read`。
+     - `concurrency: { group: release-pr-deploy-dispatch, cancel-in-progress: true }` とし、新しい master push の実行が古い待機を置き換えて多重 dispatch を防ぐ。`timeout-minutes: 65`。
+     - 実装は標準ライブラリのみの `src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py`（`python3 ... --timeout-sec 3600 --interval-sec 30`）。`gh` 呼び出しは 1 回あたり 10 秒のタイムアウトを付け、タイムアウト・一時エラーは待機継続とする。
+     - `gh pr list --base production --head master --state open` で待機対象 PR を特定（なければ終了）。
+     - 30 秒間隔・最大 60 分、`gh pr view <PR> --json state,mergedBy` をポーリング。
+       - `MERGED` かつ `mergedBy.login` が `app/github-actions` または `github-actions`: `gh workflow run deploy-production.yml --ref production` を実行して終了（dispatch 失敗時は exit 1）。
+       - `MERGED` かつそれ以外（人間/エージェントのトークン）: `push: production` で起動済みのため dispatch せず終了。
+       - `CLOSED`（未マージ）: 何もせず終了。
+       - 60 分経過: `::warning::` を出して正常終了（未マージのため後続の実行または手動マージに委ねる）。
+
+### 1.1a `deploy-production.yml` のトリガー（Issue #546）
+* `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。
+* `concurrency: { group: deploy-production, cancel-in-progress: false }` で本番デプロイを直列化する。
 
 ### 1.2 `review-gate.yml` の Production Fast-Pass ロジック設計
 
