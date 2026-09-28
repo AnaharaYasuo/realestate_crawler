@@ -184,6 +184,30 @@ class TestSectionalUnitSwitchGuard534:
 
         assert used_parser is target_parser
 
+    @pytest.mark.parametrize("chip", ["専有面積 －", "専有面積未定", "専有面積 0m²"])
+    def test_summary_chip_without_positive_area_still_switches(self, chip):
+        parser = SumifuMansionParser("")
+        item = parser.createEntity()
+        soup = BeautifulSoup(f'<html><body><span class="text">{chip}</span></body></html>', "html.parser")
+        target_parser = MagicMock()
+
+        with patch.object(PropertyTypeDetector, "detect", return_value="kodate"), patch.object(
+            UrlRouter, "create_parser", return_value=target_parser
+        ):
+            used_parser, _ = parser._maybe_switch_parser(
+                SUMIFU_UNIT_URL, "戸建て", soup, {"現況": "空家"}, item
+            )
+
+        assert used_parser is target_parser
+
+    @pytest.mark.parametrize("senyu", ["未定", "－", "0m²", "0.00㎡", "専有面積 －", {"value": "未定"}])
+    def test_non_positive_senyu_is_not_sectional(self, senyu):
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": senyu}) is False
+
+    @pytest.mark.parametrize("senyu", ["20m²", "66.51㎡", "1,234.5㎡", {"value": "0.5m²"}])
+    def test_positive_senyu_is_sectional(self, senyu):
+        assert SumifuMansionParser._is_sectional_unit_page({"専有面積": senyu}) is True
+
     def test_senyu_outside_specs_hook_defaults_to_empty(self):
         soup = BeautifulSoup('<span class="text">専有面積66.51m²</span>', "html.parser")
         assert AthomeMansionParser()._senyu_area_outside_specs(soup) == ""

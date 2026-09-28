@@ -37,14 +37,23 @@ def _is_filled_spec_value(val) -> bool:
     return str(val).strip() not in _BLANK_SPEC_VALUES
 
 
-def _spec_has_value(specs, key: str) -> bool:
+def _is_positive_area(val) -> bool:
+    if isinstance(val, dict):
+        val = val.get("value")
+    if val is None:
+        return False
+    area = converter.parse_menseki(str(val))
+    return area is not None and area > 0
+
+
+def _spec_has_value(specs, key: str, is_filled=_is_filled_spec_value) -> bool:
     """key と一致、または「key（壁芯）」等の修飾付きラベルのいずれかに値があるか (ラベル内の空白は無視)"""
     qualified = (f"{key}（", f"{key}(")
     for label, val in specs.items():
         if not isinstance(label, str):
             continue
         normalized = WHITESPACE_REGEX.sub("", label)
-        if (normalized == key or normalized.startswith(qualified)) and _is_filled_spec_value(val):
+        if (normalized == key or normalized.startswith(qualified)) and is_filled(val):
             return True
     return False
 
@@ -1034,10 +1043,10 @@ class ParserBase(metaclass=ABCMeta):
 
     @staticmethod
     def _is_sectional_unit_page(specs) -> bool:
-        """専有面積があり土地面積が無いスペック表は区分所有の住戸とみなす"""
+        """専有面積 (正の数値) があり土地面積が無いスペック表は区分所有の住戸とみなす"""
         if not specs:
             return False
-        return _spec_has_value(specs, "専有面積") and not _spec_has_value(specs, "土地面積")
+        return _spec_has_value(specs, "専有面積", _is_positive_area) and not _spec_has_value(specs, "土地面積")
 
     def _senyu_area_outside_specs(self, soup) -> str:
         """スペック表以外 (サマリー等) に記載された専有面積。サイト固有の記載位置はサブクラスで返す"""
@@ -1047,7 +1056,7 @@ class ParserBase(metaclass=ABCMeta):
         if self._is_sectional_unit_page(specs):
             return True
         has_land_area = bool(specs) and _spec_has_value(specs, "土地面積")
-        return not has_land_area and bool(self._senyu_area_outside_specs(soup))
+        return not has_land_area and _is_positive_area(self._senyu_area_outside_specs(soup))
 
     def _maybe_switch_parser(self, url, title: str, soup: BeautifulSoup, specs: dict, item: models.Model):
         """Switch to a different parser when detected property type differs. Returns (parser, item)."""
