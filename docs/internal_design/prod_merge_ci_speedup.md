@@ -19,6 +19,36 @@
        - コミットログから `(#\d+)` または `[#\d+]` を抽出し、`Closes #...` のリストを生成。
        - タイトルを `release: <latest_master_subject>` として `gh pr create`。
        - `gh pr merge <PR_NUMBER> --auto --merge` を実行（auto-merge有効化に失敗してもパイプライン全体は落とさず警告扱いとする）。
+  3. `dispatch-deploy-after-auto-merge` ジョブ（Issue #546、`needs: create-or-update-release-pr`）:
+     - 権限: `actions: write`（`gh workflow run`）、`pull-requests: read`。
+     - `concurrency: { group: release-pr-deploy-dispatch, cancel-in-progress: true }` とし、新しい master push の実行が古い待機を置き換えて多重 dispatch を防ぐ。`timeout-minutes: 65`。
+     - 実装は標準ライブラリのみの `src/crawler/scripts/ops/dispatch_deploy_after_auto_merge.py`（`python3 ... --pr-number <前段ジョブ出力> --timeout-sec 3600 --interval-sec 30 --grace-sec 90`）。`gh` 呼び出しは 1 回あたり 10 秒のタイムアウトを付ける。
+     - 待機対象 PR 番号は `create-or-update-release-pr` ジョブの output `pr_number`（`$GITHUB_OUTPUT` に書き出し、`env: PR_NUMBER` 経由で渡す）から受け取る（開始時点で既にマージ済みでも取りこぼさない）。
+     - `if: ${{ !cancelled() }}` とし、前段の PR 作成が失敗しても（`pr_number` 空）起動時リコンサイルだけは実行する。
+     - 判定はマージ実行者ではなく「コミットに対するデプロイ実行の有無」で行う（アクター名の表記揺れに依存しない）。デプロイ実行の有無は `gh run list --workflow deploy-production.yml --commit <sha> --json status,conclusion` で `cancelled` 以外の実行が 1 件以上あるかで判定する。
+     - **本番デプロイ保証 `ensure_production_deployed`**: `production` の現在の HEAD を取得し、デプロイ実行があれば終了。なければ猶予（90 秒、push トリガーの実行作成待ち）待機後に HEAD を再取得して再確認し、それでもなければ `gh workflow run deploy-production.yml --ref production` を実行する。確認対象は常に dispatch 対象と同じ `production` HEAD とし（マージ後に HEAD が進んでいれば新しい HEAD のデプロイで包含される）、コミット時刻には依存しない。
+     - 手順:
+       1. **起動時リコンサイル**: `ensure_production_deployed` を実行する。過去の待機ジョブがタイムアウト・concurrency キャンセルで取りこぼしたマージを次回の master push で回収する。
+       2. 30 秒間隔・最大 60 分、`gh pr view <PR> --json state,mergeCommit` をポーリング。
+          - `MERGED`: `ensure_production_deployed` を実行する。人間によるマージでは `push: production` の実行が存在するため dispatch しない。
+          - `CLOSED`（未マージ）: 何もせず終了。
+          - 60 分経過: `::warning::` を出して正常終了（次回実行の起動時リコンサイルで回収）。
+          - `gh` のタイムアウト・非 0 終了・JSON 不正は待機継続とするが、連続 10 回で exit 1（監視不能を成功扱いしない）。成功したポーリングで連続回数はリセットする。
+       3. dispatch 失敗時は exit 1。
+     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD の取得失敗時は `lookup_failed` として exit 1 とする。
+     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければ（起動時リコンサイル後に PR がマージされた可能性があるため）`ensure_production_deployed` を再実行して終了する。
+     - 同一実行内で dispatch 済みの HEAD は「デプロイ済み」とみなす（dispatch 直後は実行一覧に現れないことがあるため、同じ HEAD の二重 dispatch を防ぐ）。
+     - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
+  4. `reconcile-production-deploy` ジョブ（Issue #546、`schedule: '23 */3 * * *'` のときのみ実行）:
+     - 60 分の待機後にマージされた Release PR を、次の master push を待たずに 3 時間以内に回収する。
+     - `dispatch_deploy_after_auto_merge.py --reconcile-only --grace-sec 90` で `ensure_production_deployed` のみを実行する（PR の作成・待機はしない）。`timeout-minutes: 10`。
+     - `concurrency: { group: release-pr-deploy-reconcile, cancel-in-progress: false }` とし、マージ待機ジョブとは別グループにして待機ジョブのキャンセル・置き換えを起こさない（同一 HEAD への同時 dispatch は `deploy-production` の concurrency で直列化され、取りこぼしは生じない）。
+     - schedule 実行時は `create-or-update-release-pr` / `dispatch-deploy-after-auto-merge` を `if: github.event_name == 'push'` でスキップする。
+
+### 1.1a `deploy-production.yml` のトリガー（Issue #546）
+* `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。
+* 全ジョブに `if: github.ref == 'refs/heads/production'` を付け、`production` 以外の ref から dispatch されても本番へデプロイしない。
+* `concurrency: { group: deploy-production-${{ github.ref }}, cancel-in-progress: false }` で本番デプロイを直列化する（他 ref の実行が `production` の待機中実行を置き換えないよう ref ごとにグループを分ける）。待機中の実行が新しい実行に置き換えられても、新しい実行は自身の `github.sha`（マージでのみ進む `production` の新しいコミットで古い変更を包含）をデプロイするため取りこぼしは生じない。
 
 ### 1.2 `review-gate.yml` の Production Fast-Pass ロジック設計
 

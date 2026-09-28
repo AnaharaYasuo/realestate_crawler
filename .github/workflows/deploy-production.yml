@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - production
+  # Auto-merge by GITHUB_TOKEN does not emit a push that triggers workflows; auto-release-pr.yml dispatches instead.
+  workflow_dispatch:
+
+# A newer pending run may replace an older pending one; it deploys its own newer github.sha,
+# which contains the older commit because production only advances by merges.
+concurrency:
+  group: deploy-production-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -12,6 +20,7 @@ permissions:
 jobs:
   test-and-scan:
     name: Run Security Scan
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -29,6 +38,7 @@ jobs:
   terraform-apply:
     name: Terraform Apply (Production Infrastructure)
     needs: test-and-scan
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -56,6 +66,7 @@ jobs:
   build-and-deploy-container:
     name: Build & Deploy Container to Cloud Run
     needs: terraform-apply
+    if: github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
