@@ -103,6 +103,17 @@ class TestLocalLogScanDateFilter533:
 
         assert [e["log_entry"] for e in errors] == ["2026-09-26 01:00:00 ERROR: target day rotated"]
 
+    def test_embedded_non_standalone_date_in_name_is_treated_as_undated(self):
+        (self.base / "build_120260926.log").write_text(
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 ERROR: target\n",
+            encoding="utf-8",
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
+
     def test_other_dated_log_file_is_not_opened(self):
         (self.base / "run_20260925.log").write_text(
             "2026-09-26 00:00:01 ERROR: late line in previous day file\n",

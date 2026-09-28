@@ -168,16 +168,12 @@ class FailureReporter:
         return match.group(1) == target_date
 
     @staticmethod
-    def _is_log_candidate(lpath: Path, date_str: str, iso_date: str) -> bool:
-        """別日付名のログ、および対象日より前に最終更新された日付なしログは開かない"""
-        name_dates = _LOG_NAME_DATE_PATTERN.findall(lpath.name)
-        if name_dates:
-            return date_str in name_dates
+    def _modified_on_or_after(lpath: Path, iso_date: str) -> bool:
         try:
             mtime = lpath.stat().st_mtime
         except OSError:
             return False
-        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).astimezone()
+        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc)
         return modified.date().isoformat() >= iso_date
 
     @classmethod
@@ -190,9 +186,12 @@ class FailureReporter:
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
         log_files = set(fallback_base.glob("*.log")) | set(fallback_base.glob("*.log.*"))
         for lpath in sorted(log_files):
-            if not cls._is_log_candidate(lpath, date_str, iso_date):
+            name_dates = _LOG_NAME_DATE_PATTERN.findall(lpath.name)
+            if name_dates and date_str not in name_dates:
                 continue
-            require_date = date_str not in lpath.name
+            if not name_dates and not cls._modified_on_or_after(lpath, iso_date):
+                continue
+            require_date = not name_dates
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
                     error_logs.extend(
