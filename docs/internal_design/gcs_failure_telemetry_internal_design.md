@@ -71,8 +71,8 @@ class FailureReporter:
 ```
 
 - **ローカルログ走査の日付限定 (Issue #533)**: `_scan_local_logs(date_str)` は `STORAGE_LOCAL_FALLBACK_DIR`（既定 `logs`）直下の `*.log` とローテーション済みログ（`RotatingFileHandler` の `*.log.N`、`TimedRotatingFileHandler` の `*.log.YYYY-MM-DD[_HH[-MM[-SS]]]` のみ。`.bak` や圧縮ファイル等は除外）の和集合（重複なし・ファイル名順）を候補とする。ファイル名の独立した日付（前後が数字でない `YYYYMMDD` または `YYYY-MM-DD`、`YYYYMMDD` に正規化）を日付付きログの判定に用い、対象日付以外の日付のみを含むログ、および日付を含まず最終更新日（UTC）が対象日の前日より前のログ（`_modified_on_or_after`。ログ行はローカル時刻のため、UTC では前日となる対象日早朝の更新を許容する前段フィルタで、最終判定は行日付で行う）は開かずに除外し、残りを走査して、
-  - ファイル名の日付が対象日付 1 つのみのログ: 行頭に日付を持たない行（Traceback 等）と行頭が対象日付の ERROR/CRITICAL 行を抽出し、行頭が別日付の行は除外（`_matches_log_date(line, iso_date, require_date=False)`）
-  - それ以外のログ: 行頭が `YYYY-MM-DD`（対象日付）の ERROR/CRITICAL 行のみ抽出（`require_date=True`）
+  - ファイル名に対象日付を含むログ（日付を跨ぐ実行でファイル名に複数日付を含む場合も同様）: 行頭に日付を持たない行（Traceback 等）と行頭が対象日付の ERROR/CRITICAL 行を抽出し、行頭が別日付の行は除外（`_matches_log_date(line, iso_date, require_date=False)`）
+  - ファイル名に日付を含まないログ: 行頭が `YYYY-MM-DD`（対象日付）の ERROR/CRITICAL 行のみ抽出（`require_date=True`）
 - **バリデーション失敗理由 (Issue #533)**: `ParseDetailPageAsyncBase._save_item_record` の `ValidationError` 捕捉時、`_save_error_html_record(item, invalid_fields)` へ `ve.message_dict` のキー（ソート済み）を渡し、`error_message` を `Property Name: <物件名> | Invalid fields: <f1>, <f2>` 形式で記録する。
 
 - **GCS クライアント初期化**:

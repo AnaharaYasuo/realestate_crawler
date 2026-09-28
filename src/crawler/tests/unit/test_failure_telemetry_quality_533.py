@@ -139,16 +139,20 @@ class TestLocalLogScanDateFilter533:
             "2026-09-26 00:00:01 CRITICAL: target",
         ]
 
-    def test_multi_dated_log_name_requires_line_date(self):
+    def test_multi_dated_log_name_keeps_undated_lines(self):
         (self.base / "run_20260925_20260926.log").write_text(
-            "Traceback ERROR ambiguous day\n"
+            "Traceback ERROR spanning run\n"
+            "2026-09-25 23:59:59 ERROR: other day\n"
             "2026-09-26 00:00:01 ERROR: target\n",
             encoding="utf-8",
         )
 
         errors = FailureReporter._scan_local_logs("20260926")
 
-        assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR spanning run",
+            "2026-09-26 00:00:01 ERROR: target",
+        ]
 
     def test_iso_dated_log_name_is_recognized(self):
         (self.base / "run_2026-09-25.log").write_text(
