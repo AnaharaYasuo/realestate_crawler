@@ -26,18 +26,16 @@
      - 待機対象 PR 番号は `create-or-update-release-pr` ジョブの output `pr_number`（`$GITHUB_OUTPUT` に書き出し、`env: PR_NUMBER` 経由で渡す）から受け取る（開始時点で既にマージ済みでも取りこぼさない）。
      - `if: ${{ !cancelled() }}` とし、前段の PR 作成が失敗しても（`pr_number` 空）起動時リコンサイルだけは実行する。
      - 判定はマージ実行者ではなく「コミットに対するデプロイ実行の有無」で行う（アクター名の表記揺れに依存しない）。デプロイ実行の有無は `gh run list --workflow deploy-production.yml --commit <sha> --json status,conclusion` で `cancelled` 以外の実行が 1 件以上あるかで判定する。
+     - **本番デプロイ保証 `ensure_production_deployed`**: `production` の現在の HEAD を取得し、デプロイ実行があれば終了。なければ猶予（90 秒、push トリガーの実行作成待ち）待機後に HEAD を再取得して再確認し、それでもなければ `gh workflow run deploy-production.yml --ref production` を実行する。確認対象は常に dispatch 対象と同じ `production` HEAD とし（マージ後に HEAD が進んでいれば新しい HEAD のデプロイで包含される）、コミット時刻には依存しない。
      - 手順:
-       1. **起動時リコンサイル**: `production` の HEAD コミットにデプロイ実行がなく、かつコミット時刻から猶予（90 秒）以上経過している場合は dispatch する。過去の待機ジョブがタイムアウト・concurrency キャンセルで取りこぼしたマージを次回の master push で回収する。
+       1. **起動時リコンサイル**: `ensure_production_deployed` を実行する。過去の待機ジョブがタイムアウト・concurrency キャンセルで取りこぼしたマージを次回の master push で回収する。
        2. 30 秒間隔・最大 60 分、`gh pr view <PR> --json state,mergeCommit` をポーリング。
-          - `MERGED`: 猶予（90 秒）待ってからマージコミットのデプロイ実行を確認し、なければ `gh workflow run deploy-production.yml --ref production` を実行する。人間によるマージでは `push: production` の実行が存在するため dispatch しない。
+          - `MERGED`: `ensure_production_deployed` を実行する。人間によるマージでは `push: production` の実行が存在するため dispatch しない。
           - `CLOSED`（未マージ）: 何もせず終了。
           - 60 分経過: `::warning::` を出して正常終了（次回実行の起動時リコンサイルで回収）。
           - `gh` のタイムアウト・非 0 終了・JSON 不正は待機継続とするが、連続 10 回で exit 1（監視不能を成功扱いしない）。成功したポーリングで連続回数はリセットする。
        3. dispatch 失敗時は exit 1。
-     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD・コミット時刻の取得失敗時は `lookup_failed` として exit 1 とする。
-     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければリコンサイルのみで終了。
-     - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
-     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD・コミット時刻の取得失敗時は `lookup_failed` として exit 1 とする。
+     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD の取得失敗時は `lookup_failed` として exit 1 とする。
      - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければリコンサイルのみで終了。
      - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
 

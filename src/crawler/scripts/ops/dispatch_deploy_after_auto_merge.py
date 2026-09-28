@@ -1,16 +1,15 @@
 """Ensure production is deployed after the master -> production release PR merges.
 
 Pushes made by GITHUB_TOKEN (auto-merge enabled by auto-release-pr.yml) do not trigger
-deploy-production.yml, so the deploy is dispatched whenever a merged production commit has no
-deploy run of its own. A merge by a user token creates its own push run and is not dispatched.
-Uses only the standard library so it runs on a bare GitHub Actions runner.
+deploy-production.yml, so the deploy is dispatched whenever the production head still has no
+deploy run after a grace period. A merge by a user token creates its own push run and is not
+dispatched. Uses only the standard library so it runs on a bare GitHub Actions runner.
 """
 import argparse
 import json
 import subprocess
 import sys
 import time
-from datetime import datetime
 
 GH_TIMEOUT_SEC = 10
 LOOKUP_ATTEMPTS = 3
@@ -24,7 +23,6 @@ DISPATCH = "dispatch"
 DISPATCH_FAILED = "dispatch_failed"
 ALREADY_DEPLOYED = "already_deployed"
 SKIP_CLOSED = "skip_closed"
-SKIP_RECENT = "skip_recent"
 TIMED_OUT = "timed_out"
 POLL_FAILED = "poll_failed"
 LOOKUP_FAILED = "lookup_failed"
@@ -37,10 +35,6 @@ def run_gh(args):
         ["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT_SEC, check=False
     )
     return proc.returncode, proc.stdout
-
-
-def parse_iso8601(value):
-    return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).timestamp()
 
 
 def decide_action(state):
@@ -75,45 +69,47 @@ def lookup_deploy_run(gh, sha, sleep=time.sleep):
     return None
 
 
+def get_production_head(gh):
+    try:
+        rc, out = gh(["api", f"repos/{{owner}}/{{repo}}/branches/{PRODUCTION_BRANCH}",
+                      "--jq", ".commit.sha"])
+    except subprocess.TimeoutExpired:
+        return None
+    sha = out.strip()
+    return sha if rc == 0 and sha else None
+
+
 def dispatch_deploy(gh):
-    rc, _ = gh(["workflow", "run", DEPLOY_WORKFLOW, "--ref", PRODUCTION_BRANCH])
+    try:
+        rc, _ = gh(["workflow", "run", DEPLOY_WORKFLOW, "--ref", PRODUCTION_BRANCH])
+    except subprocess.TimeoutExpired:
+        return DISPATCH_FAILED
     return DISPATCH if rc == 0 else DISPATCH_FAILED
 
 
-def _dispatch_unless_deployed(found, gh):
+def _head_deployed(gh, sleep):
+    """Whether the current production head has a deploy run; None on lookup failure."""
+    head = get_production_head(gh)
+    if head is None:
+        return None
+    return lookup_deploy_run(gh, head, sleep)
+
+
+def ensure_production_deployed(gh, grace_sec, sleep=time.sleep):
+    """Dispatch only if the current production head still has no deploy run after the grace period.
+
+    The head is re-read after waiting so the check always targets what dispatch would deploy.
+    """
+    found = _head_deployed(gh, sleep)
+    if found is None:
+        return LOOKUP_FAILED
+    if found:
+        return ALREADY_DEPLOYED
+    sleep(grace_sec)
+    found = _head_deployed(gh, sleep)
     if found is None:
         return LOOKUP_FAILED
     return ALREADY_DEPLOYED if found else dispatch_deploy(gh)
-
-
-def ensure_deployed(gh, sha, grace_sec, sleep=time.sleep):
-    sleep(grace_sec)
-    return _dispatch_unless_deployed(lookup_deploy_run(gh, sha, sleep), gh)
-
-
-def reconcile_production(gh, grace_sec, wall_clock=time.time, sleep=time.sleep):
-    """Dispatch if the production head was never deployed and is past the push-run grace period."""
-    rc, sha = gh(["api", f"repos/{{owner}}/{{repo}}/branches/{PRODUCTION_BRANCH}",
-                  "--jq", ".commit.sha"])
-    sha = sha.strip()
-    if rc != 0 or not sha:
-        return LOOKUP_FAILED
-    found = lookup_deploy_run(gh, sha, sleep)
-    if found is not False:
-        return _dispatch_unless_deployed(found, gh)
-    rc, committed_at = gh(["api", f"repos/{{owner}}/{{repo}}/commits/{sha}",
-                           "--jq", ".commit.committer.date"])
-    recent = _is_recent(committed_at, grace_sec, wall_clock) if rc == 0 else None
-    if recent is None:
-        return LOOKUP_FAILED
-    return SKIP_RECENT if recent else dispatch_deploy(gh)
-
-
-def _is_recent(iso_timestamp, grace_sec, wall_clock):
-    try:
-        return wall_clock() - parse_iso8601(iso_timestamp) < grace_sec
-    except ValueError:
-        return None
 
 
 def find_release_pr(gh):
@@ -174,7 +170,7 @@ def annotation_for(result):
     return ""
 
 
-def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic, wall_clock=time.time):
+def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pr-number", default="")
     parser.add_argument("--timeout-sec", type=int, default=3600)
@@ -183,7 +179,7 @@ def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic, wall_
     parser.add_argument("--max-consecutive-errors", type=int, default=10)
     args = parser.parse_args(argv)
 
-    reconciled = reconcile_production(run_gh, args.grace_sec, wall_clock=wall_clock, sleep=sleep)
+    reconciled = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep)
     print(f"{annotation_for(reconciled)}Startup reconcile of production head: {reconciled}")
     if reconciled in FAILURE_RESULTS:
         return exit_code_for(reconciled)
@@ -201,7 +197,8 @@ def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic, wall_
                                        run_gh=run_gh, sleep=sleep, clock=clock,
                                        max_errors=args.max_consecutive_errors)
     if action == MERGED:
-        action = ensure_deployed(run_gh, merge_sha, args.grace_sec, sleep=sleep)
+        print(f"Release PR #{pr_number} merged as {merge_sha}; ensuring production is deployed.")
+        action = ensure_production_deployed(run_gh, args.grace_sec, sleep=sleep)
     print(f"{annotation_for(action)}Release PR #{pr_number}: {action}")
     return exit_code_for(action)
 
