@@ -5,8 +5,13 @@
 #       Too many connections / MY-010048) など、通常 NOTICE/DEFAULT 扱いされるログを
 #       ログベースメトリクスで捕捉し、重大度 ERROR / CRITICAL のアラートとして即時通知する。
 
-data "google_project" "current" {
-  project_id = var.project_id
+# Ensures the notification service agent exists before it is granted topic IAM on fresh projects.
+resource "google_project_service_identity" "monitoring_notification_agent" {
+  provider = google-beta
+  project  = var.project_id
+  service  = "monitoring.googleapis.com"
+
+  depends_on = [google_project_service.enabled_services]
 }
 
 # Topic-scoped custom role so Deploy SA can set topic IAM without roles/pubsub.admin.
@@ -25,7 +30,7 @@ resource "google_pubsub_topic_iam_member" "monitoring_notification_publisher" {
   project = var.project_id
   topic   = google_pubsub_topic.budget_alert_topic.name
   role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
+  member  = "serviceAccount:${google_project_service_identity.monitoring_notification_agent.email}"
 
   depends_on = [google_pubsub_topic_iam_member.github_actions_budget_topic_iam]
 }

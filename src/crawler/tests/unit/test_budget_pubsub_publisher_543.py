@@ -7,14 +7,18 @@ TERRAFORM_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "terraform")
 )
 MONITORING_AGENT = (
-    "serviceAccount:service-${data.google_project.current.number}"
-    "@gcp-sa-monitoring-notification.iam.gserviceaccount.com"
+    "serviceAccount:${google_project_service_identity.monitoring_notification_agent.email}"
 )
+PROJECT_LEVEL_IAM_TYPES = ("google_project_iam_member", "google_project_iam_binding")
 
 
-def _strip_hcl_line_comments(text: str) -> str:
+def _strip_hcl_comments(text: str) -> str:
+    """Remove #, // line comments and /* */ block comments so commented-out grants cannot pass."""
+    text = re.sub(r"/\*[\s\S]*?\*/", "", text)
     return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
+        line
+        for line in text.splitlines()
+        if not line.lstrip().startswith(("#", "//"))
     )
 
 
@@ -23,7 +27,7 @@ def _read_all_tf() -> str:
     for name in sorted(os.listdir(TERRAFORM_DIR)):
         if name.endswith(".tf"):
             with open(os.path.join(TERRAFORM_DIR, name), "r", encoding="utf-8") as f:
-                contents.append(_strip_hcl_line_comments(f.read()))
+                contents.append(_strip_hcl_comments(f.read()))
     return "\n".join(contents)
 
 
@@ -44,23 +48,42 @@ def test_monitoring_agent_has_topic_scoped_publisher():
     assert re.search(r"member\s*=\s*\"" + re.escape(MONITORING_AGENT) + '"', block)
 
 
-def test_monitoring_agent_email_derived_from_project_number():
+def test_monitoring_agent_identity_is_terraform_managed():
     content = _read_all_tf()
-    data_match = re.search(r'data\s+"google_project"\s+"current"\s+\{([\s\S]*?)\n\}', content)
-    assert data_match is not None, 'data "google_project" "current" not found'
-    assert re.search(r"project_id\s*=\s*var\.project_id", data_match.group(1))
+    block = _resource_block(
+        content, "google_project_service_identity", "monitoring_notification_agent"
+    )
+    assert re.search(r"provider\s*=\s*google-beta", block)
+    assert re.search(r"project\s*=\s*var\.project_id", block)
+    assert re.search(r'service\s*=\s*"monitoring\.googleapis\.com"', block)
     assert "634731722260" not in content
+    assert "gcp-sa-monitoring-notification" not in content
 
 
 def test_monitoring_agent_not_granted_project_wide_publisher():
     content = _read_all_tf()
-    for match in re.finditer(
-        r'resource\s+"google_project_iam_member"\s+"\w+"\s+\{([\s\S]*?)\n\}', content
-    ):
-        block = match.group(1)
-        assert not (
-            "roles/pubsub.publisher" in block and "gcp-sa-monitoring-notification" in block
-        ), "Monitoring agent must not receive project-level pubsub.publisher"
+    for rtype in PROJECT_LEVEL_IAM_TYPES:
+        for match in re.finditer(
+            rf'resource\s+"{rtype}"\s+"\w+"\s+\{{([\s\S]*?)\n\}}', content
+        ):
+            block = match.group(1)
+            assert not (
+                "roles/pubsub.publisher" in block
+                and "monitoring_notification_agent" in block
+            ), f"Monitoring agent must not receive project-level pubsub.publisher via {rtype}"
+
+
+def test_strip_hcl_comments_ignores_all_comment_styles():
+    commented = (
+        '# role = "roles/pubsub.publisher"\n'
+        '// role = "roles/pubsub.publisher"\n'
+        '/* role = "roles/pubsub.publisher" */\n'
+        '/*\n  role = "roles/pubsub.publisher"\n*/\n'
+        'role = "roles/viewer"\n'
+    )
+    stripped = _strip_hcl_comments(commented)
+    assert "roles/pubsub.publisher" not in stripped
+    assert 'role = "roles/viewer"' in stripped
 
 
 def test_deploy_sa_can_manage_budget_topic_iam():
