@@ -394,6 +394,40 @@ def test_local_execution_child_thread_inherits_parent_keys(run_keys):
     assert seen == {"keys": run_keys, "url": "https://a/9"}
 
 
+def test_local_execution_failure_returns_retryable_status(run_keys):
+    class _Child:
+        def main(self, url):
+            raise RuntimeError("boom")
+
+    page = _DummyMiddlePage()
+    with patch.object(api_module.ApiRegistry, "get", return_value=_Child):
+        result = page._handle_local_execution("http://api.example.com/detail", "https://a/10")
+    assert result[0] == "https://a/10"
+    assert result[1] == 500
+    assert result[2] != "LocalSync"
+    assert api_module._is_retryable_dispatch_result(result) is True
+    assert api_module._current_dispatch_keys() is run_keys
+
+
+def test_local_execution_failure_releases_dispatch_key(run_keys):
+    class _Child:
+        def main(self, url):
+            raise RuntimeError("boom")
+
+    page = _DummyMiddlePage()
+    api_url = "http://api.example.com/detail"
+
+    async def _fetch_via_local(detail_url, _api_url, _loop):
+        return page._handle_local_execution(_api_url, detail_url)
+
+    assert api_module._claim_detail_dispatch(run_keys, api_url, "https://a/11") is True
+    with patch.object(api_module.ApiRegistry, "get", return_value=_Child), patch.object(
+        page, "_fetchWithEachSession", side_effect=_fetch_via_local
+    ):
+        asyncio.run(page._fetchDetailOnce(run_keys, "https://a/11", api_url, None))
+    assert (api_url, "https://a/11") not in run_keys
+
+
 def test_main_owns_run_state_only_while_running():
     page = _DummyMiddlePage()
     seen = []

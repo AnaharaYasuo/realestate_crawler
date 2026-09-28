@@ -281,7 +281,7 @@ graph TD
 - `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとする実行単位のキー集合（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
 - 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
 - キー集合はクロール実行単位で分離する。独立した `ApiAsyncProcBase.main()` は `_enter_crawl_run()` でスレッドローカル `_crawl_run_state` に新しい集合を割り当て、終了時に破棄する（並行する別実行とは共有しない）。ローカルルーティング（`_handle_local_execution`）で子スレッドにネスト実行される一覧・詳細の `main()` は、親の集合を引き継いで共有する。実行外から `_callApi` が呼ばれた場合は呼び出しごとの集合でページ内重複のみ除外する。
-- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。
+- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。ローカルルーティングの子スレッドで `main()` が例外終了した場合、`_handle_local_execution` は成功（`LocalSync`）ではなく `(詳細 URL, 500, "LocalError")` を返し、同じ規則でキーを解除する。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
