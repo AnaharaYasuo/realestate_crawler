@@ -70,7 +70,7 @@ flowchart TB
 
 | コンポーネント | GCPサービス | 仕様・サイジング | 役割・選定根拠 |
 |---|---|---|---|
-| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。Coordinator起動時にProxySQLインスタンスを安全にオンデマンド起動・疎通確認し、完了時/異常時finallyで停止。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のゾンビ残存を根本遮断。 |
+| **バッチ実行基盤** | Cloud Run Jobs | 2 vCPU, 4 GiB RAM, タイムアウト 3600s, tmpfs 有効, Direct VPC Egress | 初回DBスキーマ自動反映、クローラーおよびML一括評価を実行。task_count=8 / parallelism=8 で全タスク同時起動。Coordinator起動時にProxySQLインスタンスを安全にオンデマンド起動・疎通確認し、完了時/異常時finallyで停止（タスクアレイ時は他全タスクが終端状態の場合のみ停止し、未完了・状態不明時は Safety-Net に委譲）。SIGTERM/SIGINTハンドラおよび早期自律シャットダウン（タイムアウト300秒前の安全停止シーケンス）によりタイムアウト時のゾンビ残存を根本遮断。 |
 | **定期トリガー** | Cloud Scheduler | 毎日 16:00 UTC (01:00 JST) 実行 | Cloud Run Jobs の実行 API を OIDC 認証付きで安全にキック。 |
 | **安全停止監視トリガー** | Cloud Scheduler | 毎日 17:00〜21:00 UTC (02:00〜06:00 JST) 毎時実行 (`0 17-21 * * *`) | バッチ完了後のリソース停止状態（ProxySQL stopped, NAT）を検査する多重セーフティネット。Cloud Run Job Execution 稼働状態連動（RUNNING ジョブがあれば停止スキップ、タイムアウト超過時は Cloud Run キャンセル ＋ ProxySQL 両強制停止、起動後15分間 Grace Period 猶予）。 |
 | **コネクションプール** | Compute Engine Instance | `e2-micro` (固定内部IP: `10.0.0.10`), Debian 12, ProxySQL | 多数のクローラープロセスからの同時DB接続を集約・多重化。非稼働時は `TERMINATED (stop)` でCPU/メモリ課金ゼロ化。トラフィック増大時は垂直スケールアップ（`e2-small` / `e2-medium`）で対処。 |

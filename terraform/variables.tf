@@ -67,7 +67,7 @@ variable "crawler_task_count" {
 variable "crawler_parallelism" {
   type        = number
   description = "Number of tasks executing simultaneously in Cloud Run Job"
-  default     = 4
+  default     = 8
 }
 
 variable "schedule_cron" {

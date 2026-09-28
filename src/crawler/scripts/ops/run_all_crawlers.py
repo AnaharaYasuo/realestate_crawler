@@ -35,7 +35,7 @@ from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_slack_message
-from package.utils.task_distribution import get_task_config, distribute_jobs
+from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
@@ -172,6 +172,25 @@ def cleanup_active_process():
             except Exception as e:
                 logging.exception(f"子プロセスのクリーンアップ中にエラー: {e}")
     active_processes.clear()
+
+
+def record_task_start(task_index, task_count, jobs_assigned):
+    """自タスクの CrawlerTaskExecution を RUNNING で登録する (同日の別実行と区別するため実行 ID を記録)"""
+    try:
+        record, _ = CrawlerTaskExecution.objects.update_or_create(
+            execution_date=get_execution_date(),
+            task_index=task_index or 0,
+            execution_id=get_execution_id(),
+            defaults={
+                "task_count": task_count,
+                "status": "RUNNING",
+                "jobs_assigned": jobs_assigned,
+            },
+        )
+    except Exception as dbe:
+        logger.warning(f"Failed to record CrawlerTaskExecution start: {dbe}")
+        return None
+    return record
 
 
 def _mark_task_failed(task_exec_record):
@@ -316,19 +335,7 @@ def main():
         logging.info(f"🎯 [Task Array] Task {task_index}/{task_count} に {len(target_jobs)} 件のジョブを割り当てました")
 
     # DB にタスク実行状態を登録
-    task_exec_record = None
-    try:
-        task_exec_record, _ = CrawlerTaskExecution.objects.update_or_create(
-            execution_date=datetime.date.today(),
-            task_index=task_index or 0,
-            defaults={
-                "task_count": task_count,
-                "status": "RUNNING",
-                "jobs_assigned": len(target_jobs),
-            }
-        )
-    except Exception as dbe:
-        logging.warning(f"Failed to record CrawlerTaskExecution start: {dbe}")
+    task_exec_record = record_task_start(task_index, task_count, len(target_jobs))
 
     if task_count > 1 and task_index is not None:
         post_slack(f"🚀 【分散クローリング開始】 Task {task_index}/{task_count} を開始します。(担当 {len(target_jobs)} ジョブ)")

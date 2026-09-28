@@ -47,6 +47,61 @@ _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
 
+_crawl_run_state = threading.local()
+_dispatched_detail_lock = threading.Lock()
+_RETRYABLE_DISPATCH_STATUSES = frozenset({408, 429})
+
+
+def _current_dispatch_keys() -> set[tuple[str, str]] | None:
+    return getattr(_crawl_run_state, "keys", None)
+
+
+def _enter_crawl_run() -> bool:
+    """独立した main() には新しいディスパッチ済みキー集合を割り当て、ネスト実行は親の集合を共有する"""
+    if _current_dispatch_keys() is not None:
+        return False
+    _crawl_run_state.keys = set()
+    return True
+
+
+def _exit_crawl_run(owns_run: bool) -> None:
+    if owns_run:
+        _crawl_run_state.keys = None
+
+
+def _claim_detail_dispatch(keys: set[tuple[str, str]], api_url: str, detail_url: str) -> bool:
+    """(詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
+    key = (api_url, detail_url)
+    with _dispatched_detail_lock:
+        if key in keys:
+            return False
+        keys.add(key)
+        return True
+
+
+def _release_detail_dispatch(keys: set[tuple[str, str]], api_url: str, detail_url: str) -> None:
+    with _dispatched_detail_lock:
+        keys.discard((api_url, detail_url))
+
+
+def _is_retryable_dispatch_result(result: Any) -> bool:
+    if not isinstance(result, tuple) or len(result) < 2:
+        return False
+    status = result[1]
+    return isinstance(status, int) and (status >= 500 or status in _RETRYABLE_DISPATCH_STATUSES)
+
+
+# aiohttp の TraceConfig シグナルはコールバックを await するためコルーチン関数である必要がある
+async def _mark_request_sent(_session, trace_config_ctx, _params) -> None:  # NOSONAR
+    trace_config_ctx.trace_request_ctx["sent"] = True
+
+
+def _request_sent_trace_config() -> aiohttp.TraceConfig:
+    """リクエスト本文の送信完了を trace_request_ctx["sent"] に記録する (Fire-and-Forget 判定用)"""
+    trace_config = aiohttp.TraceConfig()
+    trace_config.on_request_chunk_sent.append(_mark_request_sent)
+    return trace_config
+
 
 def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
     """Derive company / property_type from entity or Parse* class names."""
@@ -700,7 +755,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     async def _fetchWithEachSession(self, detail_url, api_url, loop):
         await self.semaphore.acquire()
         try:
-            async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as _session:
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=self._generateConnector(self._getActiveEventLoop()),
+                timeout=self._generateTimeout(),
+                trace_configs=[_request_sent_trace_config()],
+            ) as _session:
                 try:
                     return await self._fetch(_session, detail_url, api_url, loop, retry_times=0)
                 finally:
@@ -731,13 +791,19 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return None
 
         logger.debug("Local routing to %s", getattr(target_class, "__name__", str(target_class)))
-        
+        parent_keys = _current_dispatch_keys()
+        child_errors: list[BaseException] = []
+
         def run_in_new_loop():
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
+            _crawl_run_state.keys = parent_keys
             try:
                 target_class().main(detail_url)
+            except Exception as exc:  # noqa: BLE001
+                child_errors.append(exc)
             finally:
+                _crawl_run_state.keys = None
                 try:
                     from django.db import close_old_connections, connections
                     close_old_connections()
@@ -755,7 +821,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 from django.db import close_old_connections
                 close_old_connections()
                 os._exit(0)
-        
+
+        if child_errors:
+            logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
+            return detail_url, 500, "LocalError"
+        # Detail failures handled inside main() are recorded by FailureReporter and must not
+        # be re-dispatched from later list pages, or deterministic parse failures are re-crawled per page.
         return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
@@ -774,7 +845,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if mw_result is not None:
             return mw_result
 
-        _timeout = aiohttp.ClientTimeout(total=3.0) 
+        _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
+        send_state = {"sent": False}
 
         local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
@@ -783,7 +855,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         post_json_data = json.dumps(
             '{"url":"' + detail_url + '"}').encode("utf-8")
         try:
-            response: aiohttp.ClientResponse = await session.post(api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout)
+            response: aiohttp.ClientResponse = await session.post(
+                api_url, headers=self.headersJson, data=post_json_data, timeout=_timeout, trace_request_ctx=send_state
+            )
         except aiohttp.client_exceptions.ClientConnectorError:
             if retry_times > 0:
                 await asyncio.sleep(10)
@@ -796,9 +870,14 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
             logging.exception("ServerDisconnectedError: %s", detail_url)
             raise
+        except aiohttp.ConnectionTimeoutError:
+            logger.warning("Connect timeout before request was sent: %s", detail_url)
+            return detail_url, 504, "ConnectTimeout"
         except (asyncio.TimeoutError, TimeoutError):
-            # Fire-and-Forget Success Path
-            logging.info("Fire and forget - Timeout (assumed success): " + detail_url)
+            if not send_state["sent"]:
+                logger.warning("Timeout before request body was sent: %s", detail_url)
+                return detail_url, 504, "Timeout"
+            logger.info("Fire and forget - Timeout after request was sent (assumed success): %s", detail_url)
             return detail_url, 200, "FireAndForget"
         except Exception:
             logging.exception("fetch error: %s", detail_url)
@@ -852,6 +931,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self.url = url
         loop: Optional[asyncio.AbstractEventLoop] = None
         run_result = None
+        owns_run = _enter_crawl_run()
         try:
             try:
                 loop = self._getActiveEventLoop()
@@ -866,6 +946,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     res = loop.run_until_complete(task)
                     run_result = res if isinstance(res, list) else [res]
         finally:
+            _exit_crawl_run(owns_run)
             if loop and loop.is_running():
                 loop.stop()
             if loop and not loop.is_closed():
@@ -957,30 +1038,53 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             if parser_next_func is not None:
                 next_page_url = await parser_next_func(response)
                 if len(next_page_url) > 0:
-                    async with aiohttp.ClientSession(headers=header, connector=self._generateConnector(self._getActiveEventLoop()), timeout=self._generateTimeout()) as another_session:
-                        try:
-                            await self._fetch(session=another_session, detail_url=next_page_url, api_url=self._getUrl(
-                            ) + (self._getNextPageApiKey() or ''), loop=self._getActiveEventLoop(), retry_times=0)
-                        except Exception as npe:
-                            logging.warning(f"Failed to fetch next page {next_page_url}: {npe}")
+                    await self._fetchNextPage(next_page_url)
 
         return detail_url_list
 
+    async def _fetchNextPage(self, next_page_url):
+        async with aiohttp.ClientSession(
+            headers=header,
+            connector=self._generateConnector(self._getActiveEventLoop()),
+            timeout=self._generateTimeout(),
+            trace_configs=[_request_sent_trace_config()],
+        ) as another_session:
+            try:
+                await self._fetch(
+                    session=another_session,
+                    detail_url=next_page_url,
+                    api_url=self._getUrl() + (self._getNextPageApiKey() or ''),
+                    loop=self._getActiveEventLoop(),
+                    retry_times=0,
+                )
+            except Exception as npe:  # noqa: BLE001
+                logger.warning(f"Failed to fetch next page {next_page_url}: {npe}")
+
     def _getTreatPageArg(self):
         return
+
+    def _differentialModelClass(self):
+        if not (hasattr(self, "parser") and self.parser):
+            return None
+        try:
+            entity = self.parser.createEntity()
+        except Exception:  # noqa: BLE001
+            return None
+        return entity.__class__ if entity is not None else None
+
+    @staticmethod
+    def _detailItemUrl(detail_item) -> str:
+        if isinstance(detail_item, ListItem):
+            return detail_item.url
+        if isinstance(detail_item, (tuple, list)):
+            return detail_item[0]
+        return str(detail_item)
 
     async def _callApi(self, url_list):
         if not url_list:
             return []
 
-        model_class = None
-        if hasattr(self, "parser") and self.parser:
-            try:
-                entity = self.parser.createEntity()
-                if entity is not None:
-                    model_class = entity.__class__
-            except Exception:
-                model_class = None
+        model_class = self._differentialModelClass()
 
         to_fetch = url_list
         if model_class is not None:
@@ -997,21 +1101,35 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
         tasks = []
         loop = self._getActiveEventLoop()
+        api_url = self._getApiUrl()
+        keys = _current_dispatch_keys()
+        if keys is None:
+            keys = set()
         for detail_item in to_fetch:
-            if isinstance(detail_item, ListItem):
-                detail_url = detail_item.url
-            elif isinstance(detail_item, (tuple, list)):
-                detail_url = detail_item[0]
-            else:
-                detail_url = str(detail_item)
-
-            colo = self._fetchWithEachSession(
-                detail_url, self._getApiUrl(), loop)
+            detail_url = self._detailItemUrl(detail_item)
+            if not _claim_detail_dispatch(keys, api_url, detail_url):
+                continue
+            colo = self._fetchDetailOnce(keys, detail_url, api_url, loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 
-        responses = await asyncio.gather(*tasks)
-        return responses
+        try:
+            return await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
+    async def _fetchDetailOnce(self, keys, detail_url, api_url, loop):
+        try:
+            result = await self._fetchWithEachSession(detail_url, api_url, loop)
+        except BaseException:
+            _release_detail_dispatch(keys, api_url, detail_url)
+            raise
+        if _is_retryable_dispatch_result(result):
+            _release_detail_dispatch(keys, api_url, detail_url)
+        return result
 
     @abstractmethod
     def _getParserFunc(self) -> Any:
