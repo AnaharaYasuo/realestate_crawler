@@ -851,7 +851,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             logging.exception("ServerDisconnectedError: %s", detail_url)
             raise
         except aiohttp.ConnectionTimeoutError:
-            logging.warning("Connect timeout before request was sent: %s", detail_url)
+            logger.warning("Connect timeout before request was sent: %s", detail_url)
             return detail_url, 504, "ConnectTimeout"
         except (asyncio.TimeoutError, TimeoutError):
             # Fire-and-Forget Success Path
