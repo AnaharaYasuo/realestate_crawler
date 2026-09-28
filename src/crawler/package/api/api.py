@@ -808,6 +808,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if child_errors:
             logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
             return detail_url, 500, "LocalError"
+        # Detail failures handled inside main() are recorded by FailureReporter and must not
+        # be re-dispatched from later list pages, or deterministic parse failures are re-crawled per page.
         return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
@@ -848,6 +850,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 return await self._fetch(session, detail_url, api_url, loop, retry_times + 1)
             logging.exception("ServerDisconnectedError: %s", detail_url)
             raise
+        except aiohttp.ConnectionTimeoutError:
+            logging.warning("Connect timeout before request was sent: %s", detail_url)
+            return detail_url, 504, "ConnectTimeout"
         except (asyncio.TimeoutError, TimeoutError):
             # Fire-and-Forget Success Path
             logging.info("Fire and forget - Timeout (assumed success): " + detail_url)

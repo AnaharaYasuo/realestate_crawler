@@ -13,6 +13,7 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
 _cur = os.path.abspath(__file__)
@@ -426,6 +427,28 @@ def test_local_execution_failure_releases_dispatch_key(run_keys):
     ):
         asyncio.run(page._fetchDetailOnce(run_keys, "https://a/11", api_url, None))
     assert (api_url, "https://a/11") not in run_keys
+
+
+def _fetch_with_post_error(page, exc):
+    session = MagicMock()
+    session.post = AsyncMock(side_effect=exc)
+    with patch.object(page, "_handle_local_execution", return_value=None), patch.object(
+        page, "_apply_middlewares_request", AsyncMock(return_value=None)
+    ), patch.object(api_module.os.path, "exists", return_value=False):
+        return asyncio.run(page._fetch(session, "https://a/12", "http://api.example.com/detail", None, 0))
+
+
+def test_connect_timeout_is_retryable_and_not_fire_and_forget():
+    result = _fetch_with_post_error(_DummyMiddlePage(), aiohttp.ConnectionTimeoutError("connect"))
+    assert result[0] == "https://a/12"
+    assert result[2] != "FireAndForget"
+    assert api_module._is_retryable_dispatch_result(result) is True
+
+
+def test_read_timeout_after_send_stays_fire_and_forget():
+    result = _fetch_with_post_error(_DummyMiddlePage(), asyncio.TimeoutError())
+    assert result == ("https://a/12", 200, "FireAndForget")
+    assert api_module._is_retryable_dispatch_result(result) is False
 
 
 def test_main_owns_run_state_only_while_running():
