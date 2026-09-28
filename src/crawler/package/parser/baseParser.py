@@ -25,6 +25,37 @@ TOKEN_INQUIRY = "/inquiry"
 TOKEN_CONTACT = "/contact"
 DECIMAL_REGEX = re.compile(r'([\d\.]+)')
 DIGIT_REGEX = re.compile(r'(\d+)')
+WHITESPACE_REGEX = re.compile(r'\s+')
+_BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―", "—"})
+
+
+def _is_filled_spec_value(val) -> bool:
+    if isinstance(val, dict):
+        val = val.get("value")
+    if val is None:
+        return False
+    return str(val).strip() not in _BLANK_SPEC_VALUES
+
+
+def _is_positive_area(val) -> bool:
+    if isinstance(val, dict):
+        val = val.get("value")
+    if val is None:
+        return False
+    area = converter.parse_menseki(str(val))
+    return area is not None and area > 0
+
+
+def _spec_has_value(specs, key: str, is_filled=_is_filled_spec_value) -> bool:
+    """key と一致、または「key（壁芯）」等の修飾付きラベルのいずれかに値があるか (ラベル内の空白は無視)"""
+    qualified = (f"{key}（", f"{key}(")
+    for label, val in specs.items():
+        if not isinstance(label, str):
+            continue
+        normalized = WHITESPACE_REGEX.sub("", label)
+        if (normalized == key or normalized.startswith(qualified)) and is_filled(val):
+            return True
+    return False
 
 
 class ReadPropertyNameException(Exception):
@@ -68,6 +99,7 @@ class ServerDownException(Exception):
 
 class ParserBase(metaclass=ABCMeta):
     property_type = ''
+    sectional_unit_guard_enabled = False
 
     EXPECTED_SPEC_FIELDS_BY_TYPE = {
         'mansion': ['price', 'address', 'senyuMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
@@ -1009,6 +1041,23 @@ class ParserBase(metaclass=ABCMeta):
             logging.info(f"Server busy for URL: {url}")
             raise ServerBusyException()
 
+    @staticmethod
+    def _is_sectional_unit_page(specs) -> bool:
+        """専有面積 (正の数値) があり土地面積が無いスペック表は区分所有の住戸とみなす"""
+        if not specs:
+            return False
+        return _spec_has_value(specs, "専有面積", _is_positive_area) and not _spec_has_value(specs, "土地面積")
+
+    def _senyu_area_outside_specs(self, soup) -> str:
+        """スペック表以外 (サマリー等) に記載された専有面積。サイト固有の記載位置はサブクラスで返す"""
+        return ""
+
+    def _is_sectional_unit(self, specs, soup) -> bool:
+        if self._is_sectional_unit_page(specs):
+            return True
+        has_land_area = bool(specs) and _spec_has_value(specs, "土地面積")
+        return not has_land_area and _is_positive_area(self._senyu_area_outside_specs(soup))
+
     def _maybe_switch_parser(self, url, title: str, soup: BeautifulSoup, specs: dict, item: models.Model):
         """Switch to a different parser when detected property type differs. Returns (parser, item)."""
         detected_type = PropertyTypeDetector.detect(
@@ -1019,6 +1068,16 @@ class ParserBase(metaclass=ABCMeta):
             default=self.property_type,
         )
         if not (detected_type and self.property_type and detected_type != self.property_type):
+            return self, item
+        if (
+            self.sectional_unit_guard_enabled
+            and self.property_type == "mansion"
+            and self._is_sectional_unit(specs, soup)
+        ):
+            logging.info(
+                f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' "
+                "skipped (sectional unit)"
+            )
             return self, item
         target_parser = UrlRouter.create_parser(
             url=url,

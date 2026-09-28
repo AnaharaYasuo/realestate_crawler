@@ -13,6 +13,10 @@ from package.utils.failure_reporter import (
 class TestGcsFailureTelemetry466:
     """Issue #466: GCS Real-time failure telemetry and auto-heal integration tests."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_fallback_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("STORAGE_LOCAL_FALLBACK_DIR", str(tmp_path))
+
     def test_record_job_failure_with_gcs_and_html(self, tmp_path):
         """Test recording failure uploads metadata JSON and raw HTML."""
         mock_storage = MagicMock()
@@ -130,6 +134,7 @@ class TestGcsFailureTelemetry466:
         from package.parser.nomuraParser import NomuraMansionParser
 
         parser = NomuraMansionParser("")
+        monkeypatch.chdir(tmp_path)
         with patch.object(FailureReporter, "record_job_failure") as mock_record:
             parser.save_error_html(
                 url="https://www.nomu.com/mansion/test",
@@ -143,6 +148,7 @@ class TestGcsFailureTelemetry466:
             assert kwargs["error_type"] == "ParseHtmlError"
             assert kwargs["error_message"] == "Test reason"
             assert kwargs["raw_html"] == b"<html>error</html>"
+        assert list((tmp_path / "docs" / "error_pages" / "nomura_mansion").glob("*_meta.txt"))
 
     def test_fetch_run_failures_cli_main(self, capsys):
         """Test CLI main function in fetch_run_failures.py."""
