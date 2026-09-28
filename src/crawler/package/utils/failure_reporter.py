@@ -13,8 +13,8 @@ from package.utils.storage import get_storage_manager
 logger = logging.getLogger(__name__)
 
 _LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
-_LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{8})(?!\d)")
-_COMPRESSED_LOG_SUFFIXES = frozenset({".gz", ".bz2", ".xz", ".zip"})
+_LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)")
+_ROTATED_LOG_NAME_PATTERN = re.compile(r"\.log\.(?:\d+|\d{4}-\d{2}-\d{2}(?:_\d{2}(?:-\d{2}){0,2})?)$")
 
 
 def generate_auto_heal_trigger_message(
@@ -185,13 +185,11 @@ class FailureReporter:
             return error_logs
 
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-        log_files = {
-            p
-            for p in (*fallback_base.glob("*.log"), *fallback_base.glob("*.log.*"))
-            if p.suffix.lower() not in _COMPRESSED_LOG_SUFFIXES
+        log_files = set(fallback_base.glob("*.log")) | {
+            p for p in fallback_base.glob("*.log.*") if _ROTATED_LOG_NAME_PATTERN.search(p.name)
         }
         for lpath in sorted(log_files):
-            name_dates = _LOG_NAME_DATE_PATTERN.findall(lpath.name)
+            name_dates = {"".join(parts) for parts in _LOG_NAME_DATE_PATTERN.findall(lpath.name)}
             if name_dates and date_str not in name_dates:
                 continue
             if not name_dates and not cls._modified_on_or_after(lpath, iso_date):

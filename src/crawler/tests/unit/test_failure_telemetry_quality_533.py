@@ -122,6 +122,41 @@ class TestLocalLogScanDateFilter533:
 
         assert FailureReporter._scan_local_logs("20260926") == []
 
+    def test_iso_dated_rotated_log_keeps_undated_error_lines(self):
+        (self.base / "pipeline.log.2026-09-26").write_text(
+            "Traceback ERROR without timestamp\n"
+            "2026-09-26 00:00:01 CRITICAL: target\n",
+            encoding="utf-8",
+        )
+        (self.base / "pipeline.log.2026-09-25").write_text(
+            "Traceback ERROR other day\n", encoding="utf-8"
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == [
+            "Traceback ERROR without timestamp",
+            "2026-09-26 00:00:01 CRITICAL: target",
+        ]
+
+    def test_iso_dated_log_name_is_recognized(self):
+        (self.base / "run_2026-09-25.log").write_text(
+            "2026-09-26 00:00:01 ERROR: other day file\n", encoding="utf-8"
+        )
+        (self.base / "run_2026-09-26.log").write_text(
+            "Traceback ERROR undated\n", encoding="utf-8"
+        )
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["Traceback ERROR undated"]
+
+    @pytest.mark.parametrize("name", ["pipeline.log.bak", "pipeline.log.old", "pipeline.log.1.tmp"])
+    def test_non_rotation_backup_is_excluded(self, name):
+        (self.base / name).write_text("2026-09-26 00:00:01 ERROR: backup\n", encoding="utf-8")
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
     def test_other_dated_log_file_is_not_opened(self):
         (self.base / "run_20260925.log").write_text(
             "2026-09-26 00:00:01 ERROR: late line in previous day file\n",
