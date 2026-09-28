@@ -194,7 +194,7 @@ class FailureReporter:
                 continue
             if not name_dates and not cls._modified_on_or_after(lpath, iso_date):
                 continue
-            require_date = not name_dates
+            require_date = len(name_dates) != 1
             try:
                 with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
                     error_logs.extend(
