@@ -37,19 +37,24 @@ def wait_for_all_tasks(
     execution_date: Any,
     task_count: int,
     timeout_sec: int = 1800,
-    interval_sec: int = 15
+    interval_sec: int = 15,
+    execution_id: str = "",
 ) -> Tuple[bool, List[int]]:
     """
     Task 0 が他全タスクの完了を DB ポーリングで待機するバリア関数。
+    execution_id 指定時は同日の別実行の行を除外する。
     """
     if task_count <= 1:
         return True, []
-    
+
+    filters = {"execution_date": execution_date}
+    if execution_id:
+        filters["execution_id"] = execution_id
     start_time = time.time()
     logger.info(f"⏳ [Coordinator Barrier] 全 {task_count} タスクの完了待機を開始 (タイムアウト: {timeout_sec}秒)")
     
     while time.time() - start_time < timeout_sec:
-        records = list(model.objects.filter(execution_date=execution_date))
+        records = list(model.objects.filter(**filters))
         all_completed, failed = check_all_tasks_completed(records, task_count)
         
         if all_completed:
@@ -61,6 +66,6 @@ def wait_for_all_tasks(
         time.sleep(interval_sec)
         
     logger.error(f"✘ [Coordinator Barrier] タイムアウト ({timeout_sec}秒) 超過。一部タスクが未完了のまま待機を終了します。")
-    records = list(model.objects.filter(execution_date=execution_date))
+    records = list(model.objects.filter(**filters))
     _, failed = check_all_tasks_completed(records, task_count)
     return False, failed

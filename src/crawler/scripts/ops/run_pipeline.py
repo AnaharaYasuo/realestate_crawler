@@ -31,7 +31,7 @@ import datetime
 from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
-from package.utils.task_distribution import get_task_config
+from package.utils.task_distribution import get_execution_id, get_task_config
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.slack import send_crawling_summary_alert
@@ -92,7 +92,7 @@ def check_deadline_or_raise(desc: str) -> None:
         )
 
 
-def _inline_stop_proxysql() -> None:
+def _inline_stop_proxysql() -> bool:
     """Directly scales down ProxySQL MIG/Instance and Autoscaler to 0 inline without subprocess overhead."""
     try:
         logger.info(
@@ -104,10 +104,21 @@ def _inline_stop_proxysql() -> None:
         logger.info(
             "✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG/Instance & Autoscaler to 0."
         )
+        return True
     except Exception as e:  # noqa: BLE001
         logger.error(
             f"❌ [Emergency/Inline Teardown Error] Failed to scale down ProxySQL: {e}"
         )
+        return False
+
+
+def _current_execution_filters() -> dict:
+    """run_all_crawlers.py の行登録と同じ実行日 (ローカル日付) と実行 ID で今回の実行のタスク行を特定する"""
+    filters = {"execution_date": datetime.datetime.now(datetime.timezone.utc).astimezone().date()}
+    execution_id = get_execution_id()
+    if execution_id:
+        filters["execution_id"] = execution_id
+    return filters
 
 
 def _bind_parent_db_timeouts() -> None:
@@ -123,23 +134,13 @@ def _can_stop_shared_proxysql() -> bool:
         return True
     try:
         _bind_parent_db_timeouts()
-        records = list(
-            CrawlerTaskExecution.objects.filter(
-                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date()
-            )
-        )
+        records = list(CrawlerTaskExecution.objects.filter(**_current_execution_filters()))
     except Exception as e:  # noqa: BLE001
         logger.warning(
             f"⚠️ [Teardown Guard] タスク状態を取得できないため ProxySQL 停止をスキップし Safety-Net に委譲します: {e}"
         )
         return False
-    # 行は (execution_date, task_index) で同日の再実行と共有されるため、本実行開始後に更新された行のみを今回の状態とみなす
-    run_started_at = datetime.datetime.fromtimestamp(_pipeline_start_time, tz=datetime.timezone.utc)
-    status_map = {
-        r.task_index: r.status
-        for r in records
-        if r.updated_at is not None and r.updated_at >= run_started_at
-    }
+    status_map = {r.task_index: r.status for r in records}
     pending = [
         idx
         for idx in range(_task_count)
@@ -172,9 +173,8 @@ def _sigterm_handler(signum: int, frame: object) -> None:
             logger.warning(f"Error terminating active subprocess: {proc_err}")
 
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
-        if _can_stop_shared_proxysql():
-            _inline_stop_proxysql()
-        _teardown_done = True
+        if _can_stop_shared_proxysql() and _inline_stop_proxysql():
+            _teardown_done = True
 
     sys.exit(128 + signum)
 
@@ -184,9 +184,8 @@ def _atexit_teardown() -> None:
     global _teardown_done
     if _is_coordinator and os.environ.get("IS_CLOUD") and not _teardown_done:
         logger.info("🧹 [Atexit Guard] Executing safety teardown via atexit...")
-        if _can_stop_shared_proxysql():
-            _inline_stop_proxysql()
-        _teardown_done = True
+        if _can_stop_shared_proxysql() and _inline_stop_proxysql():
+            _teardown_done = True
 
 
 signal.signal(signal.SIGTERM, _sigterm_handler)
@@ -319,11 +318,10 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
                 "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
             )
             if not _can_stop_shared_proxysql():
-                _teardown_done = True
                 return
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
-            _inline_stop_proxysql()
-            _teardown_done = True
+            if _inline_stop_proxysql():
+                _teardown_done = True
             # 2. Comprehensive check and notification via ensure_resources_stopped
             run_command(
                 [
@@ -421,7 +419,7 @@ def reconcile_aborted_task_execution(task_index: int | None) -> bool:
         try:
             # run_all_crawlers.py と同じ execution_date (ローカル日付) / task_index で自タスクの行のみを対象とする
             updated = CrawlerTaskExecution.objects.filter(
-                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
+                **_current_execution_filters(),
                 task_index=task_index or 0,
                 status="RUNNING",
             ).update(status="FAILED")
@@ -493,12 +491,14 @@ def _run_crawler_step(
             f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)..."
         )
         _bind_parent_db_timeouts()
+        execution_filters = _current_execution_filters()
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
-            execution_date=datetime.datetime.now(datetime.timezone.utc).date(),
+            execution_date=execution_filters["execution_date"],
             task_count=task_count,
             timeout_sec=wait_timeout,
             interval_sec=wait_interval,
+            execution_id=execution_filters.get("execution_id", ""),
         )
         if not all_ok:
             crawler_ok = False
@@ -508,11 +508,8 @@ def _run_crawler_step(
 
         # 全タスク集約レポートの生成 & Slack通知 (Issue #445)
         try:
-            today = datetime.datetime.now(datetime.timezone.utc).date()
             records = list(
-                CrawlerTaskExecution.objects.filter(execution_date=today).order_by(
-                    "task_index"
-                )
+                CrawlerTaskExecution.objects.filter(**execution_filters).order_by("task_index")
             )
             aggregated = aggregate_task_array_reports(records, total_jobs=89)
             logger.info(

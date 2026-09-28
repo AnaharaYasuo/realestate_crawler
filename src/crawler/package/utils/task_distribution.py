@@ -17,6 +17,11 @@ def get_task_config() -> Tuple[Optional[int], int]:
     return task_index, task_count
 
 
+def get_execution_id() -> str:
+    """同一 Cloud Run Jobs 実行の全タスクで共通の実行名 (CLOUD_RUN_EXECUTION) を返す (ローカル実行時は空文字)"""
+    return os.getenv("CLOUD_RUN_EXECUTION", "")
+
+
 def distribute_jobs(
     jobs: List[Tuple[str, str]],
     task_index: Optional[int] = None,

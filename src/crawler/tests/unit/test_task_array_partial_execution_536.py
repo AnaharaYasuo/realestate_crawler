@@ -32,25 +32,23 @@ while True:
 
 from package.api import api as api_module
 from package.api.api import ParseMiddlePageAsyncBase
-from scripts.ops import run_pipeline
+from package.utils import pipeline_coordinator, task_distribution
+from scripts.ops import run_all_crawlers, run_pipeline
 
 TERRAFORM_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../../terraform")
 )
 
 
-RUN_STARTED_TS = 1_800_000_000.0
+EXECUTION_ID = "realestate-crawler-pipeline-prod-abc12"
 
 
-def _ts(offset_sec):
-    return datetime.datetime.fromtimestamp(RUN_STARTED_TS + offset_sec, tz=datetime.timezone.utc)
+def _records(status_by_index):
+    return [SimpleNamespace(task_index=i, status=s) for i, s in status_by_index.items()]
 
 
-def _records(status_by_index, updated_offset_sec=60):
-    return [
-        SimpleNamespace(task_index=i, status=s, updated_at=_ts(updated_offset_sec))
-        for i, s in status_by_index.items()
-    ]
+def _local_today():
+    return datetime.datetime.now(datetime.timezone.utc).astimezone().date()
 
 
 @pytest.fixture
@@ -58,7 +56,7 @@ def task_array(monkeypatch):
     """Coordinator (task 0) / 全 4 タスクのタスクアレイ状態を設定し、DB 取得結果を差し替える"""
     monkeypatch.setattr(run_pipeline, "_task_index", 0)
     monkeypatch.setattr(run_pipeline, "_task_count", 4)
-    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", RUN_STARTED_TS)
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
     monkeypatch.setattr(run_pipeline, "bound_mysql_timeouts", MagicMock())
     monkeypatch.setattr(run_pipeline, "connection", MagicMock(connection=None, settings_dict={}))
     model = MagicMock()
@@ -109,14 +107,22 @@ def test_all_other_tasks_terminal_can_stop(task_array):
     assert run_pipeline._can_stop_shared_proxysql() is True
 
 
-def test_queries_local_execution_date_like_run_all_crawlers(task_array):
+def test_queries_current_execution_rows_only(task_array):
     task_array.objects.filter.return_value = _records(
         {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
     )
     run_pipeline._can_stop_shared_proxysql()
     kwargs = task_array.objects.filter.call_args.kwargs
-    dt = run_pipeline.datetime
-    assert kwargs == {"execution_date": dt.datetime.now(dt.timezone.utc).astimezone().date()}
+    assert kwargs == {"execution_date": _local_today(), "execution_id": EXECUTION_ID}
+
+
+def test_queries_by_date_only_without_execution_id(task_array, monkeypatch):
+    monkeypatch.delenv("CLOUD_RUN_EXECUTION", raising=False)
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
+    )
+    run_pipeline._can_stop_shared_proxysql()
+    assert task_array.objects.filter.call_args.kwargs == {"execution_date": _local_today()}
 
 
 def test_bounds_mysql_timeouts_before_query(task_array):
@@ -162,25 +168,19 @@ def test_db_error_blocks_stop(task_array):
     assert run_pipeline._can_stop_shared_proxysql() is False
 
 
-def test_terminal_rows_from_earlier_same_day_run_block_stop(task_array):
-    task_array.objects.filter.return_value = _records(
-        {1: "COMPLETED", 2: "COMPLETED", 3: "FAILED"}, updated_offset_sec=-600
-    )
+def test_no_rows_for_current_execution_blocks_stop(task_array):
+    task_array.objects.filter.return_value = []
     assert run_pipeline._can_stop_shared_proxysql() is False
 
 
-def test_mixed_current_and_stale_rows_block_stop(task_array):
-    task_array.objects.filter.return_value = _records(
-        {1: "COMPLETED", 2: "COMPLETED"}
-    ) + _records({3: "COMPLETED"}, updated_offset_sec=-1)
-    assert run_pipeline._can_stop_shared_proxysql() is False
-
-
-def test_row_updated_exactly_at_run_start_counts_as_current(task_array):
-    task_array.objects.filter.return_value = _records(
-        {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}, updated_offset_sec=0
-    )
-    assert run_pipeline._can_stop_shared_proxysql() is True
+def test_current_execution_filters(monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    assert run_pipeline._current_execution_filters() == {
+        "execution_date": _local_today(),
+        "execution_id": EXECUTION_ID,
+    }
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", "")
+    assert run_pipeline._current_execution_filters() == {"execution_date": _local_today()}
 
 
 def test_established_connection_is_reopened_with_bounded_timeouts(task_array):
@@ -216,6 +216,37 @@ def test_barrier_wait_uses_bounded_db_timeouts(task_array, monkeypatch):
     assert order[:2] == ["bind", "wait"]
 
 
+def test_barrier_and_aggregation_use_same_execution_scope_as_guard(task_array, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(run_pipeline, "run_command", MagicMock())
+    monkeypatch.setattr(run_pipeline, "_bind_parent_db_timeouts", MagicMock())
+
+    def _wait(**kwargs):
+        seen.update(kwargs)
+        return True, []
+
+    monkeypatch.setattr(run_pipeline, "wait_for_all_tasks", _wait)
+    task_array.objects.filter.return_value.order_by.return_value = []
+    run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False)
+    assert seen["execution_date"] == _local_today()
+    assert seen["execution_id"] == EXECUTION_ID
+    assert task_array.objects.filter.call_args.kwargs == {
+        "execution_date": _local_today(),
+        "execution_id": EXECUTION_ID,
+    }
+
+
+def test_reconcile_targets_own_row_of_current_execution(task_array):
+    task_array.objects.filter.return_value.update.return_value = 1
+    assert run_pipeline.reconcile_aborted_task_execution(2) is True
+    assert task_array.objects.filter.call_args.kwargs == {
+        "execution_date": _local_today(),
+        "execution_id": EXECUTION_ID,
+        "task_index": 2,
+        "status": "RUNNING",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Issue #536: teardown 経路 (finally / atexit / SIGTERM)
 # ---------------------------------------------------------------------------
@@ -237,7 +268,7 @@ def test_safety_teardown_respects_guard(cloud_coordinator, can_stop):
         run_pipeline._execute_safety_teardown(is_coordinator=True, scripts_dir="/fake")
     assert mock_stop.called is can_stop
     assert mock_cmd.called is can_stop
-    assert run_pipeline._teardown_done is True
+    assert run_pipeline._teardown_done is can_stop
 
 
 @pytest.mark.parametrize("can_stop", [True, False])
@@ -246,7 +277,7 @@ def test_atexit_teardown_respects_guard(cloud_coordinator, can_stop):
          patch.object(run_pipeline, "_inline_stop_proxysql") as mock_stop:
         run_pipeline._atexit_teardown()
     assert mock_stop.called is can_stop
-    assert run_pipeline._teardown_done is True
+    assert run_pipeline._teardown_done is can_stop
 
 
 @pytest.mark.parametrize("can_stop", [True, False])
@@ -256,7 +287,26 @@ def test_sigterm_handler_respects_guard(cloud_coordinator, can_stop):
          pytest.raises(SystemExit):
         run_pipeline._sigterm_handler(signal.SIGTERM, None)
     assert mock_stop.called is can_stop
+    assert run_pipeline._teardown_done is can_stop
+
+
+def test_rejected_teardown_is_retried_by_later_exit_path(cloud_coordinator):
+    with patch.object(run_pipeline, "_can_stop_shared_proxysql", side_effect=[False, True]) as mock_guard, \
+         patch.object(run_pipeline, "_inline_stop_proxysql") as mock_stop, \
+         patch.object(run_pipeline, "run_command"):
+        run_pipeline._execute_safety_teardown(is_coordinator=True, scripts_dir="/fake")
+        run_pipeline._atexit_teardown()
+    assert mock_guard.call_count == 2
+    mock_stop.assert_called_once()
     assert run_pipeline._teardown_done is True
+
+
+def test_failed_inline_stop_does_not_mark_teardown_done(cloud_coordinator):
+    with patch.object(run_pipeline, "_can_stop_shared_proxysql", return_value=True), \
+         patch.object(run_pipeline, "scale_proxysql_mig", side_effect=RuntimeError("gce down")), \
+         patch.object(run_pipeline, "patch_proxysql_autoscaler"):
+        run_pipeline._atexit_teardown()
+    assert run_pipeline._teardown_done is False
 
 
 def test_atexit_teardown_skips_guard_when_already_done(cloud_coordinator, monkeypatch):
@@ -545,4 +595,56 @@ def test_main_owns_run_state_only_while_running():
         page.main("http://test.example.com")
     assert seen == [set()]
     assert api_module._current_dispatch_keys() is None
+
+
+# ---------------------------------------------------------------------------
+# Issue #536: 実行 ID (CLOUD_RUN_EXECUTION) によるタスク行のスコープ
+# ---------------------------------------------------------------------------
+
+
+def test_get_execution_id_reads_cloud_run_execution(monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    assert task_distribution.get_execution_id() == EXECUTION_ID
+    monkeypatch.delenv("CLOUD_RUN_EXECUTION")
+    assert task_distribution.get_execution_id() == ""
+
+
+@pytest.mark.parametrize(
+    ("execution_id", "expected"),
+    [
+        (EXECUTION_ID, {"execution_date": "d", "execution_id": EXECUTION_ID}),
+        ("", {"execution_date": "d"}),
+    ],
+)
+def test_wait_for_all_tasks_scopes_by_execution_id(execution_id, expected):
+    model = MagicMock()
+    model.objects.filter.return_value = _records({0: "COMPLETED", 1: "FAILED"})
+    ok, failed = pipeline_coordinator.wait_for_all_tasks(
+        model=model, execution_date="d", task_count=2, timeout_sec=5, interval_sec=0, execution_id=execution_id
+    )
+    assert (ok, failed) == (True, [1])
+    assert model.objects.filter.call_args.kwargs == expected
+
+
+def test_record_task_start_stores_execution_id(monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    model = MagicMock()
+    model.objects.update_or_create.return_value = ("rec", True)
+    monkeypatch.setattr(run_all_crawlers, "CrawlerTaskExecution", model)
+    assert run_all_crawlers.record_task_start(3, 8, 11) == "rec"
+    kwargs = model.objects.update_or_create.call_args.kwargs
+    assert kwargs["task_index"] == 3
+    assert kwargs["defaults"] == {
+        "task_count": 8,
+        "status": "RUNNING",
+        "jobs_assigned": 11,
+        "execution_id": EXECUTION_ID,
+    }
+
+
+def test_record_task_start_returns_none_on_db_error(monkeypatch):
+    model = MagicMock()
+    model.objects.update_or_create.side_effect = RuntimeError("db down")
+    monkeypatch.setattr(run_all_crawlers, "CrawlerTaskExecution", model)
+    assert run_all_crawlers.record_task_start(None, 1, 5) is None
 
