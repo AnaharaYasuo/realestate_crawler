@@ -98,9 +98,16 @@ def _inline_stop_proxysql() -> bool:
         logger.info(
             "🛑 [Emergency/Inline Teardown] Scaling down ProxySQL MIG/Instance & Autoscaler to 0..."
         )
+        autoscaler_ok = True
         if not os.environ.get("PROXYSQL_INSTANCE_NAME"):
-            patch_proxysql_autoscaler(min_replicas=0, max_replicas=0)
-        scale_proxysql_mig(target_size=0)
+            autoscaler_ok = bool(patch_proxysql_autoscaler(min_replicas=0, max_replicas=0))
+        mig_ok = bool(scale_proxysql_mig(target_size=0))
+        if not (autoscaler_ok and mig_ok):
+            logger.error(
+                f"❌ [Emergency/Inline Teardown Error] ProxySQL scale-down incomplete "
+                f"(autoscaler_ok={autoscaler_ok}, mig_ok={mig_ok})"
+            )
+            return False
         logger.info(
             "✔ [Emergency/Inline Teardown] Successfully scaled down ProxySQL MIG/Instance & Autoscaler to 0."
         )

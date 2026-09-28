@@ -302,6 +302,34 @@ def test_rejected_teardown_is_retried_by_later_exit_path(cloud_coordinator):
     assert run_pipeline._teardown_done is True
 
 
+@pytest.mark.parametrize(
+    ("autoscaler_ok", "mig_ok", "expected"),
+    [(True, True, True), (False, True, False), (True, False, False), (False, False, False)],
+)
+def test_inline_stop_succeeds_only_when_all_steps_succeed(monkeypatch, autoscaler_ok, mig_ok, expected):
+    monkeypatch.delenv("PROXYSQL_INSTANCE_NAME", raising=False)
+    with patch.object(run_pipeline, "patch_proxysql_autoscaler", return_value=autoscaler_ok), \
+         patch.object(run_pipeline, "scale_proxysql_mig", return_value=mig_ok) as mock_mig:
+        assert run_pipeline._inline_stop_proxysql() is expected
+    mock_mig.assert_called_once_with(target_size=0)
+
+
+def test_inline_stop_single_instance_skips_autoscaler(monkeypatch):
+    monkeypatch.setenv("PROXYSQL_INSTANCE_NAME", "proxysql-1")
+    with patch.object(run_pipeline, "patch_proxysql_autoscaler") as mock_as, \
+         patch.object(run_pipeline, "scale_proxysql_mig", return_value=True):
+        assert run_pipeline._inline_stop_proxysql() is True
+    mock_as.assert_not_called()
+
+
+def test_failed_scale_result_does_not_mark_teardown_done(cloud_coordinator):
+    with patch.object(run_pipeline, "_can_stop_shared_proxysql", return_value=True), \
+         patch.object(run_pipeline, "scale_proxysql_mig", return_value=False), \
+         patch.object(run_pipeline, "patch_proxysql_autoscaler", return_value=True):
+        run_pipeline._atexit_teardown()
+    assert run_pipeline._teardown_done is False
+
+
 def test_failed_inline_stop_does_not_mark_teardown_done(cloud_coordinator):
     with patch.object(run_pipeline, "_can_stop_shared_proxysql", return_value=True), \
          patch.object(run_pipeline, "scale_proxysql_mig", side_effect=RuntimeError("gce down")), \

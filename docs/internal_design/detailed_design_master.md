@@ -276,7 +276,7 @@ graph TD
   - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、`_current_execution_filters()` で今回の実行の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
   - `_current_execution_filters()` は実行日（ローカル日付 `datetime.now(timezone.utc).astimezone().date()`、`run_all_crawlers.py` の `datetime.date.today()` と同一）と実行 ID（`get_execution_id()` = 環境変数 `CLOUD_RUN_EXECUTION`。同一実行の全タスクで共通）で行を絞り込む。行は `(execution_date, task_index)` 一意で同日の再実行と共有されるため、`run_all_crawlers.record_task_start()` が登録時に `execution_id` を記録し、同日の前回実行の終端行を除外する。実行 ID が空（ローカル実行）の場合は実行日のみで絞り込む。
   - 同じ絞り込みを Coordinator バリア `wait_for_all_tasks(..., execution_id=...)`、全タスク集約レポートのクエリ、および `reconcile_aborted_task_execution()` の FAILED 再同期にも適用し、停止判定と同じ実行日・実行 ID のタスク行を参照する。
-  - `_inline_stop_proxysql()` は停止成功時に `True` を返す。`_teardown_done` は停止が成功した場合のみ `True` とし、ガードで停止をスキップした場合・停止に失敗した場合は未完了のまま残して、後続の終了経路（`_atexit_teardown` 等）で再判定させる。
+  - `_inline_stop_proxysql()` は Autoscaler 停止（単一インスタンス構成 `PROXYSQL_INSTANCE_NAME` 指定時は省略）と `scale_proxysql_mig(target_size=0)` の戻り値をすべて確認し、必要な全ステップが成功した場合のみ `True` を返す（Autoscaler 停止が失敗しても MIG 縮退は試行する）。`_teardown_done` は停止が成功した場合のみ `True` とし、ガードで停止をスキップした場合・停止に失敗した場合は未完了のまま残して、後続の終了経路（`_atexit_teardown` 等）で再判定させる。
   - 照会前および Coordinator バリア `wait_for_all_tasks()` の前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。
   - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする。
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
