@@ -409,6 +409,9 @@ Possible causes: 1) you don't have the required role; or 2) Cloud Pub/Sub API is
 1. GCP Cloud Monitoring Notification サービスエージェント（`service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com`）に Pub/Sub トピックへのパブリッシュ権限（`roles/pubsub.publisher`）が未割り当て。
 2. 対象プロジェクト（`sumifu`）で Cloud Pub/Sub API が有効化されていない。
 
+**恒久対応 (Issue #543):**
+権限は Terraform（`terraform/alerting.tf` の `google_pubsub_topic_iam_member.monitoring_notification_publisher`）で管理する。以下の手動手順は Terraform Apply 前の緊急復旧用であり、プロジェクトレベル付与は行わずトピック限定で付与すること。
+
 **修復手順:**
 
 1. **Pub/Sub API の有効化確認 & 有効化:**
@@ -421,12 +424,6 @@ Possible causes: 1) you don't have the required role; or 2) Cloud Pub/Sub API is
 
 3. **Pub/Sub Publisher 権限の付与:**
    ```bash
-   # プロジェクトレベルで付与する場合
-   gcloud projects add-iam-policy-binding sumifu \
-     --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com" \
-     --role="roles/pubsub.publisher"
-
-   # または特定トピックへの最小権限付与
    gcloud pubsub topics add-iam-policy-binding budget-alert-topic-prod \
      --project=sumifu \
      --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-monitoring-notification.iam.gserviceaccount.com" \
