@@ -406,8 +406,15 @@ def test_deploy_production_accepts_dispatch_and_is_serialized():
     on = _on(workflow)
     assert "production" in on["push"]["branches"]
     assert "workflow_dispatch" in on
-    assert workflow["concurrency"]["group"] == "deploy-production"
+    assert workflow["concurrency"]["group"] == "deploy-production-${{ github.ref }}"
     assert workflow["concurrency"]["cancel-in-progress"] is False
+
+
+def test_deploy_production_jobs_only_run_on_production_ref():
+    jobs = _load("deploy-production.yml")["jobs"]
+    assert set(jobs) == {"test-and-scan", "terraform-apply", "build-and-deploy-container"}
+    for job in jobs.values():
+        assert job["if"] == "github.ref == 'refs/heads/production'"
 
 
 def test_auto_release_pr_passes_pr_number_to_dispatch_job():

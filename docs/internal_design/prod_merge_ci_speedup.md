@@ -47,7 +47,8 @@
 
 ### 1.1a `deploy-production.yml` のトリガー（Issue #546）
 * `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。
-* `concurrency: { group: deploy-production, cancel-in-progress: false }` で本番デプロイを直列化する。待機中の実行が新しい実行に置き換えられても、新しい実行は自身の `github.sha`（マージでのみ進む `production` の新しいコミットで古い変更を包含）をデプロイするため取りこぼしは生じない。
+* 全ジョブに `if: github.ref == 'refs/heads/production'` を付け、`production` 以外の ref から dispatch されても本番へデプロイしない。
+* `concurrency: { group: deploy-production-${{ github.ref }}, cancel-in-progress: false }` で本番デプロイを直列化する（他 ref の実行が `production` の待機中実行を置き換えないよう ref ごとにグループを分ける）。待機中の実行が新しい実行に置き換えられても、新しい実行は自身の `github.sha`（マージでのみ進む `production` の新しいコミットで古い変更を包含）をデプロイするため取りこぼしは生じない。
 
 ### 1.2 `review-gate.yml` の Production Fast-Pass ロジック設計
 
