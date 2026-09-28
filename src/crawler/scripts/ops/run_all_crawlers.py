@@ -178,7 +178,7 @@ def record_task_start(task_index, task_count, jobs_assigned):
     """自タスクの CrawlerTaskExecution を RUNNING で登録する (同日の別実行と区別するため実行 ID を記録)"""
     try:
         record, _ = CrawlerTaskExecution.objects.update_or_create(
-            execution_date=datetime.date.today(),
+            execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
             task_index=task_index or 0,
             defaults={
                 "task_count": task_count,
@@ -188,7 +188,7 @@ def record_task_start(task_index, task_count, jobs_assigned):
             },
         )
     except Exception as dbe:
-        logging.warning(f"Failed to record CrawlerTaskExecution start: {dbe}")
+        logger.warning(f"Failed to record CrawlerTaskExecution start: {dbe}")
         return None
     return record
 
