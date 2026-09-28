@@ -114,7 +114,7 @@ class TestLocalLogScanDateFilter533:
     def test_undated_log_last_modified_before_target_date_is_not_opened(self):
         old = self.base / "pipeline.log"
         old.write_text("2026-09-26 00:00:01 ERROR: never read\n", encoding="utf-8")
-        ts = datetime.datetime(2026, 9, 20, 12, 0, 0).timestamp()
+        ts = datetime.datetime(2026, 9, 20, 12, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
         os.utime(old, (ts, ts))
 
         assert FailureReporter._scan_local_logs("20260926") == []
@@ -122,7 +122,7 @@ class TestLocalLogScanDateFilter533:
     def test_undated_log_modified_on_or_after_target_date_is_opened(self):
         log = self.base / "pipeline.log"
         log.write_text("2026-09-26 00:00:01 ERROR: target\n", encoding="utf-8")
-        ts = datetime.datetime(2026, 9, 26, 0, 0, 5).timestamp()
+        ts = datetime.datetime(2026, 9, 26, 12, 0, 0, tzinfo=datetime.timezone.utc).timestamp()
         os.utime(log, (ts, ts))
 
         errors = FailureReporter._scan_local_logs("20260926")
