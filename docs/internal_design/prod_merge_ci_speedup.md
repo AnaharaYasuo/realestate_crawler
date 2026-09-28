@@ -34,6 +34,12 @@
           - 60 分経過: `::warning::` を出して正常終了（次回実行の起動時リコンサイルで回収）。
           - `gh` のタイムアウト・非 0 終了・JSON 不正は待機継続とするが、連続 10 回で exit 1（監視不能を成功扱いしない）。成功したポーリングで連続回数はリセットする。
        3. dispatch 失敗時は exit 1。
+     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD・コミット時刻の取得失敗時は `lookup_failed` として exit 1 とする。
+     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければリコンサイルのみで終了。
+     - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
+     - 照会失敗の扱い（推測で dispatch もスキップもしない）: デプロイ実行一覧の照会は 5 秒間隔で最大 3 回リトライし、それでも取得できない場合、また `production` HEAD・コミット時刻の取得失敗時は `lookup_failed` として exit 1 とする。
+     - `pr_number` が空の場合（前段の PR 作成失敗）は `gh pr list --base production --head master --state open` で待機対象 PR を再取得する（concurrency で置き換えた古い待機ジョブが監視していたマージを取りこぼさないため）。照会失敗は exit 1、オープン PR がなければリコンサイルのみで終了。
+     - 完了済みで `failure` のデプロイ実行は「デプロイ済み」とみなし自動再 dispatch しない（失敗デプロイの無限再実行を防ぐ。失敗はデプロイワークフロー側で検知・対応する）。
 
 ### 1.1a `deploy-production.yml` のトリガー（Issue #546）
 * `on: push: branches: [production]` に加えて `workflow_dispatch:` を定義する。

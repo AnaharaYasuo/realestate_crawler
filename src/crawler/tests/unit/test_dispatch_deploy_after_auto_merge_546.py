@@ -19,12 +19,13 @@ class FakeGh:
     """Scripted gh runner keyed by command shape; records every call."""
 
     def __init__(self, views=(), runs=None, head=HEAD_SHA, head_date="2026-09-28T00:00:00Z",
-                 dispatch_rc=0):
+                 dispatch_rc=0, open_prs="[]"):
         self.views = list(views)
         self.runs = runs or {}
         self.head = head
         self.head_date = head_date
         self.dispatch_rc = dispatch_rc
+        self.open_prs = open_prs
         self.calls = []
 
     def _view(self):
@@ -39,6 +40,8 @@ class FakeGh:
         self.calls.append(args)
         if args[:2] == ["pr", "view"]:
             return self._view()
+        if args[:2] == ["pr", "list"]:
+            return (1, "") if self.open_prs is None else (0, self.open_prs)
         if args[:2] == ["run", "list"]:
             sha = args[args.index("--commit") + 1]
             runs = self.runs.get(sha, [])
@@ -46,7 +49,7 @@ class FakeGh:
         if args[:1] == ["api"] and args[1].endswith("/branches/production"):
             return (0, self.head) if self.head else (1, "")
         if args[:1] == ["api"] and "/commits/" in args[1]:
-            return 0, self.head_date
+            return (1, "") if self.head_date is None else (0, self.head_date)
         if args[:2] == ["workflow", "run"]:
             return self.dispatch_rc, ""
         raise AssertionError(f"unexpected gh call: {args}")
@@ -126,9 +129,31 @@ def test_human_merge_with_push_run_does_not_dispatch():
     assert gh.dispatch_calls == []
 
 
-def test_unknown_run_state_dispatches_rather_than_skipping():
+def test_unknown_run_state_fails_after_retries_without_dispatch():
     gh = FakeGh(runs={MERGE_SHA: None})
+    clock = FakeClock()
+
+    assert dd.ensure_deployed(gh, MERGE_SHA, 0, sleep=clock.sleep) == dd.LOOKUP_FAILED
+    assert gh.dispatch_calls == []
+    assert len([c for c in gh.calls if c[:2] == ["run", "list"]]) == dd.LOOKUP_ATTEMPTS
+
+
+def test_lookup_recovers_on_retry():
+    class Flaky(FakeGh):
+        def __init__(self):
+            super().__init__(runs={MERGE_SHA: []})
+            self.failures = 1
+
+        def __call__(self, args):
+            if args[:2] == ["run", "list"] and self.failures:
+                self.failures -= 1
+                self.calls.append(args)
+                return 1, ""
+            return super().__call__(args)
+
+    gh = Flaky()
     assert dd.ensure_deployed(gh, MERGE_SHA, 0, sleep=lambda _s: None) == dd.DISPATCH
+    assert gh.dispatch_calls == [DISPATCH_CALL]
 
 
 def test_dispatch_failure_is_reported():
@@ -195,9 +220,18 @@ def test_reconcile_skips_recent_head_to_avoid_racing_push_run():
     assert gh.dispatch_calls == []
 
 
-def test_reconcile_dispatches_when_commit_date_is_malformed():
-    gh = FakeGh(runs={HEAD_SHA: []}, head_date="garbage")
-    assert dd.reconcile_production(gh, 90, wall_clock=lambda: 1e10) == dd.DISPATCH
+@pytest.mark.parametrize("head_date", ["garbage", None])
+def test_reconcile_fails_when_commit_date_unavailable(head_date):
+    gh = FakeGh(runs={HEAD_SHA: []}, head_date=head_date)
+    assert dd.reconcile_production(gh, 90, wall_clock=lambda: 1e10) == dd.LOOKUP_FAILED
+    assert gh.dispatch_calls == []
+
+
+def test_reconcile_fails_when_run_lookup_unavailable():
+    gh = FakeGh(runs={HEAD_SHA: None})
+    assert dd.reconcile_production(gh, 90, wall_clock=lambda: 1e10,
+                                   sleep=lambda _s: None) == dd.LOOKUP_FAILED
+    assert gh.dispatch_calls == []
 
 
 @pytest.mark.parametrize(
@@ -215,9 +249,17 @@ def test_reconcile_skips_already_deployed_head():
     assert gh.dispatch_calls == []
 
 
-def test_reconcile_skips_when_head_unknown():
+def test_reconcile_fails_when_head_unknown():
     gh = FakeGh(head=None)
-    assert dd.reconcile_production(gh, 90, wall_clock=lambda: 1e10) == dd.SKIP_UNKNOWN
+    assert dd.reconcile_production(gh, 90, wall_clock=lambda: 1e10) == dd.LOOKUP_FAILED
+
+
+@pytest.mark.parametrize(
+    ("open_prs", "expected"),
+    [('[{"number": 544}]', "544"), ("[]", ""), ("", ""), (None, None)],
+)
+def test_find_release_pr(open_prs, expected):
+    assert dd.find_release_pr(FakeGh(open_prs=open_prs)) == expected
 
 
 @pytest.mark.parametrize(
@@ -227,10 +269,10 @@ def test_reconcile_skips_when_head_unknown():
         (dd.ALREADY_DEPLOYED, 0),
         (dd.SKIP_CLOSED, 0),
         (dd.SKIP_RECENT, 0),
-        (dd.SKIP_UNKNOWN, 0),
         (dd.TIMED_OUT, 0),
         (dd.DISPATCH_FAILED, 1),
         (dd.POLL_FAILED, 1),
+        (dd.LOOKUP_FAILED, 1),
     ],
 )
 def test_exit_code(result, code):
@@ -245,11 +287,26 @@ def test_main_reconciles_then_deploys_merged_pr():
     assert gh.dispatch_calls == [DISPATCH_CALL]
 
 
-def test_main_without_pr_number_only_reconciles():
-    gh = FakeGh(runs={HEAD_SHA: DEPLOYED})
+def test_main_without_pr_number_and_no_open_pr_only_reconciles():
+    gh = FakeGh(runs={HEAD_SHA: DEPLOYED}, open_prs="[]")
     assert dd.main(["--pr-number", ""], run_gh=gh, wall_clock=lambda: 1e10) == 0
     assert not any(c[:2] == ["pr", "view"] for c in gh.calls)
     assert gh.dispatch_calls == []
+
+
+def test_main_without_pr_number_reacquires_open_release_pr():
+    gh = FakeGh(views=[_merged()], runs={HEAD_SHA: DEPLOYED, MERGE_SHA: []},
+                open_prs='[{"number": 544}]')
+    code = dd.main(["--pr-number", "", "--grace-sec", "0"], run_gh=gh, sleep=lambda _s: None,
+                   clock=lambda: 0.0, wall_clock=lambda: 1e10)
+    assert code == 0
+    assert ["pr", "view", "544", "--json", "state,mergeCommit"] in gh.calls
+    assert gh.dispatch_calls == [DISPATCH_CALL]
+
+
+def test_main_fails_when_release_pr_lookup_fails():
+    gh = FakeGh(runs={HEAD_SHA: DEPLOYED}, open_prs=None)
+    assert dd.main(["--pr-number", ""], run_gh=gh, wall_clock=lambda: 1e10) == 1
 
 
 def test_main_fails_when_reconcile_dispatch_fails():

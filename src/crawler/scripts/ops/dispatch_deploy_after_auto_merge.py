@@ -13,6 +13,8 @@ import time
 from datetime import datetime
 
 GH_TIMEOUT_SEC = 10
+LOOKUP_ATTEMPTS = 3
+LOOKUP_RETRY_SEC = 5
 DEPLOY_WORKFLOW = "deploy-production.yml"
 PRODUCTION_BRANCH = "production"
 
@@ -23,11 +25,11 @@ DISPATCH_FAILED = "dispatch_failed"
 ALREADY_DEPLOYED = "already_deployed"
 SKIP_CLOSED = "skip_closed"
 SKIP_RECENT = "skip_recent"
-SKIP_UNKNOWN = "skip_unknown"
 TIMED_OUT = "timed_out"
 POLL_FAILED = "poll_failed"
+LOOKUP_FAILED = "lookup_failed"
 
-FAILURE_RESULTS = frozenset({DISPATCH_FAILED, POLL_FAILED})
+FAILURE_RESULTS = frozenset({DISPATCH_FAILED, POLL_FAILED, LOOKUP_FAILED})
 
 
 def run_gh(args):
@@ -62,39 +64,69 @@ def has_deploy_run(gh, sha):
     return any(run.get("conclusion") != "cancelled" for run in runs)
 
 
+def lookup_deploy_run(gh, sha, sleep=time.sleep):
+    """has_deploy_run with bounded retries; None means the lookup kept failing."""
+    for attempt in range(LOOKUP_ATTEMPTS):
+        found = has_deploy_run(gh, sha)
+        if found is not None:
+            return found
+        if attempt < LOOKUP_ATTEMPTS - 1:
+            sleep(LOOKUP_RETRY_SEC)
+    return None
+
+
 def dispatch_deploy(gh):
     rc, _ = gh(["workflow", "run", DEPLOY_WORKFLOW, "--ref", PRODUCTION_BRANCH])
     return DISPATCH if rc == 0 else DISPATCH_FAILED
 
 
+def _dispatch_unless_deployed(found, gh):
+    if found is None:
+        return LOOKUP_FAILED
+    return ALREADY_DEPLOYED if found else dispatch_deploy(gh)
+
+
 def ensure_deployed(gh, sha, grace_sec, sleep=time.sleep):
     sleep(grace_sec)
-    if has_deploy_run(gh, sha):
-        return ALREADY_DEPLOYED
-    return dispatch_deploy(gh)
+    return _dispatch_unless_deployed(lookup_deploy_run(gh, sha, sleep), gh)
 
 
-def reconcile_production(gh, grace_sec, wall_clock=time.time):
+def reconcile_production(gh, grace_sec, wall_clock=time.time, sleep=time.sleep):
     """Dispatch if the production head was never deployed and is past the push-run grace period."""
     rc, sha = gh(["api", f"repos/{{owner}}/{{repo}}/branches/{PRODUCTION_BRANCH}",
                   "--jq", ".commit.sha"])
     sha = sha.strip()
     if rc != 0 or not sha:
-        return SKIP_UNKNOWN
-    if has_deploy_run(gh, sha):
-        return ALREADY_DEPLOYED
+        return LOOKUP_FAILED
+    found = lookup_deploy_run(gh, sha, sleep)
+    if found is not False:
+        return _dispatch_unless_deployed(found, gh)
     rc, committed_at = gh(["api", f"repos/{{owner}}/{{repo}}/commits/{sha}",
                            "--jq", ".commit.committer.date"])
-    if rc == 0 and _is_recent(committed_at, grace_sec, wall_clock):
-        return SKIP_RECENT
-    return dispatch_deploy(gh)
+    recent = _is_recent(committed_at, grace_sec, wall_clock) if rc == 0 else None
+    if recent is None:
+        return LOOKUP_FAILED
+    return SKIP_RECENT if recent else dispatch_deploy(gh)
 
 
 def _is_recent(iso_timestamp, grace_sec, wall_clock):
     try:
         return wall_clock() - parse_iso8601(iso_timestamp) < grace_sec
     except ValueError:
-        return False
+        return None
+
+
+def find_release_pr(gh):
+    """Open master -> production PR number, "" when none is open, None when the lookup failed."""
+    try:
+        rc, out = gh(["pr", "list", "--base", PRODUCTION_BRANCH, "--head", "master",
+                      "--state", "open", "--json", "number"])
+        if rc != 0:
+            return None
+        prs = json.loads(out or "[]")
+    except (subprocess.TimeoutExpired, ValueError):
+        return None
+    return str(prs[0]["number"]) if prs else ""
 
 
 def _poll(pr_number, gh):
@@ -151,12 +183,20 @@ def main(argv=None, run_gh=run_gh, sleep=time.sleep, clock=time.monotonic, wall_
     parser.add_argument("--max-consecutive-errors", type=int, default=10)
     args = parser.parse_args(argv)
 
-    reconciled = reconcile_production(run_gh, args.grace_sec, wall_clock=wall_clock)
-    print(f"Startup reconcile of production head: {reconciled}")
-    if reconciled in FAILURE_RESULTS or not args.pr_number.strip():
+    reconciled = reconcile_production(run_gh, args.grace_sec, wall_clock=wall_clock, sleep=sleep)
+    print(f"{annotation_for(reconciled)}Startup reconcile of production head: {reconciled}")
+    if reconciled in FAILURE_RESULTS:
         return exit_code_for(reconciled)
 
-    pr_number = args.pr_number.strip()
+    # An empty number (PR step failed) must not drop a merge a cancelled older waiter was watching.
+    pr_number = args.pr_number.strip() or find_release_pr(run_gh)
+    if pr_number is None:
+        print(f"{annotation_for(LOOKUP_FAILED)}Could not look up the open release PR.")
+        return exit_code_for(LOOKUP_FAILED)
+    if not pr_number:
+        print("No open master -> production release PR to wait for.")
+        return 0
+
     action, merge_sha = wait_for_merge(pr_number, args.timeout_sec, args.interval_sec,
                                        run_gh=run_gh, sleep=sleep, clock=clock,
                                        max_errors=args.max_consecutive_errors)
