@@ -828,7 +828,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         if mw_result is not None:
             return mw_result
 
-        _timeout = aiohttp.ClientTimeout(total=3.0) 
+        _timeout = aiohttp.ClientTimeout(total=3.0, sock_connect=2.0)
 
         local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:

@@ -110,12 +110,19 @@ def _inline_stop_proxysql() -> None:
         )
 
 
+def _bind_parent_db_timeouts() -> None:
+    """親プロセスの ORM 接続に有限タイムアウトを適用する (確立済みの接続は閉じ、次回クエリで設定付きで再接続させる)"""
+    bound_mysql_timeouts(getattr(connection, "settings_dict", None))
+    if getattr(connection, "connection", None) is not None:
+        connection.close()
+
+
 def _can_stop_shared_proxysql() -> bool:
     """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
     if _task_count <= 1:
         return True
     try:
-        bound_mysql_timeouts(getattr(connection, "settings_dict", None))
+        _bind_parent_db_timeouts()
         records = list(
             CrawlerTaskExecution.objects.filter(
                 execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date()
@@ -126,7 +133,13 @@ def _can_stop_shared_proxysql() -> bool:
             f"⚠️ [Teardown Guard] タスク状態を取得できないため ProxySQL 停止をスキップし Safety-Net に委譲します: {e}"
         )
         return False
-    status_map = {r.task_index: r.status for r in records}
+    # 行は (execution_date, task_index) で同日の再実行と共有されるため、本実行開始後に更新された行のみを今回の状態とみなす
+    run_started_at = datetime.datetime.fromtimestamp(_pipeline_start_time, tz=datetime.timezone.utc)
+    status_map = {
+        r.task_index: r.status
+        for r in records
+        if r.updated_at is not None and r.updated_at >= run_started_at
+    }
     pending = [
         idx
         for idx in range(_task_count)
@@ -479,6 +492,7 @@ def _run_crawler_step(
         logger.info(
             f"⏳ [Coordinator] wait_for_all_tasks timeout bounded to {wait_timeout}s (remaining pipeline time: {int(remaining)}s)..."
         )
+        _bind_parent_db_timeouts()
         all_ok, failed_tasks = wait_for_all_tasks(
             model=CrawlerTaskExecution,
             execution_date=datetime.datetime.now(datetime.timezone.utc).date(),

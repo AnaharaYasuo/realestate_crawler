@@ -274,6 +274,8 @@ graph TD
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
   - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（ローカル日付 `datetime.now(timezone.utc).astimezone().date()`、`run_all_crawlers.py` の行作成および `reconcile_aborted_task_execution` と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
+  - 行は `(execution_date, task_index)` で同日の再実行と共有されるため、`updated_at` が本プロセスの開始時刻（`_pipeline_start_time`）以降の行のみを今回の実行の状態とみなす。それより前に更新された行（同日の前回実行の終端行）は未登録として扱い、停止しない。
+  - 照会前および Coordinator バリア `wait_for_all_tasks()` の前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。
   - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする。
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
 
@@ -282,7 +284,7 @@ graph TD
 - 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
 - キー集合はクロール実行単位で分離する。独立した `ApiAsyncProcBase.main()` は `_enter_crawl_run()` でスレッドローカル `_crawl_run_state` に新しい集合を割り当て、終了時に破棄する（並行する別実行とは共有しない）。ローカルルーティング（`_handle_local_execution`）で子スレッドにネスト実行される一覧・詳細の `main()` は、親の集合を引き継いで共有する。実行外から `_callApi` が呼ばれた場合は呼び出しごとの集合でページ内重複のみ除外する。
 - 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。ローカルルーティングの子スレッドで `main()` が例外終了した場合、`_handle_local_execution` は成功（`LocalSync`）ではなく `(詳細 URL, 500, "LocalError")` を返し、同じ規則でキーを解除する。
-- HTTP ディスパッチで接続確立前にタイムアウトした場合（`aiohttp.ConnectionTimeoutError`、リクエスト未送信）は `(詳細 URL, 504, "ConnectTimeout")` を返してキーを解除する。送信後の応答待ちタイムアウトは Fire-and-Forget（受信側で処理継続）として成功扱いとし、キーを保持する（再送すると重複処理となるため）。
+- HTTP ディスパッチの POST タイムアウトは `ClientTimeout(total=3.0, sock_connect=2.0)` とし、接続確立フェーズを総時間より短く区切る。接続確立前にタイムアウトした場合（`aiohttp.ConnectionTimeoutError`、リクエスト未送信）は `(詳細 URL, 504, "ConnectTimeout")` を返してキーを解除する。送信後の応答待ちタイムアウトは Fire-and-Forget（受信側で処理継続）として成功扱いとし、キーを保持する（再送すると重複処理となるため）。
 - 詳細 `main()` 内で処理済みの失敗（パース・バリデーション失敗等。`_getContent` で通信リトライ済み、FailureReporter に記録済み）は再ディスパッチしない。決定的な失敗を一覧ページごとに再クロールする重複を防ぐためである。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)

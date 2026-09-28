@@ -5,6 +5,7 @@ Issue #537: 一覧ページから抽出した詳細 URL の重複ディスパッ
 """
 
 import asyncio
+import datetime
 import os
 import re
 import signal
@@ -38,8 +39,18 @@ TERRAFORM_DIR = os.path.abspath(
 )
 
 
-def _records(status_by_index):
-    return [SimpleNamespace(task_index=i, status=s) for i, s in status_by_index.items()]
+RUN_STARTED_TS = 1_800_000_000.0
+
+
+def _ts(offset_sec):
+    return datetime.datetime.fromtimestamp(RUN_STARTED_TS + offset_sec, tz=datetime.timezone.utc)
+
+
+def _records(status_by_index, updated_offset_sec=60):
+    return [
+        SimpleNamespace(task_index=i, status=s, updated_at=_ts(updated_offset_sec))
+        for i, s in status_by_index.items()
+    ]
 
 
 @pytest.fixture
@@ -47,7 +58,9 @@ def task_array(monkeypatch):
     """Coordinator (task 0) / 全 4 タスクのタスクアレイ状態を設定し、DB 取得結果を差し替える"""
     monkeypatch.setattr(run_pipeline, "_task_index", 0)
     monkeypatch.setattr(run_pipeline, "_task_count", 4)
+    monkeypatch.setattr(run_pipeline, "_pipeline_start_time", RUN_STARTED_TS)
     monkeypatch.setattr(run_pipeline, "bound_mysql_timeouts", MagicMock())
+    monkeypatch.setattr(run_pipeline, "connection", MagicMock(connection=None, settings_dict={}))
     model = MagicMock()
     monkeypatch.setattr(run_pipeline, "CrawlerTaskExecution", model)
     return model
@@ -147,6 +160,60 @@ def test_own_task_status_is_ignored(task_array, monkeypatch):
 def test_db_error_blocks_stop(task_array):
     task_array.objects.filter.side_effect = RuntimeError("db down")
     assert run_pipeline._can_stop_shared_proxysql() is False
+
+
+def test_terminal_rows_from_earlier_same_day_run_block_stop(task_array):
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED", 3: "FAILED"}, updated_offset_sec=-600
+    )
+    assert run_pipeline._can_stop_shared_proxysql() is False
+
+
+def test_mixed_current_and_stale_rows_block_stop(task_array):
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED"}
+    ) + _records({3: "COMPLETED"}, updated_offset_sec=-1)
+    assert run_pipeline._can_stop_shared_proxysql() is False
+
+
+def test_row_updated_exactly_at_run_start_counts_as_current(task_array):
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}, updated_offset_sec=0
+    )
+    assert run_pipeline._can_stop_shared_proxysql() is True
+
+
+def test_established_connection_is_reopened_with_bounded_timeouts(task_array):
+    run_pipeline.connection.connection = object()
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
+    )
+    run_pipeline._can_stop_shared_proxysql()
+    run_pipeline.bound_mysql_timeouts.assert_called_once_with(run_pipeline.connection.settings_dict)
+    run_pipeline.connection.close.assert_called_once()
+
+
+def test_unopened_connection_is_not_closed(task_array):
+    task_array.objects.filter.return_value = _records(
+        {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
+    )
+    run_pipeline._can_stop_shared_proxysql()
+    run_pipeline.connection.close.assert_not_called()
+
+
+def test_barrier_wait_uses_bounded_db_timeouts(task_array, monkeypatch):
+    order = []
+    monkeypatch.setattr(run_pipeline, "run_command", MagicMock())
+    monkeypatch.setattr(run_pipeline, "_bind_parent_db_timeouts", lambda: order.append("bind"))
+
+    def _wait(**_kwargs):
+        order.append("wait")
+        return True, []
+
+    monkeypatch.setattr(run_pipeline, "wait_for_all_tasks", _wait)
+    task_array.objects.filter.return_value.order_by.return_value = []
+    run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False)
+    assert order[:2] == ["bind", "wait"]
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +510,19 @@ def test_connect_timeout_is_retryable_and_not_fire_and_forget():
     assert result[0] == "https://a/12"
     assert result[2] != "FireAndForget"
     assert api_module._is_retryable_dispatch_result(result) is True
+
+
+def test_post_timeout_bounds_connect_phase_before_total():
+    page = _DummyMiddlePage()
+    session = MagicMock()
+    session.post = AsyncMock(side_effect=asyncio.TimeoutError())
+    with patch.object(page, "_handle_local_execution", return_value=None), patch.object(
+        page, "_apply_middlewares_request", AsyncMock(return_value=None)
+    ), patch.object(api_module.os.path, "exists", return_value=False):
+        asyncio.run(page._fetch(session, "https://a/13", "http://api.example.com/detail", None, 0))
+    timeout = session.post.call_args.kwargs["timeout"]
+    assert timeout.sock_connect is not None
+    assert 0 < timeout.sock_connect < timeout.total
 
 
 def test_read_timeout_after_send_stays_fire_and_forget():
