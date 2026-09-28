@@ -1134,6 +1134,20 @@ def test_ml_barrier_prefers_non_empty_execution_id_over_newer_empty_rows(monkeyp
     assert result == (True, [])
 
 
+def test_ml_barrier_ignores_newer_standalone_cloud_tasks_execution(monkeypatch):
+    rows = _task_rows(("dispatch-1", 0, "COMPLETED"), ("dispatch-1", 1, "COMPLETED")) + _task_rows(
+        ("cloud-tasks-abc", 0, "FAILED"), task_count=1, started=60
+    )
+    (result, _) = _run_ml_barrier(monkeypatch, rows)
+    assert result == (True, [])
+
+
+def test_ml_barrier_only_standalone_cloud_tasks_rows_fail(monkeypatch):
+    rows = _task_rows(("cloud-tasks-abc", 0, "COMPLETED"), task_count=1)
+    (result, _) = _run_ml_barrier(monkeypatch, rows)
+    assert result == (False, [])
+
+
 def test_ml_barrier_rows_without_identifiable_execution_fail(monkeypatch):
     rows = _task_rows(("", 0, "COMPLETED"), ("", 1, "COMPLETED"))
     (result, _) = _run_ml_barrier(monkeypatch, rows)

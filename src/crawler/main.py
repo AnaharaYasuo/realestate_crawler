@@ -32,7 +32,7 @@ from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
-from package.utils.task_distribution import get_execution_id
+from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -385,7 +385,7 @@ def execute_crawl_task(
     task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
         execution_date=exec_dt,
         task_index=task_index,
-        execution_id=execution_id or get_execution_id() or f"cloud-tasks-{uuid.uuid4().hex}",
+        execution_id=execution_id or get_execution_id() or f"{STANDALONE_EXECUTION_PREFIX}{uuid.uuid4().hex}",
         defaults={"task_count": task_count, "status": "RUNNING", "jobs_assigned": 1}
     )
 

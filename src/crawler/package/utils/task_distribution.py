@@ -6,6 +6,7 @@ import datetime
 import os
 
 EXECUTION_DATE_ENV = "CRAWLER_EXECUTION_DATE"
+STANDALONE_EXECUTION_PREFIX = "cloud-tasks-"
 
 
 def get_task_config() -> tuple[int | None, int]:

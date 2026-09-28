@@ -31,6 +31,7 @@ while True:
 
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
 from package.utils.gcp_resources import (
     scale_proxysql_mig as _gcp_scale_proxysql_mig,
     get_gcp_access_token as _get_gcp_access_token,
@@ -66,13 +67,13 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
 def _latest_execution_tasks(target_date: datetime.date) -> list | None:
     """対象日で開始 (最初のタスク行登録) が最も新しいクローラー実行のタスク行を返す。
 
-    空の実行 ID の行は別実行同士で上書きされ得るため評価対象外とし、
-    行が存在するのに識別可能な実行が無い場合は None を返す。
+    空の実行 ID の行 (別実行同士で上書きされ得る) と単独実行 cloud-tasks-* の行 (日次クロール全体を表さない) は
+    評価対象外とし、行が存在するのに識別可能な実行が無い場合は None を返す。
     """
     rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
     by_execution: dict[str, list] = {}
     for row in rows:
-        if row.execution_id:
+        if row.execution_id and not row.execution_id.startswith(STANDALONE_EXECUTION_PREFIX):
             by_execution.setdefault(row.execution_id, []).append(row)
     if not by_execution:
         return None if rows else []
