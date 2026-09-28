@@ -117,9 +117,7 @@ def _can_stop_shared_proxysql() -> bool:
     try:
         bound_mysql_timeouts(getattr(connection, "settings_dict", None))
         records = list(
-            CrawlerTaskExecution.objects.filter(
-                execution_date=datetime.datetime.now(datetime.timezone.utc).date()
-            )
+            CrawlerTaskExecution.objects.filter(execution_date=datetime.date.today())
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(
@@ -305,9 +303,11 @@ def _execute_safety_teardown(is_coordinator: bool, scripts_dir: str) -> None:
             logger.info(
                 "🧹 [Cleanup] Running safety teardown to ensure GCP resources (ProxySQL MIG) are stopped..."
             )
+            if not _can_stop_shared_proxysql():
+                _teardown_done = True
+                return
             # 1. Inline fast scale-down first to guarantee immediate scale-down within tight timeouts
-            if _can_stop_shared_proxysql():
-                _inline_stop_proxysql()
+            _inline_stop_proxysql()
             _teardown_done = True
             # 2. Comprehensive check and notification via ensure_resources_stopped
             run_command(

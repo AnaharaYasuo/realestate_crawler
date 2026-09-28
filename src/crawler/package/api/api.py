@@ -49,16 +49,37 @@ _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "inve
 
 _dispatched_detail_keys: set[tuple[str, str]] = set()
 _dispatched_detail_lock = threading.Lock()
+_active_crawl_runs = 0
 
 
 def _claim_detail_dispatch(api_url: str, detail_url: str) -> bool:
-    """同一プロセス内で (詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
+    """実行中のクロール内で (詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
     key = (api_url, detail_url)
     with _dispatched_detail_lock:
         if key in _dispatched_detail_keys:
             return False
         _dispatched_detail_keys.add(key)
         return True
+
+
+def _release_detail_dispatch(api_url: str, detail_url: str) -> None:
+    with _dispatched_detail_lock:
+        _dispatched_detail_keys.discard((api_url, detail_url))
+
+
+def _enter_crawl_run() -> None:
+    """最上位の main() 開始時に前回実行のディスパッチ済みキーを破棄する (ネストした main() は保持)"""
+    global _active_crawl_runs
+    with _dispatched_detail_lock:
+        if _active_crawl_runs == 0:
+            _dispatched_detail_keys.clear()
+        _active_crawl_runs += 1
+
+
+def _exit_crawl_run() -> None:
+    global _active_crawl_runs
+    with _dispatched_detail_lock:
+        _active_crawl_runs = max(0, _active_crawl_runs - 1)
 
 
 def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
@@ -865,6 +886,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self.url = url
         loop: Optional[asyncio.AbstractEventLoop] = None
         run_result = None
+        _enter_crawl_run()
         try:
             try:
                 loop = self._getActiveEventLoop()
@@ -879,6 +901,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     res = loop.run_until_complete(task)
                     run_result = res if isinstance(res, list) else [res]
         finally:
+            _exit_crawl_run()
             if loop and loop.is_running():
                 loop.stop()
             if loop and not loop.is_closed():
@@ -1021,12 +1044,19 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
             if not _claim_detail_dispatch(api_url, detail_url):
                 continue
-            colo = self._fetchWithEachSession(detail_url, api_url, loop)
+            colo = self._fetchDetailOnce(detail_url, api_url, loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 
         responses = await asyncio.gather(*tasks)
         return responses
+
+    async def _fetchDetailOnce(self, detail_url, api_url, loop):
+        try:
+            return await self._fetchWithEachSession(detail_url, api_url, loop)
+        except BaseException:
+            _release_detail_dispatch(api_url, detail_url)
+            raise
 
     @abstractmethod
     def _getParserFunc(self) -> Any:

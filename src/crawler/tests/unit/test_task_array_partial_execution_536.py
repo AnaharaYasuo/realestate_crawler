@@ -94,14 +94,13 @@ def test_all_other_tasks_terminal_can_stop(task_array):
     assert run_pipeline._can_stop_shared_proxysql() is True
 
 
-def test_queries_today_utc_execution_date(task_array):
+def test_queries_local_execution_date_like_run_all_crawlers(task_array):
     task_array.objects.filter.return_value = _records(
         {1: "COMPLETED", 2: "COMPLETED", 3: "COMPLETED"}
     )
     run_pipeline._can_stop_shared_proxysql()
     kwargs = task_array.objects.filter.call_args.kwargs
-    expected = run_pipeline.datetime.datetime.now(run_pipeline.datetime.timezone.utc).date()
-    assert kwargs == {"execution_date": expected}
+    assert kwargs == {"execution_date": run_pipeline.datetime.date.today()}
 
 
 def test_bounds_mysql_timeouts_before_query(task_array):
@@ -167,7 +166,7 @@ def test_safety_teardown_respects_guard(cloud_coordinator, can_stop):
          patch.object(run_pipeline, "run_command") as mock_cmd:
         run_pipeline._execute_safety_teardown(is_coordinator=True, scripts_dir="/fake")
     assert mock_stop.called is can_stop
-    assert mock_cmd.called
+    assert mock_cmd.called is can_stop
     assert run_pipeline._teardown_done is True
 
 
@@ -281,3 +280,63 @@ def test_claim_detail_dispatch_records_key():
     assert api_module._claim_detail_dispatch("api", "u") is True
     assert api_module._claim_detail_dispatch("api", "u") is False
     assert ("api", "u") in api_module._dispatched_detail_keys
+
+
+def test_failed_fetch_releases_key_for_retry():
+    page = _DummyMiddlePage()
+    page.parser = None
+    failing = AsyncMock(side_effect=RuntimeError("boom"))
+    with patch.object(page, "_fetchWithEachSession", failing), \
+         patch.object(page, "_getActiveEventLoop", return_value=None), \
+         pytest.raises(RuntimeError):
+        asyncio.run(page._callApi(["https://a/1"]))
+    assert (page.api_url, "https://a/1") not in api_module._dispatched_detail_keys
+
+    called, _ = _dispatch(_DummyMiddlePage(), ["https://a/1"])
+    assert called == ["https://a/1"]
+
+
+@pytest.fixture
+def _reset_active_runs(monkeypatch):
+    monkeypatch.setattr(api_module, "_active_crawl_runs", 0)
+
+
+def test_top_level_run_clears_previous_run_keys(_reset_active_runs):
+    api_module._claim_detail_dispatch("api", "old")
+    api_module._enter_crawl_run()
+    assert api_module._dispatched_detail_keys == set()
+    assert api_module._active_crawl_runs == 1
+    api_module._exit_crawl_run()
+    assert api_module._active_crawl_runs == 0
+
+
+def test_nested_run_keeps_keys_of_active_run(_reset_active_runs):
+    api_module._enter_crawl_run()
+    api_module._claim_detail_dispatch("api", "u")
+    api_module._enter_crawl_run()
+    assert ("api", "u") in api_module._dispatched_detail_keys
+    assert api_module._active_crawl_runs == 2
+    api_module._exit_crawl_run()
+    api_module._exit_crawl_run()
+    assert api_module._active_crawl_runs == 0
+
+
+def test_exit_without_enter_does_not_go_negative(_reset_active_runs):
+    api_module._exit_crawl_run()
+    assert api_module._active_crawl_runs == 0
+
+
+def test_main_wraps_run_with_enter_and_exit(_reset_active_runs):
+    page = _DummyMiddlePage()
+    seen = []
+
+    async def fake_run(url):
+        seen.append(api_module._active_crawl_runs)
+        return []
+
+    loop = asyncio.new_event_loop()
+    with patch.object(page, "_run", side_effect=fake_run), \
+         patch.object(page, "_getActiveEventLoop", return_value=loop):
+        page.main("http://test.example.com")
+    assert seen == [1]
+    assert api_module._active_crawl_runs == 0

@@ -273,13 +273,15 @@ graph TD
   - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
-  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（UTC 日付、`wait_for_all_tasks` と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
-  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（`ensure_resources_stopped.py` の定時実行）に停止を委譲する。
+  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（ローカル日付 `datetime.date.today()`、`run_all_crawlers.py` の行作成と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
+  - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする。
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
 
 ### 6.10.3 詳細 URL 重複ディスパッチ防止 (Issue #537)
 - `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとするモジュールレベル集合 `_dispatched_detail_keys`（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
-- 同一一覧ページ内の重複、および同一プロセス（= 1 クロールジョブのサブプロセス）内の別一覧ページ間の重複はいずれも 1 回に集約される。プロセス終了で集合は破棄されるため、翌日の差分クロールには影響しない。
+- 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
+- 保持期間はクロール実行単位とする。`ApiAsyncProcBase.main()` の入口で `_enter_crawl_run()`、出口で `_exit_crawl_run()` を呼び、実行中の `main()` のネスト数が 0 の状態で開始した最上位の `main()` のみが前回実行のキーを破棄する（ローカルルーティングでネスト実行される一覧・詳細の `main()` は保持）。
+- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
