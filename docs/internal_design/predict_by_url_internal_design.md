@@ -99,6 +99,8 @@ URL_ROUTES = [
 ### 3.1 動的パーサー生成 (`UrlRouter.create_parser`)
 詳細ページ到着時のHTML解析（`PropertyTypeDetector.detect`）によって判明した物件種別に基づき、対応するパーサーインスタンスを安全に生成して切り替える。
 
+- ルート定義の `parser_cls` / `model_cls` は実在するクラス名でなければならず、全ルートの実在性を単体テスト（`test_parser_validation_failures_534.py`）で検証する（Issue #539: 三井投資ルートは `MitsuiInvestmentApartmentParser`）。
+
 ```python
 @classmethod
 def create_parser(

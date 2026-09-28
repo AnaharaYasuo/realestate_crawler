@@ -616,6 +616,7 @@
 | 56 | roadDirection | Text | ✅ | 接道方位 |
 | 57 | roadType | Text | ✅ | 道路区分 |
 | 58 | roadStructure | Text | ✅ | 接道状況 |
+| 59 | chisei / boukaChiiki / saikenchiku / sonotaChiiki / kokudoHou | Text | ✅ (blank 可, Issue #538) | 地勢・防火地域・再建築・その他地域・国土法（掲載が無い土地が多いため任意項目） |
 
 ### 4.5 TokyuInvestmentKodate
 

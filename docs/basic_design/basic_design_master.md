@@ -852,6 +852,12 @@ sequenceDiagram
    - 切り替え後の `target_parser.createEntity()` により、正しいテーブルモデル（`SumifuKodate`, `MitsuiInvestApartment` 等）がインスタンス化され、種別特有のバリデーションを通過して正しいDBテーブルに永続化される。
 4. **追跡可能性 (Traceability)**:
    - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
+5. **区分住戸ガード (Issue #534)**:
+   - ガードはクラス属性 `sectional_unit_guard_enabled = True` でオプトインしたパーサーのみに適用する（既定 `False`。現状は `SumifuMansionParser` のみ有効。他ポータルのマンションパーサーは従来どおり切替える）。
+   - 現在のパーサーが `mansion` で、スペック表の `専有面積` に値があり `土地面積` が無い（キー欠落、または空欄・`-` 等）ページは区分所有の住戸とみなし、検出種別が `mansion` 以外でも切り替えない（`[PropertyTypeSwitch] ... skipped (sectional unit)` を `INFO` ログ出力）。スペック値は文字列・`{"value": ...}` 形式の両方を評価し、ラベルは完全一致に加え `専有面積（壁芯）` / `土地面積(公簿)` 等の括弧付き修飾ラベルも同一項目として扱い、照合前にラベル内の空白（全角含む。例: `土地面積 （公簿）`）を除去する。
+   - スペック表に専有面積が無くても、サイト固有の記載位置（`_senyu_area_outside_specs()`。`SumifuMansionParser` はサマリーチップ `span.text` の専有面積）に値があり、スペック表に土地面積が無ければ区分住戸とみなす。
+   - 専有面積はスペック表・サマリーチップのいずれも `converter.parse_menseki()` で正の数値に解釈できる場合のみ「値あり」とする（`未定`・`専有面積 －`・`0㎡` 等は区分住戸の根拠にせず、通常どおり種別切替を行う）。
+   - 現在のパーサーが `mansion` 以外の場合はガードを適用せず、従来どおり検出種別のパーサーへ切り替える。
 
 ---
 
