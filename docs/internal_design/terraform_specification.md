@@ -43,7 +43,7 @@ terraform/
 | `db_user` | `string` | `"sumifu"` | MySQL ユーザー名 |
 | `crawler_cpu` | `string` | `"2"` | Cloud Run Jobs CPU コア数 |
 | `crawler_memory` | `string` | `"4Gi"` | Cloud Run Jobs メモリ割り当て |
-| `crawler_timeout` | `string` | `"7200s"` | クローラー Cloud Run Job の 1 タスクあたりのタイムアウト（2 時間。Cloud Run Jobs の上限は 24 時間 = `86400s`）。同値の秒数を環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC` としてジョブに渡し、`run_pipeline.py` の内部締め切りと一致させる（Issue #550） |
+| `crawler_timeout` | `string` | `"7200s"` | クローラー Cloud Run Job の 1 タスクあたりのタイムアウト（2 時間。Cloud Run Jobs の上限は 24 時間 = `86400s` だが、Safety-Net の hung 判定 7800s・`ml_pipeline_schedule_cron`・バックアップ開始時刻と整合させるため validation で `1s`〜`7200s` に制限）。同値の秒数を環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC` としてジョブに渡し、`run_pipeline.py` の内部締め切りと一致させる（Issue #550） |
 | `schedule_cron` | `string` | `"0 16 * * *"` | Cloud Scheduler 実行cron式（UTC 16:00 = JST 01:00） |
 | `ml_pipeline_schedule_cron` | `string` | `"10 18 * * *"` | ML Pipeline Job 起動cron式（UTC 18:10 = JST 03:10）。`schedule_cron` + `crawler_timeout`（最遅 18:00 UTC）より後であること（Issue #550） |
 

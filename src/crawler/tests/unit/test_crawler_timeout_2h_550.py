@@ -6,6 +6,8 @@ Issue #550: クローラーパイプライン Cloud Run Job のタスク上限 1
 import inspect
 import os
 import re
+import shutil
+import subprocess
 import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -91,11 +93,24 @@ def test_crawler_timeout_description_matches_cloud_run_limit():
     assert str(CLOUD_RUN_JOBS_MAX_TIMEOUT_SEC) in description
 
 
-def test_crawler_timeout_validation_enforces_cloud_run_limit():
+def _validation_upper_bound():
     block = _variable_block("crawler_timeout")
-    assert "validation" in block
-    assert str(CLOUD_RUN_JOBS_MAX_TIMEOUT_SEC) in block
-    assert 0 < _crawler_timeout_sec() <= CLOUD_RUN_JOBS_MAX_TIMEOUT_SEC
+    condition = re.search(r"validation\s*\{[^}]*?condition\s*=\s*(.+)", block, re.DOTALL).group(1).splitlines()[0]
+    return int(re.search(r'trimsuffix\(var\.crawler_timeout,\s*"s"\)\)\s*<=\s*(\d+)', condition).group(1))
+
+
+def test_crawler_timeout_validation_within_cloud_run_limit():
+    upper = _validation_upper_bound()
+    assert 0 < _crawler_timeout_sec() <= upper <= CLOUD_RUN_JOBS_MAX_TIMEOUT_SEC
+
+
+def test_crawler_timeout_validation_cannot_exceed_hung_threshold():
+    assert _validation_upper_bound() + HUNG_GRACE_SEC <= ensure_resources_stopped.DEFAULT_HUNG_THRESHOLD_SEC
+
+
+def test_crawler_timeout_validation_cannot_overlap_ml_start():
+    latest = _cron_seconds(_var_default("schedule_cron")) + _validation_upper_bound()
+    assert latest < _cron_seconds(_var_default("ml_pipeline_schedule_cron"))
 
 
 def test_crawler_job_uses_crawler_timeout_variable():
@@ -114,11 +129,32 @@ def test_crawler_job_passes_timeout_env_derived_from_variable():
     )
 
 
-def test_deploy_applies_crawler_timeout_and_env():
+def _deploy_run_block(job_name):
+    content = _read(WORKFLOW_PATH)
+    head = f"gcloud run jobs update {job_name} "
+    return content.split(head, 1)[0].rsplit("run: |", 1)[1] + head + _deploy_step(job_name)
+
+
+def test_deploy_applies_crawler_timeout_and_env_from_variable():
     step = _deploy_step("realestate-crawler-pipeline-prod")
-    timeout = _crawler_timeout_sec()
-    assert f"--task-timeout={timeout}s" in step
-    assert f"--update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC={timeout}" in step
+    assert "--task-timeout=${CRAWLER_TIMEOUT_SEC}s" in step
+    assert "--update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC}" in step
+
+
+@pytest.mark.skipif(shutil.which("awk") is None, reason="awk not available")
+def test_deploy_extracts_crawler_timeout_from_terraform():
+    block = _deploy_run_block("realestate-crawler-pipeline-prod")
+    command = re.search(r"CRAWLER_TIMEOUT_SEC=\$\((awk .+ terraform/variables\.tf)\)", block).group(1)
+    assert 'test -n "$CRAWLER_TIMEOUT_SEC"' in block
+    result = subprocess.run(
+        ["sh", "-c", command],
+        cwd=os.path.join(TERRAFORM_DIR, ".."),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    assert result.stdout.strip() == str(_crawler_timeout_sec())
 
 
 def test_run_pipeline_default_timeout_matches_crawler_timeout():

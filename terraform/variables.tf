@@ -54,12 +54,12 @@ variable "crawler_memory" {
 
 variable "crawler_timeout" {
   type        = string
-  description = "Per-task execution timeout for the crawler Cloud Run Job (default 2h: 7200s, Cloud Run Jobs max: 86400s). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"
+  description = "Per-task execution timeout for the crawler Cloud Run Job (default 2h: 7200s; Cloud Run Jobs max is 86400s, but capped at 7200s by the Safety-Net hung threshold 7800s and ml_pipeline_schedule_cron). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"
   default     = "7200s"
 
   validation {
-    condition     = can(regex("^[0-9]+s$", var.crawler_timeout)) && tonumber(trimsuffix(var.crawler_timeout, "s")) > 0 && tonumber(trimsuffix(var.crawler_timeout, "s")) <= 86400
-    error_message = "crawler_timeout must be \"<seconds>s\" between 1s and 86400s (Cloud Run Jobs limit)."
+    condition     = can(regex("^[0-9]+s$", var.crawler_timeout)) && tonumber(trimsuffix(var.crawler_timeout, "s")) > 0 && tonumber(trimsuffix(var.crawler_timeout, "s")) <= 7200
+    error_message = "crawler_timeout must be \"<seconds>s\" between 1s and 7200s. Raising it requires moving DEFAULT_HUNG_THRESHOLD_SEC (ensure_resources_stopped.py), ml_pipeline_schedule_cron and the Cloud SQL backup start_time together."
   }
 }
 
