@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 _LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)")
-_ROTATED_LOG_NAME_PATTERN = re.compile(r"\.log\.(?:\d+|\d{4}-\d{2}-\d{2}(?:_\d{2}(?:-\d{2}){0,2})?)$")
+_ROTATED_LOG_NAME_PATTERN = re.compile(r"\.log\.(?:\d+|\d{4}-\d{2}-\d{2}(?:_[\d-]+)?)$")
 
 
 def generate_auto_heal_trigger_message(

@@ -162,6 +162,14 @@ class TestLocalLogScanDateFilter533:
 
         assert [e["log_entry"] for e in errors] == ["Traceback ERROR undated"]
 
+    @pytest.mark.parametrize("name", ["pipeline.log.2026-09-26_03", "pipeline.log.2026-09-26_03-15-00"])
+    def test_hourly_rotated_log_is_scanned(self, name):
+        (self.base / name).write_text("Traceback ERROR hourly\n", encoding="utf-8")
+
+        errors = FailureReporter._scan_local_logs("20260926")
+
+        assert [e["log_entry"] for e in errors] == ["Traceback ERROR hourly"]
+
     @pytest.mark.parametrize("name", ["pipeline.log.bak", "pipeline.log.old", "pipeline.log.1.tmp"])
     def test_non_rotation_backup_is_excluded(self, name):
         (self.base / name).write_text("2026-09-26 00:00:01 ERROR: backup\n", encoding="utf-8")
