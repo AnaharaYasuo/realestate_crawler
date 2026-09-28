@@ -35,7 +35,7 @@ from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_slack_message
-from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_id
+from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
@@ -178,7 +178,7 @@ def record_task_start(task_index, task_count, jobs_assigned):
     """自タスクの CrawlerTaskExecution を RUNNING で登録する (同日の別実行と区別するため実行 ID を記録)"""
     try:
         record, _ = CrawlerTaskExecution.objects.update_or_create(
-            execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date(),
+            execution_date=get_execution_date(),
             task_index=task_index or 0,
             execution_id=get_execution_id(),
             defaults={

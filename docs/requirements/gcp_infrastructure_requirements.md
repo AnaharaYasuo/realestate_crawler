@@ -91,7 +91,7 @@
   - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（3600秒）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
   - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown を実行して ProxySQL 停止を保証すること。
   - 他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に応じて動的にタイムアウト上限を制限し、Cloud Run のタイムアウトによる突然死・teardown スキップを未然に防止すること。
-  - タスクアレイモードの Coordinator は、自タスク以外に終端状態（COMPLETED / FAILED）でないタスク（`CrawlerTaskExecution` 未登録を含む）が存在する場合、teardown / atexit / SIGTERM のいずれの経路でも共有 ProxySQL を停止してはならない。タスク状態を DB から取得できない場合も停止をスキップし、停止は Safety-Net に委譲すること（Issue #536）。停止判定・完了バリア・集約レポートは同一 Cloud Run 実行（`CLOUD_RUN_EXECUTION`）のタスク行のみを対象とし、同日の別実行の終端行で停止・バリア通過を許可してはならない。停止をスキップした場合は後続の終了経路（atexit 等）で再判定できること。
+  - タスクアレイモードの Coordinator は、自タスク以外に終端状態（COMPLETED / FAILED）でないタスク（`CrawlerTaskExecution` 未登録を含む）が存在する場合、teardown / atexit / SIGTERM のいずれの経路でも共有 ProxySQL を停止してはならない。タスク状態を DB から取得できない場合も停止をスキップし、停止は Safety-Net に委譲すること（Issue #536）。停止判定・完了バリア・集約レポートは同一 Cloud Run 実行（`CLOUD_RUN_EXECUTION`）のタスク行のみを対象とし、同日の別実行の終端行で停止・バリア通過を許可してはならない。実行日はパイプライン起動時に一度だけ確定し、日付を跨ぐ実行でもタスク登録と照会で同一の実行日を用いること。停止をスキップした場合は後続の終了経路（atexit 等）で再判定できること。
   - Cloud Run Job の同時実行数（`crawler_parallelism`）はタスク数（`crawler_task_count`）と同値とし、全タスクを同時に起動すること。2 巡目のタスクが Coordinator の停止後に起動して DB 不通で全滅する事態、および Safety-Net の hung 判定閾値超過を防止する（Issue #536）。
 - **クロール詳細 URL の重複ディスパッチ防止**:
   - 一覧（中間）ページから抽出した詳細 URL は、同一ページ内・同一クロールプロセス内の別一覧ページ間で重複して詳細処理にディスパッチしてはならない（詳細 API ごとに 1 回）。バリデーション失敗で保存されない物件の再取得ループによるクロール時間浪費を防止する（Issue #537）。

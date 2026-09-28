@@ -247,7 +247,7 @@ graph TD
   3. `CrawlerTaskExecution` を `FAILED` に更新する。DB 不通時の `save()` ブロックで終了が遅延しないよう、デーモンスレッドで実行し最大 `DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC`（10 秒）で待機を打ち切る（失敗・タイムアウトしても後続処理は継続）。
   4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
 - 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
-  - 対象は自タスクの行（`execution_date` は `run_all_crawlers.py` の登録時と同じローカル日付、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
+  - 対象は自タスクの行（`execution_date` は起動時に固定した実行日 `get_execution_date()`、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
   - DB 復旧を待つため、`close_old_connections()` で切断済み接続を破棄しつつ最大 `TASK_RECONCILE_MAX_ATTEMPTS`（4 回）、`TASK_RECONCILE_INTERVAL_SEC`（15 秒）間隔で再試行する（有限時間保証、最大約 45 秒＋接続タイムアウト）。全試行失敗時は警告ログを出して後続処理を継続する。
   - 親プロセスの MySQL 接続は子プロセスの `bound_db_connect_timeout()` の対象外のため、再試行ループの前に `bound_mysql_timeouts(connection.settings_dict)` で同じ有限の接続・読み書きタイムアウト（10 秒 / 120 秒）を適用し、各試行の `update()` が無期限にブロックしないようにする。
   - 再同期の待機は `run_command()` のタイムアウト対象外で、Coordinator のバリア待機時間も再同期後に算出されるため、各試行の前に `is_deadline_approaching()`、リトライ待機の前にはこれから待機する時間を含めた `is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC)` を確認し、Cloud Run のデッドラインが近づいている場合は再試行を打ち切って `False` を返す（後続の安全停止処理の猶予を消費しない）。
@@ -274,7 +274,7 @@ graph TD
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
   - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、`_current_execution_filters()` で今回の実行の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
-  - `_current_execution_filters()` は実行日（ローカル日付 `datetime.now(timezone.utc).astimezone().date()`、`run_all_crawlers.py` の `datetime.date.today()` と同一）と実行 ID（`get_execution_id()` = 環境変数 `CLOUD_RUN_EXECUTION`。同一実行の全タスクで共通）で行を絞り込む。行は `(execution_date, task_index)` 一意で同日の再実行と共有されるため、`run_all_crawlers.record_task_start()` が登録時に `execution_id` を記録し、同日の前回実行の終端行を除外する。実行 ID が空（ローカル実行）の場合は実行日のみで絞り込む。
+  - `_current_execution_filters()` は実行日（`task_distribution.get_execution_date()`）と実行 ID（`get_execution_id()` = 環境変数 `CLOUD_RUN_EXECUTION`。同一実行の全タスクで共通）で行を絞り込む。実行日は `run_pipeline.main()` 起動直後に `pin_execution_date()` がローカル日付を環境変数 `CRAWLER_EXECUTION_DATE`（ISO 形式）へ固定し、子プロセス `run_all_crawlers.py` の `record_task_start()` を含む登録・停止判定・完了バリア・集約のすべてが同じ値を参照する（日付を跨ぐ実行でも登録日と照会日がずれない。未固定・不正値の場合はローカル日付にフォールバック）。`record_task_start()` は登録時に `execution_id` を記録し、同日の前回実行の終端行を除外する。実行 ID が空（ローカル実行）の場合は実行日のみで絞り込む。
   - 同じ絞り込みを Coordinator バリア `wait_for_all_tasks(..., execution_id=...)`、全タスク集約レポートのクエリ、および `reconcile_aborted_task_execution()` の FAILED 再同期にも適用し、停止判定と同じ実行日・実行 ID のタスク行を参照する。
   - `_inline_stop_proxysql()` は Autoscaler 停止（単一インスタンス構成 `PROXYSQL_INSTANCE_NAME` 指定時は省略）と `scale_proxysql_mig(target_size=0)` の戻り値をすべて確認し、必要な全ステップが成功した場合のみ `True` を返す（Autoscaler 停止が失敗しても MIG 縮退は試行する）。`_teardown_done` は停止が成功した場合のみ `True` とし、ガードで停止をスキップした場合・停止に失敗した場合は未完了のまま残して、後続の終了経路（`_atexit_teardown` 等）で再判定させる。
   - 照会前および Coordinator バリア `wait_for_all_tasks()` の前に `_bind_parent_db_timeouts()` で親プロセスの MySQL 接続へ有限タイムアウトを適用し、確立済みの接続は閉じて次回クエリで設定付きで再接続させる。

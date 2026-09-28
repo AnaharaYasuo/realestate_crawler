@@ -27,11 +27,15 @@ while True:
 from package.utils.newrelic_helper import init_new_relic
 init_new_relic()
 
-import datetime
 from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
-from package.utils.task_distribution import get_execution_id, get_task_config
+from package.utils.task_distribution import (
+    get_execution_date,
+    get_execution_id,
+    get_task_config,
+    pin_execution_date,
+)
 from package.utils.pipeline_coordinator import wait_for_all_tasks
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.slack import send_crawling_summary_alert
@@ -121,7 +125,7 @@ def _inline_stop_proxysql() -> bool:
 
 def _current_execution_filters() -> dict:
     """run_all_crawlers.py の行登録と同じ実行日 (ローカル日付) と実行 ID で今回の実行のタスク行を特定する"""
-    filters = {"execution_date": datetime.datetime.now(datetime.timezone.utc).astimezone().date()}
+    filters = {"execution_date": get_execution_date()}
     execution_id = get_execution_id()
     if execution_id:
         filters["execution_id"] = execution_id
@@ -634,6 +638,7 @@ def main():
         help="Skip large portal sites (homes, athome)",
     )
     args = parser.parse_args()
+    pin_execution_date()
 
     global _is_coordinator, _task_index, _task_count
     task_index, task_count = get_task_config()

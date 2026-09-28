@@ -52,6 +52,15 @@ def _local_today():
     return datetime.datetime.now(datetime.timezone.utc).astimezone().date()
 
 
+PINNED_DATE = datetime.date(2020, 1, 2)
+
+
+@pytest.fixture(autouse=True)
+def _no_pinned_execution_date(monkeypatch):
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", "")
+    monkeypatch.delenv("CRAWLER_EXECUTION_DATE", raising=False)
+
+
 @pytest.fixture
 def task_array(monkeypatch):
     """Coordinator (task 0) / 全 4 タスクのタスクアレイ状態を設定し、DB 取得結果を差し替える"""
@@ -666,6 +675,64 @@ def test_record_task_start_stores_execution_id(monkeypatch):
     assert kwargs["task_index"] == 3
     assert kwargs["execution_id"] == EXECUTION_ID
     assert kwargs["defaults"] == {"task_count": 8, "status": "RUNNING", "jobs_assigned": 11}
+
+
+def test_get_execution_date_defaults_to_local_today():
+    assert task_distribution.get_execution_date() == _local_today()
+
+
+def test_get_execution_date_reads_pinned_date(monkeypatch):
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", PINNED_DATE.isoformat())
+    assert task_distribution.get_execution_date() == PINNED_DATE
+
+
+@pytest.mark.parametrize("raw", ["", "not-a-date", "2020-13-40"])
+def test_get_execution_date_ignores_invalid_pin(monkeypatch, raw):
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", raw)
+    assert task_distribution.get_execution_date() == _local_today()
+
+
+def test_pin_execution_date_sets_env_once():
+    assert task_distribution.pin_execution_date() == _local_today()
+    assert os.environ["CRAWLER_EXECUTION_DATE"] == _local_today().isoformat()
+
+
+def test_pin_execution_date_keeps_existing_pin(monkeypatch):
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", PINNED_DATE.isoformat())
+    assert task_distribution.pin_execution_date() == PINNED_DATE
+    assert os.environ["CRAWLER_EXECUTION_DATE"] == PINNED_DATE.isoformat()
+
+
+def test_pin_execution_date_replaces_invalid_pin(monkeypatch):
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", "garbage")
+    assert task_distribution.pin_execution_date() == _local_today()
+    assert os.environ["CRAWLER_EXECUTION_DATE"] == _local_today().isoformat()
+
+
+def test_filters_and_registration_use_pinned_date_across_midnight(monkeypatch):
+    """日付を跨いでも、起動時に固定した実行日で登録・待機・集計が一致すること"""
+    monkeypatch.setenv("CRAWLER_EXECUTION_DATE", PINNED_DATE.isoformat())
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    assert run_pipeline._current_execution_filters() == {
+        "execution_date": PINNED_DATE,
+        "execution_id": EXECUTION_ID,
+    }
+    model = MagicMock()
+    model.objects.update_or_create.return_value = ("rec", True)
+    monkeypatch.setattr(run_all_crawlers, "CrawlerTaskExecution", model)
+    run_all_crawlers.record_task_start(1, 8, 3)
+    assert model.objects.update_or_create.call_args.kwargs["execution_date"] == PINNED_DATE
+
+
+def test_main_pins_execution_date_before_running(monkeypatch):
+    calls = []
+    monkeypatch.setattr(run_pipeline, "pin_execution_date", lambda: calls.append("pin"))
+    monkeypatch.setattr(run_pipeline, "get_task_config", lambda: calls.append("config") or (None, 1))
+    monkeypatch.setattr(sys, "argv", ["run_pipeline.py"])
+    monkeypatch.setattr(run_pipeline.logger, "info", MagicMock(side_effect=SystemExit(0)))
+    with pytest.raises(SystemExit):
+        run_pipeline.main()
+    assert calls[:1] == ["pin"]
 
 
 def test_task_rows_are_unique_per_execution():
