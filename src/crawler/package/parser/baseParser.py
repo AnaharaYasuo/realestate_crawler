@@ -25,7 +25,7 @@ TOKEN_INQUIRY = "/inquiry"
 TOKEN_CONTACT = "/contact"
 DECIMAL_REGEX = re.compile(r'([\d\.]+)')
 DIGIT_REGEX = re.compile(r'(\d+)')
-_BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―"})
+_BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―", "—"})
 
 
 def _is_filled_spec_value(val) -> bool:

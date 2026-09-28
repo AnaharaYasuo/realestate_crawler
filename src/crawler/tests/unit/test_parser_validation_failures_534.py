@@ -1,4 +1,6 @@
 import importlib
+import logging
+from unittest.mock import patch
 
 import pytest
 import setup_env  # noqa: F401
@@ -11,6 +13,7 @@ from package.parser.sumifuParser import (
     SumifuMansionParser,
 )
 from package.parser.tokyuParser import TokyuKodateParser, TokyuMansionParser
+from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 
 SUMIFU_UNIT_URL = "https://www.stepon.co.jp/mansion/detail_16133137/"
@@ -23,29 +26,36 @@ def _soup(text: str) -> BeautifulSoup:
 class TestSectionalUnitSwitchGuard534:
     """Issue #534: 区分住戸ページは一棟投資・戸建てパーサーへ切り替えない。"""
 
-    def test_rented_unit_is_not_switched_to_investment_apartment(self):
+    @pytest.mark.parametrize(
+        ("detected", "title", "text", "specs"),
+        [
+            ("investment", "ライオンズプラザ町屋", "賃貸中", {"専有面積": "20.52m²", "現況": "賃貸中", "構造": "SRC"}),
+            ("kodate", "テラスハウスヴィップ東長崎", "テラスハウス", {"専有面積": "65.10m²", "間取り": "3LDK"}),
+        ],
+    )
+    def test_sectional_unit_is_not_switched(self, detected, title, text, specs, caplog):
+        parser = SumifuMansionParser("")
+        item = parser.createEntity()
+
+        with patch.object(PropertyTypeDetector, "detect", return_value=detected), \
+             patch.object(UrlRouter, "create_parser") as mock_create, \
+             caplog.at_level(logging.INFO):
+            used_parser, used_item = parser._maybe_switch_parser(
+                SUMIFU_UNIT_URL, title, _soup(text), specs, item
+            )
+
+        assert used_parser is parser
+        assert used_item is item
+        mock_create.assert_not_called()
+        assert f"detected '{detected}' skipped (sectional unit)" in caplog.text
+
+    def test_real_detection_of_rented_unit_is_guarded(self):
         parser = SumifuMansionParser("")
         item = parser.createEntity()
         specs = {"専有面積": "20.52m²", "現況": "賃貸中", "構造": "SRC"}
 
         used_parser, used_item = parser._maybe_switch_parser(
             SUMIFU_UNIT_URL, "ライオンズプラザ町屋", _soup("賃貸中"), specs, item
-        )
-
-        assert used_parser is parser
-        assert used_item is item
-
-    def test_terrace_house_unit_is_not_switched_to_kodate(self):
-        parser = SumifuMansionParser("")
-        item = parser.createEntity()
-        specs = {"専有面積": "65.10m²", "間取り": "3LDK"}
-
-        used_parser, used_item = parser._maybe_switch_parser(
-            "https://www.stepon.co.jp/mansion/detail_16133009/",
-            "テラスハウスヴィップ東長崎",
-            _soup("テラスハウス"),
-            specs,
-            item,
         )
 
         assert used_parser is parser
@@ -98,7 +108,7 @@ class TestSectionalUnitSwitchGuard534:
         assert SumifuMansionParser._is_sectional_unit_page({}) is False
         assert SumifuMansionParser._is_sectional_unit_page(None) is False
 
-    @pytest.mark.parametrize("blank", ["", "  ", "-", "－", "―", None])
+    @pytest.mark.parametrize("blank", ["", "  ", "-", "－", "―", "—", None])
     def test_blank_land_area_is_treated_as_absent(self, blank):
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²", "土地面積": blank}) is True
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": blank}) is False
