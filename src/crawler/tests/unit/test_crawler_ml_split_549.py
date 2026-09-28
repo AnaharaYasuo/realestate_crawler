@@ -234,6 +234,17 @@ def test_task_array_coordinator_main_skips_post_crawl_pipeline(pipeline_main, mo
     assert pipeline_main.teardown.call_args.args[0] is True
 
 
+@pytest.mark.parametrize("task_index", [0, 3])
+def test_task_array_crawl_failure_exits_non_zero_after_teardown(pipeline_main, monkeypatch, task_index):
+    monkeypatch.setattr(run_pipeline, "get_task_config", lambda: (task_index, 8))
+    monkeypatch.setattr(run_pipeline, "_run_crawler_step", MagicMock(return_value=(False, False)))
+    with pytest.raises(SystemExit) as exc:
+        run_pipeline.main()
+    assert exc.value.code == 1
+    pipeline_main.post_crawl.assert_not_called()
+    pipeline_main.teardown.assert_called_once()
+
+
 def test_single_run_main_runs_post_crawl_pipeline(pipeline_main, monkeypatch):
     monkeypatch.setattr(run_pipeline, "get_task_config", lambda: (None, 1))
     run_pipeline.main()

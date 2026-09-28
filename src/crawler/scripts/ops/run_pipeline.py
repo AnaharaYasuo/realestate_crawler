@@ -612,6 +612,9 @@ def main():
             args.skip_portals,
         )
         if not should_continue:
+            if not crawler_ok:
+                logger.error(f"❌ Task {task_index}/{task_count} のクローリングが失敗しました。")
+                sys.exit(1)
             return
 
         failed_steps = _run_post_crawl_pipeline(

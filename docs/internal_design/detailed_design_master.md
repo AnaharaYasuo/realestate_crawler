@@ -270,7 +270,7 @@ graph TD
   - シグナル受信時は実行中の子プロセスを停止した上で、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、最短時間で ProxySQL インスタンス（または MIG）を安全に停止する。単一インスタンス構成時は MIG Autoscaler パッチをスキップする。
 - **自律的早期シャットダウン (Graceful Self-Shutdown)**:
   - パイプライン全体の最大許容実行時間を管理し、残り時間が安全停止猶予（`SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒）を下回る前に、自律的に安全停止シーケンス（ProxySQL 停止 + Slack警告発報）へ移行して終了する。
-  - タスクアレイモード（`task_count > 1`）では、`_run_crawler_step()` は Coordinator を含む全タスクで自タスクのクロール完了後に `(False, crawler_ok)` を返し、`main()` は後続ステップ（他タスク完了待機・集約レポート・`_run_post_crawl_pipeline`）を実行せずに終了する（Issue #549）。集約レポートと後続ステップは §6.10.1.1 の ML Pipeline Job が担う。単一実行（`task_count <= 1`）はクロール後に `_run_post_crawl_pipeline` を従来どおり実行する。
+  - タスクアレイモード（`task_count > 1`）では、`_run_crawler_step()` は Coordinator を含む全タスクで自タスクのクロール完了後に `(False, crawler_ok)` を返し、`main()` は後続ステップ（他タスク完了待機・集約レポート・`_run_post_crawl_pipeline`）を実行せずに終了する（Issue #549）。自タスクのクロールが失敗（`crawler_ok=False`）した場合は安全停止フック実行後に終了コード 1 で終了し、Cloud Run 上で失敗タスクとして記録する（`max_retries = 0` のため再実行はされない）。集約レポートと後続ステップは §6.10.1.1 の ML Pipeline Job が担う。単一実行（`task_count <= 1`）はクロール後に `_run_post_crawl_pipeline` を従来どおり実行する。
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
   - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、`_current_execution_filters()` で今回の実行の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
