@@ -1,10 +1,13 @@
 import importlib
 import logging
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 import setup_env  # noqa: F401
 from bs4 import BeautifulSoup
+from django.core.exceptions import ValidationError
+from django.db import models
 from package.models.tokyu import TokyuTochi
 from package.parser.athomeParser import AthomeMansionParser
 from package.parser.mitsuiParser import MitsuiInvestmentApartmentParser
@@ -268,12 +271,39 @@ class TestTokyuFloorLabel535:
 class TestTokyuTochiOptionalFields538:
     """Issue #538: 東急土地の任意項目は空欄でもバリデーションを通過する。"""
 
-    @pytest.mark.parametrize("field", ["chisei", "boukaChiiki", "saikenchiku", "sonotaChiiki", "kokudoHou"])
+    OPTIONAL_FIELDS = ["chisei", "boukaChiiki", "saikenchiku", "sonotaChiiki", "kokudoHou"]
+
+    @staticmethod
+    def _valid_tochi(**overrides):
+        item = TokyuTochi()
+        for f in TokyuTochi._meta.concrete_fields:
+            if f.blank or f.auto_created:
+                continue
+            if isinstance(f, (models.IntegerField, models.BigIntegerField)):
+                setattr(item, f.attname, 1)
+            elif isinstance(f, models.DecimalField):
+                setattr(item, f.attname, Decimal("1"))
+            elif isinstance(f, (models.TextField, models.CharField)):
+                setattr(item, f.attname, "x")
+        for name, value in overrides.items():
+            setattr(item, name, value)
+        return item
+
+    @pytest.mark.parametrize("field", OPTIONAL_FIELDS)
     def test_optional_field_allows_blank(self, field):
         assert TokyuTochi._meta.get_field(field).blank is True
 
+    @pytest.mark.parametrize("field", OPTIONAL_FIELDS)
+    def test_model_with_blank_optional_field_passes_full_clean(self, field):
+        item = self._valid_tochi(**{field: ""})
+        item.full_clean(validate_unique=False, validate_constraints=False)
+
     def test_other_required_field_still_required(self):
         assert TokyuTochi._meta.get_field("chimoku").blank is False
+        item = self._valid_tochi(chimoku="")
+        with pytest.raises(ValidationError) as exc:
+            item.full_clean(validate_unique=False, validate_constraints=False)
+        assert "chimoku" in exc.value.message_dict
 
 
 class TestUrlRouterRoutes539:
