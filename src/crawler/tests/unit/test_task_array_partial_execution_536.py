@@ -36,7 +36,8 @@ from package.api import api as api_module
 from package.api.api import ParseMiddlePageAsyncBase
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils import pipeline_coordinator, task_distribution
-from scripts.ops import run_all_crawlers, run_pipeline
+from scripts.ops import run_all_crawlers, run_ml_pipeline, run_pipeline
+import main as crawler_main
 
 TERRAFORM_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../../terraform")
@@ -893,6 +894,57 @@ def test_main_pins_execution_date_before_running(monkeypatch):
     with pytest.raises(SystemExit):
         run_pipeline.main()
     assert calls[:1] == ["pin"]
+
+
+def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
+    monkeypatch.setenv("CLOUD_RUN_EXECUTION", EXECUTION_ID)
+    model = MagicMock()
+    model.objects.update_or_create.return_value = (MagicMock(), True)
+    monkeypatch.setattr(crawler_main, "CrawlerTaskExecution", model)
+    monkeypatch.setattr(crawler_main, "get_dispatch_map", lambda: {("sumifu", "mansion"): lambda: None})
+    monkeypatch.setattr(crawler_main, "_execute_crawl_func", lambda *a: True)
+    monkeypatch.setattr(crawler_main, "_count_scraped_items", lambda *a: 0)
+    monkeypatch.setattr(crawler_main, "_update_task_record", lambda *a: None)
+    crawler_main.execute_crawl_task("sumifu", "mansion", "2020-01-02")
+    kwargs = model.objects.update_or_create.call_args.kwargs
+    assert kwargs["execution_date"] == PINNED_DATE
+    assert kwargs["execution_id"] == EXECUTION_ID
+
+
+def _task_rows(*rows):
+    return [SimpleNamespace(execution_id=e, task_index=i, status=s) for e, i, s in rows]
+
+
+def _ml_model(latest_execution_id, rows):
+    model = MagicMock()
+    latest_qs = model.objects.filter.return_value.order_by.return_value.values_list.return_value
+    latest_qs.first.return_value = latest_execution_id
+    model.objects.filter.side_effect = lambda **kw: (
+        rows if "execution_id" in kw else model.objects.filter.return_value
+    )
+    return model
+
+
+def test_ml_barrier_scopes_to_latest_crawler_execution(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"))
+    model = _ml_model(EXECUTION_ID, rows)
+    monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", model)
+    ok, failed = run_ml_pipeline.verify_barrier_completion(PINNED_DATE, min_success_ratio=0.5)
+    assert (ok, failed) == (True, ["1"])
+    scoped = [c.kwargs for c in model.objects.filter.call_args_list if "execution_id" in c.kwargs]
+    assert scoped == [{"execution_date": PINNED_DATE, "execution_id": EXECUTION_ID}]
+    model.objects.filter.return_value.order_by.assert_called_once_with("-created_at")
+
+
+def test_ml_barrier_below_threshold_reports_failed_task_indexes(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"), (EXECUTION_ID, 2, "PENDING"))
+    monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", _ml_model(EXECUTION_ID, rows))
+    assert run_ml_pipeline.verify_barrier_completion(PINNED_DATE, min_success_ratio=0.85) == (False, ["1", "2"])
+
+
+def test_ml_barrier_without_rows_proceeds(monkeypatch):
+    monkeypatch.setattr(run_ml_pipeline, "CrawlerTaskExecution", _ml_model(None, []))
+    assert run_ml_pipeline.verify_barrier_completion(PINNED_DATE) == (True, [])
 
 
 def test_task_rows_are_unique_per_execution():

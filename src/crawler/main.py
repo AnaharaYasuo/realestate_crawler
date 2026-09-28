@@ -31,6 +31,7 @@ from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
+from package.utils.task_distribution import get_execution_id
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -375,6 +376,7 @@ def execute_crawl_task(company: str, prop_type: str, execution_date: str = None)
     task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
         execution_date=exec_dt,
         task_index=abs(hash(f"{company}_{prop_type}")) % 1000,
+        execution_id=get_execution_id(),
         defaults={"task_count": 1, "status": "RUNNING", "jobs_assigned": 1}
     )
 

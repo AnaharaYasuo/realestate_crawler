@@ -582,7 +582,7 @@ graph TD
 ### 6.30 タスクアレイ並列分散クローリング全件統合レポート可視化内部設計
 - **タスク実行結果モデルの拡張 (`CrawlerTaskExecution`)**:
   - `results_json = models.JSONField(default=list, blank=True)` フィールドを追加し、各タスクが実行した全ジョブの詳細結果（会社、種別、ステータス、新規件数、所要時間、エラー内容）を永続化。
-  - `execution_id = models.CharField(max_length=128, blank=True, default="", db_index=True)`（migration 0055、Issue #536）に Cloud Run の実行名 `CLOUD_RUN_EXECUTION` を記録し、同日の別実行の行と区別する。一意制約は `(execution_date, task_index, execution_id)` とし、`record_task_start()` の `update_or_create` ルックアップにも `execution_id` を含めて、同日に重なって実行された別実行の行を上書きしない。
+  - `execution_id = models.CharField(max_length=128, blank=True, default="", db_index=True)`（migration 0055、Issue #536）に Cloud Run の実行名 `CLOUD_RUN_EXECUTION` を記録し、同日の別実行の行と区別する。一意制約は `(execution_date, task_index, execution_id)` とし、`record_task_start()` の `update_or_create` ルックアップにも `execution_id` を含めて、同日に重なって実行された別実行の行を上書きしない。Cloud Tasks 経由の単一ジョブ実行（`main.execute_crawl_task`）も `update_or_create` ルックアップに `execution_id=get_execution_id()` を含める。別ジョブで起動する ML パイプラインのバリア点検（`run_ml_pipeline.verify_barrier_completion`）はクローラーの実行 ID を知り得ないため、対象日の行のうち `created_at` が最新の行の `execution_id`（直近のクローラー実行）に絞り込んで完了率を判定し、未完了タスクは `task_index` で報告する。
 - **個社クローラー実行状況レポート出力の透明化 (`run_all_crawlers.py`)**:
   - タスクアレイ実行時（`task_count > 1`）、サマリー表示を `総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {success}, 失敗: {failed})` に改修し、担当件数と全体件数を明示。
   - タスクアレイのワーカータスク（`task_index > 0`）による重複サマリー発報を抑制し、Coordinator での統合通知を主軸とする。

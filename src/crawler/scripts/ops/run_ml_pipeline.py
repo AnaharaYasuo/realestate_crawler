@@ -67,14 +67,26 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
     """DB のタスク状況を点検し、ML 実行基準を満たしているか検証"""
     target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
     try:
-        tasks = list(CrawlerTaskExecution.objects.filter(execution_date=target_date))
+        latest_execution_id = (
+            CrawlerTaskExecution.objects.filter(execution_date=target_date)
+            .order_by("-created_at")
+            .values_list("execution_id", flat=True)
+            .first()
+        )
+        tasks = (
+            []
+            if latest_execution_id is None
+            else list(
+                CrawlerTaskExecution.objects.filter(execution_date=target_date, execution_id=latest_execution_id)
+            )
+        )
         if not tasks:
             logger.warning(f"No task records found for {target_date}. Proceeding with existing DB data.")
             return True, []
 
         total = len(tasks)
         completed = [t for t in tasks if t.status == "COMPLETED"]
-        failed = [t.task_id for t in tasks if t.status in ("FAILED", "PENDING")]
+        failed = [str(t.task_index) for t in tasks if t.status in ("FAILED", "PENDING")]
 
         success_ratio = len(completed) / total
         logger.info(f"Barrier verification: {len(completed)}/{total} tasks completed (ratio: {success_ratio:.2%}).")
