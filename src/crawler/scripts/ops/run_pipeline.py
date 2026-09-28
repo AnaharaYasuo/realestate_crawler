@@ -117,7 +117,9 @@ def _can_stop_shared_proxysql() -> bool:
     try:
         bound_mysql_timeouts(getattr(connection, "settings_dict", None))
         records = list(
-            CrawlerTaskExecution.objects.filter(execution_date=datetime.date.today())
+            CrawlerTaskExecution.objects.filter(
+                execution_date=datetime.datetime.now(datetime.timezone.utc).astimezone().date()
+            )
         )
     except Exception as e:  # noqa: BLE001
         logger.warning(

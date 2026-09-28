@@ -273,7 +273,7 @@ graph TD
   - Coordinator の他タスク完了待機（`wait_for_all_tasks`）は、ジョブ全体の残り許容時間に基づく動的タイムアウト（`min(10800, remaining_time)`）として制限し、Cloud Run のタイムアウトによる突然死を未然に防止する。
 - **共有 ProxySQL 停止ガード (Issue #536)**:
   - `_execute_safety_teardown` / `_atexit_teardown` / `_sigterm_handler` の各経路は、停止前に `_can_stop_shared_proxysql()` を評価する。
-  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（ローカル日付 `datetime.date.today()`、`run_all_crawlers.py` の行作成と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
+  - 単一タスク実行（`_task_count <= 1`）は常に停止可。タスクアレイモードでは、当日（ローカル日付 `datetime.now(timezone.utc).astimezone().date()`、`run_all_crawlers.py` の行作成および `reconcile_aborted_task_execution` と同一）の `CrawlerTaskExecution` を取得し、自タスク（`_task_index`）を除く全タスクが `COMPLETED` / `FAILED` の場合のみ停止可とする。
   - 他タスクの行が未登録・非終端（`RUNNING` 等）の場合、または DB 取得で例外が発生した場合は停止をスキップし、警告ログを出力して Safety-Net（Cloud Scheduler による `ensure_resources_stopped.py` の定時実行）に停止を委譲する。`_execute_safety_teardown` はこの場合、インライン停止に加えて同プロセスからの `ensure_resources_stopped.py` 呼び出しもスキップする。
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
 

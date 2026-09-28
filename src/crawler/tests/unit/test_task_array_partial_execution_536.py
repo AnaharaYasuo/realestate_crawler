@@ -100,7 +100,8 @@ def test_queries_local_execution_date_like_run_all_crawlers(task_array):
     )
     run_pipeline._can_stop_shared_proxysql()
     kwargs = task_array.objects.filter.call_args.kwargs
-    assert kwargs == {"execution_date": run_pipeline.datetime.date.today()}
+    dt = run_pipeline.datetime
+    assert kwargs == {"execution_date": dt.datetime.now(dt.timezone.utc).astimezone().date()}
 
 
 def test_bounds_mysql_timeouts_before_query(task_array):
