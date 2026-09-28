@@ -911,17 +911,21 @@ def test_crawl_task_endpoint_registers_row_with_execution_id(monkeypatch):
     assert kwargs["execution_id"] == EXECUTION_ID
 
 
-def _task_rows(*rows, task_count=None):
-    count = task_count or len(rows)
+def _task_rows(*rows, task_count=None, started=0):
+    count = task_count if task_count is not None else len(rows)
+    base = datetime.datetime(2020, 1, 2, tzinfo=datetime.timezone.utc)
     return [
-        SimpleNamespace(execution_id=e, task_index=i, status=s, task_count=count) for e, i, s in rows
+        SimpleNamespace(
+            execution_id=e, task_index=i, status=s, task_count=count,
+            created_at=base + datetime.timedelta(minutes=started + n),
+        )
+        for n, (e, i, s) in enumerate(rows)
     ]
 
 
 def _ml_model(rows):
-    """created_at 降順で返る対象日の行を模擬する"""
     model = MagicMock()
-    model.objects.filter.return_value.order_by.return_value = rows
+    model.objects.filter.return_value = rows
     return model
 
 
@@ -932,14 +936,28 @@ def _run_ml_barrier(monkeypatch, rows, **kwargs):
 
 
 def test_ml_barrier_scopes_to_latest_crawler_execution(monkeypatch):
-    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED")) + _task_rows(
-        ("older-exec", 0, "FAILED"), ("older-exec", 1, "FAILED")
+    rows = _task_rows(("older-exec", 0, "FAILED"), ("older-exec", 1, "FAILED")) + _task_rows(
+        (EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "FAILED"), started=60
     )
     (result, model) = _run_ml_barrier(monkeypatch, rows, min_success_ratio=0.5)
     assert result == (True, ["1"])
     model.objects.filter.assert_called_once_with(execution_date=PINNED_DATE)
-    model.objects.filter.return_value.order_by.assert_called_once_with("-created_at")
 
+
+def test_ml_barrier_selects_by_execution_start_not_last_row(monkeypatch):
+    """先に開始した実行の行が後から登録されても、開始が最も新しい実行を選ぶこと"""
+    latest = _task_rows((EXECUTION_ID, 0, "COMPLETED"), (EXECUTION_ID, 1, "COMPLETED"), started=60)
+    earlier = _task_rows(("older-exec", 0, "FAILED"), started=0) + _task_rows(
+        ("older-exec", 1, "FAILED"), started=120
+    )
+    (result, _) = _run_ml_barrier(monkeypatch, earlier + latest)
+    assert result == (True, [])
+
+
+def test_ml_barrier_zero_task_count_fails(monkeypatch):
+    rows = _task_rows((EXECUTION_ID, 0, "COMPLETED"), task_count=0)
+    (result, _) = _run_ml_barrier(monkeypatch, rows)
+    assert result == (False, [])
 
 def test_ml_barrier_prefers_non_empty_execution_id_over_newer_empty_rows(monkeypatch):
     rows = _task_rows(("", 7, "FAILED"), task_count=1) + _task_rows(

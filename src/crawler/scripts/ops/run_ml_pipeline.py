@@ -64,10 +64,15 @@ def scale_proxysql_mig(target_size: int = 0, project_id: str | None = None, regi
 
 
 def _latest_execution_tasks(target_date: datetime.date) -> list:
-    """対象日の直近のクローラー実行 (空でない実行 ID を優先、無ければ空 ID の行) のタスク行を返す"""
-    rows = list(CrawlerTaskExecution.objects.filter(execution_date=target_date).order_by("-created_at"))
-    latest_id = next((r.execution_id for r in rows if r.execution_id), "")
-    return [r for r in rows if r.execution_id == latest_id]
+    """対象日で開始 (最初のタスク行登録) が最も新しいクローラー実行のタスク行を返す (空でない実行 ID を優先)"""
+    by_execution: dict[str, list] = {}
+    for row in CrawlerTaskExecution.objects.filter(execution_date=target_date):
+        by_execution.setdefault(row.execution_id, []).append(row)
+    candidates = {k: v for k, v in by_execution.items() if k} or by_execution
+    if not candidates:
+        return []
+    latest_id = max(candidates, key=lambda k: min(r.created_at for r in candidates[k]))
+    return candidates[latest_id]
 
 
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
@@ -80,6 +85,9 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
             return True, []
 
         total = max(t.task_count for t in tasks)
+        if total <= 0:
+            logger.warning(f"Invalid task_count={total} for the latest execution on {target_date}.")
+            return False, []
         missing = set(range(total)) - {t.task_index for t in tasks}
         failed_indexes = {t.task_index for t in tasks if t.status in ("FAILED", "PENDING")} | missing
         failed = [str(i) for i in sorted(failed_indexes)]
