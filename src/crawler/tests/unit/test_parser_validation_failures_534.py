@@ -1,11 +1,12 @@
 import importlib
 import logging
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import setup_env  # noqa: F401
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuTochi
+from package.parser.athomeParser import AthomeMansionParser
 from package.parser.mitsuiParser import MitsuiInvestmentApartmentParser
 from package.parser.sumifuParser import (
     SumifuInvestmentApartmentParser,
@@ -100,6 +101,27 @@ class TestSectionalUnitSwitchGuard534:
 
         assert isinstance(used_parser, SumifuInvestmentApartmentParser)
         assert used_item is not item
+
+    def test_guard_is_opt_in_for_sumifu_mansion_only(self):
+        assert SumifuMansionParser.sectional_unit_guard_enabled is True
+        assert AthomeMansionParser.sectional_unit_guard_enabled is False
+
+    def test_other_mansion_parser_still_switches_on_sectional_page(self):
+        parser = AthomeMansionParser()
+        item = parser.createEntity()
+        specs = {"専有面積": "20.52m²", "表面利回り": "7.5%"}
+        target_parser = MagicMock()
+
+        with patch.object(PropertyTypeDetector, "detect", return_value="apartment"), patch.object(
+            UrlRouter, "create_parser", return_value=target_parser
+        ) as mock_create:
+            used_parser, used_item = parser._maybe_switch_parser(
+                "https://www.athome.co.jp/mansion/1234567890/", "投資用区分", _soup("表面利回り 7.5%"), specs, item
+            )
+
+        mock_create.assert_called_once()
+        assert used_parser is target_parser
+        assert used_item is target_parser.createEntity.return_value
 
     def test_is_sectional_unit_page(self):
         assert SumifuMansionParser._is_sectional_unit_page({"専有面積": "20m²"}) is True

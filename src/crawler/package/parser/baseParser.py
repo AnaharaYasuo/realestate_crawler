@@ -87,6 +87,7 @@ class ServerDownException(Exception):
 
 class ParserBase(metaclass=ABCMeta):
     property_type = ''
+    sectional_unit_guard_enabled = False
 
     EXPECTED_SPEC_FIELDS_BY_TYPE = {
         'mansion': ['price', 'address', 'senyuMenseki', 'madori', 'chikunengetsuStr', 'kouzou'],
@@ -1046,7 +1047,11 @@ class ParserBase(metaclass=ABCMeta):
         )
         if not (detected_type and self.property_type and detected_type != self.property_type):
             return self, item
-        if self.property_type == "mansion" and self._is_sectional_unit_page(specs):
+        if (
+            self.sectional_unit_guard_enabled
+            and self.property_type == "mansion"
+            and self._is_sectional_unit_page(specs)
+        ):
             logging.info(
                 f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' "
                 "skipped (sectional unit)"

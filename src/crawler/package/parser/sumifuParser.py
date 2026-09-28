@@ -950,6 +950,8 @@ class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase, InvestmentPars
 
 
 class SumifuMansionParser(SumifuParser, MansionParserBase):
+    sectional_unit_guard_enabled = True
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
