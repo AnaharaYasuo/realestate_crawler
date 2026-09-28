@@ -91,7 +91,8 @@ def _is_retryable_dispatch_result(result: Any) -> bool:
     return isinstance(status, int) and (status >= 500 or status in _RETRYABLE_DISPATCH_STATUSES)
 
 
-async def _mark_request_sent(_session, trace_config_ctx, _params) -> None:
+# aiohttp の TraceConfig シグナルはコールバックを await するためコルーチン関数である必要がある
+async def _mark_request_sent(_session, trace_config_ctx, _params) -> None:  # NOSONAR
     trace_config_ctx.trace_request_ctx["sent"] = True
 
 
