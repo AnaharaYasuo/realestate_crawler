@@ -7,6 +7,7 @@ import datetime
 import inspect
 import os
 import re
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -178,6 +179,9 @@ def test_task_array_task_exits_after_own_crawl(task_index):
     with patch.object(run_pipeline, "run_command") as mock_cmd:
         assert _run_step(True, task_index == 0, task_index, 8) == (False, True)
     mock_cmd.assert_called_once()
+    cmd, desc = mock_cmd.call_args.args[:2]
+    assert cmd == [sys.executable, os.path.join("/tmp/ops", "run_all_crawlers.py")]
+    assert f"[Task {task_index}/8]" in desc
 
 
 def test_task_array_coordinator_crawl_failure_reconciles_and_exits():
@@ -364,8 +368,8 @@ def test_aggregated_report_sent_once_for_latest_execution(monkeypatch):
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is True
 
     latest.assert_called_once_with(TARGET_DATE)
-    slack.assert_called_once()
-    message = slack.call_args.args[0]
+    slack.assert_awaited_once()
+    message = slack.await_args.args[0]
     assert "全タスク集約レポート" in message
     assert "実行タスク数: 2 タスク" in message
     assert "tokyu - tochi: timeout" in message
