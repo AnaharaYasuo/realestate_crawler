@@ -9,6 +9,7 @@ import os
 import re
 import signal
 import sys
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -232,23 +233,25 @@ class _DummyMiddlePage(ParseMiddlePageAsyncBase):
         return self.api_url
 
 
-@pytest.fixture(autouse=True)
-def _clear_dispatched():
-    api_module._dispatched_detail_keys.clear()
-    yield
-    api_module._dispatched_detail_keys.clear()
+@pytest.fixture
+def run_keys():
+    """独立した main() 実行中の状態 (実行単位のディスパッチ済みキー集合) を再現する"""
+    owns = api_module._enter_crawl_run()
+    yield api_module._current_dispatch_keys()
+    api_module._exit_crawl_run(owns)
 
 
-def _dispatch(page, urls):
+def _dispatch(page, urls, result=None):
     page.parser = None
-    fetch = AsyncMock(side_effect=lambda url, api_url, loop: url)
+    fetch = AsyncMock(side_effect=lambda url, api_url, loop: result or url)
     with patch.object(page, "_fetchWithEachSession", fetch), \
          patch.object(page, "_getActiveEventLoop", return_value=None):
-        result = asyncio.run(page._callApi(urls))
-    return [c.args[0] for c in fetch.call_args_list], result
+        responses = asyncio.run(page._callApi(urls))
+    return [c.args[0] for c in fetch.call_args_list], responses
 
 
-def test_duplicate_urls_within_page_dispatched_once():
+def test_duplicate_urls_within_page_dispatched_once_without_run():
+    assert api_module._current_dispatch_keys() is None
     called, result = _dispatch(
         _DummyMiddlePage(), ["https://a/1", "https://a/2", "https://a/1"]
     )
@@ -256,13 +259,23 @@ def test_duplicate_urls_within_page_dispatched_once():
     assert result == ["https://a/1", "https://a/2"]
 
 
-def test_already_dispatched_url_skipped_across_instances():
+def test_calls_outside_run_do_not_share_keys():
+    _dispatch(_DummyMiddlePage(), ["https://a/1"])
+    called, _ = _dispatch(_DummyMiddlePage(), ["https://a/1"])
+    assert called == ["https://a/1"]
+
+
+def test_already_dispatched_url_skipped_across_instances_in_run(run_keys):
     _dispatch(_DummyMiddlePage(), ["https://a/1"])
     called, _ = _dispatch(_DummyMiddlePage(), ["https://a/1", "https://a/3"])
     assert called == ["https://a/3"]
+    assert run_keys == {
+        (_DummyMiddlePage.api_url, "https://a/1"),
+        (_DummyMiddlePage.api_url, "https://a/3"),
+    }
 
 
-def test_same_url_for_different_detail_api_is_dispatched():
+def test_same_url_for_different_detail_api_is_dispatched(run_keys):
     _dispatch(_DummyMiddlePage(), ["https://a/1"])
     other = _DummyMiddlePage()
     other.api_url = "http://api.example.com/other"
@@ -270,20 +283,23 @@ def test_same_url_for_different_detail_api_is_dispatched():
     assert called == ["https://a/1"]
 
 
-def test_tuple_and_list_items_use_first_element_as_url():
+def test_tuple_and_list_items_use_first_element_as_url(run_keys):
     called, _ = _dispatch(
         _DummyMiddlePage(), [("https://a/1", 100), ["https://a/1", 200], "https://a/2"]
     )
     assert called == ["https://a/1", "https://a/2"]
 
 
-def test_claim_detail_dispatch_records_key():
-    assert api_module._claim_detail_dispatch("api", "u") is True
-    assert api_module._claim_detail_dispatch("api", "u") is False
-    assert ("api", "u") in api_module._dispatched_detail_keys
+def test_claim_and_release_detail_dispatch():
+    keys = set()
+    assert api_module._claim_detail_dispatch(keys, "api", "u") is True
+    assert api_module._claim_detail_dispatch(keys, "api", "u") is False
+    assert keys == {("api", "u")}
+    api_module._release_detail_dispatch(keys, "api", "u")
+    assert keys == set()
 
 
-def test_failed_fetch_releases_key_for_retry():
+def test_failed_fetch_releases_key_for_retry(run_keys):
     page = _DummyMiddlePage()
     page.parser = None
     failing = AsyncMock(side_effect=RuntimeError("boom"))
@@ -291,53 +307,105 @@ def test_failed_fetch_releases_key_for_retry():
          patch.object(page, "_getActiveEventLoop", return_value=None), \
          pytest.raises(RuntimeError):
         asyncio.run(page._callApi(["https://a/1"]))
-    assert (page.api_url, "https://a/1") not in api_module._dispatched_detail_keys
+    assert run_keys == set()
 
     called, _ = _dispatch(_DummyMiddlePage(), ["https://a/1"])
     assert called == ["https://a/1"]
 
 
-@pytest.fixture
-def _reset_active_runs(monkeypatch):
-    monkeypatch.setattr(api_module, "_active_crawl_runs", 0)
+@pytest.mark.parametrize("status", [408, 429, 500, 503])
+def test_retryable_status_releases_key(run_keys, status):
+    _dispatch(_DummyMiddlePage(), ["https://a/1"], result=("https://a/1", status, "busy"))
+    assert run_keys == set()
 
 
-def test_top_level_run_clears_previous_run_keys(_reset_active_runs):
-    api_module._claim_detail_dispatch("api", "old")
-    api_module._enter_crawl_run()
-    assert api_module._dispatched_detail_keys == set()
-    assert api_module._active_crawl_runs == 1
-    api_module._exit_crawl_run()
-    assert api_module._active_crawl_runs == 0
+@pytest.mark.parametrize("status", [200, 404])
+def test_final_status_keeps_key(run_keys, status):
+    _dispatch(_DummyMiddlePage(), ["https://a/1"], result=("https://a/1", status, "ok"))
+    assert run_keys == {(_DummyMiddlePage.api_url, "https://a/1")}
 
 
-def test_nested_run_keeps_keys_of_active_run(_reset_active_runs):
-    api_module._enter_crawl_run()
-    api_module._claim_detail_dispatch("api", "u")
-    api_module._enter_crawl_run()
-    assert ("api", "u") in api_module._dispatched_detail_keys
-    assert api_module._active_crawl_runs == 2
-    api_module._exit_crawl_run()
-    api_module._exit_crawl_run()
-    assert api_module._active_crawl_runs == 0
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (("u", 503, "x"), True),
+        (("u", 499, "x"), False),
+        (("u", 200, "LocalSync"), False),
+        (("u", "503", "x"), False),
+        (("u",), False),
+        ("u", False),
+        (None, False),
+    ],
+)
+def test_is_retryable_dispatch_result(result, expected):
+    assert api_module._is_retryable_dispatch_result(result) is expected
 
 
-def test_exit_without_enter_does_not_go_negative(_reset_active_runs):
-    api_module._exit_crawl_run()
-    assert api_module._active_crawl_runs == 0
+def test_independent_runs_get_separate_keys():
+    owns = api_module._enter_crawl_run()
+    first = api_module._current_dispatch_keys()
+    api_module._exit_crawl_run(owns)
+    assert api_module._current_dispatch_keys() is None
+
+    owns = api_module._enter_crawl_run()
+    second = api_module._current_dispatch_keys()
+    api_module._exit_crawl_run(owns)
+    assert owns is True
+    assert first is not second
 
 
-def test_main_wraps_run_with_enter_and_exit(_reset_active_runs):
+def test_nested_run_reuses_parent_keys(run_keys):
+    assert api_module._enter_crawl_run() is False
+    assert api_module._current_dispatch_keys() is run_keys
+    api_module._exit_crawl_run(False)
+    assert api_module._current_dispatch_keys() is run_keys
+
+
+def test_concurrent_thread_runs_are_isolated(run_keys):
+    seen = {}
+
+    def other_run():
+        seen["before"] = api_module._current_dispatch_keys()
+        owns = api_module._enter_crawl_run()
+        seen["owns"] = owns
+        seen["keys"] = api_module._current_dispatch_keys()
+        api_module._exit_crawl_run(owns)
+
+    t = threading.Thread(target=other_run)
+    t.start()
+    t.join()
+    assert seen["before"] is None
+    assert seen["owns"] is True
+    assert seen["keys"] is not run_keys
+
+
+def test_local_execution_child_thread_inherits_parent_keys(run_keys):
+    seen = {}
+
+    class _Child:
+        def main(self, url):
+            seen["keys"] = api_module._current_dispatch_keys()
+            seen["url"] = url
+
+    page = _DummyMiddlePage()
+    with patch.object(api_module.ApiRegistry, "get", return_value=_Child):
+        result = page._handle_local_execution("http://api.example.com/detail", "https://a/9")
+    assert result == ("https://a/9", 200, "LocalSync")
+    assert seen == {"keys": run_keys, "url": "https://a/9"}
+
+
+def test_main_owns_run_state_only_while_running():
     page = _DummyMiddlePage()
     seen = []
 
     async def fake_run(url):
-        seen.append(api_module._active_crawl_runs)
+        seen.append(api_module._current_dispatch_keys())
         return []
 
     loop = asyncio.new_event_loop()
     with patch.object(page, "_run", side_effect=fake_run), \
          patch.object(page, "_getActiveEventLoop", return_value=loop):
         page.main("http://test.example.com")
-    assert seen == [1]
-    assert api_module._active_crawl_runs == 0
+    assert seen == [set()]
+    assert api_module._current_dispatch_keys() is None
+

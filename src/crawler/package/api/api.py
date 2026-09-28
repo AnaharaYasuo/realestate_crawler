@@ -47,39 +47,48 @@ _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
 
-_dispatched_detail_keys: set[tuple[str, str]] = set()
+_crawl_run_state = threading.local()
 _dispatched_detail_lock = threading.Lock()
-_active_crawl_runs = 0
+_RETRYABLE_DISPATCH_STATUSES = frozenset({408, 429})
 
 
-def _claim_detail_dispatch(api_url: str, detail_url: str) -> bool:
-    """実行中のクロール内で (詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
+def _current_dispatch_keys() -> set[tuple[str, str]] | None:
+    return getattr(_crawl_run_state, "keys", None)
+
+
+def _enter_crawl_run() -> bool:
+    """独立した main() には新しいディスパッチ済みキー集合を割り当て、ネスト実行は親の集合を共有する"""
+    if _current_dispatch_keys() is not None:
+        return False
+    _crawl_run_state.keys = set()
+    return True
+
+
+def _exit_crawl_run(owns_run: bool) -> None:
+    if owns_run:
+        _crawl_run_state.keys = None
+
+
+def _claim_detail_dispatch(keys: set[tuple[str, str]], api_url: str, detail_url: str) -> bool:
+    """(詳細 API, 詳細 URL) が未ディスパッチなら登録して True を返す"""
     key = (api_url, detail_url)
     with _dispatched_detail_lock:
-        if key in _dispatched_detail_keys:
+        if key in keys:
             return False
-        _dispatched_detail_keys.add(key)
+        keys.add(key)
         return True
 
 
-def _release_detail_dispatch(api_url: str, detail_url: str) -> None:
+def _release_detail_dispatch(keys: set[tuple[str, str]], api_url: str, detail_url: str) -> None:
     with _dispatched_detail_lock:
-        _dispatched_detail_keys.discard((api_url, detail_url))
+        keys.discard((api_url, detail_url))
 
 
-def _enter_crawl_run() -> None:
-    """最上位の main() 開始時に前回実行のディスパッチ済みキーを破棄する (ネストした main() は保持)"""
-    global _active_crawl_runs
-    with _dispatched_detail_lock:
-        if _active_crawl_runs == 0:
-            _dispatched_detail_keys.clear()
-        _active_crawl_runs += 1
-
-
-def _exit_crawl_run() -> None:
-    global _active_crawl_runs
-    with _dispatched_detail_lock:
-        _active_crawl_runs = max(0, _active_crawl_runs - 1)
+def _is_retryable_dispatch_result(result: Any) -> bool:
+    if not isinstance(result, tuple) or len(result) < 2:
+        return False
+    status = result[1]
+    return isinstance(status, int) and (status >= 500 or status in _RETRYABLE_DISPATCH_STATUSES)
 
 
 def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
@@ -765,13 +774,16 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             return None
 
         logger.debug("Local routing to %s", getattr(target_class, "__name__", str(target_class)))
-        
+        parent_keys = _current_dispatch_keys()
+
         def run_in_new_loop():
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
+            _crawl_run_state.keys = parent_keys
             try:
                 target_class().main(detail_url)
             finally:
+                _crawl_run_state.keys = None
                 try:
                     from django.db import close_old_connections, connections
                     close_old_connections()
@@ -886,7 +898,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         self.url = url
         loop: Optional[asyncio.AbstractEventLoop] = None
         run_result = None
-        _enter_crawl_run()
+        owns_run = _enter_crawl_run()
         try:
             try:
                 loop = self._getActiveEventLoop()
@@ -901,7 +913,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     res = loop.run_until_complete(task)
                     run_result = res if isinstance(res, list) else [res]
         finally:
-            _exit_crawl_run()
+            _exit_crawl_run(owns_run)
             if loop and loop.is_running():
                 loop.stop()
             if loop and not loop.is_closed():
@@ -1034,6 +1046,9 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         tasks = []
         loop = self._getActiveEventLoop()
         api_url = self._getApiUrl()
+        keys = _current_dispatch_keys()
+        if keys is None:
+            keys = set()
         for detail_item in to_fetch:
             if isinstance(detail_item, ListItem):
                 detail_url = detail_item.url
@@ -1042,21 +1057,24 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             else:
                 detail_url = str(detail_item)
 
-            if not _claim_detail_dispatch(api_url, detail_url):
+            if not _claim_detail_dispatch(keys, api_url, detail_url):
                 continue
-            colo = self._fetchDetailOnce(detail_url, api_url, loop)
+            colo = self._fetchDetailOnce(keys, detail_url, api_url, loop)
             task = asyncio.create_task(colo)
             tasks.append(task)
 
         responses = await asyncio.gather(*tasks)
         return responses
 
-    async def _fetchDetailOnce(self, detail_url, api_url, loop):
+    async def _fetchDetailOnce(self, keys, detail_url, api_url, loop):
         try:
-            return await self._fetchWithEachSession(detail_url, api_url, loop)
+            result = await self._fetchWithEachSession(detail_url, api_url, loop)
         except BaseException:
-            _release_detail_dispatch(api_url, detail_url)
+            _release_detail_dispatch(keys, api_url, detail_url)
             raise
+        if _is_retryable_dispatch_result(result):
+            _release_detail_dispatch(keys, api_url, detail_url)
+        return result
 
     @abstractmethod
     def _getParserFunc(self) -> Any:

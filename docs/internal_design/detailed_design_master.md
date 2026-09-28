@@ -278,10 +278,10 @@ graph TD
   - Terraform の `crawler_parallelism` 既定値は `crawler_task_count` と同じ 8 とし、全タスクを同時起動する。
 
 ### 6.10.3 詳細 URL 重複ディスパッチ防止 (Issue #537)
-- `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとするモジュールレベル集合 `_dispatched_detail_keys`（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
+- `ParseMiddlePageAsyncBase._callApi` は、差分フィルタ後の詳細 URL を `(詳細 API URL, 詳細 URL)` をキーとする実行単位のキー集合（`threading.Lock` で保護）に照合し、未登録のもののみ登録してディスパッチする。
 - 同一一覧ページ内の重複、および同一クロール実行内の別一覧ページ間の重複はいずれも 1 回に集約される。
-- 保持期間はクロール実行単位とする。`ApiAsyncProcBase.main()` の入口で `_enter_crawl_run()`、出口で `_exit_crawl_run()` を呼び、実行中の `main()` のネスト数が 0 の状態で開始した最上位の `main()` のみが前回実行のキーを破棄する（ローカルルーティングでネスト実行される一覧・詳細の `main()` は保持）。
-- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。
+- キー集合はクロール実行単位で分離する。独立した `ApiAsyncProcBase.main()` は `_enter_crawl_run()` でスレッドローカル `_crawl_run_state` に新しい集合を割り当て、終了時に破棄する（並行する別実行とは共有しない）。ローカルルーティング（`_handle_local_execution`）で子スレッドにネスト実行される一覧・詳細の `main()` は、親の集合を引き継いで共有する。実行外から `_callApi` が呼ばれた場合は呼び出しごとの集合でページ内重複のみ除外する。
+- 詳細処理のディスパッチ（`_fetchDetailOnce`）が例外で失敗した場合、または再試行可能なステータス（408 / 429 / 5xx）を返した場合はキーを解除し、後続の一覧ページからの再ディスパッチを許可する。
 
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
