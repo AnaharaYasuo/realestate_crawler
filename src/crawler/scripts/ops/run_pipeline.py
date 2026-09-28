@@ -417,6 +417,8 @@ def _run_crawler_step(
 
     # 他タスクの完了待機はタスクのタイムアウト枠を消費するため行わない。完了確認・集約・ML は
     # クローラーの最遅終了時刻より後に日次起動される ML Pipeline Job が担う (Issue #549)。
+    # 共有 ProxySQL は ML Pipeline Job が引き続き利用し、その終了時 (finally) に停止する。
+    # ML Pipeline Job が起動しない場合は Safety-Net (ensure_resources_stopped.py) が実行中ジョブ無しを確認して停止する。
     if is_task_array:
         logger.info(
             f"✔ [{'Coordinator' if is_coordinator else 'Worker'}] Task {task_index}/{task_count} のクローリングが完了しました。"
