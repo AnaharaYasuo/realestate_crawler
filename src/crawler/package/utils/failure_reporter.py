@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{8})(?!\d)")
+_COMPRESSED_LOG_SUFFIXES = frozenset({".gz", ".bz2", ".xz", ".zip"})
 
 
 def generate_auto_heal_trigger_message(
@@ -184,7 +185,11 @@ class FailureReporter:
             return error_logs
 
         iso_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-        log_files = set(fallback_base.glob("*.log")) | set(fallback_base.glob("*.log.*"))
+        log_files = {
+            p
+            for p in (*fallback_base.glob("*.log"), *fallback_base.glob("*.log.*"))
+            if p.suffix.lower() not in _COMPRESSED_LOG_SUFFIXES
+        }
         for lpath in sorted(log_files):
             name_dates = _LOG_NAME_DATE_PATTERN.findall(lpath.name)
             if name_dates and date_str not in name_dates:

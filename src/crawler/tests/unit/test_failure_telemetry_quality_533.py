@@ -114,6 +114,14 @@ class TestLocalLogScanDateFilter533:
 
         assert [e["log_entry"] for e in errors] == ["2026-09-26 00:00:01 ERROR: target"]
 
+    @pytest.mark.parametrize("suffix", [".gz", ".bz2", ".xz", ".zip"])
+    def test_compressed_rotated_log_is_excluded(self, suffix):
+        (self.base / f"pipeline.log.1{suffix}").write_text(
+            "2026-09-26 00:00:01 ERROR: compressed\n", encoding="utf-8"
+        )
+
+        assert FailureReporter._scan_local_logs("20260926") == []
+
     def test_other_dated_log_file_is_not_opened(self):
         (self.base / "run_20260925.log").write_text(
             "2026-09-26 00:00:01 ERROR: late line in previous day file\n",
