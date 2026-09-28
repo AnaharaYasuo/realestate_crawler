@@ -27,8 +27,13 @@ def _read(name):
         return f.read()
 
 
+def _strip_comments(content):
+    return "\n".join(re.sub(r"\s#.*$", "", line) for line in content.splitlines() if not line.lstrip().startswith("#"))
+
+
 def _resource_block(content, resource_type, resource_name):
     head = f'resource "{resource_type}" "{resource_name}"'
+    content = _strip_comments(content)
     assert head in content, f"{head} must be defined"
     return content.split(head, 1)[1].split("\nresource ", 1)[0]
 
@@ -143,7 +148,7 @@ def test_safety_net_runs_after_latest_possible_ml_pipeline_end():
 def _deploy_step(job_name):
     workflow_path = os.path.join(TERRAFORM_DIR, "..", ".github", "workflows", "deploy-production.yml")
     with open(workflow_path, encoding="utf-8") as f:
-        content = f.read()
+        content = _strip_comments(f.read())
     head = f"gcloud run jobs update {job_name} "
     assert head in content, f"{head} must be defined"
     return content.split(head, 1)[1].split("- name:", 1)[0]

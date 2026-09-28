@@ -415,6 +415,8 @@ def _run_crawler_step(
         )
         reconcile_aborted_task_execution(task_index)
 
+    # 他タスクの完了待機はタスクのタイムアウト枠を消費するため行わない。完了確認・集約・ML は
+    # クローラーの最遅終了時刻より後に日次起動される ML Pipeline Job が担う (Issue #549)。
     if is_task_array:
         logger.info(
             f"✔ [{'Coordinator' if is_coordinator else 'Worker'}] Task {task_index}/{task_count} のクローリングが完了しました。"
