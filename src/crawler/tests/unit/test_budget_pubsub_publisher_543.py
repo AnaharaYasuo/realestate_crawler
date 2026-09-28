@@ -12,14 +12,26 @@ MONITORING_AGENT = (
 PROJECT_LEVEL_IAM_TYPES = ("google_project_iam_member", "google_project_iam_binding")
 
 
+def _strip_line_comment(line: str) -> str:
+    """Cut a line at the first # or // that is outside a double-quoted string."""
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(line):
+        if escaped:
+            escaped = False
+        elif ch == "\\" and in_string:
+            escaped = True
+        elif ch == '"':
+            in_string = not in_string
+        elif not in_string and (ch == "#" or line.startswith("//", i)):
+            return line[:i]
+    return line
+
+
 def _strip_hcl_comments(text: str) -> str:
-    """Remove #, // line comments and /* */ block comments so commented-out grants cannot pass."""
+    """Remove #, // (full-line and trailing) and /* */ comments so commented-out grants cannot pass."""
     text = re.sub(r"/\*[\s\S]*?\*/", "", text)
-    return "\n".join(
-        line
-        for line in text.splitlines()
-        if not line.lstrip().startswith(("#", "//"))
-    )
+    return "\n".join(_strip_line_comment(line) for line in text.splitlines())
 
 
 def _read_all_tf() -> str:
@@ -60,17 +72,37 @@ def test_monitoring_agent_identity_is_terraform_managed():
     assert "gcp-sa-monitoring-notification" not in content
 
 
-def test_monitoring_agent_not_granted_project_wide_publisher():
-    content = _read_all_tf()
+def _project_level_publisher_grants(content: str) -> list[str]:
+    grants = []
     for rtype in PROJECT_LEVEL_IAM_TYPES:
         for match in re.finditer(
-            rf'resource\s+"{rtype}"\s+"\w+"\s+\{{([\s\S]*?)\n\}}', content
+            rf'resource\s+"{rtype}"\s+"([\w-]+)"\s+\{{([\s\S]*?)\n\}}', content
         ):
-            block = match.group(1)
-            assert not (
-                "roles/pubsub.publisher" in block
-                and "monitoring_notification_agent" in block
-            ), f"Monitoring agent must not receive project-level pubsub.publisher via {rtype}"
+            block = match.group(2)
+            if "roles/pubsub.publisher" in block and "monitoring_notification_agent" in block:
+                grants.append(f"{rtype}.{match.group(1)}")
+    return grants
+
+
+def test_monitoring_agent_not_granted_project_wide_publisher():
+    assert _project_level_publisher_grants(_read_all_tf()) == []
+
+
+def test_project_level_guard_detects_hyphenated_names_and_bindings():
+    content = (
+        'resource "google_project_iam_member" "monitoring-publisher" {\n'
+        '  role   = "roles/pubsub.publisher"\n'
+        '  member = "serviceAccount:${google_project_service_identity.monitoring_notification_agent.email}"\n'
+        "}\n"
+        'resource "google_project_iam_binding" "monitoring_binding" {\n'
+        '  role    = "roles/pubsub.publisher"\n'
+        '  members = ["serviceAccount:${google_project_service_identity.monitoring_notification_agent.email}"]\n'
+        "}\n"
+    )
+    assert _project_level_publisher_grants(content) == [
+        "google_project_iam_member.monitoring-publisher",
+        "google_project_iam_binding.monitoring_binding",
+    ]
 
 
 def test_strip_hcl_comments_ignores_all_comment_styles():
@@ -79,11 +111,13 @@ def test_strip_hcl_comments_ignores_all_comment_styles():
         '// role = "roles/pubsub.publisher"\n'
         '/* role = "roles/pubsub.publisher" */\n'
         '/*\n  role = "roles/pubsub.publisher"\n*/\n'
-        'role = "roles/viewer"\n'
+        'role = "roles/viewer" # role = "roles/pubsub.publisher"\n'
+        'url = "https://example.com/a#b" // role = "roles/pubsub.publisher"\n'
     )
     stripped = _strip_hcl_comments(commented)
     assert "roles/pubsub.publisher" not in stripped
     assert 'role = "roles/viewer"' in stripped
+    assert 'url = "https://example.com/a#b"' in stripped
 
 
 def test_deploy_sa_can_manage_budget_topic_iam():

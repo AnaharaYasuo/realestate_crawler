@@ -15,9 +15,12 @@ resource "google_project_service_identity" "monitoring_notification_agent" {
 }
 
 # Topic-scoped custom role so Deploy SA can set topic IAM without roles/pubsub.admin.
-# Bootstrap (first apply only): gcloud pubsub topics add-iam-policy-binding
-#   budget-alert-topic-<env> --member=serviceAccount:<Deploy SA>
+# Deploy SA cannot grant this to itself. On a new environment: (1) apply once so
+# budget_alert_topic is created (topic IAM resources fail on this first apply),
+# (2) as a principal with topic setIamPolicy, run: gcloud pubsub topics
+#   add-iam-policy-binding budget-alert-topic-<env> --member=serviceAccount:<Deploy SA>
 #   --role=projects/<project>/roles/pubsubTopicIamManager
+# (3) re-apply.
 resource "google_pubsub_topic_iam_member" "github_actions_budget_topic_iam" {
   project = var.project_id
   topic   = google_pubsub_topic.budget_alert_topic.name
