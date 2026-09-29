@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import time
 import urllib.parse
 import logging
 from typing import Optional, Dict, Any
+
+try:
+    from package.utils.newrelic_helper import record_llm_event as _record_llm_event
+except Exception:  # noqa: BLE001
+    _record_llm_event = None  # type: ignore[assignment]
 
 try:
     from google import genai
@@ -345,6 +351,7 @@ class PropertyTypeDetector:
 
         try:
             http_options = types.HttpOptions(timeout=10000) if types else None
+            _model = "gemini-2.5-flash"
             with genai.Client(api_key=api_key, http_options=http_options) as client:
                 prompt = (
                     "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
@@ -355,17 +362,41 @@ class PropertyTypeDetector:
                     f"物件情報:\n{prompt_text}\n\n"
                     "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
                 )
+                _t0 = time.time()
                 resp = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=_model,
                     contents=prompt,
                 )
+                _duration_ms = (time.time() - _t0) * 1000
                 raw_ans = (getattr(resp, "text", "") or "").strip().lower()
+
+                # Record LLM telemetry (Issue #562 #6)
+                if _record_llm_event:
+                    _usage = getattr(resp, "usage_metadata", None)
+                    _record_llm_event(
+                        model_name=_model,
+                        prompt_tokens=getattr(_usage, "prompt_token_count", 0) or 0,
+                        completion_tokens=getattr(_usage, "candidates_token_count", 0) or 0,
+                        duration_ms=round(_duration_ms, 1),
+                        status="success",
+                        metadata={"caller": "property_type_detector"},
+                    )
 
                 for candidate in ("apartment", "kodate", "tochi", "mansion"):
                     if candidate in raw_ans:
                         return candidate
                 return default
         except Exception as e:
+            if _record_llm_event:
+                _record_llm_event(
+                    model_name="gemini-2.5-flash",
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    duration_ms=0.0,
+                    status="error",
+                    error_msg=str(e)[:200],
+                    metadata={"caller": "property_type_detector"},
+                )
             logging.warning(f"PropertyTypeDetector: Gemini classification failed, fallback to '{default}': {e}")
             return default
 

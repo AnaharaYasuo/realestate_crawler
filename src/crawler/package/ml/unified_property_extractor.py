@@ -7,10 +7,12 @@ import os
 import re
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 from package.utils.converter import parse_chidai
+from package.utils.newrelic_helper import record_llm_event
 
 try:
     from google import genai
@@ -269,19 +271,41 @@ class SingleUnifiedPropertyExtractor:
                 else:
                     content_payload = prompt
 
+                _t0 = time.time()
                 response = client.models.generate_content(
                     model=self.model_name,
                     contents=content_payload
                 )
+                _duration_ms = (time.time() - _t0) * 1000
                 raw_text = response.text.strip() if hasattr(response, "text") else ""
-                
+
                 # Markdown コードブロックの除去
                 cleaned_json = re.sub(r"^```json\s*", "", raw_text)
                 cleaned_json = cleaned_json.rstrip().removesuffix("```").strip()
 
                 data = json.loads(cleaned_json)
+                # Record LLM telemetry (Issue #562 #6)
+                _usage = getattr(response, "usage_metadata", None)
+                record_llm_event(
+                    model_name=self.model_name,
+                    prompt_tokens=getattr(_usage, "prompt_token_count", 0) or 0,
+                    completion_tokens=getattr(_usage, "candidates_token_count", 0) or 0,
+                    duration_ms=round(_duration_ms, 1),
+                    status="success",
+                    metadata={"caller": "unified_property_extractor"},
+                )
                 return self._dict_to_attributes(data, fallback_res)
         except Exception as e:
+            # Record failure to LlmEvent before returning fallback (Issue #562 #6)
+            record_llm_event(
+                model_name=self.model_name,
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=0.0,
+                status="error",
+                error_msg=str(e)[:200],
+                metadata={"caller": "unified_property_extractor"},
+            )
             logging.warning(f"SingleUnifiedPropertyExtractor: LLM call or parse failed: {e}. Using fallback.")
             return fallback_res
 
