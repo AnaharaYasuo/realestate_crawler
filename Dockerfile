@@ -1,5 +1,5 @@
 # 標準のPython 3.11 Slimイメージ（Debian Bookworm安定版）を使用
-FROM python:3.11-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # 作業ディレクトリの設定
 WORKDIR /app
