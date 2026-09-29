@@ -129,10 +129,14 @@ jobs:
 
       - name: Update Cloud Run Job Image
         run: |
+          CRAWLER_TIMEOUT_SEC=$(awk '/^variable "crawler_timeout"/{f=1} f && /^[[:space:]]*default[[:space:]]*=/{gsub(/[^0-9]/, ""); print; exit}' terraform/variables.tf)
+          test -n "$CRAWLER_TIMEOUT_SEC"
           gcloud run jobs update realestate-crawler-pipeline-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_pipeline.py \
             --max-retries=0 \
+            --task-timeout=${CRAWLER_TIMEOUT_SEC}s \
+            --update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC} \
             --region=asia-northeast1
 
       - name: Update Cloud Run Service Image

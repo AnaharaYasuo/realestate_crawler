@@ -61,6 +61,8 @@ ERR_NO_COMPUTE_CLIENT: str = (
     "Neither google-cloud-compute nor valid GCP credentials available"
 )
 DEFAULT_GRACE_PERIOD_SEC: float = 900.0
+# 最長ジョブ (クローラー crawler_timeout = 7200s) + 猶予 600s
+DEFAULT_HUNG_THRESHOLD_SEC: float = 7800.0
 
 
 @dataclass
@@ -594,7 +596,7 @@ def check_and_stop_proxysql_instance(
         "realestate-migrate",
     ),
     grace_period_sec: float = DEFAULT_GRACE_PERIOD_SEC,
-    timeout_threshold_sec: float = 4200.0,
+    timeout_threshold_sec: float = DEFAULT_HUNG_THRESHOLD_SEC,
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
     """
@@ -812,7 +814,7 @@ def check_and_stop_proxysql_mig(
         "realestate-migrate",
     ),
     grace_period_sec: float = DEFAULT_GRACE_PERIOD_SEC,
-    timeout_threshold_sec: float = 4200.0,
+    timeout_threshold_sec: float = DEFAULT_HUNG_THRESHOLD_SEC,
     dry_run: bool = False,
     fallback_to_instance: bool = False,
 ) -> ResourceInspectionResult:
@@ -1093,8 +1095,8 @@ def main() -> int:
     parser.add_argument(
         "--timeout-threshold-sec",
         type=float,
-        default=4200.0,
-        help="Timeout threshold in seconds for active jobs before forced cancel (default: 4200s / 70m)",
+        default=DEFAULT_HUNG_THRESHOLD_SEC,
+        help="Timeout threshold in seconds for active jobs before forced cancel (default: 7800s / 130m)",
     )
     parser.add_argument(
         "--instance-name",

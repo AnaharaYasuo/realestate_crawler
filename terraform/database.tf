@@ -49,7 +49,7 @@ resource "google_sql_database_instance" "mysql_instance" {
 
     backup_configuration {
       enabled                        = true
-      start_time                     = "19:00" # JST 04:00 (バッチ完了後)
+      start_time                     = "20:00" # JST 05:00 (クローラー最遅 18:00 / ML 最遅 19:10 UTC 終了後)
       binary_log_enabled             = true
       transaction_log_retention_days = 7
       backup_retention_settings {

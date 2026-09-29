@@ -47,7 +47,7 @@ sequenceDiagram
 - **起動直後レースコンディション防止 (Grace Period: 15分 / 900秒)**:
   - ProxySQL のインスタンス作成日時または起動更新から 15分以内の場合は、起動・初期化シーケンス中と判断して停止をスキップ（Issue #518 で 10分から延長し、処理完了直後の早期停止による再起動ループを防止）。
 - **完全停止戦略 (Dual Hard-Kill on Hang)**:
-  - Cloud Run Job Execution がタイムアウト上限（例: 3600秒 + バッファ）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL を停止。
+  - Cloud Run Job Execution がタイムアウト上限（最長ジョブのクローラー 7200秒 + バッファ 600秒）を超過してハングしている場合、Cloud Run Job Execution をキャンセル（`executions.cancel`）し、その上で ProxySQL を停止。
 - **親不在時の安全停止**:
   - 関連する Cloud Run Job Execution が RUNNING でない（存在しない）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して停止漏れを解消。
 - **安全側に倒すエラーハンドリング (Fail-Safe)**:
@@ -75,7 +75,7 @@ flowchart TD
 - `--mig-name`: MIG 名（デフォルト: `proxysql-mig-prod`）
 - `--job-prefixes`: 監視対象 Cloud Run Job 名接頭辞（デフォルト: `realestate-crawler-pipeline,realestate-migrate`）
 - `--grace-period-sec`: 起動直後の執行猶予秒数（デフォルト: `900` 秒 / 15分）
-- `--timeout-threshold-sec`: ジョブタイムアウト許容上限秒数（デフォルト: `4200` 秒 / 70分 = 3600s + 600s）
+- `--timeout-threshold-sec`: ジョブタイムアウト許容上限秒数（デフォルト: `7800` 秒 / 130分 = クローラーのタスクタイムアウト 7200s + 600s。Issue #550）
 - `--dry-run`: 判定のみ行い停止しないフラグ
 
 ### 3.4 パイプライン異常時・タイムアウト時クリーンアップ (`run_pipeline.py`)
@@ -84,7 +84,7 @@ flowchart TD
   - シグナル受信時、実行中の子プロセス（クローラーや後続処理）があれば即座に終了させ、同一プロセス内で直接 `scale_proxysql_mig(target_size=0)` をインライン呼び出しし、ProxySQL MIG を確実に 0 台へ縮退させる。
   - `atexit.register(...)` にもセーフティネット teardown を二重登録し、プロセスの不慮の終了時でも停止シーケンスを保証。
 - **多重防壁2: 自律的早期シャットダウン (Self Graceful Shutdown before Timeout)**:
-  - ジョブ全体の最大許容実行時間（`PIPELINE_MAX_DURATION_SEC`、デフォルトは環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC`（初期値3600秒）から安全バッファ `SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒を差し引いた 3300 秒）を管理。
+  - ジョブ全体の最大許容実行時間（`PIPELINE_MAX_DURATION_SEC`、環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC`（Terraform `crawler_timeout` から導出してクローラージョブに渡す 7200 秒。未設定時のデフォルト `DEFAULT_TIMEOUT_SEC` も 7200 秒）から安全バッファ `SAFE_SHUTDOWN_BUFFER_SEC = 300` 秒を差し引いた 6900 秒。Issue #550）を管理。
   - 各ステップ開始前および実行中、残り時間が安全停止猶予（300秒）を下回った場合、後続ステップをスキップし、自律的に安全停止シーケンス（インライン teardown + Slack へのタイムアウト警告通知）へ移行して正常終了させる。
   - これにより、Cloud Run 側からの不意の強制終了（SIGKILL等）を受ける前に、確実に ProxySQL MIG を 0 台に縮退させる。
 - **多重防壁3: 他タスク待機（`wait_for_all_tasks`）の動的タイムアウト制約**:

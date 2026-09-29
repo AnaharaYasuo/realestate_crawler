@@ -12,7 +12,7 @@ db_user = "sumifu"
 # Cloud Run Job Configuration
 crawler_cpu     = "2"
 crawler_memory  = "4Gi"
-crawler_timeout = "86400s"
+crawler_timeout = "7200s"
 
 # Schedule (0 16 * * * is JST 01:00)
 schedule_cron = "0 16 * * *"
