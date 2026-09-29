@@ -90,9 +90,14 @@ def enable_monitor(api_key: str, monitor_guid: str) -> bool:
     }
     """
     res = run_nerdgraph_query(api_key, mutation, {"guid": monitor_guid})
-    errors = (res.get("data") or {}).get("syntheticsEnableMonitor", {}).get("errors") or res.get("errors")
-    if errors:
-        logger.error(f"Failed to enable Synthetics monitor {monitor_guid}: {errors}")
+    # Check top-level errors first (GraphQL can return both data=null and errors simultaneously)
+    top_errors = res.get("errors")
+    if top_errors:
+        logger.error(f"Failed to enable Synthetics monitor {monitor_guid}: {top_errors}")
+        return False
+    inner_errors = (res.get("data") or {}).get("syntheticsEnableMonitor", {}).get("errors")
+    if inner_errors:
+        logger.error(f"Failed to enable Synthetics monitor {monitor_guid}: {inner_errors}")
         return False
     logger.info(f"Synthetics monitor {monitor_guid} enabled successfully.")
     return True
@@ -116,7 +121,8 @@ def create_or_verify_synthetics_monitor(
             logger.info(f"Synthetics monitor '{monitor_name}' already exists: GUID={guid}")
             # Re-enable if DISABLED (was stopped due to 404 — Issue #562 #4)
             if guid:
-                enable_monitor(api_key, guid)
+                if not enable_monitor(api_key, guid):
+                    raise RuntimeError(f"Failed to enable Synthetics monitor: {guid}")
             return m
 
     logger.info(f"Creating new Synthetics Simple Monitor: {monitor_name} -> {target_url}")

@@ -11,6 +11,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Holds the Application object returned by register_application().
+# Used to pass application= to record_custom_event() in batch/job processes.
+_NR_APP: Any = None
+
 
 def _get_agent() -> Any | None:
     """Safely obtain newrelic.agent or mock from sys.modules."""
@@ -25,13 +29,7 @@ def _get_agent() -> Any | None:
 
 def _get_application() -> Any | None:
     """Return the registered New Relic Application object, or None if not initialized."""
-    agent = _get_agent()
-    if agent is None:
-        return None
-    try:
-        return agent.application()
-    except Exception:  # noqa: BLE001
-        return None
+    return _NR_APP
 
 
 def init_new_relic() -> bool:
@@ -60,8 +58,11 @@ def init_new_relic() -> bool:
 
         # register_application is required for batch processes that have no web transactions.
         # Without it, record_custom_event() outside a transaction is silently discarded (Issue #562 #2).
-        app = agent.register_application(name=app_name, timeout=10.0)
-        if app is None:
+        # The returned Application object is stored globally so _get_application() returns it
+        # to all record_custom_event() calls (CodeRabbit: must use returned object, not agent.application()).
+        global _NR_APP
+        _NR_APP = agent.register_application(name=app_name, timeout=10.0)
+        if _NR_APP is None:
             logger.warning("New Relic register_application returned None — events may not be delivered")
         logger.info(f"New Relic APM agent initialized and registered for application: {app_name}")
         return True

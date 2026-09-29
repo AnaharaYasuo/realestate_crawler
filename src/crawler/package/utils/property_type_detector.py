@@ -388,11 +388,13 @@ class PropertyTypeDetector:
                 return default
         except Exception as e:
             if _record_llm_event:
+                # Use actual elapsed time; 0.0 only if exception before API call (CodeRabbit #4)
+                _elapsed_ms = round((time.time() - _t0) * 1000, 1) if "_t0" in dir() else 0.0
                 _record_llm_event(
                     model_name="gemini-2.5-flash",
                     prompt_tokens=0,
                     completion_tokens=0,
-                    duration_ms=0.0,
+                    duration_ms=_elapsed_ms,
                     status="error",
                     error_msg=str(e)[:200],
                     metadata={"caller": "property_type_detector"},

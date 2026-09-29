@@ -530,7 +530,7 @@ def main():
                     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
                         cmd,
-                        preexec_fn=os.setsid
+                        start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
