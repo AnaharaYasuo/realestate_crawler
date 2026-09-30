@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 import os
 import re
+import time
 import urllib.parse
 import logging
 from typing import Optional, Dict, Any
+
+try:
+    from package.utils.newrelic_helper import record_llm_event as _record_llm_event
+except Exception:  # noqa: BLE001
+    _record_llm_event = None  # type: ignore[assignment]
 
 try:
     from google import genai
@@ -336,6 +342,38 @@ class PropertyTypeDetector:
             return title.strip()
         return f"{str(specs)}_{str(html_text)[:100]}"
 
+    @staticmethod
+    def _record_gemini_telemetry(
+        model: str,
+        duration_ms: float,
+        resp: Any = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """SonarCloud S3776: テレメトリ記録処理を分離して認知複雑度を15以下に抑制"""
+        if not _record_llm_event:
+            return
+        if error is not None:
+            _record_llm_event(
+                model_name=model,
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=duration_ms,
+                status="error",
+                error_msg=str(error)[:200],
+                metadata={"caller": "property_type_detector"},
+            )
+            return
+
+        usage = getattr(resp, "usage_metadata", None)
+        _record_llm_event(
+            model_name=model,
+            prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            completion_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            duration_ms=round(duration_ms, 1),
+            status="success",
+            metadata={"caller": "property_type_detector"},
+        )
+
     @classmethod
     def _call_gemini_model(cls, prompt_text: str, default: str) -> str:
         """Gemini Flash API を呼び出して推論結果をパース"""
@@ -343,6 +381,7 @@ class PropertyTypeDetector:
         if not api_key or genai is None:
             return default
 
+        _model = "gemini-2.5-flash"
         try:
             http_options = types.HttpOptions(timeout=10000) if types else None
             with genai.Client(api_key=api_key, http_options=http_options) as client:
@@ -355,17 +394,23 @@ class PropertyTypeDetector:
                     f"物件情報:\n{prompt_text}\n\n"
                     "回答は小文字の種別名（mansion, kodate, tochi, apartment）の英単語1語のみを出力してください。"
                 )
+                _t0 = time.time()
                 resp = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model=_model,
                     contents=prompt,
                 )
+                _duration_ms = (time.time() - _t0) * 1000
                 raw_ans = (getattr(resp, "text", "") or "").strip().lower()
+
+                cls._record_gemini_telemetry(_model, _duration_ms, resp=resp)
 
                 for candidate in ("apartment", "kodate", "tochi", "mansion"):
                     if candidate in raw_ans:
                         return candidate
                 return default
         except Exception as e:
+            _elapsed_ms = round((time.time() - _t0) * 1000, 1) if "_t0" in locals() else 0.0
+            cls._record_gemini_telemetry(_model, _elapsed_ms, error=e)
             logging.warning(f"PropertyTypeDetector: Gemini classification failed, fallback to '{default}': {e}")
             return default
 

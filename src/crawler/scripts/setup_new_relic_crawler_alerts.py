@@ -123,7 +123,8 @@ def build_nrql_conditions(account_id: int, policy_id: int) -> list[dict[str, Any
             "policyId": policy_id,
             "enabled": True,
             "nrql": {
-                "query": "SELECT average(memoryUsedBytes / memoryLimitBytes * 100) FROM ContainerSample WHERE containerName LIKE '%crawler%' FACET containerName",
+                # Field names match ContainerSample sender: memoryUsageBytes / memoryPercent (Issue #562 #3)
+                "query": "SELECT average(memoryPercent) FROM ContainerSample WHERE containerName LIKE '%crawler%' FACET containerName",
             },
             "terms": [
                 {
@@ -209,9 +210,9 @@ def find_existing_condition_names(
     api_key: str,
     endpoint: str = NERDGRAPH_ENDPOINTS["us"],
     timeout: float = DEFAULT_TIMEOUT_SEC,
-) -> set[str]:
-    """Fetch existing NRQL condition names for the policy to prevent duplicates."""
-    condition_names: set[str] = set()
+) -> dict[str, str]:
+    """Fetch existing NRQL conditions for the policy. Returns {name: condition_id} map."""
+    condition_map: dict[str, str] = {}
     cursor = None
     max_pages = 50
     page_count = 0
@@ -251,8 +252,8 @@ def find_existing_condition_names(
         conditions = nrql_search.get("nrqlConditions") or []
 
         for c in conditions:
-            if isinstance(c, dict) and "name" in c:
-                condition_names.add(c["name"])
+            if isinstance(c, dict) and "name" in c and "id" in c:
+                condition_map[c["name"]] = str(c["id"])
 
         cursor = nrql_search.get("nextCursor")
         if not cursor:
@@ -261,7 +262,7 @@ def find_existing_condition_names(
             raise RuntimeError(f"Detected circular cursor in condition search: {cursor}")
         seen_cursors.add(cursor)
 
-    return condition_names
+    return condition_map
 
 
 def provision_alerts(
@@ -271,7 +272,11 @@ def provision_alerts(
     region: str = "us",
     timeout: float = DEFAULT_TIMEOUT_SEC,
 ) -> bool:
-    """Create alert policy and NRQL conditions in New Relic with deduplication and fast-fail."""
+    """Upsert alert policy and NRQL conditions in New Relic (Issue #562 #8).
+
+    Existing conditions are updated (query/threshold overwritten) rather than skipped,
+    so incorrect queries like the old memoryUsedBytes reference are corrected on re-run.
+    """
     key = api_key or os.getenv("NEW_RELIC_API_KEY")
     if not key:
         logger.warning("NEW_RELIC_API_KEY is not set. Skipping alerts provisioning.")
@@ -299,7 +304,7 @@ def provision_alerts(
             policy_id = int(policy_id_raw)
             logger.info(f"Alert policy '{policy_name}' created (ID: {policy_id})")
 
-        mutation_nrql = """
+        mutation_create = """
         mutation CreateNrqlCondition($accountId: Int!, $policyId: ID!, $condition: AlertsNrqlConditionStaticInput!) {
           alertsNrqlConditionStaticCreate(accountId: $accountId, policyId: $policyId, condition: $condition) {
             id
@@ -307,17 +312,22 @@ def provision_alerts(
           }
         }
         """
+        mutation_update = """
+        mutation UpdateNrqlCondition($accountId: Int!, $conditionId: ID!, $condition: AlertsNrqlConditionUpdateStaticInput!) {
+          alertsNrqlConditionStaticUpdate(accountId: $accountId, id: $conditionId, condition: $condition) {
+            id
+            name
+          }
+        }
+        """
 
-        existing_condition_names = find_existing_condition_names(account_id, policy_id, key, endpoint=endpoint, timeout=timeout)
+        # Returns {name: condition_id} — allows upsert (Issue #562 #8)
+        existing_conditions = find_existing_condition_names(account_id, policy_id, key, endpoint=endpoint, timeout=timeout)
         conditions = build_nrql_conditions(account_id, policy_id)
         failed_conditions = 0
 
         for cond in conditions:
             cond_name = cond["name"]
-            if cond_name in existing_condition_names:
-                logger.info(f"Condition '{cond_name}' already exists in policy. Skipping creation.")
-                continue
-
             cond_input = {
                 "name": cond_name,
                 "enabled": cond["enabled"],
@@ -325,21 +335,42 @@ def provision_alerts(
                 "terms": cond["terms"],
                 "valueFunction": cond["valueFunction"],
             }
-            cond_payload = {
-                "query": mutation_nrql,
-                "variables": {
-                    "accountId": account_id,
-                    "policyId": str(policy_id),
-                    "condition": cond_input,
-                },
-            }
-            c_res = run_nerdgraph_query(cond_payload, key, endpoint=endpoint, timeout=timeout)
-            created_cond = (c_res.get("data") or {}).get("alertsNrqlConditionStaticCreate") or {}
-            if c_res.get("errors") or not created_cond.get("id"):
-                logger.warning(f"Error creating condition {cond_name}: {c_res.get('errors') or 'missing id in response'}")
-                failed_conditions += 1
+
+            if cond_name in existing_conditions:
+                # Update existing condition so stale queries get corrected
+                existing_id = existing_conditions[cond_name]
+                update_input = {k: v for k, v in cond_input.items() if k != "name"}
+                cond_payload = {
+                    "query": mutation_update,
+                    "variables": {
+                        "accountId": account_id,
+                        "conditionId": existing_id,
+                        "condition": update_input,
+                    },
+                }
+                c_res = run_nerdgraph_query(cond_payload, key, endpoint=endpoint, timeout=timeout)
+                updated_cond = (c_res.get("data") or {}).get("alertsNrqlConditionStaticUpdate") or {}
+                if c_res.get("errors") or not updated_cond.get("id"):
+                    logger.warning(f"Error updating condition '{cond_name}': {c_res.get('errors') or 'missing id'}")
+                    failed_conditions += 1
+                else:
+                    logger.info(f"Updated condition: {cond_name}")
             else:
-                logger.info(f"Successfully configured condition: {cond_name}")
+                cond_payload = {
+                    "query": mutation_create,
+                    "variables": {
+                        "accountId": account_id,
+                        "policyId": str(policy_id),
+                        "condition": cond_input,
+                    },
+                }
+                c_res = run_nerdgraph_query(cond_payload, key, endpoint=endpoint, timeout=timeout)
+                created_cond = (c_res.get("data") or {}).get("alertsNrqlConditionStaticCreate") or {}
+                if c_res.get("errors") or not created_cond.get("id"):
+                    logger.warning(f"Error creating condition '{cond_name}': {c_res.get('errors') or 'missing id'}")
+                    failed_conditions += 1
+                else:
+                    logger.info(f"Created condition: {cond_name}")
 
         if failed_conditions > 0:
             logger.error(f"{failed_conditions} conditions failed to be configured.")
