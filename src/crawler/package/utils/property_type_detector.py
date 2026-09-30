@@ -342,6 +342,38 @@ class PropertyTypeDetector:
             return title.strip()
         return f"{str(specs)}_{str(html_text)[:100]}"
 
+    @staticmethod
+    def _record_gemini_telemetry(
+        model: str,
+        duration_ms: float,
+        resp: Any = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """SonarCloud S3776: テレメトリ記録処理を分離して認知複雑度を15以下に抑制"""
+        if not _record_llm_event:
+            return
+        if error is not None:
+            _record_llm_event(
+                model_name=model,
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=duration_ms,
+                status="error",
+                error_msg=str(error)[:200],
+                metadata={"caller": "property_type_detector"},
+            )
+            return
+
+        usage = getattr(resp, "usage_metadata", None)
+        _record_llm_event(
+            model_name=model,
+            prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            completion_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            duration_ms=round(duration_ms, 1),
+            status="success",
+            metadata={"caller": "property_type_detector"},
+        )
+
     @classmethod
     def _call_gemini_model(cls, prompt_text: str, default: str) -> str:
         """Gemini Flash API を呼び出して推論結果をパース"""
@@ -349,9 +381,9 @@ class PropertyTypeDetector:
         if not api_key or genai is None:
             return default
 
+        _model = "gemini-2.5-flash"
         try:
             http_options = types.HttpOptions(timeout=10000) if types else None
-            _model = "gemini-2.5-flash"
             with genai.Client(api_key=api_key, http_options=http_options) as client:
                 prompt = (
                     "以下の不動産物件情報から、物件種別を以下のいずれか1つ（mansion / kodate / tochi / apartment）だけで回答してください。\n"
@@ -370,35 +402,15 @@ class PropertyTypeDetector:
                 _duration_ms = (time.time() - _t0) * 1000
                 raw_ans = (getattr(resp, "text", "") or "").strip().lower()
 
-                # Record LLM telemetry (Issue #562 #6)
-                if _record_llm_event:
-                    _usage = getattr(resp, "usage_metadata", None)
-                    _record_llm_event(
-                        model_name=_model,
-                        prompt_tokens=getattr(_usage, "prompt_token_count", 0) or 0,
-                        completion_tokens=getattr(_usage, "candidates_token_count", 0) or 0,
-                        duration_ms=round(_duration_ms, 1),
-                        status="success",
-                        metadata={"caller": "property_type_detector"},
-                    )
+                cls._record_gemini_telemetry(_model, _duration_ms, resp=resp)
 
                 for candidate in ("apartment", "kodate", "tochi", "mansion"):
                     if candidate in raw_ans:
                         return candidate
                 return default
         except Exception as e:
-            if _record_llm_event:
-                # Use actual elapsed time; 0.0 only if exception before API call (CodeRabbit #4)
-                _elapsed_ms = round((time.time() - _t0) * 1000, 1) if "_t0" in dir() else 0.0
-                _record_llm_event(
-                    model_name="gemini-2.5-flash",
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    duration_ms=_elapsed_ms,
-                    status="error",
-                    error_msg=str(e)[:200],
-                    metadata={"caller": "property_type_detector"},
-                )
+            _elapsed_ms = round((time.time() - _t0) * 1000, 1) if "_t0" in locals() else 0.0
+            cls._record_gemini_telemetry(_model, _elapsed_ms, error=e)
             logging.warning(f"PropertyTypeDetector: Gemini classification failed, fallback to '{default}': {e}")
             return default
 
