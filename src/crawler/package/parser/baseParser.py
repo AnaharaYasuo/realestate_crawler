@@ -290,7 +290,7 @@ class ParserBase(metaclass=ABCMeta):
             if specs.get(key):
                 return specs[key]
         for k, v in specs.items():
-            if any((term in k for term in ['地代', '借地料'])):
+            if any(term in k for term in ['地代', '借地料']):
                 return v
         if response:
             tag = self._getValueByLabel(response, '地代') or self._getValueByLabel(response, '借地料')
@@ -412,7 +412,7 @@ class ParserBase(metaclass=ABCMeta):
         if href.startswith(('javascript:', 'mailto:', 'tel:')):
             return True
         skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, '/shiritai/', '/360/', '/benefit/')
-        return any((tok in href for tok in skip_tokens))
+        return any(tok in href for tok in skip_tokens)
 
     @staticmethod
     def _href_fails_rental_filter(href: str, str_xpath: str) -> bool:
@@ -431,14 +431,14 @@ class ParserBase(metaclass=ABCMeta):
     @staticmethod
     def _href_fails_xpath_contains(href: str, str_xpath: str) -> bool:
         excluded_subs = re.findall('not\\s*\\(\\s*contains\\s*\\(\\s*@href\\s*,\\s*["\\\']([^"\\\']+)["\\\']\\s*\\)\\s*\\)', str_xpath)
-        if excluded_subs and any((sub in href for sub in excluded_subs)):
+        if excluded_subs and any(sub in href for sub in excluded_subs):
             return True
         clean_xpath = re.sub('not\\s*\\([^)]+\\)', '', str_xpath)
         required_subs = re.findall('contains\\s*\\(\\s*@href\\s*,\\s*["\\\']([^"\\\']+)["\\\']\\s*\\)', clean_xpath)
-        if required_subs and (not all((sub in href for sub in required_subs))):
+        if required_subs and (not all(sub in href for sub in required_subs)):
             return True
         starts_with_subs = re.findall('starts-with\\s*\\(\\s*@href\\s*,\\s*["\\\']([^"\\\']+)["\\\']\\s*\\)', clean_xpath)
-        return bool(starts_with_subs and (not any((href.startswith(sub) for sub in starts_with_subs))))
+        return bool(starts_with_subs and (not any(href.startswith(sub) for sub in starts_with_subs)))
 
     @classmethod
     def _href_fails_xpath_filters(cls, href: str, xpath_pattern) -> bool:
@@ -462,7 +462,7 @@ class ParserBase(metaclass=ABCMeta):
         if not dest_url or not isinstance(dest_url, str) or (not dest_url.startswith('http')):
             return None
         bad_tokens = ('javascript:', 'void(0)', TOKEN_INQUIRY, TOKEN_CONTACT)
-        if any((tok in dest_url for tok in bad_tokens)):
+        if any(tok in dest_url for tok in bad_tokens):
             return None
         if ParserBase._is_non_property_href(dest_url):
             return None
@@ -727,7 +727,7 @@ class ParserBase(metaclass=ABCMeta):
     @staticmethod
     def _is_under_construction_item(item: models.Model) -> bool:
         genkyo = str(getattr(item, 'genkyo', '') or getattr(item, 'currentStatus', '') or '')
-        return any((tok in genkyo for tok in ('未完成', '建築中', '新築（未完成）')))
+        return any(tok in genkyo for tok in ('未完成', '建築中', '新築（未完成）'))
 
     def _try_menseki_str_fallback(self, item: models.Model, field: str, val) -> bool:
         """Reparse *Str when numeric is empty. Returns True if field should skip validation."""
@@ -938,7 +938,7 @@ class ParserBase(metaclass=ABCMeta):
             return
         u_lower = str(url).lower()
         skip_parts = ('/shiritai/', '/360/', '/chintai/', '/rent/', TOKEN_INQUIRY, TOKEN_CONTACT, '/benefit/')
-        if any((p in u_lower for p in skip_parts)):
+        if any(p in u_lower for p in skip_parts):
             logging.info(f'Fast-skipping non-property/rental URL: {url}')
             raise SkipPropertyException(f'Non-property URL skipped: {url}')
 

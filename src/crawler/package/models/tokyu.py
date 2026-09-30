@@ -1,4 +1,5 @@
 from django.db import models
+
 from .base import PropertyBaseModel, TransportationMixin
 
 # Create your models here.
