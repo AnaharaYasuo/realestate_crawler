@@ -211,32 +211,38 @@ class ParserBase(metaclass=ABCMeta):
                 return m.group(1)
         return ''
 
+    @staticmethod
+    def _extract_number_before_unit(text: str, units: tuple[str, ...]) -> str:
+        """Extract trailing integer/float before any matching unit."""
+        for unit in units:
+            if unit in text:
+                part = text.split(unit)[0]
+                num_chars = []
+                has_dot = False
+                for ch in reversed(part):
+                    if ch.isdigit():
+                        num_chars.append(ch)
+                    elif ch == '.' and not has_dot:
+                        has_dot = True
+                        num_chars.append(ch)
+                    else:
+                        break
+                if num_chars:
+                    return ''.join(reversed(num_chars))
+        return ''
+
     def get_douro_haba(self, response: BeautifulSoup) -> str:
         """道路幅員の抽出"""
         specs = self._get_specs(response)
         for key in ['道路幅員', '道路幅', '幅員']:
-            if specs.get(key):
-                val = specs[key]
-                m = re.search('(\\d+(?:\\.\\d+)?)\\s*[mｍ]?', val)
-                return m.group(1) if m else val
+            val = specs.get(key)
+            if val:
+                num = self._extract_number_before_unit(val, ('m', 'ｍ'))
+                return num or val
         setsudou = self.get_setsudou(response)
         if setsudou:
-            clean_setsudou = setsudou.replace(' ', '').replace('　', '')
-            for unit in ('m', 'ｍ'):
-                if unit in clean_setsudou:
-                    part = clean_setsudou.split(unit)[0]
-                    num_chars = []
-                    has_dot = False
-                    for ch in reversed(part):
-                        if ch.isdigit():
-                            num_chars.append(ch)
-                        elif ch == '.' and not has_dot:
-                            has_dot = True
-                            num_chars.append(ch)
-                        else:
-                            break
-                    if num_chars:
-                        return ''.join(reversed(num_chars))
+            clean = setsudou.replace(' ', '').replace('　', '')
+            return self._extract_number_before_unit(clean, ('m', 'ｍ'))
         return ''
 
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
@@ -629,24 +635,25 @@ class ParserBase(metaclass=ABCMeta):
                 return True
         return False
 
-    def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
-        """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
+    @staticmethod
+    def _find_station_candidate(traffic_text: str) -> str | None:
+        """Find station/stop name candidate from traffic text."""
         station_suffixes = ('駅', '停留所', 'バス停')
-        tokens = traffic_text.split()
-        found_station = None
-        for t in tokens:
+        for t in traffic_text.split():
             for sfx in station_suffixes:
                 if sfx in t:
                     idx = t.find(sfx) + len(sfx)
                     candidate = t[:idx].lstrip('「（(').rstrip('」）)')
                     if candidate:
-                        found_station = candidate
-                        break
-            if found_station:
-                break
-        if not found_station:
+                        return candidate
+        return None
+
+    def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
+        """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
+        candidate = self._find_station_candidate(traffic_text)
+        if not candidate:
             return False
-        station = self._normalize_station_name(found_station)
+        station = self._normalize_station_name(candidate)
         walk_min = self._extract_walk_minutes(traffic_text)
         if hasattr(item, 'station1') and (not getattr(item, 'station1', None)):
             item.station1 = station
