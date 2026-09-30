@@ -212,23 +212,28 @@ class ParserBase(metaclass=ABCMeta):
         return ''
 
     @staticmethod
-    def _extract_number_before_unit(text: str, units: tuple[str, ...]) -> str:
+    def _extract_trailing_number(text: str) -> str:
+        """Extract trailing digits with optional single dot from text."""
+        chars = []
+        has_dot = False
+        for ch in reversed(text):
+            if ch.isdigit():
+                chars.append(ch)
+            elif ch == '.' and not has_dot:
+                has_dot = True
+                chars.append(ch)
+            else:
+                break
+        return ''.join(reversed(chars))
+
+    @classmethod
+    def _extract_number_before_unit(cls, text: str, units: tuple[str, ...]) -> str:
         """Extract trailing integer/float before any matching unit."""
         for unit in units:
             if unit in text:
-                part = text.split(unit)[0]
-                num_chars = []
-                has_dot = False
-                for ch in reversed(part):
-                    if ch.isdigit():
-                        num_chars.append(ch)
-                    elif ch == '.' and not has_dot:
-                        has_dot = True
-                        num_chars.append(ch)
-                    else:
-                        break
-                if num_chars:
-                    return ''.join(reversed(num_chars))
+                num = cls._extract_trailing_number(text.split(unit)[0])
+                if num:
+                    return num
         return ''
 
     def get_douro_haba(self, response: BeautifulSoup) -> str:
