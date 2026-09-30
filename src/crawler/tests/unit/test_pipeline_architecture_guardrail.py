@@ -10,14 +10,17 @@ CRAWLER_SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".
 
 
 def test_scheduler_triggers_pipeline_with_startup_guardrail():
-    """Verify scheduler targets crawler pipeline job and the script includes ProxySQL on-demand startup."""
+    """Verify scheduler targets daily orchestration (Workflows or crawler pipeline job)."""
     scheduler_tf = os.path.join(TERRAFORM_DIR, "scheduler.tf")
     with open(scheduler_tf, "r", encoding="utf-8") as f:
         content = f.read()
 
     assert "google_cloud_scheduler_job" in content
     assert "crawler_daily_trigger" in content
-    assert "google_cloud_run_v2_job.crawler_pipeline_job.name" in content
+    assert (
+        "google_workflows_workflow.daily_pipeline_workflow.name" in content
+        or "google_cloud_run_v2_job.crawler_pipeline_job.name" in content
+    )
 
 
 def test_run_pipeline_contains_startup_and_health_check():
