@@ -288,3 +288,147 @@ def start_container_sample_thread(interval_sec: int = 60, service_name: str | No
     t = threading.Thread(target=_sampler, daemon=True, name="nr-container-sample")
     t.start()
     return t
+
+
+def record_http_request(
+    domain: str,
+    method: str,
+    status_code: int,
+    duration_ms: float,
+    response_bytes: int = 0,
+    site_name: str | None = None,
+    is_blocked: bool = False,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Record outgoing HTTP scraping request telemetry to New Relic (HttpRequestEvent)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        params: dict[str, Any] = dict(metadata) if metadata else {}
+        params.update({
+            "domain": domain,
+            "method": method.upper(),
+            "status_code": status_code,
+            "duration_ms": duration_ms,
+            "response_bytes": response_bytes,
+            "site_name": site_name or domain,
+            "is_blocked": is_blocked or status_code in (403, 429),
+        })
+        agent.record_custom_event("HttpRequestEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic HTTP request event: {e}")
+        return False
+
+
+def record_database_operation(
+    table_name: str,
+    operation: str,
+    duration_ms: float,
+    row_count: int = 0,
+    status: str = "success",
+    error_msg: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Record database bulk upsert / query telemetry to New Relic (DatabaseEvent)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        params: dict[str, Any] = dict(metadata) if metadata else {}
+        params.update({
+            "table_name": table_name,
+            "operation": operation.lower(),
+            "duration_ms": duration_ms,
+            "row_count": row_count,
+            "status": status,
+        })
+        if error_msg:
+            params["error_msg"] = error_msg
+        agent.record_custom_event("DatabaseEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic Database event: {e}")
+        return False
+
+
+def record_parser_metrics(
+    site_name: str,
+    property_type: str,
+    duration_ms: float,
+    total_fields: int,
+    extracted_fields: int,
+    missing_fields: int,
+    missing_ratio: float,
+    status: str = "success",
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Record parser DOM processing speed and field completeness to New Relic (ParserEvent)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        params: dict[str, Any] = dict(metadata) if metadata else {}
+        params.update({
+            "site_name": site_name,
+            "property_type": property_type,
+            "duration_ms": duration_ms,
+            "total_fields": total_fields,
+            "extracted_fields": extracted_fields,
+            "missing_fields": missing_fields,
+            "missing_ratio": missing_ratio,
+            "status": status,
+        })
+        agent.record_custom_event("ParserEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic Parser event: {e}")
+        return False
+
+
+def record_ml_inference_metrics(
+    model_type: str,
+    duration_ms: float,
+    evaluated_count: int,
+    bargain_count: int,
+    skipped_count: int = 0,
+    status: str = "success",
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Record ML bulk inference performance and bargain detection to New Relic (MlInferenceEvent)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        params: dict[str, Any] = dict(metadata) if metadata else {}
+        params.update({
+            "model_type": model_type,
+            "duration_ms": duration_ms,
+            "evaluated_count": evaluated_count,
+            "bargain_count": bargain_count,
+            "skipped_count": skipped_count,
+            "status": status,
+        })
+        agent.record_custom_event("MlInferenceEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic ML inference event: {e}")
+        return False
+
