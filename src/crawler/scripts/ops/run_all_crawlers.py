@@ -378,8 +378,13 @@ def main():
                 
                 scraped_cnt = 0
                 if exit_code == 0:
-                    scraped_cnt = get_count_for_job(company, ptype, start_dt)
-                    if scraped_cnt > 0:
+                    count_res = get_count_for_job(company, ptype, start_dt)
+                    if count_res is None:
+                        status = "failed"
+                        error_msg = "Database count query failed"
+                        post_slack(f"❌ 【失敗: DB件数取得エラー】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 処理時間: {duration_job_str}")
+                    elif count_res > 0:
+                        scraped_cnt = count_res
                         post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {duration_job_str}")
                     else:
                         status = "failed"
