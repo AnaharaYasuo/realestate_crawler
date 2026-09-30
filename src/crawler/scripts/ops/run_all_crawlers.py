@@ -41,6 +41,7 @@ from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
+from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -362,7 +363,8 @@ def main():
         # 1. 終了プロセスの回収およびタイムアウトのキル
         active_indices = tuple(active_processes.keys())
         for idx in active_indices:
-            proc, company, ptype, start_t, start_dt = active_processes[idx]
+            proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+            last_act = extra[0] if extra else start_t
             poll_status = proc.poll()
             if poll_status is not None:
                 # 正常・異常終了の回収
@@ -432,6 +434,47 @@ def main():
 
                 del active_processes[idx]
                 
+            elif check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
+                # 沈黙監視 (ハング検知)
+                logger.error(
+                    f"[{idx}] Crawl job silent/hung for {company} - {ptype} "
+                    f"(no progress > {HANG_THRESHOLD_SEC}s). Killing process group..."
+                )
+                kill_hung_job_process(proc)
+                elapsed = now - start_t
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
+                duration_job_str = format_duration(int(elapsed))
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=ptype,
+                        error_type="HangSilentFailure",
+                        error_message=f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s",
+                        exit_code=-1,
+                        duration_seconds=int(elapsed),
+                        task_index=task_index,
+                        task_count=task_count,
+                        date_str=today_str
+                    )
+                except Exception as hfe:
+                    logging.warning(f"Failed to record hang telemetry for {company} - {ptype}: {hfe}")
+
+                results.append({
+                    "index": idx,
+                    "company": company,
+                    "property_type": ptype,
+                    "status": "hung_timeout",
+                    "exit_code": -1,
+                    "start_time": start_dt.strftime(DATETIME_FORMAT) if start_dt else "",
+                    "end_time": end_dt.strftime(DATETIME_FORMAT) if end_dt else "",
+                    "duration": duration_job_str,
+                    "elapsed_seconds": int(elapsed),
+                    "items_count": 0,
+                    "error_message": f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s"
+                })
+                post_slack(f"❌ 【ハング検知・強制終了】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | {int(HANG_THRESHOLD_SEC)}秒間無進捗のため打ち切り")
+                del active_processes[idx]
+
             elif timeout_sec > 0 and now - start_t > timeout_sec:
                 # タイムアウト
                 logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
@@ -532,7 +575,8 @@ def main():
                         cmd,
                         start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
-                    active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
+                    now_ts = time.time()
+                    active_processes[idx] = (proc, company, ptype, now_ts, start_dt, now_ts)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
                     logger.exception(f"Failed to start crawl job for {company} - {ptype}")

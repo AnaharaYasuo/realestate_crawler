@@ -318,7 +318,32 @@ def test_stage_coderabbit_rate_limit_warning(monkeypatch):
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
     res = checker.stage_coderabbit()
     assert res.passed is True
-    assert any("Rate limit" in w for w in res.warnings)
+    assert any("利用制限" in w or "Rate limit" in w for w in res.warnings)
+
+
+def test_stage_coderabbit_cache_skip_on_subsequent_runs(tmp_path, monkeypatch):
+    """同一ブランチで既にレビュー完了マーカーが存在する場合はスキップされること."""
+    checker = PrePRChecker(skip_coderabbit=False)
+    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
+    monkeypatch.setattr(checker, "get_current_branch", lambda: "feature/test-branch")
+
+    def mock_run_cmd(cmd, **_kwargs):
+        if cmd == ["coderabbit", "--version"]:
+            return 0, "0.8.1", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
+
+    # 初回前にマーカー作成
+    cache_dir = tmp_path / ".coderabbit_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    marker = cache_dir / "feature_test-branch.reviewed"
+    marker.write_text("reviewed", encoding="utf-8")
+
+    res = checker.stage_coderabbit()
+    assert res.passed is True
+    assert "CodeRabbitレビュー済み" in res.details
+    assert any("スキップ" in w for w in res.warnings)
 
 
 

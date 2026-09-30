@@ -40,6 +40,13 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
   member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
+# Grant Cloud Run Developer Role to crawler_runner (Workflows orchestrates Cloud Run Jobs)
+resource "google_project_iam_member" "crawler_runner_run_developer" {
+  project = var.project_id
+  role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
 # Deploy SA needs logging.sinks.create (roles/editor no longer includes sink write).
 # Required for google_logging_project_sink.new_relic_log_sink in CI Terraform Apply.
 # Must match secrets.GCP_SERVICE_ACCOUNT (github-actions-crawler); that SA already has

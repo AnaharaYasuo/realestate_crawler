@@ -626,6 +626,9 @@ task logs
 - **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
 - **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
 - **[Google GenAI SDK 移行内部設計書](docs/internal_design/google_genai_sdk_migration.md)**: モジュール別詳細変更・テストモック仕様
+- **[Cloud Workflows 統合オーケストレーション要件定義書](docs/requirements/cloud_workflows_orchestration_requirements.md)**: クロール・ML・割安物件配信の一貫自動化とタイムアウト集約要件
+- **[Cloud Workflows 統合オーケストレーション基本設計書](docs/basic_design/cloud_workflows_orchestration_basic_design.md)**: Workflows ステートマシン、ProxySQL 連動、7h/5h タイムアウト設計
+- **[Cloud Workflows 統合オーケストレーション内部設計書](docs/internal_design/cloud_workflows_orchestration_internal_design.md)**: YAML 定義仕様、ハング監視実装仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
