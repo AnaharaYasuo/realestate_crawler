@@ -13,7 +13,8 @@ main:
           - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
           - crawlerJob: ${default(map.get(args, "crawlerJob"), "realestate-crawler-pipeline-prod")}
           - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
-          - crawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 18000)}  # 5時間 (18,000s)
+          - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 18000)}  # 5時間 (18,000s)
+          - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
 
     - tryPipeline:
         try:
@@ -34,6 +35,7 @@ main:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + crawlerJob}
+                  body: {}
                   connector_params:
                     skip_polling: true
                 result: crawlerOperation
@@ -52,12 +54,18 @@ main:
                 assign:
                   - elapsedSoFar: ${sys.now() - pipelineStart}
                   - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
-                  - mlEffectiveTimeout: ${max(min(7200, remainingMLTimeout), 60)}
+                  - mlEffectiveTimeout: ${int(math.max(math.min(7200, remainingMLTimeout), 60))}
+
+            - checkMLDeadline:
+                switch:
+                  - condition: ${remainingMLTimeout < 60}
+                    next: stopProxySQLOnSuccess
 
             - runMLAndEstimation:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
+                  body: {}
                   connector_params:
                     skip_polling: true
                 result: mlOperation
@@ -107,10 +115,26 @@ monitorJobExecution:
           - sleepInterval: 30
 
     - checkStatusLoop:
-        call: googleapis.run.v2.projects.locations.jobs.executions.get
-        args:
-          name: ${executionName}
-        result: execDetails
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.executions.get
+          args:
+            name: ${executionName}
+          result: execDetails
+        except:
+          as: getErr
+          steps:
+            - logGetError:
+                assign:
+                  - ignoredGetErr: ${getErr}
+            - waitBeforeRetryGet:
+                call: sys.sleep
+                args:
+                  seconds: 10
+            - retryCheckStatus:
+                call: googleapis.run.v2.projects.locations.jobs.executions.get
+                args:
+                  name: ${executionName}
+                result: execDetails
 
     - evaluateState:
         switch:
@@ -127,16 +151,17 @@ monitorJobExecution:
           - condition: ${(sys.now() - startTime) > timeoutSec}
             steps:
               - cancelRunningJob:
-                try:
-                  call: googleapis.run.v2.projects.locations.jobs.executions.cancel
-                  args:
-                    name: ${executionName}
-                except:
-                  as: cancelErr
-                  steps:
-                    - logCancelError:
-                        assign:
-                          - ignoredCancelErr: ${cancelErr}
+                  try:
+                    call: googleapis.run.v2.projects.locations.jobs.executions.cancel
+                    args:
+                      name: ${executionName}
+                      body: {}
+                  except:
+                    as: cancelErr
+                    steps:
+                      - logCancelError:
+                          assign:
+                            - ignoredCancelErr: ${cancelErr}
               - raiseTimeout:
                   raise:
                     error: "JobExecutionTimeout"
