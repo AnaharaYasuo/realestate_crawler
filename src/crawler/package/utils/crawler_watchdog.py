@@ -7,8 +7,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ジョブの無進捗・沈黙判定閾値（秒）: デフォルト 300秒（5分）
-HANG_THRESHOLD_SEC: float = float(os.getenv("CRAWLER_HANG_THRESHOLD_SEC", "300.0"))
+# ジョブの無進捗・沈黙判定閾値（秒）: ハートビート連携未完時は誤殺害防止のため 0.0 (無効) をデフォルトとし、CRAWLER_HANG_THRESHOLD_SEC 指定時のみ有効化
+HANG_THRESHOLD_SEC: float = float(os.getenv("CRAWLER_HANG_THRESHOLD_SEC", "0.0"))
 
 
 def check_job_hung(
@@ -17,6 +17,8 @@ def check_job_hung(
     threshold_sec: float = HANG_THRESHOLD_SEC,
 ) -> bool:
     """Check if job has been silent (no heartbeat/progress) for longer than threshold."""
+    if threshold_sec <= 0:
+        return False
     now = current_time if current_time is not None else time.time()
     return (now - last_activity_time) > threshold_sec
 

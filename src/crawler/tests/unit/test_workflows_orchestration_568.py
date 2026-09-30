@@ -17,20 +17,22 @@ def test_workflows_timeout_definitions():
 
 
 def test_hang_silent_watchdog_detection():
-    """沈黙 (無進捗) が一定時間 (300秒) 継続したジョブがハング検知されて強制キルされること."""
-    from package.utils.crawler_watchdog import check_job_hung, HANG_THRESHOLD_SEC
-
-    assert HANG_THRESHOLD_SEC == 300.0
+    """沈黙 (無進捗) 判定で閾値0以下は無効化され、正の閾値設定時のみハング検知されること."""
+    from package.utils.crawler_watchdog import check_job_hung
 
     now = 1000.0
+    # 閾値 0.0 (デフォルト無効化): いかに時間が経過していてもハング検知されないこと
+    assert not check_job_hung(last_activity_time=now - 10000.0, current_time=now, threshold_sec=0.0)
+
+    # 有効化時 (300秒)
     # 正常: 100秒前のアクティビティ
-    assert not check_job_hung(last_activity_time=now - 100.0, current_time=now)
+    assert not check_job_hung(last_activity_time=now - 100.0, current_time=now, threshold_sec=300.0)
 
     # 境界値: 300秒ジャストはセーフ
-    assert not check_job_hung(last_activity_time=now - 300.0, current_time=now)
+    assert not check_job_hung(last_activity_time=now - 300.0, current_time=now, threshold_sec=300.0)
 
     # ハング: 301秒前の沈黙
-    assert check_job_hung(last_activity_time=now - 301.0, current_time=now)
+    assert check_job_hung(last_activity_time=now - 301.0, current_time=now, threshold_sec=300.0)
 
 
 def test_hang_kill_terminates_process_group():

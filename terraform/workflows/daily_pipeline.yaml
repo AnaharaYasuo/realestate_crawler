@@ -89,7 +89,7 @@ monitorJobExecution:
 
     - evaluateState:
         switch:
-          - condition: ${default(execDetails.runningCount, 0) == 0 and default(execDetails.reconciling, false) == false}
+          - condition: ${default(execDetails.runningCount, 0) == 0 and default(execDetails.reconciling, false) == false and map.get(execDetails, "completionTime") != null}
             steps:
               - checkExecutionResult:
                   switch:
@@ -100,9 +100,22 @@ monitorJobExecution:
                     - condition: true
                       return: ${execDetails}
           - condition: ${(sys.now() - startTime) > timeoutSec}
-            raise:
-              error: "JobExecutionTimeout"
-              message: '${"Job execution exceeded timeout: " + string(timeoutSec) + "s"}'
+            steps:
+              - cancelRunningJob:
+                  try:
+                    call: googleapis.run.v2.projects.locations.jobs.executions.cancel
+                    args:
+                      name: ${executionName}
+                  except:
+                    as: cancelErr
+                    steps:
+                      - logCancelError:
+                          assign:
+                            - ignoredCancelErr: ${cancelErr}
+              - raiseTimeout:
+                  raise:
+                    error: "JobExecutionTimeout"
+                    message: '${"Job execution exceeded timeout: " + string(timeoutSec) + "s"}'
 
     - waitAndRetry:
         call: sys.sleep

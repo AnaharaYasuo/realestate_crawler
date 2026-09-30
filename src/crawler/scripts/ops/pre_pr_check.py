@@ -447,16 +447,34 @@ class PrePRChecker:
             )
             return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
+        # Build coderabbit review commands and validate target_sha first
+        if self.target_sha:
+            head_rc, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
+            target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
+            current_head = head_out.strip() if head_rc == 0 else ""
+            target_commit = target_out.strip() if target_rc == 0 else ""
+            if not current_head or not target_commit:
+                err = f"コミットの解決に失敗しました: HEAD='{current_head}', target_sha='{target_commit}'"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            if current_head != target_commit:
+                err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
+                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            current_sha = self.target_sha
+        else:
+            _, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
+            current_sha = head_out.strip()
+
         # 1 PR (1作業ブランチ) につきローカルでの CodeRabbit レビューは 1 回で OK (コミットSHAスコープのキャッシュチェック)
         raw_branch = self.get_current_branch().strip()
         is_branch = bool(raw_branch and not raw_branch.startswith("fatal:") and not raw_branch.startswith("error:") and len(raw_branch) < 100)
         branch_name = raw_branch.replace("/", "_").replace("\\", "_") if is_branch else ""
-        current_sha = self.target_sha
-        if not current_sha:
-            _, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
-            current_sha = head_out.strip()
         review_marker_file = None
-        if branch_name:
+        has_dirty_changes = False
+        if not self.target_sha:
+            _, diff_out, _ = self._run_cmd(["git", "status", "--porcelain"])
+            has_dirty_changes = bool(diff_out.strip())
+
+        if branch_name and not has_dirty_changes:
             cache_dir = os.path.join(self.repo_root, ".coderabbit_cache")
             os.makedirs(cache_dir, exist_ok=True)
             marker_suffix = f"_{current_sha[:8]}" if current_sha else ""
@@ -471,20 +489,7 @@ class PrePRChecker:
                     duration_sec=time.time() - start,
                 )
 
-        # Build coderabbit review commands
-        review_cmds = []
         if self.target_sha:
-            head_rc, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
-            target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
-            current_head = head_out.strip() if head_rc == 0 else ""
-            target_commit = target_out.strip() if target_rc == 0 else ""
-            if not current_head or not target_commit:
-                err = f"コミットの解決に失敗しました: HEAD='{current_head}', target_sha='{target_commit}'"
-                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            if current_head != target_commit:
-                err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
-                return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha], timeout=30.0)
             if mb_rc != 0:
                 mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha], timeout=30.0)
@@ -492,7 +497,7 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            review_cmds = [["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"]]
         else:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"], timeout=30.0)
             if mb_rc != 0:
@@ -501,13 +506,16 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = "比較基準 (merge-base) を取得できませんでした: HEAD"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
-            review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
+            review_cmds = [
+                ["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"],
+                ["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"]
+            ]
 
         errors = []
         warnings = []
         findings_count = 0
         has_completed_event = False
+        is_any_rate_limited = False
         total_timeout_budget = 1800.0
 
         for cmd in review_cmds:
@@ -587,6 +595,7 @@ class PrePRChecker:
                 cmd_has_completed = True
                 has_completed_event = True
                 is_rate_limited = True
+                is_any_rate_limited = True
 
             if rc != 0 and not cmd_added_errors and not is_rate_limited:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
@@ -595,11 +604,11 @@ class PrePRChecker:
             if not cmd_has_completed and not cmd_added_errors and rc == 0:
                 errors.append(f"CodeRabbit レビュー完了イベントを受信できませんでした: {' '.join(cmd)}")
 
-        if not has_completed_event and not errors and not is_rate_limited:
+        if not has_completed_event and not errors and not is_any_rate_limited:
             errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")
 
         passed = len(errors) == 0
-        if passed and not is_rate_limited and review_marker_file:
+        if passed and not is_any_rate_limited and review_marker_file:
             # 1 PR 1回のレビュー完了マーカーを保存
             try:
                 with open(review_marker_file, "w", encoding="utf-8") as f:
