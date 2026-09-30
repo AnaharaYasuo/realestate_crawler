@@ -1132,14 +1132,20 @@ class MansionParserBase(ParserBase):
             return int(m.group(1)) if m else None
         return None
 
-    def get_management_fee(self, response: BeautifulSoup) -> int | Decimal | None:
+    def get_management_fee_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        val = specs.get('管理費', '') or specs.get('管理費等', '')
+        return specs.get('管理費', '') or specs.get('管理費等', '')
+
+    def get_management_fee(self, response: BeautifulSoup) -> int | Decimal | None:
+        val = self.get_management_fee_str(response)
         return converter.parse_yen(val) if val else None
 
-    def get_reserve_fund(self, response: BeautifulSoup) -> int | Decimal | None:
+    def get_reserve_fund_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        val = specs.get('修繕積立金', '') or specs.get('修繕積立金等', '')
+        return specs.get('修繕積立金', '') or specs.get('修繕積立金等', '')
+
+    def get_reserve_fund(self, response: BeautifulSoup) -> int | Decimal | None:
+        val = self.get_reserve_fund_str(response)
         return converter.parse_yen(val) if val else None
 
     def get_balcony_menseki_str(self, response: BeautifulSoup) -> str:

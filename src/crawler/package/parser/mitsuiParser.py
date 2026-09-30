@@ -585,26 +585,32 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         target_specs = specs if specs is not None else self._get_specs(response)
         return target_specs.get("管理員の勤務形態", "")
 
-    def _parseKanrihiStr(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("管理費等", "")
+    def _parseKanrihiStr(self, response, _specs=None):
+        if _specs is not None:
+            return _specs.get("管理費", "") or _specs.get("管理費等", "")
+        return self.get_management_fee_str(response)
 
     def _parseKanrihi(self, response, _specs=None):
-        kanrihi_str = self._parseKanrihiStr(response)
+        kanrihi_str = self._parseKanrihiStr(response, _specs)
         if kanrihi_str and "-" not in kanrihi_str:
-            try: return int(str(kanrihi_str).replace(",", "").replace("円", "").split("/")[0].strip())
-            except Exception: pass
+            try:
+                return int(str(kanrihi_str).replace(",", "").replace("円", "").split("/")[0].strip())
+            except Exception:
+                pass
         return 0
 
-    def _parseSyuzenTsumitateStr(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get(RESERVE_FUND_KEY, "")
+    def _parseSyuzenTsumitateStr(self, response, _specs=None):
+        if _specs is not None:
+            return _specs.get("修繕積立金", "") or _specs.get("修繕積立金等", "")
+        return self.get_reserve_fund_str(response)
 
     def _parseSyuzenTsumitate(self, response, _specs=None):
-        syuzen_str = self._parseSyuzenTsumitateStr(response)
+        syuzen_str = self._parseSyuzenTsumitateStr(response, _specs)
         if syuzen_str and "-" not in syuzen_str:
-            try: return int(str(syuzen_str).replace(",", "").replace("円", "").split("/")[0].strip())
-            except Exception: pass
+            try:
+                return int(str(syuzen_str).replace(",", "").replace("円", "").split("/")[0].strip())
+            except Exception:
+                pass
         return 0
 
     def _parseTyusyajo(self, response, specs=None):
