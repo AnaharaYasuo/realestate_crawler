@@ -434,6 +434,13 @@ def main():
 
                 del active_processes[idx]
                 
+            # 子プロセスの進捗監視（DB新規登録・更新件数の増分を検知して last_act を更新）
+            current_db_cnt = get_count_for_job(company, ptype, start_dt)
+            prev_db_cnt = extra[1] if len(extra) > 1 else 0
+            if current_db_cnt > prev_db_cnt:
+                last_act = now
+                active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, current_db_cnt)
+
             elif check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
                 # 沈黙監視 (ハング検知)
                 logger.error(

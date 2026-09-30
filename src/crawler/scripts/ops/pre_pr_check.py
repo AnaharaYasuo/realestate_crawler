@@ -589,8 +589,13 @@ class PrePRChecker:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
             cmd_added_errors = len(errors) > initial_error_count
-            full_out = (stdout + "\n" + stderr).lower()
-            if any(term in full_out for term in ("rate limit", "ratelimit", "too many requests", "monthly limit", "quota exceeded")):
+            # Check non-JSON lines and stderr for rate limit terms (avoid false positive in finding text)
+            non_json_lines = [
+                line for line in (stdout + "\n" + stderr).splitlines()
+                if not line.strip().startswith("{")
+            ]
+            non_json_text = "\n".join(non_json_lines).lower()
+            if any(term in non_json_text for term in ("rate limit", "ratelimit", "too many requests", "monthly limit", "quota exceeded")):
                 warnings.append(f"CodeRabbit CLI 利用制限検知のためスキップ (GitHub PR CIでレビュー): {' '.join(cmd)}")
                 cmd_has_completed = True
                 has_completed_event = True

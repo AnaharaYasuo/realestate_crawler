@@ -14,6 +14,17 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
       service_account_email = google_service_account.scheduler_invoker.email
       scope                 = "https://www.googleapis.com/auth/cloud-platform"
     }
+
+    body = base64encode(jsonencode({
+      argument = jsonencode({
+        projectId        = var.project_id
+        location         = var.region
+        zone             = var.zone
+        proxysqlInstance = google_compute_instance.proxysql_instance.name
+        crawlerJob       = google_cloud_run_v2_job.crawler_pipeline_job.name
+        mlPipelineJob    = google_cloud_run_v2_job.ml_pipeline_job.name
+      })
+    }))
   }
 
   depends_on = [
