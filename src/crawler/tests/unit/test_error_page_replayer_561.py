@@ -386,6 +386,23 @@ class TestErrorPageSidecarMeta:
             "timestamp": rec["timestamp"],
         }
 
+    def test_sidecar_upload_failure_does_not_abort_primary_telemetry(self):
+        sm = MagicMock()
+        sm.upload_bytes.side_effect = lambda _data, key, **_: "gs://b/h" if key.endswith(".html") else (
+            (_ for _ in ()).throw(RuntimeError("sidecar fail")) if key.endswith("_meta.json") else "gs://b/m"
+        )
+        with patch("package.utils.failure_reporter.get_storage_manager", return_value=sm):
+            rec = FailureReporter.record_job_failure(
+                company="smtrc", property_type="tochi", error_type="FetchOrParseError",
+                error_message="Property Name: x", target_url="https://smtrc.jp/detail/X",
+                raw_html=b"<html></html>", date_str="20260928",
+            )
+        assert rec["metadata_key"] == "runs/20260928/failures/smtrc_tochi.json"
+        assert sm.upload_bytes.call_count == 3
+        # Primary metadata upload still succeeded
+        meta_call = [c for c in sm.upload_bytes.call_args_list if c.args[1].endswith("smtrc_tochi.json")]
+        assert len(meta_call) == 1
+
     def test_no_meta_without_html(self):
         sm = MagicMock()
         with patch("package.utils.failure_reporter.get_storage_manager", return_value=sm):

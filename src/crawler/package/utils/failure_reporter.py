@@ -59,7 +59,10 @@ class FailureReporter:
             if raw_html and html_key:
                 uploaded_path = sm.upload_bytes(raw_html, html_key, content_type="text/html")
                 record["gcs_html_path"] = str(uploaded_path) if uploaded_path is not None else None
-                sm.upload_bytes(_html_meta_bytes(record), html_meta_key(html_key), content_type="application/json")
+                try:
+                    sm.upload_bytes(_html_meta_bytes(record), html_meta_key(html_key), content_type="application/json")
+                except Exception as me:  # noqa: BLE001
+                    logger.warning("Failed to upload error page sidecar meta %s: %s", html_key, me)
 
             meta_bytes = json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")
             sm.upload_bytes(meta_bytes, metadata_key, content_type="application/json")
@@ -86,8 +89,10 @@ class FailureReporter:
             html_path.parent.mkdir(parents=True, exist_ok=True)
             with open(html_path, "wb") as f:
                 f.write(raw_html)
-            record["gcs_html_path"] = str(html_path)
-            (fallback_base / html_meta_key(html_key)).write_bytes(_html_meta_bytes(record))
+            try:
+                (fallback_base / html_meta_key(html_key)).write_bytes(_html_meta_bytes(record))
+            except Exception as le:  # noqa: BLE001
+                logger.warning("Failed to save local error page sidecar meta %s: %s", html_key, le)
 
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(record, f, ensure_ascii=False, indent=2)
