@@ -253,7 +253,7 @@ def test_provision_alerts_reuses_existing_policy():
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
                     res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
                     assert res is True
-                    assert mock_query.call_count == 4
+                    assert mock_query.call_count == 7
                     for call_item in mock_query.call_args_list:
                         payload = call_item[0][0]
                         assert "alertsPolicyCreate" not in payload.get("query", "")
@@ -282,6 +282,9 @@ def test_provision_alerts_upserts_existing_conditions():
                 "Crawler Parser Latency Degradation (>1.0s/item)": "102",
                 "Target Portal Blocked (403/429 Spike)": "103",
                 "Container High Memory Usage Warning": "104",
+                "Database Bulk Upsert High Latency (>5000ms)": "105",
+                "Parser High Missing Fields Ratio (>30%)": "106",
+                "Gemini LLM Cost Spike Alert": "107",
             }
             with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value=existing):
                 with patch("scripts.setup_new_relic_crawler_alerts.run_nerdgraph_query") as mock_query:
@@ -289,11 +292,12 @@ def test_provision_alerts_upserts_existing_conditions():
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
                     res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
                     assert res is True
-                    # All 4 conditions exist → 4 update calls, 0 create calls
-                    assert mock_query.call_count == 4
+                    # All 7 conditions exist → 7 update calls, 0 create calls
+                    assert mock_query.call_count == 7
                     for call_item in mock_query.call_args_list:
                         payload = call_item[0][0]
                         assert "alertsNrqlConditionStaticUpdate" in payload.get("query", "")
+
 
 
 def test_record_container_sample_without_license_key():
