@@ -1,11 +1,36 @@
 const { App } = require('@slack/bolt');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 const iconv = require('iconv-lite');
 
 // プロジェクトルートの .env 絶対パス指定
-const envPath = String.raw`c:\Users\weare\Documents\realestate_crawler\.env`;
-require('dotenv').config({ path: envPath });
+const envPath = process.env.ENV_PATH || path.join(__dirname, '../../..', '.env');
+if (fs.existsSync(envPath)) {
+  require('dotenv').config({ path: envPath });
+} else {
+  require('dotenv').config();
+}
+
+const defaultWinAgy = String.raw`C:\Users\weare\AppData\Local\agy\bin\agy.exe`;
+
+function resolveAgyExecutable() {
+  if (process.env.AGY_PATH) {
+    return process.env.AGY_PATH;
+  }
+  if (fs.existsSync(defaultWinAgy)) {
+    return defaultWinAgy;
+  }
+  return 'agy';
+}
+
+const agyPath = resolveAgyExecutable();
+
+const rawAllowedUsers = process.env.SLACK_ALLOWED_USERS || '';
+const allowedUsers = new Set(rawAllowedUsers.split(',').map(s => s.trim()).filter(Boolean));
+
+const rawAllowedBots = process.env.SLACK_ALLOWED_BOT_IDS || '';
+const allowedBots = new Set(rawAllowedBots.split(',').map(s => s.trim()).filter(Boolean));
 
 const botToken = process.env.SLACK_BOT_TOKEN;
 const appToken = process.env.SLACK_APP_TOKEN;
@@ -89,6 +114,36 @@ async function processInstruction(say, client, event) {
     return;
   }
 
+  const botId = event.bot_id;
+  const isAutoHeal = rawText.includes('[AUTO_HEAL_REQ]');
+
+  if (isAutoHeal) {
+    if (botId) {
+      if (allowedBots.size === 0 || !allowedBots.has(botId)) {
+        console.warn(`[SlackAgent] Unauthorized bot rejected: ${botId}`);
+        return;
+      }
+    } else if (userId) {
+      if (allowedUsers.size === 0 || !allowedUsers.has(userId)) {
+        console.warn(`[SlackAgent] Unauthorized user rejected for auto-heal: ${userId}`);
+        return;
+      }
+    } else {
+      console.warn('[SlackAgent] Rejected auto-heal request with no sender ID');
+      return;
+    }
+  } else {
+    // 通常のBot発信はスキップ
+    if (isBot) {
+      return;
+    }
+    // 人間ユーザーの権限検証
+    if (!userId || allowedUsers.size === 0 || !allowedUsers.has(userId)) {
+      console.warn(`[SlackAgent] Unauthorized user rejected: ${userId}`);
+      return;
+    }
+  }
+
   // <@UXXXXXXXX> メンションタグを除去
   const cleanText = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
@@ -109,7 +164,12 @@ async function processInstruction(say, client, event) {
   }
 
   // Windows環境対応の確実なコマンド呼び出し (shell: true)
-  const cmdLine = 'docker-compose exec -T app pytest src/crawler/tests/unit/test_parser_abstract_methods.py src/crawler/tests/unit/test_start_urls.py -v';
+  let cmdLine = '';
+  if (rawText.includes('[AUTO_HEAL_REQ]') || cleanText.includes('/auto-heal')) {
+    cmdLine = `"${agyPath}" --dangerously-skip-permissions -p "/auto-heal"`;
+  } else {
+    cmdLine = 'docker-compose exec -T app pytest src/crawler/tests/unit/test_parser_abstract_methods.py src/crawler/tests/unit/test_start_urls.py -v';
+  }
 
   console.log(`[SlackAgent] Spawning shell command: ${cmdLine}`);
 

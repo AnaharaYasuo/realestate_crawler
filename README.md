@@ -629,6 +629,9 @@ task logs
 - **[GCS障害テレメトリ要件定義書](docs/requirements/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
 - **[GCS障害テレメトリ基本設計書](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: 障害HTML永続化・再パース検証アーキテクチャ (Issue #466, #561)
 - **[GCS障害テレメトリ内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
+- **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件 (Issue #575)
+- **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計 (Issue #575)
+- **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / should_process_event 詳細仕様 (Issue #575)
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
