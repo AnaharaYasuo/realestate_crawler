@@ -321,6 +321,7 @@ def main():
                         return model.objects.filter(q).count()
         except Exception as ce:
             logging.exception(f"Failed to get db count for {company} - {ptype}: {ce}")
+            return None
         return 0
 
     today_str = datetime.date.today().strftime("%Y%m%d")
@@ -435,16 +436,31 @@ def main():
                 del active_processes[idx]
                 continue
 
-            # 子プロセスの進捗監視（15秒以上の間隔でDB件数増分を確認して last_act を更新）
-            # extra: (last_act, current_db_cnt, last_check_t)
+        # 子プロセスの進捗監視（1ループあたり最大1ジョブのみDB件数増分を確認し、DB負荷を最小化）
+        # extra: (last_act, current_db_cnt, last_check_t)
+        for idx in tuple(active_processes.keys()):
+            if idx not in active_processes:
+                continue
+            proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+            last_act = extra[0] if extra else start_t
             prev_db_cnt = extra[1] if len(extra) > 1 else 0
             last_check_t = extra[2] if len(extra) > 2 else 0.0
             if (now - last_check_t) >= 15.0:
                 current_db_cnt = get_count_for_job(company, ptype, start_dt)
-                if current_db_cnt > prev_db_cnt:
-                    last_act = now
-                active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
+                if current_db_cnt is not None:
+                    if current_db_cnt > prev_db_cnt:
+                        last_act = now
+                    active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
+                else:
+                    # クエリ失敗時は last_act を更新せず（ハング判定の即時誤検知を防ぐため以前の値を保持）、チェック時刻のみ更新
+                    active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, prev_db_cnt, now)
+                break  # 1回のループで1ジョブのみ検査して終了
 
+        for idx in tuple(active_processes.keys()):
+            if idx not in active_processes:
+                continue
+            proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+            last_act = extra[0] if extra else start_t
             if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
                 # 沈黙監視 (ハング検知)
                 logger.error(

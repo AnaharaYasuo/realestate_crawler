@@ -142,8 +142,12 @@ monitorJobExecution:
                     - logRetryError:
                         assign:
                           - ignoredRetryErr: ${retryErr}
-                    - skipToWait:
-                        next: waitAndRetry
+                    - checkTimeoutOnRetryErr:
+                        switch:
+                          - condition: ${(sys.now() - startTime) > timeoutSec}
+                            next: cancelRunningJob
+                          - condition: true
+                            next: waitAndRetry
 
     - evaluateState:
         switch:
