@@ -558,28 +558,38 @@ class AthomeParser(ParserBase):
                 return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
         return ""
 
-    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
-        if specs and isinstance(specs, dict):
-            for k in ("価格", "販売価格", "物件価格"):
-                if specs.get(k):
-                    return specs[k].split("\n")[0].strip()
-        for th in response.find_all("th"):
-            text = th.get_text().strip()
-            if "価格" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
-        # Fallback to common athome price elements or classes
+    @staticmethod
+    def _parse_price_from_specs(specs: dict) -> str:
+        for k in ("価格", "販売価格", "物件価格"):
+            if specs.get(k):
+                return specs[k].split("\n")[0].strip()
+        return ""
+
+    @staticmethod
+    def _parse_price_from_elements(response: BeautifulSoup) -> str:
         for sel in (".bukken-price", ".price", "span.price", "p.price", "td.price", ".num", "em.price"):
             el = response.select_one(sel)
             if el:
                 txt = el.get_text().strip().split("\n")[0].strip()
                 if any(unit in txt for unit in ("万", "億", "円")):
                     return txt
-        # Fallback: check td with price in table
         for td in response.find_all("td"):
             txt = td.get_text().strip()
             if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億", "円")):
                 return txt.split("\n")[0].strip()
         return ""
+
+    def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        if specs and isinstance(specs, dict):
+            val = self._parse_price_from_specs(specs)
+            if val:
+                return val
+        for th in response.find_all("th"):
+            text = th.get_text().strip()
+            if "価格" in text and th.find_next_sibling("td"):
+                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
+        return self._parse_price_from_elements(response)
+
 
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int:
