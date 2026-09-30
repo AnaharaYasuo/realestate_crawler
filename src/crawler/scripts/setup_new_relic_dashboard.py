@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 NERDGRAPH_ENDPOINT = "https://api.newrelic.com/graphql"
 DEFAULT_TIMEOUT_SEC = 10.0
+DEFAULT_DASHBOARD_NAME = "RealEstate Full-Stack Unified Observability"
 
 
 def build_dashboard_delete_payload(guid: str) -> dict[str, Any]:
@@ -38,8 +39,9 @@ def build_dashboard_delete_payload(guid: str) -> dict[str, Any]:
 
 def build_dashboard_create_payload(
     account_id: int,
-    dashboard_name: str = "RealEstate Full-Stack Unified Observability",
+    dashboard_name: str = DEFAULT_DASHBOARD_NAME,
 ) -> dict[str, Any]:
+
     """Build NerdGraph mutation to create a complete full-stack dashboard."""
     mutation = """
     mutation CreateDashboard($accountId: Int!, $dashboard: DashboardInput!) {
@@ -404,16 +406,21 @@ def main() -> None:
     dashboards = find_existing_dashboards(api_key)
     logger.info(f"Found {len(dashboards)} existing dashboard(s)")
 
-    if args.replace_all or dashboards:
+    if args.replace_all:
         for d in dashboards:
             guid = d["guid"]
-            name = d["name"]
-            logger.info(f"Deleting dashboard: {name} ({guid})")
-            delete_dashboard(guid, api_key)
+            name = d.get("name") or ""
+            if name == DEFAULT_DASHBOARD_NAME or "Real Estate" in name:
+                logger.info(f"Deleting dashboard: {name} ({guid})")
+                success = delete_dashboard(guid, api_key)
+                if not success:
+                    logger.error(f"Failed to delete dashboard {guid}, aborting.")
+                    sys.exit(1)
 
     logger.info("Creating comprehensive unified dashboard...")
     new_guid = create_unified_dashboard(args.account_id, api_key)
     logger.info(f"Unified dashboard successfully created! GUID: {new_guid}")
+
 
 
 if __name__ == "__main__":
