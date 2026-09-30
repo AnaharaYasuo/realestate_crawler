@@ -21,6 +21,12 @@ DEFAULT_TIMEOUT_SEC = 10.0
 DEFAULT_DASHBOARD_NAME = "RealEstate Full-Stack Unified Observability"
 
 
+MANAGED_DASHBOARD_NAMES = frozenset({
+    DEFAULT_DASHBOARD_NAME,
+    "GCP Real Estate System & Monitoring Overview",
+})
+
+
 def build_dashboard_delete_payload(guid: str) -> dict[str, Any]:
     """Build NerdGraph mutation to delete an existing dashboard by GUID."""
     mutation = """
@@ -41,7 +47,6 @@ def build_dashboard_create_payload(
     account_id: int,
     dashboard_name: str = DEFAULT_DASHBOARD_NAME,
 ) -> dict[str, Any]:
-
     """Build NerdGraph mutation to create a complete full-stack dashboard."""
     mutation = """
     mutation CreateDashboard($accountId: Int!, $dashboard: DashboardInput!) {
@@ -292,7 +297,6 @@ def build_dashboard_create_payload(
         },
     ]
 
-
     return {
         "query": mutation,
         "variables": {
@@ -333,7 +337,7 @@ def run_nerdgraph_query(
         return json.loads(resp.read().decode("utf-8"))
 
 
-def find_existing_dashboards(api_key: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> list[dict[str, Any]]:
+def find_existing_dashboards(api_key: str, account_id: int | None = None, timeout: float = DEFAULT_TIMEOUT_SEC) -> list[dict[str, Any]]:
     """Find all existing dashboards in the account."""
     query = """
     query SearchDashboards {
@@ -357,14 +361,17 @@ def find_existing_dashboards(api_key: str, timeout: float = DEFAULT_TIMEOUT_SEC)
     if res.get("errors"):
         raise RuntimeError(f"Failed to search dashboards: {res['errors']}")
     entities = res.get("data", {}).get("actor", {}).get("entitySearch", {}).get("results", {}).get("entities", [])
-    # Filter out individual dashboard pages to only delete parent dashboards
     parent_dashboards = []
     for ent in entities:
         is_page = any(t.get("key") == "isDashboardPage" and "true" in t.get("values", []) for t in ent.get("tags", []))
-        if not is_page:
-            parent_dashboards.append(ent)
+        if is_page:
+            continue
+        if account_id is not None:
+            acc_tags = [v for t in ent.get("tags", []) if t.get("key") == "accountId" for v in t.get("values", [])]
+            if acc_tags and str(account_id) not in acc_tags:
+                continue
+        parent_dashboards.append(ent)
     return parent_dashboards
-
 
 
 def delete_dashboard(guid: str, api_key: str, timeout: float = DEFAULT_TIMEOUT_SEC) -> bool:
@@ -392,25 +399,33 @@ def create_unified_dashboard(account_id: int, api_key: str, timeout: float = DEF
 
 
 def main() -> None:
+    env_account_id = os.getenv("NEW_RELIC_ACCOUNT_ID")
+    default_acc_id = int(env_account_id) if env_account_id and env_account_id.isdigit() else None
+
     parser = argparse.ArgumentParser(description="Provision New Relic Unified Dashboard")
-    parser.add_argument("--account-id", type=int, default=8553111, help="New Relic Account ID")
+    parser.add_argument("--account-id", type=int, default=default_acc_id, help="New Relic Account ID")
     parser.add_argument("--api-key", default=os.getenv("NEW_RELIC_API_KEY"), help="New Relic User API Key")
     parser.add_argument("--replace-all", action="store_true", help="Delete all existing dashboards before creating")
     args = parser.parse_args()
+
+    account_id = args.account_id
+    if account_id is None:
+        logger.error("NEW_RELIC_ACCOUNT_ID environment variable or --account-id argument is required")
+        sys.exit(1)
 
     api_key = args.api_key or os.getenv("NEW_RELIC_API_KEY")
     if not api_key:
         logger.error("NEW_RELIC_API_KEY is required")
         sys.exit(1)
 
-    dashboards = find_existing_dashboards(api_key)
+    dashboards = find_existing_dashboards(api_key, account_id=account_id)
     logger.info(f"Found {len(dashboards)} existing dashboard(s)")
 
     if args.replace_all:
         for d in dashboards:
             guid = d["guid"]
             name = d.get("name") or ""
-            if name == DEFAULT_DASHBOARD_NAME or "Real Estate" in name:
+            if name in MANAGED_DASHBOARD_NAMES:
                 logger.info(f"Deleting dashboard: {name} ({guid})")
                 success = delete_dashboard(guid, api_key)
                 if not success:
@@ -418,8 +433,9 @@ def main() -> None:
                     sys.exit(1)
 
     logger.info("Creating comprehensive unified dashboard...")
-    new_guid = create_unified_dashboard(args.account_id, api_key)
+    new_guid = create_unified_dashboard(account_id, api_key)
     logger.info(f"Unified dashboard successfully created! GUID: {new_guid}")
+
 
 
 

@@ -56,6 +56,31 @@ def test_record_http_request_success():
             assert params["site_name"] == "athome"
             assert params["is_blocked"] is True
             assert params["url"] == "https://www.athome.co.jp/test"
+            assert params["is_blocked"] is True
+
+
+def test_record_http_request_auto_blocked_and_site_name_fallback():
+    """status_code 429で自動的にis_blocked=Trueになり、site_name未指定時にdomainにフォールバックすること"""
+    mock_agent = MagicMock()
+    mock_module = MagicMock()
+    mock_module.agent = mock_agent
+
+    with patch.dict(os.environ, {"NEW_RELIC_LICENSE_KEY": "fake_key"}):
+        with patch.dict("sys.modules", {"newrelic": mock_module, "newrelic.agent": mock_agent}):
+            res = record_http_request(
+                domain="suumo.jp",
+                method="GET",
+                status_code=429,
+                duration_ms=250.0,
+            )
+            assert res is True
+            mock_agent.record_custom_event.assert_called_once()
+            event_type, params = mock_agent.record_custom_event.call_args[0]
+            assert event_type == "HttpRequestEvent"
+            assert params["domain"] == "suumo.jp"
+            assert params["site_name"] == "suumo.jp"
+            assert params["status_code"] == 429
+            assert params["is_blocked"] is True
 
 
 def test_record_database_operation_success():
