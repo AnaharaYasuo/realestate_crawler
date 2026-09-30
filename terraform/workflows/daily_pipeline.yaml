@@ -131,10 +131,19 @@ monitorJobExecution:
                 args:
                   seconds: 10
             - retryCheckStatus:
-                call: googleapis.run.v2.projects.locations.jobs.executions.get
-                args:
-                  name: ${executionName}
-                result: execDetails
+                try:
+                  call: googleapis.run.v2.projects.locations.jobs.executions.get
+                  args:
+                    name: ${executionName}
+                  result: execDetails
+                except:
+                  as: retryErr
+                  steps:
+                    - logRetryError:
+                        assign:
+                          - ignoredRetryErr: ${retryErr}
+                    - skipToWait:
+                        next: waitAndRetry
 
     - evaluateState:
         switch:

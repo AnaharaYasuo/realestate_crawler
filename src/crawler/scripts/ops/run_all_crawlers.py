@@ -433,15 +433,19 @@ def main():
                     logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
 
                 del active_processes[idx]
-                
-            # 子プロセスの進捗監視（DB新規登録・更新件数の増分を検知して last_act を更新）
-            current_db_cnt = get_count_for_job(company, ptype, start_dt)
-            prev_db_cnt = extra[1] if len(extra) > 1 else 0
-            if current_db_cnt > prev_db_cnt:
-                last_act = now
-                active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, current_db_cnt)
+                continue
 
-            elif check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
+            # 子プロセスの進捗監視（15秒以上の間隔でDB件数増分を確認して last_act を更新）
+            # extra: (last_act, current_db_cnt, last_check_t)
+            prev_db_cnt = extra[1] if len(extra) > 1 else 0
+            last_check_t = extra[2] if len(extra) > 2 else 0.0
+            if (now - last_check_t) >= 15.0:
+                current_db_cnt = get_count_for_job(company, ptype, start_dt)
+                if current_db_cnt > prev_db_cnt:
+                    last_act = now
+                active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
+
+            if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
                 # 沈黙監視 (ハング検知)
                 logger.error(
                     f"[{idx}] Crawl job silent/hung for {company} - {ptype} "
