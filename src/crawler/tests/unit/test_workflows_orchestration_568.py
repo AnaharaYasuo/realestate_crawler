@@ -16,7 +16,7 @@ def test_workflows_timeout_definitions():
 
     # YAMLから動的に maxPipelineDurationSec と crawlTimeoutSec の設定値を抽出
     max_duration_match = re.search(r"maxPipelineDurationSec:\s*(\d+)", content)
-    crawl_timeout_match = re.search(r"crawlTimeoutSec.*?(\d{4,6})", content)
+    crawl_timeout_match = re.search(r"crawlTimeoutSec[^\n\r]*?(\d{4,6})", content)
 
     assert max_duration_match is not None, "maxPipelineDurationSec must be defined in daily_pipeline.yaml"
     assert crawl_timeout_match is not None, "crawlTimeoutSec must be defined in daily_pipeline.yaml"

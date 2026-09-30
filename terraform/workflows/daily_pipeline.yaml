@@ -48,6 +48,12 @@ main:
                   executionName: ${crawlerExecutionName}
                   timeoutSec: ${crawlTimeoutSec}
 
+            - calculateRemainingTime:
+                assign:
+                  - elapsedSoFar: ${sys.now() - pipelineStart}
+                  - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
+                  - mlEffectiveTimeout: ${max(min(7200, remainingMLTimeout), 60)}
+
             - runMLAndEstimation:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
@@ -59,12 +65,6 @@ main:
             - resolveMLExecution:
                 assign:
                   - mlExecutionName: ${default(map.get(map.get(mlOperation, "response"), "name"), map.get(map.get(mlOperation, "metadata"), "name"))}
-
-            - calculateRemainingTime:
-                assign:
-                  - elapsedSoFar: ${sys.now() - pipelineStart}
-                  - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
-                  - mlEffectiveTimeout: ${default(min(7200, remainingMLTimeout), 300)}
 
             - waitMLCompletion:
                 call: monitorJobExecution
