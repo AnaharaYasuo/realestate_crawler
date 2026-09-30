@@ -24,6 +24,7 @@ DECIMAL_REGEX = re.compile('([\\d\\.]+)')
 DIGIT_REGEX = re.compile('(\\d+)')
 WHITESPACE_REGEX = re.compile('\\s+')
 _BLANK_SPEC_VALUES = frozenset({'', '-', '－', '―', '—'})
+KEY_SHAKUCHIKEN_SHURUI = '借地権種類'
 
 def _is_filled_spec_value(val) -> bool:
     if isinstance(val, dict):
@@ -220,7 +221,8 @@ class ParserBase(metaclass=ABCMeta):
                 return m.group(1) if m else val
         setsudou = self.get_setsudou(response)
         if setsudou:
-            m = re.search('(\\d+(?:\\.\\d+)?)\\s*[mｍ]', setsudou)
+            clean_setsudou = setsudou.replace(' ', '').replace('　', '')
+            m = re.search(r'(\d+(?:\.\d+)?)[mｍ]', clean_setsudou)
             if m:
                 return m.group(1)
         return ''
@@ -242,7 +244,7 @@ class ParserBase(metaclass=ABCMeta):
     def get_rights(self, response: BeautifulSoup) -> str:
         """権利関係・借地権等の抽出"""
         specs = self._get_specs(response)
-        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get('借地権種類', '')
+        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get(KEY_SHAKUCHIKEN_SHURUI, '')
 
     def get_chikunengetsu_str(self, response: BeautifulSoup) -> str:
         """築年月（文字列）の抽出"""
@@ -576,27 +578,32 @@ class ParserBase(metaclass=ABCMeta):
 
     def _try_bracket_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 沿線「駅」徒歩N分 style traffic. Returns True if matched."""
-        m = re.search('([^\\s「」]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線)?)\\s*「([^「」]+?)」\\s*(?:駅|停留所|バス停)?\\s*(?:徒歩|バス|車)?\\s*(\\d+)?\\s*分?', traffic_text)
-        if not m:
+        m_st = re.search(r'([^ \t\r\n「」]+?)\s*「([^「」]+)」', traffic_text)
+        if not m_st:
             return False
-        self._apply_railway_station_fields(item, m.group(1), m.group(2), m.group(3))
+        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
+        walk_min = m_walk.group(1) if m_walk else None
+        self._apply_railway_station_fields(item, m_st.group(1), m_st.group(2), walk_min)
         return True
 
     def _try_space_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 沿線 駅名駅 徒歩N分 style traffic. Returns True if matched."""
-        m = re.search('([^\\s「」\\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\\s+([^\\s「」\\/]+?駅)(?:\\s*(?:徒歩|バス|車))?(?:\\s*(\\d+)(?:\\s*分)?)?', traffic_text)
-        if not m:
+        m_st = re.search(r'([^ \t\r\n「」\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\s+([^ \t\r\n「」\/]+?駅)', traffic_text)
+        if not m_st:
             return False
-        self._apply_railway_station_fields(item, m.group(1), m.group(2), m.group(3))
+        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
+        walk_min = m_walk.group(1) if m_walk else None
+        self._apply_railway_station_fields(item, m_st.group(1), m_st.group(2), walk_min)
         return True
 
     def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
-        m = re.search('([^\\s「」\\d]+?(?:駅|停留所|バス停))(?:\\s*(?:徒歩|バス|車))?(?:\\s*(\\d+)(?:\\s*分)?)?', traffic_text)
-        if not m:
+        m_st = re.search(r'([^ \t\r\n「」\d]+?(?:駅|停留所|バス停))', traffic_text)
+        if not m_st:
             return False
-        station = self._normalize_station_name(m.group(1))
-        walk_min = m.group(2)
+        station = self._normalize_station_name(m_st.group(1))
+        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
+        walk_min = m_walk.group(1) if m_walk else None
         if hasattr(item, 'station1') and (not getattr(item, 'station1', None)):
             item.station1 = station
         if hasattr(item, 'walkMinutes1') and walk_min and (getattr(item, 'walkMinutes1', None) is None):
@@ -1172,7 +1179,7 @@ class MansionParserBase(ParserBase):
 
     def get_rights(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get('借地権種類', '')
+        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get(KEY_SHAKUCHIKEN_SHURUI, '')
 
     def get_youto_chiiki(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1300,7 +1307,7 @@ class KodateParserBase(ParserBase):
 
     def get_rights(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get('借地権種類', '')
+        return specs.get('権利', '') or specs.get('土地権利', '') or specs.get(KEY_SHAKUCHIKEN_SHURUI, '')
 
     def get_youto_chiiki(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1373,7 +1380,7 @@ class KodateParserBase(ParserBase):
     def _parseCurrentStatus(self, response: BeautifulSoup, specs=None) -> str:
         return self.get_current_status(response)
 
-    def _parseChimoku(self, response: BeautifulSoup, specs=None) -> str:
+    def _parseChimoku(self, response: BeautifulSoup, _specs=None) -> str:
         return self.get_chimoku(response)
 
 class TochiParserBase(ParserBase):
@@ -1456,7 +1463,7 @@ class TochiParserBase(ParserBase):
     def get_current_status(self, response: BeautifulSoup) -> str:
         return self.get_genkyo(response)
 
-    def get_kaisu_str(self, response: BeautifulSoup) -> str:
+    def get_kaisu_str(self, _response: BeautifulSoup) -> str:
         """土地には階数が存在しないため常に空文字を返す"""
         return ''
 

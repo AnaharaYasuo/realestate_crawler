@@ -177,20 +177,20 @@ class MitsuiParser(ParserBase):
 
         return item
 
-    def _parseChikunengetsuStr(self, response, specs=None):
+    def _parseChikunengetsuStr(self, response, _specs=None):
         return self.get_chikunengetsu_str(response)
 
     def _parseChikunengetsu(self, response, _specs=None):
         return self.get_chikunengetsu(response)
 
-    def _parsePriceStr(self, response, specs=None):
+    def _parsePriceStr(self, response, _specs=None):
         return self.get_price_str(response)
 
     def _parsePrice(self, response, _specs=None):
         return self.get_price(response)
 
 
-    def _parseAddress(self, response, specs=None):
+    def _parseAddress(self, response, _specs=None):
         return self.get_address(response)
 
     def _parseAddress1(self, response, _specs=None):
@@ -208,13 +208,13 @@ class MitsuiParser(ParserBase):
         _, _, town = self._split_address(address)
         return town.strip() if town else ""
 
-    def _parseHikiwatashi(self, response, specs=None):
+    def _parseHikiwatashi(self, response, _specs=None):
         return self.get_hikiwatashi(response)
 
-    def _parseGenkyo(self, response, specs=None):
+    def _parseGenkyo(self, response, _specs=None):
         return self.get_genkyo(response)
 
-    def _parseTochikenri(self, response, specs=None):
+    def _parseTochikenri(self, response, _specs=None):
         return self.get_rights(response)
 
     def _parseSonotaHiyou(self, response, specs=None):
@@ -397,15 +397,7 @@ class MitsuiParser(ParserBase):
             except Exception: return None
 
     def _parseYousekiDetails(self, value):
-        if not value: return None
-        if(value.find(ROAD_WIDTH_PREFIX)>-1 and value.find(ROAD_WIDTH_PREFIX + "前面道路幅員")==-1):
-            s:str = value.split(ROAD_WIDTH_PREFIX)[1].split("％")[0]
-            s=unicodedata.normalize("NFKD", s)
-            s_obj = re.search(REGEX_DECIMAL, s)
-            return s_obj.group() if s_obj else None
-        else:
-            try: return int(value.split("%")[0].strip())
-            except Exception: return None
+        return self._parseKenpeiDetails(value)
 
 
 
