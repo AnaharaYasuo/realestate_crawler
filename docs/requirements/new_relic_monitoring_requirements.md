@@ -55,9 +55,21 @@
   3. **対象サイト拒絶急増 (Target Site 403/429 Spike)**: スクレイピングブロックやレート制限の急増。
   4. **コンテナリソース高負荷 (Container High CPU/Memory)**: メモリ使用率 85% 超の OOM 予兆検知。
 
-### FR-10: パイプライン実行・バッチクローラー APM & メトリクス計装
-- Cloud Run Job エントリーポイント（`run_pipeline.py`）およびバッチクローラー（`run_all_crawlers.py`）の起動時に `init_new_relic()` を呼び出し、APM エージェントを初期化すること。
-- 各クロールジョブの終了時（正常終了・エラー・タイムアウト時）に `record_crawler_metrics()` を呼び出し、サイト別・種別別の取得件数、実行時間、ステータスを New Relic カスタムイベント（`CrawlerExecution`）へ送信すること。
+### FR-11: 外部HTTP通信レイテンシ＆ステータス監視 (HttpRequestEvent)
+- 各ポータル（homes, athome, tokyu, sumifu等）へのHTTPリクエストにおいて、URLドメイン/サイト名、HTTPステータスコード、レスポンスタイム（ミリ秒）、レスポンスサイズ（bytes）を New Relic カスタムイベント（`HttpRequestEvent`）として記録すること。
+- 403 (Cloudflare/Bot検知) や 429 (Rate Limit) などの異常ステータスを即時検知・分析可能とすること。
+
+### FR-12: データベース・クエリ性能監視 (DatabaseEvent)
+- 物件データのバルク保存処理（Bulk Upsert / Insert）において、テーブル名、操作種別（upsert/insert/select）、処理レコード件数、実行所要時間（ミリ秒）、成否ステータスを New Relic カスタムイベント（`DatabaseEvent`）として記録すること。
+
+### FR-13: パーサー詳細＆セレクター欠損監視 (ParserEvent)
+- 各物件のパース処理において、純パース処理時間（ミリ秒）、必須フィールド抽出率（価格、面積、間取り等の欠損有無）、サイト名、物件種別を New Relic カスタムイベント（`ParserEvent`）として記録すること。
+
+### FR-14: 機械学習（ML）価格推定パイプライン監視 (MlInferenceEvent)
+- ML一括価格推定バッチにおいて、モデル種別（mansion/kodate/tochi等）、推定件数、推論所要時間（ミリ秒）、割安物件検知件数、スキップ件数を New Relic カスタムイベント（`MlInferenceEvent`）として記録すること。
+
+### FR-15: 全方位統合ダッシュボード自動構築 (Comprehensive Dashboard)
+- クローラー運用、HTTP通信、DB性能、パーサー品質、コンテナリソース、LLM利用状況、ML価格推定、エラーログ、外形監視の全メトリクスを一元可視化する NerdGraph ベースのダッシュボード自動構築・再構築スクリプト（`setup_new_relic_dashboard.py`）を提供すること。
 
 ## 4. 非機能要件
 - **NFR-01 (セキュリティ)**: ライセンスキー・API キー等の機密情報はリポジトリへコミットせず、`.env` および GCP Secret Manager にて秘匿管理すること。
@@ -69,9 +81,11 @@
 - [x] 【基準1】Python APM エージェント（newrelic）が設定され、環境変数が有効な場合に自動計装されること
 - [x] 【基準2】Terraform および Secret Manager 定義に New Relic ライセンスキー連携が定義され、Cloud Run サービスへ安全に注入可能であること
 - [x] 【基準3】New Relic Synthetics（外形監視・死活ヘルスチェック）設定スクリプト/定義が存在し、API エンドポイント監視が自動構成できること
-- [ ] 【基準4】Docker コンテナおよび DB/ProxySQL 監視設定ファイル（`docker-compose.newrelic.yml`）が整備されていること
-- [ ] 【基準5】GCP Cloud Logging ➔ New Relic 転送ログルーター Terraform 定義が存在すること
-- [ ] 【基準6】GenAI / LLM パース時のトークン数・レイテンシ・コスト計測連携ヘルパーが実装されていること
-- [ ] 【基準7】デプロイ通知スクリプト（Change Tracking）およびクローラー特化 NRQL アラート設定スクリプトが実装されていること
-- [ ] 【基準8】SDD 仕様ドキュメント（要件定義・基本設計・内部設計）が同期更新されていること
-- [ ] 【基準9】単体テスト・ローカル静的解析（SonarCloud / CodeRabbit CLI）を 100% 通過すること
+- [x] 【基準4】Docker コンテナおよび DB/ProxySQL 監視設定ファイル（`docker-compose.newrelic.yml`）が整備されていること
+- [x] 【基準5】GCP Cloud Logging ➔ New Relic 転送ログルーター Terraform 定義が存在すること
+- [x] 【基準6】GenAI / LLM パース時のトークン数・レイテンシ・コスト計測連携ヘルパーが実装されていること
+- [x] 【基準7】デプロイ通知スクリプト（Change Tracking）およびクローラー特化 NRQL アラート設定スクリプトが実装されていること
+- [x] 【基準8】HTTP通信、DB、パース、ML推論メトリクスの記録ヘルパーが実装されていること
+- [x] 【基準9】全メトリクスを参照可能な統合ダッシュボード自動構築スクリプト（`setup_new_relic_dashboard.py`）が実装されていること
+- [ ] 【基準10】SDD 仕様ドキュメント（要件定義・基本設計・内部設計）が同期更新されていること
+- [ ] 【基準11】単体テスト・ローカル静的解析（SonarCloud / CodeRabbit CLI）を 100% 通過すること

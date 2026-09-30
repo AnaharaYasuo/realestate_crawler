@@ -137,6 +137,60 @@ def build_nrql_conditions(account_id: int, policy_id: int) -> list[dict[str, Any
             ],
             "valueFunction": "SINGLE_VALUE",
         },
+        {
+            "name": "Database Bulk Upsert High Latency (>5000ms)",
+            "policyId": policy_id,
+            "enabled": True,
+            "nrql": {
+                "query": "SELECT average(duration_ms) FROM DatabaseEvent FACET table_name",
+            },
+            "terms": [
+                {
+                    "priority": "WARNING",
+                    "operator": "ABOVE",
+                    "threshold": 5000.0,
+                    "thresholdDuration": 300,
+                    "thresholdOccurrences": "ALL",
+                }
+            ],
+            "valueFunction": "SINGLE_VALUE",
+        },
+        {
+            "name": "Parser High Missing Fields Ratio (>30%)",
+            "policyId": policy_id,
+            "enabled": True,
+            "nrql": {
+                "query": "SELECT average(missing_ratio) FROM ParserEvent FACET site_name",
+            },
+            "terms": [
+                {
+                    "priority": "CRITICAL",
+                    "operator": "ABOVE",
+                    "threshold": 30.0,
+                    "thresholdDuration": 300,
+                    "thresholdOccurrences": "ALL",
+                }
+            ],
+            "valueFunction": "SINGLE_VALUE",
+        },
+        {
+            "name": "Gemini LLM Cost Spike Alert",
+            "policyId": policy_id,
+            "enabled": True,
+            "nrql": {
+                "query": "SELECT sum(cost_usd) FROM LlmEvent",
+            },
+            "terms": [
+                {
+                    "priority": "WARNING",
+                    "operator": "ABOVE",
+                    "threshold": 5.0,
+                    "thresholdDuration": 300,
+                    "thresholdOccurrences": "AT_LEAST_ONCE",
+                }
+            ],
+            "valueFunction": "SINGLE_VALUE",
+        },
     ]
 
 
