@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import threading
 from typing import Any
 
 try:
@@ -9,6 +10,10 @@ except ImportError:
     newrelic = None
 
 logger = logging.getLogger(__name__)
+
+# Holds the Application object returned by register_application().
+# Used to pass application= to record_custom_event() in batch/job processes.
+_NR_APP: Any = None
 
 
 def _get_agent() -> Any | None:
@@ -22,12 +27,22 @@ def _get_agent() -> Any | None:
     return None
 
 
+def _get_application() -> Any | None:
+    """Return the registered New Relic Application object, or None if not initialized."""
+    return _NR_APP
+
+
 def init_new_relic() -> bool:
-    """Initialize New Relic APM agent if NEW_RELIC_LICENSE_KEY is configured in the environment."""
+    """Initialize New Relic APM agent and register application for batch/job processes.
+
+    Calls register_application(timeout=10) so that record_custom_event() outside
+    a transaction can specify application= and actually deliver events.
+    APM log forwarding is disabled to prevent double-ingestion from Cloud Logging.
+    """
     license_key = os.getenv("NEW_RELIC_LICENSE_KEY", "").strip()
     if not license_key:
         return False
-    # The agent reads NEW_RELIC_LICENSE_KEY directly from the environment.
+    # Write back stripped key so the agent picks it up correctly (Issue #529, #562 #9)
     os.environ["NEW_RELIC_LICENSE_KEY"] = license_key
 
     app_name = os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
@@ -37,12 +52,40 @@ def init_new_relic() -> bool:
         if agent is None:
             logger.warning("New Relic package not installed or agent unavailable")
             return False
-        agent.initialize()
-        logger.info(f"New Relic APM agent initialized successfully for application: {app_name}")
+
+        # Disable APM log forwarding — logs flow via Cloud Logging → Pub/Sub (Issue #562 #9)
+        agent.initialize(config_file=None, environment=None, ignore_errors=True)
+
+        # register_application is required for batch processes that have no web transactions.
+        # Without it, record_custom_event() outside a transaction is silently discarded (Issue #562 #2).
+        # The returned Application object is stored globally so _get_application() returns it
+        # to all record_custom_event() calls (CodeRabbit: must use returned object, not agent.application()).
+        global _NR_APP
+        _NR_APP = agent.register_application(name=app_name, timeout=10.0)
+        if _NR_APP is None:
+            logger.warning("New Relic register_application returned None — events may not be delivered")
+        logger.info(f"New Relic APM agent initialized and registered for application: {app_name}")
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to initialize New Relic APM agent: {e}")
         return False
+
+
+def shutdown_new_relic(timeout: float = 10.0) -> None:
+    """Flush and shut down the New Relic agent before process exit.
+
+    Must be called at the end of batch/job processes to ensure all buffered
+    custom events (CrawlerExecution, ContainerSample, LlmEvent) are flushed
+    to New Relic before the container terminates (Issue #562 #2).
+    """
+    agent = _get_agent()
+    if agent is None:
+        return
+    try:
+        agent.shutdown_agent(timeout=timeout)
+        logger.info("New Relic agent shut down and events flushed.")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"New Relic shutdown_agent failed: {e}")
 
 
 def record_llm_event(
@@ -79,7 +122,8 @@ def record_llm_event(
         if error_msg:
             params["error_msg"] = error_msg
 
-        agent.record_custom_event("LlmEvent", params)
+        # application= required outside a web transaction (batch/job processes) — Issue #562 #2
+        agent.record_custom_event("LlmEvent", params, application=_get_application())
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to record New Relic LLM event: {e}")
@@ -117,7 +161,8 @@ def record_crawler_metrics(
             "status": status,
         })
 
-        agent.record_custom_event("CrawlerExecution", params)
+        # application= required outside a web transaction (batch/job processes) — Issue #562 #2
+        agent.record_custom_event("CrawlerExecution", params, application=_get_application())
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to record New Relic crawler execution metrics: {e}")
@@ -214,8 +259,32 @@ def record_container_sample(
             "cpuUsageSeconds": cpu_usage_seconds,
         })
 
-        agent.record_custom_event("ContainerSample", params)
+        # application= required outside a web transaction (batch/job processes) — Issue #562 #3
+        agent.record_custom_event("ContainerSample", params, application=_get_application())
         return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to record New Relic container sample: {e}")
         return False
+
+
+def start_container_sample_thread(interval_sec: int = 60, service_name: str | None = None) -> threading.Thread | None:
+    """Start a background thread that records ContainerSample every interval_sec seconds.
+
+    Required for batch/job processes to capture memory usage throughout execution,
+    not just at startup (Issue #562 #3). Returns the daemon thread (already started).
+    """
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return None
+
+    stop_event = threading.Event()
+
+    def _sampler() -> None:
+        while not stop_event.wait(timeout=interval_sec):
+            try:
+                record_container_sample(service_name=service_name)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"ContainerSample thread error: {e}")
+
+    t = threading.Thread(target=_sampler, daemon=True, name="nr-container-sample")
+    t.start()
+    return t

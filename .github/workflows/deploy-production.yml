@@ -185,4 +185,22 @@ jobs:
             --args=--project-id=sumifu,--region=asia-northeast1,--instance-name=proxysql-instance-prod \
             --region=asia-northeast1
 
+      - name: Notify New Relic Deployment (Change Tracking)
+        # Record deployment marker in New Relic for performance impact tracking (Issue #562 #5, CodeRabbit review)
+        # Executed at the very end after all services and jobs are updated
+        env:
+          NEW_RELIC_API_KEY: ${{ secrets.NEW_RELIC_API_KEY }}
+          # GUID of the realestate-api-prod APM entity
+          NEW_RELIC_ENTITY_GUID: ${{ secrets.NEW_RELIC_ENTITY_GUID }}
+        run: |
+          pip install --quiet python-dotenv || true
+          python src/crawler/scripts/notify_new_relic_deployment.py \
+            --version "${{ github.sha }}" \
+            --commit "${{ github.sha }}" \
+            --changelog "Production deploy triggered by ${{ github.actor }}" \
+            --user "${{ github.actor }}" \
+            --entity-guid "$NEW_RELIC_ENTITY_GUID" \
+            --timeout 10 || echo "New Relic deployment notification failed (non-blocking)"
+
+
 

@@ -77,18 +77,52 @@ def get_existing_monitors(api_key: str, account_id: int) -> list:
     return entities
 
 
+def enable_monitor(api_key: str, monitor_guid: str) -> bool:
+    """Enable a DISABLED Synthetics monitor via NerdGraph (Issue #562 #4)."""
+    mutation = """
+    mutation EnableMonitor($guid: EntityGuid!) {
+      syntheticsEnableMonitor(guid: $guid) {
+        errors {
+          description
+          type
+        }
+      }
+    }
+    """
+    res = run_nerdgraph_query(api_key, mutation, {"guid": monitor_guid})
+    # Check top-level errors first (GraphQL can return both data=null and errors simultaneously)
+    top_errors = res.get("errors")
+    if top_errors:
+        logger.error(f"Failed to enable Synthetics monitor {monitor_guid}: {top_errors}")
+        return False
+    inner_errors = (res.get("data") or {}).get("syntheticsEnableMonitor", {}).get("errors")
+    if inner_errors:
+        logger.error(f"Failed to enable Synthetics monitor {monitor_guid}: {inner_errors}")
+        return False
+    logger.info(f"Synthetics monitor {monitor_guid} enabled successfully.")
+    return True
+
+
 def create_or_verify_synthetics_monitor(
     api_key: str,
     account_id: int,
     target_url: str,
     monitor_name: str = "RealEstate API Health Check",
 ) -> dict:
-    """Create Synthetics Simple Monitor if not present, or return existing one."""
+    """Create Synthetics Simple Monitor if not present, or return existing one.
+
+    If the existing monitor is DISABLED, it is re-enabled (Issue #562 #4).
+    """
     logger.info(f"Checking existing Synthetics monitors for account {account_id}...")
     existing = get_existing_monitors(api_key, account_id)
     for m in existing:
         if m.get("name") == monitor_name:
-            logger.info(f"Synthetics monitor '{monitor_name}' already exists: GUID={m.get('guid')}")
+            guid = m.get("guid", "")
+            logger.info(f"Synthetics monitor '{monitor_name}' already exists: GUID={guid}")
+            # Re-enable if DISABLED (was stopped due to 404 — Issue #562 #4)
+            if guid:
+                if not enable_monitor(api_key, guid):
+                    raise RuntimeError(f"Failed to enable Synthetics monitor: {guid}")
             return m
 
     logger.info(f"Creating new Synthetics Simple Monitor: {monitor_name} -> {target_url}")
