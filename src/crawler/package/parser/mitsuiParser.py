@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import importlib
 import sys
@@ -64,7 +63,7 @@ class MitsuiParser(ParserBase):
         return None
 
     def getRootXpath(self):
-        xpath = self.selectors.get('root_xpath', u'')
+        xpath = self.selectors.get('root_xpath', '')
         logging.info(f"[{self.property_type}] root_xpath: {xpath}")
         return xpath
 
@@ -92,7 +91,7 @@ class MitsuiParser(ParserBase):
             yield dest_url
 
     def getAreaXpath(self):
-        xpath = self.selectors.get('area_xpath', u'')
+        xpath = self.selectors.get('area_xpath', '')
         logging.info(f"[{self.property_type}] area_xpath: {xpath}")
         return xpath
 
@@ -113,7 +112,7 @@ class MitsuiParser(ParserBase):
                 yield dest_url
 
     def getPropertyListXpath(self):
-        xpath = self.selectors.get('property_list_xpath', u'')
+        xpath = self.selectors.get('property_list_xpath', '')
         logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
@@ -141,28 +140,34 @@ class MitsuiParser(ParserBase):
             logging.warning(f"getPropertyListNextPageUrl exception: {e}")
         return ""
 
+    def get_address(self, response: BeautifulSoup) -> str:
+        addr = super().get_address(response)
+        if addr:
+            addr = re.sub(r'GoogleMaps.*$', '', addr).strip()
+        return addr
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
 
-        item.propertyName = self._parsePropertyName(response)
-        item.priceStr = self._parsePriceStr(response)
-        item.price = self._parsePrice(response)
-        item.address = self._parseAddress(response)
+        item.propertyName = self.get_property_name(response)
+        item.priceStr = self.get_price_str(response)
+        item.price = self.get_price(response)
+        item.address = self.get_address(response)
         
         item.address1 = self._parseAddress1(response)
         item.address2 = self._parseAddress2(response)
         item.address3 = self._parseAddress3(response)
 
-        item.hikiwatashi = self._parseHikiwatashi(response)
-        item.genkyo = self._parseGenkyo(response)
-        item.tochikenri = self._parseTochikenri(response)
+        item.hikiwatashi = self.get_hikiwatashi(response)
+        item.genkyo = self.get_genkyo(response)
+        item.tochikenri = self.get_rights(response)
         item.sonotaHiyouStr = self._parseSonotaHiyou(response)
         item.torihiki = self._parseTorihiki(response)
         item.biko = self._parseBiko(response)
         
         # 築年月の追加
-        item.chikunengetsuStr = self._parseChikunengetsuStr(response)
-        item.chikunengetsu = self._parseChikunengetsu(response)
+        item.chikunengetsuStr = self.get_chikunengetsu_str(response)
+        item.chikunengetsu = self.get_chikunengetsu(response)
         
         # Traffic
         traffic_lines = self._parseTrafficLines(response)
@@ -173,27 +178,20 @@ class MitsuiParser(ParserBase):
         return item
 
     def _parseChikunengetsuStr(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("築年月", "")
+        return self.get_chikunengetsu_str(response)
 
     def _parseChikunengetsu(self, response, _specs=None):
-        s = self._parseChikunengetsuStr(response)
-        return converter.parse_chikunengetsu(s) if s else None
+        return self.get_chikunengetsu(response)
 
     def _parsePriceStr(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("価格", "")
+        return self.get_price_str(response)
 
     def _parsePrice(self, response, _specs=None):
-        return converter.parse_price(self._parsePriceStr(response))
+        return self.get_price(response)
 
 
     def _parseAddress(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        addr = target_specs.get("所在地", "")
-        if addr:
-            addr = re.sub(r'GoogleMaps.*$', '', addr).strip()
-        return addr
+        return self.get_address(response)
 
     def _parseAddress1(self, response, _specs=None):
         address = self._parseAddress(response)
@@ -211,16 +209,13 @@ class MitsuiParser(ParserBase):
         return town.strip() if town else ""
 
     def _parseHikiwatashi(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("引渡時期", "")
+        return self.get_hikiwatashi(response)
 
     def _parseGenkyo(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("現況", "")
+        return self.get_genkyo(response)
 
     def _parseTochikenri(self, response, specs=None):
-        target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("土地権利", "")
+        return self.get_rights(response)
 
     def _parseSonotaHiyou(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
@@ -375,8 +370,8 @@ class MitsuiParser(ParserBase):
         
         max_haba = -1.0
         
-        for wk_str in setsudou.split(u"、"):
-            douro_haba_obj = re.search(REGEX_DECIMAL, wk_str.split(u"ｍ")[0])
+        for wk_str in setsudou.split("、"):
+            douro_haba_obj = re.search(REGEX_DECIMAL, wk_str.split("ｍ")[0])
             try:
                 if douro_haba_obj:
                     haba = float(douro_haba_obj.group())
@@ -384,7 +379,7 @@ class MitsuiParser(ParserBase):
                         max_haba = haba
                         
                         details['douroHaba'] = Decimal(str(haba))
-                        details['douroKubun'] = wk_str.split(u"ｍ")[1].replace(u"(","").replace(u")","").strip()
+                        details['douroKubun'] = wk_str.split("ｍ")[1].replace("(","").replace(")","").strip()
                         details['douroMuki'] = wk_str[0:(douro_haba_obj.start())].split("：")[0]
                         details['setsumen'] = Decimal(0)
             except Exception: pass
@@ -393,7 +388,7 @@ class MitsuiParser(ParserBase):
     def _parseKenpeiDetails(self, value):
         if not value: return None
         if(value.find(ROAD_WIDTH_PREFIX)>-1 and value.find(ROAD_WIDTH_PREFIX + "前面道路幅員")==-1):
-            s:str = value.split(ROAD_WIDTH_PREFIX)[1].split(u"％")[0]
+            s:str = value.split(ROAD_WIDTH_PREFIX)[1].split("％")[0]
             s=unicodedata.normalize("NFKD", s)
             s_obj = re.search(REGEX_DECIMAL, s)
             return s_obj.group() if s_obj else None
@@ -464,40 +459,37 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
 
-        item.madori = self._parseMadori(response)
-        item.senyuMensekiStr = self._parseSenyuMensekiStr(response)
-        item.senyuMenseki = self._parseSenyuMenseki(response)
-        item.kaisuStr = self._parseKaisuStr(response)
-        item.kaisu = self._parseKaisu(response)
-        item.kouzou = self._parseKouzou(response)
-
+        item.madori = self.get_madori(response)
+        item.senyuMensekiStr = self.get_senyu_menseki_str(response)
+        item.senyuMenseki = self.get_senyu_menseki(response)
+        item.kaisuStr = self.get_kaisu_str(response)
+        item.kaisu = self.get_floor(response)
+        item.kouzou = self.get_kouzou(response)
 
         item.kyutaishin = self._parseKyutaishin(response)
 
-        item.balconyMensekiStr = self._parseBalconyMensekiStr(response)
-        item.balconyMenseki = self._parseBalconyMenseki(response)
+        item.balconyMensekiStr = self.get_balcony_menseki_str(response)
+        item.balconyMenseki = self.get_balcony_menseki(response)
         
         item.saikou = self._parseSaikou(response)
-        item.soukosuStr = self._parseSoukosuStr(response)
-        item.soukosu = self._parseSouKosu(response)
-
+        item.soukosuStr = self.get_soukosu_str(response)
+        item.soukosu = self.get_soukosu(response)
         
         item.kanriKaisya = self._parseKanriKaisya(response)
         item.kanriKeitai = self._parseKanriKeitai(response)
         item.kanriKeitaiKaisya = self._parseKanriKeitaiKaisya(response)
         
         item.kanrihiStr = self._parseKanrihiStr(response)
-        item.kanrihi = self._parseKanrihi(response)
+        item.kanrihi = self.get_management_fee(response)
         
         item.syuzenTsumitateStr = self._parseSyuzenTsumitateStr(response)
-        item.syuzenTsumitate = self._parseSyuzenTsumitate(response)
+        item.syuzenTsumitate = self.get_reserve_fund(response)
 
         item.tyusyajo = self._parseTyusyajo(response)
         item.bunjoKaisya = self._parseBunjoKaisya(response)
         item.sekouKaisya = self._parseSekouKaisya(response)
         
         # Derived fields from kaisu
-        item.kaisuStr = self._parseKaisuStr(response)
         item.floorType_kai = self._parseFloorTypeKai(response)
         item.floorType_chijo = self._parseFloorTypeChijo(response)
         item.floorType_chika = self._parseFloorTypeChika(response)
@@ -637,13 +629,13 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     def _parseFloorTypeChijo(self, response, _specs=None):
         kaisu = self._parseKaisuStr(response)
         if not kaisu or " / 地上" not in kaisu: return None
-        try: return int(kaisu.split(u" / 地上")[1].split(u" 地下")[0].replace(u"階", "").replace(u"建", ""))
+        try: return int(kaisu.split(" / 地上")[1].split(" 地下")[0].replace("階", "").replace("建", ""))
         except Exception: return None
 
     def _parseFloorTypeChika(self, response, _specs=None):
         kaisu = self._parseKaisuStr(response)
         if not kaisu or " 地下" not in kaisu: return 0
-        try: return int(kaisu.split(u" 地下")[1].replace(u"階", "").replace(u"建", ""))
+        try: return int(kaisu.split(" 地下")[1].replace("階", "").replace("建", ""))
         except Exception: return 0
 
     def _parseFloorTypeKouzou(self, response, specs=None):
@@ -905,7 +897,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分
-        for k in [u"公道", u"私道"]:
+        for k in ["公道", "私道"]:
             if k in value:
                 res['douroKubun'] = k
                 break
@@ -1096,7 +1088,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分
-        for k in [u"公道", u"私道"]:
+        for k in ["公道", "私道"]:
             if k in value:
                 res['douroKubun'] = k
                 break

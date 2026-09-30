@@ -439,6 +439,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[gcs_failure_telemetry_requirements.md](docs/requirements/gcs_failure_telemetry_requirements.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466, #477)
     *   **[new_relic_monitoring_requirements.md](docs/requirements/new_relic_monitoring_requirements.md)**: New Relic 統合監視要件定義書 (APM・外形監視・コンテナ/DB・Cloud Logging・GenAI・Change Tracking・アラート) (Issue #471, #473, #478)
     *   **[pipeline_resilience_and_slack_progress_requirements.md](docs/requirements/pipeline_resilience_and_slack_progress_requirements.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知要件定義書 (Issue #492)
+    *   **[parser_getter_architecture_requirements.md](docs/requirements/parser_getter_architecture_requirements.md)**: パーサー Getter メソッド化および表示バリエーション吸収 要件定義書 (Issue #564)
 
 
 
@@ -454,6 +455,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[gcs_failure_telemetry_basic_design.md](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール基本設計書 (Issue #466, #477)
 *   **[new_relic_monitoring_design.md](docs/basic_design/new_relic_monitoring_design.md)**: New Relic 統合監視基本設計書 (フルスタック可観測性・APM・Synthetics・Cloud Run・ログ統合) (Issue #471, #473, #478)
 *   **[pipeline_resilience_and_slack_progress_basic_design.md](docs/basic_design/pipeline_resilience_and_slack_progress_basic_design.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知基本設計書 (Issue #492)
+*   **[parser_getter_architecture_basic_design.md](docs/basic_design/parser_getter_architecture_basic_design.md)**: パーサー Getter メソッド化 基本設計書 (Issue #564)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -478,6 +480,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)** - リアルタイム障害JSON/生HTML GCS出力・分散タスク集約・Slack DevAgentゼロタッチ連携内部設計書 (Issue #466, #477)
 - **[New Relic 統合監視内部詳細設計書](docs/internal_design/new_relic_monitoring_internal_design.md)** - New Relic APM初期化・Synthetics・GenAI監視・デプロイ追跡・NRQLアラート詳細設計 (Issue #471, #473, #478)
 - **[パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知内部詳細設計書](docs/internal_design/pipeline_resilience_and_slack_progress_internal_design.md)** - クローリング異常終了時の後続パイプライン継続実行およびバルク価格推定・お宝物件スクリーニング進捗Slack通知詳細設計書 (Issue #492)
+- **[パーサー Getter メソッド化 内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)** - パーサー Getter メソッド化および表示バリエーション吸収 内部設計書 (Issue #564)
 
 
 
@@ -625,10 +628,12 @@ task logs
 - **[PR事前全検証機構（Pre-PR Check）内部設計仕様書](docs/internal_design/pre_pr_check_specification.md)**: pre_pr_check.py / StageResult / CLIオプション詳細仕様
 - **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
 - **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
-- **[Google GenAI SDK 移行内部設計書](docs/internal_design/google_genai_sdk_migration.md)**: モジュール別詳細変更・テストモック仕様
 - **[GCS障害テレメトリ要件定義書](docs/requirements/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
 - **[GCS障害テレメトリ基本設計書](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: 障害HTML永続化・再パース検証アーキテクチャ (Issue #466, #561)
 - **[GCS障害テレメトリ内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
+- **[パーサー項目別Getter疎結合アーキテクチャ要件定義書](docs/requirements/parser_getter_architecture_requirements.md)**: 項目別Getterによるパース処理疎結合化、引数レスポンス単一化、表示差分吸収仕様
+- **[パーサー項目別Getter疎結合アーキテクチャ基本設計書](docs/basic_design/parser_getter_architecture_basic_design.md)**: 種別基底パーサー階層、get_<field>(response) 設計、キャッシュ・委譲構造
+- **[パーサー項目別Getter疎結合アーキテクチャ内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)**: メソッドシグネチャ、正規表現・型変換、モデル空欄許容マッピング仕様
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
