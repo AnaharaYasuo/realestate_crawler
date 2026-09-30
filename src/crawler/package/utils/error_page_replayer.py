@@ -46,7 +46,9 @@ class ErrorPageReplayer:
         soup = ParserBase._soup_from_content(html_bytes, None)
         for selector, attr in _URL_SOURCES:
             tag = soup.select_one(selector)
-            value = (tag.get(attr) or "").strip() if tag else ""
+            if tag is None:
+                continue
+            value = str(tag.get(attr) or "").strip()
             if value.startswith("http"):
                 return value
         return None
@@ -62,6 +64,7 @@ class ErrorPageReplayer:
             return _result(url, STATUS_NO_PARSER)
 
         async def _saved_content(*_args, **_kwargs) -> bytes:
+            await asyncio.sleep(0)
             return html_bytes
 
         parser._getContent = _saved_content
