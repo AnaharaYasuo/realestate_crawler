@@ -141,6 +141,22 @@ class TestReplayHtml:
         assert len(res["error"]) == 500
         assert res["error"].startswith("RuntimeError: eee")
 
+    def test_validation_error_with_no_item_returns_parse_error(self):
+        parser = FakeParser(exc=ValidationError("Failed inside parser"))
+        with patch("package.utils.error_page_replayer.UrlRouter.create_parser", return_value=parser):
+            res = ErrorPageReplayer.replay_html(OG_HTML, "tokyu_tochi")
+        assert res["status"] == "parse_error"
+        assert "ValidationError: ['Failed inside parser']" in res["error"]
+        assert res["invalid_fields"] == {}
+
+    def test_validation_error_without_message_dict_returns_parse_error(self):
+        item = FakeItem(error=ValidationError("List style validation error"))
+        with patch("package.utils.error_page_replayer.UrlRouter.create_parser", return_value=FakeParser(item=item)):
+            res = ErrorPageReplayer.replay_html(OG_HTML, "tokyu_tochi")
+        assert res["status"] == "parse_error"
+        assert "ValidationError: ['List style validation error']" in res["error"]
+        assert res["invalid_fields"] == {}
+
     @pytest.mark.parametrize("job_key,expected", [
         ("sumifu_investment_apartment", "apartment"),
         ("homes_invest_apartment", "apartment"),

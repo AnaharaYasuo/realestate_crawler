@@ -74,6 +74,8 @@ class ErrorPageReplayer:
             item = asyncio.run(parser.parsePropertyDetailPage(None, url))
             item.full_clean(validate_unique=False)
         except ValidationError as ve:
+            if item is None or not hasattr(ve, "message_dict"):
+                return _result(url, STATUS_PARSE_ERROR, error=f"ValidationError: {ve}"[:_ERROR_PREVIEW_LEN])
             invalid = {
                 field: {"value": str(getattr(item, field, None))[:_VALUE_PREVIEW_LEN], "errors": list(errors)}
                 for field, errors in ve.message_dict.items()
