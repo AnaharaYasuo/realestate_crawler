@@ -381,16 +381,20 @@ def main():
                     count_res = get_count_for_job(company, ptype, start_dt)
                     if count_res is None:
                         status = "failed"
+                        error_type = "CountQueryFailure"
                         error_msg = "Database count query failed"
                         post_slack(f"❌ 【失敗: DB件数取得エラー】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 処理時間: {duration_job_str}")
                     elif count_res > 0:
+                        error_type = ""
                         scraped_cnt = count_res
                         post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {duration_job_str}")
                     else:
                         status = "failed"
+                        error_type = "ZeroCountFailure"
                         error_msg = "0 items scraped (Zero count failure)"
                         post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
                 else:
+                    error_type = "ProcessCrashFailure"
                     post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
 
                 if status != "success":
@@ -399,7 +403,7 @@ def main():
                         FailureReporter.record_job_failure(
                             company=company,
                             property_type=ptype,
-                            error_type="ZeroCountFailure" if exit_code == 0 else "ProcessCrashFailure",
+                            error_type=error_type,
                             error_message=error_msg,
                             exit_code=exit_code,
                             duration_seconds=int(elapsed),
@@ -431,7 +435,7 @@ def main():
                         property_type=ptype,
                         count=scraped_cnt,
                         duration_sec=float(elapsed),
-                        zero_count=(exit_code == 0 and scraped_cnt == 0),
+                        zero_count=(exit_code == 0 and count_res == 0),
                         status=status,
                         metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
                     )

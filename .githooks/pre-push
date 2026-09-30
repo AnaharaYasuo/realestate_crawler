@@ -231,13 +231,14 @@ do
             exit 1
         fi
 
-        # 1 PR につきローカルでの CodeRabbit レビューは 1 回で OK (PR/ブランチ単位のキャッシュチェック)
+        # 1 PR につきローカルでの CodeRabbit レビューは 1 回で OK (キャッシュチェック)
         cr_branch_hash=$(printf '%s' "$branch" | sha256sum 2>/dev/null | awk '{print $1}' || echo "$branch" | tr '/\\' '__')
         toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
         cr_cache_dir="$toplevel/.coderabbit_cache"
         cr_cache_file="$cr_cache_dir/${cr_branch_hash}.reviewed"
-        if [ -f "$cr_cache_file" ]; then
-            echo "✅ CodeRabbit CLI: 本PRブランチ ($branch) で既にレビュー実行済みのためスキップします。"
+        cached_sha=$(cat "$cr_cache_file" 2>/dev/null | awk '{print $2}' || true)
+        if [ -f "$cr_cache_file" ] && [ -n "$cached_sha" ] && [ "$cached_sha" = "$local_sha" ]; then
+            echo "✅ CodeRabbit CLI: 本コミット ($local_sha) で既にレビュー実行済みのためスキップします。"
         else
             echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
             # Resolve merge-base for pushed commit to ensure clean review of committed changes
