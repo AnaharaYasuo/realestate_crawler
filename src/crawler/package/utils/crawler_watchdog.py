@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Crawler process watchdog module for detecting silent hanging jobs."""
 import logging
 import os
@@ -35,6 +34,6 @@ def kill_hung_job_process(proc: Any) -> bool:
         os.killpg(pgid, signal.SIGKILL)
         proc.communicate()
         return True
-    except Exception as e:
-        logger.exception(f"Failed to kill hung process group: {e}")
+    except Exception:
+        logger.exception("Failed to kill hung process group")
         return False

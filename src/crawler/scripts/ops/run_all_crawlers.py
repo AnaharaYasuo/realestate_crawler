@@ -457,7 +457,7 @@ def main():
                         date_str=today_str
                     )
                 except Exception as hfe:
-                    logging.warning(f"Failed to record hang telemetry for {company} - {ptype}: {hfe}")
+                    logger.warning(f"Failed to record hang telemetry for {company} - {ptype}: {hfe}")
 
                 results.append({
                     "index": idx,

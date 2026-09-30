@@ -250,9 +250,10 @@ def test_stage_coderabbit_timeout(monkeypatch):
     assert any("タイムアウト" in e for e in res.errors)
 
 
-def test_stage_coderabbit_with_target_sha(monkeypatch):
+def test_stage_coderabbit_with_target_sha(tmp_path, monkeypatch):
     """PrePRChecker invokes coderabbit with merge-base and finite timeout when target_sha is provided."""
     checker = PrePRChecker(skip_coderabbit=False, sha="abc1234")
+    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
     executed_cmds = []
 
     def mock_run_cmd(cmd, **kwargs):
@@ -300,9 +301,10 @@ def test_get_changed_files_diff_error(monkeypatch):
     assert any("変更ファイル差分の取得に失敗しました" in e for e in r7.errors)
 
 
-def test_stage_coderabbit_rate_limit_warning(monkeypatch):
+def test_stage_coderabbit_rate_limit_warning(tmp_path, monkeypatch):
     """PrePRChecker passes with warning when CodeRabbit returns rate limit error."""
     checker = PrePRChecker(skip_coderabbit=False)
+    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
 
     rate_limit_output = (
         '{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true}\n'

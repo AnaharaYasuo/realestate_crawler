@@ -1,11 +1,7 @@
-# -*- coding: utf-8 -*-
 """Unit tests for Cloud Workflows orchestration specifications and crawler watchdog."""
 import os
 import signal
-import time
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 def test_workflows_timeout_definitions():

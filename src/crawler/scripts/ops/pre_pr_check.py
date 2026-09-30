@@ -208,7 +208,7 @@ class PrePRChecker:
         Returns (files, errors).
         """
         if self.provided_changed_files is not None:
-            return sorted(set(f.replace("\\", "/") for f in self.provided_changed_files)), []
+            return sorted({f.replace("\\", "/") for f in self.provided_changed_files}), []
 
         files: set[str] = set()
         errors: list[str] = []
