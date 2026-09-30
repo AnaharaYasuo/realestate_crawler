@@ -129,4 +129,30 @@ flowchart TD
 - **エントリーポイント計装**: `src/crawler/scripts/ops/run_pipeline.py` および `src/crawler/scripts/ops/run_all_crawlers.py` の冒頭で `init_new_relic()` を呼び出し、Cloud Run Job 実行全体の APM トレーシングを有効化。
 - **クローラー完了時イベント記録**: `run_all_crawlers.py` で各サイトのクロール処理終了時（正常終了・エラー・タイムアウト）に `record_crawler_metrics()` を呼び出し、サイト別・種別別の取得件数・所要時間・0件ステータスを `CrawlerExecution` カスタムイベントへ即座に送信。
 
+### 2.10 外部 HTTP 通信レイテンシ＆ステータス監視 (HttpRequestEvent)
+- `src/crawler/package/utils/newrelic_helper.py` の `record_http_request()` により、ポータルサイトへの GET/POST リクエストについて URL ドメイン、サイト名、HTTP ステータスコード（200, 403, 429, 500等）、所要時間（ミリ秒）、レスポンスサイズ（Bytes）を記録。
+
+### 2.11 データベース性能監視 (DatabaseEvent)
+- `src/crawler/package/utils/newrelic_helper.py` の `record_database_operation()` により、物件情報のバルク INSERT / UPSERT / SELECT についてテーブル名、操作種別、レコード件数、所要時間（ミリ秒）、成否ステータスを記録。
+
+### 2.12 パーサー詳細性能監視 (ParserEvent)
+- `src/crawler/package/utils/newrelic_helper.py` の `record_parser_metrics()` により、1物件ごとの純パース処理時間（ミリ秒）、抽出成功フィールド数、欠損フィールド数、欠損率（%）を記録。
+
+### 2.13 機械学習（ML）価格推定パイプライン監視 (MlInferenceEvent)
+- `src/crawler/package/utils/newrelic_helper.py` の `record_ml_inference_metrics()` により、種別ごとのモデル推論件数、推論所要時間（ミリ秒）、割安物件検知件数、スキップ件数を記録。
+
+### 2.14 全方位統合ダッシュボード (Comprehensive Dashboard)
+- `src/crawler/scripts/setup_new_relic_dashboard.py` により、New Relic NerdGraph を介して以下のウィジェットを含む統合ダッシュボード（`RealEstate Full-Stack Unified Observability`）を自動作成:
+  1. クローラー全体サマリー（総取得件数、ゼロ件取得件数、エラー率）
+  2. サイト別・種別別 クロールスループット & 所要時間
+  3. 外部 HTTP 通信ステータス分布 & レイテンシ推移（403/429検知）
+  4. データベース バルク保存所要時間 & 件数推移
+  5. パーサー性能（純パース処理時間 & フィールド欠損率）
+  6. Cloud Run コンテナリソース（Memory使用率%、CPU使用時間）
+  7. Gemini LLM 費用 & トークン消費量 & 応答レイテンシ
+  8. ML 価格推定スループット & 割安物件検知推移
+  9. 外形監視 (Synthetics) 可用性 & レスポンスタイム
+  10. 最新エラーログ & 例外一覧
+
+
 
