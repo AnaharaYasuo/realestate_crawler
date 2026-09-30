@@ -55,6 +55,15 @@ def main():
         )
         sys.exit(1)
 
+    replay = manifest.get("replay")
+    if replay and replay.get("total", 0) == 0 and replay.get("storage_error"):
+        print(
+            f"ERROR: Failed to retrieve error pages from storage ({replay.get('storage_error')}) "
+            "and no local fallback error pages exist.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
     if args.summary:
         print(f"=== Crawling Failures Summary for {manifest['date']} ===")
         print(f"Total Telemetry Failures: {manifest['total_failures']}")

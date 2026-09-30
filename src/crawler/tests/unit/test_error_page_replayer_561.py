@@ -370,6 +370,18 @@ class TestFetchRunFailuresCli:
         assert "fields: {'kenpei': 2}" in out
         assert "kenpei" in out and URL in out
 
+    def test_replay_storage_error_exits_nonzero(self, cli, capsys):
+        replay_err = {"total": 0, "unresolved": 0, "storage_error": "Connection error", "jobs": {}}
+        with patch.object(cli.FailureReporter, "fetch_daily_failures", return_value=dict(self.MANIFEST)), \
+                patch.object(cli.ErrorPageReplayer, "replay_date", return_value=replay_err), \
+                patch("sys.argv", ["fetch_run_failures.py", "--date", "20260928", "--replay"]), \
+                pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "ERROR: Failed to retrieve error pages from storage" in err
+        assert "Connection error" in err
+
 
 class TestErrorPageSidecarMeta:
     @pytest.fixture(autouse=True)
