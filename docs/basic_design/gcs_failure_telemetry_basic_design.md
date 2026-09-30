@@ -39,7 +39,8 @@ sequenceDiagram
 | **API ハンドラ基底** | `src/crawler/package/api/api.py` | 403・0件・Fetch 失敗時の手元生HTML直接保存・エラー情報 GCS 連携（再リクエスト全廃） |
 | **CLI 実行エントリー** | `src/crawler/main.py` | 未捕捉例外時の非ゼロ終了（exit code 1）とトレース出力 |
 | **分散オーケストレーター** | `src/crawler/scripts/ops/run_all_crawlers.py` | 子プロセス異常監視、リアルタイム GCS 書き出し、Slack `#dev-agent` ゼロタッチトリガー発信 |
-| **一括回収 CLI** | `src/crawler/scripts/debug_tools/fetch_run_failures.py` | Antigravity が GCS から指定日全障害を 1 回でロードする CLI |
+| **一括回収 CLI** | `src/crawler/scripts/debug_tools/fetch_run_failures.py` | Antigravity が GCS から指定日全障害を 1 回でロードする CLI。`--replay` で障害 HTML の再パース検証を実行 |
+| **障害 HTML 再パース検証** | `src/crawler/package/utils/error_page_replayer.py` | 保存済みエラー HTML を既存パーサーで再パースし、未修正障害と不正フィールドをジョブ単位で集計 (Issue #561) |
 
 ## 2.1 ストレージバックエンド選定方針 (Issue #477)
 - **クラウド本番環境 (`STORAGE_BACKEND=gcs` または `IS_CLOUD=true`)**:
@@ -51,6 +52,11 @@ sequenceDiagram
 ## 2.2 生 HTML インメモリ直接永続化方針 (Issue #477)
 - パースエラー発生時、すでにクローラーが受信したレスポンスの HTML バイト列／文字列を手元から直接 `FailureReporter.record_job_failure` に渡す。
 - 相手サーバーへの2度目の `requests.get` を行わないため、403 ブロックやサーバー過負荷時でもエラー発生瞬間の HTML を 100% 確実に保存する。
+
+## 2.3 障害 HTML 再パース検証方針 (Issue #561)
+- 障害メタデータ JSON はジョブ単位で上書きされるため、個々の失敗物件の原因は `error_pages/` 配下の生 HTML を正とする。
+- `fetch_run_failures.py --replay [--job <job_key>]` は生 HTML を取得し、HTML 内の `og:url` / `canonical` から物件 URL を復元して `UrlRouter` でパーサーを解決、本番と同一の `parsePropertyDetailPage` を HTTP 取得のみ保存 HTML に差し替えて実行する。
+- 結果は集約マニフェストの `replay` キーに格納し、`ok` 以外の件数（未修正件数）とフィールド別件数から修正対象パーサーを特定する。
 
 ## 3. GCS バケット構成とライフサイクル
 

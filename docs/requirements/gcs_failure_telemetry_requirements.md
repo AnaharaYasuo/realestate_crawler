@@ -28,6 +28,11 @@
 - DB 保存前バリデーション失敗による障害テレメトリの `error_message` には、物件名に加えて不正・欠損フィールド名を含め、自動修復の手掛かりとできること。
 - 単体テストは障害テレメトリ・エラー HTML を実ワークツリー（`logs/`, `docs/error_pages/` 等）へ書き出してはならず、一時ディレクトリへ隔離すること（偽の障害テレメトリ混入防止）。
 
+### REQ-004b: 障害 HTML の再パース検証による未修正障害の特定 (Issue #561)
+- `fetch_run_failures.py --replay` により、対象日付の `runs/{YYYYMMDD}/error_pages/{company}_{property_type}/*.html`（GCS およびローカルフォールバック）を全件取得し、本番と同一の既存パーサー経路（`UrlRouter.create_parser` → `parsePropertyDetailPage` → `clean_parsed_item` → `full_clean`）で再パースできること。一時スクリプトによる場当たり調査を不要とする。
+- 各 HTML は `ok`（現行コードで解消済み）/ `invalid`（不正フィールド名とエラー内容）/ `parse_error`（例外種別とメッセージ）/ `no_url`（HTML から物件 URL を特定できない）/ `no_parser`（ルーター未対応）に分類され、ジョブ単位で件数およびフィールド別件数が集計されること。
+- `--job {company}_{property_type}` で対象ジョブを絞り込めること。再パースは保存済み HTML のみを用い、相手サーバーおよび DB へアクセスしてはならない（一意性検証は対象外）。
+
 ### REQ-005: Slack レポートへの一括修復コマンド自動付与
 - クローリング実行完了通知（または異常アラート）の末尾に、失敗ジョブ数とともに Antigravity 一括修復用のワンライナーコマンド（または GCS パス）を自動記載すること。
 

@@ -626,6 +626,9 @@ task logs
 - **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
 - **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
 - **[Google GenAI SDK 移行内部設計書](docs/internal_design/google_genai_sdk_migration.md)**: モジュール別詳細変更・テストモック仕様
+- **[GCS障害テレメトリ要件定義書](docs/requirements/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
+- **[GCS障害テレメトリ基本設計書](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: 障害HTML永続化・再パース検証アーキテクチャ (Issue #466, #561)
+- **[GCS障害テレメトリ内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
 - **[Cloud Workflows 統合オーケストレーション要件定義書](docs/requirements/cloud_workflows_orchestration_requirements.md)**: クロール・ML・割安物件配信の一貫自動化とタイムアウト集約要件
 - **[Cloud Workflows 統合オーケストレーション基本設計書](docs/basic_design/cloud_workflows_orchestration_basic_design.md)**: Workflows ステートマシン、ProxySQL 連動、7h/5h タイムアウト設計
 - **[Cloud Workflows 統合オーケストレーション内部設計書](docs/internal_design/cloud_workflows_orchestration_internal_design.md)**: YAML 定義仕様、ハング監視実装仕様
