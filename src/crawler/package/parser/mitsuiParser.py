@@ -679,16 +679,16 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         return Decimal(0)
 
     def _parseKanrihiPerHeibei(self, response, _specs=None):
-        kanrihi = self._parseKanrihi(response)
-        menseki = self._parseSenyuMenseki(response)
+        kanrihi = self.get_management_fee(response)
+        menseki = self.get_senyu_menseki(response)
         if kanrihi and menseki:
             raw_val = kanrihi / menseki
             return round(Decimal(str(raw_val)), 3) if raw_val < 10000000 else None
         return None
 
     def _parseSyuzenPerHeibei(self, response, _specs=None):
-        syuzen = self._parseSyuzenTsumitate(response)
-        menseki = self._parseSenyuMenseki(response)
+        syuzen = self.get_reserve_fund(response)
+        menseki = self.get_senyu_menseki(response)
         if syuzen and menseki:
             raw_val = syuzen / menseki
             return round(Decimal(str(raw_val)), 3) if raw_val < 10000000 else None
