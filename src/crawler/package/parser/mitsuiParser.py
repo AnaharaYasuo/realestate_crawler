@@ -462,8 +462,8 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         item.madori = self.get_madori(response)
         item.senyuMensekiStr = self.get_senyu_menseki_str(response)
         item.senyuMenseki = self.get_senyu_menseki(response)
-        item.kaisuStr = self.get_kaisu_str(response)
-        item.kaisu = self.get_floor(response)
+        item.kaisuStr = self._parseKaisuStr(response)
+        item.kaisu = self._parseKaisu(response)
         item.kouzou = self.get_kouzou(response)
 
         item.kyutaishin = self._parseKyutaishin(response)
@@ -512,6 +512,12 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     def _parseKouzou(self, response, specs=None):
         target_specs = specs or self._get_specs(response)
         return target_specs.get("建物構造", "") or target_specs.get("構造", "")
+
+    def get_kaisu_str(self, response: BeautifulSoup) -> str:
+        return self._parseKaisuStr(response)
+
+    def get_floor(self, response: BeautifulSoup) -> int:
+        return self._parseKaisu(response)
 
     def _parseKaisuStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)

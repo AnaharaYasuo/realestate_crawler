@@ -1074,10 +1074,7 @@ class MansionParserBase(ParserBase):
 
     def get_senyu_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_senyu_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_madori(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1133,10 +1130,7 @@ class MansionParserBase(ParserBase):
 
     def get_balcony_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_balcony_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_kenpei(self, response: BeautifulSoup) -> int | None:
         specs = self._get_specs(response)
@@ -1245,10 +1239,7 @@ class KodateParserBase(ParserBase):
 
     def get_tochi_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_tochi_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_tatemono_menseki_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1256,10 +1247,7 @@ class KodateParserBase(ParserBase):
 
     def get_tatemono_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_tatemono_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_chikunengetsu_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1389,10 +1377,7 @@ class TochiParserBase(ParserBase):
 
     def get_tochi_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_tochi_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_kenpei_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1566,10 +1551,7 @@ class InvestmentParserBase(ParserBase):
 
     def get_tochi_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_tochi_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_tatemono_menseki_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
@@ -1577,10 +1559,7 @@ class InvestmentParserBase(ParserBase):
 
     def get_tatemono_menseki(self, response: BeautifulSoup) -> Decimal | None:
         val = self.get_tatemono_menseki_str(response)
-        if val:
-            m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
-        return None
+        return converter.parse_menseki(val) if val else None
 
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)

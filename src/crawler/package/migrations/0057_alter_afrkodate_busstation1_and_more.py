@@ -4,6 +4,18 @@
 from django.db import migrations, models
 
 
+def update_nulls_to_empty(apps, schema_editor):
+    app_config = apps.get_app_config('package')
+    for model in app_config.get_models():
+        if not model._meta.managed:
+            continue
+        for field in model._meta.fields:
+            if isinstance(field, models.TextField) and not field.null:
+                filter_kwargs = {f"{field.name}__isnull": True}
+                update_kwargs = {field.name: ""}
+                model.objects.filter(**filter_kwargs).update(**update_kwargs)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -11,6 +23,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(update_nulls_to_empty, reverse_code=migrations.RunPython.noop),
         migrations.AlterField(
             model_name='afrkodate',
             name='busStation1',
