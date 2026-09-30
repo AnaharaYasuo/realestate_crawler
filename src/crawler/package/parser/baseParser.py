@@ -29,7 +29,7 @@ def _is_filled_spec_value(val) -> bool:
     if isinstance(val, dict):
         val = val.get('value')
     if val is None:
-        return True
+        return False
     return str(val).strip() not in _BLANK_SPEC_VALUES
 
 def _is_positive_area(val) -> bool:
@@ -304,9 +304,18 @@ class ParserBase(metaclass=ABCMeta):
         return converter.parse_chidai(chidai_str)
 
     def _parseChidaiStr(self, response: BeautifulSoup, specs=None) -> str:
+        if specs is not None:
+            for key in ['借地期間・地代（月額）', '借地期間・地代', '地代（月額）', '地代等', '地代', '借地料（月額）', '借地料', '月額地代', '土地地代']:
+                if specs.get(key):
+                    return specs[key]
+            for k, v in specs.items():
+                if any(term in k for term in ['地代', '借地料']):
+                    return v
         return self.get_chidai_str(response)
 
     def _parseChidai(self, response: BeautifulSoup, specs=None) -> int | None:
+        if specs is not None:
+            return converter.parse_chidai(self._parseChidaiStr(response, specs))
         return self.get_chidai(response)
 
     async def parsePropertyListPage(self, response):
