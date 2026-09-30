@@ -172,6 +172,44 @@ except Exception as e:
     sys.exit(1)
 ```
 
+### 2.6 `ErrorPageReplayer` (`package.utils.error_page_replayer`) (Issue #561)
+```python
+class ErrorPageReplayer:
+    @staticmethod
+    def extract_page_url(html_bytes: bytes) -> str | None:
+        """og:url → link[rel=canonical] の順で物件 URL を抽出"""
+
+    @classmethod
+    def replay_html(cls, html_bytes: bytes, job_key: str) -> dict[str, Any]:
+        """1 HTML を再パースし {url, status, invalid_fields, error} を返却"""
+
+    @classmethod
+    def replay_date(cls, date_str: str, job_key: str | None = None) -> dict[str, Any]:
+        """runs/{date}/error_pages/ 配下（GCS + ローカルフォールバック）を全件再パースしジョブ単位で集計"""
+```
+
+- **パーサー解決**: `job_key` を先頭の `_` で `company` と `property_type` に分解し、`UrlRouter` の種別へ正規化（`investment_apartment` / `invest_apartment` → `apartment`、`mansion` / `kodate` / `tochi` はそのまま、それ以外は `None` として URL・HTML から動的判定）したうえで `UrlRouter.create_parser(url, property_type=...)` で取得する。
+- **再パース**: パーサーインスタンスの `_getContent` を保存 HTML を返すコルーチンに、`save_error_html` を何もしない関数に差し替え（再パース失敗が当日の障害テレメトリ・`docs/error_pages/` へ再記録されるのを防ぐ）、`parsePropertyDetailPage(None, url)` を実行する（種別切替・`clean_parsed_item`・`validate_required_fields` を含む本番経路）。続けて `full_clean(validate_unique=False)` を実行する。
+- **分類**: `ValidationError` → `invalid`（`{field: {"value": 値の先頭 80 文字, "errors": [...]}}`）、その他例外 → `parse_error`（`例外クラス名: メッセージ`、先頭 500 文字）、URL 抽出不可 → `no_url`、ルーター未対応 → `no_parser`、それ以外 → `ok`。
+- **集計構造** (`manifest["replay"]`):
+```json
+{
+  "total": 320, "unresolved": 12,
+  "jobs": {
+    "tokyu_tochi": {
+      "total": 130, "status_counts": {"ok": 128, "invalid": 2},
+      "field_counts": {"kenpei": 2},
+      "samples": [{"html_key": "runs/.../09d6.html", "url": "https://...", "status": "invalid", "invalid_fields": {"kenpei": {"value": "...", "errors": ["..."]}}, "error": ""}]
+    }
+  }
+}
+```
+- `samples` は `ok` 以外の結果をジョブあたり最大 5 件保持する。
+- **URL 特定**: サイドカーメタ `{hash}_meta.json` の `target_url` を優先し、無い・壊れている場合は HTML の `og:url` → `canonical` を用いる。HTML は `ParserBase._soup_from_content`（chardet・cp932 補正）で解析し、Shift_JIS ページでも抽出できること。
+- **サイドカーメタ保存**: `FailureReporter.record_job_failure` は生 HTML 保存時に `runs/{date}/error_pages/{job}/{hash}_meta.json`（`target_url`, `error_type`, `error_message`, `timestamp`）を GCS およびローカルフォールバックへ併せて保存する（`html_meta_key(html_key)`）。
+- **CLI 出力**: `fetch_run_failures.py` は起動時に `configure_logging(force_reconfigure=True, output_stream=sys.stderr)` を呼び、ログを標準エラーへ出して標準出力の JSON を汚染しない。
+- `ObjectStorageManager.read_bytes(key)` を追加し、文字コードに依存せず生 HTML を取得する（Shift_JIS 等の HTML を UTF-8 前提の `read_text` で壊さないため）。
+
 ### 2.5 `run_all_crawlers.py` でのリアルタイム監視 & Slack `#dev-agent` トリガー
 - `active_processes` のループ内で、`exit_code != 0` または `0 items scraped (Zero count failure)` 検知時に直ちに `FailureReporter.record_job_failure` を呼び出し。
 - 全ジョブ終了後、失敗件数が 1 件以上ある場合:

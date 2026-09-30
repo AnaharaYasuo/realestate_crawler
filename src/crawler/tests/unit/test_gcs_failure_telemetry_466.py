@@ -45,7 +45,7 @@ class TestGcsFailureTelemetry466:
         assert rec["exit_code"] == 1
         assert "nomura_mansion.json" in rec["metadata_key"]
         assert rec["gcs_html_path"] is not None
-        assert mock_storage.upload_bytes.call_count == 2
+        assert mock_storage.upload_bytes.call_count == 3
         expected_html_key = (
             "runs/20260926/error_pages/nomura_mansion/"
             f"{hashlib.sha256(b'https://www.nomu.com/mansion/test').hexdigest()[:16]}.html"

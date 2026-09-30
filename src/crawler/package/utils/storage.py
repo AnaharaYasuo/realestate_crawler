@@ -178,6 +178,26 @@ class ObjectStorageManager:
             logger.exception("Failed to list files with prefix '%s'", prefix)
             return []
 
+    def read_bytes(self, key: str) -> bytes:
+        """
+        指定したキーのバイナリコンテンツを取得します。
+        """
+        if self.is_gcs:
+            try:
+                return self.gcs_bucket.blob(key).download_as_bytes()
+            except Exception:
+                logger.exception("Failed to read GCS file '%s'", key)
+                raise
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.bucket_name,
+                Key=key
+            )
+            return response["Body"].read()
+        except Exception:
+            logger.exception("Failed to read file '%s'", key)
+            raise
+
     def read_text(self, key: str) -> str:
         """
         指定したキーのテキストコンテンツを取得します。

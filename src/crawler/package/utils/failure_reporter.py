@@ -33,6 +33,16 @@ def generate_auto_heal_trigger_message(
     )
 
 
+def html_meta_key(html_key: str) -> str:
+    """エラー HTML キーに対応するサイドカーメタ JSON キー"""
+    return html_key.removesuffix(".html") + "_meta.json"
+
+
+def _html_meta_bytes(record: dict[str, Any]) -> bytes:
+    meta = {k: record.get(k) for k in ("target_url", "error_type", "error_message", "timestamp")}
+    return json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8")
+
+
 class FailureReporter:
     """クローリング障害テレメトリの即時GCS永続化および一括回収マネージャー"""
 
@@ -49,6 +59,7 @@ class FailureReporter:
             if raw_html and html_key:
                 uploaded_path = sm.upload_bytes(raw_html, html_key, content_type="text/html")
                 record["gcs_html_path"] = str(uploaded_path) if uploaded_path is not None else None
+                sm.upload_bytes(_html_meta_bytes(record), html_meta_key(html_key), content_type="application/json")
 
             meta_bytes = json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")
             sm.upload_bytes(meta_bytes, metadata_key, content_type="application/json")
@@ -76,6 +87,7 @@ class FailureReporter:
             with open(html_path, "wb") as f:
                 f.write(raw_html)
             record["gcs_html_path"] = str(html_path)
+            (fallback_base / html_meta_key(html_key)).write_bytes(_html_meta_bytes(record))
 
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(record, f, ensure_ascii=False, indent=2)
