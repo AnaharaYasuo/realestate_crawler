@@ -447,15 +447,20 @@ class PrePRChecker:
             )
             return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
-        # 1 PR (1作業ブランチ) につきローカルでの CodeRabbit レビューは 1 回で OK (キャッシュチェック)
+        # 1 PR (1作業ブランチ) につきローカルでの CodeRabbit レビューは 1 回で OK (コミットSHAスコープのキャッシュチェック)
         raw_branch = self.get_current_branch().strip()
         is_branch = bool(raw_branch and not raw_branch.startswith("fatal:") and not raw_branch.startswith("error:") and len(raw_branch) < 100)
         branch_name = raw_branch.replace("/", "_").replace("\\", "_") if is_branch else ""
+        current_sha = self.target_sha
+        if not current_sha:
+            _, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
+            current_sha = head_out.strip()
         review_marker_file = None
         if branch_name:
             cache_dir = os.path.join(self.repo_root, ".coderabbit_cache")
             os.makedirs(cache_dir, exist_ok=True)
-            review_marker_file = os.path.join(cache_dir, f"{branch_name}.reviewed")
+            marker_suffix = f"_{current_sha[:8]}" if current_sha else ""
+            review_marker_file = os.path.join(cache_dir, f"{branch_name}{marker_suffix}.reviewed")
             if os.path.exists(review_marker_file):
                 return StageResult(
                     4,
@@ -582,12 +587,6 @@ class PrePRChecker:
                 cmd_has_completed = True
                 has_completed_event = True
                 is_rate_limited = True
-                # レート制限時も次回以降のローカルチェックをスキップできるようマーカーを記録
-                try:
-                    with open(review_marker_file, "w", encoding="utf-8") as f:
-                        f.write(f"rate_limited at {time.time()}\n")
-                except Exception:
-                    pass
 
             if rc != 0 and not cmd_added_errors and not is_rate_limited:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"

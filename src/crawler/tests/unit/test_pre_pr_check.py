@@ -341,6 +341,17 @@ def test_stage_coderabbit_cache_skip_on_subsequent_runs(tmp_path, monkeypatch):
     cache_dir.mkdir(parents=True, exist_ok=True)
     marker = cache_dir / "feature_test-branch.reviewed"
     marker.write_text("reviewed", encoding="utf-8")
+    marker_sha = cache_dir / "feature_test-branch_headcomm.reviewed"
+    marker_sha.write_text("reviewed", encoding="utf-8")
+
+    def mock_run_sha(cmd, **_kwargs):
+        if cmd == ["coderabbit", "--version"]:
+            return 0, "0.8.1", ""
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return 0, "headcommit123", ""
+        return 0, "", ""
+
+    monkeypatch.setattr(checker, "_run_cmd", mock_run_sha)
 
     res = checker.stage_coderabbit()
     assert res.passed is True

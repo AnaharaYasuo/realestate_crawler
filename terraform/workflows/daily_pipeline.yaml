@@ -5,13 +5,13 @@ main:
   steps:
     - initVars:
         assign:
-          - projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
-          - location: "asia-northeast1"
-          - zone: "asia-northeast1-b"
-          - proxysqlInstance: "proxysql-instance-prod"
-          - crawlerJob: "realestate-crawler-pipeline-prod"
-          - mlPipelineJob: "realestate-ml-pipeline-prod"
-          - crawlTimeoutSec: 18000  # 5時間 (18,000s)
+          - projectId: ${default(map.get(args, "projectId"), sys.get_env("GOOGLE_CLOUD_PROJECT_ID"))}
+          - location: ${default(map.get(args, "location"), "asia-northeast1")}
+          - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
+          - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
+          - crawlerJob: ${default(map.get(args, "crawlerJob"), "realestate-crawler-pipeline-prod")}
+          - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
+          - crawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 18000)}  # 5時間 (18,000s)
 
     - tryPipeline:
         try:
@@ -32,24 +32,36 @@ main:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + crawlerJob}
-                result: crawlerExecution
+                  connector_params:
+                    skip_polling: true
+                result: crawlerOperation
+
+            - resolveCrawlerExecution:
+                assign:
+                  - crawlerExecutionName: ${default(crawlerOperation.response.name, crawlerOperation.metadata.name)}
 
             - waitCrawlerCompletion:
                 call: monitorJobExecution
                 args:
-                  executionName: ${crawlerExecution.name}
+                  executionName: ${crawlerExecutionName}
                   timeoutSec: ${crawlTimeoutSec}
 
             - runMLAndEstimation:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
-                result: mlExecution
+                  connector_params:
+                    skip_polling: true
+                result: mlOperation
+
+            - resolveMLExecution:
+                assign:
+                  - mlExecutionName: ${default(mlOperation.response.name, mlOperation.metadata.name)}
 
             - waitMLCompletion:
                 call: monitorJobExecution
                 args:
-                  executionName: ${mlExecution.name}
+                  executionName: ${mlExecutionName}
                   timeoutSec: 7200  # 2時間
         finally:
           steps:
@@ -78,7 +90,15 @@ monitorJobExecution:
     - evaluateState:
         switch:
           - condition: ${default(execDetails.runningCount, 0) == 0 and default(execDetails.reconciling, false) == false}
-            return: ${execDetails}
+            steps:
+              - checkExecutionResult:
+                  switch:
+                    - condition: ${default(execDetails.failedCount, 0) > 0 or default(execDetails.cancelledCount, 0) > 0}
+                      raise:
+                        error: "JobExecutionFailed"
+                        message: '${"Job execution finished with failures: failed=" + string(default(execDetails.failedCount, 0)) + ", cancelled=" + string(default(execDetails.cancelledCount, 0))}'
+                    - condition: true
+                      return: ${execDetails}
           - condition: ${(sys.now() - startTime) > timeoutSec}
             raise:
               error: "JobExecutionTimeout"

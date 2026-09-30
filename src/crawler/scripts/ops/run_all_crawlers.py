@@ -535,12 +535,12 @@ def main():
         
         # 2. 新規ジョブの投入 (取扱物件数に応じた階層的並行度 & Playwright/Standard 上限で制御)
         if job_queue and len(active_processes) < args.parallel:
-            active_playwright_cnt = sum(1 for _, c, _, _, _ in active_processes.values() if c.lower() in PLAYWRIGHT_COMPANIES)
+            active_playwright_cnt = sum(1 for proc_tuple in active_processes.values() if proc_tuple[1].lower() in PLAYWRIGHT_COMPANIES)
 
             # 現在実行中の会社別アクティブプロセス数を集計
             active_company_counts = {}
-            for _, c, _, _, _ in active_processes.values():
-                c_low = c.lower()
+            for proc_tuple in active_processes.values():
+                c_low = proc_tuple[1].lower()
                 active_company_counts[c_low] = active_company_counts.get(c_low, 0) + 1
 
             job_select_res = select_next_job(
@@ -627,7 +627,7 @@ def main():
         "elapsed_seconds": int(elapsed_delta.total_seconds()),
         "total_jobs": len(CRAWL_JOBS),
         "success_jobs": sum(1 for r in results if r["status"] == "success"),
-        "failed_jobs": sum(1 for r in results if r["status"] in ["failed", "timeout", "error"]),
+        "failed_jobs": sum(1 for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]),
         "results": results
     }
     
@@ -721,7 +721,7 @@ def main():
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
             
-        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error"]]
+        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
         if failed_list:
             msg_lines.append("\n⚠️ 異常が発生したクローラー:")
             for f in failed_list:
