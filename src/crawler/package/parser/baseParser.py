@@ -635,11 +635,13 @@ class ParserBase(metaclass=ABCMeta):
         return ''
 
     def _getValueByLabel(self, soup: BeautifulSoup, label: str):
-        if not soup:
+        if not soup or not label:
             return None
-        for tag in soup.find_all(['th', 'dt', 'span', 'td', 'div']):
+        for tag in soup.find_all(['th', 'dt', 'span']):
             txt = tag.get_text(strip=True)
-            if label in txt:
+            if not txt:
+                continue
+            if txt == label or txt.startswith((f"{label}:", f"{label}：")) or txt.strip(" :：【】") == label:
                 nxt = tag.find_next_sibling(['td', 'dd', 'span', 'div'])
                 if nxt:
                     return nxt
