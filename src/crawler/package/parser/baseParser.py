@@ -222,9 +222,21 @@ class ParserBase(metaclass=ABCMeta):
         setsudou = self.get_setsudou(response)
         if setsudou:
             clean_setsudou = setsudou.replace(' ', '').replace('　', '')
-            m = re.search(r'(\d+(?:\.\d+)?)[mｍ]', clean_setsudou)
-            if m:
-                return m.group(1)
+            for unit in ('m', 'ｍ'):
+                if unit in clean_setsudou:
+                    part = clean_setsudou.split(unit)[0]
+                    num_chars = []
+                    has_dot = False
+                    for ch in reversed(part):
+                        if ch.isdigit():
+                            num_chars.append(ch)
+                        elif ch == '.' and not has_dot:
+                            has_dot = True
+                            num_chars.append(ch)
+                        else:
+                            break
+                    if num_chars:
+                        return ''.join(reversed(num_chars))
         return ''
 
     def get_hikiwatashi(self, response: BeautifulSoup) -> str:
@@ -576,34 +588,66 @@ class ParserBase(metaclass=ABCMeta):
             item.station1 = station
         self._apply_walk_minutes(item, walk_min)
 
+    @staticmethod
+    def _extract_walk_minutes(text: str) -> str | None:
+        """Extract walk minutes from text containing '...N分' without regex backtracking."""
+        if '分' not in text:
+            return None
+        before_fun = text.split('分')[0]
+        digits = []
+        for ch in reversed(before_fun.rstrip()):
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        return ''.join(reversed(digits)) if digits else None
+
     def _try_bracket_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 沿線「駅」徒歩N分 style traffic. Returns True if matched."""
-        m_st = re.search(r'([^ \t\r\n「」]+?)\s*「([^「」]+)」', traffic_text)
-        if not m_st:
+        if '「' not in traffic_text or '」' not in traffic_text:
             return False
-        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
-        walk_min = m_walk.group(1) if m_walk else None
-        self._apply_railway_station_fields(item, m_st.group(1), m_st.group(2), walk_min)
+        left = traffic_text.find('「')
+        right = traffic_text.find('」', left)
+        if right <= left:
+            return False
+        station = traffic_text[left + 1:right].strip()
+        before = traffic_text[:left].strip()
+        railway = before.split()[-1] if before else None
+        walk_min = self._extract_walk_minutes(traffic_text[right + 1:])
+        self._apply_railway_station_fields(item, railway, station, walk_min)
         return True
 
     def _try_space_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 沿線 駅名駅 徒歩N分 style traffic. Returns True if matched."""
-        m_st = re.search(r'([^ \t\r\n「」\/]+?(?:線|ライン|ライナー|鉄道|本線|空港線|地下鉄|メトロ|新幹線))\s+([^ \t\r\n「」\/]+?駅)', traffic_text)
-        if not m_st:
-            return False
-        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
-        walk_min = m_walk.group(1) if m_walk else None
-        self._apply_railway_station_fields(item, m_st.group(1), m_st.group(2), walk_min)
-        return True
+        tokens = traffic_text.replace('/', ' ').split()
+        railway_suffixes = ('線', 'ライン', 'ライナー', '鉄道', '本線', '空港線', '地下鉄', 'メトロ', '新幹線')
+        for i in range(len(tokens) - 1):
+            t0, t1 = tokens[i], tokens[i + 1]
+            if any(t0.endswith(s) for s in railway_suffixes) and t1.endswith('駅'):
+                walk_min = self._extract_walk_minutes(traffic_text)
+                self._apply_railway_station_fields(item, t0, t1, walk_min)
+                return True
+        return False
 
     def _try_fallback_station_traffic(self, item: models.Model, traffic_text: str) -> bool:
         """Parse 駅名 徒歩N分 style traffic. Returns True if matched."""
-        m_st = re.search(r'([^ \t\r\n「」\d]+?(?:駅|停留所|バス停))', traffic_text)
-        if not m_st:
+        station_suffixes = ('駅', '停留所', 'バス停')
+        tokens = traffic_text.split()
+        found_station = None
+        for t in tokens:
+            for sfx in station_suffixes:
+                if sfx in t:
+                    idx = t.find(sfx) + len(sfx)
+                    candidate = t[:idx].lstrip('「（(').rstrip('」）)')
+                    if candidate:
+                        found_station = candidate
+                        break
+            if found_station:
+                break
+        if not found_station:
             return False
-        station = self._normalize_station_name(m_st.group(1))
-        m_walk = re.search(r'(\d+)\s*分', traffic_text[m_st.end():])
-        walk_min = m_walk.group(1) if m_walk else None
+        station = self._normalize_station_name(found_station)
+        walk_min = self._extract_walk_minutes(traffic_text)
         if hasattr(item, 'station1') and (not getattr(item, 'station1', None)):
             item.station1 = station
         if hasattr(item, 'walkMinutes1') and walk_min and (getattr(item, 'walkMinutes1', None) is None):
