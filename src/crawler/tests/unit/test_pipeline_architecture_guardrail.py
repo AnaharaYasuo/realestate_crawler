@@ -18,7 +18,7 @@ def test_scheduler_triggers_pipeline_with_startup_guardrail():
     assert "google_cloud_scheduler_job" in content
     assert "crawler_daily_trigger" in content
     assert "google_workflows_workflow.daily_pipeline_workflow.name" in content
-    assert "workflowexecutions.googleapis.com" in content
+    assert "https://workflowexecutions.googleapis.com/v1/projects/" in content
     assert "crawler_pipeline_job.name}:run" not in content
 
 
