@@ -143,19 +143,90 @@ record_crawler_metrics(
 )
 ```
 
+### 2.7 外部 HTTP 通信計装 (`record_http_request`)
+```python
+def record_http_request(
+    domain: str,
+    method: str,
+    status_code: int,
+    duration_ms: float,
+    response_bytes: int = 0,
+    site_name: Optional[str] = None,
+    is_blocked: bool = False,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Record outgoing HTTP scraping request telemetry (HttpRequestEvent)."""
+    # newrelic.agent.record_custom_event("HttpRequestEvent", params, application=_get_application())
+    ...
+```
+
+### 2.8 データベース操作計装 (`record_database_operation`)
+```python
+def record_database_operation(
+    table_name: str,
+    operation: str,
+    duration_ms: float,
+    row_count: int = 0,
+    status: str = "success",
+    error_msg: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Record database bulk upsert / query telemetry (DatabaseEvent)."""
+    # newrelic.agent.record_custom_event("DatabaseEvent", params, application=_get_application())
+    ...
+```
+
+### 2.9 パーサー詳細計装 (`record_parser_metrics`)
+```python
+def record_parser_metrics(
+    site_name: str,
+    property_type: str,
+    duration_ms: float,
+    total_fields: int,
+    extracted_fields: int,
+    missing_fields: int,
+    missing_ratio: float,
+    status: str = "success",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Record parser DOM processing speed and field completeness (ParserEvent)."""
+    # newrelic.agent.record_custom_event("ParserEvent", params, application=_get_application())
+    ...
+```
+
+### 2.10 ML 推論計装 (`record_ml_inference_metrics`)
+```python
+def record_ml_inference_metrics(
+    model_type: str,
+    duration_ms: float,
+    evaluated_count: int,
+    bargain_count: int,
+    skipped_count: int = 0,
+    status: str = "success",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Record ML bulk inference performance and bargain property detection (MlInferenceEvent)."""
+    # newrelic.agent.record_custom_event("MlInferenceEvent", params, application=_get_application())
+    ...
+```
+
+### 2.11 統合ダッシュボード自動構築スクリプト (`setup_new_relic_dashboard.py`)
+- NerdGraph GraphQL API を使用し、既存の古いダッシュボードを削除（`dashboardDelete`）した上で、最新の統合ダッシュボード（`dashboardCreate`）を自動作成する。
+- ページ構成 / ウィジェット:
+  1. **クローラー総合サマリー & スループット**: `CrawlerExecution` の総件数、所要時間、zero_count 発生推移。
+  2. **HTTP 通信・耐ブロック監視**: `HttpRequestEvent` のステータスコード分布（200 vs 403 vs 429）、平均レスポンス時間。
+  3. **DB / ProxySQL パフォーマンス**: `DatabaseEvent` のテーブル別保存所要時間、保存件数、エラー。
+  4. **パーサー品質 & フィールド欠損率**: `ParserEvent` の純パース時間、必須フィールド抽出率。
+  5. **Cloud Run コンテナリソース**: `ContainerSample` のメモリ使用率（%）、メモリ使用量（MB）、CPU積算時間。
+  6. **Gemini GenAI 利用状況 & コスト**: `LlmEvent` のトークン消費、推定コスト（USD）、レスポンス時間。
+  7. **ML 価格推定 & お宝物件**: `MlInferenceEvent` の推定件数、割安物件検知数。
+  8. **外形監視 & ログ**: `SyntheticCheck` の可用性、直近のエラーログ（`Log`）。
+
 ## 3. テスト計画
-- `test_health_endpoint`: `/` および `/health` が 200 OK かつ JSON 形式で `status: ok` を返すことを検証。
-- `test_new_relic_initialization_without_key`: `NEW_RELIC_LICENSE_KEY` 未設定時に `init_new_relic()` が `False` を返し、エラーを起こさないこと。
-- `test_new_relic_initialization_with_key`: `NEW_RELIC_LICENSE_KEY` 設定時に正常に処理が呼び出されること（モックによる検証）。
-- `test_record_llm_event`: 正常系・異常系・コスト計算・キー未設定時のフォールバックを検証。
-- `test_record_crawler_metrics`: クローラー実行イベントのパラメータバリデーションとイベント記録を検証。
-- `test_notice_error`: 例外レポートとカスタムパラメータ転送を検証。
-- `test_notify_deployment_nerdgraph`: Change Tracking API の GraphQL ペイロード組み立てとレスポンスハンドリングを検証。
-- `test_crawler_alerts_provisioning`: NRQL アラートルール登録ペイロードと有限タイムアウト処理を検証。
-- `test_run_all_crawlers_records_crawler_metrics`: バッチクローラーが完了したジョブに対して `record_crawler_metrics` を呼び出すことを検証。
-- `test_iam_secret_accessor_includes_new_relic_license_key`: `terraform/iam.tf` の `secret_accessor` for_each に `new_relic_license_key` が含まれることを検証（Issue #484）。
-- `test_new_relic_license_key_newline_529.py`（Issue #529）:
-  - `init_new_relic()` が `NEW_RELIC_LICENSE_KEY` の前後空白・改行を除去して環境変数へ書き戻した上でエージェントを初期化すること。
-  - 空白・改行のみの値は未設定扱いとなり `False` を返し、エージェントを初期化しないこと。
-  - `terraform/new_relic_gcp_integration.tf` の `push_endpoint` がライセンスキーを `trimspace()` で正規化して埋め込むこと。
+- `test_record_http_request`: 正常・ブロックステータス、レスポンス時間の送信検証。
+- `test_record_database_operation`: DB保存所要時間、件数、エラーの送信検証。
+- `test_record_parser_metrics`: パーサー処理時間、欠損率計算の送信検証。
+- `test_record_ml_inference_metrics`: ML推論件数、割安検知数の送信検証。
+- `test_setup_new_relic_dashboard`: ダッシュボード削除および作成 GraphQL ペイロードの組み立てと有限タイムアウト処理を検証。
+
 

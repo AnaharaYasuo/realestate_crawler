@@ -1,11 +1,33 @@
 const { App } = require('@slack/bolt');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 const iconv = require('iconv-lite');
 
 // プロジェクトルートの .env 絶対パス指定
-const envPath = String.raw`c:\Users\weare\Documents\realestate_crawler\.env`;
-require('dotenv').config({ path: envPath });
+const envPath = process.env.ENV_PATH || path.join(__dirname, '../../..', '.env');
+if (fs.existsSync(envPath)) {
+  require('dotenv').config({ path: envPath });
+} else {
+  require('dotenv').config();
+}
+
+const defaultWinAgy = String.raw`C:\Users\weare\AppData\Local\agy\bin\agy.exe`;
+
+function resolveAgyExecutable() {
+  if (process.env.AGY_PATH) {
+    return process.env.AGY_PATH;
+  }
+  return fs.existsSync(defaultWinAgy) ? defaultWinAgy : 'agy';
+}
+
+const agyPath = resolveAgyExecutable();
+
+const rawAllowedUsers = process.env.SLACK_ALLOWED_USERS || '';
+const allowedUsers = new Set(rawAllowedUsers.split(',').map(s => s.trim()).filter(Boolean));
+
+const rawAllowedBots = process.env.SLACK_ALLOWED_BOT_IDS || '';
+const allowedBots = new Set(rawAllowedBots.split(',').map(s => s.trim()).filter(Boolean));
 
 const botToken = process.env.SLACK_BOT_TOKEN;
 const appToken = process.env.SLACK_APP_TOKEN;
@@ -89,6 +111,36 @@ async function processInstruction(say, client, event) {
     return;
   }
 
+  const botId = event.bot_id;
+  const isAutoHeal = rawText.includes('[AUTO_HEAL_REQ]');
+
+  if (isAutoHeal) {
+    if (botId) {
+      if (allowedBots.size === 0 || !allowedBots.has(botId)) {
+        console.warn(`[SlackAgent] Unauthorized bot rejected: ${botId}`);
+        return;
+      }
+    } else if (userId) {
+      if (allowedUsers.size === 0 || !allowedUsers.has(userId)) {
+        console.warn(`[SlackAgent] Unauthorized user rejected for auto-heal: ${userId}`);
+        return;
+      }
+    } else {
+      console.warn('[SlackAgent] Rejected auto-heal request with no sender ID');
+      return;
+    }
+  } else {
+    // 通常のBot発信はスキップ
+    if (isBot) {
+      return;
+    }
+    // 人間ユーザーの権限検証
+    if (!userId || allowedUsers.size === 0 || !allowedUsers.has(userId)) {
+      console.warn(`[SlackAgent] Unauthorized user rejected: ${userId}`);
+      return;
+    }
+  }
+
   // <@UXXXXXXXX> メンションタグを除去
   const cleanText = rawText.replace(/<@[A-Z0-9]+>/g, '').trim();
 
@@ -109,7 +161,12 @@ async function processInstruction(say, client, event) {
   }
 
   // Windows環境対応の確実なコマンド呼び出し (shell: true)
-  const cmdLine = 'docker-compose exec -T app pytest src/crawler/tests/unit/test_parser_abstract_methods.py src/crawler/tests/unit/test_start_urls.py -v';
+  let cmdLine = '';
+  if (isAutoHeal) {
+    cmdLine = `"${agyPath}" --dangerously-skip-permissions -p "/auto-heal"`;
+  } else {
+    cmdLine = 'docker-compose exec -T app pytest src/crawler/tests/unit/test_parser_abstract_methods.py src/crawler/tests/unit/test_start_urls.py -v';
+  }
 
   console.log(`[SlackAgent] Spawning shell command: ${cmdLine}`);
 
@@ -119,12 +176,24 @@ async function processInstruction(say, client, event) {
   let progressPostCount = 0;
   let isChildActive = true;
 
+  const projectRoot = process.env.PROJECT_ROOT || path.resolve(__dirname, '../../..');
   const shellCmd = process.env.ComSpec || String.raw`C:\Windows\System32\cmd.exe`;
   const child = spawn(shellCmd, ['/c', cmdLine], {
-    cwd: String.raw`c:\Users\weare\Documents\realestate_crawler`,
+    cwd: projectRoot,
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     shell: true
   });
+
+  // 有限時間タイムアウトガード (600秒で強制終了)
+  const executionTimeout = setTimeout(() => {
+    if (isChildActive) {
+      console.warn('[SlackAgent] Execution timed out after 600s, killing child process');
+      isChildActive = false;
+      try {
+        child.kill();
+      } catch (e) {}
+    }
+  }, 600000);
 
   const handleData = (buf) => {
     const text = safeDecode(buf);
@@ -171,6 +240,7 @@ async function processInstruction(say, client, event) {
 
   child.on('close', async (code) => {
     isChildActive = false;
+    clearTimeout(executionTimeout);
     const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[SlackAgent] Task finished with exit code ${code} in ${elapsedSec}s`);
 
@@ -192,6 +262,7 @@ async function processInstruction(say, client, event) {
 
   child.on('error', async (err) => {
     isChildActive = false;
+    clearTimeout(executionTimeout);
     console.error('[SlackAgent] Task error:', err);
     try {
       await say({
