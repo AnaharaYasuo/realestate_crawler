@@ -212,7 +212,7 @@ class TestReplayDate:
                 patch.object(ErrorPageReplayer, "replay_html", side_effect=fake_replay):
             summary = ErrorPageReplayer.replay_date("20260928")
 
-        sm.list_files.assert_called_once_with(prefix="runs/20260928/error_pages/")
+        sm.list_files.assert_called_once_with(prefix="runs/20260928/error_pages/", raise_on_error=True)
         assert summary["total"] == 4
         assert summary["unresolved"] == 3
         tokyu = summary["jobs"]["tokyu_tochi"]
@@ -301,6 +301,18 @@ class TestReplayDate:
             summary = ErrorPageReplayer.replay_date("20260928")
         assert summary["total"] == 1
         assert summary["storage_error"] == "no creds"
+
+    def test_storage_list_files_failure_falls_back_to_local(self):
+        local_dir = self.tmp_path / "runs" / "20260928" / "error_pages" / "heim_kodate"
+        local_dir.mkdir(parents=True)
+        (local_dir / "h.html").write_bytes(b"h")
+        sm = MagicMock()
+        sm.list_files.side_effect = RuntimeError("gcs 503 unavailable")
+        with patch("package.utils.error_page_replayer.get_storage_manager", return_value=sm), \
+                patch.object(ErrorPageReplayer, "replay_html", return_value=_result("ok")):
+            summary = ErrorPageReplayer.replay_date("20260928")
+        assert summary["total"] == 1
+        assert summary["storage_error"] == "gcs 503 unavailable"
 
     def test_unreadable_blob_is_skipped(self):
         keys = [
@@ -460,6 +472,35 @@ class TestStorageReadBytes:
         sm.gcs_bucket.blob.return_value.download_as_bytes.return_value = b"\x82\xa0"
         assert sm.read_bytes("k") == b"\x82\xa0"
         sm.gcs_bucket.blob.assert_called_once_with("k")
+
+
+class TestStorageListFiles:
+    def test_gcs_list_files_default_swallows_error(self):
+        sm = ObjectStorageManager.__new__(ObjectStorageManager)
+        sm.is_gcs = True
+        sm.gcs_bucket = MagicMock()
+        sm.gcs_client = MagicMock()
+        sm.gcs_client.list_blobs.side_effect = RuntimeError("gcs fail")
+        assert sm.list_files("prefix/") == []
+
+    def test_gcs_list_files_raises_when_flag_enabled(self):
+        sm = ObjectStorageManager.__new__(ObjectStorageManager)
+        sm.is_gcs = True
+        sm.gcs_bucket = MagicMock()
+        sm.gcs_client = MagicMock()
+        sm.gcs_client.list_blobs.side_effect = RuntimeError("gcs fail")
+        with pytest.raises(RuntimeError, match="gcs fail"):
+            sm.list_files("prefix/", raise_on_error=True)
+
+    def test_s3_list_files_raises_when_flag_enabled(self):
+        sm = ObjectStorageManager.__new__(ObjectStorageManager)
+        sm.is_gcs = False
+        sm.bucket_name = "b"
+        sm.s3_client = MagicMock()
+        sm.s3_client.list_objects_v2.side_effect = RuntimeError("s3 fail")
+        with pytest.raises(RuntimeError, match="s3 fail"):
+            sm.list_files("prefix/", raise_on_error=True)
+
 
     def test_s3_read_bytes_and_read_text(self):
         sm = ObjectStorageManager.__new__(ObjectStorageManager)

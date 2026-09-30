@@ -145,7 +145,7 @@ class ObjectStorageManager:
             logger.exception("Failed to upload bytes '%s' to storage", key)
             raise
 
-    def list_files(self, prefix: str) -> list:
+    def list_files(self, prefix: str, raise_on_error: bool = False) -> list:
         """
         指定したプレフィックスに一致するオブジェクトキー一覧を取得します。
         """
@@ -155,6 +155,8 @@ class ObjectStorageManager:
                 return [b.name for b in blobs]
             except Exception:
                 logger.exception("Failed to list GCS files with prefix '%s'", prefix)
+                if raise_on_error:
+                    raise
                 return []
         keys = []
         continuation_token = None
@@ -176,6 +178,8 @@ class ObjectStorageManager:
             return keys
         except Exception:
             logger.exception("Failed to list files with prefix '%s'", prefix)
+            if raise_on_error:
+                raise
             return []
 
     def read_bytes(self, key: str) -> bytes:

@@ -97,7 +97,7 @@ class ErrorPageReplayer:
         storage_error = None
         try:
             sm = get_storage_manager()
-            for key in sm.list_files(prefix=prefix):
+            for key in sm.list_files(prefix=prefix, raise_on_error=True):
                 objects[key] = lambda k=key: sm.read_bytes(k)
         except Exception as se:  # noqa: BLE001
             storage_error = str(se)
