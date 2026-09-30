@@ -5,12 +5,27 @@ from unittest.mock import MagicMock, patch
 
 
 def test_workflows_timeout_definitions():
-    """Workflows の全体タイムアウト (7h: 25200s) とクロール上限 (5h: 18000s) が整合していること."""
-    workflow_total_timeout_sec = 25200
-    crawler_phase_timeout_sec = 18000
+    """Workflows の全体タイムアウト (7h: 25200s) とクロール上限 (5h: 18000s) が YAML 定義から正しく取得・整合していること."""
+    import re
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
+    assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    assert crawler_phase_timeout_sec == 5 * 3600
-    assert workflow_total_timeout_sec == 7 * 3600
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # YAMLから動的に maxPipelineDurationSec と crawlTimeoutSec の設定値を抽出
+    max_duration_match = re.search(r"maxPipelineDurationSec:\s*(\d+)", content)
+    crawl_timeout_match = re.search(r"crawlTimeoutSec.*?(\d{4,6})", content)
+
+    assert max_duration_match is not None, "maxPipelineDurationSec must be defined in daily_pipeline.yaml"
+    assert crawl_timeout_match is not None, "crawlTimeoutSec must be defined in daily_pipeline.yaml"
+
+    workflow_total_timeout_sec = int(max_duration_match.group(1))
+    crawler_phase_timeout_sec = int(crawl_timeout_match.group(1))
+
+    assert crawler_phase_timeout_sec == 5 * 3600, f"Expected 18000, got {crawler_phase_timeout_sec}"
+    assert workflow_total_timeout_sec == 7 * 3600, f"Expected 25200, got {workflow_total_timeout_sec}"
     assert crawler_phase_timeout_sec < workflow_total_timeout_sec
     # 後続フェーズ (ML学習 + 価格推定 + 配信 + 停止) に最低 2 時間のバッファが確保されていること
     assert (workflow_total_timeout_sec - crawler_phase_timeout_sec) >= 2 * 3600
