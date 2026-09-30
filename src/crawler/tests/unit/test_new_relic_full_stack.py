@@ -247,7 +247,7 @@ def test_provision_alerts_reuses_existing_policy():
     """既存のアラートポリシーが存在する場合に再利用して正常完了すること"""
     with patch.dict(os.environ, {"NEW_RELIC_API_KEY": "fake_api_key"}):
         with patch("scripts.setup_new_relic_crawler_alerts.find_existing_policy_id", return_value=99999):
-            with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value=set()):
+            with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value={}):
                 with patch("scripts.setup_new_relic_crawler_alerts.run_nerdgraph_query") as mock_query:
                     mock_query.return_value = {"data": {"alertsNrqlConditionStaticCreate": {"id": "1", "name": "c1"}}}
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
@@ -264,7 +264,7 @@ def test_provision_alerts_condition_failure_returns_false():
     """NRQL条件の作成に失敗した場合はFalseを返すこと"""
     with patch.dict(os.environ, {"NEW_RELIC_API_KEY": "fake_api_key"}):
         with patch("scripts.setup_new_relic_crawler_alerts.find_existing_policy_id", return_value=99999):
-            with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value=set()):
+            with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value={}):
                 with patch("scripts.setup_new_relic_crawler_alerts.run_nerdgraph_query") as mock_query:
                     mock_query.return_value = {"errors": [{"message": "Invalid NRQL"}]}
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
@@ -272,22 +272,28 @@ def test_provision_alerts_condition_failure_returns_false():
                     assert res is False
 
 
-def test_provision_alerts_skips_existing_conditions():
-    """既存の条件がすでにポリシー内に存在する場合、重複作成をスキップすること"""
+def test_provision_alerts_upserts_existing_conditions():
+    """既存の条件がある場合スキップせずupdateすること（Issue #562 #8）"""
     with patch.dict(os.environ, {"NEW_RELIC_API_KEY": "fake_api_key"}):
         with patch("scripts.setup_new_relic_crawler_alerts.find_existing_policy_id", return_value=99999):
+            # dict {name: id} — new return type of find_existing_condition_names
             existing = {
-                "Crawler Zero-Count Scraping Failure",
-                "Crawler Parser Latency Degradation (>1.0s/item)",
-                "Target Portal Blocked (403/429 Spike)",
-                "Container High Memory Usage Warning",
+                "Crawler Zero-Count Scraping Failure": "101",
+                "Crawler Parser Latency Degradation (>1.0s/item)": "102",
+                "Target Portal Blocked (403/429 Spike)": "103",
+                "Container High Memory Usage Warning": "104",
             }
             with patch("scripts.setup_new_relic_crawler_alerts.find_existing_condition_names", return_value=existing):
                 with patch("scripts.setup_new_relic_crawler_alerts.run_nerdgraph_query") as mock_query:
+                    mock_query.return_value = {"data": {"alertsNrqlConditionStaticUpdate": {"id": "101", "name": "c1"}}}
                     from scripts.setup_new_relic_crawler_alerts import provision_alerts
                     res = provision_alerts(account_id=8553111, policy_name="RealEstate Crawler Operations")
                     assert res is True
-                    mock_query.assert_not_called()
+                    # All 4 conditions exist → 4 update calls, 0 create calls
+                    assert mock_query.call_count == 4
+                    for call_item in mock_query.call_args_list:
+                        payload = call_item[0][0]
+                        assert "alertsNrqlConditionStaticUpdate" in payload.get("query", "")
 
 
 def test_record_container_sample_without_license_key():

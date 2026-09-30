@@ -26,9 +26,10 @@ while True:
         break
     _cur = _parent
 
-from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics, record_container_sample
+from package.utils.newrelic_helper import init_new_relic, record_crawler_metrics, record_container_sample, start_container_sample_thread, shutdown_new_relic
 init_new_relic()
 record_container_sample()
+start_container_sample_thread(interval_sec=60)
 
 from django.apps import apps
 from django.db import connection
@@ -529,7 +530,7 @@ def main():
                     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
                         cmd,
-                        preexec_fn=os.setsid
+                        start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
                     active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
@@ -715,5 +716,8 @@ def main():
         subprocess.run([sys.executable, monitor_script])
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        shutdown_new_relic()
 

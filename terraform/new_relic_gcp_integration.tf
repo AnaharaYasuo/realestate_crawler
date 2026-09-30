@@ -66,6 +66,11 @@ resource "google_pubsub_subscription" "new_relic_log_push" {
     attributes = {
       "x-goog-version" = "v1"
     }
+    # Pub/Sub エンベロープを外してログ本文をそのまま送信する（Issue #562 #1）
+    # これにより message/level/textPayload が New Relic で検索可能になる
+    no_wrapper {
+      write_metadata = true
+    }
   }
 
   labels = {
