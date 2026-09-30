@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 
 # Django初期化設定
 sys.path.append(
@@ -185,7 +186,7 @@ def scan_anomalies_and_generate_instructions():
 
     # 重複排除と指示書の出力
     instruction = {
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "targets": heal_targets,
         "action_required": "Please inspect the target URLs, analyze why their data parsed incorrectly (e.g. price/area too small or frontage 0m despite setsudou exists), fix the corresponding parser inside package/parser/, run verification tests, and commit/push/merge changes to master.",
     }

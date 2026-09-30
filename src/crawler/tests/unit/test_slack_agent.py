@@ -69,6 +69,49 @@ def test_should_process_slack_event_auto_heal_from_bot():
     assert reason == "unauthorized_bot"
 
 
+def test_should_process_slack_event_auto_heal_from_user():
+    from package.utils.slack_agent import should_process_slack_event
+
+    # 許可ユーザーからの [AUTO_HEAL_REQ]
+    event = {
+        "user": "U12345",
+        "text": "🚨 [AUTO_HEAL_REQ] 障害復旧\n/auto-heal",
+    }
+    allowed, instruction, reason = should_process_slack_event(
+        event, allowed_users={"U12345"}
+    )
+    assert allowed is True
+    assert instruction == "/auto-heal"
+    assert reason == "auto_heal_authorized"
+
+    # 未許可ユーザーからの [AUTO_HEAL_REQ]
+    allowed, instruction, reason = should_process_slack_event(
+        event, allowed_users={"U_OTHER"}
+    )
+    assert allowed is False
+    assert instruction == ""
+    assert reason == "unauthorized_user"
+
+    # 許可リスト空の場合
+    allowed, instruction, reason = should_process_slack_event(
+        event, allowed_users=set()
+    )
+    assert allowed is False
+    assert instruction == ""
+    assert reason == "unauthorized_user"
+
+    # 送信者情報なしの場合
+    event_no_sender = {
+        "text": "🚨 [AUTO_HEAL_REQ] 送信元不明\n/auto-heal",
+    }
+    allowed, instruction, reason = should_process_slack_event(
+        event_no_sender, allowed_users={"U12345"}
+    )
+    assert allowed is False
+    assert instruction == ""
+    assert reason == "unauthorized_sender"
+
+
 def test_should_process_slack_event_normal_bot_rejected():
     from package.utils.slack_agent import should_process_slack_event
 

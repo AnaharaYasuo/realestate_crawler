@@ -18,10 +18,7 @@ function resolveAgyExecutable() {
   if (process.env.AGY_PATH) {
     return process.env.AGY_PATH;
   }
-  if (fs.existsSync(defaultWinAgy)) {
-    return defaultWinAgy;
-  }
-  return 'agy';
+  return fs.existsSync(defaultWinAgy) ? defaultWinAgy : 'agy';
 }
 
 const agyPath = resolveAgyExecutable();
@@ -165,7 +162,7 @@ async function processInstruction(say, client, event) {
 
   // Windows環境対応の確実なコマンド呼び出し (shell: true)
   let cmdLine = '';
-  if (rawText.includes('[AUTO_HEAL_REQ]') || cleanText.includes('/auto-heal')) {
+  if (isAutoHeal) {
     cmdLine = `"${agyPath}" --dangerously-skip-permissions -p "/auto-heal"`;
   } else {
     cmdLine = 'docker-compose exec -T app pytest src/crawler/tests/unit/test_parser_abstract_methods.py src/crawler/tests/unit/test_start_urls.py -v';
@@ -179,12 +176,24 @@ async function processInstruction(say, client, event) {
   let progressPostCount = 0;
   let isChildActive = true;
 
+  const projectRoot = process.env.PROJECT_ROOT || path.resolve(__dirname, '../../..');
   const shellCmd = process.env.ComSpec || String.raw`C:\Windows\System32\cmd.exe`;
   const child = spawn(shellCmd, ['/c', cmdLine], {
-    cwd: String.raw`c:\Users\weare\Documents\realestate_crawler`,
+    cwd: projectRoot,
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     shell: true
   });
+
+  // 有限時間タイムアウトガード (600秒で強制終了)
+  const executionTimeout = setTimeout(() => {
+    if (isChildActive) {
+      console.warn('[SlackAgent] Execution timed out after 600s, killing child process');
+      isChildActive = false;
+      try {
+        child.kill();
+      } catch (e) {}
+    }
+  }, 600000);
 
   const handleData = (buf) => {
     const text = safeDecode(buf);
@@ -231,6 +240,7 @@ async function processInstruction(say, client, event) {
 
   child.on('close', async (code) => {
     isChildActive = false;
+    clearTimeout(executionTimeout);
     const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[SlackAgent] Task finished with exit code ${code} in ${elapsedSec}s`);
 
@@ -252,6 +262,7 @@ async function processInstruction(say, client, event) {
 
   child.on('error', async (err) => {
     isChildActive = false;
+    clearTimeout(executionTimeout);
     console.error('[SlackAgent] Task error:', err);
     try {
       await say({

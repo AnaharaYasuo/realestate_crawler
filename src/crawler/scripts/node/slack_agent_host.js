@@ -1,5 +1,5 @@
 const { App } = require('@slack/bolt');
-const { exec } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '../../..', '.env') });
 
@@ -102,14 +102,13 @@ async function processInstruction(say, event) {
     thread_ts: threadTs
   });
 
-  const escapedText = instruction.replaceAll('"', String.raw`\"`);
-  const cmd = `"${agyPath}" --dangerously-skip-permissions --conversation "${conversationId}" -p "${escapedText}"`;
-  console.log(`[SlackAgent] Running CLI: ${cmd}`);
+  const args = ['--dangerously-skip-permissions', '--conversation', conversationId, '-p', instruction];
+  console.log(`[SlackAgent] Running CLI: ${agyPath} ${args.join(' ')}`);
 
   const env = { ...process.env, PAGER: 'cat' };
 
   // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-  exec(cmd, { cwd: path.join(__dirname, '../../..'), env, maxBuffer: 10 * 1024 * 1024, timeout: 600000 }, async (error, stdout, stderr) => {
+  execFile(agyPath, args, { cwd: path.join(__dirname, '../../..'), env, maxBuffer: 10 * 1024 * 1024, timeout: 600000 }, async (error, stdout, stderr) => {
     let output = (stdout || stderr || '').trim();
     const success = !error;
     const statusEmoji = success ? '✅' : '⚠️';
