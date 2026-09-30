@@ -40,11 +40,37 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
   member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
-# Grant Cloud Run Developer Role to crawler_runner (Workflows orchestrates Cloud Run Jobs)
-resource "google_project_iam_member" "crawler_runner_run_developer" {
-  project = var.project_id
-  role    = "roles/run.developer"
-  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+# Grant Cloud Run Job Executor & Viewer to crawler_runner (Workflows orchestrates Cloud Run Jobs)
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_crawler_executor" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.crawler_pipeline_job.name
+  role     = "roles/run.jobsExecutor"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_crawler_viewer" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.crawler_pipeline_job.name
+  role     = "roles/run.viewer"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_ml_executor" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.ml_pipeline_job.name
+  role     = "roles/run.jobsExecutor"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_ml_viewer" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.ml_pipeline_job.name
+  role     = "roles/run.viewer"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
 # Deploy SA needs logging.sinks.create (roles/editor no longer includes sink write).

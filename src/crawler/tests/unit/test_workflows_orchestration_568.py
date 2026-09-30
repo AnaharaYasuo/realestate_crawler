@@ -52,8 +52,8 @@ def test_hang_kill_terminates_process_group():
         mock_killpg.assert_called_once_with(54321, signal.SIGKILL)
 
 
-def test_daily_pipeline_yaml_structure_and_finally_stop():
-    """daily_pipeline.yaml が存在し、finally ブロックで確実に ProxySQL が停止される構文であること."""
+def test_daily_pipeline_yaml_structure_and_cleanup():
+    """daily_pipeline.yaml が存在し、正常時・異常時の両方で確実に ProxySQL が停止される構文であること."""
     import yaml
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
@@ -74,12 +74,16 @@ def test_daily_pipeline_yaml_structure_and_finally_stop():
 
     assert try_step is not None, "tryPipeline block must exist in main"
     assert "try" in try_step
-    assert "finally" in try_step
+    assert "except" in try_step
 
-    # finally に stopProxySQL が存在することを検証
-    finally_steps = try_step["finally"]["steps"]
-    stop_step = any("stopProxySQL" in s for s in finally_steps)
-    assert stop_step is True, "stopProxySQL must be defined in finally block to ensure teardown"
+    # except に stopProxySQLOnError が存在することを検証
+    except_steps = try_step["except"]["steps"]
+    stop_on_err = any("stopProxySQLOnError" in s for s in except_steps)
+    assert stop_on_err is True, "stopProxySQLOnError must be defined in except block to ensure teardown on error"
+
+    # 正常系フロー末尾に stopProxySQLOnSuccess が存在することを検証
+    stop_on_succ = any("stopProxySQLOnSuccess" in s for s in main_steps)
+    assert stop_on_succ is True, "stopProxySQLOnSuccess must be defined in main steps for clean teardown"
 
 
 def test_workflows_tf_configuration():

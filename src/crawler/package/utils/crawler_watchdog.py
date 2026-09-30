@@ -7,8 +7,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ジョブの無進捗・沈黙判定閾値（秒）: ハートビート連携未完時は誤殺害防止のため 0.0 (無効) をデフォルトとし、CRAWLER_HANG_THRESHOLD_SEC 指定時のみ有効化
-HANG_THRESHOLD_SEC: float = float(os.getenv("CRAWLER_HANG_THRESHOLD_SEC", "0.0"))
+def _parse_hang_threshold() -> float:
+    raw = os.getenv("CRAWLER_HANG_THRESHOLD_SEC", "0.0").strip()
+    try:
+        val = float(raw)
+        return max(0.0, val)
+    except (ValueError, TypeError):
+        return 0.0
+
+HANG_THRESHOLD_SEC: float = _parse_hang_threshold()
 
 
 def check_job_hung(

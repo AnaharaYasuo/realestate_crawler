@@ -5,6 +5,8 @@ main:
   steps:
     - initVars:
         assign:
+          - pipelineStart: ${sys.now()}
+          - maxPipelineDurationSec: 25200  # 7時間 (25,200s)
           - projectId: ${default(map.get(args, "projectId"), sys.get_env("GOOGLE_CLOUD_PROJECT_ID"))}
           - location: ${default(map.get(args, "location"), "asia-northeast1")}
           - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
@@ -38,7 +40,7 @@ main:
 
             - resolveCrawlerExecution:
                 assign:
-                  - crawlerExecutionName: ${default(crawlerOperation.response.name, crawlerOperation.metadata.name)}
+                  - crawlerExecutionName: ${default(map.get(map.get(crawlerOperation, "response"), "name"), map.get(map.get(crawlerOperation, "metadata"), "name"))}
 
             - waitCrawlerCompletion:
                 call: monitorJobExecution
@@ -56,21 +58,44 @@ main:
 
             - resolveMLExecution:
                 assign:
-                  - mlExecutionName: ${default(mlOperation.response.name, mlOperation.metadata.name)}
+                  - mlExecutionName: ${default(map.get(map.get(mlOperation, "response"), "name"), map.get(map.get(mlOperation, "metadata"), "name"))}
+
+            - calculateRemainingTime:
+                assign:
+                  - elapsedSoFar: ${sys.now() - pipelineStart}
+                  - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
+                  - mlEffectiveTimeout: ${default(min(7200, remainingMLTimeout), 300)}
 
             - waitMLCompletion:
                 call: monitorJobExecution
                 args:
                   executionName: ${mlExecutionName}
-                  timeoutSec: 7200  # 2時間
-        finally:
+                  timeoutSec: ${mlEffectiveTimeout}
+        except:
+          as: pipelineError
           steps:
-            - stopProxySQL:
-                call: googleapis.compute.v1.instances.stop
-                args:
-                  project: ${projectId}
-                  zone: ${zone}
-                  instance: ${proxysqlInstance}
+            - stopProxySQLOnError:
+                try:
+                  call: googleapis.compute.v1.instances.stop
+                  args:
+                    project: ${projectId}
+                    zone: ${zone}
+                    instance: ${proxysqlInstance}
+                except:
+                  as: stopErr
+                  steps:
+                    - logStopError:
+                        assign:
+                          - ignoredStopErr: ${stopErr}
+            - rethrowPipelineError:
+                raise: ${pipelineError}
+
+    - stopProxySQLOnSuccess:
+        call: googleapis.compute.v1.instances.stop
+        args:
+          project: ${projectId}
+          zone: ${zone}
+          instance: ${proxysqlInstance}
 
 # Subworkflow for polling Cloud Run Job execution until completed or timeout
 monitorJobExecution:
@@ -89,29 +114,29 @@ monitorJobExecution:
 
     - evaluateState:
         switch:
-          - condition: ${default(execDetails.runningCount, 0) == 0 and default(execDetails.reconciling, false) == false and map.get(execDetails, "completionTime") != null}
+          - condition: ${default(map.get(execDetails, "runningCount"), 0) == 0 and default(map.get(execDetails, "reconciling"), false) == false and map.get(execDetails, "completionTime") != null}
             steps:
               - checkExecutionResult:
                   switch:
-                    - condition: ${default(execDetails.failedCount, 0) > 0 or default(execDetails.cancelledCount, 0) > 0}
+                    - condition: ${default(map.get(execDetails, "failedCount"), 0) > 0 or default(map.get(execDetails, "cancelledCount"), 0) > 0}
                       raise:
                         error: "JobExecutionFailed"
-                        message: '${"Job execution finished with failures: failed=" + string(default(execDetails.failedCount, 0)) + ", cancelled=" + string(default(execDetails.cancelledCount, 0))}'
+                        message: '${"Job execution finished with failures: failed=" + string(default(map.get(execDetails, "failedCount"), 0)) + ", cancelled=" + string(default(map.get(execDetails, "cancelledCount"), 0))}'
                     - condition: true
                       return: ${execDetails}
           - condition: ${(sys.now() - startTime) > timeoutSec}
             steps:
               - cancelRunningJob:
-                  try:
-                    call: googleapis.run.v2.projects.locations.jobs.executions.cancel
-                    args:
-                      name: ${executionName}
-                  except:
-                    as: cancelErr
-                    steps:
-                      - logCancelError:
-                          assign:
-                            - ignoredCancelErr: ${cancelErr}
+                try:
+                  call: googleapis.run.v2.projects.locations.jobs.executions.cancel
+                  args:
+                    name: ${executionName}
+                except:
+                  as: cancelErr
+                  steps:
+                    - logCancelError:
+                        assign:
+                          - ignoredCancelErr: ${cancelErr}
               - raiseTimeout:
                   raise:
                     error: "JobExecutionTimeout"

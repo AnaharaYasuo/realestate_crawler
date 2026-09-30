@@ -472,6 +472,19 @@ def main():
                     "items_count": 0,
                     "error_message": f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s"
                 })
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=0,
+                        duration_sec=float(elapsed),
+                        zero_count=True,
+                        status="hung_timeout",
+                        metadata={"exit_code": -1, "error_msg": f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s"}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
+
                 post_slack(f"❌ 【ハング検知・強制終了】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | {int(HANG_THRESHOLD_SEC)}秒間無進捗のため打ち切り")
                 del active_processes[idx]
 
