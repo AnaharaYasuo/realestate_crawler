@@ -244,8 +244,8 @@
 | 61 | annualRent | Int | ❌ | 年間想定賃料 |
 | 62 | monthlyRent | Int | ❌ | 月額賃料 |
 | 63 | currentStatus | Text | ❌ | 現況 |
-| 64 | tochiMensekiStr | Text | ❌ | 土地面積(文字列) |
-| 65 | tochiMenseki | Dec(10,2) | ❌ | 土地面積(数値) |
+| 64 | tochiMensekiStr | Text | ✅ | 土地面積(文字列) (blank=True) |
+| 65 | tochiMenseki | Dec(10,2) | ✅ | 土地面積(数値) (null=True, blank=True) |
 | 66 | tatemonoMensekiStr| Text | ❌ | 建物面積(文字列) |
 | 67 | tatemonoMenseki | Dec(10,2) | ❌ | 建物面積(数値) |
 | 68 | kouzou | Text | ❌ | 構造 |
@@ -472,6 +472,11 @@
 | 58 | roadDirection | Text | ✅ | 接道方位 |
 | 59 | roadType | Text | ✅ | 道路区分 |
 | 60 | roadStructure | Text | ✅ | 接道状況 |
+| 61 | setsudou | Text | ✅ | 接道 (blank=True) |
+| 62 | douroMuki | Text | ✅ | 道路向き (blank=True) |
+| 63 | douroHaba | Dec(10,3) | ✅ | 道路幅 (null=True, blank=True) |
+| 64 | douroKubun | Text | ✅ | 道路区分 (blank=True) |
+| 65 | setsumen | Dec(10,3) | ✅ | 接面 (null=True, blank=True) |
 
 ### 3.5 MitsuiInvestmentKodate
 
@@ -617,6 +622,7 @@
 | 57 | roadType | Text | ✅ | 道路区分 |
 | 58 | roadStructure | Text | ✅ | 接道状況 |
 | 59 | chisei / boukaChiiki / saikenchiku / sonotaChiiki / kokudoHou | Text | ✅ (blank 可, Issue #538) | 地勢・防火地域・再建築・その他地域・国土法（掲載が無い土地が多いため任意項目） |
+| 60 | setsudou / douro / douroMuki / douroKubun / douroHaba / setsumen | Text/Dec | ✅ (blank 可, Issue #564) | 接道・道路情報（掲載が無い土地が多いため任意項目） |
 
 ### 4.5 TokyuInvestmentKodate
 
@@ -715,16 +721,16 @@
 | 49 | madori | Text | ❌ | 間取り |
 | 50 | senyuMensekiStr | Text | ❌ | 専有面積(文字列) |
 | 51 | senyuMenseki | Dec(10,3) | ❌ | 専有面積(数値) |
-| 52 | balconyMensekiStr | Text | ❌ | バルコニー面積(文字列) |
+| 52 | balconyMensekiStr | Text | ✅ | バルコニー面積(文字列) (blank=True) |
 | 53 | balconyMenseki | Dec(10,3) | ✅ | バルコニー面積(数値) |
-| 54 | saikou | Text | ❌ | 向き |
+| 54 | saikou | Text | ✅ | 向き (blank=True) |
 | 54 | otherArea | Text | ✅ | その他面積 (blank=True) |
-| 55 | kouzou | Text | ❌ | 構造 |
-| 56 | kaisu | Text | ❌ | 所在階 |
-| 57 | chikunengetsuStr | Text | ❌ | 築年月 |
-| 58 | soukosu | Text | ❌ | 総戸数 |
-| 59 | tochikenri | Text | ❌ | 土地権利 |
-| 60 | youtoChiiki | Text | ❌ | 用途地域 |
+| 55 | kouzou | Text | ✅ | 構造 (blank=True) |
+| 56 | kaisu | Text | ✅ | 所在階 (blank=True) |
+| 57 | chikunengetsuStr | Text | ✅ | 築年月 (blank=True) |
+| 58 | soukosu | Int | ✅ | 総戸数 (null=True, blank=True) |
+| 59 | tochikenri | Text | ✅ | 土地権利 (blank=True) |
+| 60 | youtoChiiki | Text | ✅ | 用途地域 (blank=True) |
 | 61 | kanriKaisya | Text | ❌ | 管理会社 |
 | 62 | kanriKeitai | Text | ❌ | 管理形態 |
 | 63 | manager | Text | ❌ | 管理員 |
@@ -774,11 +780,11 @@
 | - | (NomuraModel の全フィールド) | - | - | 基本情報 |
 | 49 | tochiMensekiStr| Text | ❌ | 土地面積(文字列) |
 | 50 | tochiMenseki | Dec(10,2) | ✅ | 土地面積(数値) |
-| 51 | tochikenri | Text | ❌ | 土地権利 |
-| 52 | chimoku | Text | ❌ | 地目 |
-| 53 | kenpeiStr | Text | ❌ | 建ぺい率(文字列) |
+| 51 | tochikenri | Text | ✅ | 土地権利 (blank=True) |
+| 52 | chimoku | Text | ✅ | 地目 (blank=True) |
+| 53 | kenpeiStr | Text | ✅ | 建ぺい率(文字列) (blank=True) |
 | 54 | kenpei | Int | ✅ | 建ぺい率(数値) |
-| 55 | yousekiStr | Text | ❌ | 容積率(文字列) |
+| 55 | yousekiStr | Text | ✅ | 容積率(文字列) (blank=True) |
 | 56 | youseki | Int | ✅ | 容積率(数値) |
 | 57 | maguchiStr | Text | ✅ | 間口（文字列） |
 | 58 | maguchi | Dec(6,2) | ✅ | 間口（数値） |
@@ -789,6 +795,7 @@
 | 63 | roadDirection | Text | ✅ | 接道方位 |
 | 64 | roadType | Text | ✅ | 道路区分 |
 | 65 | roadStructure | Text | ✅ | 接道状況 |
+| 66 | cityPlanning / youtoChiiki / setsudou | Text | ✅ | 都市計画・用途地域・接道 (blank=True) |
 
 ### 5.5 NomuraInvestmentKodate
 

@@ -1,4 +1,5 @@
 from django.db import models
+
 from .base import PropertyBaseModel, TransportationMixin
 
 # Create your models here.
@@ -66,12 +67,12 @@ class TokyuTochi(TokyuModel):
     chimokuChisei = models.TextField()
     chimoku = models.TextField()
     chisei = models.TextField(blank=True)
-    setsudou = models.TextField()
-    douro = models.TextField()
-    douroMuki = models.TextField()
-    douroHaba = models.DecimalField(max_digits=6,decimal_places=3, null=True)
-    douroKubun = models.TextField()
-    setsumen = models.DecimalField(max_digits=6,decimal_places=3, null=True)
+    setsudou = models.TextField(default="", blank=True)
+    douro = models.TextField(default="", blank=True)
+    douroMuki = models.TextField(default="", blank=True)
+    douroHaba = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
+    douroKubun = models.TextField(default="", blank=True)
+    setsumen = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
     tochiMensekiStr = models.TextField(verbose_name="土地面積", default="")
     kenpei = models.IntegerField(verbose_name="建ぺい率", default=0)
     youseki = models.IntegerField(verbose_name="容積率", default=0)

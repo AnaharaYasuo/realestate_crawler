@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 from django.db import models
+
 from .base import PropertyBaseModel, TransportationMixin
 
 # Create your models here.
@@ -35,7 +35,7 @@ class MitsuiMansion(MitsuiModel):
     saikou = models.TextField(blank=True)
     kadobeya = models.TextField(blank=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kanriKeitaiKaisya = models.TextField(blank=True)
     kanriKeitai = models.TextField(blank=True)
     kanriKaisya = models.TextField(blank=True)
@@ -81,11 +81,11 @@ class MitsuiTochi(MitsuiModel):
     
     sonotaHiyouStr = models.TextField(blank=True)
 
-    setsudou = models.TextField()
-    douroMuki = models.TextField()
-    douroHaba = models.DecimalField(max_digits=10,decimal_places=3, null=True)
-    douroKubun = models.TextField()
-    setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True)
+    setsudou = models.TextField(default="", blank=True)
+    douroMuki = models.TextField(default="", blank=True)
+    douroHaba = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
+    douroKubun = models.TextField(default="", blank=True)
+    setsumen = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
 
     # 統一土地評価フィールド
     maguchiStr = models.TextField(default="", blank=True)
