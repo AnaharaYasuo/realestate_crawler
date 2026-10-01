@@ -25,6 +25,7 @@ _ROUTER_PROPERTY_TYPES = {
     "mansion": "mansion",
     "kodate": "kodate",
     "tochi": "tochi",
+    "investment": "apartment",
     "investment_apartment": "apartment",
     "invest_apartment": "apartment",
 }

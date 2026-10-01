@@ -267,3 +267,16 @@
   5. **候補URLステータス連動**:
      - 開発完了に伴い、`CandidatePropertyUrl` 内の健美家URLの `status` を `implemented` へ更新可能とすること。
 
+### 3.11 住まい1 (Sumai1) および セキスイハイム (Heim) URLルーティング要件 (FR-ROUTER-ADD-HEIM-SUMAI1)
+- **背景・目的**:
+  - `Sumai1Parser`（sumai1.com）および `HeimParser`（tokyo816.jp / sumu-heim.jp）はパーサー・モデルが実装済みであるが、`UrlRouter.ROUTES` に登録されていないため、価格推定 API（`/api/evaluation/predict-by-url`）および障害テレメトリ再検証（`fetch_run_failures.py --replay`）で `no_parser` となりパース解決できない。
+  - 各種別の詳細URLパターンを `UrlRouter.ROUTES` に登録し、正しいパーサー・モデルクラスへ即時解決可能とする。
+- **要件**:
+  1. **住まい1 (Sumai1) ルーティング登録**:
+     - `sumai1.com/buyers/mansion/bukken/buk_` ➔ `Sumai1MansionParser` (`mansion`)
+     - `sumai1.com/buyers/kodate/bukken/buk_` ➔ `Sumai1KodateParser` (`kodate`)
+     - `sumai1.com/buyers/tochi/bukken/buk_` ➔ `Sumai1TochiParser` (`tochi`)
+     - `sumai1.com/buyers/investor/bukken/buk_` ➔ `Sumai1InvestmentParser` (`apartment`)
+  2. **セキスイハイム (Heim: tokyo816.jp / sumu-heim.jp) ルーティング登録**:
+     - `tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp` を対象パターンとする。
+     - heim ではマンション（建売用地/住戸）と戸建てで URL パターンが同一であるため、デフォルトを `kodate` としつつ、`mansion`、`kodate`、`tochi` の各ルートを登録し、`PropertyTypeDetector.detect` による動的判定（または呼び出し元の `property_type` 指定）により適切なパーサー（`HeimMansionParser` / `HeimKodateParser` / `HeimTochiParser`）へ振り分ける。
