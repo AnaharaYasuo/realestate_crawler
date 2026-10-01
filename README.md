@@ -642,12 +642,15 @@ task logs
 - **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / should_process_event 詳細仕様 (Issue #575)
 - **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/requirements/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
 - **[pre_pr_check 並列最適化・テスト動的選別基本設計書](docs/basic_design/pre_pr_check_optimization_basic_design.md)**: 並行パイプライン・直列ミューテーション分離・Cavemanサマリー設計 (Issue #579)
-- **[pre_pr_check 並列最適化・テスト動的選別内部設計書](docs/internal_design/pre_pr_check_optimization_internal_design.md)**: classify_changed_files / check_has_open_pr / format_terse_error 詳細仕様 (Issue #579)
+- **[MySQL認証プラグイン移行要件定義書](docs/requirements/mysql_auth_plugin_migration_requirements.md)**: caching_sha2_password 移行・非推奨警告解消要件 (Issue #572)
+- **[MySQL認証プラグイン移行基本設計書](docs/basic_design/mysql_auth_plugin_migration_basic_design.md)**: ProxySQL TLS 接続および暗号化認証アーキテクチャ (Issue #572)
+- **[MySQL認証プラグイン移行内部設計書](docs/internal_design/mysql_auth_plugin_migration_internal_design.md)**: Terraform / ProxySQL 定義差分および TDD テスト仕様 (Issue #572)
 - **[種別誤判定防止＆データ監視最適化要件定義書](docs/requirements/property_type_detection_and_validation_requirements.md)**: PropertyTypeDetector URL優先判定・validate_data 直近走査化要件 (Issue #584)
 - **[種別誤判定防止＆データ監視最適化基本設計書](docs/basic_design/property_type_detection_and_validation_basic_design.md)**: URL先行評価・7日間直近フィルタ・CLIオプション基本設計 (Issue #584)
 - **[種別誤判定防止＆データ監視最適化内部設計書](docs/internal_design/property_type_detection_and_validation_internal_design.md)**: _detect_rule_based / validate_data 詳細仕様 (Issue #584)
 
 ### 2. 開発を始める
+
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
 - **[Taskコマンド完全リファレンス](docs/implementation/task_commands.md)**: Taskコマンド一覧および仕様
 - **[SonarCloud事前検証・コーディング規約ガイド](docs/implementation/sonar_guardrail_guide.md)**: SonarLint設定、S3776/S8786対策、ローカルガードレール運用

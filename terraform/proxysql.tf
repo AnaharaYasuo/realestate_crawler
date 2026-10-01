@@ -156,10 +156,11 @@ resource "google_compute_instance" "proxysql_instance" {
             hostgroup=0
             max_connections=${var.proxysql_backend_max_connections}
             max_replication_lag=0
-            use_ssl=0
+            use_ssl=1
             weight=1
         }
     )
+
 
     mysql_users =
     (

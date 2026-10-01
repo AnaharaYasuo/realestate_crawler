@@ -1188,6 +1188,22 @@ PR通過の遅延およびレビューゲート滞留を解消し、CI所要時�
 - CodeRabbit のレビュー完了後にコミットステータス（`success`）が反映されても、直接の GHA Webhook が発火しない制約に対処。
 - 後続で完了するワークフロー（`Parser Tests`, `SonarCloud Analysis`）の `workflow_run.completed` をトリガーに Review Gate を自律再実行し、最新ステータスを確実に再評価・反映して永久 pending スタックを根絶。
 
+---
+
+## 22. MySQL 認証プラグイン標準化 & TLS 接続アーキテクチャ (Issue #572)
+
+### 22.1 概要と目的
+MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグレード互換性を担保するため、旧式 `mysql_native_password` を全廃し、`caching_sha2_password` へ移行する。
+
+### 22.2 通信暗号化と認証フロー
+- **ProxySQL ➔ Cloud SQL**:
+  - `mysql_servers` で `use_ssl=1` を指定。
+  - TLS 暗号化ハンドシェイクにより、RSA 公開鍵交換不要で `caching_sha2_password` をセキュア・高速に疎通。
+- **Cloud SQL 設定**:
+  - インスタンス設定から `default_authentication_plugin = "mysql_native_password"` を撤廃し、MySQL 8.0 標準に復帰。
+  - アプリケーションユーザー (`sumifu`) および監視ユーザー (`monitor`) を `caching_sha2_password` に移行。
+
+
 
 
 
