@@ -55,17 +55,20 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         logger.info("Full scan mode enabled: scanning all records in database.")
     else:
         if days is not None:
-            days_limit = days
+            if days < 0:
+                raise ValueError(f"days must be non-negative: {days}")
+            days_limit = days if days > 0 else None
         else:
             env_val = os.getenv("VALIDATE_DATA_DAYS", "7").strip()
             try:
-                days_limit = int(env_val) if int(env_val) > 0 else None
+                val = int(env_val)
+                days_limit = val if val > 0 else None
             except ValueError:
                 days_limit = 7
         if days_limit:
             logger.info("Recent scan mode enabled: scanning records from the last %d days.", days_limit)
         else:
-            logger.info("Full scan mode enabled via VALIDATE_DATA_DAYS=0.")
+            logger.info("Full scan mode enabled via days/VALIDATE_DATA_DAYS=0.")
             
     since_date = (datetime.datetime.now(tz=datetime.timezone.utc).date() - datetime.timedelta(days=days_limit)) if days_limit else None
     
