@@ -50,7 +50,7 @@ run_pre_pr_check() {
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
             # Its .git file points to a host absolute path, so hand the container-side git dir explicitly.
-            wt_git_dir_norm=$(norm_path "$(git rev-parse --absolute-git-dir)")
+            wt_git_dir_norm=$(norm_path "$(git rev-parse --absolute-git-dir 2>/dev/null || git rev-parse --git-dir)")
             rel_git_dir="${wt_git_dir_norm#"$main_root_norm/"}"
             docker compose --project-directory "$main_root" exec -T -e GIT_DIR="/app/$rel_git_dir" -e GIT_WORK_TREE="/app/$rel_path" -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
@@ -256,22 +256,26 @@ do
         CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"finding"' | wc -l || echo "0")
         CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)"[[:space:]]*:[[:space:]]*"(high|critical|error|major)"' || true)
 
-        if [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
-            CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
-            if echo "$CR_OUTPUT" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"' || echo "$CR_OUTPUT" | grep -qi 'rate limit'; then
-                echo ""
-                echo "================================================================================"
-                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI の利用制限（Rate limit / Monthly limit）に達しています。"
-                echo "  $CR_ERR_MSG"
-                echo "緊急プッシュ時は SKIP_CODERABBIT=1 を明示的に指定して実行してください。"
-                echo "================================================================================"
-                echo ""
-                exit 1
+        if [ "$CR_EXIT_CODE" -eq 124 ]; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューがタイムアウト（1800s）しました。"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        elif [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
+            CR_ERROR_LINES=$(echo "$CR_OUTPUT" | grep -E '"type"[[:space:]]*:[[:space:]]*"error"' || true)
+            if [ -n "$CR_ERROR_LINES" ] && (echo "$CR_ERROR_LINES" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"' || echo "$CR_ERROR_LINES" | grep -qi 'rate limit'); then
+                echo "⚠️ [PRE-PUSH WARNING] CodeRabbit CLI 利用制限 (Rate limit / Monthly limit): リモートPR CIでレビューを実行します。"
             else
+                CR_ERR_DETAIL=$(echo "$CR_OUTPUT" | grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 || true)
+                if [ -z "$CR_ERR_DETAIL" ]; then
+                    CR_ERR_DETAIL=$(echo "$CR_OUTPUT" | tail -n 5)
+                fi
                 echo ""
                 echo "================================================================================"
                 echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
-                echo "  $CR_ERR_MSG"
+                echo "  $CR_ERR_DETAIL"
                 echo "================================================================================"
                 echo ""
                 exit 1

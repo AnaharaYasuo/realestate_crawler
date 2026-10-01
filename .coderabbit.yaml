@@ -33,9 +33,12 @@ reviews:
     # 外部ライブラリ・git worktree コピー
     - "!**/node_modules/**"
     - "!.worktrees/**"
-    # Terraform 状態ファイル（シークレット漏洩防止）
+    # Terraform 状態ファイル・IaC（Checkov/Trivyで検証するため除外してトークン節約）
     - "!**/*.tfstate"
     - "!**/*.tfstate.backup"
+    - "!terraform/**"
+    # GitHub Actions ワークフロー（actionlint/CodeQLで検証するため除外してトークン節約）
+    - "!.github/workflows/**"
   # パス別レビュー観点。Issue #363
   path_instructions:
     - path: "src/crawler/package/parser/**"

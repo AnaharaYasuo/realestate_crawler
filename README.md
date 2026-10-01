@@ -629,9 +629,15 @@ task logs
 - **[GCS障害テレメトリ要件定義書](docs/requirements/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
 - **[GCS障害テレメトリ基本設計書](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: 障害HTML永続化・再パース検証アーキテクチャ (Issue #466, #561)
 - **[GCS障害テレメトリ内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
+- **[Cloud Workflows 統合オーケストレーション要件定義書](docs/requirements/cloud_workflows_orchestration_requirements.md)**: クロール・ML・割安物件配信の一貫自動化とタイムアウト集約要件
+- **[Cloud Workflows 統合オーケストレーション基本設計書](docs/basic_design/cloud_workflows_orchestration_basic_design.md)**: Workflows ステートマシン、ProxySQL 連動、7h/5h タイムアウト設計
+- **[Cloud Workflows 統合オーケストレーション内部設計書](docs/internal_design/cloud_workflows_orchestration_internal_design.md)**: YAML 定義仕様、ハング監視実装仕様
 - **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件 (Issue #575)
 - **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計 (Issue #575)
 - **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / should_process_event 詳細仕様 (Issue #575)
+- **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/requirements/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
+- **[pre_pr_check 並列最適化・テスト動的選別基本設計書](docs/basic_design/pre_pr_check_optimization_basic_design.md)**: 並行パイプライン・直列ミューテーション分離・Cavemanサマリー設計 (Issue #579)
+- **[pre_pr_check 並列最適化・テスト動的選別内部設計書](docs/internal_design/pre_pr_check_optimization_internal_design.md)**: classify_changed_files / check_has_open_pr / format_terse_error 詳細仕様 (Issue #579)
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
