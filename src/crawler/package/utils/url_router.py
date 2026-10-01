@@ -25,6 +25,10 @@ SMTRC_PARSER_MODULE = "package.parser.smtrcParser"
 SMTRC_MODEL_MODULE = "package.models.smtrc"
 NOMURA_PARSER_MODULE = "package.parser.nomuraParser"
 NOMURA_MODEL_MODULE = "package.models.nomura"
+SUMAI1_PARSER_MODULE = "package.parser.sumai1Parser"
+SUMAI1_MODEL_MODULE = "package.models.sumai1"
+HEIM_PARSER_MODULE = "package.parser.heimParser"
+HEIM_MODEL_MODULE = "package.models.heim"
 
 
 class UrlRouter:
@@ -403,6 +407,73 @@ class UrlRouter:
             "parser_cls": "RearieTochiParser",
             "model_module": REARIE_MODEL_MODULE,
             "model_cls": "RearieTochi",
+        },
+
+        # 住まい1 (Sumai1)
+        {
+            "pattern": re.compile(r"sumai1\.com/buyers/mansion/bukken/buk_"),
+            "site": "sumai1",
+            "property_type": "mansion",
+            "parser_module": SUMAI1_PARSER_MODULE,
+            "parser_cls": "Sumai1MansionParser",
+            "model_module": SUMAI1_MODEL_MODULE,
+            "model_cls": "Sumai1Mansion",
+        },
+        {
+            "pattern": re.compile(r"sumai1\.com/buyers/kodate/bukken/buk_"),
+            "site": "sumai1",
+            "property_type": "kodate",
+            "parser_module": SUMAI1_PARSER_MODULE,
+            "parser_cls": "Sumai1KodateParser",
+            "model_module": SUMAI1_MODEL_MODULE,
+            "model_cls": "Sumai1Kodate",
+        },
+        {
+            "pattern": re.compile(r"sumai1\.com/buyers/tochi/bukken/buk_"),
+            "site": "sumai1",
+            "property_type": "tochi",
+            "parser_module": SUMAI1_PARSER_MODULE,
+            "parser_cls": "Sumai1TochiParser",
+            "model_module": SUMAI1_MODEL_MODULE,
+            "model_cls": "Sumai1Tochi",
+        },
+        {
+            "pattern": re.compile(r"sumai1\.com/buyers/investor/bukken/buk_"),
+            "site": "sumai1",
+            "property_type": "apartment",
+            "parser_module": SUMAI1_PARSER_MODULE,
+            "parser_cls": "Sumai1InvestmentParser",
+            "model_module": SUMAI1_MODEL_MODULE,
+            "model_cls": "Sumai1Investment",
+        },
+
+        # セキスイハイム (Heim)
+        {
+            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "site": "heim",
+            "property_type": "kodate",
+            "parser_module": HEIM_PARSER_MODULE,
+            "parser_cls": "HeimKodateParser",
+            "model_module": HEIM_MODEL_MODULE,
+            "model_cls": "HeimKodate",
+        },
+        {
+            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "site": "heim",
+            "property_type": "mansion",
+            "parser_module": HEIM_PARSER_MODULE,
+            "parser_cls": "HeimMansionParser",
+            "model_module": HEIM_MODEL_MODULE,
+            "model_cls": "HeimMansion",
+        },
+        {
+            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "site": "heim",
+            "property_type": "tochi",
+            "parser_module": HEIM_PARSER_MODULE,
+            "parser_cls": "HeimTochiParser",
+            "model_module": HEIM_MODEL_MODULE,
+            "model_cls": "HeimTochi",
         },
     ]
 

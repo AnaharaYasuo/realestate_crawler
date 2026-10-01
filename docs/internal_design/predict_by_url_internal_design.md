@@ -93,6 +93,17 @@ URL_ROUTES = [
     (r"nomu\.com/mansion/id/[A-Z0-9]+/", "nomura", "mansion", "NomuraMansionParser"),
     (r"nomu\.com/house/id/[A-Z0-9]+/", "nomura", "kodate", "NomuraKodateParser"),
     (r"nomu\.com/land/id/[A-Z0-9]+/", "nomura", "tochi", "NomuraTochiParser"),
+
+    # 住まい1 (Sumai1)
+    (r"sumai1\.com/buyers/mansion/bukken/buk_", "sumai1", "mansion", "Sumai1MansionParser"),
+    (r"sumai1\.com/buyers/kodate/bukken/buk_", "sumai1", "kodate", "Sumai1KodateParser"),
+    (r"sumai1\.com/buyers/tochi/bukken/buk_", "sumai1", "tochi", "Sumai1TochiParser"),
+    (r"sumai1\.com/buyers/investor/bukken/buk_", "sumai1", "apartment", "Sumai1InvestmentParser"),
+
+    # セキスイハイム (Heim)
+    (r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp", "heim", "kodate", "HeimKodateParser"),
+    (r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp", "heim", "mansion", "HeimMansionParser"),
+    (r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp", "heim", "tochi", "HeimTochiParser"),
 ]
 ```
 
