@@ -158,6 +158,7 @@ class PrePRChecker:
         skip_coderabbit: bool = False,
         branch: str | None = None,
         sha: str | None = None,
+        changed_files: list[str] | None = None,
     ):
         self.diff_mode = diff_mode
         self.fix_mode = fix_mode
@@ -166,6 +167,7 @@ class PrePRChecker:
         self.skip_coderabbit = skip_coderabbit
         self.target_branch = branch
         self.target_sha = sha
+        self.provided_changed_files = changed_files
         self.results: list[StageResult] = []
         self.repo_root = find_repo_root()
 
@@ -197,14 +199,17 @@ class PrePRChecker:
     def get_current_branch(self) -> str:
         if self.target_branch:
             return self.target_branch
-        _, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-        return stdout
+        rc, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        return stdout.strip() if rc == 0 else ""
 
     def get_changed_files(self) -> tuple[list[str], list[str]]:
         """Get list of changed files against origin/master or master including staged, unstaged, and untracked.
 
         Returns (files, errors).
         """
+        if self.provided_changed_files:
+            return sorted({f.replace("\\", "/") for f in self.provided_changed_files}), []
+
         files: set[str] = set()
         errors: list[str] = []
         ref = self.target_sha or "HEAD"
@@ -442,8 +447,7 @@ class PrePRChecker:
             )
             return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
-        # Build coderabbit review commands
-        review_cmds = []
+        # Build coderabbit review commands and validate target_sha first
         if self.target_sha:
             head_rc, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
             target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
@@ -455,7 +459,37 @@ class PrePRChecker:
             if current_head != target_commit:
                 err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
+            current_sha = target_commit
+        else:
+            _, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
+            current_sha = head_out.strip()
 
+        # 1 PR (1作業ブランチ) につきローカルでの CodeRabbit レビューは 1 回で OK (コミットSHAスコープのキャッシュチェック)
+        raw_branch = self.get_current_branch().strip()
+        is_branch = bool(raw_branch and not raw_branch.startswith("fatal:") and not raw_branch.startswith("error:") and len(raw_branch) < 100)
+        branch_name = raw_branch.replace("/", "_").replace("\\", "_") if is_branch else ""
+        review_marker_file = None
+        has_dirty_changes = False
+        if not self.target_sha:
+            _, diff_out, _ = self._run_cmd(["git", "status", "--porcelain"])
+            has_dirty_changes = bool(diff_out.strip())
+
+        if branch_name and not has_dirty_changes:
+            cache_dir = os.path.join(self.repo_root, ".coderabbit_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            marker_suffix = f"_{current_sha[:8]}" if current_sha else ""
+            review_marker_file = os.path.join(cache_dir, f"{branch_name}{marker_suffix}.reviewed")
+            if os.path.exists(review_marker_file):
+                return StageResult(
+                    4,
+                    STAGE_CODERABBIT,
+                    True,
+                    details=f"CodeRabbitレビュー済み (1PRあたり1回完了: {branch_name}) のためスキップ",
+                    warnings=["CodeRabbitは本PRブランチで既に1回レビュー完了しているためスキップされました"],
+                    duration_sec=time.time() - start,
+                )
+
+        if self.target_sha:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha], timeout=30.0)
             if mb_rc != 0:
                 mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha], timeout=30.0)
@@ -463,7 +497,7 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            review_cmds = [["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"]]
         else:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"], timeout=30.0)
             if mb_rc != 0:
@@ -472,13 +506,16 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = "比較基準 (merge-base) を取得できませんでした: HEAD"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
-            review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
+            review_cmds = [
+                ["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"],
+                ["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"]
+            ]
 
         errors = []
         warnings = []
         findings_count = 0
         has_completed_event = False
+        is_any_rate_limited = False
         total_timeout_budget = 1800.0
 
         for cmd in review_cmds:
@@ -552,6 +589,21 @@ class PrePRChecker:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
             cmd_added_errors = len(errors) > initial_error_count
+            # Check non-JSON lines and stderr for rate limit diagnostic on CLI failure (rc != 0)
+            if rc != 0 and not is_rate_limited:
+                non_json_lines = [
+                    line for line in (stdout + "\n" + stderr).splitlines()
+                    if not line.strip().startswith("{")
+                ]
+                non_json_text = "\n".join(non_json_lines).lower()
+                if any(term in non_json_text for term in ("rate limit", "ratelimit", "too many requests", "monthly limit", "quota exceeded")):
+                    warnings.append(f"CodeRabbit CLI 利用制限検知のためスキップ (GitHub PR CIでレビュー): {' '.join(cmd)}")
+                    cmd_has_completed = True
+                    has_completed_event = True
+                    is_rate_limited = True
+            if is_rate_limited:
+                is_any_rate_limited = True
+
             if rc != 0 and not cmd_added_errors and not is_rate_limited:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
                 errors.append(err_msg)
@@ -559,10 +611,18 @@ class PrePRChecker:
             if not cmd_has_completed and not cmd_added_errors and rc == 0:
                 errors.append(f"CodeRabbit レビュー完了イベントを受信できませんでした: {' '.join(cmd)}")
 
-        if not has_completed_event and not errors:
+        if not has_completed_event and not errors and not is_any_rate_limited:
             errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")
 
         passed = len(errors) == 0
+        if passed and not is_any_rate_limited and review_marker_file:
+            # 1 PR 1回のレビュー完了マーカーを保存
+            try:
+                with open(review_marker_file, "w", encoding="utf-8") as f:
+                    f.write(f"reviewed at {time.time()} (findings: {findings_count})\n")
+            except Exception:
+                pass
+
         details = f"CodeRabbit指摘: {findings_count}件 (重大エラー: {len(errors)}, 警告: {len(warnings)})"
         return StageResult(4, STAGE_CODERABBIT, passed, details=details, warnings=warnings, errors=errors, duration_sec=time.time() - start)
 
@@ -768,6 +828,7 @@ def main() -> int:
     parser.add_argument("--sha", type=str, help="Target git commit SHA")
     parser.add_argument("--title", type=str, help="PR title to validate")
     parser.add_argument("--body", type=str, help="PR body to validate")
+    parser.add_argument("--changed-files", nargs="*", help="Explicit list of changed files")
     parser.add_argument("--json", action="store_true", help="Output JSON report")
     args = parser.parse_args()
 
@@ -782,6 +843,7 @@ def main() -> int:
         skip_coderabbit=args.skip_coderabbit,
         branch=args.branch,
         sha=args.sha,
+        changed_files=args.changed_files,
     )
 
     passed = checker.run_all(title=args.title, body=args.body)

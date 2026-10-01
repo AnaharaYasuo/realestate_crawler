@@ -61,7 +61,8 @@ resource "google_project_service" "enabled_services" {
     "compute.googleapis.com",
     "billingbudgets.googleapis.com",
     "monitoring.googleapis.com",
-    "logging.googleapis.com"
+    "logging.googleapis.com",
+    "workflows.googleapis.com"
   ])
 
 

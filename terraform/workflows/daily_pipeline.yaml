@@ -1,0 +1,187 @@
+# Cloud Workflows Definition: Real Estate Pipeline Daily Orchestration
+# 7時間 (25,200s) の全体タイムアウト枠内で、ProxySQL起動 -> クロール (5h上限) -> ML学習 -> バルク価格推定・お宝配信 -> ProxySQL停止を一貫実行
+main:
+  params: [args]
+  steps:
+    - initVars:
+        assign:
+          - pipelineStart: ${sys.now()}
+          - maxPipelineDurationSec: 25200  # 7時間 (25,200s)
+          - projectId: ${default(map.get(args, "projectId"), sys.get_env("GOOGLE_CLOUD_PROJECT_ID"))}
+          - location: ${default(map.get(args, "location"), "asia-northeast1")}
+          - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
+          - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
+          - crawlerJob: ${default(map.get(args, "crawlerJob"), "realestate-crawler-pipeline-prod")}
+          - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
+          - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 18000)}  # 5時間 (18,000s)
+          - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
+
+    - tryPipeline:
+        try:
+          steps:
+            - startProxySQL:
+                call: googleapis.compute.v1.instances.start
+                args:
+                  project: ${projectId}
+                  zone: ${zone}
+                  instance: ${proxysqlInstance}
+
+            - waitProxySQLReady:
+                call: sys.sleep
+                args:
+                  seconds: 25
+
+            - runCrawlerTasks:
+                call: googleapis.run.v2.projects.locations.jobs.run
+                args:
+                  name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + crawlerJob}
+                  body: {}
+                  connector_params:
+                    skip_polling: true
+                result: crawlerOperation
+
+            - resolveCrawlerExecution:
+                assign:
+                  - crawlerExecutionName: ${default(map.get(map.get(crawlerOperation, "response"), "name"), map.get(map.get(crawlerOperation, "metadata"), "name"))}
+
+            - waitCrawlerCompletion:
+                call: monitorJobExecution
+                args:
+                  executionName: ${crawlerExecutionName}
+                  timeoutSec: ${crawlTimeoutSec}
+
+            - calculateRemainingTime:
+                assign:
+                  - elapsedSoFar: ${sys.now() - pipelineStart}
+                  - remainingMLTimeout: ${maxPipelineDurationSec - elapsedSoFar - 300}  # ProxySQL停止用5分バッファを確保
+                  - mlEffectiveTimeout: ${int(math.max(math.min(7200, remainingMLTimeout), 60))}
+
+            - checkMLDeadline:
+                switch:
+                  - condition: ${remainingMLTimeout < 60}
+                    next: stopProxySQLOnSuccess
+
+            - runMLAndEstimation:
+                call: googleapis.run.v2.projects.locations.jobs.run
+                args:
+                  name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
+                  body: {}
+                  connector_params:
+                    skip_polling: true
+                result: mlOperation
+
+            - resolveMLExecution:
+                assign:
+                  - mlExecutionName: ${default(map.get(map.get(mlOperation, "response"), "name"), map.get(map.get(mlOperation, "metadata"), "name"))}
+
+            - waitMLCompletion:
+                call: monitorJobExecution
+                args:
+                  executionName: ${mlExecutionName}
+                  timeoutSec: ${mlEffectiveTimeout}
+        except:
+          as: pipelineError
+          steps:
+            - stopProxySQLOnError:
+                try:
+                  call: googleapis.compute.v1.instances.stop
+                  args:
+                    project: ${projectId}
+                    zone: ${zone}
+                    instance: ${proxysqlInstance}
+                except:
+                  as: stopErr
+                  steps:
+                    - logStopError:
+                        assign:
+                          - ignoredStopErr: ${stopErr}
+            - rethrowPipelineError:
+                raise: ${pipelineError}
+
+    - stopProxySQLOnSuccess:
+        call: googleapis.compute.v1.instances.stop
+        args:
+          project: ${projectId}
+          zone: ${zone}
+          instance: ${proxysqlInstance}
+
+# Subworkflow for polling Cloud Run Job execution until completed or timeout
+monitorJobExecution:
+  params: [executionName, timeoutSec]
+  steps:
+    - initTimer:
+        assign:
+          - startTime: ${sys.now()}
+          - sleepInterval: 30
+
+    - checkStatusLoop:
+        try:
+          call: googleapis.run.v2.projects.locations.jobs.executions.get
+          args:
+            name: ${executionName}
+          result: execDetails
+        except:
+          as: getErr
+          steps:
+            - logGetError:
+                assign:
+                  - ignoredGetErr: ${getErr}
+            - waitBeforeRetryGet:
+                call: sys.sleep
+                args:
+                  seconds: 10
+            - retryCheckStatus:
+                try:
+                  call: googleapis.run.v2.projects.locations.jobs.executions.get
+                  args:
+                    name: ${executionName}
+                  result: execDetails
+                except:
+                  as: retryErr
+                  steps:
+                    - logRetryError:
+                        assign:
+                          - ignoredRetryErr: ${retryErr}
+                    - checkTimeoutOnRetryErr:
+                        switch:
+                          - condition: ${(sys.now() - startTime) > timeoutSec}
+                            next: cancelRunningJob
+                          - condition: true
+                            next: waitAndRetry
+
+    - evaluateState:
+        switch:
+          - condition: ${default(map.get(execDetails, "runningCount"), 0) == 0 and default(map.get(execDetails, "reconciling"), false) == false and map.get(execDetails, "completionTime") != null}
+            steps:
+              - checkExecutionResult:
+                  switch:
+                    - condition: ${default(map.get(execDetails, "failedCount"), 0) > 0 or default(map.get(execDetails, "cancelledCount"), 0) > 0}
+                      raise:
+                        error: "JobExecutionFailed"
+                        message: '${"Job execution finished with failures: failed=" + string(default(map.get(execDetails, "failedCount"), 0)) + ", cancelled=" + string(default(map.get(execDetails, "cancelledCount"), 0))}'
+                    - condition: true
+                      return: ${execDetails}
+          - condition: ${(sys.now() - startTime) > timeoutSec}
+            steps:
+              - cancelRunningJob:
+                  try:
+                    call: googleapis.run.v2.projects.locations.jobs.executions.cancel
+                    args:
+                      name: ${executionName}
+                      body: {}
+                  except:
+                    as: cancelErr
+                    steps:
+                      - logCancelError:
+                          assign:
+                            - ignoredCancelErr: ${cancelErr}
+              - raiseTimeout:
+                  raise:
+                    error: "JobExecutionTimeout"
+                    message: '${"Job execution exceeded timeout: " + string(timeoutSec) + "s"}'
+
+    - waitAndRetry:
+        call: sys.sleep
+        args:
+          seconds: ${sleepInterval}
+        next: checkStatusLoop
