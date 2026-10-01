@@ -155,4 +155,13 @@
 - **アプリケーションログレベルの適正化**:
   - 外部通信・ミドルウェアにおける 5xx/4xx レスポンス、DBクエリ例外、キャッシュ取得失敗など、システムの不具合・異常を示す事象を `INFO` や `DEBUG` でサイレントに握りつぶさず、必ず `ERROR` または `WARNING` ログとして出力すること。
 
+### 3.8 MySQL 認証プラグイン標準化 & TLS 接続要件 (MySQL Auth Plugin & TLS Standardization)
+- **非推奨認証プラグイン `mysql_native_password` の完全撤廃**:
+  - Cloud SQL インスタンス設定から非推奨フラグ `default_authentication_plugin = "mysql_native_password"` を削除し、MySQL 8.0 標準の `caching_sha2_password` に準拠すること（Issue #572）。
+  - Cloud SQL 上の全ユーザー（`sumifu`, `monitor` 等）の認証プラグインを `caching_sha2_password` に移行し、非推奨警告スロットル通知ログ（`[Note] [MY-000000] [Server] Error log throttle is enabled...`）を恒久的に解消すること。
+- **ProxySQL バックエンド TLS 暗号化接続 (`use_ssl=1`) の標準適用**:
+  - ProxySQL の `mysql_servers` 定義において `use_ssl=1` を適用し、Cloud SQL へのバックエンド通信を TLS 暗号化すること。
+  - これにより非 SSL 接続時の RSA 公開鍵交換要件をバイパスし、セキュアかつ高速に `caching_sha2_password` 認証を確立すること。
+
+
 

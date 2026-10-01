@@ -700,7 +700,9 @@ task stop
 
 - [投資用不動産 種別調査](investment_property_types.md): 各サイトの投資用物件種別に関する詳細調査
 - [Sumifuクローリング報告書](sumifu_crawling_report.md): 住友不動産販売のクローリング状況レポート
+- [MySQL認証プラグイン移行要件定義書](mysql_auth_plugin_migration_requirements.md): caching_sha2_password 移行および TLS 接続要件 (Issue #572)
 - [クローラー仕様書](../basic_design/basic_design_master.md): アーキテクチャ、処理フロー詳細
+
 - [データベース定義書](../internal_design/detailed_design_master.md): テーブル・カラム定義
 - [API構造](../internal_design/api_structure.md): エンドポイント構造、Fire-and-Forget実装
 - [開発者ガイド](../implementation/developer_guide_master.md): 環境構築、デバッグ方法
