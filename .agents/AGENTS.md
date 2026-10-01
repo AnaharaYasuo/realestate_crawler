@@ -251,8 +251,6 @@
 - **事前走査・レビューの仕組み上での強制**: コード修正や機能実装の完了後、リモートリポジトリへ `git push` を行う前に、必ずCLI環境で以下の2つの検証を行い、指摘事項を解消してからプッシュしなければならない：
   1. **SonarCloud / SonarLint**: `task sonar-check`（または `task sonar`）を実行し、認知複雑度（S3776 <= 15）、ReDoS（S8786）、Code Smell、型エラーをローカルでゼロに解消すること（IDE拡張機能の SonarLint Connected Mode と二重で検証）。
   2. **CodeRabbit CLI**: `task coderabbit`（または `coderabbit review --uncommitted` / `task verify:pre-push`）を実行し、プッシュ前にローカルで AI コードレビューを実施、潜在バグ・境界値例外・設計不備の指摘を解消すること。
-     - **1 PR 1回レビュー原則**: 同一作業ブランチ（1PR）におけるローカルでの CodeRabbit レビュー実行は **1回完了していればOK**（キャッシュにより以降は自動スキップ）。
-     - **レートリミット時の自動スキップ原則**: CodeRabbit CLI の利用枠超過・レートリミット（Rate limit exceeded / Quota exceeded / 429）を検知した場合はエラーとせず、**警告（Warning）として安全にスキップ**して後続処理を続行し、最終判定は GitHub PR 上の CI レビューに委ねる。
 - **フックによる物理的ブロック**: リポジトリの Git フック（`.githooks/pre-push`）が `pre_pr_check.py --diff` を呼び出し、SonarCloud違反およびCodeRabbit未認証・重大指摘が存在する場合はプッシュを自動で Reject（拒否）する。
 - **未解決指摘のプッシュ厳禁**: いずれかのツールで未解決の重大な指摘（Bug, Vulnerability, High/Critical, Code Smell）が残存した状態でのプッシュおよびPR作成は厳禁とする。
 

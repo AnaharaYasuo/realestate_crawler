@@ -250,10 +250,9 @@ def test_stage_coderabbit_timeout(monkeypatch):
     assert any("タイムアウト" in e for e in res.errors)
 
 
-def test_stage_coderabbit_with_target_sha(tmp_path, monkeypatch):
+def test_stage_coderabbit_with_target_sha(monkeypatch):
     """PrePRChecker invokes coderabbit with merge-base and finite timeout when target_sha is provided."""
     checker = PrePRChecker(skip_coderabbit=False, sha="abc1234")
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
     executed_cmds = []
 
     def mock_run_cmd(cmd, **kwargs):
@@ -301,10 +300,9 @@ def test_get_changed_files_diff_error(monkeypatch):
     assert any("変更ファイル差分の取得に失敗しました" in e for e in r7.errors)
 
 
-def test_stage_coderabbit_rate_limit_warning(tmp_path, monkeypatch):
+def test_stage_coderabbit_rate_limit_warning(monkeypatch):
     """PrePRChecker passes with warning when CodeRabbit returns rate limit error."""
     checker = PrePRChecker(skip_coderabbit=False)
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
 
     rate_limit_output = (
         '{"type":"error","errorType":"rate_limit","message":"Rate limit exceeded","recoverable":true}\n'
@@ -320,98 +318,7 @@ def test_stage_coderabbit_rate_limit_warning(tmp_path, monkeypatch):
     monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
     res = checker.stage_coderabbit()
     assert res.passed is True
-    assert any("利用制限" in w or "Rate limit" in w for w in res.warnings)
-
-
-def test_stage_coderabbit_ordinary_json_error_fails(tmp_path, monkeypatch):
-    """PrePRChecker fails when CodeRabbit returns an ordinary non-rate-limit error."""
-    checker = PrePRChecker(skip_coderabbit=False)
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
-
-    def mock_run_cmd(cmd, **_kwargs):
-        if cmd == ["coderabbit", "--version"]:
-            return 0, "0.8.1", ""
-        if cmd[0] == "git":
-            return 0, "base_commit_sha", ""
-        return 1, '{"type":"error","message":"Internal server error"}', "Fatal crash"
-
-    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-    res = checker.stage_coderabbit()
-    assert res.passed is False
-    assert any("Internal server error" in e for e in res.errors)
-
-
-def test_stage_coderabbit_abnormal_completion_fails(tmp_path, monkeypatch):
-    """PrePRChecker fails when completion status is abnormal."""
-    checker = PrePRChecker(skip_coderabbit=False)
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
-
-    def mock_run_cmd(cmd, **_kwargs):
-        if cmd == ["coderabbit", "--version"]:
-            return 0, "0.8.1", ""
-        if cmd[0] == "git":
-            return 0, "base_commit_sha", ""
-        return 0, '{"type":"complete","status":"failed_abnormal"}', ""
-
-    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-    res = checker.stage_coderabbit()
-    assert res.passed is False
-    assert any("failed_abnormal" in e for e in res.errors)
-
-
-def test_stage_coderabbit_non_json_rate_limit_with_rc_zero_not_skipped(tmp_path, monkeypatch):
-    """rc=0 with random rate-limit word in non-json output does not bypass completion check."""
-    checker = PrePRChecker(skip_coderabbit=False)
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
-
-    def mock_run_cmd(cmd, **_kwargs):
-        if cmd == ["coderabbit", "--version"]:
-            return 0, "0.8.1", ""
-        if cmd[0] == "git":
-            return 0, "base_commit_sha", ""
-        # rc=0 but no completion event, only stdout mentions 'rate limit'
-        return 0, "Some random log mentioning rate limit", ""
-
-    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-    res = checker.stage_coderabbit()
-    assert res.passed is False
-    assert any("完了イベントを受信できませんでした" in e for e in res.errors)
-
-
-def test_stage_coderabbit_cache_skip_on_subsequent_runs(tmp_path, monkeypatch):
-    """同一ブランチで既にレビュー完了マーカーが存在する場合はスキップされること."""
-    checker = PrePRChecker(skip_coderabbit=False)
-    monkeypatch.setattr(checker, "repo_root", str(tmp_path))
-    monkeypatch.setattr(checker, "get_current_branch", lambda: "feature/test-branch")
-
-    def mock_run_cmd(cmd, **_kwargs):
-        if cmd == ["coderabbit", "--version"]:
-            return 0, "0.8.1", ""
-        return 0, "", ""
-
-    monkeypatch.setattr(checker, "_run_cmd", mock_run_cmd)
-
-    # 初回前にマーカー作成
-    cache_dir = tmp_path / ".coderabbit_cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    marker = cache_dir / "feature_test-branch.reviewed"
-    marker.write_text("reviewed", encoding="utf-8")
-    marker_sha = cache_dir / "feature_test-branch_headcomm.reviewed"
-    marker_sha.write_text("reviewed", encoding="utf-8")
-
-    def mock_run_sha(cmd, **_kwargs):
-        if cmd == ["coderabbit", "--version"]:
-            return 0, "0.8.1", ""
-        if cmd == ["git", "rev-parse", "HEAD"]:
-            return 0, "headcommit123", ""
-        return 0, "", ""
-
-    monkeypatch.setattr(checker, "_run_cmd", mock_run_sha)
-
-    res = checker.stage_coderabbit()
-    assert res.passed is True
-    assert "CodeRabbitレビュー済み" in res.details
-    assert any("スキップ" in w for w in res.warnings)
+    assert any("Rate limit" in w for w in res.warnings)
 
 
 

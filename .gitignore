@@ -40,8 +40,6 @@ npm-debug.log*
 **/.pytest_cache/
 .ruff_cache/
 **/.ruff_cache/
-.coderabbit_cache/
-**/.coderabbit_cache/
 .coverage
 htmlcov/
 

@@ -635,6 +635,9 @@ task logs
 - **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件 (Issue #575)
 - **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計 (Issue #575)
 - **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / should_process_event 詳細仕様 (Issue #575)
+- **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/requirements/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
+- **[pre_pr_check 並列最適化・テスト動的選別基本設計書](docs/basic_design/pre_pr_check_optimization_basic_design.md)**: 並行パイプライン・直列ミューテーション分離・Cavemanサマリー設計 (Issue #579)
+- **[pre_pr_check 並列最適化・テスト動的選別内部設計書](docs/internal_design/pre_pr_check_optimization_internal_design.md)**: classify_changed_files / check_has_open_pr / format_terse_error 詳細仕様 (Issue #579)
 
 ### 2. 開発を始める
 - **[開発者ガイド](docs/implementation/developer_guide_master.md)**: 環境構築、デバッグ方法、API構造
