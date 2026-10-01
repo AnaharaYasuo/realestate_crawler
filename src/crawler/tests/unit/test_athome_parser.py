@@ -3,8 +3,9 @@
 アットホーム（Athome） パーサー ユニットテスト
 ※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
 """
-from package.parser.athomeParser import AthomeMansionParser, AthomeKodateParser, AthomeInvestmentApartmentParser
-from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment
+from package.parser.athomeParser import AthomeMansionParser, AthomeKodateParser, AthomeInvestmentApartmentParser, AthomeTochiParser
+from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
+from bs4 import BeautifulSoup
 
 def test_athome_mansion_parser():
     parser = AthomeMansionParser()
@@ -20,6 +21,30 @@ def test_athome_investment_apartment_parser():
     parser = AthomeInvestmentApartmentParser()
     item = parser.createEntity()
     assert isinstance(item, AthomeInvestmentApartment)
+
+def test_athome_tochi_parser():
+    parser = AthomeTochiParser()
+    item = parser.createEntity()
+    assert isinstance(item, AthomeTochi)
+
+def test_athome_price_extraction():
+    parser = AthomeTochiParser()
+    # Test th/td match
+    soup1 = BeautifulSoup("<table><tr><th>価格</th><td>3,580万円</td></tr></table>", "html.parser")
+    assert parser._parsePriceStr(soup1) == "3,580万円"
+    assert parser._parsePrice(soup1) == 35800000
+
+    # Test specs table match
+    specs = {"販売価格": "4,200万円"}
+    soup2 = BeautifulSoup("<div><p>物件詳細</p></div>", "html.parser")
+    assert parser._parsePriceStr(soup2, specs) == "4,200万円"
+    assert parser._parsePrice(soup2, specs) == 42000000
+
+    # Test class-based fallback (.bukken-price)
+    soup3 = BeautifulSoup("<div class='bukken-price'>5,180万円</div>", "html.parser")
+    assert parser._parsePriceStr(soup3) == "5,180万円"
+    assert parser._parsePrice(soup3) == 51800000
+
 
 def test_athome_url_resolution():
     parser = AthomeKodateParser()

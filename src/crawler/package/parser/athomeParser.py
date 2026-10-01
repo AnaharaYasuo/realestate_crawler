@@ -508,17 +508,16 @@ class AthomeParser(ParserBase):
         if item.address:
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        
+        # th/td テーブルの値を辞書化して抽出を容易にする
+        specs = self._get_specs_table(response)
+
         # 2. 価格
-        item.priceStr = self._parsePriceStr(response)
-        item.price = self._parsePrice(response)
+        item.priceStr = self._parsePriceStr(response, specs)
+        item.price = self._parsePrice(response, specs)
         
         # 3. 交通
         item.traffic = self._parseTraffic(response)
         self._populateTraffic(item, item.traffic)
-        
-        # th/td テーブルの値を辞書化して抽出を容易にする
-        specs = self._get_specs_table(response)
         
         # 4. 共通情報
         item.kouzou = self._parseKouzou(response, specs)
@@ -559,13 +558,39 @@ class AthomeParser(ParserBase):
                 return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
         return ""
 
+    @staticmethod
+    def _parse_price_from_specs(specs: dict) -> str:
+        for k in ("価格", "販売価格", "物件価格"):
+            if specs.get(k):
+                return specs[k].split("\n")[0].strip()
+        return ""
+
+    @staticmethod
+    def _parse_price_from_elements(response: BeautifulSoup) -> str:
+        for sel in (".bukken-price", ".price", "span.price", "p.price", "td.price", ".num", "em.price"):
+            el = response.select_one(sel)
+            if el:
+                txt = el.get_text().strip().split("\n")[0].strip()
+                if any(unit in txt for unit in ("万", "億", "円")):
+                    return txt
+        for td in response.find_all("td"):
+            txt = td.get_text().strip()
+            if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億", "円")):
+                return txt.split("\n")[0].strip()
+        return ""
+
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
-        _ = specs
+        if specs and isinstance(specs, dict):
+            val = self._parse_price_from_specs(specs)
+            if val:
+                return val
         for th in response.find_all("th"):
             text = th.get_text().strip()
             if "価格" in text and th.find_next_sibling("td"):
                 return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
-        return ""
+        return self._parse_price_from_elements(response)
+
+
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int:
         pstr = self._parsePriceStr(response, specs)

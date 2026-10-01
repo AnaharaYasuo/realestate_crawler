@@ -41,6 +41,7 @@ from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
+from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -320,6 +321,7 @@ def main():
                         return model.objects.filter(q).count()
         except Exception as ce:
             logging.exception(f"Failed to get db count for {company} - {ptype}: {ce}")
+            return None
         return 0
 
     today_str = datetime.date.today().strftime("%Y%m%d")
@@ -362,7 +364,8 @@ def main():
         # 1. 終了プロセスの回収およびタイムアウトのキル
         active_indices = tuple(active_processes.keys())
         for idx in active_indices:
-            proc, company, ptype, start_t, start_dt = active_processes[idx]
+            proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+            last_act = extra[0] if extra else start_t
             poll_status = proc.poll()
             if poll_status is not None:
                 # 正常・異常終了の回収
@@ -375,14 +378,23 @@ def main():
                 
                 scraped_cnt = 0
                 if exit_code == 0:
-                    scraped_cnt = get_count_for_job(company, ptype, start_dt)
-                    if scraped_cnt > 0:
+                    count_res = get_count_for_job(company, ptype, start_dt)
+                    if count_res is None:
+                        status = "failed"
+                        error_type = "CountQueryFailure"
+                        error_msg = "Database count query failed"
+                        post_slack(f"❌ 【失敗: DB件数取得エラー】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 処理時間: {duration_job_str}")
+                    elif count_res > 0:
+                        error_type = ""
+                        scraped_cnt = count_res
                         post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {duration_job_str}")
                     else:
                         status = "failed"
+                        error_type = "ZeroCountFailure"
                         error_msg = "0 items scraped (Zero count failure)"
                         post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
                 else:
+                    error_type = "ProcessCrashFailure"
                     post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
 
                 if status != "success":
@@ -391,7 +403,7 @@ def main():
                         FailureReporter.record_job_failure(
                             company=company,
                             property_type=ptype,
-                            error_type="ZeroCountFailure" if exit_code == 0 else "ProcessCrashFailure",
+                            error_type=error_type,
                             error_message=error_msg,
                             exit_code=exit_code,
                             duration_seconds=int(elapsed),
@@ -423,7 +435,7 @@ def main():
                         property_type=ptype,
                         count=scraped_cnt,
                         duration_sec=float(elapsed),
-                        zero_count=(exit_code == 0 and scraped_cnt == 0),
+                        zero_count=(exit_code == 0 and count_res == 0),
                         status=status,
                         metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
                     )
@@ -431,7 +443,89 @@ def main():
                     logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
 
                 del active_processes[idx]
-                
+                continue
+
+        # 子プロセスの進捗監視（1ループあたり最大1ジョブのみDB件数増分を確認し、DB負荷を最小化）
+        # HANG_THRESHOLD_SEC <= 0 の場合はハング検知が無効化されているため進捗カウント取得をスキップ
+        # extra: (last_act, current_db_cnt, last_check_t)
+        if HANG_THRESHOLD_SEC > 0:
+            for idx in tuple(active_processes.keys()):
+                if idx not in active_processes:
+                    continue
+                proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+                last_act = extra[0] if extra else start_t
+                prev_db_cnt = extra[1] if len(extra) > 1 else 0
+                last_check_t = extra[2] if len(extra) > 2 else 0.0
+                if (now - last_check_t) >= 15.0:
+                    current_db_cnt = get_count_for_job(company, ptype, start_dt)
+                    if current_db_cnt is not None:
+                        if current_db_cnt > prev_db_cnt:
+                            last_act = now
+                        active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
+                    else:
+                        # クエリ失敗時は last_act を更新せず（ハング判定の即時誤検知を防ぐため以前の値を保持）、チェック時刻のみ更新
+                        active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, prev_db_cnt, now)
+                    break  # 1回のループで1ジョブのみ検査して終了
+
+        for idx in tuple(active_processes.keys()):
+            if idx not in active_processes:
+                continue
+            proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
+            last_act = extra[0] if extra else start_t
+            if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
+                # 沈黙監視 (ハング検知)
+                logger.error(
+                    f"[{idx}] Crawl job silent/hung for {company} - {ptype} "
+                    f"(no progress > {HANG_THRESHOLD_SEC}s). Killing process group..."
+                )
+                kill_hung_job_process(proc)
+                elapsed = now - start_t
+                end_dt = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
+                duration_job_str = format_duration(int(elapsed))
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=ptype,
+                        error_type="HangSilentFailure",
+                        error_message=f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s",
+                        exit_code=-1,
+                        duration_seconds=int(elapsed),
+                        task_index=task_index,
+                        task_count=task_count,
+                        date_str=today_str
+                    )
+                except Exception as hfe:
+                    logger.warning(f"Failed to record hang telemetry for {company} - {ptype}: {hfe}")
+
+                results.append({
+                    "index": idx,
+                    "company": company,
+                    "property_type": ptype,
+                    "status": "hung_timeout",
+                    "exit_code": -1,
+                    "start_time": start_dt.strftime(DATETIME_FORMAT) if start_dt else "",
+                    "end_time": end_dt.strftime(DATETIME_FORMAT) if end_dt else "",
+                    "duration": duration_job_str,
+                    "elapsed_seconds": int(elapsed),
+                    "items_count": 0,
+                    "error_message": f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s"
+                })
+                try:
+                    record_crawler_metrics(
+                        site_name=company,
+                        property_type=ptype,
+                        count=0,
+                        duration_sec=float(elapsed),
+                        zero_count=True,
+                        status="hung_timeout",
+                        metadata={"exit_code": -1, "error_msg": f"Process hung with no progress for {int(HANG_THRESHOLD_SEC)}s"}
+                    )
+                except Exception as nre:
+                    logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
+
+                post_slack(f"❌ 【ハング検知・強制終了】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | {int(HANG_THRESHOLD_SEC)}秒間無進捗のため打ち切り")
+                del active_processes[idx]
+
             elif timeout_sec > 0 and now - start_t > timeout_sec:
                 # タイムアウト
                 logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
@@ -492,12 +586,12 @@ def main():
         
         # 2. 新規ジョブの投入 (取扱物件数に応じた階層的並行度 & Playwright/Standard 上限で制御)
         if job_queue and len(active_processes) < args.parallel:
-            active_playwright_cnt = sum(1 for _, c, _, _, _ in active_processes.values() if c.lower() in PLAYWRIGHT_COMPANIES)
+            active_playwright_cnt = sum(1 for proc_tuple in active_processes.values() if proc_tuple[1].lower() in PLAYWRIGHT_COMPANIES)
 
             # 現在実行中の会社別アクティブプロセス数を集計
             active_company_counts = {}
-            for _, c, _, _, _ in active_processes.values():
-                c_low = c.lower()
+            for proc_tuple in active_processes.values():
+                c_low = proc_tuple[1].lower()
                 active_company_counts[c_low] = active_company_counts.get(c_low, 0) + 1
 
             job_select_res = select_next_job(
@@ -532,7 +626,8 @@ def main():
                         cmd,
                         start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
-                    active_processes[idx] = (proc, company, ptype, time.time(), start_dt)
+                    now_ts = time.time()
+                    active_processes[idx] = (proc, company, ptype, now_ts, start_dt, now_ts)
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
                     logger.exception(f"Failed to start crawl job for {company} - {ptype}")
@@ -583,7 +678,7 @@ def main():
         "elapsed_seconds": int(elapsed_delta.total_seconds()),
         "total_jobs": len(CRAWL_JOBS),
         "success_jobs": sum(1 for r in results if r["status"] == "success"),
-        "failed_jobs": sum(1 for r in results if r["status"] in ["failed", "timeout", "error"]),
+        "failed_jobs": sum(1 for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]),
         "results": results
     }
     
@@ -677,7 +772,7 @@ def main():
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
             
-        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error"]]
+        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
         if failed_list:
             msg_lines.append("\n⚠️ 異常が発生したクローラー:")
             for f in failed_list:
