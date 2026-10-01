@@ -238,4 +238,14 @@ sequenceDiagram
    - ブラウザ標準ヘッダー（`Accept-Language: ja,en-US;q=0.9,en;q=0.8`）を付与してHTMLを取得し、`<dl><dt>...<dd>` からスペックを抽出。
    - 各種別モデルインスタンスを生成してDBへ保存後、当該種別のMLモデルによる価格推定を実行。
 
+---
 
+## 9. 住まい1 (Sumai1) および セキスイハイム (Heim) ルーティング連携仕様
+1. **住まい1 (`sumai1.com`)**:
+   - `/buyers/mansion/bukken/buk_`: `mansion` ➔ `Sumai1MansionParser` / `Sumai1Mansion`
+   - `/buyers/kodate/bukken/buk_`: `kodate` ➔ `Sumai1KodateParser` (`kodate`) / `Sumai1Kodate`
+   - `/buyers/tochi/bukken/buk_`: `tochi` ➔ `Sumai1TochiParser` (`tochi`) / `Sumai1Tochi`
+   - `/buyers/investor/bukken/buk_`: `apartment` ➔ `Sumai1InvestmentParser` (`apartment`) / `Sumai1Investment`
+2. **セキスイハイム (`tokyo816.jp` / `sumu-heim.jp`)**:
+   - URLパターン: `tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp`
+   - 一覧・詳細のURL構造上、同一URLパターンで戸建て・マンション（建売用地）・土地が混在するため、デフォルトを `kodate`（`HeimKodateParser` / `HeimKodate`）としつつ、種別指定または動的判定（`PropertyTypeDetector.detect`）によって `mansion`（`HeimMansionParser` / `HeimMansion`）、`tochi`（`HeimTochiParser` / `HeimTochi`）へ自動振り分けを行う。
