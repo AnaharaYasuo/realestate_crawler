@@ -50,7 +50,7 @@ run_pre_pr_check() {
         if [ -n "$rel_path" ]; then
             # In-repo worktree mounted under /app/.worktrees/...
             # Its .git file points to a host absolute path, so hand the container-side git dir explicitly.
-            wt_git_dir_norm=$(norm_path "$(git rev-parse --absolute-git-dir)")
+            wt_git_dir_norm=$(norm_path "$(git rev-parse --absolute-git-dir 2>/dev/null || git rev-parse --git-dir)")
             rel_git_dir="${wt_git_dir_norm#"$main_root_norm/"}"
             docker compose --project-directory "$main_root" exec -T -e GIT_DIR="/app/$rel_git_dir" -e GIT_WORK_TREE="/app/$rel_path" -w "/app/$rel_path" app python src/crawler/scripts/ops/pre_pr_check.py --diff --skip-coderabbit --branch "$target_branch" --sha "$target_sha"
         elif [ "$toplevel_norm" = "$main_root_norm" ]; then
@@ -231,81 +231,68 @@ do
             exit 1
         fi
 
-        # 1 PR につきローカルでの CodeRabbit レビューは 1 回で OK (キャッシュチェック)
-        cr_branch_hash=$(printf '%s' "$branch" | sha256sum 2>/dev/null | awk '{print $1}' || echo "$branch" | tr '/\\' '__')
-        toplevel=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-        cr_cache_dir="$toplevel/.coderabbit_cache"
-        cr_cache_file="$cr_cache_dir/${cr_branch_hash}.reviewed"
-        cached_sha=$(cat "$cr_cache_file" 2>/dev/null | awk '{print $2}' || true)
-        if [ -f "$cr_cache_file" ] && [ -n "$cached_sha" ] && [ "$cached_sha" = "$local_sha" ]; then
-            echo "✅ CodeRabbit CLI: 本コミット ($local_sha) で既にレビュー実行済みのためスキップします。"
-        else
-            echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
-            # Resolve merge-base for pushed commit to ensure clean review of committed changes
-            cr_base=$(git merge-base origin/master "$local_sha" 2>/dev/null || git merge-base master "$local_sha" 2>/dev/null || echo "origin/master")
-            CR_CMD="coderabbit review --agent --base-commit $cr_base --committed"
+        echo "🔍 CodeRabbit CLI によるローカル AI コードレビューを実行中..."
+        # Resolve merge-base for pushed commit to ensure clean review of committed changes
+        cr_base=$(git merge-base origin/master "$local_sha" 2>/dev/null || git merge-base master "$local_sha" 2>/dev/null || echo "origin/master")
+        CR_CMD="coderabbit review --agent --base-commit $cr_base --committed"
 
-            # Execute with finite timeout (1800s) ensuring set -e does not abort before reporting
-            if command -v timeout >/dev/null 2>&1; then
-                if CR_OUTPUT=$(timeout 1800s $CR_CMD 2>&1); then
-                    CR_EXIT_CODE=0
-                else
-                    CR_EXIT_CODE=$?
-                fi
+        # Execute with finite timeout (1800s) ensuring set -e does not abort before reporting
+        if command -v timeout >/dev/null 2>&1; then
+            if CR_OUTPUT=$(timeout 1800s $CR_CMD 2>&1); then
+                CR_EXIT_CODE=0
             else
-                echo ""
-                echo "================================================================================"
-                echo "⛔ [PRE-PUSH REJECTED] 有限時間タイムアウトコマンド ('timeout') が環境に存在しません。"
-                echo "無限待機（ハング）を防止するため、timeout コマンドを導入するか、SKIP_CODERABBIT=1 を指定してください。"
-                echo "================================================================================"
-                echo ""
-                exit 1
+                CR_EXIT_CODE=$?
             fi
+        else
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] 有限時間タイムアウトコマンド ('timeout') が環境に存在しません。"
+            echo "無限待機（ハング）を防止するため、timeout コマンドを導入するか、SKIP_CODERABBIT=1 を指定してください。"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
 
-            CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"finding"' | wc -l || echo "0")
-            CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)"[[:space:]]*:[[:space:]]*"(high|critical|error|major)"' || true)
+        CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"finding"' | wc -l || echo "0")
+        CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)"[[:space:]]*:[[:space:]]*"(high|critical|error|major)"' || true)
 
-            if [ "$CR_EXIT_CODE" -eq 124 ]; then
-                echo ""
-                echo "================================================================================"
-                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューがタイムアウト（1800s）しました。"
-                echo "================================================================================"
-                echo ""
-                exit 1
-            elif [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
-                CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
-                if echo "$CR_OUTPUT" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"'; then
-                    echo ""
-                    echo "================================================================================"
-                    echo "⚠️  [PRE-PUSH WARNING] CodeRabbit CLI の利用制限（Rate limit / Monthly limit）を検知しました。"
-                    echo "  $CR_ERR_MSG"
-                    echo "ユーザー指示規則に従い、ローカルレビューをスキップしてプッシュを続行します（PR上のCIで評価されます）。"
-                    echo "================================================================================"
-                    echo ""
-                else
-                    echo ""
-                    echo "================================================================================"
-                    echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
-                    echo "  $CR_ERR_MSG"
-                    echo "================================================================================"
-                    echo ""
-                    exit 1
-                fi
-            elif [ -n "$CR_ERRORS" ]; then
-                echo ""
-                echo "================================================================================"
-                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI より重大な指摘（Major / High / Critical）が検出されました。"
-                echo "指摘内容を解消してから再度プッシュしてください。"
-                echo "$CR_ERRORS"
-                echo "================================================================================"
-                echo ""
-                exit 1
+        if [ "$CR_EXIT_CODE" -eq 124 ]; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューがタイムアウト（1800s）しました。"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        elif [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
+            CR_ERROR_LINES=$(echo "$CR_OUTPUT" | grep -E '"type"[[:space:]]*:[[:space:]]*"error"' || true)
+            if [ -n "$CR_ERROR_LINES" ] && (echo "$CR_ERROR_LINES" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"' || echo "$CR_ERROR_LINES" | grep -qi 'rate limit'); then
+                echo "⚠️ [PRE-PUSH WARNING] CodeRabbit CLI 利用制限 (Rate limit / Monthly limit): リモートPR CIでレビューを実行します。"
             else
-                echo "✅ CodeRabbit CLI レビューに合格しました (指摘: ${CR_FINDINGS}件)。"
-                mkdir -p "$cr_cache_dir" 2>/dev/null || true
-                echo "reviewed $local_sha" > "$cr_cache_file" 2>/dev/null || true
+                CR_ERR_DETAIL=$(echo "$CR_OUTPUT" | grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 || true)
+                if [ -z "$CR_ERR_DETAIL" ]; then
+                    CR_ERR_DETAIL=$(echo "$CR_OUTPUT" | tail -n 5)
+                fi
+                echo ""
+                echo "================================================================================"
+                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューでエラーが発生しました (exit code: $CR_EXIT_CODE)。"
+                echo "  $CR_ERR_DETAIL"
+                echo "================================================================================"
+                echo ""
+                exit 1
             fi
         fi
+
+        if [ -n "$CR_ERRORS" ]; then
+            echo ""
+            echo "================================================================================"
+            echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI より重大な指摘（Major / High / Critical）が検出されました。"
+            echo "指摘内容を解消してから再度プッシュしてください。"
+            echo "$CR_ERRORS"
+            echo "================================================================================"
+            echo ""
+            exit 1
+        fi
+        echo "✅ CodeRabbit CLI レビューに合格しました (指摘: ${CR_FINDINGS}件)。"
     fi
 done
 

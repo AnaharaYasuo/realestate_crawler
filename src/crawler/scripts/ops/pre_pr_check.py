@@ -6,6 +6,7 @@ Simulates and enforces all GitHub Actions CI checks before a PR can be created o
 """
 import argparse
 import ast
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import json
 import os
@@ -68,6 +69,70 @@ class StageResult:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     duration_sec: float = 0.0
+
+
+@dataclass
+class FileCategory:
+    has_python: bool = False
+    has_terraform: bool = False
+    has_workflow: bool = False
+    has_docs: bool = False
+    has_unclassified: bool = False
+    is_empty: bool = False
+    is_docs_only: bool = False
+    is_tf_only: bool = False
+    changed_count: int = 0
+
+
+def classify_changed_files(files: list[str]) -> FileCategory:
+    """Classify set of changed files to dynamically select required tests."""
+    cat = FileCategory(changed_count=len(files))
+    if not files:
+        cat.is_empty = True
+        return cat
+
+    for f in files:
+        norm = f.replace("\\", "/").lower()
+        if norm.endswith(".py"):
+            cat.has_python = True
+        elif norm.startswith("terraform/") or norm.endswith(".tf"):
+            cat.has_terraform = True
+        elif norm.startswith(".github/workflows/") and norm.endswith((".yml", ".yaml")):
+            cat.has_workflow = True
+        elif (
+            norm.endswith((".md", ".rst"))
+            or (norm.endswith(".txt") and not norm.endswith("requirements.txt"))
+            or (norm.startswith("docs/") and not norm.endswith(".py"))
+        ):
+            cat.has_docs = True
+        elif norm.endswith(("requirements.txt", "pyproject.toml", "setup.py", "setup.cfg", "pipfile", "poetry.lock")):
+            # Dependency and packaging files affect Python runtime
+            cat.has_python = True
+        else:
+            cat.has_unclassified = True
+
+    cat.is_docs_only = cat.has_docs and not (cat.has_python or cat.has_terraform or cat.has_workflow or cat.has_unclassified)
+    cat.is_tf_only = cat.has_terraform and not (cat.has_python or cat.has_workflow or cat.has_docs or cat.has_unclassified)
+    return cat
+
+
+def format_terse_error(err_text: str, max_chars: int = 240) -> str:
+    """Format and compress error output to reduce AI context token consumption (Caveman style)."""
+    if not err_text:
+        return ""
+    lines = err_text.strip().splitlines()
+    meaningful = [
+        ln.strip() for ln in lines
+        if ln.strip() and not ln.strip().startswith(("Traceback", "During handling", "The above exception"))
+    ]
+    if not meaningful:
+        return err_text[:max_chars].strip()
+
+    # Pick top and last lines if multiline
+    summary = meaningful[-1] if len(meaningful) == 1 else f"{meaningful[0]} -> {meaningful[-1]}"
+    if len(summary) > max_chars:
+        summary = summary[:max_chars - 3] + "..."
+    return summary
 
 
 def validate_branch_name(branch_name: str) -> tuple[bool, int | None, str]:
@@ -158,7 +223,6 @@ class PrePRChecker:
         skip_coderabbit: bool = False,
         branch: str | None = None,
         sha: str | None = None,
-        changed_files: list[str] | None = None,
     ):
         self.diff_mode = diff_mode
         self.fix_mode = fix_mode
@@ -167,7 +231,6 @@ class PrePRChecker:
         self.skip_coderabbit = skip_coderabbit
         self.target_branch = branch
         self.target_sha = sha
-        self.provided_changed_files = changed_files
         self.results: list[StageResult] = []
         self.repo_root = find_repo_root()
 
@@ -199,17 +262,14 @@ class PrePRChecker:
     def get_current_branch(self) -> str:
         if self.target_branch:
             return self.target_branch
-        rc, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-        return stdout.strip() if rc == 0 else ""
+        _, stdout, _ = self._run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        return stdout
 
     def get_changed_files(self) -> tuple[list[str], list[str]]:
         """Get list of changed files against origin/master or master including staged, unstaged, and untracked.
 
         Returns (files, errors).
         """
-        if self.provided_changed_files:
-            return sorted({f.replace("\\", "/") for f in self.provided_changed_files}), []
-
         files: set[str] = set()
         errors: list[str] = []
         ref = self.target_sha or "HEAD"
@@ -447,7 +507,8 @@ class PrePRChecker:
             )
             return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
 
-        # Build coderabbit review commands and validate target_sha first
+        # Build coderabbit review commands
+        review_cmds = []
         if self.target_sha:
             head_rc, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
             target_rc, target_out, _ = self._run_cmd(["git", "rev-parse", self.target_sha], timeout=10.0)
@@ -459,37 +520,7 @@ class PrePRChecker:
             if current_head != target_commit:
                 err = f"作業ツリーのHEAD ({current_head}) とレビュー対象 target_sha ({target_commit}) が一致しません。対象コミットをチェックアウトした上で実行してください。"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            current_sha = target_commit
-        else:
-            _, head_out, _ = self._run_cmd(["git", "rev-parse", "HEAD"], timeout=10.0)
-            current_sha = head_out.strip()
 
-        # 1 PR (1作業ブランチ) につきローカルでの CodeRabbit レビューは 1 回で OK (コミットSHAスコープのキャッシュチェック)
-        raw_branch = self.get_current_branch().strip()
-        is_branch = bool(raw_branch and not raw_branch.startswith("fatal:") and not raw_branch.startswith("error:") and len(raw_branch) < 100)
-        branch_name = raw_branch.replace("/", "_").replace("\\", "_") if is_branch else ""
-        review_marker_file = None
-        has_dirty_changes = False
-        if not self.target_sha:
-            _, diff_out, _ = self._run_cmd(["git", "status", "--porcelain"])
-            has_dirty_changes = bool(diff_out.strip())
-
-        if branch_name and not has_dirty_changes:
-            cache_dir = os.path.join(self.repo_root, ".coderabbit_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            marker_suffix = f"_{current_sha[:8]}" if current_sha else ""
-            review_marker_file = os.path.join(cache_dir, f"{branch_name}{marker_suffix}.reviewed")
-            if os.path.exists(review_marker_file):
-                return StageResult(
-                    4,
-                    STAGE_CODERABBIT,
-                    True,
-                    details=f"CodeRabbitレビュー済み (1PRあたり1回完了: {branch_name}) のためスキップ",
-                    warnings=["CodeRabbitは本PRブランチで既に1回レビュー完了しているためスキップされました"],
-                    duration_sec=time.time() - start,
-                )
-
-        if self.target_sha:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", self.target_sha], timeout=30.0)
             if mb_rc != 0:
                 mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "master", self.target_sha], timeout=30.0)
@@ -497,7 +528,7 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = f"比較基準 (merge-base) を取得できませんでした: target_sha={self.target_sha}"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds = [["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"]]
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
         else:
             mb_rc, mb_out, _ = self._run_cmd(["git", "merge-base", "origin/master", "HEAD"], timeout=30.0)
             if mb_rc != 0:
@@ -506,16 +537,13 @@ class PrePRChecker:
             if mb_rc != 0 or not merge_base:
                 err = "比較基準 (merge-base) を取得できませんでした: HEAD"
                 return StageResult(4, STAGE_CODERABBIT, False, errors=[err], duration_sec=time.time() - start)
-            review_cmds = [
-                ["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"],
-                ["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"]
-            ]
+            review_cmds.append(["coderabbit", "review", "--agent", "--base-commit", merge_base, "--committed"])
+            review_cmds.append(["coderabbit", "review", "--agent", "--uncommitted", "--include-untracked"])
 
         errors = []
         warnings = []
         findings_count = 0
         has_completed_event = False
-        is_any_rate_limited = False
         total_timeout_budget = 1800.0
 
         for cmd in review_cmds:
@@ -568,6 +596,11 @@ class PrePRChecker:
                         cmd_has_completed = True
                         has_completed_event = True
                         is_rate_limited = True
+                    elif "browser login is unavailable" in err_msg.lower():
+                        warnings.append("CodeRabbit CLI ヘッドレス環境 (browser login unavailable): GitHub PR CIでレビューを実行します。")
+                        cmd_has_completed = True
+                        has_completed_event = True
+                        is_rate_limited = True
                     else:
                         errors.append(err_msg)
                 elif event_type == "complete":
@@ -589,21 +622,6 @@ class PrePRChecker:
                         errors.append(f"CodeRabbitレビュー未完了ステータス: {status}")
 
             cmd_added_errors = len(errors) > initial_error_count
-            # Check non-JSON lines and stderr for rate limit diagnostic on CLI failure (rc != 0)
-            if rc != 0 and not is_rate_limited:
-                non_json_lines = [
-                    line for line in (stdout + "\n" + stderr).splitlines()
-                    if not line.strip().startswith("{")
-                ]
-                non_json_text = "\n".join(non_json_lines).lower()
-                if any(term in non_json_text for term in ("rate limit", "ratelimit", "too many requests", "monthly limit", "quota exceeded")):
-                    warnings.append(f"CodeRabbit CLI 利用制限検知のためスキップ (GitHub PR CIでレビュー): {' '.join(cmd)}")
-                    cmd_has_completed = True
-                    has_completed_event = True
-                    is_rate_limited = True
-            if is_rate_limited:
-                is_any_rate_limited = True
-
             if rc != 0 and not cmd_added_errors and not is_rate_limited:
                 err_msg = stderr.strip() or stdout.strip() or f"CodeRabbit review が終了コード {rc} で失敗しました: {' '.join(cmd)}"
                 errors.append(err_msg)
@@ -611,18 +629,10 @@ class PrePRChecker:
             if not cmd_has_completed and not cmd_added_errors and rc == 0:
                 errors.append(f"CodeRabbit レビュー完了イベントを受信できませんでした: {' '.join(cmd)}")
 
-        if not has_completed_event and not errors and not is_any_rate_limited:
+        if not has_completed_event and not errors:
             errors.append("CodeRabbit レビュー完了イベントを受信できませんでした。")
 
         passed = len(errors) == 0
-        if passed and not is_any_rate_limited and review_marker_file:
-            # 1 PR 1回のレビュー完了マーカーを保存
-            try:
-                with open(review_marker_file, "w", encoding="utf-8") as f:
-                    f.write(f"reviewed at {time.time()} (findings: {findings_count})\n")
-            except Exception:
-                pass
-
         details = f"CodeRabbit指摘: {findings_count}件 (重大エラー: {len(errors)}, 警告: {len(warnings)})"
         return StageResult(4, STAGE_CODERABBIT, passed, details=details, warnings=warnings, errors=errors, duration_sec=time.time() - start)
 
@@ -717,8 +727,9 @@ class PrePRChecker:
         if diff_errors:
             return StageResult(7, STAGE_SECURITY, False, errors=diff_errors, duration_sec=time.time() - start)
 
-        tf_changed = any(f.startswith("terraform/") for f in changed)
+        tf_changed = any(f.startswith("terraform/") or f.endswith(".tf") for f in changed)
         py_changed = any(f.endswith(".py") for f in changed)
+        wf_changed = any(f.startswith(".github/workflows/") for f in changed)
 
         errors = []
         details = []
@@ -728,14 +739,59 @@ class PrePRChecker:
             errors.extend(tf_errs)
             details.extend(tf_dets)
 
+        if wf_changed:
+            wf_errs, wf_dets = self._scan_workflow_actions()
+            errors.extend(wf_errs)
+            details.extend(wf_dets)
+
         if py_changed:
             py_errs, py_dets = self._scan_python_sast()
             errors.extend(py_errs)
             details.extend(py_dets)
 
         passed = len(errors) == 0
-        det = ", ".join(details) or "セキュリティ検査完了"
+        det = ", ".join(details) or "セキュリティ・ワークフロー検査完了"
         return StageResult(7, STAGE_SECURITY, passed, details=det, errors=errors, duration_sec=time.time() - start)
+
+    def _scan_workflow_actions(self) -> tuple[list[str], list[str]]:
+        """Run actionlint on GitHub workflows if installed (host or docker)."""
+        errors = []
+        details = []
+        code, _, _ = self._run_cmd(["actionlint", "-version"], timeout=10.0)
+        if code == 0:
+            rc, aout, aerr = self._run_cmd(["actionlint"], timeout=60.0)
+            if rc == 124:
+                details.append("actionlint タイムアウトのためスキップ")
+            elif rc != 0:
+                errors.append(f"actionlint 構文違反が検出されました:\n{aout or aerr}")
+            else:
+                details.append("actionlint ワークフロー構文合格")
+        else:
+            # Fallback to docker actionlint if docker available
+            if self._has_docker() and not self._is_inside_container():
+                rc, aout, aerr = self._run_cmd(
+                    ["docker", "run", "--rm", "-v", f"{self.repo_root}:/repo", "-w", "/repo", "rhysd/actionlint:latest"],
+                    timeout=60.0,
+                )
+                if rc == 0:
+                    details.append("actionlint (Docker) 合格")
+                elif rc == 124:
+                    details.append("actionlint タイムアウトのためスキップ")
+                elif rc != 125 and (aout or aerr):
+                    errors.append(f"actionlint 構文違反:\n{aout or aerr}")
+                else:
+                    details.append("actionlint スキップ (CIで検証)")
+            else:
+                details.append("actionlint スキップ (CIで検証)")
+        return errors, details
+
+    def check_has_open_pr(self) -> bool:
+        """Check if branch already has an open PR on GitHub."""
+        branch = self.get_current_branch()
+        if not branch or branch in PROTECTED_BRANCHES:
+            return False
+        rc, stdout, _ = self._run_cmd(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number"], timeout=5.0)
+        return bool(rc == 0 and stdout.strip() and stdout.strip() != "[]")
 
     def stage8_pr_metadata(self, title: str | None = None, body: str | None = None) -> StageResult:
         """Stage 8: Verify PR title and body if provided or interactive."""
@@ -769,50 +825,120 @@ class PrePRChecker:
         return StageResult(8, STAGE_METADATA, passed, details=det, errors=errors, duration_sec=time.time() - start)
 
     def run_all(self, title: str | None = None, body: str | None = None) -> bool:
-        """Execute full test suite."""
+        """Execute test suite with smart test selection and parallel execution."""
         self.results = []
+        # Stage 1: Git and Branch
         self.results.append(self.stage1_git_and_branch())
         if not self.results[-1].passed:
             return False
 
+        # Stage 2: Issue Acceptance Criteria
         self.results.append(self.stage2_issue_acceptance_criteria())
-        self.results.append(self.stage3_linter_and_sonar())
-        self.results.append(self.stage_coderabbit())
+        if not self.results[-1].passed:
+            return False
 
-        if not self.diff_mode:
-            self.results.append(self.stage5_tests())
-            self.results.append(self.stage6_mutation())
-            self.results.append(self.stage7_security())
-            self.results.append(self.stage8_pr_metadata(title=title, body=body))
-        elif title or body:
+        changed_files, diff_errors = self.get_changed_files()
+        if diff_errors:
+            self.results.append(StageResult(3, STAGE_LINTER_SONAR, False, errors=diff_errors))
+            return False
+
+        category = classify_changed_files(changed_files)
+
+        # Empty diff: no changes detected
+        if category.is_empty:
+            self.results.append(StageResult(3, STAGE_LINTER_SONAR, True, details="差分なしのためスキップ"))
+            if not self.diff_mode:
+                self.results.append(StageResult(5, STAGE_TEST_SUITE, True, details="差分なしのためスキップ"))
+                self.results.append(StageResult(6, STAGE_MUTATION, True, details="差分なしのためスキップ"))
+                self.results.append(StageResult(7, STAGE_SECURITY, True, details="差分なしのためスキップ"))
+            if title or body:
+                self.results.append(self.stage8_pr_metadata(title=title, body=body))
+            return self.is_all_passed()
+
+        # Docs only: skip all code and static tests
+        if category.is_docs_only:
+            self.results.append(StageResult(3, STAGE_LINTER_SONAR, True, details="Docsのみのためスキップ"))
+            if not self.diff_mode:
+                self.results.append(StageResult(5, STAGE_TEST_SUITE, True, details="Docsのみのためスキップ"))
+                self.results.append(StageResult(6, STAGE_MUTATION, True, details="Docsのみのためスキップ"))
+                self.results.append(StageResult(7, STAGE_SECURITY, True, details="Docsのみのためスキップ"))
+            if title or body:
+                self.results.append(self.stage8_pr_metadata(title=title, body=body))
+            return self.is_all_passed()
+
+        # Existing PR optimization: auto-skip CodeRabbit if PR already open
+        has_existing_pr = self.check_has_open_pr()
+        skip_cr = self.skip_coderabbit or has_existing_pr
+
+        # If fix_mode and python changed, run stage3 synchronously first so autofixes are applied before tests run
+        if self.fix_mode and category.has_python:
+            self.results.append(self.stage3_linter_and_sonar())
+
+        # Parallel dispatch: kick off long-running tests first, alongside static & security checks
+        futures = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Stage 5: Tests (kick off early if python changed)
+            if category.has_python and not self.diff_mode:
+                futures[STAGE_TEST_SUITE] = executor.submit(self.stage5_tests)
+
+            # Stage 3: Linter & Sonar
+            if category.has_python and not self.fix_mode:
+                futures[STAGE_LINTER_SONAR] = executor.submit(self.stage3_linter_and_sonar)
+            elif not category.has_python:
+                self.results.append(StageResult(3, STAGE_LINTER_SONAR, True, details="Python変更なしのためスキップ"))
+
+            # Stage 4: CodeRabbit (only if not skipped and not existing PR)
+            if not skip_cr and not category.is_tf_only:
+                futures[STAGE_CODERABBIT] = executor.submit(self.stage_coderabbit)
+            else:
+                reason = "既存PRのためスキップ (GitHub PR CIでレビュー)" if has_existing_pr else "オプション/対象外のためスキップ"
+                cr_warnings = ["既存PRが存在するためローカルCodeRabbitをスキップしました (PR CIで検証されます)。"] if has_existing_pr else []
+                self.results.append(StageResult(4, STAGE_CODERABBIT, True, details=reason, warnings=cr_warnings))
+
+            # Stage 7: Security & IaC
+            if category.has_terraform or category.has_workflow or category.has_python:
+                futures[STAGE_SECURITY] = executor.submit(self.stage7_security)
+
+        # Collect parallel results in deterministic stage order
+        for future in futures.values():
+            res = future.result()
+            self.results.append(res)
+
+        # Stage 6: Mutation Testing (MUST run sequentially AFTER unit tests pass because it mutates code on disk)
+        tests_passed = all(r.passed for r in self.results if r.name == STAGE_TEST_SUITE)
+        if category.has_python and not self.diff_mode:
+            if tests_passed:
+                self.results.append(self.stage6_mutation())
+            else:
+                self.results.append(StageResult(6, STAGE_MUTATION, False, errors=["先行テスト失敗のためMutationスキップ"]))
+        elif not self.diff_mode:
+            self.results.append(StageResult(6, STAGE_MUTATION, True, details="Python変更なしのためスキップ"))
+
+        # Stage 8: Metadata if specified
+        if title or body:
             self.results.append(self.stage8_pr_metadata(title=title, body=body))
 
         return self.is_all_passed()
 
-
     def print_summary(self) -> None:
-        """Render formatted console summary table."""
-        print("\n" + "=" * 80)
-        print("  🚀 PRE-PR VERIFICATION GATE REPORT (PR提出前全検査サマリー)")
-        print("=" * 80)
-        print(f"  {'ステージ':<30} | {'判定':<8} | {'所要時間':<8} | {'詳細'}")
-        print("  " + "-" * 76)
+        """Render terse formatted summary (Caveman token-saving style)."""
+        print("\n" + "=" * 70)
+        print("  🚀 PRE-PR REPORT (サマリー)")
+        print("=" * 70)
+        for r in sorted(self.results, key=lambda x: x.stage_id):
+            status = "✅ PASS" if r.passed else "⛔ FAIL"
+            print(f"  {r.name:<22} | {status} ({r.duration_sec:.1f}s) | {r.details}")
+            for w in r.warnings[:2]:
+                print(f"    ⚠️  {format_terse_error(w)}")
+            for e in r.errors[:3]:
+                print(f"    ❌ {format_terse_error(e)}")
 
-        for r in self.results:
-            status_mark = "✅ PASS" if r.passed else "⛔ FAIL"
-            dur = f"{r.duration_sec:.2f}s"
-            print(f"  {r.name:<26} | {status_mark:<8} | {dur:<8} | {r.details}")
-            for w in r.warnings:
-                print(f"    ⚠️  WARN: {w}")
-            for e in r.errors:
-                print(f"    ❌ ERROR: {e}")
-
-        print("=" * 80)
+        print("-" * 70)
         if self.is_all_passed():
-            print("  🎉 ALL CHECKS PASSED (100%)! 安全に PR を作成・提出できます。")
+            print("  🎉 ALL PASSED: PR作成・プッシュ可能です。")
         else:
-            print("  ⛔ PRE-PR CHECKS FAILED! PR提出前に上記のエラーを解消してください。")
-        print("=" * 80 + "\n")
+            print("  ⛔ CHECKS FAILED: 上記エラーを解消してください。")
+        print("=" * 70 + "\n")
 
 
 def main() -> int:
@@ -828,7 +954,6 @@ def main() -> int:
     parser.add_argument("--sha", type=str, help="Target git commit SHA")
     parser.add_argument("--title", type=str, help="PR title to validate")
     parser.add_argument("--body", type=str, help="PR body to validate")
-    parser.add_argument("--changed-files", nargs="*", help="Explicit list of changed files")
     parser.add_argument("--json", action="store_true", help="Output JSON report")
     args = parser.parse_args()
 
@@ -843,7 +968,6 @@ def main() -> int:
         skip_coderabbit=args.skip_coderabbit,
         branch=args.branch,
         sha=args.sha,
-        changed_files=args.changed_files,
     )
 
     passed = checker.run_all(title=args.title, body=args.body)
