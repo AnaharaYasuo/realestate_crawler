@@ -163,12 +163,38 @@ class TestReplayHtml:
         ("tokyu_tochi", "tochi"),
         ("nomura_mansion", "mansion"),
         ("heim_kodate", "kodate"),
+        ("heim_mansion", "mansion"),
+        ("sumai1_mansion", "mansion"),
+        ("sumai1_kodate", "kodate"),
+        ("sumai1_tochi", "tochi"),
+        ("sumai1_investment", "apartment"),
         ("sumifu_invest_kodate", None),
     ])
     def test_router_property_type_mapping(self, job_key, expected):
         with patch("package.utils.error_page_replayer.UrlRouter.create_parser", return_value=None) as cp:
             ErrorPageReplayer.replay_html(OG_HTML, job_key)
         cp.assert_called_once_with(URL, property_type=expected)
+
+    @pytest.mark.parametrize("url,job_key,expected_parser_cls", [
+        ("https://www.sumai1.com/buyers/mansion/bukken/buk_39026K00614/", "sumai1_mansion", "Sumai1MansionParser"),
+        ("https://www.sumai1.com/buyers/kodate/bukken/buk_YAAA15785/", "sumai1_kodate", "Sumai1KodateParser"),
+        ("https://www.sumai1.com/buyers/tochi/bukken/buk_NFA8BY007/", "sumai1_tochi", "Sumai1TochiParser"),
+        ("https://www.sumai1.com/buyers/investor/bukken/buk_40025S00114/", "sumai1_investment", "Sumai1InvestmentParser"),
+        ("https://www.tokyo816.jp/bunjou/property/240046522/index.html", "heim_kodate", "HeimKodateParser"),
+        ("https://www.tokyo816.jp/bunjou/property/240046522/index.html", "heim_mansion", "HeimMansionParser"),
+        ("https://www.tokyo816.jp/bunjou/property/240046522/index.html", "heim_tochi", "HeimTochiParser"),
+    ])
+    def test_replay_resolves_parser_for_sumai1_and_heim_issue_565(self, url, job_key, expected_parser_cls):
+        """Issue #565: sumai1 および heim の各障害 HTML からパーサーが正常に解決され no_parser にならないこと"""
+        html = f'<html><head><meta property="og:url" content="{url}"></head></html>'.encode()
+        with patch("package.utils.error_page_replayer.UrlRouter.create_parser", wraps=ErrorPageReplayer.replay_html.__globals__["UrlRouter"].create_parser) as cp:
+            # parser._getContent と save_error_html は replay_html 内でモック化される
+            with patch("package.parser.baseParser.ParserBase.parsePropertyDetailPage", side_effect=Exception("mock pass")):
+                res = ErrorPageReplayer.replay_html(html, job_key)
+        assert cp.called
+        assert res["status"] != "no_parser"
+        assert res["status"] != "no_url"
+        assert res["url"] == url
 
 
 def _result(status, fields=None, url=URL):

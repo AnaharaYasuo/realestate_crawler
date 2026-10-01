@@ -12,6 +12,13 @@ from package.utils.url_router import UrlRouter
 from package.utils.singleflight import SingleflightGroup
 from package.utils.rate_limiter import SlidingWindowRateLimiter
 from package.utils.url_matcher import UrlMatcher
+from package.parser.heimParser import HeimKodateParser, HeimMansionParser, HeimTochiParser
+from package.parser.sumai1Parser import (
+    Sumai1InvestmentParser,
+    Sumai1KodateParser,
+    Sumai1MansionParser,
+    Sumai1TochiParser,
+)
 
 
 @pytest.fixture
@@ -78,6 +85,67 @@ def test_url_router_resolution():
     # 未対応ドメイン
     route = router.resolve("https://unknown-broker.co.jp/bukken/detail/123")
     assert route is None
+
+    # 住まい1 (Sumai1)
+    # mansion
+    route_sumai1_m = router.resolve("https://www.sumai1.com/buyers/mansion/bukken/buk_39026K00614/")
+    assert route_sumai1_m is not None
+    assert route_sumai1_m["site"] == "sumai1"
+    assert route_sumai1_m["property_type"] == "mansion"
+    parser_sumai1_m = UrlRouter.create_parser("https://www.sumai1.com/buyers/mansion/bukken/buk_39026K00614/")
+    assert isinstance(parser_sumai1_m, Sumai1MansionParser)
+
+    # kodate
+    route_sumai1_k = router.resolve("https://www.sumai1.com/buyers/kodate/bukken/buk_YAAA15785/")
+    assert route_sumai1_k is not None
+    assert route_sumai1_k["site"] == "sumai1"
+    assert route_sumai1_k["property_type"] == "kodate"
+    parser_sumai1_k = UrlRouter.create_parser("https://www.sumai1.com/buyers/kodate/bukken/buk_YAAA15785/")
+    assert isinstance(parser_sumai1_k, Sumai1KodateParser)
+
+    # tochi
+    route_sumai1_t = router.resolve("https://www.sumai1.com/buyers/tochi/bukken/buk_NFA8BY007/")
+    assert route_sumai1_t is not None
+    assert route_sumai1_t["site"] == "sumai1"
+    assert route_sumai1_t["property_type"] == "tochi"
+    parser_sumai1_t = UrlRouter.create_parser("https://www.sumai1.com/buyers/tochi/bukken/buk_NFA8BY007/")
+    assert isinstance(parser_sumai1_t, Sumai1TochiParser)
+
+    # investor / apartment
+    route_sumai1_i = router.resolve("https://www.sumai1.com/buyers/investor/bukken/buk_40025S00114/")
+    assert route_sumai1_i is not None
+    assert route_sumai1_i["site"] == "sumai1"
+    assert route_sumai1_i["property_type"] == "apartment"
+    parser_sumai1_i = UrlRouter.create_parser("https://www.sumai1.com/buyers/investor/bukken/buk_40025S00114/")
+    assert isinstance(parser_sumai1_i, Sumai1InvestmentParser)
+
+    # セキスイハイム (Heim)
+    heim_url = "https://www.tokyo816.jp/bunjou/property/240046522/index.html"
+    # デフォルト解決 (kodate)
+    route_heim_def = router.resolve(heim_url)
+    assert route_heim_def is not None
+    assert route_heim_def["site"] == "heim"
+    assert route_heim_def["property_type"] == "kodate"
+    parser_heim_def = UrlRouter.create_parser(heim_url)
+    assert isinstance(parser_heim_def, HeimKodateParser)
+
+    # property_type / 動的判定による解決 (mansion)
+    route_heim_m = router.resolve(heim_url, property_type="mansion")
+    assert route_heim_m is not None
+    assert route_heim_m["property_type"] == "mansion"
+    parser_heim_m = UrlRouter.create_parser(heim_url, property_type="mansion")
+    assert isinstance(parser_heim_m, HeimMansionParser)
+
+    # property_type / 動的判定による解決 (tochi)
+    route_heim_t = router.resolve(heim_url, property_type="tochi")
+    assert route_heim_t is not None
+    assert route_heim_t["property_type"] == "tochi"
+    parser_heim_t = UrlRouter.create_parser(heim_url, property_type="tochi")
+    assert isinstance(parser_heim_t, HeimTochiParser)
+
+    # plan_detail URL
+    heim_plan_url = "https://www.tokyo816.jp/plan_detail/12345/index.html"
+    assert router.resolve(heim_plan_url)["site"] == "heim"
 
 
 # ==============================================================================
