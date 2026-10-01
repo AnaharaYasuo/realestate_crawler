@@ -31,6 +31,11 @@ HEIM_PARSER_MODULE = "package.parser.heimParser"
 HEIM_MODEL_MODULE = "package.models.heim"
 
 
+HEIM_DETAIL_PATTERN = re.compile(
+    r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"
+)
+
+
 class UrlRouter:
     """
     URL正規表現から対応サイト・物件種別・パーサーを解決するルーター
@@ -449,7 +454,7 @@ class UrlRouter:
 
         # セキスイハイム (Heim)
         {
-            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "pattern": HEIM_DETAIL_PATTERN,
             "site": "heim",
             "property_type": "kodate",
             "parser_module": HEIM_PARSER_MODULE,
@@ -458,7 +463,7 @@ class UrlRouter:
             "model_cls": "HeimKodate",
         },
         {
-            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "pattern": HEIM_DETAIL_PATTERN,
             "site": "heim",
             "property_type": "mansion",
             "parser_module": HEIM_PARSER_MODULE,
@@ -467,7 +472,7 @@ class UrlRouter:
             "model_cls": "HeimMansion",
         },
         {
-            "pattern": re.compile(r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"),
+            "pattern": HEIM_DETAIL_PATTERN,
             "site": "heim",
             "property_type": "tochi",
             "parser_module": HEIM_PARSER_MODULE,
