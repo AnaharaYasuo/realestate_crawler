@@ -265,9 +265,16 @@ do
             CR_FINDINGS=$(echo "$CR_OUTPUT" | grep -oE '"type"[[:space:]]*:[[:space:]]*"finding"' | wc -l || echo "0")
             CR_ERRORS=$(echo "$CR_OUTPUT" | grep -E '"(severity)"[[:space:]]*:[[:space:]]*"(high|critical|error|major)"' || true)
 
-            if [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
+            if [ "$CR_EXIT_CODE" -eq 124 ]; then
+                echo ""
+                echo "================================================================================"
+                echo "⛔ [PRE-PUSH REJECTED] CodeRabbit CLI レビューがタイムアウト（1800s）しました。"
+                echo "================================================================================"
+                echo ""
+                exit 1
+            elif [ "$CR_EXIT_CODE" -ne 0 ] || echo "$CR_OUTPUT" | grep -qE '"type"[[:space:]]*:[[:space:]]*"error"'; then
                 CR_ERR_MSG=$(echo "$CR_OUTPUT" | grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 || echo "$CR_OUTPUT")
-                if echo "$CR_OUTPUT" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"' || echo "$CR_OUTPUT" | grep -qi 'rate limit'; then
+                if echo "$CR_OUTPUT" | grep -qE '"errorType"[[:space:]]*:[[:space:]]*"rate_limit"'; then
                     echo ""
                     echo "================================================================================"
                     echo "⚠️  [PRE-PUSH WARNING] CodeRabbit CLI の利用制限（Rate limit / Monthly limit）を検知しました。"
