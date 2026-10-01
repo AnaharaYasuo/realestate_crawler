@@ -67,10 +67,12 @@ terraform/
   - プライベート IP 有効 (`private_network = google_compute_network.id`)
   - パラメータ: `character_set_server = utf8mb4`, `collation_server = utf8mb4_unicode_ci`, `max_connections = 1000`
   - セキュリティフラグ: `cloudsql_iam_authentication = on`, `local_infile = off`, `skip_show_database = on`
+  - 認証プラグイン: 非推奨の `default_authentication_plugin = "mysql_native_password"` を撤廃し、MySQL 8.0 標準の `caching_sha2_password` を適用（Issue #572）
   - バックアップ設定: 有効（毎日自動バックアップ、開始 `20:00` UTC = JST 05:00。クローラー最遅終了 18:00 UTC・ML Pipeline Job 最遅終了 19:10 UTC 以降。Issue #550）
-- `google_sql_user.db_user`: アプリケーション接続用 MySQL ユーザー (`var.db_user`)
-- `google_sql_user.monitor_user`: ProxySQL ヘルスチェック監視専用 MySQL ユーザー (`name = "monitor"`, 最小 USAGE 権限)
+- `google_sql_user.db_user`: アプリケーション接続用 MySQL ユーザー (`var.db_user`, 認証プラグイン: `caching_sha2_password`)
+- `google_sql_user.monitor_user`: ProxySQL ヘルスチェック監視専用 MySQL ユーザー (`name = "monitor"`, 最小 USAGE 権限, 認証プラグイン: `caching_sha2_password`)
 - `random_password.db_monitor_password`: 監視用ランダムパスワード (24桁、Secret Manager 格納)
+
 
 ### 3.3 コンピュート (`cloud_run_job.tf`, `cloud_run_service.tf`, `cloud_run_api_service.tf`)
 - `google_cloud_run_v2_job` (クローラーバッチ `crawler_pipeline_job`):
@@ -97,7 +99,9 @@ terraform/
   - タグ: `["proxysql"]`
   - 管理認証情報 (`admin_variables`): `random_password.proxysql_admin_password` により生成されたランダムパスワードを適用
   - バックエンド監視設定 (`mysql_variables`): `monitor_username = "monitor"`, `monitor_password = "${random_password.db_monitor_password.result}"` を設定
+  - バックエンド接続暗号化 (`mysql_servers`): `use_ssl = 1` を指定し、Cloud SQL への TLS 暗号化接続を有効化。これにより RSA 公開鍵交換不要で `caching_sha2_password` をサポート（Issue #572）
   - 起動スクリプト (`metadata_startup_script`): ProxySQL の自動セットアップ、Cloud SQL プライベート IP へのバックエンド登録、コネクション多重化設定、ポート 6033/6032 のリスニング開始
+
     - DPKG/APT ロック競合対策 (Issue #518): `wait_for_apt_locks` 関数で `/var/lib/dpkg/lock-frontend`・`/var/lib/dpkg/lock`・`/var/lib/apt/lists/lock` を `fuser` で監視し、解放まで 2 秒間隔で待機。待機予算 600 秒は `apt_retry` 1 呼び出し内の全試行で累積共有（`APT_LOCK_WAITED`、試行ごとにリセットしない）し、予算消化後も即時失敗させず `apt-get -o DPkg::Lock::Timeout=120` のロック待機に委ねる（永続ロック時の最悪所要: 600 + 5×120 + 75 秒 ≒ 21 分）
     - `apt_retry` 関数で `apt-get` を最大 5 回、指数バックオフ（5, 10, 20, 40 秒）でリトライし、`set -euo pipefail` 下での一時的競合・通信瞬断による即死を防止
     - `apt-get update` は既定では一部リポジトリの一時的な取得失敗でも終了コード 0 を返し得るため、全 `update` 呼び出しに `--error-on=any` を指定して取得失敗を非ゼロ終了させ、`apt_retry` の再試行対象とする（古い・欠落した索引での後続 `install` を防止）
