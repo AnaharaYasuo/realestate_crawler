@@ -614,19 +614,29 @@ graph TD
 - **モデル定義のバリデーション許容性 (`SekisuiMansion`)**:
   - `chikunengetsu`, `floorType_chijo`, `floorType_chika`, `floorType_kai` などの属性に `blank=True` を設定し、一部フィールド欠損時にも Django バリデーションエラーによる全件スキップを防止。
 
----
+### 6.32 MySQL 認証プラグイン標準化 & TLS 接続内部設計 (Issue #572)
+- **非推奨認証フラグの撤廃**:
+  - `terraform/database.tf` から `default_authentication_plugin = "mysql_native_password"` を削除。
+- **ProxySQL バックエンド TLS 暗号化**:
+  - `terraform/proxysql.tf` の `mysql_servers` において `use_ssl=1` を指定。
+  - Cloud SQL への接続に TLS ハンドシェイクを強制し、`caching_sha2_password` の完全認証を RSA 公開鍵交換不要で疎通。
+- **ユーザー認証プラグイン更新**:
+  - Cloud SQL ユーザー（`sumifu`, `monitor`）の認証方式を `caching_sha2_password` に移行。
 
+---
 
 ## 7. 参照ドキュメント
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
+- [MySQL認証プラグイン移行内部設計書](mysql_auth_plugin_migration_internal_design.md): caching_sha2_password 移行・Terraform差分仕様 (Issue #572)
 - [API構造ドキュメント (API Structure)](api_structure.md): エンドポイント構造と処理フロー
 - [SonarGuardrail運用ガイド](../implementation/sonar_guardrail_guide.md): VSCode設定およびコーディングパターン集
 
 ---
 
-**最終更新**: 2026年9月26日  
-**バージョン**: 3.1 (内部ルーティング自律化およびタスクアレイ統合レポート内部設計追記)
+**最終更新**: 2026年10月1日  
+**バージョン**: 3.2 (MySQL認証プラグイン移行およびTLS接続内部設計追記)
+
 
 
 

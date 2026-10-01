@@ -7,6 +7,22 @@ from dotenv import load_dotenv
 
 # Load .env file
 load_dotenv()
+def get_database_config():
+    """Build production MySQL database settings dict based on active environment variables."""
+    is_cloud = bool(os.getenv('IS_CLOUD') or os.getenv('K_SERVICE') or os.getenv('CLOUD_RUN_JOB') or os.getenv('GOOGLE_CLOUD_PROJECT'))
+    default_host = 'localhost' if is_cloud else 'db'
+    return {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.getenv('DB_NAME', 'real_estate'),
+        'USER': os.getenv('DB_USER', 'sumifu'),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
+        'HOST': os.getenv('DB_HOST', default_host),
+        'PORT': os.getenv('DB_PORT', '3306'),
+        'CONN_MAX_AGE': 0,  # ProxySQL一元管理: アプリ側プールを禁止し即時切断
+        'OPTIONS': {'charset': 'utf8mb4'},
+    }
+
+
 def configure():
     """Configure Django once for the active test, cloud, or local environment."""
     if not settings.configured:
