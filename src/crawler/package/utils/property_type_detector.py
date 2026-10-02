@@ -278,8 +278,6 @@ class PropertyTypeDetector:
     def _detect_from_specs_rule(cls, specs: dict[str, Any] | None) -> str | None:
         if not specs or not isinstance(specs, dict):
             return None
-        if cls._has_yield_signal_specs(specs):
-            return "apartment"
         return cls._detect_from_specs(specs)
 
     @classmethod
@@ -290,8 +288,7 @@ class PropertyTypeDetector:
         html_text: Optional[str] = None,
         specs: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        specs_ptype = cls._detect_from_specs_rule(specs)
-        if specs_ptype == "apartment":
+        if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
             return "apartment"
         if title:
             title_ptype = cls._match_keywords(title)
@@ -299,6 +296,7 @@ class PropertyTypeDetector:
                 return title_ptype
         if cls._has_yield_signal(html_text):
             return "apartment"
+        specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype:
             return specs_ptype
         if url:
