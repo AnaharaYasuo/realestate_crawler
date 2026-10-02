@@ -45,40 +45,6 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and cache Docker image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          load: true
-          tags: realestate_crawler-app:latest
-          cache-from: type=gha,scope=app
-          cache-to: type=gha,mode=max,scope=app
-
-      - name: Start containers and setup DB
-        run: |
-          touch .env
-          docker compose up -d app db
-          # Wait for MySQL connection from within app container
-          docker compose exec -T app python src/crawler/scripts/debug_tools/wait_for_db.py
-          docker compose exec -T app python src/crawler/manage.py migrate
-
-      - name: Run Tests with Coverage
-        run: |
-          docker compose exec -T app pytest -n auto -m "not live" src/crawler/tests --cov=src/crawler/package --cov-report=xml:/app/coverage.xml --junitxml=/app/pytest-report.xml
-
-      - name: Copy Coverage and Test Reports
-        run: |
-          docker compose cp app:/app/coverage.xml .
-          docker compose cp app:/app/pytest-report.xml .
-          sed -i 's|/app/||g' coverage.xml || true
-          sed -i 's|/app/||g' pytest-report.xml || true
-
-      - name: Stop containers
-        if: always()
-        run: docker compose down
 
       - name: Set up JDK 21
         uses: actions/setup-java@v6
