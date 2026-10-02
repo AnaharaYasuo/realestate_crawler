@@ -5,6 +5,7 @@ from package.parser.baseParser import InvestmentParserBase, KodateParserBase, Ma
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
+from package.api.differential import ListItem
 from decimal import Decimal
 import asyncio
 import math
@@ -472,13 +473,14 @@ class AthomeParser(ParserBase):
             if found_base:
                 base = found_base
             if detail_url:
-                yield detail_url
+                price = self._extract_card_price(a)
+                yield ListItem(url=detail_url, price=price)
 
         if list_links:
             async for normalized in self._expand_sub_list_pages(list_links, base):
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    yield normalized
+                    yield ListItem(url=normalized)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 0. 掲載終了・物件不在の早期検知

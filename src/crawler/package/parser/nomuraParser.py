@@ -21,6 +21,7 @@ from package.parser.baseParser import (
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
+from package.api.differential import ListItem
 
 JAVASCRIPT_PREFIX = "javascript:"
 NOMU_BASE_URL = "https://www.nomu.com"
@@ -317,7 +318,8 @@ class NomuraParser(InvestmentParser):
             if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX) and "/library/" not in href:
                 href = href.split("?")[0]
                 if href.startswith("/"): href = NOMU_BASE_URL + href
-                yield href
+                price = self._extract_card_price(link)
+                yield ListItem(url=href, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
         next_selector = self.selectors.get('next_page', "a.next")

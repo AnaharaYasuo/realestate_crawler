@@ -12,6 +12,7 @@ from package.parser.baseParser import (
 from package.models.homes import HomesMansion, HomesKodate, HomesInvestmentApartment, HomesTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
+from package.api.differential import ListItem
 import logging
 import re
 
@@ -190,13 +191,15 @@ class HomesParser(ParserBase):
             if normalized in detail_links:
                 continue
             detail_links.add(normalized)
+            price = self._extract_card_price(a)
+            item = ListItem(url=normalized, price=price)
             if self._is_yield_indicated(a):
-                yield_links.append(normalized)
+                yield_links.append(item)
             else:
-                other_links.append(normalized)
+                other_links.append(item)
 
-        for link in yield_links + other_links:
-            yield link
+        for item in yield_links + other_links:
+            yield item
 
     def _find_by_table_header(self, response: BeautifulSoup, headers):
         """thタグのテキストに含まれるキーワードから、対応するtdタグのテキストを抽出する。

@@ -21,6 +21,7 @@ from package.parser.baseParser import (
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
+from package.api.differential import ListItem
 
 importlib.reload(sys)
 
@@ -976,14 +977,16 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             property_list = page_props.get('propertyList', [])
             if not property_list:
                 return None
-            urls = []
+            items = []
             for item in property_list:
                 detail_url = item.get('detailUrl')
                 if detail_url:
                     full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
                     if not self._is_non_property_href(full_url):
-                        urls.append(full_url)
-            return urls
+                        raw_price = item.get('price') or item.get('salesPrice')
+                        price = converter.parse_price(str(raw_price)) if raw_price else None
+                        items.append(ListItem(url=full_url, price=price))
+            return items
         except Exception as e:
             logger.exception("Error parsing __NEXT_DATA__: %s", e)
             return None
@@ -992,24 +995,25 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         selector = self.selectors.get('property_links')
         if not selector:
             return []
-        urls = []
+        items = []
         for link in response.select(selector):
             href = link.get('href')
             if href:
                 full_url = self.BASE_URL + href if href.startswith('/') else href
                 if not self._is_non_property_href(full_url):
-                    urls.append(full_url)
-        return urls
+                    price = self._extract_card_price(link)
+                    items.append(ListItem(url=full_url, price=price))
+        return items
 
     async def parsePropertyListPage(self, response):
-        urls = self._extract_nextjs_urls(response)
-        if urls is not None:
-            for url in urls:
-                yield url
+        items = self._extract_nextjs_urls(response)
+        if items is not None:
+            for item in items:
+                yield item
             return
 
-        for url in self._extract_selector_urls(response):
-            yield url
+        for item in self._extract_selector_urls(response):
+            yield item
     def _getNextJsData(self, response):
         check_tokyu_listing_ended(response)
         if hasattr(response, '_next_data_json'):

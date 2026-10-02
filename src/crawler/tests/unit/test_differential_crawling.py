@@ -212,3 +212,55 @@ async def test_detail_page_in_place_update_and_price_history():
         assert call_kwargs["new_price"] == 48000000
         assert call_kwargs["price_diff"] == -2000000
 
+
+@pytest.mark.asyncio
+async def test_parsers_extract_list_items_with_price():
+    """Verify that parsers extract ListItem(url, price) from HTML list cards."""
+    from bs4 import BeautifulSoup
+    from package.parser.mitsuiParser import MitsuiMansionParser
+    from package.parser.nomuraParser import NomuraMansionParser
+
+    html = """
+    <div class="search-result">
+        <div class="property-index-card bukken-item">
+            <h3 class="title"><a href="/buy/mansion/bkdetail/12345/">グランドメゾン麻布</a></h3>
+            <div class="price-box">
+                <span class="price">8,500万円</span>
+            </div>
+        </div>
+        <div class="property-index-card bukken-item">
+            <h3 class="title"><a href="/buy/mansion/bkdetail/67890/">パークハウス白金</a></h3>
+            <div class="price-box">
+                <span class="price">1億2,000万円</span>
+            </div>
+        </div>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 1. Mitsui parser (inherits baseParser._parsePageCore)
+    mitsui = MitsuiMansionParser("")
+    items = [item async for item in mitsui.parsePropertyListPage(soup)]
+    assert len(items) == 2
+    assert all(isinstance(it, ListItem) for it in items)
+    assert items[0].url == "https://www.rehouse.co.jp/buy/mansion/bkdetail/12345/"
+    assert items[0].price == 85000000
+    assert items[1].url == "https://www.rehouse.co.jp/buy/mansion/bkdetail/67890/"
+    assert items[1].price == 120000000
+
+    # 2. Nomura parser
+    nomura_html = """
+    <div class="list-item">
+        <a href="/mansion/id/ABC01/">プラウドタワー</a>
+        <span class="price">9,800万円</span>
+    </div>
+    """
+    nomura_soup = BeautifulSoup(nomura_html, "html.parser")
+    nomura = NomuraMansionParser()
+    nomura_items = [item async for item in nomura.parsePropertyListPage(nomura_soup)]
+    assert len(nomura_items) == 1
+    assert isinstance(nomura_items[0], ListItem)
+    assert nomura_items[0].url == "https://www.nomu.com/mansion/id/ABC01/"
+    assert nomura_items[0].price == 98000000
+
+

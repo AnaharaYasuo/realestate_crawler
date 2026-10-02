@@ -7,11 +7,20 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 
 
-@dataclass
-class ListItem:
+class ListItem(str):
     url: str
-    price: Optional[int] = None
-    hash_val: Optional[str] = None
+    price: Optional[int]
+    hash_val: Optional[str]
+
+    def __new__(cls, url: str, price: Optional[int] = None, hash_val: Optional[str] = None):
+        instance = super().__new__(cls, url)
+        instance.url = url
+        instance.price = price
+        instance.hash_val = hash_val
+        return instance
+
+    def __repr__(self) -> str:
+        return f"ListItem(url={self.url!r}, price={self.price!r}, hash_val={self.hash_val!r})"
 
     @classmethod
     def from_raw(cls, raw: str | Tuple[Any, ...] | List[Any] | Dict[str, Any] | "ListItem") -> "ListItem":

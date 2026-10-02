@@ -21,9 +21,9 @@ def test_company_concurrency_limits_mapping():
     assert get_company_concurrency_limit("homes") == 5
     assert get_company_concurrency_limit("athome") == 3
 
-    # 大手5社
+    # 大手5社 (Issue #608 仕様: 全種別一斉並行スタートのため5本に緩和)
     for major in ["mitsui", "sumifu", "tokyu", "nomura", "misawa"]:
-        assert get_company_concurrency_limit(major) == 2, f"{major} should have concurrency limit 2"
+        assert get_company_concurrency_limit(major) == 5, f"{major} should have concurrency limit 5"
 
     # 中小・電鉄・ハウスメーカー系列 (デフォルト 1本)
     for small in ["sekisui", "daiwa", "afr", "totate", "odakyu", "sumirin", "heim", "rearie", "keio", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "smtrc", "sumai1", "mizuho"]:
@@ -31,7 +31,7 @@ def test_company_concurrency_limits_mapping():
 
     # 大文字小文字の区別なし
     assert get_company_concurrency_limit("HOMES") == 5
-    assert get_company_concurrency_limit("Mitsui") == 2
+    assert get_company_concurrency_limit("Mitsui") == 5
     assert get_company_concurrency_limit("Sekisui") == 1
 
 
@@ -53,31 +53,31 @@ def test_select_next_job_respects_limits():
     assert idx == 0
     assert job == ("mitsui", "mansion")
 
-    # ケース 2: mitsui が 1 プロセス実行中 -> mitsui は上限2なので、次の mitsui-kodate も選ばれる
+    # ケース 2: mitsui が 1 プロセス実行中 -> mitsui は上限5なので、次の mitsui-kodate も選ばれる
     active_counts = {"mitsui": 1}
     idx, job = select_next_job(job_queue, active_counts)
     assert idx == 0
     assert job == ("mitsui", "mansion")
 
-    # ケース 3: mitsui が 2 プロセス実行中 (上限到達) -> mitsui のジョブはスキップされ、sekisui-mansion が選ばれる
-    active_counts = {"mitsui": 2}
+    # ケース 3: mitsui が 5 プロセス実行中 (上限到達) -> mitsui のジョブはスキップされ、sekisui-mansion が選ばれる
+    active_counts = {"mitsui": 5}
     idx, job = select_next_job(job_queue, active_counts)
     assert idx == 3
     assert job == ("sekisui", "mansion")
 
     # ケース 4: sekisui が 1 プロセス実行中 (上限1到達) -> sekisui もスキップされ、homes-mansion が選ばれる
-    active_counts = {"mitsui": 2, "sekisui": 1}
+    active_counts = {"mitsui": 5, "sekisui": 1}
     idx, job = select_next_job(job_queue, active_counts)
     assert idx == 5
     assert job == ("homes", "mansion")
 
     # ケース 5: homes が 4 プロセス実行中 (上限5未満) -> homes-mansion が選ばれる
-    active_counts = {"mitsui": 2, "sekisui": 1, "homes": 4}
+    active_counts = {"mitsui": 5, "sekisui": 1, "homes": 4}
     idx, job = select_next_job(job_queue, active_counts)
     assert idx == 5
     assert job == ("homes", "mansion")
 
     # ケース 6: 全ての会社が上限到達 -> None が返る (待機)
-    active_counts = {"mitsui": 2, "sekisui": 1, "homes": 5}
+    active_counts = {"mitsui": 5, "sekisui": 1, "homes": 5}
     res = select_next_job(job_queue, active_counts)
     assert res is None
