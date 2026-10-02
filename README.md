@@ -646,6 +646,9 @@ task logs
 - **[MySQL認証プラグイン移行要件定義書](docs/requirements/mysql_auth_plugin_migration_requirements.md)**: caching_sha2_password 移行・非推奨警告解消要件 (Issue #572)
 - **[MySQL認証プラグイン移行基本設計書](docs/basic_design/mysql_auth_plugin_migration_basic_design.md)**: ProxySQL TLS 接続および暗号化認証アーキテクチャ (Issue #572)
 - **[MySQL認証プラグイン移行内部設計書](docs/internal_design/mysql_auth_plugin_migration_internal_design.md)**: Terraform / ProxySQL 定義差分および TDD テスト仕様 (Issue #572)
+- **[Review Gate CodeRabbit 自動Resolve化要件定義書](docs/requirements/review_gate_auto_resolve_requirements.md)**: 古いCHANGES_REQUESTED自動失効・未解決スレッド自動Resolve仕様 (Issue #589)
+- **[Review Gate CodeRabbit 自動Resolve化基本設計書](docs/basic_design/review_gate_auto_resolve_basic_design.md)**: GitHub GraphQL自動スレッド解決・Gateデッドロック解消設計 (Issue #589)
+- **[Review Gate CodeRabbit 自動Resolve化内部設計書](docs/internal_design/review_gate_auto_resolve_internal_design.md)**: autoResolveCodeRabbitThreads・CHANGES_REQUESTEDバイパス詳細仕様 (Issue #589)
 
 ### 2. 開発を始める
 
