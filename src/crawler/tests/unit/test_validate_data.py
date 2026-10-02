@@ -98,4 +98,9 @@ def test_validate_data_recent_days_filtering(monkeypatch):
         with pytest.raises(ValueError, match="days must be non-negative"):
             validate_data(days=-1)
 
+        # 7. 負の環境変数は例外送出
+        monkeypatch.setenv("VALIDATE_DATA_DAYS", "-7")
+        with pytest.raises(ValueError, match="VALIDATE_DATA_DAYS must be non-negative"):
+            validate_data()
+
 

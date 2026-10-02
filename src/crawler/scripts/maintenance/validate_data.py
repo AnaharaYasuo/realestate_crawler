@@ -62,8 +62,12 @@ def validate_data(days: int | None = None, scan_all: bool = False):
             env_val = os.getenv("VALIDATE_DATA_DAYS", "7").strip()
             try:
                 val = int(env_val)
+                if val < 0:
+                    raise ValueError(f"VALIDATE_DATA_DAYS must be non-negative: {val}")
                 days_limit = val if val > 0 else None
-            except ValueError:
+            except ValueError as e:
+                if "must be non-negative" in str(e):
+                    raise
                 days_limit = 7
         if days_limit:
             logger.info("Recent scan mode enabled: scanning records from the last %d days.", days_limit)
@@ -74,6 +78,7 @@ def validate_data(days: int | None = None, scan_all: bool = False):
     
     anomalies = []
     cleaned_count = 0
+    total_scanned = 0
     
     models = get_all_models_flat()
     
@@ -82,6 +87,7 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         if since_date and hasattr(model_cls, "inputDate"):
             qs = qs.filter(inputDate__gte=since_date)
         for item in qs:
+            total_scanned += 1
             url = getattr(item, "pageUrl", "")
             if not url:
                 continue
@@ -254,7 +260,10 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         sent_any = True
         
     if not sent_any:
-        logging.info("No scraping anomalies or HTML errors detected. Data integrity is clean.")
+        if total_scanned == 0:
+            logger.warning("Zero records scanned. Check scraping pipelines or database filters.")
+        else:
+            logger.info("Scanned %d records. No scraping anomalies or HTML errors detected. Data integrity is clean.", total_scanned)
 
 if __name__ == "__main__":
     # monitor_error_pagesのインポートパス解決のため、カレントディレクトリをscriptsに合わせる
