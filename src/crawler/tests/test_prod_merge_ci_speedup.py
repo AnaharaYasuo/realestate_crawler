@@ -96,8 +96,11 @@ def test_review_gate_excludes_production_pr():
     assert "targetBranch !== 'master'" in content, (
         "review-gate.yml should skip any PR whose target branch is not master"
     )
-    assert "staleChangesRequested" in content, (
-        "review-gate.yml should handle stale changes requested from older commits as pending"
+    assert "autoResolveCodeRabbitThreads" in content, (
+        "review-gate.yml should auto-resolve CodeRabbit review threads on new commits"
+    )
+    assert "r.commit_id !== headSha" in content, (
+        "review-gate.yml should bypass obsolete CodeRabbit CHANGES_REQUESTED when a newer commit exists"
     )
 
 

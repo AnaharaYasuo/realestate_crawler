@@ -648,6 +648,9 @@ task logs
 - **[種別誤判定防止＆データ監視最適化要件定義書](docs/requirements/property_type_detection_and_validation_requirements.md)**: PropertyTypeDetector URL優先判定・validate_data 直近走査化要件 (Issue #584)
 - **[種別誤判定防止＆データ監視最適化基本設計書](docs/basic_design/property_type_detection_and_validation_basic_design.md)**: URL先行評価・7日間直近フィルタ・CLIオプション基本設計 (Issue #584)
 - **[種別誤判定防止＆データ監視最適化内部設計書](docs/internal_design/property_type_detection_and_validation_internal_design.md)**: _detect_rule_based / validate_data 詳細仕様 (Issue #584)
+- **[Review Gate CodeRabbit 自動Resolve化要件定義書](docs/requirements/review_gate_auto_resolve_requirements.md)**: 古いCHANGES_REQUESTED自動失効・未解決スレッド自動Resolve仕様 (Issue #589)
+- **[Review Gate CodeRabbit 自動Resolve化基本設計書](docs/basic_design/review_gate_auto_resolve_basic_design.md)**: GitHub GraphQL自動スレッド解決・Gateデッドロック解消設計 (Issue #589)
+- **[Review Gate CodeRabbit 自動Resolve化内部設計書](docs/internal_design/review_gate_auto_resolve_internal_design.md)**: autoResolveCodeRabbitThreads・CHANGES_REQUESTEDバイパス詳細仕様 (Issue #589)
 
 ### 2. 開発を始める
 
