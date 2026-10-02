@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
@@ -9,10 +9,10 @@ from django.utils import timezone
 
 class ListItem(str):
     url: str
-    price: Optional[int]
-    hash_val: Optional[str]
+    price: int | None
+    hash_val: str | None
 
-    def __new__(cls, url: str, price: Optional[int] = None, hash_val: Optional[str] = None):
+    def __new__(cls, url: str, price: int | None = None, hash_val: str | None = None):
         instance = super().__new__(cls, url)
         instance.url = url
         instance.price = price

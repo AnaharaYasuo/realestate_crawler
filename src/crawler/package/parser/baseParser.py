@@ -503,17 +503,14 @@ class ParserBase(metaclass=ABCMeta):
         if ParserBase._is_non_property_href(dest_url):
             return None
         return dest_url
-
-    _PRICE_TEXT_PATTERN = re.compile(r'(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:億(?:(\d+(?:,\d+)*(?:\.\d+)?))?\s*)?万円?')
+    _CARD_KEYWORDS = ('card', 'item', 'bukken', 'property', 'list', 'box', 'row', 'section')
+    _PRICE_SELECTORS = ('.price', '.mod-price', '.priceNum', '.priceText', 'span[class*="price"]', 'strong[class*="price"]', 'p[class*="price"]', 'td.price', 'em')
+    _PRICE_TEXT_PATTERN = re.compile(r'(\d+[\d,]*(?:\.\d+)?)\s*(?:億\s*(\d+[\d,]*(?:\.\d+)?)?\s*)?万円?')
+    _PRICE_FINDITER_PATTERN = re.compile(r'(?:価格|販売価格|賃料)?\s*(\d+[\d,]*\s*億(?:\s*\d+[\d,]*\s*万)?|\d+[\d,]*\s*万円)')
 
     @classmethod
-    def _extract_card_price(cls, link) -> int | None:
-        """カード要素やその周辺から物件価格（整数・円）を抽出する"""
-        if not hasattr(link, 'find_parent'):
-            return None
-        # カードコンテナ候補（親要素を上位に辿る）
+    def _find_card_container(cls, link):
         parent = link
-        card = None
         for _ in range(6):
             parent = parent.find_parent(['div', 'li', 'tr', 'article', 'section'])
             if parent is None:
@@ -521,27 +518,30 @@ class ParserBase(metaclass=ABCMeta):
             classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
             tag_id = str(parent.get('id', ''))
             combined = f"{classes} {tag_id}".lower()
-            if any(k in combined for k in ('card', 'item', 'bukken', 'property', 'list', 'box', 'row', 'section')):
-                card = parent
-                break
-        if card is None:
-            card = link.parent or link
+            if any(k in combined for k in cls._CARD_KEYWORDS):
+                return parent
+        return link.parent or link
+
+    @classmethod
+    def _extract_card_price(cls, link) -> int | None:
+        """カード要素やその周辺から物件価格（整数・円）を抽出する"""
+        if not hasattr(link, 'find_parent'):
+            return None
+        card = cls._find_card_container(link)
 
         # 1. card 内の価格専用クラス・要素を優先探索
-        for sel in ('.price', '.mod-price', '.priceNum', '.priceText', 'span[class*="price"]', 'strong[class*="price"]', 'p[class*="price"]', 'td.price', 'em'):
+        for sel in cls._PRICE_SELECTORS:
             el = card.select_one(sel)
             if el:
-                price_text = el.get_text(strip=True)
-                p = converter.parse_price(price_text)
+                p = converter.parse_price(el.get_text(strip=True))
                 if p and p > 0:
                     return p
 
         # 2. テキスト全体から価格パターンを抽出
         card_text = card.get_text(separator=' ', strip=True)
-        # 「価格 5,480万円」等のラベル付きまたは数字+万円/億
-        for m in re.finditer(r'(?:価格|販売価格|賃料)?\s*(\d+(?:,\d+)*(?:\.\d+)?\s*億(?:\s*\d+(?:,\d+)*(?:\.\d+)?\s*万)?|\d+(?:,\d+)*(?:\.\d+)?\s*万円)', card_text):
+        for m in cls._PRICE_FINDITER_PATTERN.finditer(card_text):
             p = converter.parse_price(m.group(0))
-            if p and p >= 100000:  # 不動産価格として妥当な下限（10万円以上）
+            if p and p >= 100000:
                 return p
 
         return None
