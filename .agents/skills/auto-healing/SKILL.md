@@ -25,9 +25,11 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-10）
 * `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大10件）の修復対象を特定。
+* 同一サイト＆種別で大量（数十〜200件等）の失敗が発生している場合は、`python src/crawler/scripts/debug_tools/bulk_auto_heal_diagnose.py --site <site> --type <type>` を実行し、全失敗サンプルを圧縮して Gemini Flash へ1リクエスト投入することで、包括的修正マニフェスト（`Temp/auto_heal_bulk_fix_manifest.json`）を生成して一括原因究明を行う。
 * ローカルへのログファイルの引き出し・読み込みは行わず、指示書の要約情報および対象URL・パーサーを直接確認。
 * パーサー未整備エラー（`[PARSER_UNAVAILABLE]`）が検知された場合、新規パーサー開発対象（Backlog）として自律的に開発タスクを起票・実装する。
 * 対象パーサー（`src/crawler/package/parser/`）、セレクター、正規表現、またはルートを上位エラーから順番に修正。
 
 ### 2. リグレッションテストの呼び出し
 * 修正完了後、スキル/ワークフロー `/regression-test` を呼び出し、セキュリティ走査・動的二段階検証・処理時間アサーション・pytest全パスを確認すること。
+* **モックHTMLファイル依存の完全排除**: ローカルの固定モックHTMLファイル（`tests/error_pages/` 等）によるテストは全廃とし、必ず最新アクティブ公開中の物件HTML（動的取得）またはライブ到達テストで検証すること。
