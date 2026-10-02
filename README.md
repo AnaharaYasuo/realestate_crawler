@@ -637,9 +637,9 @@ task logs
 - **[パーサー項目別Getter疎結合アーキテクチャ要件定義書](docs/requirements/parser_getter_architecture_requirements.md)**: 項目別Getterによるパース処理疎結合化、引数レスポンス単一化、表示差分吸収仕様
 - **[パーサー項目別Getter疎結合アーキテクチャ基本設計書](docs/basic_design/parser_getter_architecture_basic_design.md)**: 種別基底パーサー階層、get_<field>(response) 設計、キャッシュ・委譲構造
 - **[パーサー項目別Getter疎結合アーキテクチャ内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)**: メソッドシグネチャ、正規表現・型変換、モデル空欄許容マッピング仕様
-- **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件 (Issue #575)
-- **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計 (Issue #575)
-- **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / should_process_event 詳細仕様 (Issue #575)
+- **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件、Top-10頻度優先・ERRORログ限定検索要件 (Issue #575, #596)
+- **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計、単一サブエージェント・トークン節約設計 (Issue #575, #596)
+- **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / aggregate_and_sort_targets 詳細仕様 (Issue #575, #596)
 - **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/requirements/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
 - **[pre_pr_check 並列最適化・テスト動的選別基本設計書](docs/basic_design/pre_pr_check_optimization_basic_design.md)**: 並行パイプライン・直列ミューテーション分離・Cavemanサマリー設計 (Issue #579)
 - **[MySQL認証プラグイン移行要件定義書](docs/requirements/mysql_auth_plugin_migration_requirements.md)**: caching_sha2_password 移行・非推奨警告解消要件 (Issue #572)

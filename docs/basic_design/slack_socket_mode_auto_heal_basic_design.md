@@ -46,12 +46,25 @@
 ## 2. コンポーネント設計
 
 ### 2.1 発信側: `auto_heal_parsers.py`
-- `scan_anomalies_and_generate_instructions()` の末尾において、修復対象（`heal_targets`）が存在する場合に `notify_auto_heal_request()` を呼び出す。
+- 実行契機: **全クローラー完了後の一括評価時（`run_all_crawlers.py` 末尾）または手動 `/auto-heal` 呼び出し時の1回のみ**。物件ごとのクローリングループ内での常時実行・逐次呼び出しは完全禁止。
+- `scan_anomalies_and_generate_instructions()` の末尾において、修復対象（`heal_targets`）を発生頻度（同一会社・種別・エラー種別・URL）順に集計・ソートし、上位最大10件（Top 10）に絞り込んで `auto_heal_instruction.json` を出力。
+- Google Cloud Gemini 2.5 Flash API を直接呼び出し、インメモリでエラー要約（ローカルファイルへのログ退避なし）。
+- 修復対象が存在する場合に `notify_auto_heal_request()` を呼び出す。
 - 送信先: `SLACK_DEV_CHANNEL`（デフォルト: `dev-agent`）。
 - メッセージ構成:
   - プレフィックス: `🚨 **[AUTO_HEAL_REQ] クローラー自己修復リクエスト**`
-  - 検知件数および対象サマリー
+  - 検知件数および頻度上位の対象サマリー
   - コマンド指示: `/auto-heal`
+
+### 2.2 調査・修復方針（トークン節約設計）
+- **ログ探索の絞り込み**:
+  - 300行の無差別ログ取得（`docker logs --tail 300`）を廃止。
+  - `grep -E "ERROR|CRITICAL"` や専用パーサー（`FailureReporter._parse_log_lines`）を用いて、重大エラー行のみを限定抽出。
+  - 全Slackチャンネル（8箇所）の巡回探索は廃止し、トリガーおよび `auto_heal_instruction.json` に記載された対象情報から直ちに該当コードへジャンプ。
+- **サブエージェント規約**:
+  - 調査モデルには安価な `flash` または `flash_lite` を使用。
+  - サブエージェントは**同時に1台のみ**起動し、探索ログやHTMLを要約・圧縮（caveman/構造化抜粋）してメインエージェントに返却。
+  - メインエージェントは上位10件のエラーを1件ずつ順番にピンポイントで修復。
 
 ### 2.2 受信側: `slack_agent_host.js` (Node.js) & `slack_agent.py` (Python)
 - **イベント選別ロジック (`should_process_event` / `shouldProcessEvent`)**:
