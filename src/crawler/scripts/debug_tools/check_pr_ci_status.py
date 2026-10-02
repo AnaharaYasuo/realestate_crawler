@@ -115,8 +115,48 @@ def evaluate_checks_summary(categories: dict[CheckCategory, list[dict[str, str]]
     }
 
 
+def _fetch_pr_checks_via_api(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tuple[int, str, str]:
+    """Fallback: Fetch PR check runs from GitHub REST API."""
+    import os
+    import urllib.error
+    import urllib.request
+
+    bounded_timeout = min(timeout, MAX_CLI_TIMEOUT)
+    url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/pulls/{pr_number}"
+    headers = {"User-Agent": "realestate-crawler-ci-check", "Accept": "application/vnd.github.v3+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=bounded_timeout) as resp:
+            pr_data = json.loads(resp.read().decode("utf-8"))
+            head_sha = pr_data.get("head", {}).get("sha", "")
+        if not head_sha:
+            return 1, "", "Could not resolve head SHA from PR metadata"
+
+        check_runs_url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/commits/{head_sha}/check-runs"
+        req_runs = urllib.request.Request(check_runs_url, headers=headers)
+        with urllib.request.urlopen(req_runs, timeout=bounded_timeout) as resp_runs:
+            runs_data = json.loads(resp_runs.read().decode("utf-8"))
+
+        lines = []
+        for cr in runs_data.get("check_runs", []):
+            name = cr.get("name", "unknown")
+            status = cr.get("status", "")
+            conclusion = cr.get("conclusion", "")
+            final_status = conclusion if status == "completed" else status
+            html_url = cr.get("html_url", "")
+            lines.append(f"{name}\t{final_status}\t0s\t{html_url}")
+
+        return 0, "\n".join(lines), ""
+    except Exception as exc:  # noqa: BLE001
+        return 1, "", f"API check failed: {exc}"
+
+
 def fetch_pr_checks(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tuple[int, str, str]:
-    """Execute `gh pr checks <PR_NUM>` with finite timeout limit (max 10s)."""
+    """Execute `gh pr checks <PR_NUM>` with finite timeout limit (max 10s), with REST API fallback."""
     bounded_timeout = min(timeout, MAX_CLI_TIMEOUT)
     try:
         res = subprocess.run(
@@ -126,11 +166,17 @@ def fetch_pr_checks(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tup
             timeout=bounded_timeout,
             check=False,
         )
-        return res.returncode, res.stdout, res.stderr
+        if res.returncode == 0 or res.stdout.strip():
+            return res.returncode, res.stdout, res.stderr
     except subprocess.TimeoutExpired:
         return 124, "", f"Command timed out after {bounded_timeout}s"
+    except FileNotFoundError:
+        # gh CLI not installed (e.g. inside docker container) -> fallback to REST API
+        pass
     except Exception as exc:  # noqa: BLE001
         return 1, "", str(exc)
+
+    return _fetch_pr_checks_via_api(pr_number, timeout=bounded_timeout)
 
 
 def poll_pr_checks(
