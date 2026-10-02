@@ -119,7 +119,7 @@ logger = logging.getLogger(__name__)
 def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 10) -> list[dict]:
     """
     検知された異常物件リストを (company, property_type, reason_prefix) 単位で集計し、
-    発生件数（頻度）が多い順にソートして上位最大 max_targets 件（デフォルト10件）を返却する。
+    発生件数（頻度）が多い順にソートして上位グループから代表レコード1件ずつ最大 max_targets 件（デフォルト10件）を返却する。
     各要素には frequency フィールドが付与される。
     """
     if not raw_targets:
@@ -136,26 +136,36 @@ def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 10) -
     # 頻度集計
     counts = Counter(get_group_key(t) for t in raw_targets)
 
-    # ターゲットごとに頻度情報を付与
-    annotated = []
+    # グループごとに代表レコード（最初の1件）を保持
+    groups: dict[tuple, dict] = {}
     for t in raw_targets:
         key = get_group_key(t)
-        t_copy = dict(t)
-        t_copy["frequency"] = counts[key]
-        annotated.append((counts[key], t_copy))
+        if key not in groups:
+            t_copy = dict(t)
+            t_copy["frequency"] = counts[key]
+            groups[key] = t_copy
 
     # 頻度降順（第一キー: -frequency, 第二キー: company, 第三キー: property_type）でソート
-    annotated.sort(key=lambda x: (-x[0], x[1].get("company", ""), x[1].get("property_type", "")))
+    sorted_groups = sorted(
+        groups.values(),
+        key=lambda x: (-x.get("frequency", 1), x.get("company", ""), x.get("property_type", ""))
+    )
 
     # 上位 max_targets 件を取得
-    return [item[1] for item in annotated[:max_targets]]
+    return sorted_groups[:max_targets]
+
+
+_consecutive_gemini_timeouts = 0
+_gemini_cooldown_until: datetime | None = None
 
 
 def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
     """
     Google Cloud Gemini 2.5 Flash を用いて上位エラーを簡潔に要約（Caveman形式）する。
-    API未設定時や呼び出し失敗時はルールベースのデフォルトサマリーを返却。
+    連続タイムアウト時はサーキットブレイカー（クールダウン）を作動させ、ルールベースのデフォルトサマリーを即時返却。
     """
+    global _consecutive_gemini_timeouts, _gemini_cooldown_until
+
     if not top_targets:
         return ""
 
@@ -170,6 +180,14 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or genai is None:
+        return default_summary
+
+    now = datetime.now(dt_timezone.utc)
+    if _gemini_cooldown_until and now < _gemini_cooldown_until:
+        logger.warning(
+            "Gemini API circuit-breaker active until %s due to consecutive timeouts. Returning default summary.",
+            _gemini_cooldown_until,
+        )
         return default_summary
 
     model_name = "gemini-2.5-flash"
@@ -188,9 +206,26 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
             )
             summary_text = (getattr(resp, "text", "") or "").strip()
             if summary_text:
+                _consecutive_gemini_timeouts = 0
+                _gemini_cooldown_until = None
                 return summary_text
     except Exception as e:  # noqa: BLE001
-        logger.warning(f"Failed to summarize errors with Gemini: {e}")
+        err_msg = str(e).lower()
+        if "timeout" in err_msg or "timed out" in err_msg or "deadline" in err_msg:
+            _consecutive_gemini_timeouts += 1
+            logger.warning(
+                "Gemini API timeout occurred (consecutive: %d): %s",
+                _consecutive_gemini_timeouts,
+                e,
+            )
+            if _consecutive_gemini_timeouts >= 2:
+                _gemini_cooldown_until = now + timedelta(minutes=5)
+                logger.warning(
+                    "Gemini API consecutive timeouts reached threshold. Entering cooldown for 5 minutes until %s.",
+                    _gemini_cooldown_until,
+                )
+        else:
+            logger.warning(f"Failed to summarize errors with Gemini: {e}")
 
     return default_summary
 

@@ -16,17 +16,16 @@ def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
         {"company": "tokyu", "property_type": "tochi", "reason": "土地面積異常極小: 1㎡", "url": "https://example.com/6"},
     ]
     # mitsui mansion: 3件, tokyu tochi: 2件, sumifu kodate: 1件
+    # 各グループから代表1件ずつ抽出されるため合計3件
     aggregated = aggregate_and_sort_targets(raw_targets, max_targets=10)
-    assert len(aggregated) == 6
+    assert len(aggregated) == 3
     # 頻度順に並んでいるか（1位グループ: mitsui mansion, 2位グループ: tokyu tochi, 3位グループ: sumifu kodate）
     assert aggregated[0]["company"] == "mitsui"
     assert aggregated[0]["frequency"] == 3
-    assert aggregated[1]["company"] == "mitsui"
-    assert aggregated[2]["company"] == "mitsui"
-    assert aggregated[3]["company"] == "tokyu"
-    assert aggregated[3]["frequency"] == 2
-    assert aggregated[5]["company"] == "sumifu"
-    assert aggregated[5]["frequency"] == 1
+    assert aggregated[1]["company"] == "tokyu"
+    assert aggregated[1]["frequency"] == 2
+    assert aggregated[2]["company"] == "sumifu"
+    assert aggregated[2]["frequency"] == 1
 
 
 def test_aggregate_and_sort_targets_truncates_at_max_targets():
@@ -182,3 +181,49 @@ def test_summarize_errors_with_gemini_calls_model(monkeypatch):
         ]
         res = summarize_errors_with_gemini(targets)
         assert "tokyu tochi 2件: 土地面積セレクター不整合" in res
+
+
+def test_summarize_errors_with_gemini_circuit_breaker_on_consecutive_timeouts(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key-mock")
+    import scripts.debug_tools.auto_heal_parsers as ahp
+
+    # リセット
+    ahp._consecutive_gemini_timeouts = 0
+    ahp._gemini_cooldown_until = None
+
+    class TimeoutClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        @property
+        def models(self):
+            class M:
+                def generate_content(self, *a, **k):
+                    raise RuntimeError("Gemini API call timed out after 10000ms")
+            return M()
+
+    with patch("scripts.debug_tools.auto_heal_parsers.genai") as mock_genai:
+        mock_genai.Client = TimeoutClient
+        targets = [{"company": "tokyu", "property_type": "tochi", "reason": "土地面積極小", "url": "https://example.com", "frequency": 2}]
+
+        # 1回目のタイムアウト
+        res1 = ahp.summarize_errors_with_gemini(targets)
+        assert ahp._consecutive_gemini_timeouts == 1
+        assert ahp._gemini_cooldown_until is None
+        assert "tokyu (tochi) [2件]: 土地面積極小" in res1
+
+        # 2回目のタイムアウト -> サーキットブレイカー発動
+        res2 = ahp.summarize_errors_with_gemini(targets)
+        assert ahp._consecutive_gemini_timeouts == 2
+        assert ahp._gemini_cooldown_until is not None
+        assert "tokyu (tochi) [2件]: 土地面積極小" in res2
+
+        # クールダウン中は即時デフォルトサマリー返却
+        res3 = ahp.summarize_errors_with_gemini(targets)
+        assert "tokyu (tochi) [2件]: 土地面積極小" in res3
