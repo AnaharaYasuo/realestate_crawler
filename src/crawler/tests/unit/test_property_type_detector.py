@@ -105,7 +105,7 @@ def test_detect_from_html():
 
 
 def test_detect_precedence():
-    """specs > title > html > url の優先順位で正しく解決されること"""
+    """specs > title > url > html の優先順位で正しく解決されること"""
     # URLは汎用だがtitleが一棟アパート
     assert PropertyTypeDetector.detect(
         url="https://example.com/property/1001",
@@ -118,6 +118,20 @@ def test_detect_precedence():
         title="新宿区の素敵な物件",
         specs={"物件種別": "区分マンション"}
     ) == "mansion"
+
+    # URLに /mansion/ があり、html_text に「土地権利」等があっても mansion が優先されること
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/mansion/bkdetail/FRMBTA13/",
+        title="THE桜新町TERRACE",
+        html_text="管理形態管理会社に全部委託 土地権利所有権 分譲会社双日新都市開発",
+    ) == "mansion"
+
+    # URLに /kodate/ があり、html_text に「土地」が含まれていても kodate が優先されること
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/kodate/bkdetail/FKPBRA04/",
+        title="千代田区神田神保町一丁目",
+        html_text="土地権利借地権 建物面積80m2",
+    ) == "kodate"
 
 
 def test_detect_fallback_and_default():

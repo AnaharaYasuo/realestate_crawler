@@ -6,6 +6,7 @@ import logging
 import datetime
 import json
 import subprocess
+import argparse
 from asgiref.sync import async_to_sync
 from django.db import transaction
 from package.models.evaluation import PropertyEvaluation
@@ -17,6 +18,9 @@ from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, Nomu
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentKodate, MisawaInvestmentApartment
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeTochi, AthomeInvestmentApartment
 from package.models.homes import HomesMansion, HomesKodate, HomesTochi, HomesInvestmentApartment
+
+logger = logging.getLogger(__name__)
+
 
 def get_all_models_flat():
     """全物件種別のモデルクラスとその判定タグのリストを返す"""
@@ -43,8 +47,30 @@ def get_all_models_flat():
         (HomesInvestmentApartment, "homes", "apartment"),
     ]
 
-def validate_data():
-    logging.info("Starting automated scraping validation and data integrity checks...")
+def validate_data(days: int | None = None, scan_all: bool = False):
+    logger.info("Starting automated scraping validation and data integrity checks...")
+    
+    if scan_all:
+        days_limit = None
+        logger.info("Full scan mode enabled: scanning all records in database.")
+    else:
+        if days is not None:
+            if days < 0:
+                raise ValueError(f"days must be non-negative: {days}")
+            days_limit = days if days > 0 else None
+        else:
+            env_val = os.getenv("VALIDATE_DATA_DAYS", "7").strip()
+            try:
+                val = int(env_val)
+                days_limit = val if val > 0 else None
+            except ValueError:
+                days_limit = 7
+        if days_limit:
+            logger.info("Recent scan mode enabled: scanning records from the last %d days.", days_limit)
+        else:
+            logger.info("Full scan mode enabled via days/VALIDATE_DATA_DAYS=0.")
+            
+    since_date = (datetime.datetime.now(tz=datetime.timezone.utc).date() - datetime.timedelta(days=days_limit)) if days_limit else None
     
     anomalies = []
     cleaned_count = 0
@@ -53,6 +79,8 @@ def validate_data():
     
     for model_cls, company, ptype in models:
         qs = model_cls.objects.all()
+        if since_date and hasattr(model_cls, "inputDate"):
+            qs = qs.filter(inputDate__gte=since_date)
         for item in qs:
             url = getattr(item, "pageUrl", "")
             if not url:
@@ -233,4 +261,10 @@ if __name__ == "__main__":
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     if scripts_dir not in sys.path:
         sys.path.append(scripts_dir)
-    validate_data()
+        
+    parser = argparse.ArgumentParser(description="Validate property data integrity.")
+    parser.add_argument("--all", action="store_true", help="Scan all historical records without date limit.")
+    parser.add_argument("--days", type=int, default=None, help="Number of past days to scan (default: 7).")
+    cli_args = parser.parse_args()
+    
+    validate_data(days=cli_args.days, scan_all=cli_args.all)
