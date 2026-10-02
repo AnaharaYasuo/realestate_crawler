@@ -275,6 +275,14 @@ class PropertyTypeDetector:
         return None
 
     @classmethod
+    def _detect_from_specs_rule(cls, specs: dict[str, Any] | None) -> str | None:
+        if not specs or not isinstance(specs, dict):
+            return None
+        if cls._has_yield_signal_specs(specs):
+            return "apartment"
+        return cls._detect_from_specs(specs)
+
+    @classmethod
     def _detect_rule_based(
         cls,
         url: Optional[str] = None,
@@ -282,25 +290,22 @@ class PropertyTypeDetector:
         html_text: Optional[str] = None,
         specs: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        if specs and isinstance(specs, dict) and cls._has_yield_signal_specs(specs):
+        specs_ptype = cls._detect_from_specs_rule(specs)
+        if specs_ptype == "apartment":
             return "apartment"
         if title:
-            ptype = cls._match_keywords(title)
-            if ptype:
-                return ptype
+            title_ptype = cls._match_keywords(title)
+            if title_ptype:
+                return title_ptype
         if cls._has_yield_signal(html_text):
             return "apartment"
-        if specs and isinstance(specs, dict):
-            ptype = cls._detect_from_specs(specs)
-            if ptype:
-                return ptype
-        if html_text:
-            ptype = cls._match_keywords(html_text)
-            if ptype:
-                return ptype
+        if specs_ptype:
+            return specs_ptype
         if url:
-            return cls._detect_from_url(url)
-        return None
+            url_ptype = cls._detect_from_url(url)
+            if url_ptype:
+                return url_ptype
+        return cls._match_keywords(html_text) if html_text else None
 
     @classmethod
     def detect(
