@@ -74,6 +74,11 @@ except ImportError:
     genai = None
     types = None
 
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
 MODEL_MAP = {
     ("mitsui", "mansion"): MitsuiMansion,
     ("mitsui", "kodate"): MitsuiKodate,
@@ -210,8 +215,11 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
                 _gemini_cooldown_until = None
                 return summary_text
     except Exception as e:  # noqa: BLE001
+        is_timeout_exception = isinstance(e, (TimeoutError, asyncio.TimeoutError))
+        if httpx and isinstance(e, httpx.TimeoutException):
+            is_timeout_exception = True
         err_msg = str(e).lower()
-        if "timeout" in err_msg or "timed out" in err_msg or "deadline" in err_msg:
+        if is_timeout_exception or any(k in err_msg for k in ("timeout", "timed out", "deadline")):
             _consecutive_gemini_timeouts += 1
             logger.warning(
                 "Gemini API timeout occurred (consecutive: %d): %s",
