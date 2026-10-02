@@ -1,9 +1,21 @@
 # -*- coding: utf-8 -*-
 from unittest.mock import patch
+import pytest
 from scripts.debug_tools.auto_heal_parsers import (
     aggregate_and_sort_targets,
     notify_auto_heal_request,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_gemini_circuit_breaker():
+    import scripts.debug_tools.auto_heal_parsers as ahp
+
+    ahp._consecutive_gemini_timeouts = 0
+    ahp._gemini_cooldown_until = None
+    yield
+    ahp._consecutive_gemini_timeouts = 0
+    ahp._gemini_cooldown_until = None
 
 
 def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
