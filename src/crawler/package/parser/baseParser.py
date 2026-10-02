@@ -1053,6 +1053,7 @@ class ParserBase(metaclass=ABCMeta):
     LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
         "掲載が終了したか、成約済みになった可能性があります",
         "お探しの物件は、掲載が終了",
+        "お探しの物件は掲載が終了",
         "掲載を終了いたしました",
         "掲載を終了しました",
         "掲載終了物件",
@@ -1070,15 +1071,19 @@ class ParserBase(metaclass=ABCMeta):
         clean_soup = BeautifulSoup(str(soup), "html.parser")
         noise_selectors = (
             "footer, nav, .recommend, .related, .recommend-area, .recommendations, "
-            ".ranking-area, .sidebar, .related-properties, .related-links, .other-properties"
+            ".ranking-area, .sidebar, .related-properties, .recommended-properties, "
+            ".related-links, .other-properties"
         )
         for noise in clean_soup.select(noise_selectors):
             noise.decompose()
 
-        # 告知ボックス以外の通常のリンクを除去（告知ボックス内のリンクテキストは判定用に保持）
+        # 告知ボックスまたはリンクテキスト自体が掲載終了通知を含む場合は保持し、それ以外の通常リンクを除去
         err_box_selectors = ".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended"
         for a_tag in clean_soup.find_all("a"):
-            if not any(a_tag.find_parent(class_=cls_name.replace(".", "")) for cls_name in err_box_selectors.split(", ")):
+            a_text = WHITESPACE_REGEX.sub("", a_tag.get_text())
+            is_notice_link = any(WHITESPACE_REGEX.sub("", kw) in a_text for kw in cls.LISTING_ENDED_BODY_KEYWORDS)
+            in_err_box = any(a_tag.find_parent(class_=cls_name.replace(".", "")) for cls_name in err_box_selectors.split(", "))
+            if not (in_err_box or is_notice_link):
                 a_tag.decompose()
         return clean_soup
 
