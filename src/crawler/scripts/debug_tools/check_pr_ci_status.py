@@ -8,10 +8,13 @@ banning unlimited `--watch` commands that hang on action_required or queued jobs
 import argparse
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from enum import Enum
 from typing import Any
 
@@ -20,6 +23,8 @@ logger = logging.getLogger("check_pr_ci_status")
 
 DEFAULT_CLI_TIMEOUT: float = 10.0
 MAX_CLI_TIMEOUT: float = 10.0
+MAX_CONSECUTIVE_TIMEOUTS: int = 3
+DEFAULT_REPO: str = "AnaharaYasuo/realestate_crawler"
 
 
 class CheckCategory(str, Enum):
@@ -32,11 +37,13 @@ class CheckCategory(str, Enum):
 def classify_check_status(raw_status: str) -> CheckCategory:
     """Classify GitHub checks status into four main categories."""
     status = (raw_status or "").strip().lower()
-    if status in ("pass", "success", "skipping"):
+    if not status:
+        return CheckCategory.FAILED
+    if status in ("pass", "success", "skipping", "skipped", "neutral"):
         return CheckCategory.PASSED
     if status in ("pending", "in_progress", "queued"):
         return CheckCategory.PENDING
-    if status in ("action_required", "cancelled"):
+    if status in ("action_required", "cancelled", "stalled"):
         return CheckCategory.BLOCKED
     return CheckCategory.FAILED
 
@@ -89,6 +96,7 @@ def evaluate_checks_summary(categories: dict[CheckCategory, list[dict[str, str]]
             "counts": {"passed": 0, "pending": 0, "failed": 0, "blocked": 0, "total": 0},
         }
 
+    # Precedence: FAILED > BLOCKED > PENDING > SUCCESS
     if failed_cnt > 0:
         status_code = "FAILURE"
         can_merge = False
@@ -115,20 +123,20 @@ def evaluate_checks_summary(categories: dict[CheckCategory, list[dict[str, str]]
     }
 
 
-def _fetch_pr_checks_via_api(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tuple[int, str, str]:
-    """Fallback: Fetch PR check runs from GitHub REST API."""
-    import os
-    import urllib.error
-    import urllib.request
-
+def _fetch_pr_checks_via_api(
+    pr_number: int,
+    repo: str = DEFAULT_REPO,
+    timeout: float = DEFAULT_CLI_TIMEOUT,
+) -> tuple[int, str, str]:
+    """Fallback: Fetch PR check runs and combined commit status from GitHub REST API."""
     bounded_timeout = min(timeout, MAX_CLI_TIMEOUT)
-    url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/pulls/{pr_number}"
     headers = {"User-Agent": "realestate-crawler-ci-check", "Accept": "application/vnd.github.v3+json"}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if token:
         headers["Authorization"] = f"token {token}"
 
     try:
+        url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=bounded_timeout) as resp:
             pr_data = json.loads(resp.read().decode("utf-8"))
@@ -136,31 +144,61 @@ def _fetch_pr_checks_via_api(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOU
         if not head_sha:
             return 1, "", "Could not resolve head SHA from PR metadata"
 
-        check_runs_url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/commits/{head_sha}/check-runs"
-        req_runs = urllib.request.Request(check_runs_url, headers=headers)
-        with urllib.request.urlopen(req_runs, timeout=bounded_timeout) as resp_runs:
-            runs_data = json.loads(resp_runs.read().decode("utf-8"))
-
         lines = []
-        for cr in runs_data.get("check_runs", []):
-            name = cr.get("name", "unknown")
-            status = cr.get("status", "")
-            conclusion = cr.get("conclusion", "")
-            final_status = conclusion if status == "completed" else status
-            html_url = cr.get("html_url", "")
-            lines.append(f"{name}\t{final_status}\t0s\t{html_url}")
+
+        # 1. Fetch check-runs (paginated)
+        page = 1
+        while True:
+            check_runs_url = f"https://api.github.com/repos/{repo}/commits/{head_sha}/check-runs?per_page=100&page={page}"
+            req_runs = urllib.request.Request(check_runs_url, headers=headers)
+            with urllib.request.urlopen(req_runs, timeout=bounded_timeout) as resp_runs:
+                runs_data = json.loads(resp_runs.read().decode("utf-8"))
+            runs_list = runs_data.get("check_runs", [])
+            for cr in runs_list:
+                name = cr.get("name", "unknown")
+                status = cr.get("status", "")
+                conclusion = cr.get("conclusion", "")
+                final_status = conclusion if status == "completed" else status
+                html_url = cr.get("html_url", "")
+                lines.append(f"{name}\t{final_status}\t0s\t{html_url}")
+            if len(runs_list) < 100:
+                break
+            page += 1
+
+        # 2. Fetch combined commit statuses (e.g. review-gate, sonar, etc.)
+        status_url = f"https://api.github.com/repos/{repo}/commits/{head_sha}/status"
+        req_status = urllib.request.Request(status_url, headers=headers)
+        with urllib.request.urlopen(req_status, timeout=bounded_timeout) as resp_status:
+            status_data = json.loads(resp_status.read().decode("utf-8"))
+        for st in status_data.get("statuses", []):
+            ctx_name = st.get("context", "unknown")
+            state = st.get("state", "")
+            target_url = st.get("target_url", "")
+            lines.append(f"{ctx_name}\t{state}\t0s\t{target_url}")
 
         return 0, "\n".join(lines), ""
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403, 404):
+            return 2, "", f"Permanent HTTP {exc.code} error: {exc.reason}"
+        return 1, "", f"API HTTP error {exc.code}: {exc.reason}"
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if isinstance(exc, TimeoutError) or "timed out" in str(exc).lower():
+            return 124, "", f"API check timed out after {bounded_timeout}s"
+        return 1, "", f"API network error: {exc}"
     except Exception as exc:  # noqa: BLE001
         return 1, "", f"API check failed: {exc}"
 
 
-def fetch_pr_checks(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tuple[int, str, str]:
+def fetch_pr_checks(
+    pr_number: int,
+    repo: str = DEFAULT_REPO,
+    timeout: float = DEFAULT_CLI_TIMEOUT,
+) -> tuple[int, str, str]:
     """Execute `gh pr checks <PR_NUM>` with finite timeout limit (max 10s), with REST API fallback."""
     bounded_timeout = min(timeout, MAX_CLI_TIMEOUT)
     try:
         res = subprocess.run(
-            ["gh", "pr", "checks", str(pr_number)],
+            ["gh", "pr", "checks", str(pr_number), "--repo", repo],
             capture_output=True,
             text=True,
             timeout=bounded_timeout,
@@ -168,6 +206,7 @@ def fetch_pr_checks(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tup
         )
         if res.returncode == 0 or res.stdout.strip():
             return res.returncode, res.stdout, res.stderr
+        logger.debug("gh command failed with empty stdout: %s (falling back to REST API)", res.stderr)
     except subprocess.TimeoutExpired:
         return 124, "", f"Command timed out after {bounded_timeout}s"
     except FileNotFoundError:
@@ -176,31 +215,64 @@ def fetch_pr_checks(pr_number: int, timeout: float = DEFAULT_CLI_TIMEOUT) -> tup
     except Exception as exc:  # noqa: BLE001
         return 1, "", str(exc)
 
-    return _fetch_pr_checks_via_api(pr_number, timeout=bounded_timeout)
+    return _fetch_pr_checks_via_api(pr_number, repo=repo, timeout=bounded_timeout)
 
 
 def poll_pr_checks(
     pr_number: int,
+    repo: str = DEFAULT_REPO,
     max_attempts: int = 20,
     interval: int = 15,
     cli_timeout: float = DEFAULT_CLI_TIMEOUT,
 ) -> dict[str, Any]:
     """Poll PR CI checks with finite timeouts and intervals."""
     logger.info(
-        "Starting finite-timeout CI monitoring for PR #%d (max_attempts=%d, interval=%ds, timeout=%.1fs)",
+        "Starting finite-timeout CI monitoring for PR #%d (repo=%s, max_attempts=%d, interval=%ds, timeout=%.1fs)",
         pr_number,
+        repo,
         max_attempts,
         interval,
         cli_timeout,
     )
 
+    empty_successes = 0
+    consecutive_timeouts = 0
+    retrieval_errors: list[str] = []
+
     for attempt in range(1, max_attempts + 1):
-        ret, stdout, stderr = fetch_pr_checks(pr_number, timeout=cli_timeout)
+        ret, stdout, stderr = fetch_pr_checks(pr_number, repo=repo, timeout=cli_timeout)
+        if ret == 2:
+            # Permanent HTTP error (e.g. 401 Unauthorized, 403 Forbidden, 404 Not Found)
+            err_msg = stderr or "Permanent HTTP failure"
+            logger.error("[Attempt %d/%d] Permanent retrieval error encountered: %s", attempt, max_attempts, err_msg)
+            return {
+                "final_status": "RETRIEVAL_ERROR",
+                "can_merge": False,
+                "attempts": attempt,
+                "categories": {},
+                "error": err_msg,
+            }
         if ret == 124:
-            logger.warning("[Attempt %d/%d] gh pr checks timed out. Retrying in %ds...", attempt, max_attempts, interval)
+            consecutive_timeouts += 1
+            err_msg = stderr or "gh pr checks timed out"
+            retrieval_errors.append(err_msg)
+            logger.warning("[Attempt %d/%d] gh pr checks timed out (%d consecutive). Retrying in %ds...", attempt, max_attempts, consecutive_timeouts, interval)
+            if consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+                logger.error("Fast-fail circuit breaker triggered: %d consecutive timeouts encountered.", consecutive_timeouts)
+                return {
+                    "final_status": "RETRIEVAL_ERROR",
+                    "can_merge": False,
+                    "attempts": attempt,
+                    "categories": {},
+                    "error": f"Circuit breaker: {consecutive_timeouts} consecutive timeouts ({err_msg})",
+                }
         elif ret != 0 and not stdout:
+            consecutive_timeouts = 0
+            err_msg = stderr or f"gh pr checks failed with exit code {ret}"
+            retrieval_errors.append(err_msg)
             logger.warning("[Attempt %d/%d] gh pr checks returned error: %s", attempt, max_attempts, stderr)
         else:
+            consecutive_timeouts = 0
             categories = parse_pr_checks_output(stdout)
             summary = evaluate_checks_summary(categories)
             counts = summary["counts"]
@@ -220,9 +292,22 @@ def poll_pr_checks(
                 return {"final_status": "SUCCESS", "can_merge": True, "attempts": attempt, "categories": categories}
             if summary["status"] in ("FAILURE", "BLOCKED"):
                 return {"final_status": summary["status"], "can_merge": False, "attempts": attempt, "categories": categories}
+            if summary["status"] == "NO_CHECKS":
+                empty_successes += 1
 
         if attempt < max_attempts:
             time.sleep(interval)
+
+    if max_attempts > 0 and empty_successes == max_attempts:
+        return {"final_status": "NO_CHECKS", "can_merge": False, "attempts": max_attempts, "categories": {}}
+    if max_attempts > 0 and len(retrieval_errors) == max_attempts:
+        return {
+            "final_status": "RETRIEVAL_ERROR",
+            "can_merge": False,
+            "attempts": max_attempts,
+            "categories": {},
+            "error": retrieval_errors[-1],
+        }
 
     return {"final_status": "TIMEOUT", "can_merge": False, "attempts": max_attempts, "categories": {}}
 
@@ -230,25 +315,39 @@ def poll_pr_checks(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check PR CI status with finite timeout")
     parser.add_argument("--pr", type=int, required=True, help="PR number to monitor")
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=os.environ.get("GITHUB_REPOSITORY", DEFAULT_REPO),
+        help=f"Target repo owner/name (default: {DEFAULT_REPO})",
+    )
     parser.add_argument("--max-attempts", type=int, default=20, help="Max polling attempts (default: 20)")
     parser.add_argument("--interval", type=int, default=15, help="Interval between attempts in seconds (default: 15)")
     parser.add_argument("--cli-timeout", type=float, default=DEFAULT_CLI_TIMEOUT, help="Subprocess timeout in seconds (max 10s)")
     parser.add_argument("--json", action="store_true", help="Output JSON result")
     args = parser.parse_args()
 
-    if args.cli_timeout > MAX_CLI_TIMEOUT:
-        sys.stderr.write(f"Error: --cli-timeout must not exceed {MAX_CLI_TIMEOUT}s (got {args.cli_timeout}s)\n")
+    if args.max_attempts < 1:
+        sys.stderr.write(f"Error: --max-attempts must be at least 1 (got {args.max_attempts})\n")
+        return 1
+
+    if args.interval < 0:
+        sys.stderr.write(f"Error: --interval must be non-negative (got {args.interval})\n")
+        return 1
+
+    if args.cli_timeout <= 0 or args.cli_timeout > MAX_CLI_TIMEOUT:
+        sys.stderr.write(f"Error: --cli-timeout must be > 0 and <= {MAX_CLI_TIMEOUT}s (got {args.cli_timeout}s)\n")
         return 1
 
     result = poll_pr_checks(
         pr_number=args.pr,
+        repo=args.repo,
         max_attempts=args.max_attempts,
         interval=args.interval,
         cli_timeout=args.cli_timeout,
     )
 
     if args.json:
-        # Convert Enum keys to string for JSON serialization
         json_obj = dict(result)
         if "categories" in json_obj and isinstance(json_obj["categories"], dict):
             json_obj["categories"] = {str(k.value if isinstance(k, CheckCategory) else k): v for k, v in json_obj["categories"].items()}
@@ -261,6 +360,10 @@ def main() -> int:
             print(f"\n⚠️ PR #{args.pr} CI has BLOCKED/action_required checks. Please inspect with `gh run view <run-id>`.")
         elif status == "FAILURE":
             print(f"\n❌ PR #{args.pr} CI Checks FAILED.")
+        elif status == "NO_CHECKS":
+            print(f"\nℹ️ PR #{args.pr} has no CI checks registered.")
+        elif status == "RETRIEVAL_ERROR":
+            print(f"\n🚫 PR #{args.pr} CI checks retrieval failed: {result.get('error')}")
         else:
             print(f"\n⏱️ PR #{args.pr} CI Checks monitoring TIMED OUT.")
 
