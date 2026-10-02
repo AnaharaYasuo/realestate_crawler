@@ -1084,14 +1084,17 @@ class ParserBase(metaclass=ABCMeta):
 
     @classmethod
     def _check_body_listing_ended(cls, clean_soup: BeautifulSoup) -> bool:
-        err_box = clean_soup.select_one(".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended")
-        if err_box is not None:
+        err_boxes = clean_soup.select(".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended")
+        for err_box in err_boxes:
             box_text = WHITESPACE_REGEX.sub(" ", err_box.get_text())
-            if "成約済" in box_text or any(kw in box_text for kw in cls.LISTING_ENDED_BODY_KEYWORDS):
+            box_no_space = WHITESPACE_REGEX.sub("", box_text)
+            if "成約済" in box_no_space and ("当物件" in box_no_space or "本物件" in box_no_space or "この物件" in box_no_space or "成約済みとなりました" in box_no_space or "ご成約" in box_no_space):
+                return True
+            if any(WHITESPACE_REGEX.sub("", kw) in box_no_space for kw in cls.LISTING_ENDED_BODY_KEYWORDS):
                 return True
 
-        norm_body_text = WHITESPACE_REGEX.sub(" ", clean_soup.get_text())
-        return any(WHITESPACE_REGEX.sub(" ", kw) in norm_body_text for kw in cls.LISTING_ENDED_BODY_KEYWORDS)
+        norm_body_no_space = WHITESPACE_REGEX.sub("", clean_soup.get_text())
+        return any(WHITESPACE_REGEX.sub("", kw) in norm_body_no_space for kw in cls.LISTING_ENDED_BODY_KEYWORDS)
 
     @classmethod
     def _raise_if_listing_ended(cls, soup: BeautifulSoup, url) -> None:
