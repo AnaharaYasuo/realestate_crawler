@@ -146,7 +146,8 @@ def _fetch_pr_checks_via_api(
 
         lines = []
 
-        # 1. Fetch check-runs (paginated)
+        # 1. Fetch check-runs (paginated, sorted by ID so latest run wins per name)
+        latest_runs: dict[str, dict[str, Any]] = {}
         page = 1
         while True:
             check_runs_url = f"https://api.github.com/repos/{repo}/commits/{head_sha}/check-runs?per_page=100&page={page}"
@@ -154,24 +155,33 @@ def _fetch_pr_checks_via_api(
             with urllib.request.urlopen(req_runs, timeout=bounded_timeout) as resp_runs:
                 runs_data = json.loads(resp_runs.read().decode("utf-8"))
             runs_list = runs_data.get("check_runs", [])
-            for cr in runs_list:
+            for cr in sorted(runs_list, key=lambda x: x.get("id", 0)):
                 name = cr.get("name", "unknown")
-                status = cr.get("status", "")
-                conclusion = cr.get("conclusion", "")
-                final_status = conclusion if status == "completed" else status
-                html_url = cr.get("html_url", "")
-                lines.append(f"{name}\t{final_status}\t0s\t{html_url}")
+                # Keep latest check-run by ID
+                if name not in latest_runs or cr.get("id", 0) > latest_runs[name].get("id", 0):
+                    latest_runs[name] = cr
             if len(runs_list) < 100:
                 break
             page += 1
+
+        for name, cr in latest_runs.items():
+            status = cr.get("status", "")
+            conclusion = cr.get("conclusion", "")
+            final_status = conclusion if status == "completed" else status
+            html_url = cr.get("html_url", "")
+            lines.append(f"{name}\t{final_status}\t0s\t{html_url}")
 
         # 2. Fetch combined commit statuses (e.g. review-gate, sonar, etc.)
         status_url = f"https://api.github.com/repos/{repo}/commits/{head_sha}/status"
         req_status = urllib.request.Request(status_url, headers=headers)
         with urllib.request.urlopen(req_status, timeout=bounded_timeout) as resp_status:
             status_data = json.loads(resp_status.read().decode("utf-8"))
+        latest_statuses: dict[str, dict[str, Any]] = {}
         for st in status_data.get("statuses", []):
             ctx_name = st.get("context", "unknown")
+            if ctx_name not in latest_statuses or st.get("id", 0) > latest_statuses[ctx_name].get("id", 0):
+                latest_statuses[ctx_name] = st
+        for ctx_name, st in latest_statuses.items():
             state = st.get("state", "")
             target_url = st.get("target_url", "")
             lines.append(f"{ctx_name}\t{state}\t0s\t{target_url}")
