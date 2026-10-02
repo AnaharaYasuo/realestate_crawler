@@ -657,7 +657,9 @@ task logs
 - **[掲載終了ページ共通ハンドリング要件定義書](docs/requirements/listing_ended_handling_requirements.md)**: 掲載終了ページの基底包括検知・クローリングエラー防止要件 (Issue #600)
 - **[掲載終了ページ共通ハンドリング基本設計書](docs/basic_design/listing_ended_handling_basic_design.md)**: 基底パーサー検知パイプライン・キーワード定義・エラー除外アーキテクチャ (Issue #600)
 - **[掲載終了ページ共通ハンドリング内部設計書](docs/internal_design/listing_ended_handling_internal_design.md)**: ParserBase._raise_if_listing_ended詳細仕様・TDD検証設計 (Issue #600)
-
+- **[CI/PR監視--watch禁止・有限タイムアウト要件定義書](docs/requirements/finite_timeout_ci_watch_requirements.md)**: 無制限--watch禁止・有限タイムアウトポーリング強制・ハング根絶要件 (Issue #602)
+- **[CI/PR監視--watch禁止・有限タイムアウト基本設計書](docs/basic_design/finite_timeout_ci_watch_basic_design.md)**: 非同期ポーリングアーキテクチャ・スタック検知・即時診断設計 (Issue #602)
+- **[CI/PR監視--watch禁止・有限タイムアウト内部設計書](docs/internal_design/finite_timeout_ci_watch_internal_design.md)**: check_pr_ci_status.py CLI仕様・カテゴリ別分類・タイムアウト制御仕様 (Issue #602)
 
 ### 2. 開発を始める
 

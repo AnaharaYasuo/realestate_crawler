@@ -203,6 +203,13 @@ tasks:
       - docker compose exec -T app python src/crawler/scripts/ops/pre_pr_check.py --full {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
       - gh pr create --base master {{if .TITLE}}--title "{{.TITLE}}"{{end}} {{if .BODY}}--body "{{.BODY}}"{{end}}
 
+  pr-check-ci:
+    desc: 'Monitor PR CI checks with finite timeout polling. Usage: task pr-check-ci PR=597'
+    vars:
+      PR: '{{.PR}}'
+    cmds:
+      - python src/crawler/scripts/debug_tools/check_pr_ci_status.py --pr {{.PR}}
+
   verify:pre-push:
     desc: Run fast pre-push validation (SonarCloud local check, CodeRabbit CLI review, Ruff linter)
     cmds:
