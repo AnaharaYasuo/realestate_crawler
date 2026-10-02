@@ -654,6 +654,10 @@ task logs
 - **[デプロイ時イメージ管理要件定義書](docs/requirements/deploy_image_lifecycle_requirements.md)**: 本番デプロイ時のイメージ孤立防止・プルーニング順序要件 (Issue #593)
 - **[デプロイ時イメージ管理基本設計書](docs/basic_design/deploy_image_lifecycle_basic_design.md)**: 全更新完了後プルーニング原則および安全シーケンス設計 (Issue #593)
 - **[デプロイ時イメージ管理内部設計書](docs/internal_design/deploy_image_lifecycle_internal_design.md)**: deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
+- **[掲載終了ページ共通ハンドリング要件定義書](docs/requirements/listing_ended_handling_requirements.md)**: 掲載終了ページの基底包括検知・クローリングエラー防止要件 (Issue #600)
+- **[掲載終了ページ共通ハンドリング基本設計書](docs/basic_design/listing_ended_handling_basic_design.md)**: 基底パーサー検知パイプライン・キーワード定義・エラー除外アーキテクチャ (Issue #600)
+- **[掲載終了ページ共通ハンドリング内部設計書](docs/internal_design/listing_ended_handling_internal_design.md)**: ParserBase._raise_if_listing_ended詳細仕様・TDD検証設計 (Issue #600)
+
 
 ### 2. 開発を始める
 

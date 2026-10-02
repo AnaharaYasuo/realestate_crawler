@@ -25,6 +25,7 @@ DIGIT_REGEX = re.compile('(\\d+)')
 WHITESPACE_REGEX = re.compile('\\s+')
 _BLANK_SPEC_VALUES = frozenset({'', '-', '－', '―', '—'})
 KEY_SHAKUCHIKEN_SHURUI = '借地権種類'
+MSG_LISTING_ENDED_PREFIX = 'Listing ended for URL:'
 
 def _is_filled_spec_value(val) -> bool:
     if isinstance(val, dict):
@@ -1037,16 +1038,91 @@ class ParserBase(metaclass=ABCMeta):
         except Exception:
             return BeautifulSoup(content, HTML_PARSER, from_encoding=encoding)
 
-    @staticmethod
-    def _raise_on_listing_title(title: str, url) -> None:
+    LISTING_ENDED_TITLE_KEYWORDS: tuple[str, ...] = (
+        "掲載終了",
+        "掲載が終了",
+        "掲載を終了",
+        "成約済",
+        "ご成約",
+        "お探しの物件は見つかりません",
+        "お探しのページは見つかりません",
+        "物件が見つかりません",
+        "存在しないか、掲載が終了",
+    )
+
+    LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
+        "掲載が終了したか、成約済みになった可能性があります",
+        "お探しの物件は、掲載が終了",
+        "掲載を終了いたしました",
+        "掲載を終了しました",
+        "掲載終了物件",
+        "ご指定の物件は掲載を終了",
+        "指定された物件は掲載を終了",
+        "お探しのページは見つかりませんでした",
+        "お探しの物件は見つかりませんでした",
+        "お探しのページは存在しないか、掲載が終了",
+        "現在、掲載を停止しております",
+        "この物件は現在掲載されていません",
+    )
+
+    @classmethod
+    def _clean_notice_soup(cls, soup: BeautifulSoup) -> BeautifulSoup:
+        clean_soup = BeautifulSoup(str(soup), "html.parser")
+        noise_selectors = (
+            "footer, nav, .recommend, .related, .recommend-area, .recommendations, "
+            ".ranking-area, .sidebar, .related-properties, .related-links, .other-properties"
+        )
+        for noise in clean_soup.select(noise_selectors):
+            noise.decompose()
+
+        # 告知ボックス以外の通常のリンクを除去（告知ボックス内のリンクテキストは判定用に保持）
+        err_box_selectors = ".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended"
+        for a_tag in clean_soup.find_all("a"):
+            if not any(a_tag.find_parent(class_=cls_name.replace(".", "")) for cls_name in err_box_selectors.split(", ")):
+                a_tag.decompose()
+        return clean_soup
+
+    @classmethod
+    def _check_body_listing_ended(cls, clean_soup: BeautifulSoup) -> bool:
+        err_box = clean_soup.select_one(".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended")
+        if err_box is not None:
+            box_text = WHITESPACE_REGEX.sub(" ", err_box.get_text())
+            if "成約済" in box_text or any(kw in box_text for kw in cls.LISTING_ENDED_BODY_KEYWORDS):
+                return True
+
+        norm_body_text = WHITESPACE_REGEX.sub(" ", clean_soup.get_text())
+        return any(WHITESPACE_REGEX.sub(" ", kw) in norm_body_text for kw in cls.LISTING_ENDED_BODY_KEYWORDS)
+
+    @classmethod
+    def _raise_if_listing_ended(cls, soup: BeautifulSoup, url) -> None:
+        """物件詳細ページが掲載終了・非公開状態の場合に ListingEndedException を送出"""
+        title = soup.title.string.strip() if (soup.title and soup.title.string) else ""
+        if title:
+            cls._raise_on_listing_title(title, url)
+
+        clean_soup = cls._clean_notice_soup(soup.body or soup)
+
+        # 対象物件の告知領域内にある h1 要素を検査（関連物件やフッターの見出しは除外）
+        for h1_tag in clean_soup.find_all("h1"):
+            h1_text = h1_tag.get_text().strip()
+            if any(kw in h1_text for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
+                logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+                raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+
+        if cls._check_body_listing_ended(clean_soup):
+            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+
+    @classmethod
+    def _raise_on_listing_title(cls, title: str, url) -> None:
         if not title:
             return
-        if '掲載終了物件' in title:
-            logging.info(f'Listing ended for URL: {url}')
-            raise ListingEndedException()
-        if 'サーバーが混み合っています' in title:
-            logging.info(f'Server busy for URL: {url}')
+        if "サーバーが混み合っています" in title:
+            logging.info(f"Server busy for URL: {url}")
             raise ServerBusyException()
+        if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
+            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
     @staticmethod
     def _is_sectional_unit_page(specs) -> bool:
@@ -1091,7 +1167,7 @@ class ParserBase(metaclass=ABCMeta):
             content = await self._getContent(session, url)
             soup = self._soup_from_content(content, self.getCharset())
             title = soup.title.string if soup.title else ''
-            self._raise_on_listing_title(title, url)
+            self._raise_if_listing_ended(soup, url)
             specs = self._get_specs(soup)
             parser_to_use, item = self._maybe_switch_parser(url, title, soup, specs, item)
             item = parser_to_use._parsePropertyDetailPage(item, soup)
