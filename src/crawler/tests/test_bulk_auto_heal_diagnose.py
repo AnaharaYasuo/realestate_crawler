@@ -101,6 +101,22 @@ class TestBulkAutoHealDiagnose(unittest.TestCase):
             self.assertEqual(result["total_analyzed"], 5)
             self.assertEqual(len(result["patterns"]), 1)
             self.assertEqual(result["patterns"][0]["recommended_selector"], "span.property-price")
+            self.assertEqual(result["diagnosis_status"], "success")
+
+    def test_collect_failures_for_site_read_errors(self):
+        from scripts.debug_tools.bulk_auto_heal_diagnose import collect_failures_for_site
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Valid json
+            with open(os.path.join(tmpdir, "valid.json"), "w", encoding="utf-8") as f:
+                json.dump({"url": "http://example.com/1", "html": "ok"}, f)
+            # Broken json
+            with open(os.path.join(tmpdir, "broken.json"), "w", encoding="utf-8") as f:
+                f.write("INVALID JSON")
+            
+            failures, errors = collect_failures_for_site("test", "test", failures_dir=tmpdir)
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(errors, 1)
 
 
 if __name__ == "__main__":

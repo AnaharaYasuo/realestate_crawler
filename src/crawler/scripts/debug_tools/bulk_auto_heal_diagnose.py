@@ -28,9 +28,10 @@ logger = logging.getLogger(__name__)
 
 def collect_failures_for_site(
     site: str, property_type: str, failures_dir: str | None = None
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """
     指定されたサイト・種別の失敗スナップショット（JSONまたはHTMLファイル）を収集する。
+    戻り値: (収集された失敗リスト, 読み込みエラー件数)
     """
     if not failures_dir:
         curr = os.path.dirname(os.path.abspath(__file__))
@@ -39,9 +40,10 @@ def collect_failures_for_site(
 
     if not os.path.exists(failures_dir):
         logger.info("No failure directory found at: %s", failures_dir)
-        return []
+        return [], 0
 
     collected = []
+    read_errors = 0
     for fname in os.listdir(failures_dir):
         if fname.endswith(".json"):
             fpath = os.path.join(failures_dir, fname)
@@ -50,7 +52,8 @@ def collect_failures_for_site(
                     data = json.load(f)
                     collected.append(data)
             except Exception as e:  # noqa: BLE001
-                logger.debug("Failed to read snapshot %s: %s", fpath, e)
+                read_errors += 1
+                logger.warning("Failed to read snapshot %s: %s", fpath, e)
         elif fname.endswith(".html"):
             fpath = os.path.join(failures_dir, fname)
             try:
@@ -63,9 +66,10 @@ def collect_failures_for_site(
                     "html": cleaned,
                 })
             except Exception as e:  # noqa: BLE001
-                logger.debug("Failed to read html file %s: %s", fpath, e)
+                read_errors += 1
+                logger.warning("Failed to read html file %s: %s", fpath, e)
 
-    return collected
+    return collected, read_errors
 
 
 def build_bulk_prompt(
@@ -131,6 +135,7 @@ def run_bulk_diagnosis_with_gemini(
             "site": site,
             "property_type": property_type,
             "total_analyzed": 0,
+            "diagnosis_status": "no_failures",
             "summary": "No failures to analyze",
             "patterns": [],
         }
@@ -142,6 +147,7 @@ def run_bulk_diagnosis_with_gemini(
         "site": site,
         "property_type": property_type,
         "total_analyzed": len(failures),
+        "diagnosis_status": "fallback",
         "summary": f"{len(failures)}件の失敗を検知。フォールバック集計。",
         "patterns": [
             {
@@ -174,10 +180,20 @@ def run_bulk_diagnosis_with_gemini(
                 raw_text = raw_text.replace("```", "", 1)
             raw_text = raw_text.removesuffix("```")
             parsed = json.loads(raw_text.strip())
-            return parsed
+            if isinstance(parsed, dict):
+                parsed.setdefault("diagnosis_status", "success")
+                return parsed
+            logger.warning("Gemini response is not a JSON object: %s", type(parsed))
+            fallback = dict(default_result)
+            fallback["diagnosis_status"] = "parse_error"
+            return fallback
     except Exception as e:  # noqa: BLE001
-        logger.warning("Gemini bulk diagnosis failed: %s. Using default fallback manifest.", e)
-        return default_result
+        err_msg = str(e).lower()
+        status = "timeout" if any(k in err_msg for k in ("timeout", "timed out", "deadline")) else "api_error"
+        logger.warning("Gemini bulk diagnosis failed (%s): %s. Using default fallback manifest.", status, e)
+        fallback = dict(default_result)
+        fallback["diagnosis_status"] = status
+        return fallback
 
 
 def save_manifest(manifest: dict, output_path: str | None = None) -> str:
@@ -204,7 +220,11 @@ def main():
     parser.add_argument("--out", default=None, help="Output manifest path")
 
     args = parser.parse_args()
-    failures = collect_failures_for_site(args.site, args.type, args.dir)
+    failures, read_errors = collect_failures_for_site(args.site, args.type, args.dir)
+    if not failures and read_errors > 0:
+        logger.error("No valid snapshots could be loaded due to %d read errors.", read_errors)
+        sys.exit(1)
+
     manifest = run_bulk_diagnosis_with_gemini(args.site, args.type, failures)
     save_manifest(manifest, args.out)
 
