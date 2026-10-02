@@ -651,6 +651,9 @@ task logs
 - **[Review Gate CodeRabbit 自動Resolve化要件定義書](docs/requirements/review_gate_auto_resolve_requirements.md)**: 古いCHANGES_REQUESTED自動失効・未解決スレッド自動Resolve仕様 (Issue #589)
 - **[Review Gate CodeRabbit 自動Resolve化基本設計書](docs/basic_design/review_gate_auto_resolve_basic_design.md)**: GitHub GraphQL自動スレッド解決・Gateデッドロック解消設計 (Issue #589)
 - **[Review Gate CodeRabbit 自動Resolve化内部設計書](docs/internal_design/review_gate_auto_resolve_internal_design.md)**: autoResolveCodeRabbitThreads・CHANGES_REQUESTEDバイパス詳細仕様 (Issue #589)
+- **[デプロイ時イメージ管理要件定義書](docs/requirements/deploy_image_lifecycle_requirements.md)**: 本番デプロイ時のイメージ孤立防止・プルーニング順序要件 (Issue #593)
+- **[デプロイ時イメージ管理基本設計書](docs/basic_design/deploy_image_lifecycle_basic_design.md)**: 全更新完了後プルーニング原則および安全シーケンス設計 (Issue #593)
+- **[デプロイ時イメージ管理内部設計書](docs/internal_design/deploy_image_lifecycle_internal_design.md)**: deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
 
 ### 2. 開発を始める
 

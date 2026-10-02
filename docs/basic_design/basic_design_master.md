@@ -1203,6 +1203,21 @@ MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグ�
   - インスタンス設定から `default_authentication_plugin = "mysql_native_password"` を撤廃し、MySQL 8.0 標準に復帰。
   - アプリケーションユーザー (`sumifu`) および監視ユーザー (`monitor`) を `caching_sha2_password` に移行。
 
+---
+
+## 23. 本番デプロイ時イメージ管理・プルーニング安全化アーキテクチャ (Issue #593)
+
+### 23.1 概要と目的
+本番デプロイパイプライン（`deploy-production.yml`）におけるイメージ孤立障害（Image not found によるバッチハング）を防止するため、プルーニング（不要イメージ削除）処理の実行順序を是正する。
+
+### 23.2 デプロイ完了後プルーニング原則（Post-Deployment Pruning）
+- **変更前の問題点**: Docker イメージのビルド・プッシュ直後に Prune ステップを実行していたため、後続の DB マイグレーション等のステップが失敗すると、Cloud Run Job / Service のイメージ更新がスキップされ、削除済みイメージを参照したまま取り残されていた。
+- **改善アーキテクチャ**:
+  - `Prune old images` を全 Cloud Run Job（クローラー、マイグレーション、ディスパッチャー、ML、セーフティネット）および Cloud Run Service（Web API、Worker、Slack Agent）の更新が完全に成功した直後（末尾）へ再配置。
+  - デプロイ途中で障害が発生した場合は Prune が自動スキップされ、稼働中のリソースが参照している実体イメージを安全に保護する。
+  - 詳細は [デプロイ時イメージ管理基本設計書](deploy_image_lifecycle_basic_design.md) を参照。
+
+
 
 
 

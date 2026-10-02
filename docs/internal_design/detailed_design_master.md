@@ -623,19 +623,25 @@ graph TD
 - **ユーザー認証プラグイン更新**:
   - Cloud SQL ユーザー（`sumifu`, `monitor`）の認証方式を `caching_sha2_password` に移行。
 
+### 6.33 本番デプロイ時イメージ管理・プルーニング安全化内部設計 (Issue #593)
+- **ステップ順序の再定義**:
+  - `.github/workflows/deploy-production.yml` において、`Prune old images (Keep latest 3 versions)` をすべての Cloud Run Job および Cloud Run Service の更新ステップの後（末尾）に配置。
+  - マイグレーションやサービス更新が失敗した場合は Prune が呼び出されず、稼働中のコンテナイメージが保護される。
+
 ---
 
 ## 7. 参照ドキュメント
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
+- [デプロイ時イメージ管理内部設計書](deploy_image_lifecycle_internal_design.md): deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
 - [MySQL認証プラグイン移行内部設計書](mysql_auth_plugin_migration_internal_design.md): caching_sha2_password 移行・Terraform差分仕様 (Issue #572)
 - [API構造ドキュメント (API Structure)](api_structure.md): エンドポイント構造と処理フロー
 - [SonarGuardrail運用ガイド](../implementation/sonar_guardrail_guide.md): VSCode設定およびコーディングパターン集
 
 ---
 
-**最終更新**: 2026年10月1日  
-**バージョン**: 3.2 (MySQL認証プラグイン移行およびTLS接続内部設計追記)
+**最終更新**: 2026年10月2日  
+**バージョン**: 3.3 (本番デプロイ時イメージ管理・プルーニング安全化内部設計追記)
 
 
 
