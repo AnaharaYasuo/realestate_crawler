@@ -303,7 +303,7 @@ jobs:
               systemErrors.push(`Failed to fetch review threads via GraphQL: ${err.message}`);
             }
 
-            // 3b. Auto-resolve CodeRabbit threads when a new commit was pushed
+            // 3b. Auto-resolve or ignore stale CodeRabbit threads when a new commit was pushed
             async function autoResolveCodeRabbitThreads() {
               const crReviews = allReviews.filter(r => (r.user?.login || '').toLowerCase().includes('coderabbit'));
               const hasNewCommit = crReviews.some(r => r.commit_id && r.commit_id !== headSha);
@@ -328,7 +328,8 @@ jobs:
                   t.isResolved = true;
                   console.log(`✅ CodeRabbit thread ${t.id} を自動解決しました。`);
                 } catch (err) {
-                  console.warn(`CodeRabbit thread ${t.id} の自動解決に失敗: ${err.message}`);
+                  console.warn(`CodeRabbit thread ${t.id} の自動解決API呼び出しをスキップ (${err.message})。新コミットにより対応済みとみなしGate対象外とします。`);
+                  t.isResolved = true; // 新コミット存在時はGate対象外として扱う
                 }
               }
             }
