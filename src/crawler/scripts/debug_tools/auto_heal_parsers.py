@@ -180,7 +180,8 @@ def _load_cb_state() -> tuple[int, datetime | None]:
             cd_str = data.get("cooldown_until")
             cd = datetime.fromisoformat(cd_str) if cd_str else None
             return count, cd
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to load circuit-breaker state from {path}: {e}")
         return 0, None
 
 
@@ -193,8 +194,8 @@ def _save_cb_state(count: int, cooldown_until: datetime | None) -> None:
                 "consecutive_timeouts": count,
                 "cooldown_until": cooldown_until.isoformat() if cooldown_until else None,
             }, f)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed to save circuit-breaker state to {path}: {e}")
 
 
 def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
