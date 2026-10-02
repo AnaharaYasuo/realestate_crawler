@@ -149,11 +149,12 @@ def test_notify_auto_heal_request_with_ai_summary():
         mock_send.side_effect = fake_coro
 
         ai_summary = "• mitsui mansion 3件: 価格50万。セレクター修正要"
-        notify_auto_heal_request(heal_targets, ai_summary=ai_summary)
+        notify_auto_heal_request(heal_targets, ai_summary=ai_summary, total_detected=25)
         assert mock_send.call_count == 1
         call_args = mock_send.call_args[0][0]
         assert ai_summary in call_args
         assert "[AUTO_HEAL_REQ]" in call_args
+        assert "**検知件数**: 25 件 (優先グループ 1 件)" in call_args
 
 
 def test_summarize_errors_with_gemini_fallback_when_no_api_key(monkeypatch):

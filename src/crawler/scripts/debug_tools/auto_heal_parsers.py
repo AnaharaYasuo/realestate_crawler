@@ -273,7 +273,11 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
     return default_summary
 
 
-def notify_auto_heal_request(heal_targets: list[dict], ai_summary: str = ""):
+def notify_auto_heal_request(
+    heal_targets: list[dict],
+    ai_summary: str = "",
+    total_detected: int | None = None,
+):
     """
     異常検知時にSlack (#dev-agent) へ [AUTO_HEAL_REQ] を発報し、
     常駐デーモン経由で Antigravity 自己修復を自動キックします。
@@ -290,10 +294,11 @@ def notify_auto_heal_request(heal_targets: list[dict], ai_summary: str = ""):
     if not ai_summary and len(heal_targets) > 5:
         target_summary += f"\n... 他 {len(heal_targets) - 5} 件"
 
+    total_count = total_detected if total_detected is not None else len(heal_targets)
     msg = (
         f"🚨 **[AUTO_HEAL_REQ] クローラー自己修復リクエスト**\n"
         f"クローリング・データ検証においてパース異常・データ不整合が検知されました。\n\n"
-        f"**検知件数**: {len(heal_targets)} 件 (頻度順 Top 10)\n"
+        f"**検知件数**: {total_count} 件 (優先グループ {len(heal_targets)} 件)\n"
         f"**対象概要**:\n{target_summary}\n\n"
         f"/auto-heal"
     )
@@ -397,7 +402,11 @@ def scan_anomalies_and_generate_instructions():
     logger.info(
         f"Successfully generated AI self-healing instruction at {inst_path} with {len(top_targets)} prioritized targets (total {len(heal_targets)} detected)."
     )
-    notify_auto_heal_request(top_targets, ai_summary=ai_summary)
+    notify_auto_heal_request(
+        top_targets,
+        ai_summary=ai_summary,
+        total_detected=len(heal_targets),
+    )
 
 
 if __name__ == "__main__":
