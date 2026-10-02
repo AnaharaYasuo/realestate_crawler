@@ -160,17 +160,49 @@ def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 10) -
     return sorted_groups[:max_targets]
 
 
-_consecutive_gemini_timeouts = 0
-_gemini_cooldown_until: datetime | None = None
+_CB_STATE_FILE = "gemini_circuit_breaker.json"
+
+
+def _get_cb_state_path() -> str:
+    curr = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(curr)))
+    return os.path.join(root, "Temp", _CB_STATE_FILE)
+
+
+def _load_cb_state() -> tuple[int, datetime | None]:
+    path = _get_cb_state_path()
+    if not os.path.exists(path):
+        return 0, None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            count = data.get("consecutive_timeouts", 0)
+            cd_str = data.get("cooldown_until")
+            cd = datetime.fromisoformat(cd_str) if cd_str else None
+            return count, cd
+    except Exception:  # noqa: BLE001
+        return 0, None
+
+
+def _save_cb_state(count: int, cooldown_until: datetime | None) -> None:
+    path = _get_cb_state_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({
+                "consecutive_timeouts": count,
+                "cooldown_until": cooldown_until.isoformat() if cooldown_until else None,
+            }, f)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
     """
     Google Cloud Gemini 2.5 Flash を用いて上位エラーを簡潔に要約（Caveman形式）する。
     連続タイムアウト時はサーキットブレイカー（クールダウン）を作動させ、ルールベースのデフォルトサマリーを即時返却。
+    プロセス間永続化ファイル（Temp/gemini_circuit_breaker.json）により状態を維持。
     """
-    global _consecutive_gemini_timeouts, _gemini_cooldown_until
-
     if not top_targets:
         return ""
 
@@ -187,11 +219,12 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
     if not api_key or genai is None:
         return default_summary
 
+    consecutive_timeouts, cooldown_until = _load_cb_state()
     now = datetime.now(dt_timezone.utc)
-    if _gemini_cooldown_until and now < _gemini_cooldown_until:
+    if cooldown_until and now < cooldown_until:
         logger.warning(
             "Gemini API circuit-breaker active until %s due to consecutive timeouts. Returning default summary.",
-            _gemini_cooldown_until,
+            cooldown_until,
         )
         return default_summary
 
@@ -211,8 +244,7 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
             )
             summary_text = (getattr(resp, "text", "") or "").strip()
             if summary_text:
-                _consecutive_gemini_timeouts = 0
-                _gemini_cooldown_until = None
+                _save_cb_state(0, None)
                 return summary_text
     except Exception as e:  # noqa: BLE001
         is_timeout_exception = isinstance(e, (TimeoutError, asyncio.TimeoutError))
@@ -220,18 +252,20 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
             is_timeout_exception = True
         err_msg = str(e).lower()
         if is_timeout_exception or any(k in err_msg for k in ("timeout", "timed out", "deadline")):
-            _consecutive_gemini_timeouts += 1
+            consecutive_timeouts += 1
             logger.warning(
                 "Gemini API timeout occurred (consecutive: %d): %s",
-                _consecutive_gemini_timeouts,
+                consecutive_timeouts,
                 e,
             )
-            if _consecutive_gemini_timeouts >= 2:
-                _gemini_cooldown_until = now + timedelta(minutes=5)
+            new_cooldown = None
+            if consecutive_timeouts >= 2:
+                new_cooldown = now + timedelta(minutes=5)
                 logger.warning(
                     "Gemini API consecutive timeouts reached threshold. Entering cooldown for 5 minutes until %s.",
-                    _gemini_cooldown_until,
+                    new_cooldown,
                 )
+            _save_cb_state(consecutive_timeouts, new_cooldown)
         else:
             logger.warning(f"Failed to summarize errors with Gemini: {e}")
 
@@ -341,12 +375,17 @@ def scan_anomalies_and_generate_instructions():
     # Google Cloud Gemini (Flash) を直接呼び出し、インメモリでエラー要約（ローカル一時ファイル経由なし）
     ai_summary = summarize_errors_with_gemini(top_targets)
 
+    parser_rel_dir = os.path.relpath(
+        os.path.join(os.path.dirname(os.path.dirname(current_dir)), "package", "parser"),
+        project_root,
+    ).replace("\\", "/")
+
     instruction = {
         "generated_at": datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "total_anomalies_detected": len(heal_targets),
         "ai_summary": ai_summary,
         "targets": top_targets,
-        "action_required": "Please inspect the target URLs in prioritized order (Top-10 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside package/parser/, run verification tests, and commit/push/merge changes to master.",
+        "action_required": f"Please inspect the target URLs in prioritized order (Top-10 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, run verification tests, and commit/push/merge changes to master.",
     }
 
     os.makedirs(temp_dir, exist_ok=True)

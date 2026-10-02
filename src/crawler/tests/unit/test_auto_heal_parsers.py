@@ -9,13 +9,15 @@ from scripts.debug_tools.auto_heal_parsers import (
 
 @pytest.fixture(autouse=True)
 def reset_gemini_circuit_breaker():
+    import os
     import scripts.debug_tools.auto_heal_parsers as ahp
 
-    ahp._consecutive_gemini_timeouts = 0
-    ahp._gemini_cooldown_until = None
+    path = ahp._get_cb_state_path()
+    if os.path.exists(path):
+        os.remove(path)
     yield
-    ahp._consecutive_gemini_timeouts = 0
-    ahp._gemini_cooldown_until = None
+    if os.path.exists(path):
+        os.remove(path)
 
 
 def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
@@ -226,14 +228,16 @@ def test_summarize_errors_with_gemini_circuit_breaker_on_consecutive_timeouts(mo
 
         # 1回目のタイムアウト
         res1 = ahp.summarize_errors_with_gemini(targets)
-        assert ahp._consecutive_gemini_timeouts == 1
-        assert ahp._gemini_cooldown_until is None
+        count1, cd1 = ahp._load_cb_state()
+        assert count1 == 1
+        assert cd1 is None
         assert "tokyu (tochi) [2件]: 土地面積極小" in res1
 
         # 2回目のタイムアウト -> サーキットブレイカー発動
         res2 = ahp.summarize_errors_with_gemini(targets)
-        assert ahp._consecutive_gemini_timeouts == 2
-        assert ahp._gemini_cooldown_until is not None
+        count2, cd2 = ahp._load_cb_state()
+        assert count2 == 2
+        assert cd2 is not None
         assert "tokyu (tochi) [2件]: 土地面積極小" in res2
 
         # クールダウン中は即時デフォルトサマリー返却
