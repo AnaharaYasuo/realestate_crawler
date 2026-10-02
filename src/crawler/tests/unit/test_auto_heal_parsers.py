@@ -8,16 +8,14 @@ from scripts.debug_tools.auto_heal_parsers import (
 
 
 @pytest.fixture(autouse=True)
-def reset_gemini_circuit_breaker():
-    import os
+def reset_gemini_circuit_breaker(tmp_path, monkeypatch):
     import scripts.debug_tools.auto_heal_parsers as ahp
 
-    path = ahp._get_cb_state_path()
-    if os.path.exists(path):
-        os.remove(path)
+    fake_cb_path = str(tmp_path / "gemini_circuit_breaker.json")
+    monkeypatch.setattr(ahp, "_get_cb_state_path", lambda: fake_cb_path)
+    ahp._save_cb_state(0, None)
     yield
-    if os.path.exists(path):
-        os.remove(path)
+    ahp._save_cb_state(0, None)
 
 
 def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
@@ -234,10 +232,10 @@ def test_summarize_errors_with_gemini_circuit_breaker_on_consecutive_timeouts(mo
         assert cd1 is None
         assert "tokyu (tochi) [2件]: 土地面積極小" in res1
 
-        # 2回目のタイムアウト -> サーキットブレイカー発動
+        # 2回目のタイムアウト -> サーキットブレイカー発動 (クールダウン設定・カウントは0リセット)
         res2 = ahp.summarize_errors_with_gemini(targets)
         count2, cd2 = ahp._load_cb_state()
-        assert count2 == 2
+        assert count2 == 0
         assert cd2 is not None
         assert "tokyu (tochi) [2件]: 土地面積極小" in res2
 

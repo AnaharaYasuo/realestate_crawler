@@ -266,7 +266,7 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
                     "Gemini API consecutive timeouts reached threshold. Entering cooldown for 5 minutes until %s.",
                     new_cooldown,
                 )
-            _save_cb_state(consecutive_timeouts, new_cooldown)
+            _save_cb_state(0 if new_cooldown else consecutive_timeouts, new_cooldown)
         else:
             logger.warning(f"Failed to summarize errors with Gemini: {e}")
 
