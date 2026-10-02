@@ -41,16 +41,17 @@ description: 開発作業が完了した後に、新しいブランチを作成�
    - PR作成前に必ずローカルで `task pr-check` を実行し、Issue受入基準、Ruff Linter、SonarCloud、単体テスト、PRミューテーションテスト、セキュリティスキャンが **100% 合格（ALL CHECKS PASSED）** することを確認する。
    - エラーが1件でもある場合は、PRを提出せずローカルで完全に修正・解消すること。
 
-8. **二段階PRマージの実施（Production Gate 遵守）**
+8. **二段階PRマージの実施（Production Gate 遵守 ＆ --watch禁止・有限ポーリング監視）**
    - 本リポジトリでは `production` への直接 push および作業ブランチからの直接 PR は GitHub Actions (`production-gate.yml`) でブロックされる。
+   - **【厳守】無制限 `--watch` コマンド（`gh pr checks --watch` 等）の実行は全面禁止**。ジョブスタック時に永久ハングするため、必ず `python src/crawler/scripts/debug_tools/check_pr_ci_status.py --pr <PR_NUMBER>` による有限ポーリングまたは単発 checks で確認すること。
    - **Step 1: 作業ブランチ ➔ `master` への PR & マージ**
      - 推奨: `task pr-create`（全チェック通過を自動検証して安全にPR提出）
      - 手動実行時: `gh pr create --base master --head <branch-name> --title "[#<issue_num>] ..." --body "Closes #<issue_num>\n..."`
-     - CI チェック通過後、`master` にマージ (`gh pr merge <PR_NUMBER> --squash --delete-branch`)。
+     - CI チェック通過確認後、`master` にマージ (`gh pr merge <PR_NUMBER> --squash --delete-branch`)。
    - **Step 2: `master` ➔ `production` への リリース PR & マージ**
      - ローカルの `master` を最新化: `git checkout master && git pull origin master`
-     - `gh pr create --base production --head master --title "release: ..." --body "..."`
-     - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。
+     - 自動起票されたリリース PR（または手動 `gh pr create --base production --head master`）を確認。
+     - CI チェック確認後、`production` にマージ (`gh pr merge <PR_NUMBER> --merge`)。本番デプロイが起動する。
 
 9. **GitHub Issue のステータス完了確認 ＆ 閉じ漏れ是正**
    - マージ後または作業完了後、`gh issue list --state open` を実行して該当 Issue が正常にクローズ（Closed）されたか確認する。
