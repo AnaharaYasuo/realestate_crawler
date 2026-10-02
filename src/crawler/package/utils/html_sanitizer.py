@@ -22,7 +22,7 @@ def sanitize_html_for_llm(html_content: str, max_length: int = 50000) -> str:
 
     # Remove data: URIs, inline style attributes, and tracking attributes
     for el in soup.find_all(True):
-        for attr in list(el.attrs.keys()):
+        for attr in list(el.attrs):
             if attr.startswith("on") or attr in ("style", "src", "srcset", "href"):
                 del el[attr]
 

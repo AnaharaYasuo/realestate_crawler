@@ -73,23 +73,30 @@ def collect_failures_for_site(
 
 
 def build_bulk_prompt(
-    site: str, property_type: str, failures: list[dict], max_items: int = 200
+    site: str, property_type: str, failures: list[dict], max_items: int = 200, max_payload_chars: int = 400000
 ) -> str:
     """
     最大200件の失敗データを極限圧縮し、Gemini Flash 向けの一括診断プロンプトを構築する。
     """
     limited_failures = failures[:max_items]
+    per_item_limit = max(1000, max_payload_chars // max(1, len(limited_failures)))
     sample_payload = []
+    current_chars = 0
     for idx, item in enumerate(limited_failures, 1):
         raw_html = item.get("html", "")
-        cleaned = sanitize_html_for_llm(raw_html, max_length=15000) if raw_html else ""
-        sample_payload.append({
+        cleaned = sanitize_html_for_llm(raw_html, max_length=per_item_limit) if raw_html else ""
+        sample_entry = {
             "sample_id": idx,
             "url": item.get("url"),
             "failed_field": item.get("failed_field", "unknown"),
             "reason": item.get("reason", ""),
             "html_structure": cleaned,
-        })
+        }
+        entry_len = len(cleaned)
+        if current_chars + entry_len > max_payload_chars and sample_payload:
+            break
+        current_chars += entry_len
+        sample_payload.append(sample_entry)
 
     payload_json = json.dumps(sample_payload, ensure_ascii=False, indent=1)
     prompt = f"""
@@ -226,7 +233,13 @@ def main():
         sys.exit(1)
 
     manifest = run_bulk_diagnosis_with_gemini(args.site, args.type, failures)
+    manifest["read_errors"] = read_errors
     save_manifest(manifest, args.out)
+
+    diag_status = manifest.get("diagnosis_status")
+    if diag_status in ("timeout", "api_error", "parse_error"):
+        logger.error("Bulk diagnosis completed with critical failure status: %s", diag_status)
+        sys.exit(2)
 
 
 if __name__ == "__main__":
