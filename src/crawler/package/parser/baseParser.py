@@ -505,8 +505,7 @@ class ParserBase(metaclass=ABCMeta):
         return dest_url
     _CARD_KEYWORDS = ('card', 'item', 'bukken', 'property', 'list', 'box', 'row', 'section')
     _PRICE_SELECTORS = ('.price', '.mod-price', '.priceNum', '.priceText', 'span[class*="price"]', 'strong[class*="price"]', 'p[class*="price"]', 'td.price', 'em')
-    _PRICE_TEXT_PATTERN = re.compile(r'(\d+[\d,]*(?:\.\d+)?)\s*(?:億\s*(\d+[\d,]*(?:\.\d+)?)?\s*)?万円?')
-    _PRICE_FINDITER_PATTERN = re.compile(r'(?:価格|販売価格|賃料)?\s*(\d+[\d,]*\s*億(?:\s*\d+[\d,]*\s*万)?|\d+[\d,]*\s*万円)')
+    _SIMPLE_PRICE_RE = re.compile(r'\d[\d,.]*\s*(?:億[\d,.]*\s*)?万円?')
 
     @classmethod
     def _find_card_container(cls, link):
@@ -539,10 +538,12 @@ class ParserBase(metaclass=ABCMeta):
 
         # 2. テキスト全体から価格パターンを抽出
         card_text = card.get_text(separator=' ', strip=True)
-        for m in cls._PRICE_FINDITER_PATTERN.finditer(card_text):
-            p = converter.parse_price(m.group(0))
-            if p and p >= 100000:
-                return p
+        for chunk in card_text.split():
+            m = cls._SIMPLE_PRICE_RE.search(chunk)
+            if m:
+                p = converter.parse_price(m.group(0))
+                if p and p >= 100000:
+                    return p
 
         return None
 

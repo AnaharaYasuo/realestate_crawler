@@ -49,6 +49,19 @@ MAJOR_5_COMPANIES = {"mitsui", "sumifu", "tokyu", "nomura", "misawa"}
 PORTAL_COMPANIES = {"athome", "homes"}
 
 
+def _assign_8_task_index(c_lower: str, p_lower: str) -> int:
+    if c_lower == "homes":
+        return 5
+    if c_lower == "athome":
+        return 6 if p_lower == "mansion" else 7
+    if c_lower in MAJOR_5_COMPANIES:
+        mapping = {"mansion": 0, "kodate": 1, "tochi": 2}
+        return mapping.get(p_lower, 3)
+    if p_lower in ("invest_kodate", "invest_apartment", "investment"):
+        return 3
+    return 4
+
+
 def _distribute_8_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tuple[str, str]]:
     """
     8タスク専用の決定論的マッピング (Issue #608 仕様):
@@ -64,29 +77,8 @@ def _distribute_8_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tu
     task_map: dict[int, list[tuple[str, str]]] = {i: [] for i in range(8)}
 
     for company, ptype in jobs:
-        c_lower = company.lower()
-        p_lower = ptype.lower()
-
-        if c_lower == "homes":
-            task_map[5].append((company, ptype))
-        elif c_lower == "athome":
-            if p_lower == "mansion":
-                task_map[6].append((company, ptype))
-            else:
-                task_map[7].append((company, ptype))
-        elif c_lower in MAJOR_5_COMPANIES:
-            if p_lower == "mansion":
-                task_map[0].append((company, ptype))
-            elif p_lower == "kodate":
-                task_map[1].append((company, ptype))
-            elif p_lower == "tochi":
-                task_map[2].append((company, ptype))
-            else:
-                task_map[3].append((company, ptype))
-        elif p_lower in ("invest_kodate", "invest_apartment", "investment"):
-            task_map[3].append((company, ptype))
-        else:
-            task_map[4].append((company, ptype))
+        idx = _assign_8_task_index(company.lower(), ptype.lower())
+        task_map[idx].append((company, ptype))
 
     return task_map[task_index]
 

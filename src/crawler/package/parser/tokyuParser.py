@@ -967,6 +967,17 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     def __init__(self, params=None):
         self.selectors = SelectorLoader.load('tokyu', self.property_type)
 
+    def _parse_nextjs_property_item(self, item):
+        detail_url = item.get('detailUrl')
+        if not detail_url:
+            return None
+        full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
+        if self._is_non_property_href(full_url):
+            return None
+        raw_price = item.get('price') or item.get('salesPrice')
+        price = converter.parse_price(str(raw_price)) if raw_price else None
+        return ListItem(url=full_url, price=price)
+
     def _extract_nextjs_urls(self, response):
         script = response.find('script', id='__NEXT_DATA__')
         if not script:
@@ -977,16 +988,8 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             property_list = page_props.get('propertyList', [])
             if not property_list:
                 return None
-            items = []
-            for item in property_list:
-                detail_url = item.get('detailUrl')
-                if detail_url:
-                    full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
-                    if not self._is_non_property_href(full_url):
-                        raw_price = item.get('price') or item.get('salesPrice')
-                        price = converter.parse_price(str(raw_price)) if raw_price else None
-                        items.append(ListItem(url=full_url, price=price))
-            return items
+            items = [self._parse_nextjs_property_item(it) for it in property_list]
+            return [it for it in items if it is not None]
         except Exception as e:
             logger.exception("Error parsing __NEXT_DATA__: %s", e)
             return None
