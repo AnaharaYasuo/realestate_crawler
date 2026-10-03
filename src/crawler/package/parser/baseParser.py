@@ -508,6 +508,10 @@ class ParserBase(metaclass=ABCMeta):
     _SIMPLE_PRICE_RE = re.compile(r'\d[\d,.]*\s*(?:億[\d,.]*\s*)?万円?')
 
     @classmethod
+    def _is_sub_heading(cls, combined: str) -> bool:
+        return any(k in combined for k in ('title', 'heading', 'name')) and not any(k in combined for k in ('card', 'item', 'bukken', 'property'))
+
+    @classmethod
     def _find_card_container(cls, link):
         parent = link
         first_candidate = None
@@ -515,11 +519,10 @@ class ParserBase(metaclass=ABCMeta):
             parent = parent.find_parent(['div', 'li', 'tr', 'article', 'section'])
             if parent is None:
                 break
-            # Skip heading/title sub-elements
             classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
             tag_id = str(parent.get('id', ''))
             combined = f"{classes} {tag_id}".lower()
-            if any(k in combined for k in ('title', 'heading', 'name')) and not any(k in combined for k in ('card', 'item', 'bukken', 'property')):
+            if cls._is_sub_heading(combined):
                 continue
             if any(k in combined for k in cls._CARD_KEYWORDS):
                 if first_candidate is None:
