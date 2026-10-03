@@ -248,6 +248,30 @@ graph TD
   4. 終了コード 1 で `SystemExit` を送出し、パイプラインをエラー終了させる。
 - 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
   - 対象は自タスクの行（`execution_date` は起動時に固定した実行日 `get_execution_date()`、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
+
+### 6.8.2 物件種別・サイト規模別タスクアレイ分散内部設計 (Issue #608)
+- **`package.utils.task_distribution.distribute_jobs` の刷新**:
+  - `task_count == 8` の場合、単純 Modulo（`i % 8`）を廃止し、以下の決定論的マッピングでジョブを分配する：
+    - **Task 0 (大手仲介マンション)**: `mitsui:mansion`, `sumifu:mansion`, `tokyu:mansion`, `nomura:mansion`, `misawa:mansion`
+    - **Task 1 (大手仲介戸建)**: `mitsui:kodate`, `sumifu:kodate`, `tokyu:kodate`, `nomura:kodate`, `misawa:kodate`
+    - **Task 2 (大手仲介土地)**: `mitsui:tochi`, `sumifu:tochi`, `tokyu:tochi`, `nomura:tochi`, `misawa:tochi`
+    - **Task 3 (大手・信託投資用)**: 大手5社の `invest_kodate` / `invest_apartment`、信託3社（`smtrc`, `sumai1`, `mizuho`）の `investment`
+    - **Task 4 (中小・信託居住用全件)**: 信託3社居住用（mansion/kodate/tochi）＋ 電鉄・ハウスメーカー系17社の全種別
+    - **Task 5 (Homes全種別)**: `homes:mansion`, `homes:kodate`, `homes:tochi`, `homes:invest_apartment`
+    - **Task 6 (Athomeマンション)**: `athome:mansion`（単独集中実行）
+    - **Task 7 (Athomeその他)**: `athome:kodate`, `athome:tochi`, `athome:invest_apartment`
+  - `task_count != 8` または `task_index is None` の場合は、互換性維持のため Modulo 分割または全件返却にフォールバックする。
+- **会社別並行度上限（`crawler_scheduler.py`）の緩和**:
+  - 大手仲介各社（`mitsui`, `sumifu`, `tokyu`, `nomura`, `misawa`）の `COMPANY_CONCURRENCY_LIMITS` を `2` から `5` に引き上げ、同一タスク内で全種別が一斉に起動できるようにする。
+
+### 6.8.3 全パーサー一覧ページ価格抽出による差分スキップ内部設計 (Issue #608)
+- **一覧パーサーの返却型拡張 (`package.api.differential.ListItem`)**:
+  - `BaseParser.parsePropertyListPage` および各パーサーの一覧抽出処理において、URLのみでなく価格を解析可能な場合は `ListItem(url=dest_url, price=extracted_price)` または `(dest_url, extracted_price)` を生成する。
+  - `baseParser.py` に `_extract_list_card_price(card_elem)` ヘルパーを提供し、一般的なカード要素内の `.price`, `.mod-price`, `span.num`, `[class*='price']` 等の価格テキストを高速パース・整数化して返す共通機構を整備する。
+- **差分スキップ処理 (`filter_differential_items`)**:
+  - 一覧から取得した `item.price` が `None` でなく、DB保存済み価格 `record["price"]` と一致し、TTL（既定 7日）以内の場合、`to_skip` に分類。
+  - `to_skip` の物件群は詳細ページ通信（HTTP GET / Playwright）を一切行わず、`_batch_update_cached` により `updateDateTime=now` のみを一括更新する。
+  - 価格変動時または新規物件のみ `to_fetch` として詳細ページ取得処理を実行する。
   - DB 復旧を待つため、`close_old_connections()` で切断済み接続を破棄しつつ最大 `TASK_RECONCILE_MAX_ATTEMPTS`（4 回）、`TASK_RECONCILE_INTERVAL_SEC`（15 秒）間隔で再試行する（有限時間保証、最大約 45 秒＋接続タイムアウト）。全試行失敗時は警告ログを出して後続処理を継続する。
   - 親プロセスの MySQL 接続は子プロセスの `bound_db_connect_timeout()` の対象外のため、再試行ループの前に `bound_mysql_timeouts(connection.settings_dict)` で同じ有限の接続・読み書きタイムアウト（10 秒 / 120 秒）を適用し、各試行の `update()` が無期限にブロックしないようにする。
   - 再同期の待機は `run_command()` のタイムアウト対象外で、Coordinator のバリア待機時間も再同期後に算出されるため、各試行の前に `is_deadline_approaching()`、リトライ待機の前にはこれから待機する時間を含めた `is_deadline_approaching(SAFE_SHUTDOWN_BUFFER_SEC + TASK_RECONCILE_INTERVAL_SEC)` を確認し、Cloud Run のデッドラインが近づいている場合は再試行を打ち切って `False` を返す（後続の安全停止処理の猶予を消費しない）。

@@ -15,12 +15,12 @@ COMPANY_CONCURRENCY_LIMITS: Dict[str, int] = {
     "homes": 5,
     # 超大規模ポータル (Playwright)
     "athome": 3,
-    # 大手仲介5社
-    "mitsui": 2,
-    "sumifu": 2,
-    "tokyu": 2,
-    "nomura": 2,
-    "misawa": 2,
+    # 大手仲介5社 (全種別同時並行実行を可能にするため5本に緩和)
+    "mitsui": 5,
+    "sumifu": 5,
+    "tokyu": 5,
+    "nomura": 5,
+    "misawa": 5,
 }
 
 # 中小・電鉄・ハウスメーカー等のデフォルト並行数 (同一会社内直列)

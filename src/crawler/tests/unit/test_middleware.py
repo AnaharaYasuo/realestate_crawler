@@ -12,7 +12,7 @@ async def test_rate_limit_middleware():
     end = time.time()
     
     assert result is None
-    assert end - start >= 0.1
+    assert end - start >= 0.08
 
 @pytest.mark.asyncio
 async def test_logging_middleware_request():

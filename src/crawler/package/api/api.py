@@ -1085,9 +1085,11 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             return []
 
         model_class = self._differentialModelClass()
+        api_key = self._getApiKey() or ""
+        is_detail_dispatch = "detail" in api_key.lower()
 
         to_fetch = url_list
-        if model_class is not None:
+        if is_detail_dispatch and model_class is not None:
             ttl_days = int(os.getenv("DIFFERENTIAL_TTL_DAYS", "7"))
             force_full = os.getenv("FORCE_FULL_CRAWL", "false").lower() in ("true", "1")
             enabled = os.getenv("ENABLE_DIFFERENTIAL_CRAWL", "true").lower() in ("true", "1")

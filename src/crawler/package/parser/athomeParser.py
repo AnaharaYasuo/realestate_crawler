@@ -1,10 +1,12 @@
-# -*- coding: utf-8 -*-
-from typing import List, Optional, Tuple
+from __future__ import annotations
+
+from typing import Any
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
+from package.api.differential import ListItem
 from decimal import Decimal
 import asyncio
 import math
@@ -385,7 +387,9 @@ class AthomeParser(ParserBase):
             sub_path = urllib.parse.urlparse(sub_href).path
             sub_is_nav = any(nav in sub_path for nav in ATHOME_NAV_KEYWORDS)
             if not sub_is_nav and self._is_athome_detail_path(sub_path, sub_href):
-                yield self._normalize_athome_url(sub_href, base_domain)
+                url = self._normalize_athome_url(sub_href, base_domain)
+                price = self._extract_card_price(a)
+                yield ListItem(url=url, price=price)
 
     def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
         if is_list_or_nav or "bklist" in href or "sitemaplist" in path:
@@ -451,34 +455,51 @@ class AthomeParser(ParserBase):
                 list_links.add(normalized)
         return None, base
 
-    async def parseRootPage(self, response):
-        """
-        検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
-        """
-        if not isinstance(response, BeautifulSoup):
-            import lxml.etree
-            html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
-            response = BeautifulSoup(html_str, HTML_PARSER)
+    @classmethod
+    def _ensure_soup_response(cls, response: Any) -> BeautifulSoup:
+        if isinstance(response, BeautifulSoup):
+            return response
+        import lxml.etree
+        html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
+        return BeautifulSoup(html_str, HTML_PARSER)
 
-        detail_links = set()
+    def _collect_root_links(self, response: BeautifulSoup) -> tuple[list[ListItem], set[str], str]:
+        detail_items = []
         list_links = set()
         base = "https://www.athome.co.jp"
-        
+        detail_urls = set()
+
         for a in response.select("a[href]"):
             href = a.get("href")
             if not href:
                 continue
-            detail_url, found_base = self._classify_and_collect_athome_url(href, detail_links, list_links)
+            detail_url, found_base = self._classify_and_collect_athome_url(href, detail_urls, list_links)
             if found_base:
                 base = found_base
             if detail_url:
-                yield detail_url
+                price = self._extract_card_price(a)
+                detail_items.append(ListItem(url=detail_url, price=price))
+
+        return detail_items, list_links, base
+
+    async def parseRootPage(self, response):
+        """
+        検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
+        """
+        response = self._ensure_soup_response(response)
+        detail_items, list_links, base = self._collect_root_links(response)
+        emitted_urls = set()
+
+        for item in detail_items:
+            emitted_urls.add(item.url)
+            yield item
 
         if list_links:
-            async for normalized in self._expand_sub_list_pages(list_links, base):
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield normalized
+            async for item in self._expand_sub_list_pages(list_links, base):
+                url = item.url if isinstance(item, ListItem) else str(item)
+                if url not in emitted_urls:
+                    emitted_urls.add(url)
+                    yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 0. 掲載終了・物件不在の早期検知

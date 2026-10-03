@@ -8,6 +8,7 @@ import datetime
 import logging
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
+from package.api.differential import ListItem
 from decimal import Decimal, ROUND_HALF_UP
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,8 @@ class MisawaParser(ParserBase):
         if not sections:
              links = response.select('a[href*="detail_"]')
              for link in links:
-                 yield self.getRootDestUrl(link.get('href'))
+                 p = self._extract_card_price(link)
+                 yield ListItem(url=self.getRootDestUrl(link.get('href')), price=p)
              return
 
         for section in sections:
@@ -108,7 +110,8 @@ class MisawaParser(ParserBase):
             if not href:
                 continue
             full_url = self.getRootDestUrl(href)
-            yield full_url
+            price = self._extract_card_price(section)
+            yield ListItem(url=full_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
         next_tag = response.select_one('li.next a')

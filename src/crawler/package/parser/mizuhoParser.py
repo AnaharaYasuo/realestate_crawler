@@ -13,6 +13,7 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.mizuho_bypass import get_mizuho_links
+from package.api.differential import ListItem
 import asyncio
 import aiohttp
 
@@ -149,8 +150,9 @@ class MizuhoParser(ParserBase):
             logging.exception(f"Mizuho: Failed to read temporary URLs file: {e}")
             return []
 
-    def _extract_static_detail_links(self, response: BeautifulSoup) -> set:
-        detail_links = set()
+    def _extract_static_detail_links(self, response: BeautifulSoup) -> list[ListItem]:
+        detail_items = []
+        seen = set()
         for a in response.find_all("a", href=re.compile(r'/(?:buyers|investors)/(?:property|detail)/\d+')):
             href = a.get("href")
             if not href:
@@ -161,8 +163,12 @@ class MizuhoParser(ParserBase):
             if not path.endswith('/'):
                 path += '/'
             normalized = f"{self.BASE_URL}{path}"
-            detail_links.add(normalized)
-        return detail_links
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            price = self._extract_card_price(a)
+            detail_items.append(ListItem(url=normalized, price=price))
+        return detail_items
 
     async def _execute_playwright_bypass_links(self):
         logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
@@ -194,18 +200,18 @@ class MizuhoParser(ParserBase):
         if temp_urls:
             logging.info(f"Mizuho: Loaded {len(temp_urls)} URLs from temporary file.")
             for url in temp_urls:
-                yield url
+                yield ListItem(url=url)
             return
 
-        detail_links = self._extract_static_detail_links(response)
-        if detail_links:
-            for url in detail_links:
-                yield url
+        detail_items = self._extract_static_detail_links(response)
+        if detail_items:
+            for item in detail_items:
+                yield item
             return
 
         bypass_urls = await self._execute_playwright_bypass_links()
         for url in bypass_urls:
-            yield url
+            yield ListItem(url=url)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # tdの中の不要なボタン（周辺地図、街の情報、ローンシミュレーションなど）を除去してパースする
