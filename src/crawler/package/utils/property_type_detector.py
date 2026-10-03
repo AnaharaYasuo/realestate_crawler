@@ -71,6 +71,19 @@ class PropertyTypeDetector:
 
     _ai_cache: Dict[str, str] = {}
 
+    _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き")
+
+    @classmethod
+    def _is_isolated_tochi(cls, text: str) -> bool:
+        """「土地」が「土地権利」「土地面積」等の除外フレーズの一部でない独立した出現を含むか判定"""
+        if not text or "土地" not in text:
+            return False
+        # 除外フレーズを置換して残りに「土地」が含まれるか確認
+        clean = text
+        for term in cls._TOCHI_EXCLUDED_TERMS:
+            clean = clean.replace(term, "")
+        return "土地" in clean
+
     _YIELD_MARKERS = (
         "利回り",
         SIGNAL_GROSS_INCOME,
@@ -231,7 +244,7 @@ class PropertyTypeDetector:
 
         has_strong_tochi = any(
             k in text for k in ("売地", "売土地", "売り土地", "建築条件付土地")
-        )
+        ) or cls._is_isolated_tochi(text)
         # 数値利回り・オーナーチェンジ等の実投資シグナルを売地より優先
         if cls._has_yield_signal(text):
             return "apartment"
@@ -308,8 +321,6 @@ class PropertyTypeDetector:
             return "apartment"
         if title:
             title_ptype = cls._match_keywords(title)
-            if not title_ptype and "土地" in title and not any(k in title for k in ("土地権利", "土地面積")):
-                title_ptype = "tochi"
             if title_ptype:
                 return title_ptype
 
@@ -579,6 +590,12 @@ class PropertyTypeDetector:
         投資物件の表題・スペック表等から Apartment / Mansion / Kodate / Building を判定。
         各投資用パーサーの重複実装を共通化。
         """
+        # タイトルに一棟マンション/一棟売り等の具体的な一棟表記がある場合は、specsの汎用「マンション」より優先
+        if text and isinstance(text, str) and any(
+            k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT)
+        ):
+            return "Apartment"
+
         res_specs = cls._detect_invest_from_specs(specs)
         if res_specs:
             return res_specs

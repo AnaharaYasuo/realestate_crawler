@@ -216,11 +216,19 @@ def test_detect_investment_type():
     assert PropertyTypeDetector.detect_investment_type("区分事務所 駅近") == "Building"
     assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分店舗"}) == "Building"
     assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分事務所"}) == "Building"
-    # タイトル中の単独「土地」
+    # タイトル中の単独「土地」（土地面積併記時も tochi を維持）
     assert PropertyTypeDetector.detect(title="練馬区東大泉 土地 更地渡し 角地") == "tochi"
+    assert PropertyTypeDetector.detect(title="練馬区 土地 土地面積120㎡") == "tochi"
+    # 本文のみに「土地」がある場合も tochi と判定されること
+    assert PropertyTypeDetector.detect(html_text="東京都世田谷区 土地 80㎡ 更地") == "tochi"
     # specs の exact '土地'
     assert PropertyTypeDetector.detect(specs={"種別": "土地"}) == "tochi"
     assert PropertyTypeDetector.detect(specs={"種別": " 土地 "}) == "tochi"
+    # タイトル「一棟マンション」で specs が「マンション」の場合、Apartment を優先
+    assert PropertyTypeDetector.detect_investment_type(
+        "○○一棟マンション 駅徒歩5分",
+        specs={"物件種別": "マンション"}
+    ) == "Apartment"
 
 
 
