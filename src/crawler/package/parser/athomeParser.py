@@ -463,31 +463,42 @@ class AthomeParser(ParserBase):
         html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
         return BeautifulSoup(html_str, HTML_PARSER)
 
+    def _collect_root_links(self, response: BeautifulSoup) -> tuple[list[ListItem], set[str], str]:
+        detail_items = []
+        list_links = set()
+        base = "https://www.athome.co.jp"
+        detail_urls = set()
+
+        for a in response.select("a[href]"):
+            href = a.get("href")
+            if not href:
+                continue
+            detail_url, found_base = self._classify_and_collect_athome_url(href, detail_urls, list_links)
+            if found_base:
+                base = found_base
+            if detail_url:
+                price = self._extract_card_price(a)
+                detail_items.append(ListItem(url=detail_url, price=price))
+
+        return detail_items, list_links, base
+
     async def parseRootPage(self, response):
         """
         検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
         """
         response = self._ensure_soup_response(response)
-        detail_links = set()
-        list_links = set()
-        base = "https://www.athome.co.jp"
-        
-        for a in response.select("a[href]"):
-            href = a.get("href")
-            if not href:
-                continue
-            detail_url, found_base = self._classify_and_collect_athome_url(href, detail_links, list_links)
-            if found_base:
-                base = found_base
-            if detail_url:
-                price = self._extract_card_price(a)
-                yield ListItem(url=detail_url, price=price)
+        detail_items, list_links, base = self._collect_root_links(response)
+        emitted_urls = set()
+
+        for item in detail_items:
+            emitted_urls.add(item.url)
+            yield item
 
         if list_links:
             async for item in self._expand_sub_list_pages(list_links, base):
                 url = item.url if isinstance(item, ListItem) else str(item)
-                if url not in detail_links:
-                    detail_links.add(url)
+                if url not in emitted_urls:
+                    emitted_urls.add(url)
                     yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
