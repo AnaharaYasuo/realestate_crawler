@@ -21,7 +21,7 @@ HTML_PARSER = "html.parser"
 LABEL_KAIDATE_KAI = "階建 / 階"
 
 ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
-ATHOME_LIST_KEYWORDS = ("tokyo", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
 _ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_DIR_WIDTH_RE = (

@@ -43,20 +43,62 @@ from package.utils.gcp_resources import (
     wait_for_proxysql_health,
 )
 
+from package.utils import slack as slack_module
+
 configure_logging()
 logger = logging.getLogger(__name__)
 
-# Global runtime state for graceful shutdown and signal handling (Issue #444)
+# Global runtime state for graceful shutdown and signal handling (Issue #444, #635)
 _active_proc: subprocess.Popen | None = None
 _is_coordinator: bool = False
 _task_index: int | None = None
 _task_count: int = 1
 _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
-DEFAULT_TIMEOUT_SEC: float = 7200.0
+DEFAULT_TIMEOUT_SEC: float = 14400.0
 SAFE_SHUTDOWN_BUFFER_SEC: float = 300.0
 TASK_RECONCILE_MAX_ATTEMPTS: int = 4
 TASK_RECONCILE_INTERVAL_SEC: float = 15.0
+
+
+async def notify_pipeline_timeout(
+    task_index: int | None,
+    task_count: int,
+    desc: str,
+    reason: str,
+) -> None:
+    """パイプラインのタイムアウト・強制終了時に即座に Slack へ緊急アラートを発報する (Issue #635)"""
+    idx_str = f"Task {task_index}/{task_count}" if task_index is not None else "Pipeline"
+    msg = (
+        f"🚨 *【クローラー緊急アラート: タイムアウト/強制停止発生】*\n"
+        f"• *対象*: {idx_str}\n"
+        f"• *ステップ*: `{desc}`\n"
+        f"• *停止理由*: {reason}\n"
+        f"• *対応*: リソース安全停止 (Teardown) を実行し、未完走タスクを Safety-Net / ML に引き継ぎます。"
+    )
+    try:
+        await slack_module.send_crawling_summary_alert(msg)
+    except Exception as e:
+        logger.warning(f"Failed to send timeout summary alert to #property_alert: {e}")
+    try:
+        await slack_module.send_dev_report(msg)
+    except Exception as e:
+        logger.warning(f"Failed to send timeout report to #dev-agent: {e}")
+
+
+def notify_pipeline_timeout_sync(
+    task_index: int | None,
+    task_count: int,
+    desc: str,
+    reason: str,
+) -> None:
+    """同期コンテキストから Slack タイムアウトアラートを送信するヘルパー"""
+    try:
+        import asyncio
+        asyncio.run(notify_pipeline_timeout(task_index, task_count, desc, reason))
+    except Exception as err:
+        logger.warning(f"Failed to send sync timeout Slack notification: {err}")
+
 
 
 def get_remaining_pipeline_time() -> float:
@@ -87,6 +129,12 @@ def check_deadline_or_raise(desc: str) -> None:
         logger.warning(
             f"⚠️ [Deadline Warning] Remaining time ({rem}s) is below safe shutdown buffer ({int(SAFE_SHUTDOWN_BUFFER_SEC)}s). "
             f"Aborting before Cloud Run force termination for step: '{desc}'"
+        )
+        notify_pipeline_timeout_sync(
+            task_index=_task_index,
+            task_count=_task_count,
+            desc=desc,
+            reason=f"Approaching Cloud Run timeout deadline (remaining: {rem}s)",
         )
         raise TimeoutError(
             f"Step '{desc}' skipped: approaching Cloud Run timeout (remaining: {rem}s)"
@@ -187,6 +235,13 @@ def _sigterm_handler(signum: int, frame: object) -> None:
         except Exception as proc_err:  # noqa: BLE001
             logger.warning(f"Error terminating active subprocess: {proc_err}")
 
+    notify_pipeline_timeout_sync(
+        task_index=_task_index,
+        task_count=_task_count,
+        desc="Cloud Run Job execution",
+        reason=f"Caught termination signal {signum} (SIGTERM/SIGINT)",
+    )
+
     if (
         _is_coordinator
         and os.environ.get("IS_CLOUD")
@@ -253,6 +308,12 @@ def run_command(cmd, desc, timeout: float | None = None):
         elapsed = time.time() - start_time
         logger.error(
             f"=== [TIMEOUT] {desc} timed out after {timeout}s (elapsed: {int(elapsed)}s) ==="
+        )
+        notify_pipeline_timeout_sync(
+            task_index=_task_index,
+            task_count=_task_count,
+            desc=desc,
+            reason=f"Step timed out after {timeout}s (elapsed: {int(elapsed)}s)",
         )
         raise TimeoutError(f"Step '{desc}' timed out after {timeout}s")
     finally:
