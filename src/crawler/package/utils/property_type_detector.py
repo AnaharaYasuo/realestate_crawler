@@ -39,26 +39,34 @@ class PropertyTypeDetector:
         SIGNAL_GROSS_INCOME, SIGNAL_FULL_OCCUPANCY, SIGNAL_ANNUAL_RENT_EST, "賃貸中",
     ]
 
+    KW_ITTO_URI_APARTMENT = "一棟売りアパート"
+    KW_ITTO_APARTMENT = "一棟アパート"
+    KW_ITTO_URI_MANSION = "一棟売りマンション"
+    KW_ITTO_MANSION = "一棟マンション"
+    KW_MANSION = "マンション"
+    KW_TERRACE_HOUSE = "テラスハウス"
+
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
     APARTMENT_KEYWORDS = [
-        "一棟売りアパート", "一棟アパート", "一棟売りマンション", "一棟マンション",
+        KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
         "一棟売りビル", "一棟ビル", "収益アパート", "投資用アパート",
         "収益物件", "一棟売り", "一棟"
     ]
 
     MANSION_KEYWORDS = [
         "区分マンション", "中古マンション", "新築マンション", "区分所有",
-        "ライオンズマンション", "パークホームズ", "マンション"
+        "ライオンズマンション", "パークホームズ", KW_MANSION
     ]
 
     KODATE_KEYWORDS = [
         "新築一戸建て", "中古一戸建て", "一戸建て", "新築一戸建", "中古一戸建",
-        "一戸建", "新築戸建", "中古戸建", "テラスハウス", "戸建"
+        "一戸建", "新築戸建", "中古戸建", KW_TERRACE_HOUSE, "戸建"
     ]
 
     TOCHI_KEYWORDS = [
         "売土地", "売り土地", "建築条件付土地", "売地"
     ]
+
 
 
     _ai_cache: Dict[str, str] = {}
@@ -531,12 +539,12 @@ class PropertyTypeDetector:
             return None
         for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
             v = str(specs.get(k) or "")
-            if any(x in v for x in ("一棟マンション", "一棟売りマンション", "一棟アパート", "一棟売りアパート", "アパート")):
+            if any(x in v for x in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
                 return "Apartment"
-            if any(x in v for x in ("戸建て", "戸建", "一戸建", "一戸建て", "テラスハウス")):
+            if any(x in v for x in ("戸建て", "戸建", "一戸建", "一戸建て", cls.KW_TERRACE_HOUSE)):
                 return "Kodate"
 
-            if any(x in v for x in ("マンション", "レジ", "区分")):
+            if any(x in v for x in (cls.KW_MANSION, "レジ", "区分")):
                 return "Mansion"
             if any(x in v for x in ("ビル", "店舗", "事務所")):
                 return "Building"
@@ -546,15 +554,16 @@ class PropertyTypeDetector:
     def _detect_invest_from_text(cls, text: str | None, default: str) -> str:
         if not text or not isinstance(text, str):
             return default
-        if any(k in text for k in ("一棟マンション", "一棟売りマンション", "一棟アパート", "一棟売りアパート", "アパート")):
+        if any(k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
             return "Apartment"
-        if any(k in text for k in ("戸建て", "戸建", "テラスハウス", "一戸建")):
+        if any(k in text for k in ("戸建て", "戸建", cls.KW_TERRACE_HOUSE, "一戸建")):
             return "Kodate"
-        if "マンション" in text or "レジ" in text:
+        if cls.KW_MANSION in text or "レジ" in text:
             return "Mansion"
         if any(k in text for k in ("ビル", "店舗", "事務所")):
             return "Building"
         return default
+
 
     @classmethod
     def detect_investment_type(
