@@ -321,15 +321,34 @@ class NomuraParser(InvestmentParser):
                 price = self._extract_card_price(link)
                 yield ListItem(url=href, price=price)
 
+    def _find_fallback_next_link(self, response):
+        if hasattr(response, 'find_all'):
+            for a in response.find_all('a'):
+                txt = a.get_text(strip=True)
+                href = a.get('href', '')
+                if ('次へ' in txt or '次 の' in txt) and href and not href.startswith(('#', JAVASCRIPT_PREFIX)):
+                    return a
+        elif hasattr(response, 'xpath'):
+            links = response.xpath("//a[contains(., '次へ')]")
+            return links[0] if links else None
+        return None
+
     async def parseNextPage(self, response: BeautifulSoup):
         next_selector = self.selectors.get('next_page', "a.next")
         if hasattr(response, 'select'):
-            next_link = response.select_one(next_selector)
+            next_link = response.select_one(next_selector) or self._find_fallback_next_link(response)
         else:
             xpath = self.selectors.get('next_page_xpath', "//a[contains(@class, 'next')]")
             links = response.xpath(xpath)
-            next_link = links[0] if links else None
-        return next_link.get("href") if next_link else ""
+            next_link = links[0] if links else self._find_fallback_next_link(response)
+
+        if not next_link:
+            return ""
+
+        next_url = next_link.get("href", "")
+        if next_url and next_url.startswith("/"):
+            next_url = NOMU_BASE_URL + next_url
+        return next_url
 
     async def parseAreaPage(self, response: BeautifulSoup):
         if hasattr(response, 'select'):
