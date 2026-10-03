@@ -229,6 +229,15 @@ def test_detect_investment_type():
         "○○一棟マンション 駅徒歩5分",
         specs={"物件種別": "マンション"}
     ) == "Apartment"
+    # タイトルに店舗・事務所があり specs がマンション等の場合、Building を優先
+    assert PropertyTypeDetector.detect_investment_type(
+        "区分店舗 駅徒歩1分",
+        specs={"物件種別": "マンション"}
+    ) == "Building"
+    assert PropertyTypeDetector.detect_investment_type(
+        "○○ビル 1階事務所",
+        specs={"物件種別": "マンション"}
+    ) == "Building"
 
 
 
@@ -262,6 +271,14 @@ def test_tochi_keyword_clean_exclusion():
         default="mansion"
     )
     assert res != "tochi"
+    # 「土地・建物」「土地建物」フレーズがあっても土地判定されないこと
+    res_tb = PropertyTypeDetector.detect(
+        html_text="土地・建物一括売買 所有権 建物面積80㎡",
+        default="kodate"
+    )
+    assert res_tb != "tochi"
+    # 「一棟アパート 土地・建物」は建物（apartment）として判定されること
+    assert PropertyTypeDetector.detect(title="一棟アパート 土地・建物付き") == "apartment"
 
 
 

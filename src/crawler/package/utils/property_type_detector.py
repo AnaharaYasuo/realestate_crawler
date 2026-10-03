@@ -71,7 +71,7 @@ class PropertyTypeDetector:
 
     _ai_cache: Dict[str, str] = {}
 
-    _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き")
+    _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き", "土地・建物", "土地建物")
 
     @classmethod
     def _is_isolated_tochi(cls, text: str) -> bool:
@@ -242,24 +242,24 @@ class PropertyTypeDetector:
         if not text or not isinstance(text, str):
             return None
 
-        has_strong_tochi = any(
+        has_definite_tochi = any(
             k in text for k in ("売地", "売土地", "売り土地", "建築条件付土地")
-        ) or cls._is_isolated_tochi(text)
+        )
         # 数値利回り・オーナーチェンジ等の実投資シグナルを売地より優先
         if cls._has_yield_signal(text):
             return "apartment"
-        if has_strong_tochi:
+        if has_definite_tochi:
             return "tochi"
 
-        keyword_map = (
-            (cls.APARTMENT_KEYWORDS, "apartment"),
-            (cls.KODATE_KEYWORDS, "kodate"),
-            (cls.TOCHI_KEYWORDS, "tochi"),
-            (cls.MANSION_KEYWORDS, "mansion"),
-        )
-        for keywords, ptype in keyword_map:
-            if cls._first_keyword_hit(text, keywords):
-                return ptype
+        # 建物キーワードを先に判定（「一棟アパート 土地・建物」や単独「土地」混在時の建物優先）
+        if cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS):
+            return "apartment"
+        if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
+            return "kodate"
+        if cls._is_isolated_tochi(text) or cls._first_keyword_hit(text, cls.TOCHI_KEYWORDS):
+            return "tochi"
+        if cls._first_keyword_hit(text, cls.MANSION_KEYWORDS):
+            return "mansion"
         return None
 
     @classmethod
@@ -590,6 +590,12 @@ class PropertyTypeDetector:
         投資物件の表題・スペック表等から Apartment / Mansion / Kodate / Building を判定。
         各投資用パーサーの重複実装を共通化。
         """
+        # タイトルに具体的なビル・店舗・事務所表記がある場合は、specsの汎用種別より優先
+        if text and isinstance(text, str) and any(
+            k in text for k in ("ビル", "店舗", "事務所", "区分店舗", "区分事務所")
+        ):
+            return "Building"
+
         # タイトルに一棟マンション/一棟売り等の具体的な一棟表記がある場合は、specsの汎用「マンション」より優先
         if text and isinstance(text, str) and any(
             k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT)
