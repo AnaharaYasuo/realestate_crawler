@@ -327,6 +327,18 @@ graph TD
 - 送信完了は詳細ディスパッチ用セッションおよび次ページ取得用セッション（`_fetchNextPage`）に登録した `TraceConfig`（`_request_sent_trace_config()`、`on_request_chunk_sent` で `trace_request_ctx["sent"] = True`）で確認する。本文送信を確認できたタイムアウトのみ Fire-and-Forget（受信側で処理継続）として成功扱いとしキーを保持し（再送すると重複処理となるため）、送信を確認できないタイムアウトは `(詳細 URL, 504, "Timeout")` を返してキーを解除し再取得を妨げない。
 - 詳細 `main()` 内で処理済みの失敗（パース・バリデーション失敗等。`_getContent` で通信リトライ済み、FailureReporter に記録済み）は再ディスパッチしない。決定的な失敗を一覧ページごとに再クロールする重複を防ぐためである。
 
+### 6.10.4 中間・一覧ページネーション非再帰反復設計 (Issue #620)
+- **非再帰直列ループ処理 (`ParseMiddlePageAsyncBase._run`)**:
+  - `ParseMiddlePageAsyncBase` は `_run(self, _url)` をオーバーライドし、一覧・中間ページの次ページ探索（`_getNextPageParserFunc`）を直列 `while` ループで走査する。
+  - 各ページで詳細物件URLリスト（`_getParserFunc`）を抽出し、抽出後直ちに `_callApi` を呼び出して当該ページ分の詳細ディスパッチを完了させる（ページ単位ストリーミング）。
+  - 詳細ディスパッチ完了後、`del response` によりDOM（BeautifulSoup / lxml）のメモリを即時解放し、次ページURL（`next_page_url`）が存在する限り同一ループ内で巡回を継続する。
+  - 同一URLへの無限ループを防止するため、訪問済みページURLの `visited_pages` 追跡および同一URLガードを備える。
+- **再帰的スレッド生成・OOMの根絶**:
+  - `_treatPage` 内での自動 `_fetchNextPage` 呼び出しは、反復ループ（`_run`）実行中はバイパス（`is_iterative_running` 等）し、二重取得およびローカルルーティングにおけるネストした `threading.Thread` 生成を物理的に排除する。
+  - 単体テスト等で `_treatPage` や `_fetchNextPage` が直接単独呼び出しされた場合の後方互換性は維持し、既存の単体テスト（`test_crawler_fixes_275.py`, `test_task_array_partial_execution_536.py`）を 100% 成功させる。
+- **リソース消費量の一定化**:
+  - ページ数に関わらずアクティブなスレッド数およびイベントループ数を O(1) に固定し、cgroup メモリ上限超過による `Exit Code: -9`（OOM Kill）を完全に防止する。
+
 ### 6.10.2 DB 待機 Fail-Fast 設計原則 (Step 0.4)
 - `src/crawler/scripts/debug_tools/wait_for_db.py` は、Django `connection.ensure_connection()` の実行前に `socket.create_connection((host, port), timeout=3.0)` による軽量ソケット疎通確認を実施する。
 - ホスト未起動・不通時に OS の TCP SYN タイムアウト（約 130 秒）による 1 時間超のハングを防止し、最大待機時間（60〜120秒）以内に失敗を検知して迅速に Fail-Fast 終了する。

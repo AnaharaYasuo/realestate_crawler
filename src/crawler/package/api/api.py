@@ -1006,6 +1006,91 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 # urlを受け取って、そのページから更にドリルダウン先を呼び出す場合の基底クラス
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
+    async def _fetch_middle_page_response(self, session, current_url):
+        try:
+            if self._isBsMiddlePage():
+                return await self.parser.getResponseBs(session, current_url, self.parser.getCharset())
+            return await self.parser.getResponse(session, current_url, self.parser.getCharset())
+        except Exception as e:
+            logger.exception("Failed to fetch middle page: %s", current_url)
+            await self._save_error_html_by_url(current_url, self.__class__.__name__, f"Middle Page Fetch Failure: {e!s}")
+            raise
+
+    async def _extract_middle_page_details(self, response, current_url):
+        detail_url_list = []
+        try:
+            parser_func = self._getParserFunc()
+            async for detail_url in parser_func(response):
+                detail_url_list.append(detail_url)
+        except Exception as e:
+            logger.exception("Failed to parse middle page: %s", current_url)
+            raw_html_content = str(response) if response is not None else None
+            await self._save_error_html_by_url(
+                current_url,
+                self.__class__.__name__,
+                f"Middle Page Parse Failure: {e!s}",
+                raw_html=raw_html_content,
+            )
+            raise
+        return detail_url_list
+
+    async def _extract_next_page_url(self, response, current_url):
+        parser_next_func = self._getNextPageParserFunc()
+        if parser_next_func is None:
+            return ""
+        try:
+            return await parser_next_func(response)
+        except Exception as npe:
+            logger.exception("Failed to extract next page URL from %s", current_url)
+            raw_html_content = str(response) if response is not None else None
+            await self._save_error_html_by_url(
+                current_url,
+                self.__class__.__name__,
+                f"Middle Page Next URL Failure: {npe!s}",
+                raw_html=raw_html_content,
+            )
+            raise
+
+    async def _run(self, _url):
+        """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)"""
+        _loop = self._getActiveEventLoop()
+        _timeout: aiohttp.ClientTimeout = self._generateTimeout()
+        _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
+
+        current_url = _url
+        all_results = []
+        visited_urls = set()
+
+        try:
+            async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
+                while current_url and current_url not in visited_urls:
+                    visited_urls.add(current_url)
+                    self.url = current_url
+
+                    response = await self._fetch_middle_page_response(session, current_url)
+                    try:
+                        detail_url_list = await self._extract_middle_page_details(response, current_url)
+                        next_page_url = await self._extract_next_page_url(response, current_url)
+                    finally:
+                        del response
+
+                    if detail_url_list:
+                        page_results = await self._callApi(detail_url_list)
+                        if isinstance(page_results, list):
+                            all_results.extend(page_results)
+                        elif page_results is not None:
+                            all_results.append(page_results)
+
+                    if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
+                        current_url = next_page_url
+                    else:
+                        break
+        finally:
+            if _connector is not None:
+                await _connector.close()
+
+        return all_results
+
     async def _treatPage(self, _session, *arg):
         try:
             if self._isBsMiddlePage():
@@ -1033,7 +1118,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             )
             raise e
         finally:
-            # 次のページを開く
+            # 次のページを開く (後方互換性: 単体テスト等で直接 _treatPage が呼ばれた場合のみ)
             parser_next_func = self._getNextPageParserFunc()
             if parser_next_func is not None:
                 next_page_url = await parser_next_func(response)
