@@ -516,46 +516,53 @@ class PropertyTypeDetector:
         return cls._detect_from_area_fields(property_obj)
 
     @classmethod
+    def _detect_invest_from_specs(cls, specs: dict[str, Any] | None) -> str | None:
+        if not specs or not isinstance(specs, dict):
+            return None
+        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+            v = str(specs.get(k) or "")
+            if any(x in v for x in ("戸建て", "戸建", "テラスハウス")):
+                return "Kodate"
+            if any(x in v for x in ("マンション", "レジ", "区分")):
+                return "Mansion"
+            if any(x in v for x in ("ビル", "店舗", "事務所")):
+                return "Building"
+            if "アパート" in v:
+                return "Apartment"
+        if specs.get("専有面積"):
+            return "Mansion"
+        return None
+
+    @classmethod
+    def _detect_invest_from_text(cls, text: str | None, default: str) -> str:
+        if not text or not isinstance(text, str):
+            return default
+        if any(k in text for k in ("戸建て", "戸建", "テラスハウス", "一戸建")):
+            return "Kodate"
+        if "アパート" in text:
+            return "Apartment"
+        if "マンション" in text or "レジ" in text:
+            return "Mansion"
+        if any(k in text for k in ("ビル", "店舗", "事務所")):
+            return "Building"
+        return default
+
+    @classmethod
     def detect_investment_type(
         cls,
-        text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        text: str | None = None,
+        specs: dict[str, Any] | None = None,
         default: str = "Apartment"
     ) -> str:
         """
         投資物件の表題・スペック表等から Apartment / Mansion / Kodate / Building を判定。
         各投資用パーサーの重複実装を共通化。
         """
-        # 1. specs 内の明示的種別確認
-        if specs and isinstance(specs, dict):
-            for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
-                v = str(specs.get(k) or "")
-                if any(x in v for x in ("戸建て", "戸建", "テラスハウス")):
-                    return "Kodate"
-                if any(x in v for x in ("マンション", "レジ", "区分")):
-                    return "Mansion"
-                if any(x in v for x in ("ビル", "店舗", "事務所")):
-                    return "Building"
-                if "アパート" in v:
-                    return "Apartment"
+        res_specs = cls._detect_invest_from_specs(specs)
+        if res_specs:
+            return res_specs
+        return cls._detect_invest_from_text(text, default)
 
-            # 専有面積があれば区分マンション
-            if specs.get("専有面積"):
-                return "Mansion"
-
-        # 2. テキスト・表題による判定
-        if not text or not isinstance(text, str):
-            return default
-
-        if any(k in text for k in ["戸建て", "戸建", "テラスハウス", "一戸建"]):
-            return "Kodate"
-        if "アパート" in text:
-            return "Apartment"
-        if "マンション" in text or "レジ" in text:
-            return "Mansion"
-        if any(k in text for k in ["ビル", "店舗", "事務所"]):
-            return "Building"
-        return default
 
 
     @classmethod
