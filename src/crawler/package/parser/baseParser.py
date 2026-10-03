@@ -510,16 +510,23 @@ class ParserBase(metaclass=ABCMeta):
     @classmethod
     def _find_card_container(cls, link):
         parent = link
+        first_candidate = None
         for _ in range(6):
             parent = parent.find_parent(['div', 'li', 'tr', 'article', 'section'])
             if parent is None:
                 break
+            # Skip heading/title sub-elements
             classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
             tag_id = str(parent.get('id', ''))
             combined = f"{classes} {tag_id}".lower()
+            if any(k in combined for k in ('title', 'heading', 'name')) and not any(k in combined for k in ('card', 'item', 'bukken', 'property')):
+                continue
             if any(k in combined for k in cls._CARD_KEYWORDS):
-                return parent
-        return link.parent or link
+                if first_candidate is None:
+                    first_candidate = parent
+                if any(parent.select_one(sel) for sel in cls._PRICE_SELECTORS):
+                    return parent
+        return first_candidate or link.parent or link
 
     @classmethod
     def _extract_card_price(cls, link) -> int | None:

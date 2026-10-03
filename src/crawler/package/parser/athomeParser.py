@@ -386,7 +386,9 @@ class AthomeParser(ParserBase):
             sub_path = urllib.parse.urlparse(sub_href).path
             sub_is_nav = any(nav in sub_path for nav in ATHOME_NAV_KEYWORDS)
             if not sub_is_nav and self._is_athome_detail_path(sub_path, sub_href):
-                yield self._normalize_athome_url(sub_href, base_domain)
+                url = self._normalize_athome_url(sub_href, base_domain)
+                price = self._extract_card_price(a)
+                yield ListItem(url=url, price=price)
 
     def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
         if is_list_or_nav or "bklist" in href or "sitemaplist" in path:
@@ -477,10 +479,11 @@ class AthomeParser(ParserBase):
                 yield ListItem(url=detail_url, price=price)
 
         if list_links:
-            async for normalized in self._expand_sub_list_pages(list_links, base):
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield ListItem(url=normalized)
+            async for item in self._expand_sub_list_pages(list_links, base):
+                url = item.url if isinstance(item, ListItem) else str(item)
+                if url not in detail_links:
+                    detail_links.add(url)
+                    yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 0. 掲載終了・物件不在の早期検知

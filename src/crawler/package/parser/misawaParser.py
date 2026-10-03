@@ -110,7 +110,7 @@ class MisawaParser(ParserBase):
             if not href:
                 continue
             full_url = self.getRootDestUrl(href)
-            price = self._extract_card_price(section) or self._extract_card_price(a_tag)
+            price = self._extract_card_price(section)
             yield ListItem(url=full_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
