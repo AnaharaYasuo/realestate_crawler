@@ -39,28 +39,50 @@ class PropertyTypeDetector:
         SIGNAL_GROSS_INCOME, SIGNAL_FULL_OCCUPANCY, SIGNAL_ANNUAL_RENT_EST, "賃貸中",
     ]
 
+    KW_ITTO_URI_APARTMENT = "一棟売りアパート"
+    KW_ITTO_APARTMENT = "一棟アパート"
+    KW_ITTO_URI_MANSION = "一棟売りマンション"
+    KW_ITTO_MANSION = "一棟マンション"
+    KW_MANSION = "マンション"
+    KW_TERRACE_HOUSE = "テラスハウス"
+
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
     APARTMENT_KEYWORDS = [
-        "一棟売りアパート", "一棟アパート", "一棟売りマンション", "一棟マンション",
+        KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
         "一棟売りビル", "一棟ビル", "収益アパート", "投資用アパート",
         "収益物件", "一棟売り", "一棟"
     ]
 
     MANSION_KEYWORDS = [
         "区分マンション", "中古マンション", "新築マンション", "区分所有",
-        "ライオンズマンション", "パークホームズ", "マンション"
+        "ライオンズマンション", "パークホームズ", KW_MANSION
     ]
 
     KODATE_KEYWORDS = [
         "新築一戸建て", "中古一戸建て", "一戸建て", "新築一戸建", "中古一戸建",
-        "一戸建", "新築戸建", "中古戸建", "テラスハウス", "戸建"
+        "一戸建", "新築戸建", "中古戸建", KW_TERRACE_HOUSE, "戸建"
     ]
 
     TOCHI_KEYWORDS = [
-        "売土地", "売り土地", "建築条件付土地", "売地", "土地"
+        "売土地", "売り土地", "建築条件付土地", "売地"
     ]
 
+
+
     _ai_cache: Dict[str, str] = {}
+
+    _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き", "土地・建物", "土地建物")
+
+    @classmethod
+    def _is_isolated_tochi(cls, text: str) -> bool:
+        """「土地」が「土地権利」「土地面積」等の除外フレーズの一部でない独立した出現を含むか判定"""
+        if not text or "土地" not in text:
+            return False
+        # 除外フレーズを置換して残りに「土地」が含まれるか確認
+        clean = text
+        for term in cls._TOCHI_EXCLUDED_TERMS:
+            clean = clean.replace(term, "")
+        return "土地" in clean
 
     _YIELD_MARKERS = (
         "利回り",
@@ -220,24 +242,24 @@ class PropertyTypeDetector:
         if not text or not isinstance(text, str):
             return None
 
-        has_strong_tochi = any(
+        has_definite_tochi = any(
             k in text for k in ("売地", "売土地", "売り土地", "建築条件付土地")
         )
         # 数値利回り・オーナーチェンジ等の実投資シグナルを売地より優先
         if cls._has_yield_signal(text):
             return "apartment"
-        if has_strong_tochi:
+        if has_definite_tochi:
             return "tochi"
 
-        keyword_map = (
-            (cls.APARTMENT_KEYWORDS, "apartment"),
-            (cls.KODATE_KEYWORDS, "kodate"),
-            (cls.TOCHI_KEYWORDS, "tochi"),
-            (cls.MANSION_KEYWORDS, "mansion"),
-        )
-        for keywords, ptype in keyword_map:
-            if cls._first_keyword_hit(text, keywords):
-                return ptype
+        # 建物キーワードを先に判定（「一棟アパート 土地・建物」や単独「土地」混在時の建物優先）
+        if cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS):
+            return "apartment"
+        if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
+            return "kodate"
+        if cls._is_isolated_tochi(text) or cls._first_keyword_hit(text, cls.TOCHI_KEYWORDS):
+            return "tochi"
+        if cls._first_keyword_hit(text, cls.MANSION_KEYWORDS):
+            return "mansion"
         return None
 
     @classmethod
@@ -246,7 +268,10 @@ class PropertyTypeDetector:
         type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
         for k in type_keys:
             if k in specs:
-                ptype = cls._match_keywords(str(specs[k]))
+                val_str = str(specs[k]).strip()
+                if val_str == "土地":
+                    return "tochi"
+                ptype = cls._match_keywords(val_str)
                 if ptype:
                     return ptype
 
@@ -255,6 +280,7 @@ class PropertyTypeDetector:
             if ptype:
                 return ptype
         return None
+
 
     @classmethod
     def _detect_from_url(cls, url: str) -> Optional[str]:
@@ -297,15 +323,23 @@ class PropertyTypeDetector:
             title_ptype = cls._match_keywords(title)
             if title_ptype:
                 return title_ptype
-        if cls._has_yield_signal(html_text):
+
+        # 数値付き利回りはURL（/mansion/等）よりも強い投資シグナルとして最優先
+        if html_text and cls._has_numeric_yield(html_text):
             return "apartment"
+        # 明示的なスペック種別（物件種別: 区分マンション等）はURLより優先
         if specs_ptype:
             return specs_ptype
         if url:
             url_ptype = cls._detect_from_url(url)
             if url_ptype:
                 return url_ptype
+        if cls._has_yield_signal(html_text):
+            return "apartment"
         return cls._match_keywords(html_text) if html_text else None
+
+
+
 
     @classmethod
     def detect(
@@ -514,20 +548,72 @@ class PropertyTypeDetector:
         return cls._detect_from_area_fields(property_obj)
 
     @classmethod
-    def detect_investment_type(cls, text: str, default: str = "Apartment") -> str:
-        """
-        投資物件の表題・テキスト等から Apartment / Mansion / Building を判定。
-        各投資用パーサーの重複実装を共通化。
-        """
+    def _detect_invest_from_specs(cls, specs: dict[str, Any] | None) -> str | None:
+        if not specs or not isinstance(specs, dict):
+            return None
+        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+            v = str(specs.get(k) or "")
+            if any(x in v for x in ("ビル", "店舗", "事務所")):
+                return "Building"
+            if any(x in v for x in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
+                return "Apartment"
+            if any(x in v for x in ("戸建て", "戸建", "一戸建", "一戸建て", cls.KW_TERRACE_HOUSE)):
+                return "Kodate"
+            if any(x in v for x in (cls.KW_MANSION, "レジ", "区分")):
+                return "Mansion"
+        return None
+
+    @classmethod
+    def _detect_invest_from_text(cls, text: str | None, default: str) -> str:
         if not text or not isinstance(text, str):
             return default
-        if "アパート" in text:
-            return "Apartment"
-        if "マンション" in text or "レジ" in text:
-            return "Mansion"
-        if any(k in text for k in ["ビル", "店舗", "事務所"]):
+        if any(k in text for k in ("ビル", "店舗", "事務所")):
             return "Building"
+        if any(k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
+            return "Apartment"
+        if any(k in text for k in ("戸建て", "戸建", cls.KW_TERRACE_HOUSE, "一戸建")):
+            return "Kodate"
+        if cls.KW_MANSION in text or "レジ" in text:
+            return "Mansion"
         return default
+
+
+
+    @classmethod
+    def detect_investment_type(
+        cls,
+        text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        default: str = "Apartment"
+    ) -> str:
+        """
+        投資物件の表題・スペック表等から Apartment / Mansion / Kodate / Building を判定。
+        各投資用パーサーの重複実装を共通化。
+        """
+        # タイトルに具体的なビル・店舗・事務所表記がある場合は、specsの汎用種別より優先
+        if text and isinstance(text, str) and any(
+            k in text for k in ("ビル", "店舗", "事務所", "区分店舗", "区分事務所")
+        ):
+            return "Building"
+
+        # タイトルに一棟マンション/一棟売り等の具体的な一棟表記がある場合は、specsの汎用「マンション」より優先
+        if text and isinstance(text, str) and any(
+            k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT)
+        ):
+            return "Apartment"
+
+        res_specs = cls._detect_invest_from_specs(specs)
+        if res_specs:
+            return res_specs
+        res_text = cls._detect_invest_from_text(text, default="")
+        if res_text:
+            return res_text
+        if specs and isinstance(specs, dict) and specs.get("専有面積"):
+            return "Mansion"
+        return default
+
+
+
 
     @classmethod
     def is_investment(cls, ptype: Optional[str]) -> bool:
