@@ -451,10 +451,11 @@ def _get_active_cloud_run_executions(
                 candidates.add(f"{clean_p}-{env_suffix}")
                 candidates.add(f"{clean_p}-prod")
                 candidates.add(f"{clean_p}-stg")
-            job_full_names = [
-                f"projects/{project_id}/locations/{region}/jobs/{c}"
-                for c in sorted(candidates)
-            ]
+            existing_jobs = set(job_full_names)
+            for c in sorted(candidates):
+                c_full = f"projects/{project_id}/locations/{region}/jobs/{c}"
+                if c_full not in existing_jobs:
+                    job_full_names.append(c_full)
 
         seen_execution_names = set()
         has_execution_error = False
@@ -470,7 +471,12 @@ def _get_active_cloud_run_executions(
                     curr_exec_url = f"{exec_url}?pageToken={next_exec_token}"
                 e_resp = requests.get(curr_exec_url, headers=headers, timeout=10)
                 if e_resp.status_code == 404:
-                    # Job candidate does not exist in this environment
+                    if next_exec_token:
+                        # 404 on paginated page indicates retrieval failure
+                        has_execution_error = True
+                        last_candidate_err = f"HTTP 404 on pageToken for {j_short_name}"
+                        logger.warning(last_candidate_err)
+                    # Initial 404: job does not exist in this environment
                     break
                 all_candidates_not_found = False
                 if e_resp.status_code != 200:
