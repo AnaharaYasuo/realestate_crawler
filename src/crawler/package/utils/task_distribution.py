@@ -45,13 +45,53 @@ def pin_execution_date() -> datetime.date:
     return execution_date
 
 
+MAJOR_5_COMPANIES = {"mitsui", "sumifu", "tokyu", "nomura", "misawa"}
+PORTAL_COMPANIES = {"athome", "homes"}
+
+
+def _assign_8_task_index(c_lower: str, p_lower: str) -> int:
+    if c_lower == "homes":
+        return 5
+    if c_lower == "athome":
+        return 6 if p_lower == "mansion" else 7
+    if c_lower in MAJOR_5_COMPANIES:
+        mapping = {"mansion": 0, "kodate": 1, "tochi": 2}
+        return mapping.get(p_lower, 3)
+    if p_lower in ("invest_kodate", "invest_apartment", "investment"):
+        return 3
+    return 4
+
+
+def _distribute_8_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tuple[str, str]]:
+    """
+    8タスク専用の決定論的マッピング (Issue #608 仕様):
+    - Task 0: 大手仲介5社 mansion
+    - Task 1: 大手仲介5社 kodate
+    - Task 2: 大手仲介5社 tochi
+    - Task 3: 大手仲介5社 + 信託3社 + odakyu/sumirin の投資用
+    - Task 4: 信託3社居住用 + 電鉄・ハウスメーカー系17社居住用
+    - Task 5: homes 全種別
+    - Task 6: athome mansion
+    - Task 7: athome その他種別
+    """
+    task_map: dict[int, list[tuple[str, str]]] = {i: [] for i in range(8)}
+
+    for company, ptype in jobs:
+        idx = _assign_8_task_index(company.lower(), ptype.lower())
+        task_map[idx].append((company, ptype))
+
+    return task_map[task_index]
+
+
 def distribute_jobs(
     jobs: list[tuple[str, str]],
     task_index: int | None = None,
     task_count: int = 1
 ) -> list[tuple[str, str]]:
     """
-    全ジョブリストをタスクインデックスに応じて Modulo 分割して返す。
+    全ジョブリストをタスクインデックスに応じて分割して返す。
+    task_count == 8 の場合は Issue #608 の決定論的マッピングを適用。
+    それ以外の task_count の場合は従来の Modulo 分割を適用。
     task_count <= 1 または task_index is None の場合は全ジョブを返す。
     """
     if task_count <= 1 or task_index is None:
@@ -59,5 +99,9 @@ def distribute_jobs(
     
     if task_index < 0 or task_index >= task_count:
         raise ValueError(f"task_index ({task_index}) out of range for task_count ({task_count})")
+
+    if task_count == 8:
+        return _distribute_8_tasks(jobs, task_index)
     
     return [job for i, job in enumerate(jobs) if i % task_count == task_index]
+

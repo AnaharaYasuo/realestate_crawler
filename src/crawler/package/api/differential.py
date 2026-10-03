@@ -1,20 +1,30 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import logging
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 
 
-@dataclass
-class ListItem:
+class ListItem(str):
     url: str
-    price: Optional[int] = None
-    hash_val: Optional[str] = None
+    price: int | None
+    hash_val: str | None
+
+    def __new__(cls, url: str, price: int | None = None, hash_val: str | None = None):
+        instance = super().__new__(cls, url)
+        instance.url = url
+        instance.price = price
+        instance.hash_val = hash_val
+        return instance
+
+    def __repr__(self) -> str:
+        return f"ListItem(url={self.url!r}, price={self.price!r}, hash_val={self.hash_val!r})"
 
     @classmethod
-    def from_raw(cls, raw: str | Tuple[Any, ...] | List[Any] | Dict[str, Any] | "ListItem") -> "ListItem":
+    def from_raw(cls, raw: str | tuple[Any, ...] | list[Any] | dict[str, Any] | ListItem) -> ListItem:
         if isinstance(raw, ListItem):
             return raw
         if isinstance(raw, str):
@@ -44,7 +54,7 @@ def _is_ttl_expired(db_dt: Any, now: Any, ttl_days: int) -> bool:
     return (now - dt_cmp).total_seconds() > ttl_days * 86400
 
 
-def _should_fetch_item(item: ListItem, record: Optional[Dict[str, Any]], now: Any, ttl_days: int) -> bool:
+def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, ttl_days: int) -> bool:
     if not record:
         return True
     db_price = record.get("price")
@@ -58,7 +68,7 @@ def _should_fetch_item(item: ListItem, record: Optional[Dict[str, Any]], now: An
     return False
 
 
-async def _batch_update_cached(model_class: Any, to_skip: List[str], now: Any) -> None:
+async def _batch_update_cached(model_class: Any, to_skip: list[str], now: Any) -> None:
     if not to_skip:
         return
     try:
@@ -74,12 +84,12 @@ async def _batch_update_cached(model_class: Any, to_skip: List[str], now: Any) -
 
 
 async def filter_differential_items(
-    items: List[Any],
+    items: list[Any],
     model_class: Any,
     ttl_days: int = 7,
     force_full: bool = False,
     enabled: bool = True,
-) -> Tuple[List[str], List[str]]:
+) -> tuple[list[str], list[str]]:
     """
     Filter extracted items into:
     - to_fetch: URLs that must be fetched (new, price changed, expired TTL)
@@ -105,14 +115,14 @@ async def filter_differential_items(
             )
             return {row["pageUrl"]: row for row in qs}
 
-        existing_map: Dict[str, Dict[str, Any]] = await sync_to_async(query_existing)()
+        existing_map: dict[str, dict[str, Any]] = await sync_to_async(query_existing)()
     except Exception as e:
         logging.warning(f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl.")
         return all_urls, []
 
     now = timezone.now()
-    to_fetch: List[str] = []
-    to_skip: List[str] = []
+    to_fetch: list[str] = []
+    to_skip: list[str] = []
 
     for item in normalized_items:
         if not item.url:

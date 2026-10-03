@@ -15,6 +15,7 @@ from package.utils import converter
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 import logging
 from package.utils.selector_loader import SelectorLoader
+from package.api.differential import ListItem
 import urllib.parse
 
 JAVASCRIPT_PREFIX = "javascript:"
@@ -556,7 +557,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
                 continue
             joined_url = urllib.parse.urljoin(self.BASE_URL, href)
             if JAVASCRIPT_PREFIX not in joined_url and VOID_0 not in joined_url and not self._is_non_property_href(joined_url):
-                yield joined_url
+                price = self._extract_card_price(link)
+                yield ListItem(url=joined_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
         # Text search for '次へ'
