@@ -33,8 +33,8 @@ class DataNormalizer:
             return ""
         # NFKC正規化で全角英数・記号を半角統一
         normalized = unicodedata.normalize('NFKC', str(text))
-        # 改行・タブ・全角半角スペースを単一スペースに集約
-        cleaned = re.sub(r'[\r\n\t\s]+', ' ', normalized).strip()
+        # 改行・タブ・全角半角スペースを単一スペースに集約 (\s は \r\n\t を含むため重複排除)
+        cleaned = re.sub(r'\s+', ' ', normalized).strip()
         return cleaned
 
     @classmethod
@@ -82,7 +82,7 @@ class DataNormalizer:
 
         # 坪数判定
         if "坪" in cleaned:
-            match = re.search(r'([\d.]+)\s*坪', cleaned)
+            match = re.search(r'(\d+(?:\.\d+)?)\s*坪', cleaned)
             if match:
                 tsubo = Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 m2 = (tsubo * TSUBO_TO_M2_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -94,9 +94,9 @@ class DataNormalizer:
                 )
 
         # ㎡・m2 判定
-        match = re.search(r'([\d.]+)\s*(?:㎡|m2|m²)', cleaned)
+        match = re.search(r'(\d+(?:\.\d+)?)\s*(?:㎡|m2|m²)', cleaned)
         if not match:
-            match = re.search(r'([\d.]+)', cleaned)
+            match = re.search(r'(\d+(?:\.\d+)?)', cleaned)
 
         if match:
             m2 = Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
