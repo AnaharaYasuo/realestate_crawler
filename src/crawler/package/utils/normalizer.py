@@ -1,9 +1,10 @@
 import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 import re
 import unicodedata
-from dataclasses import dataclass
-from package.utils.converter import parse_price, parse_yen, parse_chikunengetsu
+
+from package.utils.converter import parse_chikunengetsu, parse_price, parse_yen
 
 
 TSUBO_TO_M2_RATE = Decimal('3.30578')
@@ -50,7 +51,7 @@ class DataNormalizer:
             return None
 
         # 付帯文字（税込、非課税、相談等）を除去
-        cleaned = re.sub(r'\(.*?\)|（.*?）', '', cleaned)
+        cleaned = re.sub(r'\([^)]*\)|（[^）]*）', '', cleaned)
         cleaned = re.sub(r'税込|税別|非課税|相談', '', cleaned).strip()
 
         # 億・万が含まれる場合は parse_price

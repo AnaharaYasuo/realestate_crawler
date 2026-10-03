@@ -1,6 +1,6 @@
 import datetime
 from decimal import Decimal
-import pytest
+
 from package.utils.normalizer import DataNormalizer
 
 
