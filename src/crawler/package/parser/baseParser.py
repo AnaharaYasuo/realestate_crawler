@@ -351,14 +351,28 @@ class ParserBase(metaclass=ABCMeta):
     _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav'})
     _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
 
+    @staticmethod
+    def _is_property_context(el) -> bool:
+        if not hasattr(el, 'get'):
+            return False
+        name = getattr(el, 'name', None)
+        classes = ' '.join(el.get('class', [])).lower()
+        el_id = str(el.get('id', '')).lower()
+        return (
+            name == 'article'
+            or 'property' in classes
+            or 'detail' in classes
+            or 'bukken' in classes
+            or 'property' in el_id
+            or 'detail' in el_id
+        )
+
     @classmethod
     def _is_noise_header_or_aside(cls, el) -> bool:
         """Return True if header/aside element is outside article/property context."""
-        curr = getattr(el, 'parent', None)
+        curr = el
         while curr is not None:
-            c_name = getattr(curr, 'name', None)
-            c_cls = ' '.join(curr.get('class', [])).lower() if hasattr(curr, 'get') else ''
-            if c_name == 'article' or 'property' in c_cls or 'detail' in c_cls:
+            if cls._is_property_context(curr):
                 return False
             curr = getattr(curr, 'parent', None)
         return True
@@ -366,6 +380,8 @@ class ParserBase(metaclass=ABCMeta):
     @classmethod
     def _matches_noise_pattern(cls, el) -> bool:
         if not hasattr(el, 'get'):
+            return False
+        if cls._is_property_context(el):
             return False
         curr_id = str(el.get('id', '')).lower()
         curr_cls = ' '.join(el.get('class', [])).lower()
