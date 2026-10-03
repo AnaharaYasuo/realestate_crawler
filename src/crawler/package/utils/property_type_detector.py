@@ -298,6 +298,9 @@ class PropertyTypeDetector:
             title_ptype = cls._match_keywords(title)
             if title_ptype:
                 return title_ptype
+        # 数値付き利回りはURL（/mansion/等）よりも強い投資シグナルとして最優先
+        if html_text and cls._has_numeric_yield(html_text):
+            return "apartment"
         if url:
             url_ptype = cls._detect_from_url(url)
             if url_ptype:
@@ -307,6 +310,7 @@ class PropertyTypeDetector:
         if specs_ptype:
             return specs_ptype
         return cls._match_keywords(html_text) if html_text else None
+
 
 
     @classmethod
@@ -521,26 +525,24 @@ class PropertyTypeDetector:
             return None
         for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
             v = str(specs.get(k) or "")
+            if any(x in v for x in ("一棟マンション", "一棟売りマンション", "一棟アパート", "一棟売りアパート", "アパート")):
+                return "Apartment"
             if any(x in v for x in ("戸建て", "戸建", "テラスハウス")):
                 return "Kodate"
             if any(x in v for x in ("マンション", "レジ", "区分")):
                 return "Mansion"
             if any(x in v for x in ("ビル", "店舗", "事務所")):
                 return "Building"
-            if "アパート" in v:
-                return "Apartment"
-        if specs.get("専有面積"):
-            return "Mansion"
         return None
 
     @classmethod
     def _detect_invest_from_text(cls, text: str | None, default: str) -> str:
         if not text or not isinstance(text, str):
             return default
+        if any(k in text for k in ("一棟マンション", "一棟売りマンション", "一棟アパート", "一棟売りアパート", "アパート")):
+            return "Apartment"
         if any(k in text for k in ("戸建て", "戸建", "テラスハウス", "一戸建")):
             return "Kodate"
-        if "アパート" in text:
-            return "Apartment"
         if "マンション" in text or "レジ" in text:
             return "Mansion"
         if any(k in text for k in ("ビル", "店舗", "事務所")):
@@ -561,7 +563,13 @@ class PropertyTypeDetector:
         res_specs = cls._detect_invest_from_specs(specs)
         if res_specs:
             return res_specs
-        return cls._detect_invest_from_text(text, default)
+        res_text = cls._detect_invest_from_text(text, default="")
+        if res_text:
+            return res_text
+        if specs and isinstance(specs, dict) and specs.get("専有面積"):
+            return "Mansion"
+        return default
+
 
 
 
