@@ -74,7 +74,25 @@ class TestNomuraParser:
         next_abs = await parser.parseNextPage(soup_abs)
         assert next_abs == "https://www.nomu.com/pro/search/?pager_page=3"
 
-        # 4. No next page
+        # 4. pager_page fallback without "次へ" text
+        html_pager = '<div class="pager"><a href="/pro/search/?pager_page=4"><span>4</span></a></div>'
+        soup_pager = BeautifulSoup(html_pager, "html.parser")
+        next_pager = await parser.parseNextPage(soup_pager)
+        assert next_pager == "https://www.nomu.com/pro/search/?pager_page=4"
+
+        # 5. Path-relative URL with current_url
+        html_rel = '<div class="pager"><a href="search/?pager_page=5">次へ</a></div>'
+        soup_rel = BeautifulSoup(html_rel, "html.parser")
+        next_rel = await parser.parseNextPage(soup_rel, current_url="https://www.nomu.com/pro/")
+        assert next_rel == "https://www.nomu.com/pro/search/?pager_page=5"
+
+        # 6. Scheme-relative URL rejection
+        html_scheme_rel = '<div class="pager"><a href="//evil.com/pro/search/?pager_page=6">次へ</a></div>'
+        soup_scheme_rel = BeautifulSoup(html_scheme_rel, "html.parser")
+        next_scheme_rel = await parser.parseNextPage(soup_scheme_rel)
+        assert next_scheme_rel == ""
+
+        # 7. No next page
         html_none = '<div class="pager"><span class="current">1</span></div>'
         soup_none = BeautifulSoup(html_none, "html.parser")
         next_none = await parser.parseNextPage(soup_none)
