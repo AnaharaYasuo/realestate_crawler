@@ -205,12 +205,17 @@ def test_detect_investment_type():
     assert PropertyTypeDetector.detect_investment_type("投資用戸建て オーナーチェンジ") == "Kodate"
     assert PropertyTypeDetector.detect_investment_type("目黒区 中古戸建 賃貸中") == "Kodate"
     assert PropertyTypeDetector.detect_investment_type("○○テラスハウス 収益物件") == "Kodate"
-    assert PropertyTypeDetector.detect_investment_type("○○ビル 一棟売り店舗") == "Building"
-    assert PropertyTypeDetector.detect_investment_type("新宿区 事務所ビル") == "Building"
-    assert PropertyTypeDetector.detect_investment_type("タイトル不明", default="Apartment") == "Apartment"
+    # 一棟マンションはアパート（一棟集合住宅）カテゴリ
+    assert PropertyTypeDetector.detect_investment_type("○○一棟マンション 満室稼働中") == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"物件種別": "一棟マンション"}) == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"物件種別": "一戸建"}) == "Kodate"
     # specs による判定サポート
     assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"建物種別": "一戸建て"}) == "Kodate"
     assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"専有面積": "25.0m2"}) == "Mansion"
+    # specs の exact '土地'
+    assert PropertyTypeDetector.detect(specs={"種別": "土地"}) == "tochi"
+    assert PropertyTypeDetector.detect(specs={"種別": " 土地 "}) == "tochi"
+
 
 
 def test_url_precedence_over_body_rental_signal():

@@ -247,7 +247,10 @@ class PropertyTypeDetector:
         type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
         for k in type_keys:
             if k in specs:
-                ptype = cls._match_keywords(str(specs[k]))
+                val_str = str(specs[k]).strip()
+                if val_str == "土地":
+                    return "tochi"
+                ptype = cls._match_keywords(val_str)
                 if ptype:
                     return ptype
 
@@ -256,6 +259,7 @@ class PropertyTypeDetector:
             if ptype:
                 return ptype
         return None
+
 
     @classmethod
     def _detect_from_url(cls, url: str) -> Optional[str]:
@@ -301,15 +305,17 @@ class PropertyTypeDetector:
         # 数値付き利回りはURL（/mansion/等）よりも強い投資シグナルとして最優先
         if html_text and cls._has_numeric_yield(html_text):
             return "apartment"
+        # 明示的なスペック種別（物件種別: 区分マンション等）はURLより優先
+        if specs_ptype:
+            return specs_ptype
         if url:
             url_ptype = cls._detect_from_url(url)
             if url_ptype:
                 return url_ptype
         if cls._has_yield_signal(html_text):
             return "apartment"
-        if specs_ptype:
-            return specs_ptype
         return cls._match_keywords(html_text) if html_text else None
+
 
 
 
@@ -527,8 +533,9 @@ class PropertyTypeDetector:
             v = str(specs.get(k) or "")
             if any(x in v for x in ("一棟マンション", "一棟売りマンション", "一棟アパート", "一棟売りアパート", "アパート")):
                 return "Apartment"
-            if any(x in v for x in ("戸建て", "戸建", "テラスハウス")):
+            if any(x in v for x in ("戸建て", "戸建", "一戸建", "一戸建て", "テラスハウス")):
                 return "Kodate"
+
             if any(x in v for x in ("マンション", "レジ", "区分")):
                 return "Mansion"
             if any(x in v for x in ("ビル", "店舗", "事務所")):
