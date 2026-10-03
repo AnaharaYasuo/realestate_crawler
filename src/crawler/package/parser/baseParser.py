@@ -352,6 +352,26 @@ class ParserBase(metaclass=ABCMeta):
     _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
 
     @classmethod
+    def _is_noise_header(cls, el) -> bool:
+        """Return True if element is a global header outside article/property context."""
+        curr = getattr(el, 'parent', None)
+        while curr is not None:
+            c_name = getattr(curr, 'name', None)
+            c_cls = ' '.join(curr.get('class', [])).lower() if hasattr(curr, 'get') else ''
+            if c_name == 'article' or 'property' in c_cls or 'detail' in c_cls:
+                return False
+            curr = getattr(curr, 'parent', None)
+        return True
+
+    @classmethod
+    def _matches_noise_pattern(cls, el) -> bool:
+        if not hasattr(el, 'get'):
+            return False
+        curr_id = str(el.get('id', '')).lower()
+        curr_cls = ' '.join(el.get('class', [])).lower()
+        return any(pat in curr_id or pat in curr_cls for pat in cls._NOISE_CLASS_OR_ID_PATTERNS)
+
+    @classmethod
     def _is_in_noise_container(cls, el) -> bool:
         """Return True if element is inside footer, nav, sidebar, or other non-property noise sections."""
         curr = el
@@ -359,25 +379,10 @@ class ParserBase(metaclass=ABCMeta):
             name = getattr(curr, 'name', None)
             if name in cls._NOISE_CONTAINER_TAGS:
                 return True
-            if name == 'header':
-                # Distinguish site global header from property/article header
-                parent = getattr(curr, 'parent', None)
-                in_article = False
-                p_check = parent
-                while p_check is not None:
-                    p_name = getattr(p_check, 'name', None)
-                    p_cls = ' '.join(p_check.get('class', [])).lower() if hasattr(p_check, 'get') else ''
-                    if p_name == 'article' or 'property' in p_cls or 'detail' in p_cls:
-                        in_article = True
-                        break
-                    p_check = getattr(p_check, 'parent', None)
-                if not in_article:
-                    return True
-            curr_id = str(curr.get('id', '')).lower() if hasattr(curr, 'get') else ''
-            curr_cls = ' '.join(curr.get('class', [])).lower() if hasattr(curr, 'get') else ''
-            for pat in cls._NOISE_CLASS_OR_ID_PATTERNS:
-                if pat in curr_id or pat in curr_cls:
-                    return True
+            if name == 'header' and cls._is_noise_header(curr):
+                return True
+            if cls._matches_noise_pattern(curr):
+                return True
             curr = getattr(curr, 'parent', None)
         return False
 
