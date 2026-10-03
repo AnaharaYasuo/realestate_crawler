@@ -1,4 +1,6 @@
-from typing import Any, List, Optional, Tuple
+from __future__ import annotations
+
+from typing import Any
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
