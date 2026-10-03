@@ -512,6 +512,12 @@ class ParserBase(metaclass=ABCMeta):
         return any(k in combined for k in ('title', 'heading', 'name')) and not any(k in combined for k in ('card', 'item', 'bukken', 'property'))
 
     @classmethod
+    def _get_combined_tag_info(cls, parent) -> str:
+        classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
+        tag_id = str(parent.get('id', ''))
+        return f"{classes} {tag_id}".lower()
+
+    @classmethod
     def _find_card_container(cls, link):
         parent = link
         first_candidate = None
@@ -519,14 +525,11 @@ class ParserBase(metaclass=ABCMeta):
             parent = parent.find_parent(['div', 'li', 'tr', 'article', 'section'])
             if parent is None:
                 break
-            classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
-            tag_id = str(parent.get('id', ''))
-            combined = f"{classes} {tag_id}".lower()
+            combined = cls._get_combined_tag_info(parent)
             if cls._is_sub_heading(combined):
                 continue
             if any(k in combined for k in cls._CARD_KEYWORDS):
-                if first_candidate is None:
-                    first_candidate = parent
+                first_candidate = first_candidate or parent
                 if any(parent.select_one(sel) for sel in cls._PRICE_SELECTORS):
                     return parent
         return first_candidate or link.parent or link

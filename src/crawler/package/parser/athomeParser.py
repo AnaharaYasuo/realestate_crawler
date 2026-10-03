@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
@@ -454,15 +453,19 @@ class AthomeParser(ParserBase):
                 list_links.add(normalized)
         return None, base
 
+    @classmethod
+    def _ensure_soup_response(cls, response: Any) -> BeautifulSoup:
+        if isinstance(response, BeautifulSoup):
+            return response
+        import lxml.etree
+        html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
+        return BeautifulSoup(html_str, HTML_PARSER)
+
     async def parseRootPage(self, response):
         """
         検索結果一覧ページまたはエリア選択ページ（BeautifulSoup）から詳細物件ページ／市区町村一覧のURLを抽出する
         """
-        if not isinstance(response, BeautifulSoup):
-            import lxml.etree
-            html_str = lxml.etree.tostring(response, encoding='utf-8').decode('utf-8')
-            response = BeautifulSoup(html_str, HTML_PARSER)
-
+        response = self._ensure_soup_response(response)
         detail_links = set()
         list_links = set()
         base = "https://www.athome.co.jp"
