@@ -1,0 +1,1225 @@
+# クローラー仕様書 (Crawler Specification)
+
+本プロジェクトのクローラーにおけるアーキテクチャ、処理フロー、および技術的な詳細仕様について記載します。
+
+## 1. システム構成要素 (Core Components)
+
+主要なクラスおよびファイルの役割と配置です。
+
+| コンポーネント | ファイルパス | 役割 |
+| :--- | :--- | :--- |
+| `ApiRegistry` | `src/crawler/package/api/api_list.py` | 全ての API エンドポイントと実行クラスのマッピング管理 |
+| `ApiAsyncProcBase` | `src/crawler/package/api/api.py` | 非同期 HTTP リクエスト、並列制御、リトライ、Fire-and-Forget の基底ロジック |
+| `Parse{Site}{Type}StartAsync` | 各社ディレクトリ (e.g. `mitsui/start.py`) | サイトごとのクロール開始地点（初手）のロジック |
+| 各社共通パーサー | 各社ディレクトリ (e.g. `mitsui/mitsui_base.py`) | HTML 解析の共通ユーティリティ、タグ抽出、正規化 |
+| `evaluation_bp` | `src/crawler/routes/evaluation_routes.py` | 学習済みモデル（CatBoost/LightGBM）を用いたリアルタイム価格推定推論API |
+| `swagger_bp` | `src/crawler/routes/swagger_routes.py` | OpenAPI 3.0 仕様書配信および Swagger UI (`/docs`) エンドポイント |
+
+## 2. 主要概念 (Key Concepts)
+
+### Fire-and-Forget Chain Pattern
+
+再帰的な非同期API呼び出しにより、各ステップが独立して実行される設計パターン。
+
+**特徴:**
+- 各APIは即座にHTTP 200を返却（処理完了を待たない）
+- 次のステップをHTTP POSTで起動
+- タイムアウト（3秒）は成功とみなす
+- サーバーレス環境での分散実行が可能
+
+**実装詳細:**
+- 基底クラス: `ApiAsyncProcBase` (`src/crawler/package/api/api.py`)
+- タイムアウト設定: `FIRE_AND_FORGET_TIMEOUT = 3.0`
+
+### Dual Storage Pattern
+
+数値データを文字列と数値の両方で保持するパターン。
+
+**目的:**
+- 元の表記を保持（表示用）
+- 数値化してクエリ・集計を可能に
+
+**対象フィールド:**
+- 価格: `priceStr` (例: "5,480万円") + `price` (例: 54800000)
+- 面積: `senyuMensekiStr` (例: "81.65㎡") + `senyuMenseki` (例: 81.65)
+- 管理費: `kanrihiStr` + `kanrihi`
+- 修繕積立金: `syuzenTsumitateStr` + `syuzenTsumitate`
+- 地代: `chidaiStr` (例: "20年 20,000円", "20,000円/月") + `chidai` (数値・月額円: 20000)
+- 徒歩分数: `railwayWalkMinute{N}Str` + `railwayWalkMinute{N}`
+
+### Transportation Fields Pattern
+
+最大5路線までのアクセス情報を保持。
+
+**構造:**
+- 5路線 × 8フィールド = 40フィールド
+- 各路線のフィールド（N=1~5）:
+  1. `transfer{N}`: 乗り換え情報
+  2. `railway{N}`: 沿線名
+  3. `station{N}`: 駅名
+  4. `railwayWalkMinute{N}Str`: 徒歩分数（文字列）
+  5. `railwayWalkMinute{N}`: 徒歩分数（数値）
+  6. `busStation{N}`: バス停名
+  7. `busWalkMinute{N}Str`: バス徒歩分数（文字列）
+  8. `busWalkMinute{N}`: バス徒歩分数（数値）
+
+**例:**
+```
+railway1 = "JR山手線"
+station1 = "東京"
+railwayWalkMinute1Str = "5分"
+railwayWalkMinute1 = 5
+```
+
+### Macroeconomic & Temporal Feature Architecture
+
+過去年度（2019〜2024）から最新（2026年）に至る市場環境の変化（インフレ、不動産価格高騰、金利変動等）を価格推定モデルで説明可能にする設計。
+
+**主要要素:**
+1. **時系列マクロ統計マスタ (`MacroEconomicIndex`)**:
+   - 物件掲載年月 (`inputDate` の YYYY-MM) をキーとして国交省不動産価格指数、新発10年国債利回り、日経平均株価、東証REIT指数、建設物価指数を自動結合。
+2. **時間減衰学習重み (Time-Decay Sample Weight)**:
+   - 経過日数に基づく指数減衰重みを学習時に適用し、最新の相場感（価格水準）を優先しつつ過去データの豊富な属性関係（立地・間取り・築年数の係数）を最大限活用。
+3. **欠損値防御 (Defensive Imputation & Missing Indicators)**:
+   - 過去データに存在しない新設属性（構造詳細・設備等）の NULL / 空文字を安全にフォールバックし、欠損インジケータとしてモデルに学習させる。
+
+### Land Rent Liability Architecture (借地地代負債評価アーキテクチャ)
+
+借地権物件において、地代（月額・年額）を負債（キャッシュ流出・資産価値低減要因）として正確に評価へ反映するアーキテクチャ。
+
+1. **データ取得の二重防衛（Scraping & AI Extraction）**:
+   - パーサー基底（`ParserBase`）により全サイトのHTMLテーブル/スペックから地代表記（`chidaiStr`）および月額円（`chidai`）を自動抽出。
+   - スクレイピングで拾えない特殊構造ページでも、1物件1AIリクエスト（`SingleUnifiedPropertyExtractor`）により `ground_rent_monthly_yen` を抽出して補完。
+2. **投資用物件における収支反映**:
+   - `investment_evaluator.py`: 実額年間地代（`chidai * 12`）をネット営業純利益（NOI）から直接控除し、収益還元価値およびキャッシュフローを正しく低減。
+3. **実需物件（戸建・マンション・土地）における負債現在価値反映**:
+   - 地代の資本還元現在価値（負債価値）= `(月額地代 × 12) ÷ 0.05`（還元利回り5%仮定）。
+   - ML特徴量（`monthly_land_rent`, `land_rent_liability`）および価格推定ロジックにおいて、所有権相当のベース価格から負債として控除・ディスカウント。
+
+### Computed and Derived Fields
+
+パース時に計算される派生フィールド。
+
+**主な計算フィールド:**
+
+1. **kyutaishin（旧耐震判定）**
+   - 築年月が1982年1月1日より前の場合に1
+   - 新耐震基準導入前の物件を特定
+
+2. **per-square-meter fees（平米単価）**
+   - `kanrihi_p_heibei = kanrihi / senyuMenseki`
+   - `syuzenTsumitate_p_heibei = syuzenTsumitate / senyuMenseki`
+   - 管理費・修繕積立金の平米あたりコスト
+
+3. **floor decomposition（階数情報の分解）**
+   - `floorType_kai`: 所在階
+   - `floorType_chijo`: 地上階数
+   - `floorType_chika`: 地下階数
+   - 例: "2階/地上10階/地下1階" → kai=2, chijo=10, chika=1
+
+4. **railwayCount（路線数）**
+   - 利用可能な路線の数（1~5）
+
+5. **busUse1（バス利用の有無）**
+   - バスを利用する場合は1、そうでない場合は0
+
+### Differential Crawling Pattern (差分クロールパターン)
+
+一覧ページ（Middle Page）から詳細ページ（Detail Page）への遷移時、全件フェッチによるサーバー負荷と帯域消費を防ぐため、DB突合による差分フィルタリングを行うパターン。
+
+**フロー:**
+1. 一覧ページから抽出されたアイテム群（URLおよびオプションの価格情報）を受領。
+2. 対象モデルのDBテーブルに対して `pageUrl IN (...)` で一括検索し、既存レコードの `price`、`updateDateTime`、`inputDateTime` を取得。
+3. 判定ロジック:
+   - **NEW**: DBに存在しないURL ➔ 詳細フェッチ対象
+   - **UPDATED**: DBに存在するが価格が変動している ➔ 詳細フェッチ対象（最新化＆価格履歴記録へ）
+   - **EXPIRED**: DBに存在するが前回収集からTTL日数（デフォルト7日）経過 ➔ 詳細フェッチ対象
+   - **CACHED ACTIVE**: 価格変更なし・TTL内 ➔ 詳細フェッチをスキップし、`model.objects.filter(pageUrl__in=skipped).update(updateDateTime=now)` で生存確認を記録
+4. フィルタリング後の `urls_to_fetch` のみに対して `_callApi()` を発行。
+
+### Price History Pattern (価格改定履歴パターン)
+
+物件マスタテーブルの「1物件1レコード（常に最新情報）」の原則を維持しつつ、価格の値下げ・改定推移を時系列で保存するパターン。
+
+**仕様:**
+- **物件マスタテーブル**: 同一 `pageUrl` の物件が存在する場合、既存レコードを上書き更新（`UPDATE`）する。初回登録日時 `inputDateTime` は不変とし、`updateDateTime` のみ現在時刻に更新する。
+- **価格改定テーブル (`PropertyPriceHistory`)**: 既存価格と新価格に差分（`existing.price != item.price`）がある場合のみ、改定レコードを1行挿入する。
+  - `property_url`: 物件URL
+  - `company`: 不動産会社コード
+  - `property_type`: 種別
+  - `old_price`: 改定前価格
+  - `new_price`: 改定後価格
+  - `price_diff`: 価格差（`new_price - old_price`、値下げ時はマイナス）
+  - `recorded_at`: 改定検知日時
+
+### Migration & Deduplication Architecture (既存重複移行・正規化設計)
+
+過去クロールによって蓄積された同一URLの重複レコードを解消し、過去価格変動を履歴テーブルへ移行するアーキテクチャ。
+
+**処理手順:**
+1. 同一 `pageUrl` の複数レコードを `(inputDateTime ASC, id ASC)` 順で取得。
+2. 時系列に価格差分（`old_price != new_price`）を判定し、`PropertyPriceHistory` へ一括投入。
+3. 最新レコードを生存マスタとして保持し、`inputDateTime` に最古日時、`updateDateTime` に最新日時を復元。
+4. 外部参照（`PropertyEvaluation.property_id`）を残す最新レコードの `id` に再リンク更新。
+5. 最新レコード以外の過去重複行をバッチ削除。
+
+---
+
+## 3. アーキテクチャ詳細 (Architecture Details)
+
+### 対応種別
+本クローラーは、以下の不動産種別に対応しています。
+*   **投資用不動産** (investment)
+    *   一棟マンション（RC造・鉄骨造などの集合住宅一棟）
+    *   一棟アパート（木造・軽量鉄骨造などの集合住宅一棟）
+    *   投資用戸建て（賃貸収入目的の一戸建て）
+    *   ※区分マンション、ビル、店舗/事務所などは収集対象外
+*   **マンション** (mansion)
+*   **土地** (tochi)
+*   **戸建** (kodate)
+
+### Fire-and-Forget 方式
+本クローラーは、Google Cloud Functions などのサーバーレス環境での実行も想定し、「Fire-and-Forget」方式の非同期API呼び出しを採用しています。
+
+*   **再帰的呼び出し**: `Start` -> `Area` -> `List` -> `Detail` の各ステップは、次のステップのAPIエンドポイントをHTTPリクエストで呼び出すことで連鎖します。
+*   **即時レスポンス**: 呼び出し元の関数は、リクエストを送信した後、処理の完了を待たずに即座にレスポンス（ステータス 200）を返します。
+*   **タイムアウト設定**: 次の処理をトリガーする際のリクエストタイムアウトは **3.0秒** に設定されており、接続が確立された時点で成功とみなします（実際の処理完了を待ちません）。
+
+### 構成
+本システムは `python:3.11-slim` イメージを使用し、不要なブラウザエンジン（Playwright）を排除した最小構成です。
+すべてのサイトが `aiohttp` による HTTP リクエストと `BeautifulSoup4` による HTML 解析で完結するよう設計されています。
+
+### 並列処理設定 (Concurrent Processing Configuration)
+
+#### パラメータ一覧
+
+| パラメータ | 値 | 説明 | 定義場所 |
+|-----------|-----|------|---------|
+| `FIRE_AND_FORGET_TIMEOUT` | 3.0秒 | 次ステップ起動時のHTTPタイムアウト | `api.py` |
+| `DEFAULT_PARARELL_LIMIT` | 2 | デフォルトの並列リクエスト数 | `api.py` |
+| `DETAIL_PARARELL_LIMIT` | 6 | 詳細ページ取得時の並列数 | `api.py` |
+| `TCP_CONNECTOR_LIMIT` | 100 | aiohttpのTCP接続プール上限 | `api.py` |
+
+#### 並列処理の動作
+
+**Region/List API:**
+- 並列数: `DEFAULT_PARARELL_LIMIT = 2`
+- 同時に2地域または2ページを処理
+- サイトへの負荷を考慮した控えめの設定
+
+**Detail API:**
+- 並列数: `DETAIL_PARARELL_LIMIT = 6`
+- 同時に6物件の詳細ページを取得
+- 詳細ページは個別の物件情報のため、やや高い並列数を許容
+
+**TCP接続:**
+- 上限: `TCP_CONNECTOR_LIMIT = 100`
+- aiohttpのコネクションプール全体で100接続まで
+- 全てのリクエストで共有されるプール
+
+#### 調整方法
+
+サイトへの負荷を調整したい場合、`src/crawler/package/api/api.py` で値を変更できます：
+
+```python
+# より控えめの設定
+DEFAULT_PARARELL_LIMIT = 1  # 2 → 1に変更
+DETAIL_PARARELL_LIMIT = 3   # 6 → 3に変更
+
+# より高速な設定（非推奨）
+DEFAULT_PARARELL_LIMIT = 4  # 2 → 4に変更
+DETAIL_PARARELL_LIMIT = 10  # 6 → 10に変更
+```
+
+---
+
+## 4. エラーハンドリング & 障害耐性制御 (Error Handling & Robustness)
+
+クローリングの安定性とパイプラインの完遂率を高めるため、以下の制御メカニズムを実装・適用しています。
+
+### 4.1 ネットワーク & 通信エラーハンドリング
+
+*   **ネットワークエラー (`ClientConnectorError`, `ServerDisconnectedError`)**:
+    *   一時的なネットワーク障害とみなし、**1回のリトライ**を実施します。
+    *   リトライ前に待機時間（`sleep(10)` = 10秒）を設けています。
+*   **タイムアウト (`TimeoutError`)**:
+    *   Fire-and-Forget の設計上、タイムアウトは**「リクエスト送信成功」**として扱います。エラーログは出力せず、処理を継続します。
+*   **DB接続エラー (`OperationalError`)**:
+    *   DBへの同時接続過多などで保存に失敗した場合、**30秒待機**してから再試行します。
+*   **バリデーションエラー (`ReadPropertyNameException`)**:
+    *   取得データ項目の型不整合やパース失敗時はエラーログを記録し、対象ページを `error_pages/` へ自動保存します。
+
+### 4.2 クローラー優先順位制御原則 (Smallest-Site-First)
+
+大容量サイトや大手ポータルの遅延によって他サイトのクロールが未実施になる事態を防止するため、処理が早く完了する小規模サイト・電鉄系・ハウスメーカー系から優先的にクロールを実行します。
+
+*   **優先実行順序**:
+    1.  ハウスメーカー系 / 電鉄系 / 小規模サイト (`sekisui`, `afr`, `daiwa`, `totate`, `odakyu`, `sumirin`, `heim`, `rearie`, `keio`, `seibu`, `keikyu`, `sotetsu`, `keisei`, `daikyo`)
+    2.  信託・銀行系列 (`smtrc`, `sumai1`, `mizuho`)
+    3.  主要仲介・ポータル (`mitsui`, `sumifu`, `tokyu`, `nomura`, `misawa`, `athome`, `homes`)
+
+### 4.3 障害制御 & アラートフィルタリング仕様
+
+*   **連続タイムアウト Fast-Fail & サーキットブレイカー**:
+    *   相手サーバーが無応答・タイムアウトを繰り返す場合（連続3回以上）、ダラダラとリトライを続けず「接続失敗」と判定して該当ジョブを即時中断 (Abort) し、パイプラインのハングアップを防止します。
+*   **0件取得失敗分類原則 (Zero-Count Failure)**:
+    *   クローリング処理が正常終了（Exit Code 0）した場合であっても、新規取得件数が0件である場合は正常とみなさず「0件取得失敗」としてエラーアラートを発報し、失敗ジョブとして記録します。
+*   **物件公開終了 (404/掲載終了) の Slack アラート除外**:
+    *   物件の公開終了（HTTP 404, Page Not Found, 掲載終了）による取得不可は正常なライフサイクルであるため、Slack アラートチャンネルへの通知対象から除外（スキップ）します。
+*   **Slack疎通事前自己チェック (Step 0)**:
+    *   クローリングおよびパイプラインの起動前（Step 0）に必ず `check_slack_connection.py` を自動実行し、設定不備（`channel_not_found` 等）による通知不達を未然に防止します。
+
+### 4.4 クローリング保証テスト戦略 (Crawl Guarantee)
+
+単体テスト通過だけでは本番クローリング成功を保証できない（Coverage Illusion）ため、以下の二層で保証する。
+
+*   **オフライン同期ゲート**: `CRAWL_JOBS` 全件がディスパッチマップ・Start API・シードURLに解決できること。
+*   **ライブ本番経路スモーク**: 本番パーサーで詳細URL抽出＋種別期待フィールド検証＋DB保存を全ジョブ検証（`task test-live` / `test_live_crawl_guarantee.py`）。部分ハードコードの別マトリクスは禁止。
+*   **ページング**: `parseNextPage` で次ページへ進めること（次ページ無しは `paging_exhausted` で可）。
+*   **物件種別判定**: 成功パース物件が `PropertyTypeDetector` によりジョブ想定種別と一致すること。
+*   **壁時計 ≤ 300秒**: バケット並列（静的 HTML 群 ∥ Playwright: mizuho → (sekisui ∥ athome)）で実待機時間を担保する。
+*   **ローカル vs CI の並列プラン分離**:
+    *   ローカル: 静的群 `-n 4` ＋ Playwright 各社バケット（`-n 0`）を上記スケジュール。`package.utils.live_parallel` がプランを生成し `run_live_crawl_guarantee.py` が実行。
+    *   GitHub Actions: 静的群 `-n auto` ＋ Playwright 各社バケットを同上。PR integration は `-m "not live"` でネットワーク依存ライブを除外。
+    *   GitHub Actions ではライブ保証を 4 つの独立マトリクスジョブ（静的 1/2・静的 2/2・PW mizuho+sekisui・PW athome）に分割し、失敗ジョブのみ個別再実行可能とする（`CRAWL_LIVE_BUCKETS` / `CRAWL_LIVE_STATIC_SHARD`）。
+
+---
+
+## 5. 各サイト固有の解析ロジック詳細
+
+#### 三井のリハウス (Mitsui)
+三井のリハウス独自の抽出・変換処理です。
+- **旧耐震判定 (`kyutaishin`)**: 築年月が 「1982年1月1日」 以前の物件を `True` (旧耐震) としてフラグを立てます。
+- **階数分解 (`floorType_...`)**: 「所在階 / 地上階 / 地下階」を正規表現で分離し、それぞれ数値として保持します（例: 「2階/地上10階/地下1階」 -> `floorType_kai:2`, `kaisu:10`, `kaisu_under:1`）。
+- **平米単価計算**: 価格と専有面積から算出します（`price / senyuMenseki`）。
+
+#### 住友不動産販売 (Sumifu)
+- **エリア・リスト取得**: `region` -> `area` -> `list` の多段階構成となっています。
+- **データ保持**: 投資用物件以外は `SumifuModel` を継承し、広範な共通フィールド（69項目）を保持します。
+
+#### ミサワホーム不動産 (Misawa)
+- **交通情報の簡略化**: 他のサイトが 5路線×8フィールドを保持するのに対し、ミサワは `railway1`, `station1`, `walkMinute1` の **3フィールドのみ** を抽出・保存します。
+- **共通基底**: 全種別で `MisawaCommon` を継承します。
+
+#### 積水ハウス不動産 (Sekisui)
+- **Akamai CDN TLS互換性**: Akamai Bot Manager 回避のため、クライアントコネクタに `ssl.OP_NO_TICKET` を付与して TLS Session Ticket を抑止。
+- **和暦築年月・階数パース**: 「完成時期（築年月）」から和暦（昭和・平成・令和）をパースし、「構造・階数」「所在階」から地上・地下・所在階数を分解。
+- **モデルバリデーション寛容性**: 未記載フィールドによる全件保存スキップを避けるため、`SekisuiMansion` 属性に `blank=True` を設定。
+
+
+---
+
+## 7. 実行環境とパラメータ
+
+詳細な設定値については **[API 構造ドキュメント](api_structure.md)** および **[開発者ガイド](development_guide.md)** を参照してください。
+- **タイムアウト**: Fire-and-Forget 実行時は `3.0s`。
+- **並列数**: ローカル実行時はデフォルト `2`（詳細ページのみ `6`）。
+解析が完了した直後に、1件ごとにデータベースへ保存 (`save()` メソッド) します。
+*   **重複管理**:
+    *   同一物件が既に存在する場合、最新の情報を上書きするか、履歴として保持します（Django モデルの実装に準拠）。
+
+## 5. 処理フロー詳細 (Process Flow)
+
+各サイトのクローリングは、以下のエンドポイント連鎖によって実行されます。
+
+### 三井のリハウス (`mitsui`)
+1.  **Start** (`/api/mitsui/{type}/start`): 都道府県一覧を取得。
+2.  **Area** (`/api/mitsui/{type}/area`): 市区町村一覧を取得。
+3.  **List** (`/api/mitsui/{type}/list`): 物件一覧ページをページング走査。
+4.  **Detail** (`/api/mitsui/{type}/detail`): 物件詳細を解析・保存。
+
+### 住友不動産販売 (`sumifu`)
+1.  **Start** (`/api/sumifu/{type}/start`): 地域選択。
+2.  **Region** (`/api/sumifu/{type}/region`): 地域内市区町村を特定。
+3.  **List** (`/api/sumifu/{type}/list`): 一覧取得。
+4.  **Detail** (`/api/sumifu/{type}/detail`): 詳細解析・保存。
+
+### 東急リバブル (`tokyu`)
+1.  **Start** (`/api/tokyu/{type}/start`): エリア選択。
+2.  **Area** (`/api/tokyu/{type}/area`): 市区町村選択。
+3.  **List** (`/api/tokyu/{type}/list`): 一覧ページング。
+4.  **Detail** (`/api/tokyu/{type}/detail`): 詳細解析・保存。
+
+### 野村の仲介＋ (`nomura`)
+1.  **Start** (`/api/nomura/{type}/start`): クロール開始。
+2.  **Detail**: 詳細ページから情報を抽出。
+
+### ミサワホーム不動産 (`misawa`)
+1.  **Start** (`/api/misawa/{type}/start`): 検索トップから地域選択。
+2.  **List** (`/api/misawa/{type}/list`): 一覧解析。
+3.  **Detail** (`/api/misawa/{type}/detail`): 詳細解析・保存。
+
+## 6. 詳細ページの解析ロジック (Parsing Logic)
+
+HTML解析には `BeautifulSoup4` を使用しています。
+
+### 基本戦略
+1.  **要素の特定**: CSSセレクタを使用して対象データを特定します。
+2.  **テーブル走査**: 物件詳細は主に `<table>` 内にあるため、`th` (項目名) に応じた `td` (値) 取得を自動化しています。
+3.  **データ整形**: 通貨（万円→円）や面積（㎡除去）の数値変換を各社パーサーで行います。
+
+**構造:**
+- 5路線 × 8フィールド = 40フィールド
+- 各路線のフィールド（N=1~5）:
+  1. `transfer{N}`: 乗り換え情報
+  2. `railway{N}`: 沿線名
+  3. `station{N}`: 駅名
+  4. `railwayWalkMinute{N}Str`: 徒歩分数（文字列）
+  5. `railwayWalkMinute{N}`: 徒歩分数（数値）
+  6. `busStation{N}`: バス停名
+  7. `busWalkMinute{N}Str`: バス徒歩分数（文字列）
+  8. `busWalkMinute{N}`: バス徒歩分数（数値）
+
+**例:**
+```
+railway1 = "JR山手線"
+station1 = "東京"
+railwayWalkMinute1Str = "5分"
+railwayWalkMinute1 = 5
+```
+
+### Computed and Derived Fields
+
+パース時に計算される派生フィールド。
+
+**主な計算フィールド:**
+
+1.  **kyutaishin（旧耐震判定）**
+    - 築年月が1982年1月1日より前の場合に1
+    - 新耐震基準導入前の物件を特定
+
+2.  **per-square-meter fees（平米単価）**
+    - `kanrihi_p_heibei = kanrihi / senyuMenseki`
+    - `syuzenTsumitate_p_heibei = syuzenTsumitate / senyuMenseki`
+    - 管理費・修繕積立金の平米あたりコスト
+
+3.  **floor decomposition（階数情報の分解）**
+    - `floorType_kai`: 所在階
+    - `floorType_chijo`: 地上階数
+    - `floorType_chika`: 地下階数
+    - 例: "2階/地上10階/地下1階" → kai=2, chijo=10, chika=1
+
+4.  **railwayCount（路線数）**
+    - 利用可能な路線の数（1~5）
+
+5.  **busUse1（バス利用の有無）**
+    - バスを利用する場合は1、そうでない場合は0
+
+---
+
+## 3. アーキテクチャ詳細 (Architecture Details)
+
+### 対応種別
+本クローラーは、以下の不動産種別に対応しています。
+*   **投資用不動産** (investment)
+    *   一棟マンション（RC造・鉄骨造などの集合住宅一棟）
+    *   一棟アパート（木造・軽量鉄骨造などの集合住宅一棟）
+    *   投資用戸建て（賃貸収入目的の一戸建て）
+    *   ※区分マンション、ビル、店舗/事務所などは収集対象外
+*   **マンション** (mansion)
+*   **土地** (tochi)
+*   **戸建** (kodate)
+
+### Fire-and-Forget 方式
+本クローラーは、Google Cloud Functions などのサーバーレス環境での実行も想定し、「Fire-and-Forget」方式の非同期API呼び出しを採用しています。
+
+*   **再帰的呼び出し**: `Start` -> `Area` -> `List` -> `Detail` の各ステップは、次のステップのAPIエンドポイントをHTTPリクエストで呼び出すことで連鎖します。
+*   **即時レスポンス**: 呼び出し元の関数は、リクエストを送信した後、処理の完了を待たずに即座にレスポンス（ステータス 200）を返します。
+*   **タイムアウト設定**: 次の処理をトリガーする際のリクエストタイムアウトは **3.0秒** に設定されており、接続が確立された時点で成功とみなします（実際の処理完了を待ちません）。
+
+### 構成
+本システムは `python:3.10-slim` イメージを使用し、不要なブラウザエンジン（Playwright）を排除した最小構成です。
+すべてのサイトが `aiohttp` による HTTP リクエストと `BeautifulSoup4` による HTML 解析で完結するよう設計されています。
+
+### 並列処理設定 (Concurrent Processing Configuration)
+
+#### パラメータ一覧
+
+| パラメータ | 値 | 説明 | 定義場所 |
+|-----------|-----|------|---------|
+| `FIRE_AND_FORGET_TIMEOUT` | 3.0秒 | 次ステップ起動時のHTTPタイムアウト | `api.py` |
+| `DEFAULT_PARARELL_LIMIT` | 2 | デフォルトの並列リクエスト数 | `api.py` |
+| `DETAIL_PARARELL_LIMIT` | 6 | 詳細ページ取得時の並列数 | `api.py` |
+| `TCP_CONNECTOR_LIMIT` | 100 | aiohttpのTCP接続プール上限 | `api.py` |
+
+#### 並列処理の動作
+
+**Region/List API:**
+- 並列数: `DEFAULT_PARARELL_LIMIT = 2`
+- 同時に2地域または2ページを処理
+- サイトへの負荷を考慮した控えめの設定
+
+**Detail API:**
+- 並列数: `DETAIL_PARARELL_LIMIT = 6`
+- 同時に6物件の詳細ページを取得
+- 詳細ページは個別の物件情報のため、やや高い並列数を許容
+
+**TCP接続:**
+- 上限: `TCP_CONNECTOR_LIMIT = 100`
+- aiohttpのコネクションプール全体で100接続まで
+- 全てのリクエストで共有されるプール
+
+#### 調整方法
+
+サイトへの負荷を調整したい場合、`src/crawler/package/api/api.py` で値を変更できます：
+
+```python
+# より控えめの設定
+DEFAULT_PARARELL_LIMIT = 1  # 2 → 1に変更
+DETAIL_PARARELL_LIMIT = 3   # 6 → 3に変更
+
+# より高速な設定（非推奨）
+DEFAULT_PARARELL_LIMIT = 4  # 2 → 4に変更
+DETAIL_PARARELL_LIMIT = 10  # 6 → 10に変更
+```
+
+---
+
+## 4. エラーハンドリング & リトライ (Error Handling)
+
+クローリングの安定性を高めるため、以下のエラーハンドリングを実装しています。
+
+*   **ネットワークエラー (`ClientConnectorError`, `ServerDisconnectedError`)**:
+    *   一時的なネットワーク障害とみなし、**1回のリトライ**を実施します。
+    *   リトライ前に待機時間（`sleep(10)` = 10秒）を設けています。
+*   **タイムアウト (`TimeoutError`)**:
+    *   Fire-and-Forget の設計上、タイムアウトは**「リクエスト送信成功」**として扱います。エラーログは出力せず、処理を継続します。
+*   **DB接続エラー (`OperationalError`)**:
+    *   DBへの同時接続過多などで保存に失敗した場合、**30秒待機**してから再試行します。
+
+### 各サイト固有の解析ロジック詳細
+
+#### 三井のリハウス (Mitsui)
+三井のリハウス独自の抽出・変換処理です。
+- **旧耐震判定 (`kyutaishin`)**: 築年月が 「1982年1月1日」 以前の物件を `True` (旧耐震) としてフラグを立てます。
+- **階数分解 (`floorType_...`)**: 「所在階 / 地上階 / 地下階」を正規表現で分離し、それぞれ数値として保持します（例: 「2階/地上10階/地下1階」 -> `floorType_kai:2`, `kaisu:10`, `kaisu_under:1`）。
+- **平米単価計算**: 価格と専有面積から算出します（`price / senyuMenseki`）。
+
+#### 住友不動産販売 (Sumifu)
+- **エリア・リスト取得**: `region` -> `area` -> `list` の多段階構成となっています。
+- **データ保持**: 投資用物件以外は `SumifuModel` を継承し、広範な共通フィールド（69項目）を保持します。
+
+#### ミサワホーム不動産 (Misawa)
+- **交通情報の簡略化**: 他のサイトが 5路線×8フィールドを保持するのに対し、ミサワは `railway1`, `station1`, `walkMinute1` の **3フィールドのみ** を抽出・保存します。
+- **共通基底**: 全種別で `MisawaCommon` を継承します。
+
+---
+
+## 5. 処理フロー詳細 (Process Flow)
+
+各サイトのクローリングは、以下のエンドポイント連鎖によって実行されます。
+
+### 三井のリハウス (`mitsui`)
+1.  **Start** (`/api/mitsui/{type}/start`): 都道府県一覧を取得。
+2.  **Area** (`/api/mitsui/{type}/area`): 市区町村一覧を取得。
+3.  **List** (`/api/mitsui/{type}/list`): 物件一覧ページをページング走査。
+4.  **Detail** (`/api/mitsui/{type}/detail`): 物件詳細を解析・保存。
+
+### 住友不動産販売 (`sumifu`)
+1.  **Start** (`/api/sumifu/{type}/start`): 地域選択。
+2.  **Region** (`/api/sumifu/{type}/region`): 地域内市区町村を特定。
+3.  **List** (`/api/sumifu/{type}/list`): 一覧取得。
+4.  **Detail** (`/api/sumifu/{type}/detail`): 詳細解析・保存。
+
+### 東急リバブル (`tokyu`)
+1.  **Start** (`/api/tokyu/{type}/start`): エリア選択。
+2.  **Area** (`/api/tokyu/{type}/area`): 市区町村選択。
+3.  **List** (`/api/tokyu/{type}/list`): 一覧ページング。
+4.  **Detail** (`/api/tokyu/{type}/detail`): 詳細解析・保存。
+
+### 野村の仲介＋ (`nomura`)
+1.  **Start** (`/api/nomura/{type}/start`): クロール開始。
+2.  **Detail**: 詳細ページから情報を抽出。
+
+### ミサワホーム不動産 (`misawa`)
+1.  **Start** (`/api/misawa/{type}/start`): 検索トップから地域選択。
+2.  **List** (`/api/misawa/{type}/list`): 一覧解析。
+3.  **Detail** (`/api/misawa/{type}/detail`): 詳細解析・保存。
+
+## 6. 詳細ページの解析ロジック (Parsing Logic)
+
+HTML解析には `BeautifulSoup4` を使用しています。
+
+### 基本戦略
+1.  **要素の特定**: CSSセレクタを使用して対象データを特定します。
+2.  **テーブル走査**: 物件詳細は主に `<table>` 内にあるため、`th` (項目名) に応じた `td` (値) 取得を自動化しています。
+3.  **データ整形**: 通貨（万円→円）や面積（㎡除去）の数値変換を各社パーサーで行います。
+
+### サイト固有の特記事項
+*   **三井のリハウス**: 接道状況から最も幅員が広い道路を自動選定。旧耐震（1982年以前）の自動判定。
+*   **住友不動産販売**: 投資用物件での利回り・賃料の個別パース。
+*   **ミサワホーム不動産**: サイト構造の変化（h1/h2フォールバック）に対応。
+
+---
+
+## 7. 実行環境とパラメータ
+
+詳細な設定値については **[API 構造ドキュメント](api_structure.md)** および **[開発者ガイド](development_guide.md)** を参照してください。
+- **タイムアウト**: Fire-and-Forget 実行時は `3.0s`。
+- **並列数**: ローカル実行時はデフォルト `2`（詳細ページのみ `6`）。
+解析が完了した直後に、1件ごとにデータベースへ保存 (`save()` メソッド) します。
+*   **重複管理**:
+    *   同一物件が既に存在する場合、最新の情報を上書きするか、履歴として保持します（Django モデルの実装に準拠）。
+
+---
+
+## 8. バルクML評価・ベクトル化推論アーキテクチャ (Bulk ML Evaluation)
+
+クローリングによって保存された未評価物件に対し、高速かつ高精度に理論価格を付与するためのアーキテクチャ。
+
+### 8.1 処理パイプライン概要
+```mermaid
+graph TD
+    A[クローリング完了] --> B[全社DBテーブル走査]
+    B --> C[未評価物件URL一括抽出 <br/>setプリフェッチ]
+    C --> D[バッチ特徴量生成 <br/>500件単位]
+    D --> E[ベクトル化バッチ推論 <br/>bulk_predict]
+    E --> F[スミアリング対数補正 <br/>& 最適重みブレンディング]
+    F --> G[PropertyEvaluation 一括保存 <br/>bulk_create / bulk_update]
+```
+
+### 8.2 高速化設計
+- **オンメモリ常駐モデル直接実行**: HTTP API通信を排し、プロセス内に常駐したモデルへ直接アクセス。
+- **ベクトル化バッチ推論 (`bulk_predict_first_stage`)**: 特徴量を一括で2次元配列（DataFrame）化し、LightGBM / XGBoost / CatBoost / RF で一括行列予測。
+- **DBアクセスの一括化**: 評価済URLのインメモリセット比較による事前除外と、`bulk_create` / `bulk_update` によるN+1クエリの完全排除。
+
+---
+
+## 9. 経済的価値創出還元アーキテクチャ (Economic Value Capitalization Architecture)
+
+物件の「理論価値」を単なる市場価格の統計平均ではなく、「経済的価値を生む力（収益力・利用容積力）」として定義し、価格と価値の歪みを客観的に抽出する。
+
+### 9.1 価値還元コンポーネント
+1. **想定収益還元価値（Imputed Economic Value）**:
+   - 居住用・投資用を問わず、「当該立地・面積・構造・築年数で獲得可能な想定純家賃（NOI）」を地域期待利回りで割り戻した資産価値アンカー。
+2. **潜在容積延床面積（Potential Volume Floor Area）**:
+   - 敷地面積 × 指定容積率（FAR）により、敷地が創出可能な総延床面積を算出し、都心高容積率商業地の経済価値を正当に反映。
+3. **規模非線形減退（Scale Non-Linear Discount）**:
+   - 1,000㎡を超える広大土地・山林・原野について、宅地単価の単純乗算を排し、有効開発可能規模に応じた指数減退モデルを適用。
+4. **経済的減価・制約フィルター（Economic Rights & Rebuild Restriction）**:
+   - 借地権、再建築不可、瑕疵物件について、将来キャッシュフロー阻害率に応じた減価係数を自動適用。
+5. **種別誤認・データ異常防御（Misclassification & Anomaly Defense）**:
+   - 敷地権なし区分所有の戸建て混入時の自動マンションリルート、面積数値汚染（500㎡超）のサニタイズ、築年数欠損補正。
+
+---
+
+## 10. 構造化ロギング＆可観測性アーキテクチャ (Structured Logging & Observability)
+
+GCP（Cloud Run Jobs / Services）およびローカル開発環境における可観測性・障害追跡を支える統一ログ設計。
+
+### 10.1 ログ設計概要
+```mermaid
+graph TD
+    A[標準 logging / structlog] --> B[ProcessorFormatter]
+    B --> C{実行環境判定<br/>K_SERVICE / CLOUD_RUN_JOB / LOG_FORMAT}
+    C -- GCP / Docker (JSON) --> D[GCP LogEntry JSON Renderer]
+    C -- Local (Console) --> E[Colored Console Renderer]
+    D --> F[stdout / stderr<br/>UTF-8 Reconfigured]
+    F --> G[Google Cloud Logging<br/>severity / jsonPayload 自動解析]
+```
+
+### 10.2 GCP LogEntry JSON フォーマット仕様
+GCP実行時は標準出力の1行ごとに以下のJSON構造を出力する：
+
+```json
+{
+  "severity": "INFO",
+  "message": "Mitsui Mansion crawl completed successfully. Total items: 45",
+  "timestamp": "2026-09-19T07:45:00.123456Z",
+  "logger": "package.api.api",
+  "logging.googleapis.com/sourceLocation": {
+    "file": "src/crawler/package/api/api.py",
+    "line": 1050,
+    "function": "allMansionStart"
+  },
+  "company": "mitsui",
+  "property_type": "mansion",
+  "duration_ms": 12450.5,
+  "count": 45
+}
+```
+
+### 10.3 ログレベル運用標準
+| レベル | 用途 | 出力対象例 |
+| :--- | :--- | :--- |
+| `DEBUG` | 単一リクエスト・単一物件の低レイヤー追跡 | ローカルルーティング、ミドルウェア通過、1件ごとのDB保存試行・成功 |
+| `INFO` | システムライフサイクル・バッチ進捗サマリー | パイプラインステップ開始/完了、クロール完了サマリー、Slack通知完了 |
+| `WARNING` | 復旧可能な軽微障害・リトライ動作 | HTTP 429レートリミット、DB一時接続待機、リトライ試行 |
+| `ERROR` | パース失敗・データ保存失敗（単一ログ・スタックトレース内包） | `LoadPropertyPageException`、DB制約エラー、予期せぬ例外 |
+| `CRITICAL` | パイプライン停止を招く致命的障害 | DB完全接続タイムアウト、Slack通知不達、設定パラメータ欠落 |
+ 
+---
+ 
+## 11. 継続的依存関係更新＆自律修復マージアーキテクチャ (Dependabot Auto-Merge & Self-Healing Architecture)
+ 
+依存パッケージの脆弱性解消およびバージョン追従を自動化し、コンフリクトやCI失敗も自律的に修復してマージを完了させる設計。
+ 
+### 11.1 処理フロー
+```mermaid
+flowchart TD
+    A[Schedule 定時起動<br/>毎日 09:00 JST / workflow_dispatch] --> B[dependabot_automerge 実行]
+    B --> C[gh pr list でオープンな Dependabot PR 走査]
+    C --> D{PR 存在?}
+    D -- No --> E[処理完了 ログ記録]
+    D -- Yes --> F[各 PR の CI 状態・マージ可能性を検査]
+    
+    F --> G{PR 状態判定}
+    
+    G -- 全 CI SUCCESS & MERGEABLE --> H[gh pr merge --squash --delete-branch]
+    H --> M[マージ成功記録]
+    
+    G -- コンフリクト / master遅延 --> I[自律リベース・最新化]
+    I --> I1[gh pr update-branch 試行]
+    I1 -- 失敗 / CONFLICTING --> I2[PRへ @dependabot rebase コメント自動投稿<br/>Dependabotに最新masterベースで再計算させる]
+    I2 --> N[リベース要求記録]
+    
+    G -- CI テスト失敗 --> J[自律修復 Auto-Heal 連携]
+    J --> J1[gh run view --log-failed ログ解析]
+    J1 --> J2[依存整合・互換性パッチ適用 & PRブランチへプッシュ]
+    J2 --> O[修復プッシュ記録 & CI再走査待機]
+    
+    M --> P[GitHub Actions Summary 出力]
+    N --> P
+    O --> P
+```
+ 
+### 11.2 コンポーネント構成
+1. **GitHub Actions ワークフロー (`.github/workflows/dependabot-automerge.yml`)**:
+   - スケジュールトリガー（毎日 UTC 00:00 / JST 09:00）および手動起動（`workflow_dispatch`）。
+   - GitHub CLI (`gh`) または Python スクリプトを実行し、マージ・リベース・修復を実行。
+2. **運用スクリプト (`src/crawler/scripts/ops/dependabot_automerge.py`)**:
+   - ローカル開発環境および CI 環境の両方で実行可能な Python スクリプト。
+   - `--dry-run` モードでマージせずに状態確認が可能。
+   - `--auto-rebase` でコンフリクト・遅延PRに対する再構築コマンド発行。
+   - CI チェックのステータス解析、マージ判定、実行ログ出力をカプセル化。
+
+---
+
+## 11. CI/CDパイプライン並列分散アーキテクチャ (CI Pipeline Parallelization Architecture)
+
+テスト実行時間およびビルド時間の肥大化を防ぎ、開発サイクルを加速させるためのCI並列化・最適化設計。
+
+### 11.1 並列化アーキテクチャ概要
+```mermaid
+graph TD
+    A[PR / Push イベント] --> B[CIパイプライン起動]
+    subgraph Parallel CI Jobs
+        B --> C1[Job: unit<br/>pytest -n auto tests/unit/]
+        B --> C2[Job: integration<br/>pytest -n auto tests/integration/]
+        B --> C3[Job: ml<br/>pytest -n auto test_ml_pipeline.py]
+    end
+    subgraph BuildKit GHA Layer Cache
+        D[GitHub Actions Cache] -.->|cache-from / cache-to| C1
+        D -.->|cache-from / cache-to| C2
+        D -.->|cache-from / cache-to| C3
+    end
+    C1 --> E[マージ判定 / Gate チェック]
+    C2 --> E
+    C3 --> E
+```
+
+### 11.2 並列化・高速化の3本柱
+1. **プロセス内並列化 (`pytest-xdist`)**:
+   - 通常テスト: ランナー（4 vCPU）向けに `-n auto`。
+   - ライブ保証: ローカルは静的群 `-n 4`、CI は静的群 `-n auto`。Playwright 系は両環境とも会社単位バケット（`-n 0`）を静的と並列・会社間直列で起動（`live_parallel`）。
+   - `pytest-cov` カバレッジ収集時にも並列セッションを統合。
+2. **ジョブマトリクス並列化 (GitHub Actions Matrix)**:
+   - テストスイートを責務・実行時間特性に応じて3系統（`unit`, `integration`（`-m "not live"`）, `ml`）に分割し、別々のGitHub Actions仮想マシンで並列実行。
+   - 実行時間最大のボトルネックを並列分散することで全体の完了待機時間を最短化。
+3. **Docker BuildKit GHA キャッシュ**:
+   - `docker/setup-buildx-action` と BuildKit GHA キャッシュ連携を行い、aptパッケージやPython依存ライブラリ（Playwright含む）のレイヤーキャッシュを保存・再利用。
+   - コンテナ準備時間を4分半から20秒未満に短縮。
+
+### 11.3 変更差分ルーティング (Path-Based Skipping)
+```mermaid
+graph TD
+    A[PR / Push イベント] --> B[dorny/paths-filter]
+    B -->|docs / *.md のみ| C[全テスト・Dockerビルドをスキップ<br/>即時Green判定]
+    B -->|terraform のみ| D[アプリテストをスキップ<br/>Terraform Plan のみ実行]
+    B -->|src / Dockerfile / config| E[並列テスト & Sonar 実行]
+```
+
+### 11.4 SonarCloud 先行実行 ＆ Production PR 完全並行化
+1. **SonarCloud 先行化**:
+   - PR作成・更新時に最優先で独立起動し、他ジョブと完全並行でバックグラウンド実行。
+   - 外部ライブ通信テストを除外し、モック中心のテストで高速にカバレッジを測定（2分以内）。
+2. **Production PR 完全並行化**:
+   - `master` ➔ `production` へのリリースPRでは、ブランチ検証（`Verify Source Branch is master`）、Terraform Plan、テストマトリクス、Snykスキャンを待ち時間ゼロで完全同時並行起動。
+
+---
+
+## 12. Slack アラート通知 ＆ 構造化エラーログ同期アーキテクチャ (Slack Alert & Structured Error Log Sync Architecture)
+
+クローラー異常・パース障害・データバリデーション異常が Slack アラートチャンネルに送信された際、Cloud Logging などの外部監視機構でも確実に検知できるようにするための設計です。
+
+```mermaid
+flowchart TD
+    A[クローラー / バリデーション / API 障害発生] --> B[send_slack_message / send_crawling_summary_alert]
+    B --> C{送信先がアラートチャンネルか？<br/>(is_alert_channel)}
+    C -->|YES: alerts-* / property_alert / SLACK_ALERT_*| D[logger.error でメッセージ全文を出力]
+    D --> E[GCP Cloud Logging / 構造化JSON<br/>severity: ERROR]
+    C -->|NO: recommend-* / dev| F[通常送信処理]
+    D --> G[Slack API postMessage]
+    F --> G
+    E --> H[24時間定期監視クエリ<br/>severity>=ERROR で自動捕捉]
+```
+
+### 12.1 判定対象のアラートチャンネル
+- **チャンネル名プレフィックス**: `alerts-` で始まるすべてのチャンネル（`#alerts-mansion`, `#alerts-kodate`, `#alerts-tochi`, `#alerts-invest-apartment`, `#alerts-invest-kodate`, `#alerts-invest` 等）
+- **代表アラートチャンネル**: `#property_alert`（`SLACK_ALERT_PROPERTY_ALERT`）
+- **環境変数定義チャンネル**: `SLACK_ALERT_*` に設定されたすべてのチャンネルID・チャンネル名
+
+### 12.2 エラーレベル同期 (Error Mirroring)
+- `send_slack_message` 呼び出し時、送信先チャンネルが上記アラートチャンネルに該当する場合は、Slack API 送信の成否に関わらず、必ず `logger.error` によりメッセージ全文をエラーログとして出力。
+- これにより、Slack への送信が成功していても（HTTP 200）、アプリケーションログ側で `severity: ERROR` として記録され、ログ監視システム（GCP Cloud Logging）で確実に集約・検知される。
+
+---
+
+## 13. APIリクエスト・レスポンス構造化ログ出力アーキテクチャ (API Request & Response Structured Logging Architecture)
+
+APIの挙動追跡、デバッグ迅速化、および Cloud Logging でのインシデント解析のため、HTTP API サーバーおよび非同期通信クライアント双方で送受信ペイロードを記録します。
+
+```mermaid
+sequenceDiagram
+    participant Client as External Client / Browser
+    participant Flask as Flask Server (main.py)
+    participant Handler as Route Handler (e.g. evaluation_bp)
+
+    Client->>Flask: HTTP Request (Method, Path, Body)
+    Note over Flask: before_request:<br/>1. 計測開始 (start_time)<br/>2. 機密ヘッダ/キーマスキング<br/>3. [API Request] ログ出力
+    Flask->>Handler: Dispatch Request
+    Handler-->>Flask: Return Response (Status, Body)
+    Note over Flask: after_request:<br/>1. 処理時間算出 (duration_ms)<br/>2. ボディ要約・クランプ<br/>3. [API Response] ログ出力 (ステータス別レベル)
+    Flask-->>Client: HTTP Response
+```
+
+### 13.1 記録対象とマスキング原則
+1. **リクエストログ (`[API Request]`)**:
+   - メソッド、リクエストパス、クエリパラメータ、ボディ（JSONまたはForm）。
+   - `X-API-KEY`, `Authorization`, `token`, `password`, `secret` 等の機密情報は `***` で自動置換。
+2. **レスポンスログ (`[API Response]` / `Middleware Response`)**:
+   - メソッド、パス/URL、HTTPステータスコード、処理所要時間（ms）、レスポンスボディ。
+   - 長大なレスポンス（>1000〜2000文字）は自動クランプしログ肥大化を抑止。
+   - HTML等の改行コード（`\n`）および連続空白文字は単一スペースへサニタイズ（1行化）し、Google Cloud Logging による意図しない複数行分割（`</body></html>` 等のタグ断片漏洩）を防止。
+3. **ログレベルの動的適用**:
+   - `2xx / 3xx`: `INFO`
+   - `4xx`: `WARNING`（不正リクエスト・バリデーションエラー）
+   - `5xx`: `ERROR`（サーバー内部障害）
+
+---
+
+## 14. 物件詳細ページ到着時の動的種別判定およびパーサー自己切り替えアーキテクチャ (Dynamic Property Type Detection & Parser Self-Switching Architecture)
+
+物件一覧ページの巡回や初期URLルーティング時点での想定種別と、実際に取得した物件詳細ページの種別が異なるケース（例: マンション巡回中に戸建てや投資用物件のURLが混入・参照された場合）において、詳細ページ到着時に自動で種別を正しく判定し、適切なパーサーおよびモデルエンティティに切り替えて抽出を継続するアーキテクチャです。
+
+```mermaid
+sequenceDiagram
+    participant Crawler as Crawler Engine / API
+    participant InitialParser as BaseParser (e.g. MansionParser)
+    participant Detector as PropertyTypeDetector
+    participant Router as UrlRouter
+    participant TargetParser as TargetParser (e.g. KodateParser)
+
+    Crawler->>InitialParser: parsePropertyDetailPage(session, url)
+    InitialParser->>InitialParser: _getContent(session, url) (HTTP GET 1回のみ)
+    InitialParser->>InitialParser: soup = BeautifulSoup(content)
+    InitialParser->>Detector: detect(url, title, soup.text, specs, default=self.property_type)
+    Detector-->>InitialParser: detected_type (e.g. 'kodate')
+
+    alt detected_type != self.property_type
+        Note over InitialParser: 種別不一致検知: 動的パーサー切り替え
+        InitialParser->>Router: create_parser(url, title, soup.text, specs, property_type=detected_type)
+        Router-->>InitialParser: target_parser (KodateParser)
+        Note over InitialParser: [PropertyTypeSwitch] ログ出力 & item差し替え
+        InitialParser->>TargetParser: _parsePropertyDetailPage(kodate_item, soup)
+        TargetParser-->>InitialParser: parsed_item (Kodate)
+        InitialParser->>TargetParser: clean_parsed_item(parsed_item)
+        InitialParser->>TargetParser: validate_required_fields(parsed_item)
+        InitialParser-->>Crawler: Return target_item (Kodate Model)
+    else detected_type == self.property_type
+        Note over InitialParser: 通常時: 自パーサーでそのまま高速パース
+        InitialParser->>InitialParser: _parsePropertyDetailPage(item, soup)
+        InitialParser-->>Crawler: Return item
+    end
+```
+
+### 14.1 設計原則
+1. **ネットワーク再取得ゼロ (Zero Re-fetch Overhead)**:
+   - 既に `_getContent` で取得済みの生HTML / BeautifulSoup オブジェクトをそのまま `target_parser` に引き渡すため、追加のHTTP通信オーバーヘッドは一切発生しない。
+2. **Yield Guard 最優先判定**:
+   - `PropertyTypeDetector` の優先度（利回りシグナル最優先 > スペック表 > タイトル > 本文テキスト > URL）に従い、投資用物件と居住用物件（マンション・戸建て・土地）の取り違えを確実に防止する。
+3. **エンティティ整合性とDB同期**:
+   - 切り替え後の `target_parser.createEntity()` により、正しいテーブルモデル（`SumifuKodate`, `MitsuiInvestApartment` 等）がインスタンス化され、種別特有のバリデーションを通過して正しいDBテーブルに永続化される。
+4. **追跡可能性 (Traceability)**:
+   - 切り替え発生時は `[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})` を `INFO` レベルで明示ログ出力する。
+5. **区分住戸ガード (Issue #534)**:
+   - ガードはクラス属性 `sectional_unit_guard_enabled = True` でオプトインしたパーサーのみに適用する（既定 `False`。現状は `SumifuMansionParser` のみ有効。他ポータルのマンションパーサーは従来どおり切替える）。
+   - 現在のパーサーが `mansion` で、スペック表の `専有面積` に値があり `土地面積` が無い（キー欠落、または空欄・`-` 等）ページは区分所有の住戸とみなし、検出種別が `mansion` 以外でも切り替えない（`[PropertyTypeSwitch] ... skipped (sectional unit)` を `INFO` ログ出力）。スペック値は文字列・`{"value": ...}` 形式の両方を評価し、ラベルは完全一致に加え `専有面積（壁芯）` / `土地面積(公簿)` 等の括弧付き修飾ラベルも同一項目として扱い、照合前にラベル内の空白（全角含む。例: `土地面積 （公簿）`）を除去する。
+   - スペック表に専有面積が無くても、サイト固有の記載位置（`_senyu_area_outside_specs()`。`SumifuMansionParser` はサマリーチップ `span.text` の専有面積）に値があり、スペック表に土地面積が無ければ区分住戸とみなす。
+   - 専有面積はスペック表・サマリーチップのいずれも `converter.parse_menseki()` で正の数値に解釈できる場合のみ「値あり」とする（`未定`・`専有面積 －`・`0㎡` 等は区分住戸の根拠にせず、通常どおり種別切替を行う）。
+   - 現在のパーサーが `mansion` 以外の場合はガードを適用せず、従来どおり検出種別のパーサーへ切り替える。
+
+---
+
+## 15. CodeRabbit 自動コードレビュー ＆ 未解決レビューコメント解決マージゲートアーキテクチャ (CodeRabbit Review & Conversation Resolution Gate)
+
+PR**初回オープン時のみ** CodeRabbit による高精度な自動AIコードレビューを実行し、レビューコメントへの対応（スレッドの解決）が完了するまで PR のマージを物理的・論理的に二重ガードでブロックする設計です。後続 push では自動再レビューせず、指摘の連鎖による収束不能を防止します。
+
+```mermaid
+flowchart TD
+    A[Pull Request 初回オープン] --> B[CodeRabbit 自動レビュー起動<br/>(auto_incremental_review: false)]
+    A2[後続コミット Push] -.->|自動レビューしない| A2skip[手動 @coderabbitai review のみ可]
+    A --> C[Review Conversation Gate CI起動<br/>(.github/workflows/review-gate.yml)]
+    A2 --> C
+    
+    B --> D{改善指摘・懸念点あり?}
+    D -- YES --> E[インラインレビューコメント投稿<br/>PRステータス: Changes Requested]
+    D -- NO --> F[PRステータス: Approved]
+    
+    E --> G[開発者がコード修正 & コメント返答]
+    G --> H[コメントスレッドの解決 & コメント更新<br/>(Resolve conversation / issue_comment)]
+    H --> C
+    
+    C --> I[GitHub API / GraphQL で総合検証照会]
+    I --> J1{確定違反あり?<br/>未解決スレッド / 未チェック / CHANGES_REQUESTED<br/>スキャンfailure / アラート / システムエラー}
+    J1 -- YES --> K1[必須 Status: FAILURE<br/>マージブロック]
+    J1 -- NO --> J0{CodeRabbit実行中 or セキュリティ未完了?}
+    J0 -- YES --> K0[必須 Status: PENDING<br/>ジョブは成功終了・failureにしない<br/>マージブロックのみ]
+    J0 -- NO --> L[必須 Status: SUCCESS<br/>head.sha の単一 commit status 更新]
+    
+    H --> M{GitHub ブランチ保護ルール<br/>required_conversation_resolution}
+    M -- 未解決スレッドあり --> N[マージボタン無効化 (物理ブロック)]
+    M -- 全スレッド解決済み & CI ALL PASS --> O[master / production へのマージ許可]
+```
+
+### 15.1 二重マージブロック機構 (Dual Merge Blocking Mechanism)
+1. **第1防壁: GitHub ネイティブ ブランチ保護 (`required_conversation_resolution: true`)**
+   - `master` および `production` ブランチの保護ルールとして有効化。
+   - PR内のすべての会話スレッド（CodeRabbit の指摘、人間レビュアーの指摘）が「Resolve conversation」されない限り、GitHub UI 上でマージボタンが押下不可となる。
+2. **第2防壁: CI レビューゲートワークフロー (`.github/workflows/review-gate.yml`)**
+   - GitHub Actions 上で PR の会話スレッド、PR本文、全レビュー本文、全コメントを走査。
+   - **必須ステータス一本化**: ジョブ名は `review-gate-runner`（必須チェックにしない）。ブランチ保護の必須 context は `Verify All Review Conversations Resolved` のみとし、`pr.head.sha` への **単一 commit status** で報告する（ジョブ自動チェックとの同名二重報告禁止）。
+   - **待機 ≠ failure**: CodeRabbit 実行中、または必須セキュリティスキャン未開始／実行中は status=`pending`。ジョブ自体は成功終了し、sticky failure を残さない。
+   - **確定違反のみ failure**: 未解決スレッド、未完了チェックボックス、`CHANGES_REQUESTED`、スキャン failure、未解消 Code Scanning アラート。
+   - **Concurrency**: PR 単位で `cancel-in-progress: true` とし、同一 PR の古い Gate 実行をキャンセルする。
+   - 解決が必要なコメントや未完了項目の所在が GitHub Actions ログおよび PR サマリーに整形出力されるため、開発者の対応が即座に行える。
+
+### 15.2 CodeRabbit 連携仕様 (`.coderabbit.yaml`)
+- **初回オープンのみ自動レビュー**: `auto_incremental_review: false` により、PR 作成時の1回のみ自動レビューし、後続 push では自動再レビューしない（収束不能の連鎖指摘を防止）。必要時は `@coderabbitai review` で手動起動。
+- **日本語レビュー**: `language: "ja-JP"` により、すべての要約・インラインコメントを自然な日本語で出力。
+- **適正ノイズ制御**: `profile: "chill"` を適用し、重箱の隅をつつくスタイル指摘を排除して、潜在バグ・型不整合・セキュリティリスク・パフォーマンス劣化に集中。`assertive` は指摘過多で会話解決ゲートを阻害しやすいため採用しない。
+- **パス別レビュー観点 (`path_instructions`)**: ディレクトリごとにレビュー焦点を固定する。
+  - `src/crawler/package/parser/**`: 物件種別別 Base 継承・抽象メソッド実装漏れ・フィールド名統一・セレクター堅牢性。
+  - `src/crawler/tests/**`: 受入基準との対応、アサーションの弱さ、ミューテーション耐性。
+  - `src/crawler/scripts/**`: 有限タイムアウト、0件失敗分類、パスのハードコード禁止、Fast-Fail。
+- **トーン指示**: `tone_instructions` でプロジェクト原則を尊重しつつ、長期保守性・スケーラビリティを優先する。
+- **ドキュメント除外**: `reviews.path_filters` に `!docs/**` および `!**/*.md` を設定し、仕様・運用ドキュメント（`docs/`）および Markdown 全般をレビュー対象外とする。書式・文言指摘によるマージゲートノイズを排除する。
+- **Changes Requested 自動連動**: `request_changes_workflow: true` を設定。指摘がある場合は PR を「Changes Requested」とし、すべての指摘が解決されると自動で「Approved」に更新。
+- **チェックボックス完備**: レビュー本文およびサマリー内のアクション・チェックボックス（`- [ ]`）がすべて完了（`- [x]`）されていることを CI ゲートが自動検証。
+- **静的解析ツール統合**: `ruff`（Python lint）、`ast-grep`（構造解析）、`shellcheck`（シェル検証）を同時走査。`markdownlint` は Markdown 非対象化に合わせ無効。
+
+---
+
+## 16. パーサー項目抽出検証・欠損隠蔽防止アーキテクチャ (Parser Extraction Validation & Concealment Prevention Architecture)
+
+クローリング時、セレクター指定ミスやHTML構造の変化によって項目が取得できなかった場合、`clean_parsed_item` による 0 や空文字でのフォールバック補完によって欠損が隠蔽されてしまう問題を防止し、全サイト全項目に対して正しく値が抽出できたかを自動検証して明確なエラーログを出力します。
+
+```mermaid
+flowchart TD
+    A["生HTML取得 (Soup)"] --> B["各社パーサー詳細パース (_parsePropertyDetailPage)"]
+    B --> C["抽出検証 (validate_extracted_fields)"]
+    C --> D{"必須・重要項目の抽出状態判定"}
+    D -- "致命的欠損 (price / address)" --> E["LoadPropertyPageException 送出<br/>エラーHTML保存 ＆ アラート発報"]
+    D -- "重要スペック欠損 (0/None/空文字)" --> F["logging.error 出力<br/>[PARSER_EXTRACTION_ERROR]"]
+    D -- "任意項目欠損" --> G["logging.warning 出力<br/>[PARSER_EXTRACTION_WARN]"]
+    D -- "正常抽出" --> H["次ステップへ"]
+    F --> I["データサニタイズ (clean_parsed_item)"]
+    G --> I
+    H --> I
+    I --> J["1物件1AIリクエスト (未取得項目の自動レスキュー補完)"]
+    J --> K["DB永続化"]
+```
+
+### 16.1 物件種別別 期待フィールドマッピング
+| 物件種別 | 必須項目 (Fatal: 欠損時例外) | 重要スペック項目 (Error: 欠損・0補完時エラーログ) | 任意項目 (Warn) |
+|---|---|---|---|
+| **マンション (Mansion)** | `price`, `address` | `senyuMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `kaisu`, `propertyName`, `traffic` | `kanrihi`, `syuzenTsumitate`, `soukosu`, `balconyMenseki` |
+| **戸建 (Kodate)** | `price`, `address` | `tochiMenseki`, `tatemonoMenseki`, `madori`, `chikunengetsuStr`, `kouzou`, `tochikenri`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `chidai` |
+| **土地 (Tochi)** | `price`, `address` | `tochiMenseki`, `tochikenri`, `chimoku`, `propertyName`, `traffic` | `kenpei`, `youseki`, `youtoChiiki`, `setsudou`, `maguchi`, `roadWidth` |
+| **投資用 (Investment)** | `price`, `address` | `annualRent` (または `monthlyRent`), `grossYield`, `kouzou`, `propertyName`, `traffic` | `chikunengetsuStr`, `soukosu`, `tochikenri` |
+
+### 16.2 1物件1集約・構造化エラーログフォーマット (Single Structured Error Log Schema)
+1物件内で複数の項目不備が検出された場合でも、ログは物件単位で1件に集約して出力します。調査・自動修復に活用できるよう、URL、セレクタ情報、不備詳細をすべて含めた構造化JSONペイロード形式で記録します。
+```text
+[PARSER_EXTRACTION_ERROR] Property extraction failed for URL: {url} | Payload: {json_payload}
+```
+
+**JSON ペイロードスキーマ:**
+```json
+{
+  "event": "PARSER_EXTRACTION_ERROR",
+  "url": "https://www.example.com/property/12345",
+  "propertyName": "サンプル物件名",
+  "company": "athome",
+  "model": "AthomeKodate",
+  "property_type": "kodate",
+  "failed_count": 2,
+  "failed_fields": ["tochiMenseki", "tatemonoMenseki"],
+  "details": [
+    {
+      "field": "tochiMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tochi-area, #land_area"
+    },
+    {
+      "field": "tatemonoMenseki",
+      "value": "0.0",
+      "reason": "invalid non-positive value (0.0)",
+      "selector": ".tatemono-area"
+    }
+  ],
+  "selectors": {
+    "tochiMenseki": ".tochi-area, #land_area",
+    "tatemonoMenseki": ".tatemono-area",
+    "price": ".price"
+  }
+}
+```
+
+### 16.4 パーサー未取得項目のダミー・推測値フォールバック全廃設計 (Elimination of Fabricated Fallbacks)
+- **元データ忠実性原則の徹底**:
+  - 元Webサイトに明示的に記載されていない情報について、ありもしない推測値（例: 引渡時期未記載時の「相談」「即時」、取引態様未記載時の「仲介」、土地権利未記載時の「所有権」、再建築可否の「可」、国土法の「不要」、構造の「不明」）や固定ダミー文字列（"-"）をパーサー内で自動補完することを全廃する。
+  - 項目が取得できない場合は、一律に空文字 `""` または `None` を返却し、未取得状態を忠実に表現する。後続の `clean_parsed_item` および AI レスキュー補完層が適切に未取得として認識できるようにする。
+
+---
+
+## 17. ユニット完全性検証ミューテーションテスト機構設計 (Mutation Testing Architecture)
+
+### 17.1 2層ミューテーション構造
+```mermaid
+flowchart TD
+    subgraph L1["Level 1: ドメイン・データ破損注入 (Data Mutation)"]
+        D1["94モデル・全フィールドスキーマ"] --> D2["故意破損注入 (None/0/空文字/境界値)"]
+        D2 --> D3["パーサー・バリデーション層 (validate_extracted_fields)"]
+        D3 --> D4["100% 破損検知・構造化エラーログ出力 (Kill Rate: 100%)"]
+    end
+
+    subgraph L2["Level 2: コード構文木AST変異 (Code Mutation)"]
+        C1["コアユニット (baseParser, UrlRouter, detector, MLモジュール)"] --> C2["AST変異生成 (演算子反転 / 戻り値破壊 / 条件式否定)"]
+        C2 --> C3["ユニットテスト実行 (pytest)"]
+        C3 --> C4{"テスト結果判定"}
+        C4 -->|FAIL| C5["KILLED (殺傷成功: テスト有効)"]
+        C4 -->|PASS| C6["SURVIVED (生存: テスト盲点・不備)"]
+    end
+
+    subgraph OPS["運用・品質ゲート層"]
+        O1["run_mutation_testing.py / task test:mutation"] --> L1
+        O1 --> L2
+        L1 --> O2["総合Mutation Report (JSON/Console)"]
+        L2 --> O2
+        O2 --> O3{"Mutation Score >= 閾値?"}
+        O3 -->|Yes| O4["CI / 回帰テスト PASS"]
+        O3 -->|No| O5["エラー終了・アラート発報"]
+    end
+```
+
+### 17.2 変異生成ルール（AST Mutation Operators）
+- **比較演算子反転 (`MutateCompareOp`)**:
+  - `==` ↔ `!=`
+  - `<` ↔ `>=`
+  - `>` ↔ `<=`
+  - `in` ↔ `not in`
+  - `is` ↔ `is not`
+- **論理演算子反転 (`MutateBoolOp`)**:
+  - `and` ↔ `or`
+- **戻り値破壊 (`MutateReturn`)**:
+  - `return True` ↔ `return False`
+  - `return obj` ↔ `return None`
+  - `return 0` ↔ `return 1`
+- **条件式反転 (`MutateUnaryOp`)**:
+  - `not x` ↔ `x`
+
+### 17.3 運用コマンドとメトリクス
+```bash
+# 両方のミューテーションテストを一括実行
+task test:mutation
+
+# データ故意破損注入テストのみ実行
+task test:mutation-data
+
+# コードAST変異テストのみ実行
+task test:mutation-code
+
+# CLIスクリプト直接実行（閾値指定）
+python src/crawler/scripts/run_mutation_testing.py --mode=all --threshold=85
+```
+
+- **Mutation Score (キル率)**:
+  $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \times 100\%$$
+- **品質ゲート基準**:
+  - Level 1 (Data Mutation): **100%** (1件の取りこぼしも許容しない)
+  - Level 2 (Code Mutation): **85%以上** (コアユニットにおいて未検証ロジックを排除)
+
+---
+
+## 18. SonarCloud事前検証ローカルガードレール設計 (Local Sonar Guardrail & Pre-Push Guard)
+
+CIでのSonarCloudチェック（`python:S3776` 認知的複雑度超過、`python:S8786` 正規表現バックトラッキング・ReDoS、カバレッジ不足）による失敗と手戻りを完全撲滅するための多層防御アーキテクチャ。
+
+```mermaid
+flowchart TD
+    subgraph IDE["IDE層 (0秒・リアルタイム)"]
+        VS["VSCode + SonarLint"] -->|Connected Mode| Inline["エディタ内波線警告<br/>(S3776 / S8786 即時ハイライト)"]
+    end
+
+    subgraph Local["ローカルゲート層 (0.5秒)"]
+        CLI["check_local_sonar.py<br/>(Python AST 高速解析)"]
+        Task["task sonar-check<br/>(コミット前・手動確認)"]
+        Hook[".githooks/pre-push<br/>(リモートPush時自動検証)"]
+        CLI --> Task
+        CLI --> Hook
+    end
+
+    subgraph CI["CI層 (GitHub Actions)"]
+        GHA["sonar.yml<br/>(SonarCloud Analysis)"]
+    end
+
+    Inline --> Local
+    Hook -->|違反ゼロ時のみPush許可| GHA
+```
+
+### 18.1 検証対象ルールと判定基準
+1. **`python:S3776` (Cognitive Complexity <= 15)**:
+   - Python標準の `ast` モジュールを用いて関数ごとの認知的複雑度を算定。
+   - 分岐（`if`, `elif`）、ループ（`for`, `while`）、例外（`except`）、ブール演算（`and`, `or`）、およびネスト深度に応じた加重ペナルティを合計。
+   - 閾値 15 を超過する関数が存在する場合、エラー（FAIL）として指摘位置（ファイル・行番号・関数名・現在スコア）を出力。
+2. **`python:S8786` (Regex Backtracking / ReDoS リスク)**:
+   - AST 内の `re.compile`, `re.search`, `re.match`, `re.findall`, `re.sub` 等の正規表現文字列を走査。
+   - バックトラッキング爆発を引き起こす危険パターン（ネストした量指定子 `(a+)+`、貪欲マッチの連打 `.*.*`、境界のない曖昧キャプチャ等）を静的パターンマッチで検出。
+3. **差分高速解析 (`--diff`)**:
+   - `git diff --name-only origin/master...HEAD` および未コミットの変更ファイルから対象の `.py` ファイルのみを抽出し、0.5秒以内で検査完了。全件走査（`--all`）もサポート。
+
+---
+
+## 19. GitHub Issue アクセプタンスクライテリアPR制限ゲートアーキテクチャ (Issue Acceptance Criteria PR Gate Architecture)
+
+開発者が Pull Request を作成・マージするにあたり、紐付けられた GitHub Issue に記載されているアクセプタンスクライテリア（受入基準: `- [ ]`）がすべて達成・チェック（`- [x]`）されていることを、ローカルCLIおよびGitHub Actions CIの二重防御で強制する設計。
+
+```mermaid
+flowchart TD
+    subgraph Local["ローカルゲート層 (PR作成前)"]
+        AC_CLI["check_issue_criteria.py<br/>(Issue Markdownチェックボックス解析)"]
+        Task_PR["task pr-create / task pr-check"]
+        Hook_Pre["git push (.githooks/pre-push)"]
+        AC_CLI --> Task_PR
+        AC_CLI --> Hook_Pre
+    end
+
+    subgraph CI["CI層 (GitHub Actions: issue-gate.yml)"]
+        PR_Open["Pull Request 作成 / 更新"]
+        Extract_Issue["ブランチ名 / PR本文から Issue番号抽出"]
+        Fetch_Body["gh issue view (Issue本文取得)"]
+        Check_Boxes{"全チェックボックス<br/>が [x] か?"}
+        PR_Pass["CI PASS (マージ可能)"]
+        PR_Block["CI FAIL & コメント通知<br/>(未完了基準一覧をフィードバック)"]
+        
+        PR_Open --> Extract_Issue
+        Extract_Issue --> Fetch_Body
+        Fetch_Body --> Check_Boxes
+        Check_Boxes -- YES --> PR_Pass
+        Check_Boxes -- NO (未チェック残存 or 基準未定義) --> PR_Block
+    end
+
+    Task_PR -->|全受入基準充足時のみPR作成実行| PR_Open
+```
+
+### 19.1 判定ロジックと動作仕様
+1. **Issue 存在確認**:
+   - PRのブランチ名（`feature/<issue_num>-*`, `fix/<issue_num>-*`）または PR本文（`Closes #<issue_num>`, `#<issue_num>`）から Issue 番号を抽出。
+   - Issue が未紐付け、またはリポジトリ上に存在しない場合は即座に FAIL。
+2. **アクセプタンスクライテリア定義の検証**:
+   - Issue 本文から Markdown のタスクリストチェックボックス（`^[-*]\s+\[([ xX])\]`）を全件抽出。
+   - チェックボックスが0件の場合（受入基準未策定）はマージ不可（FAIL）。
+3. **全件完了検証 (100% Completion Assertion)**:
+   - 未チェック項目（`- [ ]`）が1件でも残存している場合は、未完了の項目名一覧をPRコメントおよびジョブログに明示して CI を FAIL とし、マージをブロック。
+   - 全件が `- [x]` の場合のみ CI PASS となり、マージ可能となる。
+4. **ローカルツールと連携**:
+   - `task pr-check`: カレントブランチの Issue 受入基準のチェック状態を即座に確認。
+   - `task pr-create`: 受入基準がすべて満たされているかを自動事前判定し、合格時のみ `gh pr create` を呼び出す。
+
+---
+
+## 20. クローラーURL正規化・階層展開アーキテクチャ (Crawler URL Normalization & Hierarchy Traversal)
+
+### 20.1 概要
+クローラーの巡回およびDB保存において、URLの一意性判定およびマルチ階層展開を堅牢化する設計。
+
+### 20.2 一意識別パラメータ保護 (`UrlMatcher`)
+- 一部の不動産サイト（Panasonic Rearie 等）では、物件詳細が一意のクエリパラメータ（例: `?id=XXXXXX`）で識別される。
+- `UrlMatcher.normalize()` は一般的なトラッキングクエリ（`utm_*`, `session_id` 等）や不要クエリをカットしつつ、物件詳細の必須識別子（`id` 等の特定パラメータ）を維持するホワイトリスト/ドメイン保護ルールを適用する。
+- これにより、DBレコード保存時の URL 衝突（全件同一URLへの上書き現象）を根絶する。
+
+### 20.3 自律HTTPセッション管理 (`DaikyoParser`)
+- 都道府県別・市区町村別など複数階層にドリルダウンして詳細物件URLを収集するパーサー（`DaikyoParser` 等）において、`_getContent` 呼び出し時に渡される `session` が `None` の場合でも、内部で自己完結した非同期セッションを生成・破棄して確実に生HTMLを取得する。
+- 外部オーケストレータ（`ParseMiddlePageAsyncBase`）のセッション引き渡し有無に依存せず、常に安定した階層展開クローリングを保証する。
+
+---
+
+## 21. CI/CD高速化・キャッシュ最適化・レビューゲート自律連携アーキテクチャ (CI/CD Acceleration & Review Gate Orchestration)
+
+### 21.1 課題とアーキテクチャ目標
+PR通過の遅延およびレビューゲート滞留を解消し、CI所要時間を **15分 ➔ 3〜4分以内** に短縮する。
+
+### 21.2 Docker レイヤーキャッシュ戦略 (Shift-Left Layer Invalidation)
+- **レイヤー逆転の是正**: `playwright install --with-deps chromium` を `COPY config/` / `COPY src/` より前に配置。
+- **キャッシュ保護**: 頻繁に変更されるアプリケーションソースコード（`src/**`）の変更が、重厚なブラウザ・OS依存パッケージ（apt + chromium）のレイヤーキャッシュを無効化しない構造とする。
+- これにより、コード変更コミット時の Docker ビルドを **5分30秒 ➔ 2〜5秒** に圧縮。
+
+### 21.3 テスト二重実行の排除とカバレッジ共有パイプライン
+- `sonar.yml` による独立した Docker Build / DB 起動 / pytest 重複実行を全廃。
+- `test.yml` で生成したカバレッジ成果物（`coverage.xml`）を GHA Artifact を介して SonarCloud スキャンジョブに引き渡し、SonarCloud ジョブをテスト再実行なしの軽量スキャン（1〜2分）に集約。
+
+### 21.4 マトリクスジョブの DB 起動最適化
+- 実 DB（MySQL）接続を必要としないジョブ（`Unit Tests`, `PR Mutation Tests`）において、MySQL コンテナ起動（`docker compose up -d db`）、ポーリング待機（`wait_for_db.py`）、およびマイグレーション（`manage.py migrate`）をスキップ。
+- 各ジョブの起動オーバーヘッドを約 1分15秒 削減。
+
+### 21.5 レビューゲート自律再評価アーキテクチャ
+- CodeRabbit のレビュー完了後にコミットステータス（`success`）が反映されても、直接の GHA Webhook が発火しない制約に対処。
+- 後続で完了するワークフロー（`Parser Tests`, `SonarCloud Analysis`）の `workflow_run.completed` をトリガーに Review Gate を自律再実行し、最新ステータスを確実に再評価・反映して永久 pending スタックを根絶。
+
+---
+
+## 22. MySQL 認証プラグイン標準化 & TLS 接続アーキテクチャ (Issue #572)
+
+### 22.1 概要と目的
+MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグレード互換性を担保するため、旧式 `mysql_native_password` を全廃し、`caching_sha2_password` へ移行する。
+
+### 22.2 通信暗号化と認証フロー
+- **ProxySQL ➔ Cloud SQL**:
+  - `mysql_servers` で `use_ssl=1` を指定。
+  - TLS 暗号化ハンドシェイクにより、RSA 公開鍵交換不要で `caching_sha2_password` をセキュア・高速に疎通。
+- **Cloud SQL 設定**:
+  - インスタンス設定から `default_authentication_plugin = "mysql_native_password"` を撤廃し、MySQL 8.0 標準に復帰。
+  - アプリケーションユーザー (`sumifu`) および監視ユーザー (`monitor`) を `caching_sha2_password` に移行。
+
+---
+
+## 23. 本番デプロイ時イメージ管理・プルーニング安全化アーキテクチャ (Issue #593)
+
+### 23.1 概要と目的
+本番デプロイパイプライン（`deploy-production.yml`）におけるイメージ孤立障害（Image not found によるバッチハング）を防止するため、プルーニング（不要イメージ削除）処理の実行順序を是正する。
+
+### 23.2 デプロイ完了後プルーニング原則（Post-Deployment Pruning）
+- **変更前の問題点**: Docker イメージのビルド・プッシュ直後に Prune ステップを実行していたため、後続の DB マイグレーション等のステップが失敗すると、Cloud Run Job / Service のイメージ更新がスキップされ、削除済みイメージを参照したまま取り残されていた。
+- **改善アーキテクチャ**:
+  - `Prune old images` を全 Cloud Run Job（クローラー、マイグレーション、ディスパッチャー、ML、セーフティネット）および Cloud Run Service（Web API、Worker、Slack Agent）の更新が完全に成功した直後（末尾）へ再配置。
+  - デプロイ途中で障害が発生した場合は Prune が自動スキップされ、稼働中のリソースが参照している実体イメージを安全に保護する。
+  - 詳細は [デプロイ時イメージ管理基本設計書](deploy_image_lifecycle_basic_design.md) を参照。
+
+
+
+
+
+
+
