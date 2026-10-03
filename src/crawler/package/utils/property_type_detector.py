@@ -57,8 +57,9 @@ class PropertyTypeDetector:
     ]
 
     TOCHI_KEYWORDS = [
-        "売土地", "売り土地", "建築条件付土地", "売地", "土地"
+        "売土地", "売り土地", "建築条件付土地", "売地"
     ]
+
 
     _ai_cache: Dict[str, str] = {}
 
@@ -297,15 +298,16 @@ class PropertyTypeDetector:
             title_ptype = cls._match_keywords(title)
             if title_ptype:
                 return title_ptype
-        if cls._has_yield_signal(html_text):
-            return "apartment"
-        if specs_ptype:
-            return specs_ptype
         if url:
             url_ptype = cls._detect_from_url(url)
             if url_ptype:
                 return url_ptype
+        if cls._has_yield_signal(html_text):
+            return "apartment"
+        if specs_ptype:
+            return specs_ptype
         return cls._match_keywords(html_text) if html_text else None
+
 
     @classmethod
     def detect(
@@ -514,13 +516,39 @@ class PropertyTypeDetector:
         return cls._detect_from_area_fields(property_obj)
 
     @classmethod
-    def detect_investment_type(cls, text: str, default: str = "Apartment") -> str:
+    def detect_investment_type(
+        cls,
+        text: Optional[str] = None,
+        specs: Optional[Dict[str, Any]] = None,
+        default: str = "Apartment"
+    ) -> str:
         """
-        投資物件の表題・テキスト等から Apartment / Mansion / Building を判定。
+        投資物件の表題・スペック表等から Apartment / Mansion / Kodate / Building を判定。
         各投資用パーサーの重複実装を共通化。
         """
+        # 1. specs 内の明示的種別確認
+        if specs and isinstance(specs, dict):
+            for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+                v = str(specs.get(k) or "")
+                if any(x in v for x in ("戸建て", "戸建", "テラスハウス")):
+                    return "Kodate"
+                if any(x in v for x in ("マンション", "レジ", "区分")):
+                    return "Mansion"
+                if any(x in v for x in ("ビル", "店舗", "事務所")):
+                    return "Building"
+                if "アパート" in v:
+                    return "Apartment"
+
+            # 専有面積があれば区分マンション
+            if specs.get("専有面積"):
+                return "Mansion"
+
+        # 2. テキスト・表題による判定
         if not text or not isinstance(text, str):
             return default
+
+        if any(k in text for k in ["戸建て", "戸建", "テラスハウス", "一戸建"]):
+            return "Kodate"
         if "アパート" in text:
             return "Apartment"
         if "マンション" in text or "レジ" in text:
@@ -528,6 +556,7 @@ class PropertyTypeDetector:
         if any(k in text for k in ["ビル", "店舗", "事務所"]):
             return "Building"
         return default
+
 
     @classmethod
     def is_investment(cls, ptype: Optional[str]) -> bool:

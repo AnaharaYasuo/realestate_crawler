@@ -52,11 +52,15 @@ def test_detect_from_title_tochi():
     title1 = "目黒区自由が丘 売地 建築条件なし 50坪"
     assert PropertyTypeDetector.detect(title=title1) == "tochi"
 
-    title2 = "練馬区東大泉 土地 更地渡し 角地"
+    title2 = "練馬区東大泉 売土地 更地渡し 角地"
     assert PropertyTypeDetector.detect(title=title2) == "tochi"
 
     title3 = "世田谷区 建築条件付土地 好立地"
     assert PropertyTypeDetector.detect(title=title3) == "tochi"
+
+    title4 = "横浜市青葉区 売り土地 閑静な住宅街"
+    assert PropertyTypeDetector.detect(title=title4) == "tochi"
+
 
 
 def test_detect_from_specs():
@@ -194,12 +198,51 @@ def test_detect_from_object_django_model():
 
 
 def test_detect_investment_type():
-    """投資物件のサブ種別判定（Apartment, Mansion, Building）"""
+    """投資物件のサブ種別判定（Apartment, Mansion, Kodate, Building）"""
     assert PropertyTypeDetector.detect_investment_type("○○アパート一棟売り") == "Apartment"
     assert PropertyTypeDetector.detect_investment_type("○○レジデンス 区分") == "Mansion"
+    assert PropertyTypeDetector.detect_investment_type("○○レジ 1棟") == "Mansion"
+    assert PropertyTypeDetector.detect_investment_type("投資用戸建て オーナーチェンジ") == "Kodate"
+    assert PropertyTypeDetector.detect_investment_type("目黒区 中古戸建 賃貸中") == "Kodate"
+    assert PropertyTypeDetector.detect_investment_type("○○テラスハウス 収益物件") == "Kodate"
     assert PropertyTypeDetector.detect_investment_type("○○ビル 一棟売り店舗") == "Building"
     assert PropertyTypeDetector.detect_investment_type("新宿区 事務所ビル") == "Building"
     assert PropertyTypeDetector.detect_investment_type("タイトル不明", default="Apartment") == "Apartment"
+    # specs による判定サポート
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"建物種別": "一戸建て"}) == "Kodate"
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"専有面積": "25.0m2"}) == "Mansion"
+
+
+def test_url_precedence_over_body_rental_signal():
+    """居住用URLがある場合、本文の曖昧な賃貸シグナルに引きずられずURL種別を優先すること"""
+    # URLがmansionで本文にオーナーチェンジがある場合、specs利回りがなければmansion
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/mansion/bkdetail/12345/",
+        html_text="オーナーチェンジ物件につき賃貸中 専有面積55m2",
+    ) == "mansion"
+
+    # URLがkodateで本文に賃貸中がある場合
+    assert PropertyTypeDetector.detect(
+        url="https://www.stepon.co.jp/kodate/detail_12345/",
+        html_text="現在賃貸中につき引渡時期相談 建物面積80m2",
+    ) == "kodate"
+
+    # ただし、specsに数値利回りがある場合は投資物件確定
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/mansion/bkdetail/12345/",
+        specs={"grossYield": "6.5%"},
+        html_text="オーナーチェンジ物件",
+    ) == "apartment"
+
+
+def test_tochi_keyword_clean_exclusion():
+    """本文中の『土地権利』『土地面積』などで誤って tochi 判定されないこと"""
+    res = PropertyTypeDetector.detect(
+        html_text="土地権利 所有権 土地面積 120m2 建ぺい率 60% 構造 木造",
+        default="mansion"
+    )
+    assert res != "tochi"
+
 
 
 def test_yield_guard_in_detect():
