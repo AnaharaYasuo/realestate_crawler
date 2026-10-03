@@ -308,8 +308,11 @@ class PropertyTypeDetector:
             return "apartment"
         if title:
             title_ptype = cls._match_keywords(title)
+            if not title_ptype and "土地" in title and not any(k in title for k in ("土地権利", "土地面積")):
+                title_ptype = "tochi"
             if title_ptype:
                 return title_ptype
+
         # 数値付き利回りはURL（/mansion/等）よりも強い投資シグナルとして最優先
         if html_text and cls._has_numeric_yield(html_text):
             return "apartment"
@@ -539,30 +542,30 @@ class PropertyTypeDetector:
             return None
         for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
             v = str(specs.get(k) or "")
+            if any(x in v for x in ("ビル", "店舗", "事務所")):
+                return "Building"
             if any(x in v for x in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
                 return "Apartment"
             if any(x in v for x in ("戸建て", "戸建", "一戸建", "一戸建て", cls.KW_TERRACE_HOUSE)):
                 return "Kodate"
-
             if any(x in v for x in (cls.KW_MANSION, "レジ", "区分")):
                 return "Mansion"
-            if any(x in v for x in ("ビル", "店舗", "事務所")):
-                return "Building"
         return None
 
     @classmethod
     def _detect_invest_from_text(cls, text: str | None, default: str) -> str:
         if not text or not isinstance(text, str):
             return default
+        if any(k in text for k in ("ビル", "店舗", "事務所")):
+            return "Building"
         if any(k in text for k in (cls.KW_ITTO_MANSION, cls.KW_ITTO_URI_MANSION, cls.KW_ITTO_APARTMENT, cls.KW_ITTO_URI_APARTMENT, "アパート")):
             return "Apartment"
         if any(k in text for k in ("戸建て", "戸建", cls.KW_TERRACE_HOUSE, "一戸建")):
             return "Kodate"
         if cls.KW_MANSION in text or "レジ" in text:
             return "Mansion"
-        if any(k in text for k in ("ビル", "店舗", "事務所")):
-            return "Building"
         return default
+
 
 
     @classmethod

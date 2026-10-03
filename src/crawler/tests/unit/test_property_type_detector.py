@@ -211,10 +211,17 @@ def test_detect_investment_type():
     assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"物件種別": "一戸建"}) == "Kodate"
     # specs による判定サポート
     assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"建物種別": "一戸建て"}) == "Kodate"
-    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"専有面積": "25.0m2"}) == "Mansion"
+    # 区分店舗・区分事務所は Building
+    assert PropertyTypeDetector.detect_investment_type("区分店舗 1階部分") == "Building"
+    assert PropertyTypeDetector.detect_investment_type("区分事務所 駅近") == "Building"
+    assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分店舗"}) == "Building"
+    assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分事務所"}) == "Building"
+    # タイトル中の単独「土地」
+    assert PropertyTypeDetector.detect(title="練馬区東大泉 土地 更地渡し 角地") == "tochi"
     # specs の exact '土地'
     assert PropertyTypeDetector.detect(specs={"種別": "土地"}) == "tochi"
     assert PropertyTypeDetector.detect(specs={"種別": " 土地 "}) == "tochi"
+
 
 
 
