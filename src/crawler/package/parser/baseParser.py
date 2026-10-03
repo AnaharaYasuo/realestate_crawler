@@ -1254,6 +1254,19 @@ class ParserBase(metaclass=ABCMeta):
             raise LoadPropertyPageException(msg)
         return item
 
+    @staticmethod
+    def _validate_http_status(status: int, url: str) -> None:
+        """HTTPレスポンスステータスに応じた適切な例外を送出"""
+        if status in (404, 410):
+            raise ListingEndedException(f'Property page returned HTTP status {status}: {url}')
+        if status == 429:
+            raise RateLimitedException(f'HTTP Status 429 Too Many Requests: {url}')
+        if status == 403:
+            raise LoadPropertyPageException(f'HTTP Status 403 Forbidden (Possible WAF/Bot Protection): {url}')
+        if status in (500, 502, 503, 504):
+            raise ServerBusyException(f'Property page returned HTTP status {status}: {url}')
+        raise LoadPropertyPageException(f'HTTP Status {status}: {url}')
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
@@ -1263,16 +1276,7 @@ class ParserBase(metaclass=ABCMeta):
                     if response.status == 200:
                         self.consecutive_timeouts = 0
                         return await response.read()
-                    elif response.status in (404, 410):
-                        raise ListingEndedException(f'Property page returned HTTP status {response.status}: {url}')
-                    elif response.status == 429:
-                        raise RateLimitedException(f'HTTP Status 429 Too Many Requests: {url}')
-                    elif response.status == 403:
-                        raise LoadPropertyPageException(f'HTTP Status 403 Forbidden (Possible WAF/Bot Protection): {url}')
-                    elif response.status in (500, 502, 503, 504):
-                        raise ServerBusyException(f'Property page returned HTTP status {response.status}: {url}')
-                    else:
-                        raise LoadPropertyPageException(f'HTTP Status {response.status}: {url}')
+                    self._validate_http_status(response.status, url)
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
                 cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
                 self.consecutive_timeouts = cur_timeouts
