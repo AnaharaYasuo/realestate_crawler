@@ -348,7 +348,7 @@ class ParserBase(metaclass=ABCMeta):
     async def parsePropertyListPage(self, response):
         return
 
-    _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav', 'aside', 'header'})
+    _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav', 'aside'})
     _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
 
     @classmethod
@@ -359,6 +359,20 @@ class ParserBase(metaclass=ABCMeta):
             name = getattr(curr, 'name', None)
             if name in cls._NOISE_CONTAINER_TAGS:
                 return True
+            if name == 'header':
+                # Distinguish site global header from property/article header
+                parent = getattr(curr, 'parent', None)
+                in_article = False
+                p_check = parent
+                while p_check is not None:
+                    p_name = getattr(p_check, 'name', None)
+                    p_cls = ' '.join(p_check.get('class', [])).lower() if hasattr(p_check, 'get') else ''
+                    if p_name == 'article' or 'property' in p_cls or 'detail' in p_cls:
+                        in_article = True
+                        break
+                    p_check = getattr(p_check, 'parent', None)
+                if not in_article:
+                    return True
             curr_id = str(curr.get('id', '')).lower() if hasattr(curr, 'get') else ''
             curr_cls = ' '.join(curr.get('class', [])).lower() if hasattr(curr, 'get') else ''
             for pat in cls._NOISE_CLASS_OR_ID_PATTERNS:

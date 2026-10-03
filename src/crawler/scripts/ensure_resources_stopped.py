@@ -413,12 +413,23 @@ def _get_active_cloud_run_executions(
 
         job_full_names: list[str] = []
         if j_resp.status_code == 200:
-            jobs_data = j_resp.json().get("jobs", [])
-            for j in jobs_data:
-                name = j.get("name", "")
-                short = name.rstrip("/").split("/")[-1]
-                if any(short.startswith(p) for p in job_prefixes):
-                    job_full_names.append(name)
+            next_page_token = None
+            while True:
+                j_url = jobs_url
+                if next_page_token:
+                    j_url = f"{jobs_url}?pageToken={next_page_token}"
+                curr_resp = requests.get(j_url, headers=headers, timeout=10) if next_page_token else j_resp
+                if curr_resp.status_code != 200:
+                    break
+                curr_data = curr_resp.json()
+                for j in curr_data.get("jobs", []):
+                    name = j.get("name", "")
+                    short = name.rstrip("/").split("/")[-1]
+                    if any(short.startswith(p) for p in job_prefixes):
+                        job_full_names.append(name)
+                next_page_token = curr_data.get("nextPageToken")
+                if not next_page_token:
+                    break
         else:
             logger.warning(
                 f"HTTP {j_resp.status_code} listing jobs via REST: {j_resp.text}. "
@@ -427,56 +438,66 @@ def _get_active_cloud_run_executions(
             env_suffix = os.getenv("ENVIRONMENT", "prod")
             candidates = set()
             for p in job_prefixes:
-                candidates.add(p)
-                candidates.add(f"{p}-{env_suffix}")
-                candidates.add(f"{p}-prod")
-                candidates.add(f"{p}-stg")
+                clean_p = p.rstrip("-")
+                candidates.add(clean_p)
+                candidates.add(f"{clean_p}-{env_suffix}")
+                candidates.add(f"{clean_p}-prod")
+                candidates.add(f"{clean_p}-stg")
             job_full_names = [
                 f"projects/{project_id}/locations/{region}/jobs/{c}"
                 for c in sorted(candidates)
             ]
 
         seen_execution_names = set()
-        success_candidate_count = 0
+        has_execution_error = False
         last_candidate_err = ""
         for j_full_name in job_full_names:
             j_short_name = j_full_name.rstrip("/").split("/")[-1]
             exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
-            e_resp = requests.get(exec_url, headers=headers, timeout=10)
-            if e_resp.status_code == 404:
-                # Job candidate does not exist in this environment
-                continue
-            if e_resp.status_code != 200:
-                last_candidate_err = f"HTTP {e_resp.status_code}: {e_resp.text}"
-                logger.debug(
-                    f"HTTP {e_resp.status_code} listing executions for {j_short_name}: {e_resp.text}"
-                )
-                continue
-            success_candidate_count += 1
-            for ex in e_resp.json().get("executions", []):
-                ex_name = ex.get("name", "")
-                if ex_name in seen_execution_names:
-                    continue
-                is_completed = bool(ex.get("completionTime"))
-                is_cancelled = bool(ex.get("cancelled"))
-                if not is_completed and not is_cancelled:
-                    seen_execution_names.add(ex_name)
-                    create_ts = ex.get("createTime") or ex.get("startTime")
-                    elapsed = _parse_timestamp_to_seconds_ago(create_ts)
-                    exec_job_name = (
-                        ex_name.split("/jobs/")[1].split("/")[0]
-                        if "/jobs/" in ex_name
-                        else j_short_name
+            next_exec_token = None
+            while True:
+                curr_exec_url = exec_url
+                if next_exec_token:
+                    curr_exec_url = f"{exec_url}?pageToken={next_exec_token}"
+                e_resp = requests.get(curr_exec_url, headers=headers, timeout=10)
+                if e_resp.status_code == 404:
+                    # Job candidate does not exist in this environment
+                    break
+                if e_resp.status_code != 200:
+                    has_execution_error = True
+                    last_candidate_err = f"HTTP {e_resp.status_code}: {e_resp.text}"
+                    logger.debug(
+                        f"HTTP {e_resp.status_code} listing executions for {j_short_name}: {e_resp.text}"
                     )
-                    active_jobs.append(
-                        CloudRunExecutionInfo(
-                            name=ex_name,
-                            job_name=exec_job_name,
-                            elapsed_sec=elapsed,
+                    break
+                e_data = e_resp.json()
+                for ex in e_data.get("executions", []):
+                    ex_name = ex.get("name", "")
+                    if ex_name in seen_execution_names:
+                        continue
+                    is_completed = bool(ex.get("completionTime"))
+                    is_cancelled = bool(ex.get("cancelled"))
+                    if not is_completed and not is_cancelled:
+                        seen_execution_names.add(ex_name)
+                        create_ts = ex.get("createTime") or ex.get("startTime")
+                        elapsed = _parse_timestamp_to_seconds_ago(create_ts)
+                        exec_job_name = (
+                            ex_name.split("/jobs/")[1].split("/")[0]
+                            if "/jobs/" in ex_name
+                            else j_short_name
                         )
-                    )
+                        active_jobs.append(
+                            CloudRunExecutionInfo(
+                                name=ex_name,
+                                job_name=exec_job_name,
+                                elapsed_sec=elapsed,
+                            )
+                        )
+                next_exec_token = e_data.get("nextPageToken")
+                if not next_exec_token:
+                    break
 
-        if j_resp.status_code != 200 and success_candidate_count == 0:
+        if j_resp.status_code != 200 and has_execution_error:
             return active_jobs, last_candidate_err or f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
 
         return active_jobs, ""
