@@ -412,6 +412,8 @@ def _get_active_cloud_run_executions(
         j_resp = requests.get(jobs_url, headers=headers, timeout=10)
 
         job_full_names: list[str] = []
+        jobs_list_failed = False
+        jobs_list_err = ""
         if j_resp.status_code == 200:
             next_page_token = None
             while True:
@@ -420,6 +422,9 @@ def _get_active_cloud_run_executions(
                     j_url = f"{jobs_url}?pageToken={next_page_token}"
                 curr_resp = requests.get(j_url, headers=headers, timeout=10) if next_page_token else j_resp
                 if curr_resp.status_code != 200:
+                    jobs_list_failed = True
+                    jobs_list_err = f"HTTP {curr_resp.status_code} listing jobs page: {curr_resp.text}"
+                    logger.warning(jobs_list_err)
                     break
                 curr_data = curr_resp.json()
                 for j in curr_data.get("jobs", []):
@@ -431,10 +436,13 @@ def _get_active_cloud_run_executions(
                 if not next_page_token:
                     break
         else:
+            jobs_list_failed = True
+            jobs_list_err = f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
             logger.warning(
-                f"HTTP {j_resp.status_code} listing jobs via REST: {j_resp.text}. "
-                "Falling back to candidate job execution endpoints."
+                f"{jobs_list_err}. Falling back to candidate job execution endpoints."
             )
+
+        if jobs_list_failed:
             env_suffix = os.getenv("ENVIRONMENT", "prod")
             candidates = set()
             for p in job_prefixes:
@@ -451,6 +459,7 @@ def _get_active_cloud_run_executions(
         seen_execution_names = set()
         has_execution_error = False
         last_candidate_err = ""
+        all_candidates_not_found = True
         for j_full_name in job_full_names:
             j_short_name = j_full_name.rstrip("/").split("/")[-1]
             exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
@@ -463,6 +472,7 @@ def _get_active_cloud_run_executions(
                 if e_resp.status_code == 404:
                     # Job candidate does not exist in this environment
                     break
+                all_candidates_not_found = False
                 if e_resp.status_code != 200:
                     has_execution_error = True
                     last_candidate_err = f"HTTP {e_resp.status_code}: {e_resp.text}"
@@ -497,8 +507,10 @@ def _get_active_cloud_run_executions(
                 if not next_exec_token:
                     break
 
-        if j_resp.status_code != 200 and has_execution_error:
-            return active_jobs, last_candidate_err or f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
+        if has_execution_error:
+            return active_jobs, last_candidate_err or jobs_list_err
+        if jobs_list_failed and all_candidates_not_found:
+            return active_jobs, jobs_list_err or "All candidate Cloud Run jobs returned 404"
 
         return active_jobs, ""
     except Exception as e:  # noqa: BLE001

@@ -348,12 +348,12 @@ class ParserBase(metaclass=ABCMeta):
     async def parsePropertyListPage(self, response):
         return
 
-    _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav', 'aside'})
+    _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav'})
     _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
 
     @classmethod
-    def _is_noise_header(cls, el) -> bool:
-        """Return True if element is a global header outside article/property context."""
+    def _is_noise_header_or_aside(cls, el) -> bool:
+        """Return True if header/aside element is outside article/property context."""
         curr = getattr(el, 'parent', None)
         while curr is not None:
             c_name = getattr(curr, 'name', None)
@@ -379,7 +379,7 @@ class ParserBase(metaclass=ABCMeta):
             name = getattr(curr, 'name', None)
             if name in cls._NOISE_CONTAINER_TAGS:
                 return True
-            if name == 'header' and cls._is_noise_header(curr):
+            if (name == 'header' or name == 'aside') and cls._is_noise_header_or_aside(curr):
                 return True
             if cls._matches_noise_pattern(curr):
                 return True
