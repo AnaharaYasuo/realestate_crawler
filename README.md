@@ -593,6 +593,32 @@ task logs
 
 ---
 
+## ドキュメント体系 (Domain-Driven Documentation)
+
+本プロジェクトの仕様・設計・運用ドキュメントは、7つのドメインに分類・集約されています。
+
+```text
+docs/
+├── 1_architecture/              # [基盤] 全体システム方針・共通設計原則
+├── 2_crawlers/                  # [クローラー] 収集エンジン・サイト別仕様 ＋ クローラー品質検証
+├── 3_data_models/               # [データ] モデル・DB永続化・クレンジング ＋ データ完全性検証
+├── 4_valuation_and_ml/          # [評価・ML] 不動産査定・機械学習・画像評価 ＋ モデル品質検証
+├── 5_alert_and_delivery/        # [通知・配信] 投資判定スコア配信・Slack運用 ＋ 配信疎通検証
+├── 6_platform_and_release/      # [プラットフォーム] インフラ・CI/CD・コード管理・デプロイ戦略
+└── 7_operations_and_improvement/# [運用・改善] 稼働監視・自律修復(Auto-Heal)・機能改善ループ
+```
+
+### 🏢 クローラー開発者・パーサー新規追加向け中核ガイド
+- **[クローラー対象サイト 事前調査チェックリスト](docs/2_crawlers/_standards/site_survey_checklist.md)**: サイトのHTMLレンダリング、URL・ページング、スペック表構造、WAF・掲載終了の事前調査シート
+- **[新規サイトクローラー・パーサー実装ハンドブック](docs/2_crawlers/_standards/new_site_implementation_guide.md)**: 他社パーサーと同等の高水準で一発作成するための標準手順書
+- **[クローラー巡回・ページネーション標準アーキテクチャ](docs/2_crawlers/_standards/crawler_pagination_architecture.md)**: 4大ページ送り戦略および事前間引き（2段階パース）プロトコル
+- **[共通データ正規化・クレンジング規約](docs/3_data_models/data_normalization_and_cleansing.md)**: 全角半角・和暦・面積・価格の統一クレンジングパイプライン
+- **[掲載終了確定プロトコルと誤認防止仕様](docs/2_crawlers/_standards/listing_ended_prevention_protocol.md)**: WAF/一時的エラーを掲載終了と誤認させない多重確認ルール
+- **[クロスポータル多媒体横断名寄せ（ファジーデデュープ）仕様](docs/3_data_models/cross_portal_fuzzy_deduplication.md)**: 住所・面積・階数・建物名スコアリングによる同一物件Upsert仕様
+- **[オートヒール品質ゲート＆データ完全性保証仕様](docs/7_operations_and_improvement/auto_heal_quality_gate.md)**: AI修正による空文字化・見せかけ修復を防止する非空率アサーション
+
+---
+
 ## 次のステップ
 
 初めてのユーザーが次に学ぶべき内容：
