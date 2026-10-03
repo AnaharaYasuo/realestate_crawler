@@ -1265,6 +1265,10 @@ class ParserBase(metaclass=ABCMeta):
                         return await response.read()
                     elif response.status in (404, 410):
                         raise ListingEndedException(f'Property page returned HTTP status {response.status}: {url}')
+                    elif response.status == 429:
+                        raise RateLimitedException(f'HTTP Status 429 Too Many Requests: {url}')
+                    elif response.status == 403:
+                        raise LoadPropertyPageException(f'HTTP Status 403 Forbidden (Possible WAF/Bot Protection): {url}')
                     elif response.status in (500, 502, 503, 504):
                         raise ServerBusyException(f'Property page returned HTTP status {response.status}: {url}')
                     else:
