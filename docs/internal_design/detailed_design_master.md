@@ -659,10 +659,16 @@ graph TD
 - **ユーザー認証プラグイン更新**:
   - Cloud SQL ユーザー（`sumifu`, `monitor`）の認証方式を `caching_sha2_password` に移行。
 
-### 6.33 本番デプロイ時イメージ管理・プルーニング安全化内部設計 (Issue #593)
-- **ステップ順序の再定義**:
-  - `.github/workflows/deploy-production.yml` において、`Prune old images (Keep latest 3 versions)` をすべての Cloud Run Job および Cloud Run Service の更新ステップの後（末尾）に配置。
-  - マイグレーションやサービス更新が失敗した場合は Prune が呼び出されず、稼働中のコンテナイメージが保護される。
+### 6.34 Cloud Run Executions 照会耐障害性およびスペックノイズ除外内部設計 (Issue #634)
+- **Cloud Run Executions 403 回避フォールバック (`ensure_resources_stopped.py`)**:
+  - `_get_active_cloud_run_executions` の REST API フォールバックにおいて、`jobs.list` 取得時に `HTTP 403: run.jobs.list denied` 等の非200レスポンスが返された場合でも即座にエラー中断せず、`job_prefixes`（環境サフィックス付き候補含む）から構築したジョブ一覧に対して直接 `https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs/{job_name}/executions` を照会。
+  - いずれかのジョブで実行中（`completionTime` および `cancelled` が未設定）の Execution が存在するかを安全に判定し、不必要な停止スキップアラートや停止不能を防止。
+- **Crawler Runner サービスアカウント IAM 権限強化 (`terraform/iam.tf`)**:
+  - `google_project_iam_member.crawler_runner_run_viewer`（`roles/run.viewer`）を追加し、Cloud Run ジョブ・実行状態の参照権限を確実に付与。
+- **パーサースペック解析におけるフッター・ナビゲーションノイズ除外 (`ParserBase`)**:
+  - `_is_noise_container(tag)` 判定ヘルパーを `ParserBase` に実装。
+  - `footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のタグまたはクラス名配下に存在する要素を `_ingest_tr_specs`, `_ingest_dl_specs`, `_ingest_table_row_specs` の走査対象から除外。
+  - ホームズ等のフッターナビ（利回りバナー、投資物件ナビゲーション）がスペック辞書に混入して `PropertyTypeDetector` が誤爆する現象を根絶。
 
 ---
 

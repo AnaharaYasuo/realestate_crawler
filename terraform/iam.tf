@@ -57,6 +57,14 @@ resource "google_cloud_run_v2_job_iam_member" "crawler_runner_crawler_viewer" {
   member   = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
+# Grant Project-wide Cloud Run Viewer role for jobs.list and executions inspection
+resource "google_project_iam_member" "crawler_runner_run_viewer" {
+  project = var.project_id
+  role    = "roles/run.viewer"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+
 resource "google_cloud_run_v2_job_iam_member" "crawler_runner_ml_executor" {
   project  = var.project_id
   location = var.region

@@ -1182,6 +1182,57 @@ def test_mig_default_grace_period_boundary(mock_compute_client, mock_slack, upti
         mock_resize.assert_called_once_with("test-proj", "asia-northeast1", "proxysql-mig-prod")
 
 
+def test_get_active_cloud_run_executions_rest_fallback_on_403(mock_slack):
+    """When jobs.list returns 403 PERMISSION_DENIED, falls back to direct job execution endpoints."""
+    try:
+        from scripts.ensure_resources_stopped import _get_active_cloud_run_executions
+    except ImportError:
+        from src.crawler.scripts.ensure_resources_stopped import _get_active_cloud_run_executions
+
+    mock_resp_403 = MagicMock()
+    mock_resp_403.status_code = 403
+    mock_resp_403.text = '{"error": {"code": 403, "message": "Permission \'run.jobs.list\' denied"}}'
+
+    mock_resp_exec = MagicMock()
+    mock_resp_exec.status_code = 200
+    mock_resp_exec.json.return_value = {
+        "executions": [
+            {
+                "name": "projects/test-proj/locations/asia-northeast1/jobs/realestate-crawler-pipeline-prod/executions/exec-123",
+                "createTime": "2026-10-04T08:00:00Z",
+                "completionTime": None,
+                "cancelled": False,
+            }
+        ]
+    }
+
+    def fake_get(url, *args, **kwargs):
+        if url.endswith("/jobs"):
+            return mock_resp_403
+        if "/executions" in url:
+            return mock_resp_exec
+        mock_other = MagicMock()
+        mock_other.status_code = 404
+        return mock_other
+
+    with (
+        patch(f"{_MODULE_PATH}.run_v2", None),
+        patch(f"{_MODULE_PATH}._get_gcp_access_token", return_value="fake-token"),
+        patch(f"{_MODULE_PATH}.requests.get", side_effect=fake_get),
+    ):
+        active, err = _get_active_cloud_run_executions(
+            project_id="test-proj",
+            region="asia-northeast1",
+            job_prefixes=("realestate-crawler-pipeline",),
+        )
+
+        assert not err
+        assert len(active) == 1
+        assert active[0].job_name == "realestate-crawler-pipeline-prod"
+        assert active[0].name.endswith("exec-123")
+
+
+
 
 
 

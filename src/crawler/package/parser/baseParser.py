@@ -348,6 +348,25 @@ class ParserBase(metaclass=ABCMeta):
     async def parsePropertyListPage(self, response):
         return
 
+    _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav', 'aside', 'header'})
+    _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
+
+    @classmethod
+    def _is_in_noise_container(cls, el) -> bool:
+        """Return True if element is inside footer, nav, sidebar, or other non-property noise sections."""
+        curr = el
+        while curr is not None:
+            name = getattr(curr, 'name', None)
+            if name in cls._NOISE_CONTAINER_TAGS:
+                return True
+            curr_id = str(curr.get('id', '')).lower() if hasattr(curr, 'get') else ''
+            curr_cls = ' '.join(curr.get('class', [])).lower() if hasattr(curr, 'get') else ''
+            for pat in cls._NOISE_CLASS_OR_ID_PATTERNS:
+                if pat in curr_id or pat in curr_cls:
+                    return True
+            curr = getattr(curr, 'parent', None)
+        return False
+
     @staticmethod
     def _put_th_td_pairs(ths, tds, specs: dict) -> None:
         for th, td in zip(ths, tds):
@@ -359,6 +378,8 @@ class ParserBase(metaclass=ABCMeta):
     def _ingest_tr_specs(cls, response: BeautifulSoup, specs: dict) -> None:
         """Parse th/td rows into specs dict."""
         for tr in response.find_all('tr'):
+            if cls._is_in_noise_container(tr):
+                continue
             ths = tr.find_all('th')
             tds = tr.find_all('td')
             if not ths or not tds:
@@ -370,10 +391,12 @@ class ParserBase(metaclass=ABCMeta):
                 if k:
                     specs[k] = tds[0].get_text(strip=True)
 
-    @staticmethod
-    def _ingest_dl_specs(response: BeautifulSoup, specs: dict) -> None:
+    @classmethod
+    def _ingest_dl_specs(cls, response: BeautifulSoup, specs: dict) -> None:
         """Parse dt/dd pairs into specs dict."""
         for dl in response.find_all('dl'):
+            if cls._is_in_noise_container(dl):
+                continue
             for dt, dd in zip(dl.find_all('dt'), dl.find_all('dd')):
                 k = dt.get_text(strip=True)
                 if k:
@@ -395,10 +418,12 @@ class ParserBase(metaclass=ABCMeta):
         candidates = [el for el in row.find_all(['td', 'dd']) if el is not lbl and hasattr(el, 'get_text')]
         return candidates[0] if candidates else None
 
-    @staticmethod
-    def _ingest_table_row_specs(response: BeautifulSoup, specs: dict) -> None:
+    @classmethod
+    def _ingest_table_row_specs(cls, response: BeautifulSoup, specs: dict) -> None:
         """Parse .table-row / div.row style label-value rows into specs dict."""
         for row in response.select('.table-row, div.row, tr.table-row'):
+            if cls._is_in_noise_container(row):
+                continue
             lbl = row.select_one('.label, .table-header, th, dt')
             if lbl is None or not hasattr(lbl, 'get_text'):
                 continue
