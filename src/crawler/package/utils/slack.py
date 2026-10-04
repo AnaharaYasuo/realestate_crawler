@@ -162,37 +162,37 @@ async def verify_url_active(url: str) -> bool:
                 logger.warning(f"URL verification failed (Status: {response.status}): {url}")
                 return False
                 
-                # HTMLコンテンツを読み込む
-                html_content = await response.text(errors='ignore')
-                
-                # 掲載終了・非公開化を示す具体的なエラーフレーズ群
-                inactive_keywords = [
-                    "掲載が終了したか、成約済みになった可能性があります",
-                    "お探しの物件は、掲載が終了",
-                    "掲載を終了いたしました",
-                    "掲載終了物件",
-                    "ご指定の物件は掲載を終了",
-                    "お探しのページは見つかりませんでした",
-                    "お探しの物件は見つかりません",
-                    "お探しのページは存在しないか、掲載が終了"
-                ]
-                
-                # HTMLのタイトル部分のチェック
-                import re
-                title_match = re.search(r"<title>(.*?)</title>", html_content, re.IGNORECASE | re.DOTALL)
-                if title_match:
-                    title_text = title_match.group(1).strip()
-                    if any(t in title_text for t in ["掲載終了", "エラー", "404", "見つかりません"]):
-                        logger.warning(f"URL verification failed (Inactive title '{title_text}' detected): {url}")
-                        return False
-                
-                for kw in inactive_keywords:
-                    if kw in html_content:
-                        logger.warning(f"URL verification failed (Inactive phrase '{kw}' detected): {url}")
-                        return False
-                
-                logger.info(f"URL verification success (Active & Valid): {url}")
-                return True
+            # HTMLコンテンツを読み込む
+            html_content = await response.text(errors='ignore')
+            
+            # 掲載終了・非公開化を示す具体的なエラーフレーズ群
+            inactive_keywords = [
+                "掲載が終了したか、成約済みになった可能性があります",
+                "お探しの物件は、掲載が終了",
+                "掲載を終了いたしました",
+                "掲載終了物件",
+                "ご指定の物件は掲載を終了",
+                "お探しのページは見つかりませんでした",
+                "お探しの物件は見つかりません",
+                "お探しのページは存在しないか、掲載が終了"
+            ]
+            
+            # HTMLのタイトル部分のチェック
+            import re
+            title_match = re.search(r"<title>(.*?)</title>", html_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                title_text = title_match.group(1).strip()
+                if any(t in title_text for t in ["掲載終了", "エラー", "404", "見つかりません"]):
+                    logger.warning(f"URL verification failed (Inactive title '{title_text}' detected): {url}")
+                    return False
+            
+            for kw in inactive_keywords:
+                if kw in html_content:
+                    logger.warning(f"URL verification failed (Inactive phrase '{kw}' detected): {url}")
+                    return False
+            
+            logger.info(f"URL verification success (Active & Valid): {url}")
+            return True
     except Exception as e:
         logger.warning(f"URL verification failed with exception: {e} for {url}")
         return False
