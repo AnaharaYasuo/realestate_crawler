@@ -842,7 +842,7 @@ def main():
     for items in data_by_type.values():
         total_records += len(items)
 
-    metrics = BatchMetrics("ML Model Training", total_target=total_records)
+    metrics = BatchMetrics("ML Model Training", total_count=total_records)
     
     # 統計マスタの構築
     mkt_master = build_mkt_comparison_master(data_by_type)
@@ -869,7 +869,7 @@ def main():
             all_ensemble_weights, all_smearing_factors
         )
         ptype_summaries.append(summary)
-        metrics.increment(success=True, count=summary.get("valid_count", 0))
+        metrics.record_processed(summary.get("valid_count", 0))
         data_by_type[ptype] = []
         gc.collect()
         
@@ -877,11 +877,11 @@ def main():
     joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
     
     metrics.finish()
-    extra_stats = {
-        f"{s['ptype']}": f"{s['valid_count']:,}件 ({format_batch_duration(s['duration_sec'])})"
+    custom_sections = [
+        f"• {s['ptype'].upper():<10}: 有効学習 {s['valid_count']:,} 件 | 除外 {s['outliers_count']:,} 件 | 所要時間: {format_batch_duration(s['duration_sec'])}"
         for s in ptype_summaries
-    }
-    print("\n" + metrics.build_log_banner(extra_stats=extra_stats))
+    ]
+    print("\n" + metrics.build_log_banner(title="ML Model Re-Training Batch", custom_sections=custom_sections))
     print("\nMachine learning training pipeline completed successfully for all property types with ensemble support, optimal weights, and smearing bias correction!")
 
 if __name__ == "__main__":
