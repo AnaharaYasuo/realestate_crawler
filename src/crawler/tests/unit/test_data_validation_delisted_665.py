@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-from datetime import datetime
+from datetime import datetime, timezone
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 from package.models.evaluation import PropertyEvaluation
 from package.utils.data_validator import PropertyDataValidator
 
@@ -14,7 +14,7 @@ class DummyMansion:
         self.senyuMenseki = kwargs.get("senyuMenseki", 70.5)
         self.shozaikai = kwargs.get("shozaikai", "5階")
         self.kaisu = kwargs.get("kaisu", "5階")
-        self.chikunengetsu = kwargs.get("chikunengetsu", datetime(2015, 5, 1))
+        self.chikunengetsu = kwargs.get("chikunengetsu", datetime(2015, 5, 1, tzinfo=timezone.utc))
         self.biko = kwargs.get("biko", "")
 
 
@@ -25,7 +25,7 @@ class DummyKodate:
         self.price = kwargs.get("price", 45000000)
         self.tochiMenseki = kwargs.get("tochiMenseki", 120.0)
         self.tatemonoMenseki = kwargs.get("tatemonoMenseki", 95.0)
-        self.chikunengetsu = kwargs.get("chikunengetsu", datetime(2018, 3, 1))
+        self.chikunengetsu = kwargs.get("chikunengetsu", datetime(2018, 3, 1, tzinfo=timezone.utc))
         self.biko = kwargs.get("biko", "")
 
 
@@ -93,14 +93,14 @@ def test_validator_unit_price_abnormal():
 
 
 def test_validator_future_building_year():
-    item = DummyMansion(chikunengetsu=datetime(2099, 1, 1))
+    item = DummyMansion(chikunengetsu=datetime(2099, 1, 1, tzinfo=timezone.utc))
     is_valid, reasons = PropertyDataValidator.validate_property(item, "mansion")
     assert is_valid is False
     assert any("築年数異常" in r for r in reasons)
 
 
 def test_validator_ancient_building_year():
-    item = DummyMansion(chikunengetsu=datetime(1850, 1, 1))
+    item = DummyMansion(chikunengetsu=datetime(1850, 1, 1, tzinfo=timezone.utc))
     is_valid, reasons = PropertyDataValidator.validate_property(item, "mansion")
     assert is_valid is False
     assert any("築年数異常" in r for r in reasons)
