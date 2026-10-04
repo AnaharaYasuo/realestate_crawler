@@ -57,3 +57,20 @@ def pytest_configure():
     django.setup()
     # メモリ/ファイルDBにテーブルを自動作成
     call_command('migrate', interactive=False, verbosity=0, run_syncdb=True)
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def guard_slack_test_isolation(monkeypatch):
+    """
+    テスト実行時、実 Slack API への誤送信・流出を物理遮断するセーフティネット。
+    トークンをダミーに置換し、BLOCK_OUTBOUND_SLACK フラグをセットする。
+    """
+    monkeypatch.setenv("BLOCK_OUTBOUND_SLACK", "true")
+    if not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_BOT_TOKEN").startswith("mock-"):
+        monkeypatch.setenv("SLACK_BOT_TOKEN", "mock-test-bot-token-blocked")
+    if not os.getenv("SLACK_APP_TOKEN") or not os.getenv("SLACK_APP_TOKEN").startswith("mock-"):
+        monkeypatch.setenv("SLACK_APP_TOKEN", "mock-test-app-token-blocked")
+
