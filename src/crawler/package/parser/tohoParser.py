@@ -58,9 +58,16 @@ class TohoBaseParser(ParserBase):
             return specs["価格"]
         el = response.find(class_=re.compile(r'price', re.I))
         if el:
-            m = re.search(r'[0-9,.]+\s*(?:万円|億円)', el.get_text(strip=True))
-            if m:
-                return m.group(0)
+            txt = el.get_text(strip=True)
+            for unit in ("万円", "億円"):
+                if unit in txt:
+                    idx = txt.find(unit)
+                    start = idx
+                    while start > 0 and (txt[start - 1].isdigit() or txt[start - 1] in ",. \t"):
+                        start -= 1
+                    sub = txt[start:idx + len(unit)].strip()
+                    if sub and any(c.isdigit() for c in sub):
+                        return sub
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
@@ -140,8 +147,14 @@ class TohoMansionParser(TohoBaseParser, MansionParserBase):
     def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         raw = specs.get("所在階", "") or specs.get(SPEC_KEY_STRUCTURE_FLOORS, "")
-        m = re.search(r'[0-9]+階', raw)
-        return m.group(0) if m else ""
+        if "階" in raw:
+            idx = raw.find("階")
+            start = idx
+            while start > 0 and raw[start - 1].isdigit():
+                start -= 1
+            if start < idx:
+                return raw[start:idx + 1]
+        return ""
 
     def _parseSouKosu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
