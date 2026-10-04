@@ -66,6 +66,23 @@ class DataNormalizer:
         return None
 
     @classmethod
+    def _extract_number(cls, text: str) -> str | None:
+        """
+        文字列から先頭の連続する数値（小数含む）を安全に抽出（バックトラック排除）
+        """
+        chars = []
+        has_digit = False
+        for c in text:
+            if c.isdigit():
+                chars.append(c)
+                has_digit = True
+            elif c == '.' and has_digit and '.' not in chars:
+                chars.append(c)
+            elif has_digit:
+                break
+        return ''.join(chars) if has_digit else None
+
+    @classmethod
     def normalize_area(cls, area_str: str | None) -> NormalizedArea | None:
         """
         面積文字列を平米（㎡）および坪（坪）の Decimal に正規化
@@ -82,12 +99,8 @@ class DataNormalizer:
 
         # 坪数判定
         if "坪" in cleaned:
-            # 「坪」直前の数値あるいは先頭数値を抽出
-            tsubo_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*坪', cleaned)
-            num_str = tsubo_match.group(1) if tsubo_match else None
-            if not num_str:
-                numbers = re.findall(r'[0-9]+(?:\.[0-9]+)?', cleaned)
-                num_str = numbers[0] if numbers else None
+            parts = cleaned.split("坪")
+            num_str = cls._extract_number(parts[0]) or cls._extract_number(cleaned)
             if num_str:
                 tsubo = Decimal(num_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 m2 = (tsubo * TSUBO_TO_M2_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -99,12 +112,7 @@ class DataNormalizer:
                 )
 
         # ㎡・m2 判定
-        m2_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m²)', cleaned)
-        num_str = m2_match.group(1) if m2_match else None
-        if not num_str:
-            numbers = re.findall(r'[0-9]+(?:\.[0-9]+)?', cleaned)
-            num_str = numbers[0] if numbers else None
-
+        num_str = cls._extract_number(cleaned)
         if num_str:
             m2 = Decimal(num_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tsubo = (m2 * M2_TO_TSUBO_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
