@@ -134,3 +134,27 @@ def test_clean_training_data():
     df_large = pd.DataFrame(records_large)
     res_large = clean_training_data(df_large, "kodate")
     assert len(res_large) < 121
+
+
+def test_main_metrics_integration(monkeypatch):
+    """train.py の main() において BatchMetrics の初期化・集計・バナー出力が例外なく完遂すること"""
+    import package.ml.train as train_module
+
+    # load_all_properties_from_db を空データにモック
+    monkeypatch.setattr(train_module, "load_all_properties_from_db", lambda: {"mansion": []})
+    monkeypatch.setattr(train_module, "build_mkt_comparison_master", lambda data: {})
+    monkeypatch.setattr(
+        train_module,
+        "_train_single_ptype_models",
+        lambda *args, **kwargs: {
+            "ptype": "mansion",
+            "input_count": 0,
+            "valid_count": 0,
+            "outliers_count": 0,
+            "duration_sec": 0.5,
+        }
+    )
+    monkeypatch.setattr(train_module.joblib, "dump", lambda obj, path: None)
+
+    # 実行して例外（TypeError等）が発生しないことを検証
+    train_module.main()
