@@ -150,7 +150,7 @@ def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
             return os.getenv("SLACK_RECOMMEND_INVEST_APARTMENT", "goodproperty-invest-apartment")
         return os.getenv("SLACK_RECOMMEND_INVEST_KODATE", "goodproperty-invest-kodate")
 
-    return os.getenv("SLACK_RECOMMEND_CHANNEL_ID") or os.getenv("SLACK_CHANNEL_ID") or "property_alert"
+    return os.getenv("SLACK_RECOMMEND_CHANNEL_ID") or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
 
 def _format_access_and_area(prop) -> tuple:
     access_parts = [

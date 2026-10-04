@@ -385,15 +385,18 @@ def test_aggregated_report_sent_once_for_latest_execution(monkeypatch):
         _task(1, [{"company": "tokyu", "property_type": "tochi", "status": "timeout", "exit_code": -1}]),
     ]
     latest = MagicMock(return_value=rows)
-    slack = AsyncMock(return_value=True)
+    dev_slack = AsyncMock(return_value=True)
+    alert_slack = AsyncMock(return_value=True)
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", latest)
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", slack)
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", dev_slack)
+    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", alert_slack)
 
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is True
 
     latest.assert_called_once_with(TARGET_DATE)
-    slack.assert_awaited_once()
-    message = slack.await_args.args[0]
+    dev_slack.assert_awaited_once()
+    alert_slack.assert_awaited_once()
+    message = dev_slack.await_args.args[0]
     assert "全タスク集約レポート" in message
     assert "実行タスク数: 2 タスク" in message
     assert "tokyu - tochi: timeout" in message
@@ -403,7 +406,7 @@ def test_aggregated_report_sent_once_for_latest_execution(monkeypatch):
 def test_aggregated_report_not_sent_without_identifiable_execution(monkeypatch, rows):
     slack = AsyncMock()
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=rows))
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", slack)
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", slack)
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
     slack.assert_not_called()
 
@@ -413,7 +416,7 @@ def test_aggregated_report_orders_tasks_by_index(monkeypatch):
     aggregate = MagicMock(return_value={"slack_message": "msg", "total_jobs": 89, "executed_jobs": 0, "success_jobs": 0, "failed_jobs": 0})
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=rows))
     monkeypatch.setattr(run_ml_pipeline, "aggregate_task_array_reports", aggregate)
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", AsyncMock(return_value=True))
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", AsyncMock(return_value=True))
     run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE)
     assert [r.task_index for r in aggregate.call_args.args[0]] == [0, 1]
     assert aggregate.call_args.kwargs == {"total_jobs": 89}
@@ -422,14 +425,14 @@ def test_aggregated_report_orders_tasks_by_index(monkeypatch):
 def test_aggregated_report_failure_does_not_raise(monkeypatch):
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(side_effect=RuntimeError("db down")))
     slack = AsyncMock()
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", slack)
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", slack)
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
     slack.assert_not_called()
 
 
 def test_aggregated_report_returns_false_when_slack_delivery_fails(monkeypatch):
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=[_task(0, [])]))
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", AsyncMock(return_value=False))
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", AsyncMock(return_value=False))
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
 
 
@@ -438,7 +441,7 @@ def test_aggregated_report_slack_send_is_time_bounded(monkeypatch):
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=[_task(0, [])]))
-    monkeypatch.setattr(run_ml_pipeline, "send_crawling_summary_alert", never_returns)
+    monkeypatch.setattr(run_ml_pipeline, "send_dev_report", never_returns)
     monkeypatch.setattr(run_ml_pipeline, "SLACK_REPORT_TIMEOUT_SEC", 0.05)
     assert run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE) is False
 

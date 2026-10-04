@@ -35,7 +35,7 @@ from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
 from package.utils.pipeline_coordinator import aggregate_task_array_reports
-from package.utils.slack import send_crawling_summary_alert
+from package.utils.slack import send_crawling_summary_alert, send_dev_report
 from package.utils.gcp_resources import (
     check_cloud_sql_status,
     patch_proxysql_autoscaler,
@@ -161,10 +161,26 @@ def send_aggregated_crawl_report(execution_date: datetime.date | None = None) ->
             f"📊 [Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
             f"Executed: {aggregated['executed_jobs']}, Success: {aggregated['success_jobs']}, Failed: {aggregated['failed_jobs']}"
         )
-        return bool(asyncio.run(asyncio.wait_for(
-            send_crawling_summary_alert(aggregated["slack_message"]),
+        msg = aggregated["slack_message"]
+        failed_count = aggregated.get("failed_jobs", 0)
+
+        # 1. 日次パイプライン運用レポートとして #dev-agent に送信
+        send_ok = bool(asyncio.run(asyncio.wait_for(
+            send_dev_report(msg),
             timeout=SLACK_REPORT_TIMEOUT_SEC,
         )))
+
+        # 2. 失敗タスクが存在する場合のみ、障害アラートとして #property_alert に警告発報
+        if failed_count > 0:
+            try:
+                asyncio.run(asyncio.wait_for(
+                    send_crawling_summary_alert(msg),
+                    timeout=SLACK_REPORT_TIMEOUT_SEC,
+                ))
+            except Exception as ae:
+                logger.warning(f"⚠️ [Alert Warning] Failed to send failure alert to property_alert: {ae}")
+
+        return send_ok
     except Exception as e:
         logger.warning(f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}")
         return False
