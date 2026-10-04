@@ -203,12 +203,12 @@ def test_get_count_for_job_breakdown():
     def mock_filter(q):
         mock_qs = MagicMock()
         q_str = str(q)
-        if "updateDateTime >= " in q_str and "inputDateTime < " in q_str:
+        if "updateDateTime__gte" in q_str and "inputDateTime__lt" in q_str:
             mock_qs.count.return_value = 15  # skipped
-        elif "inputDateTime >= " in q_str and "updateDateTime" not in q_str:
+        elif "inputDateTime__gte" in q_str and "updateDateTime__gte" not in q_str:
             mock_qs.count.return_value = 5   # detail
         else:
-            mock_qs.count.return_value = 20  # total
+            mock_qs.count.return_value = 20  # fallback total
         return mock_qs
 
     mock_model.objects.filter.side_effect = mock_filter
