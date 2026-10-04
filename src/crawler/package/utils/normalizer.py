@@ -82,9 +82,14 @@ class DataNormalizer:
 
         # 坪数判定
         if "坪" in cleaned:
-            match = re.search(r'(\d+(?:\.\d+)?)\s*坪', cleaned)
-            if match:
-                tsubo = Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            # 「坪」直前の数値あるいは先頭数値を抽出
+            tsubo_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*坪', cleaned)
+            num_str = tsubo_match.group(1) if tsubo_match else None
+            if not num_str:
+                numbers = re.findall(r'[0-9]+(?:\.[0-9]+)?', cleaned)
+                num_str = numbers[0] if numbers else None
+            if num_str:
+                tsubo = Decimal(num_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 m2 = (tsubo * TSUBO_TO_M2_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 return NormalizedArea(
                     area_m2=m2,
@@ -94,12 +99,14 @@ class DataNormalizer:
                 )
 
         # ㎡・m2 判定
-        match = re.search(r'(\d+(?:\.\d+)?)\s*(?:㎡|m2|m²)', cleaned)
-        if not match:
-            match = re.search(r'(\d+(?:\.\d+)?)', cleaned)
+        m2_match = re.search(r'([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m²)', cleaned)
+        num_str = m2_match.group(1) if m2_match else None
+        if not num_str:
+            numbers = re.findall(r'[0-9]+(?:\.[0-9]+)?', cleaned)
+            num_str = numbers[0] if numbers else None
 
-        if match:
-            m2 = Decimal(match.group(1)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        if num_str:
+            m2 = Decimal(num_str).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             tsubo = (m2 * M2_TO_TSUBO_RATE).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             return NormalizedArea(
                 area_m2=m2,
