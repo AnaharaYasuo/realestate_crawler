@@ -22,7 +22,7 @@ class PropertyBaseModel(models.Model):
     
     # Universal Fields (9 fields)
     propertyName = models.TextField(verbose_name="物件名")
-    pageUrl = models.CharField(max_length=500, db_index=True, verbose_name="URL")
+    pageUrl = models.CharField(max_length=500, unique=True, db_index=True, verbose_name="URL")
     inputDate = models.DateField(auto_now_add=True, verbose_name="登録日")
     inputDateTime = models.DateTimeField(auto_now_add=True, verbose_name="登録日時")
     updateDateTime = models.DateTimeField(auto_now=True, null=True, blank=True, verbose_name="更新日時")

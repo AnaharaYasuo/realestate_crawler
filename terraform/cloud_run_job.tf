@@ -544,7 +544,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
         }
         env {
           name  = "BULK_EVAL_CONCURRENCY"
-          value = "4"
+          value = "8"
         }
         env {
           name  = "DB_HOST"

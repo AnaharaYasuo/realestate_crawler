@@ -1,11 +1,12 @@
-# -*- coding: utf-8 -*-
-import math
 import logging
+import math
 import re
 from decimal import Decimal
+from functools import lru_cache
+
+from django.db import models
 from django.utils import timezone
 from package.models.evaluation import LandPricePotential
-from django.db import models
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ def calculate_loan_term(structure_type, age):
     loan_term = max(20, min(35, int(remaining)))
     return loan_term
 
+@lru_cache(maxsize=4096)
 def get_average_land_price(prefecture, city):
     """
     LandPricePotential マスタから該当市区町村の平均公示地価を取得する。
@@ -167,7 +169,7 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     building_value = tatemono_menseki * unit_price * remaining_ratio
     
     sekisan_price = land_value + building_value
-    logger.info(f"Sekisan Price Calc: Land={land_value:.1f}万 (Area={tochi_menseki}㎡, Price/㎡={land_price_per_m2}), Building={building_value:.1f}万 (Area={tatemono_menseki}㎡, Age={age}, Type={struct_type}), Total={sekisan_price:.1f}万")
+    logger.debug(f"Sekisan Price Calc: Land={land_value:.1f}万 (Area={tochi_menseki}㎡, Price/㎡={land_price_per_m2}), Building={building_value:.1f}万 (Area={tatemono_menseki}㎡, Age={age}, Type={struct_type}), Total={sekisan_price:.1f}万")
     
     return int(sekisan_price)
 
@@ -340,6 +342,6 @@ def evaluate_investment_property(property_obj, evaluation_record):
     
     evaluation_record.investment_score = float(f"{total_investment_score:.2f}")
     
-    logger.info(f"Investment Eval Result for {getattr(property_obj, 'pageUrl', '')}: Price={price_man:.1f}万, Sekisan={sekisan_price}万 ({sekisan_ratio:.1f}%), NOI={noi:.1f}万, Repayment={annual_repayment:.1f}万, CF={cf:.1f}万, DSCR={dscr:.2f}, CoC={coc:.2f}%, TotalScore={total_investment_score:.1f}")
+    logger.debug(f"Investment Eval Result for {getattr(property_obj, 'pageUrl', '')}: Price={price_man:.1f}万, Sekisan={sekisan_price}万 ({sekisan_ratio:.1f}%), NOI={noi:.1f}万, Repayment={annual_repayment:.1f}万, CF={cf:.1f}万, DSCR={dscr:.2f}, CoC={coc:.2f}%, TotalScore={total_investment_score:.1f}")
     
     return evaluation_record
