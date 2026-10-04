@@ -160,7 +160,7 @@ def test_ensure_resources_stopped_mig_404_falls_back_to_instance_without_alert(
 
         assert result.was_leaked is False
         mock_check_inst.assert_called_once()
-        assert mock_check_inst.call_args.kwargs.get("zone") == "asia-northeast1-b"
+        assert mock_check_inst.call_args.kwargs.get("zone") == "asia-northeast1-a"
         # False emergency alert must NOT be sent
         mock_alert.assert_not_called()
 

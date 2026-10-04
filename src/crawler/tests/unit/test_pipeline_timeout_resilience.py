@@ -18,14 +18,14 @@ TERRAFORM_DIR = os.path.abspath(
 
 
 def test_scheduler_tf_has_hourly_safety_net():
-    """Verify terraform/scheduler.tf schedules safety net hourly during night batch hours (17-21 UTC)."""
+    """Verify terraform/scheduler.tf schedules safety net hourly (0 * * * *) 24/7 (Issue #664)."""
     scheduler_tf = os.path.join(TERRAFORM_DIR, "scheduler.tf")
     with open(scheduler_tf, "r", encoding="utf-8") as f:
         content = f.read()
 
     assert "crawler_safety_net_trigger" in content
-    assert 'schedule         = "0 17-23 * * *"' in content or 'schedule = "0 17-23 * * *"' in content, \
-        "Safety net must be scheduled hourly (0 17-23 * * *) during night batch window."
+    assert 'schedule         = "0 * * * *"' in content or 'schedule = "0 * * * *"' in content, \
+        "Safety net must be scheduled hourly (0 * * * *) 24/7."
 
 
 def test_run_pipeline_registers_signal_and_atexit_handlers():

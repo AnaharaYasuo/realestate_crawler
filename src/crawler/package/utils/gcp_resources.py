@@ -568,7 +568,7 @@ def start_proxysql_instance(
         or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
     )
     reg = os.getenv("GCP_REGION", "asia-northeast1")
-    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-a")
     inst_name = instance_name or os.getenv(
         "PROXYSQL_INSTANCE_NAME",
         f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}",
@@ -621,7 +621,7 @@ def stop_proxysql_instance(
         or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
     )
     reg = os.getenv("GCP_REGION", "asia-northeast1")
-    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    inst_zone = zone or os.getenv("PROXYSQL_ZONE", f"{reg}-a")
     inst_name = instance_name or os.getenv(
         "PROXYSQL_INSTANCE_NAME",
         f"proxysql-instance-{os.getenv('ENVIRONMENT', 'prod')}",
@@ -669,7 +669,7 @@ def _delegate_to_single_instance(
     get_token_callback: Callable[[], str | None] | None,
 ) -> bool:
     """Delegate scale request to single ProxySQL instance."""
-    zone = os.getenv("PROXYSQL_ZONE", f"{reg}-b")
+    zone = os.getenv("PROXYSQL_ZONE", f"{reg}-a")
     if target_size > 0:
         return start_proxysql_instance(
             project_id=project,
