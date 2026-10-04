@@ -108,8 +108,12 @@ class PropertyDataValidator:
     @staticmethod
     def _check_mansion_specs(item: Any, reasons: list[str]) -> None:
         senyu = getattr(item, "senyuMenseki", None)
-        if not senyu or float(senyu or 0) <= 0:
+        try:
+            if not senyu or float(senyu) <= 0:
+                reasons.append("必須項目欠損 (専有面積が未抽出)")
+        except (ValueError, TypeError):
             reasons.append("必須項目欠損 (専有面積が未抽出)")
+
         floor = getattr(item, "shozaikai", None) or getattr(item, "kaisu", None)
         if not floor or str(floor).strip() in ["", "-", "None"]:
             reasons.append("必須項目欠損 (所在階が未抽出)")
@@ -117,16 +121,26 @@ class PropertyDataValidator:
     @staticmethod
     def _check_kodate_specs(item: Any, reasons: list[str]) -> None:
         tatemono = getattr(item, "tatemonoMenseki", None)
-        tochi = getattr(item, "tochiMenseki", None)
-        if not tatemono or float(tatemono or 0) <= 0:
+        try:
+            if not tatemono or float(tatemono) <= 0:
+                reasons.append("必須項目欠損 (建物面積が未抽出)")
+        except (ValueError, TypeError):
             reasons.append("必須項目欠損 (建物面積が未抽出)")
-        if not tochi or float(tochi or 0) <= 0:
+
+        tochi = getattr(item, "tochiMenseki", None)
+        try:
+            if not tochi or float(tochi) <= 0:
+                reasons.append("必須項目欠損 (土地面積が未抽出)")
+        except (ValueError, TypeError):
             reasons.append("必須項目欠損 (土地面積が未抽出)")
 
     @staticmethod
     def _check_tochi_specs(item: Any, reasons: list[str]) -> None:
         tochi = getattr(item, "tochiMenseki", None)
-        if not tochi or float(tochi or 0) <= 0:
+        try:
+            if not tochi or float(tochi) <= 0:
+                reasons.append("必須項目欠損 (土地面積が未抽出)")
+        except (ValueError, TypeError):
             reasons.append("必須項目欠損 (土地面積が未抽出)")
 
     @staticmethod
