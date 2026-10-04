@@ -27,7 +27,7 @@ from package.ml.investment_evaluator import evaluate_investment_property
 from package.utils.converter import parse_chidai
 from package.utils.deduplication import find_duplicate_property
 from package.utils.text_risk_analyzer import analyze_text_risks
-from package.utils.slack import send_crawling_summary_alert
+from package.utils.slack import send_dev_report
 from package.utils.batch_metrics import BatchMetrics
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,9 +47,9 @@ def format_duration(seconds: int) -> str:
 
 def _notify_slack(msg: str) -> None:
     try:
-        async_to_sync(send_crawling_summary_alert)(msg)
+        async_to_sync(send_dev_report)(msg)
     except Exception as se:
-        logger.warning("Failed to send Slack progress alert: %s", se)
+        logger.warning("Failed to send Slack progress report: %s", se)
 
 PORTAL_COMPANIES = ["athome", "homes"]
 COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]
@@ -123,6 +123,10 @@ def _filter_unprocessed_items(model, existing_eval_map, force, limit_per_model):
         if not page_url:
             continue
         existing_eval = existing_eval_map.get(page_url)
+        # 公開終了物件または再クロール待ちの不正物件は評価対象から除外 (Issue #665)
+        if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
+            skipped_count += 1
+            continue
         if not force and existing_eval and existing_eval.first_stage_predicted_price is not None:
             skipped_count += 1
             continue
@@ -307,7 +311,8 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     existing_eval_map = {
         e.property_url: e
         for e in PropertyEvaluation.objects.all().only(
-            "id", "property_url", "first_stage_predicted_price", "second_stage_predicted_price", "is_first_stage_passed"
+            "id", "property_url", "first_stage_predicted_price", "second_stage_predicted_price", "is_first_stage_passed",
+            "is_published", "needs_recrawl"
         )
     }
 

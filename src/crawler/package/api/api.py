@@ -31,11 +31,12 @@ from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.utils.report import CrawlerReporter
 from asgiref.sync import sync_to_async
 from package.api.differential import filter_differential_items, ListItem
-from package.models.evaluation import PropertyPriceHistory
+from package.models.evaluation import PropertyPriceHistory, PropertyEvaluation
 from package.utils.url_matcher import UrlMatcher
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.converter import parse_chidai
 from package.utils.failure_reporter import FailureReporter
+from package.utils.data_validator import PropertyDataValidator
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -1426,6 +1427,49 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
         await sync_to_async(self._save_item_record_with_duplicate_fallback)(item, model_class, current_day, current_time)
         logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
+
+        # 通常クローリング時のリアルタイムデータ不正チェック (Issue #665)
+        await self._validate_and_tag_property_integrity(item)
+
+    async def _validate_and_tag_property_integrity(self, item):
+        """通常クローリング保存直後にデータ品質を検証し、パーサー修復要否をPropertyEvaluationに記録する"""
+        try:
+            company = self._detect_company_name(item)
+            property_type = PropertyTypeDetector.detect_from_object(item)
+            is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
+
+            def update_eval_flags():
+                eval_rec, _ = PropertyEvaluation.objects.get_or_create(
+                    property_url=item.pageUrl,
+                    defaults={
+                        "company": company,
+                        "property_type": property_type,
+                        "property_id": getattr(item, "id", 0) or 0,
+                        "is_published": True,
+                        "needs_parser_fix": not is_valid,
+                        "needs_recrawl": False,
+                        "data_quality_issue": "; ".join(reasons) if not is_valid else "",
+                    }
+                )
+                if not is_valid:
+                    eval_rec.needs_parser_fix = True
+                    eval_rec.data_quality_issue = "; ".join(reasons)
+                    eval_rec.is_published = True
+                    eval_rec.save()
+                    logging.warning(
+                        "[DATA INTEGRITY DETECTED ON CRAWL] %s (%s): %s",
+                        item.pageUrl, property_type, "; ".join(reasons)
+                    )
+                elif eval_rec.needs_parser_fix:
+                    # 既に正常データが取得できた場合はパーサー修復フラグを解消
+                    eval_rec.needs_parser_fix = False
+                    eval_rec.needs_recrawl = False
+                    eval_rec.data_quality_issue = ""
+                    eval_rec.save()
+
+            await sync_to_async(update_eval_flags)()
+        except Exception as e:
+            logging.warning("Failed to validate and tag property integrity for %s: %s", item.pageUrl, e)
 
     async def _record_price_revision(self, item, old_p, new_p):
         company = self._detect_company_name(item)

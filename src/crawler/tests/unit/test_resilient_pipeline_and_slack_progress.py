@@ -95,19 +95,19 @@ def test_run_post_crawl_pipeline_step4_failure_still_runs_step5():
 
 @pytest.mark.django_db
 def test_run_bulk_ml_evaluation_slack_notifications():
-    """run_bulk_evaluation が開始、モデル別進捗、完了時に Slack 進捗通知を送信することを検証"""
+    """run_bulk_evaluation が開始、モデル別進捗、完了時に Slack dev-agent 進捗通知を送信することを検証"""
     sent_messages = []
 
-    async def fake_send_crawling_summary_alert(msg: str):
+    async def fake_send_dev_report(msg: str):
         sent_messages.append(msg)
         return True
 
     fake_model = MagicMock()
     fake_model.__name__ = "MitsuiMansion"
 
-    with patch("scripts.ops.run_bulk_ml_evaluation.send_crawling_summary_alert", side_effect=fake_send_crawling_summary_alert), \
+    with patch("scripts.ops.run_bulk_ml_evaluation.send_dev_report", side_effect=fake_send_dev_report), \
          patch("scripts.ops.run_bulk_ml_evaluation.get_all_property_models", return_value=[fake_model]), \
-         patch("scripts.ops.run_bulk_ml_evaluation._evaluate_single_model", return_value=(10, 2)), \
+         patch("scripts.ops.run_bulk_ml_evaluation._evaluate_single_model", return_value=(10, 2, 5, 0)), \
          patch("scripts.ops.run_bulk_ml_evaluation.PropertyEvaluation.objects.all") as mock_all:
         mock_all.return_value.only.return_value = []
 
@@ -126,11 +126,11 @@ def test_run_bulk_ml_evaluation_empty_models_fails():
     """モデルが0件の場合は開始通知を送らずエラー通知後に異常終了すること"""
     sent_messages = []
 
-    async def fake_send_crawling_summary_alert(msg: str):
+    async def fake_send_dev_report(msg: str):
         sent_messages.append(msg)
         return True
 
-    with patch("scripts.ops.run_bulk_ml_evaluation.send_crawling_summary_alert", side_effect=fake_send_crawling_summary_alert), \
+    with patch("scripts.ops.run_bulk_ml_evaluation.send_dev_report", side_effect=fake_send_dev_report), \
          patch("scripts.ops.run_bulk_ml_evaluation.get_all_property_models", return_value=[]), \
          patch("scripts.ops.run_bulk_ml_evaluation.PropertyEvaluation.objects.all") as mock_all:
         mock_all.return_value.only.return_value = []
@@ -149,7 +149,7 @@ def test_send_recommendations_slack_notifications_with_candidates():
     """send_recommendations が候補ありの場合に開始・検出・配信完了サマリーを通知することを検証"""
     status_messages = []
 
-    async def fake_send_crawling_summary_alert(msg: str):
+    async def fake_send_dev_report(msg: str):
         status_messages.append(msg)
         return True
 
@@ -159,7 +159,7 @@ def test_send_recommendations_slack_notifications_with_candidates():
     dummy_eval.property_url = "https://example.com/prop1"
     dummy_prop = MagicMock()
 
-    with patch("scripts.ops.send_recommendations.send_crawling_summary_alert", side_effect=fake_send_crawling_summary_alert), \
+    with patch("scripts.ops.send_recommendations.send_dev_report", side_effect=fake_send_dev_report), \
          patch("scripts.ops.send_recommendations._fetch_recommendation_candidates", return_value=[dummy_eval]), \
          patch("scripts.ops.send_recommendations.get_property_record", return_value=dummy_prop), \
          patch("scripts.ops.send_recommendations._evaluate_candidate", return_value=(True, "テスト割安", 90.0)), \
@@ -180,11 +180,11 @@ def test_send_recommendations_slack_notifications_no_candidates():
     """send_recommendations が候補0件の場合に正常な0件案内を通知することを検証"""
     status_messages = []
 
-    async def fake_send_crawling_summary_alert(msg: str):
+    async def fake_send_dev_report(msg: str):
         status_messages.append(msg)
         return True
 
-    with patch("scripts.ops.send_recommendations.send_crawling_summary_alert", side_effect=fake_send_crawling_summary_alert), \
+    with patch("scripts.ops.send_recommendations.send_dev_report", side_effect=fake_send_dev_report), \
          patch("scripts.ops.send_recommendations._fetch_recommendation_candidates", return_value=[]):
 
         send_recommendations()
