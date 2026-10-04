@@ -54,7 +54,10 @@
 ### 3.3 コスト最適化要件
 - **アイドル時コスト最小化**:
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
+  - Cloud Run Service (Crawler Worker) は `min_instance_count = 0` に加え、`cpu_idle = true`（リクエスト処理中のみCPU割り当て）を適用し、アイドル待機中やコンテナ破棄待ち時間の不要なCPU課金を完全排除すること（Issue #670）。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
+- **Cloud NAT 撤廃に向けた動的IP疎通性保証 (Dynamic IP Crawl Feasibility)**:
+  - クローラーが巡回する全不動産サイト（大手・信託・中堅・電鉄・ハウスメーカー・ポータル全27社）に対して、VPC接続なし（Google動的送信元IP）での一覧・詳細ページ取得疎通検証を行い、WAF/403遮断を受けないことを客観的エビデンスとして担保すること（Issue #670）。
 - **リソースオンデマンド・ライフサイクル制御**:
   - ProxySQL は単一 Compute Engine インスタンス（`proxysql-instance-${var.environment}`）および Direct VPC Egress 構成を採用する。
   - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL インスタンス（または設定に応じた MIG）の起動・稼働状態を検証し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。単一インスタンス構成時は存在しない MIG Autoscaler の操作をスキップし、HTTP 404 エラーによるクラッシュを防止すること。
