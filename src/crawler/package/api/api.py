@@ -616,6 +616,29 @@ API_KEY_MIZUHO_INVESTMENT_DETAIL = '/api/mizuho/investment/detail'
 API_KEY_ODAKYU_INVESTMENT_START = '/api/odakyu/investment/start'
 API_KEY_ODAKYU_INVESTMENT_DETAIL = '/api/odakyu/investment/detail'
 
+# Mid-tier Brokers (Issue #653)
+API_KEY_IETAN_MANSION_START = '/api/ietan/mansion/start'
+API_KEY_IETAN_MANSION_DETAIL = '/api/ietan/mansion/detail'
+API_KEY_IETAN_KODATE_START = '/api/ietan/kodate/start'
+API_KEY_IETAN_KODATE_DETAIL = '/api/ietan/kodate/detail'
+API_KEY_IETAN_TOCHI_START = '/api/ietan/tochi/start'
+API_KEY_IETAN_TOCHI_DETAIL = '/api/ietan/tochi/detail'
+
+API_KEY_HASEKO_MANSION_START = '/api/haseko/mansion/start'
+API_KEY_HASEKO_MANSION_DETAIL = '/api/haseko/mansion/detail'
+
+API_KEY_ADCAST_KODATE_START = '/api/adcast/kodate/start'
+API_KEY_ADCAST_KODATE_DETAIL = '/api/adcast/kodate/detail'
+API_KEY_ADCAST_TOCHI_START = '/api/adcast/tochi/start'
+API_KEY_ADCAST_TOCHI_DETAIL = '/api/adcast/tochi/detail'
+
+API_KEY_TOHO_MANSION_START = '/api/toho/mansion/start'
+API_KEY_TOHO_MANSION_DETAIL = '/api/toho/mansion/detail'
+API_KEY_TOHO_KODATE_START = '/api/toho/kodate/start'
+API_KEY_TOHO_KODATE_DETAIL = '/api/toho/kodate/detail'
+API_KEY_TOHO_TOCHI_START = '/api/toho/tochi/start'
+API_KEY_TOHO_TOCHI_DETAIL = '/api/toho/tochi/detail'
+
 
 # ------------------------------------------------------------------
 # 偏差値（T-score）ベースの上位1%お宝物件判定ヘルパー

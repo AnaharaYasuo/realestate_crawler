@@ -101,6 +101,9 @@ MANSION_PARSERS = [
     ("sumirin", "package.parser.sumirinParser", "SumirinMansionParser"),
     ("totate", "package.parser.totateParser", "TotateMansionParser"),
     ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaMansionParser"),
+    ("ietan", "package.parser.ietanParser", "IetanMansionParser"),
+    ("haseko", "package.parser.hasekoParser", "HasekoMansionParser"),
+    ("toho", "package.parser.tohoParser", "TohoMansionParser"),
 ]
 
 KODATE_PARSERS = [
@@ -129,6 +132,9 @@ KODATE_PARSERS = [
     ("sumirin", "package.parser.sumirinParser", "SumirinKodateParser"),
     ("totate", "package.parser.totateParser", "TotateKodateParser"),
     ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaKodateParser"),
+    ("ietan", "package.parser.ietanParser", "IetanKodateParser"),
+    ("adcast", "package.parser.adcastParser", "AdCastKodateParser"),
+    ("toho", "package.parser.tohoParser", "TohoKodateParser"),
 ]
 
 TOCHI_PARSERS = [
@@ -157,6 +163,9 @@ TOCHI_PARSERS = [
     ("sumirin", "package.parser.sumirinParser", "SumirinTochiParser"),
     ("totate", "package.parser.totateParser", "TotateTochiParser"),
     ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaTochiParser"),
+    ("ietan", "package.parser.ietanParser", "IetanTochiParser"),
+    ("adcast", "package.parser.adcastParser", "AdCastTochiParser"),
+    ("toho", "package.parser.tohoParser", "TohoTochiParser"),
 ]
 
 INVESTMENT_PARSERS = [
