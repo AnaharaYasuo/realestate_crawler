@@ -80,11 +80,10 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
 
     try:
         timeout = aiohttp.ClientTimeout(total=10.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    logger.error(f"Slack API request failed with status code: {response.status}")
-                    return False
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                logger.error(f"Slack API request failed with status code: {response.status}")
+                return False
                 
                 resp_json = await response.json()
                 if not resp_json.get("ok"):
@@ -158,11 +157,10 @@ async def verify_url_active(url: str) -> bool:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         timeout = aiohttp.ClientTimeout(total=5.0)
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    logger.warning(f"URL verification failed (Status: {response.status}): {url}")
-                    return False
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session, session.get(url) as response:
+            if response.status != 200:
+                logger.warning(f"URL verification failed (Status: {response.status}): {url}")
+                return False
                 
                 # HTMLコンテンツを読み込む
                 html_content = await response.text(errors='ignore')
