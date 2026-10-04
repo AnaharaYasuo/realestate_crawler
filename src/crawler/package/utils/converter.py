@@ -250,3 +250,20 @@ def parse_chidai(chidai_str: str) -> int | None:
     if re.search(r'年額|年間|/年|年あたり', s):
         return round(amount / 12)
     return amount
+
+
+def extract_price_text(text: str) -> str:
+    """テキストから価格表記（例: '10,780万円', '1.2億円'）を抽出する"""
+    if not text:
+        return ""
+    for unit in ("万円", "億円"):
+        if unit in text:
+            idx = text.find(unit)
+            start = idx
+            while start > 0 and (text[start - 1].isdigit() or text[start - 1] in ",. \t"):
+                start -= 1
+            sub = text[start:idx + len(unit)].strip()
+            if any(c.isdigit() for c in sub):
+                return sub
+    return ""
+

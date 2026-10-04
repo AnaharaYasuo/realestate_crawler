@@ -53,17 +53,9 @@ class AdCastBaseParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         el = response.find(class_=re.compile(r'price', re.I))
-        if el:
-            txt = el.get_text(strip=True)
-            for unit in ("万円", "億円"):
-                if unit in txt:
-                    idx = txt.find(unit)
-                    start = idx
-                    while start > 0 and (txt[start - 1].isdigit() or txt[start - 1] in ",. \t"):
-                        start -= 1
-                    sub = txt[start:idx + len(unit)].strip()
-                    if sub and any(c.isdigit() for c in sub):
-                        return sub
+        price_text = converter.extract_price_text(el.get_text(strip=True)) if el else ""
+        if price_text:
+            return price_text
         specs = specs or self._get_specs(response)
         return specs.get("価格", "") or specs.get("販売価格", "")
 

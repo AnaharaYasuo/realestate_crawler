@@ -56,18 +56,7 @@ class IetanBaseParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         el = response.find(class_=re.compile(r'price', re.I))
-        if el:
-            txt = el.get_text(strip=True)
-            for unit in ("万円", "億円"):
-                if unit in txt:
-                    idx = txt.find(unit)
-                    start = idx
-                    while start > 0 and (txt[start - 1].isdigit() or txt[start - 1] in ",. \t"):
-                        start -= 1
-                    sub = txt[start:idx + len(unit)].strip()
-                    if sub and any(c.isdigit() for c in sub):
-                        return sub
-        return ""
+        return converter.extract_price_text(el.get_text(strip=True)) if el else ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
         p_str = self._parsePriceStr(response, specs)
