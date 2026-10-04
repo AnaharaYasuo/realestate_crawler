@@ -5,13 +5,12 @@
 クローリングによって保存された未評価物件に対して、
 MLモデルをメモリ上に一度だけロードし、一括で一次・二次理論価格評価および投資評価を実行します。
 """
+import logging
 import os
 import sys
-import time
-import logging
-from decimal import Decimal
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from asgiref.sync import async_to_sync
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal
 
 _scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _crawler_dir = os.path.dirname(_scripts_dir)

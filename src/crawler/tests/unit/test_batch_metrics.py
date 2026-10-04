@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-import time
-import pytest
 from package.utils.batch_metrics import (
     BatchMetrics,
     format_batch_duration,
@@ -77,8 +74,8 @@ def test_batch_metrics_slack_summary():
     assert "【バルク価格推定完了】" in summary
     assert "所要: 20秒" in summary
     assert "対象総数 1,000 件" in summary
-    assert "推定完了 200 件" in summary
-    assert "スキップ(評価済) 800 件" in summary
+    assert "評価完了: 200 件" in summary
+    assert "スキップ: 800 件" in summary
     assert "10.0 件/秒" in summary
     assert "1次通過(割安候補) 45 件" in summary
 

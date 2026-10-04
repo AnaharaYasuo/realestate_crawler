@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 バッチ処理標準メトリクス計測・整形ユーティリティ (Batch Metrics Utility)
 
 世間一般のエンタープライズバッチ処理・ML/ETLパイプライン標準に基づく、
 処理対象件数、処理時間、スループット、各内訳の計測・記録・Slack/ログ整形機能を提供します。
 """
-import time
-import datetime
 import threading
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -40,9 +39,9 @@ def format_timestamp_jst(ts: float | None) -> str:
     if ts is None:
         return "-"
     try:
-        dt = datetime.datetime.fromtimestamp(ts)
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone()
         return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
+    except (ValueError, OSError, OverflowError):
         return "-"
 
 
@@ -222,8 +221,7 @@ class BatchMetrics:
         if tp > 0.0:
             lines.append(f"• スループット  : {tp} 件/秒 (平均レイテンシ: {lat} ms/件)")
         if custom_sections:
-            for sec in custom_sections:
-                lines.append(sec)
+            lines.extend(custom_sections)
         lines.append(sep)
 
         return "\n".join(lines)

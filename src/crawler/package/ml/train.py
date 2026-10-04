@@ -29,11 +29,11 @@ def print(*args, **kwargs):
     msg = " ".join(str(a) for a in args)
     logger.info(msg)
 
-from package.models.evaluation import PropertyEvaluation
-from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
 from django.apps import apps
-from scipy.optimize import minimize
+from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
+from package.models.evaluation import PropertyEvaluation
 from package.utils.batch_metrics import BatchMetrics, format_batch_duration
+from scipy.optimize import minimize
 
 COMPANIES = [
     "mitsui", "sumifu", "tokyu", "nomura", "misawa",
