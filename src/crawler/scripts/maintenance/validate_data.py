@@ -1,12 +1,24 @@
 # -*- coding: utf-8 -*-
-import setup_env  # noqa: F401
-import os
-import sys
-import logging
+import argparse
 import datetime
 import json
+import logging
+import os
 import subprocess
-import argparse
+import sys
+
+_cur = os.path.abspath(__file__)
+while True:
+    _parent = os.path.dirname(_cur)
+    if _parent == _cur:
+        break
+    if os.path.exists(os.path.join(_parent, "setup_env.py")):
+        if _parent not in sys.path:
+            sys.path.insert(0, _parent)
+        import setup_env  # noqa: F401
+        break
+    _cur = _parent
+
 from asgiref.sync import async_to_sync
 from django.db import transaction
 from package.models.evaluation import PropertyEvaluation
