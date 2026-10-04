@@ -1065,15 +1065,15 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         try:
             return await parser_next_func(response)
         except Exception as npe:
-            logger.exception("Failed to extract next page URL from %s", current_url)
+            logger.warning("Failed to extract next page URL from %s (stopping pagination safely): %s", current_url, npe)
             raw_html_content = str(response) if response is not None else None
             await self._save_error_html_by_url(
                 current_url,
                 self.__class__.__name__,
-                f"Middle Page Next URL Failure: {npe!s}",
+                f"Middle Page Next URL Warning: {npe!s}",
                 raw_html=raw_html_content,
             )
-            raise
+            return ""
 
     async def _run(self, _url):
         """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)"""
