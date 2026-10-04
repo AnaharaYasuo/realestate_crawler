@@ -28,7 +28,7 @@ resource "google_cloud_run_v2_service" "slack_agent_service" {
         network    = google_compute_network.vpc_network.name
         subnetwork = google_compute_subnetwork.subnet.name
       }
-      egress = "ALL_TRAFFIC"
+      egress = "PRIVATE_RANGES_ONLY" # 内部通信のみVPC経由、外部通信(Slack等)は直接インターネットへ
     }
 
     containers {

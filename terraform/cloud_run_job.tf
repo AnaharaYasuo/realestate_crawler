@@ -29,7 +29,7 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           network    = google_compute_network.vpc_network.name
           subnetwork = google_compute_subnetwork.subnet.name
         }
-        egress    = "ALL_TRAFFIC" # 全外部通信をVPC経由にし、Cloud NAT(固定IP)から送信
+        egress    = "PRIVATE_RANGES_ONLY" # DB通信のみVPC経由、外部通信は直接インターネットへ (Issue #673)
       }
 
       containers {
@@ -226,7 +226,7 @@ resource "google_cloud_run_v2_job" "db_migrate_job" {
           network    = google_compute_network.vpc_network.name
           subnetwork = google_compute_subnetwork.subnet.name
         }
-        egress    = "ALL_TRAFFIC"
+        egress    = "PRIVATE_RANGES_ONLY"
       }
 
       containers {
@@ -387,7 +387,7 @@ resource "google_cloud_run_v2_job" "crawler_dispatcher_job" {
           network    = google_compute_network.vpc_network.name
           subnetwork = google_compute_subnetwork.subnet.name
         }
-        egress    = "ALL_TRAFFIC"
+        egress    = "PRIVATE_RANGES_ONLY"
       }
 
       containers {
@@ -512,7 +512,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           network    = google_compute_network.vpc_network.name
           subnetwork = google_compute_subnetwork.subnet.name
         }
-        egress    = "ALL_TRAFFIC"
+        egress    = "PRIVATE_RANGES_ONLY"
       }
 
       containers {
