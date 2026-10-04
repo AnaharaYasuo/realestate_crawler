@@ -442,6 +442,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[parser_getter_architecture_requirements.md](docs/requirements/parser_getter_architecture_requirements.md)**: パーサー Getter メソッド化および表示バリエーション吸収 要件定義書 (Issue #564)
     *   **[batch_metrics_specification.md](docs/requirements/batch_metrics_specification.md)**: バッチ処理標準メトリクス表示要件定義書 (学習・推定・配信の件数・時間・スループット可視化) (Issue #647)
     *   **[slack_validation_delisted_requirements.md](docs/requirements/slack_validation_delisted_requirements.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携要件定義書 (Issue #665)
+    *   **[slack_notification_channel_separation_requirements.md](docs/requirements/slack_notification_channel_separation_requirements.md)**: Slack通知チャンネル責務分離要件定義書 (Issue #688)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -458,6 +459,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[parser_getter_architecture_basic_design.md](docs/basic_design/parser_getter_architecture_basic_design.md)**: パーサー Getter メソッド化 基本設計書 (Issue #564)
 *   **[batch_metrics_design.md](docs/basic_design/batch_metrics_design.md)**: バッチ処理標準メトリクス基本設計書 (Issue #647)
 *   **[slack_validation_delisted_basic_design.md](docs/basic_design/slack_validation_delisted_basic_design.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携基本設計書 (Issue #665)
+*   **[slack_notification_channel_separation_basic_design.md](docs/basic_design/slack_notification_channel_separation_basic_design.md)**: Slack通知チャンネル責務分離基本設計書 (Issue #688)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -485,6 +487,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[パーサー Getter メソッド化 内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)** - パーサー Getter メソッド化および表示バリエーション吸収 内部設計書 (Issue #564)
 - **[バッチ処理標準メトリクス内部設計書](docs/internal_design/batch_metrics_internal_design.md)** - バッチ処理標準メトリクス内部設計書 (Issue #647)
 - **[Slack進捗通知分離・公開終了保持・厳格バリデーション内部設計書](docs/internal_design/slack_validation_delisted_internal_design.md)** - Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携内部設計書 (Issue #665)
+- **[Slack通知チャンネル責務分離内部設計書](docs/internal_design/slack_notification_channel_separation_internal_design.md)** - Slack通知チャンネル責務分離内部設計書 (Issue #688)
 
 
 

@@ -35,7 +35,7 @@ from django.apps import apps
 from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
-from package.utils.slack import send_crawling_summary_alert, send_slack_message
+from package.utils.slack import send_crawling_summary_alert, send_dev_report, send_slack_message
 from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
 from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
@@ -866,7 +866,13 @@ def main():
         else:
             msg_lines.append("\n✅ すべてのクローラーが正常終了しました。")
             
-        asyncio.run(send_crawling_summary_alert("\n".join(msg_lines)))
+        summary_msg = "\n".join(msg_lines)
+        if failed_list:
+            # 異常ジョブが存在する場合はアラートとして #property_alert に警告発報
+            asyncio.run(send_crawling_summary_alert(summary_msg))
+        else:
+            # 全件正常終了時は #dev-agent に運用レポートとして送信
+            asyncio.run(send_dev_report(summary_msg))
 
         # 異常ジョブが存在する場合、#dev-agent 宛に @DevAgent ゼロタッチ自動修復トリガーを発信
         if failed_list:
