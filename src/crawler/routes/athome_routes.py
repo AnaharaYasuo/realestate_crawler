@@ -16,9 +16,13 @@ from package.api.athome import (
 
 athome_bp = Blueprint('athome', __name__)
 
+ATHOME_TARGET_AREAS = ["tokyo", "saitama", "kanagawa", "chiba", "aichi"]
+
 @athome_bp.route(API_KEY_ATHOME_MANSION_START, methods=['POST', 'GET'])
 def athome_mansion_start():
-    return ParseAthomeMansionStartAsync().main("https://www.athome.co.jp/mansion/chuko/tokyo/city/")
+    for area in ATHOME_TARGET_AREAS:
+        ParseAthomeMansionStartAsync().main(f"https://www.athome.co.jp/mansion/chuko/{area}/city/")
+    return "finish", 200
 
 athomeMansionStart = athome_mansion_start
 
@@ -33,7 +37,9 @@ athomeMansionDetail = athome_mansion_detail
 
 @athome_bp.route(API_KEY_ATHOME_KODATE_START, methods=['POST', 'GET'])
 def athome_kodate_start():
-    return ParseAthomeKodateStartAsync().main("https://www.athome.co.jp/kodate/chuko/tokyo/city/")
+    for area in ATHOME_TARGET_AREAS:
+        ParseAthomeKodateStartAsync().main(f"https://www.athome.co.jp/kodate/chuko/{area}/city/")
+    return "finish", 200
 
 athomeKodateStart = athome_kodate_start
 
@@ -48,7 +54,9 @@ athomeKodateDetail = athome_kodate_detail
 
 @athome_bp.route(API_KEY_ATHOME_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def athome_invest_apartment_start():
-    return ParseAthomeInvestApartmentStartAsync().main("https://www.athome.co.jp/buy_other/tokyo/city/")
+    for area in ATHOME_TARGET_AREAS:
+        ParseAthomeInvestApartmentStartAsync().main(f"https://www.athome.co.jp/buy_other/{area}/city/")
+    return "finish", 200
 
 athomeInvestApartmentStart = athome_invest_apartment_start
 
@@ -63,7 +71,9 @@ athomeInvestApartmentDetail = athome_invest_apartment_detail
 
 @athome_bp.route(API_KEY_ATHOME_TOCHI_START, methods=['POST', 'GET'])
 def athome_tochi_start():
-    return ParseAthomeTochiStartAsync().main("https://www.athome.co.jp/tochi/tokyo/city/")
+    for area in ATHOME_TARGET_AREAS:
+        ParseAthomeTochiStartAsync().main(f"https://www.athome.co.jp/tochi/{area}/city/")
+    return "finish", 200
 
 athomeTochiStart = athome_tochi_start
 

@@ -24,8 +24,8 @@ def test_scheduler_tf_has_hourly_safety_net():
         content = f.read()
 
     assert "crawler_safety_net_trigger" in content
-    assert 'schedule         = "0 17-21 * * *"' in content or 'schedule = "0 17-21 * * *"' in content, \
-        "Safety net must be scheduled hourly (0 17-21 * * *) during night batch window."
+    assert 'schedule         = "0 17-23 * * *"' in content or 'schedule = "0 17-23 * * *"' in content, \
+        "Safety net must be scheduled hourly (0 17-23 * * *) during night batch window."
 
 
 def test_run_pipeline_registers_signal_and_atexit_handlers():
