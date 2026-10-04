@@ -63,6 +63,11 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
         logger.warning("Slack notification skipped: SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set in environment.")
         return False
 
+    # テスト環境（トークンが mock- または BLOCK_OUTBOUND_SLACK 設定時）は実HTTP通信を行わず安全終了
+    if os.getenv("BLOCK_OUTBOUND_SLACK") or token.startswith("mock-"):
+        logger.info(f"[TEST GUARD: Slack API call prevented for {target_channel}]: {message[:100]}...")
+        return True
+
     url = "https://slack.com/api/chat.postMessage"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -209,5 +214,64 @@ async def send_dev_report(report_message: str, channel: str | None = None) -> bo
     """
     target_channel = channel or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
     return await send_slack_message(report_message, target_channel)
+
+
+def get_alert_channel(property_type: str) -> str:
+    """
+    物件種別（mansion, kodate, tochi, apartment, invest_kodate等）に応じた適切なアラートチャンネルを解決します。
+    環境変数（SLACK_ALERT_*）が設定されていればそれを優先し、未設定時は既知のチャンネルIDまたはデフォルトにフォールバックします。
+    """
+    ptype_clean = (property_type or "").lower().replace("-", "_")
+    channel_map = {
+        "mansion": ("SLACK_ALERT_MANSION", "C0BJWUCTRNU"),                   # alerts-mansion
+        "kodate": ("SLACK_ALERT_KODATE", "C0BHZA5ASDT"),                     # alerts-kodate
+        "tochi": ("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS"),                       # alerts-tochi
+        "apartment": ("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0"),         # alerts-invest-apartment
+        "invest_apartment": ("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0"),  # alerts-invest-apartment
+        "invest_kodate": ("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC"),       # alerts-invest-kodate
+        "invest": ("SLACK_ALERT_INVEST", "C0BJ6A7RW2Y"),                     # alerts-invest
+    }
+    if ptype_clean in channel_map:
+        env_var, default_cid = channel_map[ptype_clean]
+        return os.getenv(env_var, default_cid)
+
+    return os.getenv("SLACK_ALERT_PROPERTY_ALERT") or os.getenv("SLACK_CHANNEL_ID") or "property_alert"
+
+
+async def verify_slack_credentials(token: str | None = None) -> tuple[bool, str]:
+    """
+    Slack API の auth.test エンドポイントを呼び出し、実際にメッセージを送信することなく
+    Bot トークンの有効性とワークスペース接続を検証します。
+    戻り値: (is_ok: bool, message: str)
+    """
+    auth_token = token or os.getenv("SLACK_BOT_TOKEN")
+    if not auth_token:
+        return False, "SLACK_BOT_TOKEN is not configured in environment."
+
+    if os.getenv("BLOCK_OUTBOUND_SLACK") or os.getenv("PYTEST_CURRENT_TEST"):
+        return True, "Slack connection verified (test mode / blocked outbound)."
+
+    url = "https://slack.com/api/auth.test"
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, headers=headers) as resp:
+            if resp.status != 200:
+                return False, f"Slack API HTTP error: status {resp.status}"
+            data = await resp.json()
+            if data.get("ok"):
+                bot_user = data.get("user", "unknown_user")
+                team = data.get("team", "unknown_team")
+                return True, f"Authenticated successfully as {bot_user} on team {team}"
+            return False, f"Slack auth.test rejected: {data.get('error', 'unknown_error')}"
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        return False, f"Slack auth.test connection failed: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Slack auth.test connection failed: {exc}"
+
 
 

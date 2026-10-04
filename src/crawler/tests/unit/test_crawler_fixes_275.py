@@ -191,5 +191,61 @@ def test_api_middle_page_next_page_fetch():
     asyncio.run(run())
 
 
+def test_get_count_for_job_breakdown():
+    from scripts.ops.run_all_crawlers import get_count_for_job, format_job_success_message, format_summary_item_message
+    from unittest.mock import MagicMock, patch
+    import datetime
+
+    mock_model = MagicMock()
+    mock_model.__name__ = "MitsuiMansion"
+
+    # Mock queryset filter counts
+    def mock_filter(q):
+        mock_qs = MagicMock()
+        q_str = str(q)
+        if "updateDateTime >= " in q_str and "inputDateTime < " in q_str:
+            mock_qs.count.return_value = 15  # skipped
+        elif "inputDateTime >= " in q_str and "updateDateTime" not in q_str:
+            mock_qs.count.return_value = 5   # detail
+        else:
+            mock_qs.count.return_value = 20  # total
+        return mock_qs
+
+    mock_model.objects.filter.side_effect = mock_filter
+
+    with patch("scripts.ops.run_all_crawlers.apps") as mock_apps:
+        mock_apps.get_models.return_value = [mock_model]
+        start_dt = datetime.datetime(2026, 10, 4, 10, 0, 0, tzinfo=datetime.timezone.utc)
+        detail_cnt, skipped_cnt, total_cnt = get_count_for_job("mitsui", "mansion", start_dt)
+
+        assert detail_cnt == 5
+        assert skipped_cnt == 15
+        assert total_cnt == 20
+
+    # Test Slack message formatting
+    success_msg = format_job_success_message(
+        company="mitsui",
+        ptype="mansion",
+        idx=1,
+        total_jobs=65,
+        detail_cnt=5,
+        skipped_cnt=15,
+        total_cnt=20,
+        duration_job_str="1分30秒"
+    )
+    assert "詳細処理: 5 件 / 未変更スキップ: 15 件 (計: 20 件)" in success_msg
+    assert "Job 1/65" in success_msg
+
+    summary_msg = format_summary_item_message(
+        company="mitsui",
+        ptype="mansion",
+        detail_cnt=5,
+        skipped_cnt=15,
+        total_cnt=20,
+        timing_str=" (所要: 1分30秒)"
+    )
+    assert summary_msg == "• mitsui - mansion: 詳細処理 5 件 / 未変更スキップ 15 件 (計: 20 件) (所要: 1分30秒)"
+
+
 
 
