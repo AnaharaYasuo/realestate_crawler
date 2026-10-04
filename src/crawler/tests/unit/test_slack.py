@@ -307,6 +307,21 @@ async def test_send_dev_report_explicit_channel_override(monkeypatch):
         mock_send.assert_called_once_with(report_text, "custom-channel")
 
 
+def test_get_alert_channel_fallback_dev_agent(monkeypatch):
+    """get_alert_channel が未知の種別で SLACK_DEV_CHANNEL / dev-agent にフォールバックすることをテスト"""
+    from package.utils.slack import get_alert_channel
+
+    monkeypatch.delenv("SLACK_DEV_CHANNEL", raising=False)
+    monkeypatch.delenv("SLACK_ALERT_PROPERTY_ALERT", raising=False)
+    monkeypatch.delenv("SLACK_CHANNEL_ID", raising=False)
+
+    assert get_alert_channel("unknown_type") == "dev-agent"
+    assert get_alert_channel("mansion") == "C0BJWUCTRNU"
+
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "C_DEV_AGENT_ID")
+    assert get_alert_channel("unknown_type") == "C_DEV_AGENT_ID"
+
+
 @pytest.mark.asyncio
 async def test_resolve_channel_id_already_id():
     """C/G/Dで始まる有効なChannel IDはそのまま返却されることをテスト"""

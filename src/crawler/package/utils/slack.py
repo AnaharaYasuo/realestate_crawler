@@ -237,7 +237,7 @@ def get_alert_channel(property_type: str) -> str:
         env_var, default_cid = channel_map[ptype_clean]
         return os.getenv(env_var, default_cid)
 
-    return os.getenv("SLACK_ALERT_PROPERTY_ALERT") or os.getenv("SLACK_CHANNEL_ID") or "property_alert"
+    return os.getenv("SLACK_DEV_CHANNEL") or os.getenv("SLACK_CHANNEL_ID") or "dev-agent"
 
 
 async def verify_slack_credentials(token: str | None = None) -> tuple[bool, str]:
