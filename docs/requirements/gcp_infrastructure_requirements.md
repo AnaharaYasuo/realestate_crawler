@@ -83,12 +83,13 @@
 - **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails / Execution-Aware Safety Net)**:
   - 時刻ベースの単純強制停止ではなく、**Cloud Run Job Execution の稼働状態と因果関係に基づく動的停止判定**を行うこと。
   - **稼働状態判定 & 執行猶予 (Grace Period)**:
-    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
+    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-ml-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常な処理を妨害しないこと。
     - ProxySQL 起動から 15分間（900秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）および処理完了直後の早期停止による再起動ループを完全に遮断すること（Issue #518 により 10分 ➔ 15分へ延長）。
   - **完全停止戦略 (Dual Hard-Kill on Hang)**:
     - Cloud Run Job Execution がタイムアウト上限（最長ジョブのクローラー 7200秒 + 猶予 600秒 = 7800秒。Issue #550）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
-  - **親不在時の即時停止**:
+  - **親不在時の即時停止 & 24時間常時安全監査 (Issue #664)**:
     - 関連する Cloud Run Job Execution が存在しない（親不在）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して Slack へ通知すること。
+    - Safety-Net は特定の深夜帯のみならず、日中・夜間帯の手動実行や予期せぬ異常終了時のゾンビ課金を確実に防止するため、全時間帯毎時（`0 * * * *`）に稼働してリソース停止漏れを自律監査すること。また、デフォルトゾーンはインフラ実態に合わせて `asia-northeast1-a` で統一すること。
 - **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
   - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（7200秒。Issue #550 で 3600 秒から延長）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
   - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown を実行して ProxySQL 停止を保証すること。
@@ -106,7 +107,7 @@
   - Safety-Net の hung 判定閾値は最長ジョブのタスクタイムアウト（7200 秒）+ 猶予（600 秒）= 7800 秒以上とし、2 時間以内で正常稼働中の実行をキャンセルしないこと。
   - ML Pipeline Job はクローラー最遅終了（16:00 UTC + 7200 秒 = 18:00 UTC）後の 18:10 UTC（03:10 JST）に起動すること。
   - Cloud SQL 自動バックアップはクローラー最遅終了および ML Pipeline Job 最遅終了（18:10 UTC + 3600 秒 = 19:10 UTC）以降の 20:00 UTC（05:00 JST）に開始すること。
-  - Safety-Net（17-21 UTC 毎時）はクローラー最遅終了（18:00 UTC）および ML Pipeline Job 最遅終了（19:10 UTC）以降にも起動すること。
+  - Safety-Net（毎時 `0 * * * *`）はクローラー最遅終了（18:00 UTC）および ML Pipeline Job 最遅終了（19:10 UTC）以降を含む全時間帯で起動すること。
 - **クロール詳細 URL の重複ディスパッチ防止**:
   - 一覧（中間）ページから抽出した詳細 URL は、同一ページ内・同一クロールプロセス内の別一覧ページ間で重複して詳細処理にディスパッチしてはならない（詳細 API ごとに 1 回）。バリデーション失敗で保存されない物件の再取得ループによるクロール時間浪費を防止する（Issue #537）。
 - **リソースタグ・ラベル統一による費用分析**:

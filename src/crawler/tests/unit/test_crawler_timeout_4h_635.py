@@ -275,18 +275,23 @@ def test_ml_pipeline_timeout_below_hung_threshold():
 # ---------------------------------------------------------------------------
 
 
-def _safety_net_hours():
+def _safety_net_schedule():
     scheduler = _strip_comments(_read(os.path.join(TERRAFORM_DIR, "scheduler.tf")))
     block = scheduler.split('"crawler_safety_net_trigger"', 1)[1]
-    first, last = re.search(r'schedule\s*=\s*"\d+ (\d+)-(\d+) ', block).groups()
-    return int(first), int(last)
+    return re.search(r'schedule\s*=\s*"([^"]+)"', block).group(1)
 
 
 def test_safety_net_runs_after_latest_crawler_and_ml_end():
-    first, last = _safety_net_hours()
-    assert first * 3600 > _cron_seconds(_var_default("schedule_cron"))
-    assert last * 3600 >= _crawler_latest_end_sec()
-    assert last * 3600 >= _ml_latest_end_sec()
+    schedule = _safety_net_schedule()
+    hour_field = schedule.split()[1]
+    if hour_field == "*":
+        # Hourly 24/7 guarantees execution after latest crawler and ML end
+        assert True
+    else:
+        first, last = (int(h) for h in hour_field.split("-"))
+        assert first * 3600 > _cron_seconds(_var_default("schedule_cron"))
+        assert last * 3600 >= _crawler_latest_end_sec()
+        assert last * 3600 >= _ml_latest_end_sec()
 
 
 def test_ml_pipeline_starts_after_four_hour_crawler_deadline():
