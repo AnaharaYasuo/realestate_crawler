@@ -5,8 +5,8 @@ from scripts.maintenance.validate_data import validate_data
 
 
 def test_validate_data_sends_alert_and_logs_error(monkeypatch):
-    """異常データ検出時に logging.error および send_slack_message が呼ばれることをテスト"""
-    monkeypatch.setenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU")
+    """異常データ検出時に send_dev_report が呼ばれ #dev-agent へ報告されることをテスト"""
+    monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
 
     # 1件の異常物件をシミュレート
     mock_item = MagicMock()
@@ -24,20 +24,17 @@ def test_validate_data_sends_alert_and_logs_error(monkeypatch):
     mock_model.objects.all.return_value = mock_qs
 
     with patch("scripts.maintenance.validate_data.get_all_models_flat", return_value=[(mock_model, "mitsui", "mansion")]), \
-         patch("scripts.maintenance.validate_data.logging.error") as mock_log_error, \
-         patch("scripts.maintenance.validate_data.send_slack_message") as mock_send_slack, \
+         patch("scripts.maintenance.validate_data.verify_url_active", return_value=True), \
+         patch("scripts.maintenance.validate_data.send_dev_report") as mock_send_dev, \
          patch("subprocess.run"):
         
         validate_data()
 
-        # logging.error が呼ばれたことを検証
-        assert mock_log_error.called
-        call_args_str = str(mock_log_error.call_args)
-        assert "MANSION" in call_args_str
-        assert "C0BJWUCTRNU" in call_args_str
-
-        # send_slack_message が呼ばれたことを検証
-        assert mock_send_slack.called
+        # send_dev_report が呼ばれたことを検証
+        assert mock_send_dev.called
+        call_msg = str(mock_send_dev.call_args)
+        assert "データ整合性検証" in call_msg
+        assert "needs_parser_fix=True" in call_msg
 
 
 

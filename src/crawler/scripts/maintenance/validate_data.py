@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import argparse
 import datetime
 import json
@@ -6,6 +5,7 @@ import logging
 import os
 import subprocess
 import sys
+from typing import Any
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -21,15 +21,57 @@ while True:
 
 from asgiref.sync import async_to_sync
 from django.db import transaction
+from django.utils import timezone
+from package.models.athome import (
+    AthomeInvestmentApartment,
+    AthomeKodate,
+    AthomeMansion,
+    AthomeTochi,
+)
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message
-from package.models.mitsui import MitsuiMansion, MitsuiKodate, MitsuiTochi, MitsuiInvestmentKodate, MitsuiInvestmentApartment
-from package.models.sumifu import SumifuMansion, SumifuKodate, SumifuTochi, SumifuInvestmentKodate, SumifuInvestmentApartment
-from package.models.tokyu import TokyuMansion, TokyuKodate, TokyuTochi, TokyuInvestmentKodate, TokyuInvestmentApartment
-from package.models.nomura import NomuraMansion, NomuraKodate, NomuraTochi, NomuraInvestmentKodate, NomuraInvestmentApartment
-from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentKodate, MisawaInvestmentApartment
-from package.models.athome import AthomeMansion, AthomeKodate, AthomeTochi, AthomeInvestmentApartment
-from package.models.homes import HomesMansion, HomesKodate, HomesTochi, HomesInvestmentApartment
+from package.models.homes import (
+    HomesInvestmentApartment,
+    HomesKodate,
+    HomesMansion,
+    HomesTochi,
+)
+from package.models.misawa import (
+    MisawaInvestmentApartment,
+    MisawaInvestmentKodate,
+    MisawaKodate,
+    MisawaMansion,
+    MisawaTochi,
+)
+from package.models.mitsui import (
+    MitsuiInvestmentApartment,
+    MitsuiInvestmentKodate,
+    MitsuiKodate,
+    MitsuiMansion,
+    MitsuiTochi,
+)
+from package.models.nomura import (
+    NomuraInvestmentApartment,
+    NomuraInvestmentKodate,
+    NomuraKodate,
+    NomuraMansion,
+    NomuraTochi,
+)
+from package.models.sumifu import (
+    SumifuInvestmentApartment,
+    SumifuInvestmentKodate,
+    SumifuKodate,
+    SumifuMansion,
+    SumifuTochi,
+)
+from package.models.tokyu import (
+    TokyuInvestmentApartment,
+    TokyuInvestmentKodate,
+    TokyuKodate,
+    TokyuMansion,
+    TokyuTochi,
+)
+from package.utils.data_validator import PropertyDataValidator
+from package.utils.slack import send_dev_report, verify_url_active
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +101,83 @@ def get_all_models_flat():
         (HomesInvestmentApartment, "homes", "apartment"),
     ]
 
+
+async def process_property_validation(
+    item: Any,
+    property_type: str,
+    company: str,
+    eval_rec: PropertyEvaluation | None = None
+) -> dict[str, Any]:
+    """
+    単一物件レコードの生存確認およびデータ妥当性を検証する。
+    1. 掲載終了（404等）判定時: is_published=False, delisted_at=now, needs_recrawl=False
+    2. スペック異常判定時: needs_recrawl=True, data_quality_issue 記録, 予測価格0リセット
+    3. 正常時: is_published=True, needs_recrawl=False
+    """
+    url = getattr(item, "pageUrl", "") or getattr(item, "url", "")
+    p_name = getattr(item, "propertyName", "不明な物件名")
+
+    # 1. URL生存確認 (公開中かどうか)
+    if url:
+        is_active = await verify_url_active(url)
+        if not is_active:
+            if eval_rec:
+                eval_rec.is_published = False
+                eval_rec.delisted_at = timezone.now()
+                eval_rec.needs_recrawl = False
+                eval_rec.first_stage_predicted_price = 0
+                eval_rec.second_stage_predicted_price = 0
+                eval_rec.is_slack_notified = True
+            return {
+                "status": "delisted",
+                "company": company,
+                "property_type": property_type,
+                "url": url,
+                "name": p_name,
+                "reasons": ["掲載終了検知 (404/掲載終了文言)"],
+                "is_critical": False,
+            }
+
+    # 2. データ妥当性検証 (PropertyDataValidator)
+    is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
+
+    if not is_valid:
+        if eval_rec:
+            eval_rec.is_published = True
+            eval_rec.needs_parser_fix = True
+            eval_rec.needs_recrawl = False
+            eval_rec.data_quality_issue = "; ".join(reasons)
+            eval_rec.first_stage_predicted_price = 0
+            eval_rec.second_stage_predicted_price = 0
+            eval_rec.is_slack_notified = True  # ML推論および推薦アラートから除外
+        return {
+            "status": "invalid",
+            "company": company,
+            "property_type": property_type,
+            "url": url,
+            "name": p_name,
+            "reasons": reasons,
+            "is_critical": True,
+        }
+
+    # 正常
+    if eval_rec:
+        eval_rec.is_published = True
+        eval_rec.needs_parser_fix = False
+        eval_rec.needs_recrawl = False
+        eval_rec.data_quality_issue = ""
+
+    return {
+        "status": "valid",
+        "company": company,
+        "property_type": property_type,
+        "url": url,
+        "name": p_name,
+        "reasons": [],
+        "is_critical": False,
+    }
+
+
 def validate_data(days: int | None = None, scan_all: bool = False):
     logger.info("Starting automated scraping validation and data integrity checks...")
     
@@ -85,7 +204,8 @@ def validate_data(days: int | None = None, scan_all: bool = False):
     since_date = (datetime.datetime.now(tz=datetime.timezone.utc).date() - datetime.timedelta(days=days_limit)) if days_limit else None
     
     anomalies = []
-    cleaned_count = 0
+    delisted_count = 0
+    recrawl_queued_count = 0
     
     models = get_all_models_flat()
     
@@ -93,82 +213,37 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         qs = model_cls.objects.all()
         if since_date and hasattr(model_cls, "inputDate"):
             qs = qs.filter(inputDate__gte=since_date)
+            
         for item in qs:
             url = getattr(item, "pageUrl", "")
             if not url:
                 continue
-                
-            price = getattr(item, "price", 0) or 0
-            price_man = float(price) / 10000.0
-            
-            # 面積の動的抽出
-            area = 0.0
-            if hasattr(item, "senyuMenseki") and item.senyuMenseki is not None:
-                area = float(item.senyuMenseki)
-            elif hasattr(item, "tatemonoMenseki") and item.tatemonoMenseki is not None:
-                area = float(item.tatemonoMenseki)
-            elif hasattr(item, "tochiMenseki") and item.tochiMenseki is not None:
-                area = float(item.tochiMenseki)
-                
-            # 不正データ判定
-            has_error = False
-            reasons = []
-            
-            # 1. 価格の異常値（100万円未満）
-            if price_man <= 0 or price_man < 100.0:
-                has_error = True
-                reasons.append(f"価格異常 ({price_man:.1f}万円)")
-                
-            # 2. 面積の異常値（5㎡未満）
-            if area <= 5.0:
-                has_error = True
-                reasons.append(f"面積異常 ({area:.1f}㎡)")
-                
-            # 3. 一棟物件であるのに面積が極端に狭い（5㎡未満）
-            if ptype == "apartment" and area < 5.0:
-                has_error = True
-                reasons.append(f"一棟面積過小疑い ({area:.1f}㎡)")
-                
-            # 4. 物件データ内に「再建築不可」が明記されている場合の警告
-            is_saikenchiku_fuka = any(
-                "再建築不可" in str(getattr(item, attr, "") or "")
-                for attr in ["biko", "setsudou", "roadStructure", "tochikenri", "propertyName", "notes", "bikou"]
-            )
-            if ptype in ["tochi", "kodate", "invest_kodate"] and is_saikenchiku_fuka:
-                # 警告として記録するが、強制排除はせず警告にとどめる
-                reasons.append("再建築不可警告 (無道路地ペナルティ対象)")
-                # 強制排除フラグは立てない (has_error = False)
-            
-            if reasons and (has_error or "再建築不可警告" in reasons[0]):
-                p_name = getattr(item, "propertyName", "不明な物件名")
-                anomalies.append({
-                    "url": url,
-                    "company": company,
-                    "property_type": ptype,
-                    "name": p_name,
-                    "reasons": reasons,
-                    "is_critical": has_error
-                })
-                
-                # クレンジング処理 (予測結果の無効化ガード)
-                if has_error:
-                    eval_rec = PropertyEvaluation.objects.filter(property_url=url).first()
-                    if eval_rec:
-                        with transaction.atomic():
-                            # 予測価格を0にリセットし、Slackアラート対象から永久に排除
-                            eval_rec.first_stage_predicted_price = 0
-                            eval_rec.second_stage_predicted_price = 0
-                            eval_rec.is_slack_notified = True # スキップ扱いにする
-                            eval_rec.save()
-                        cleaned_count += 1
+
+            # 既存の評価レコードを取得
+            eval_rec = PropertyEvaluation.objects.filter(property_url=url).first()
+
+            # 非同期生存確認・バリデーションを実行
+            res = async_to_sync(process_property_validation)(item, ptype, company, eval_rec)
+
+            if eval_rec:
+                with transaction.atomic():
+                    eval_rec.save()
+
+            if res["status"] == "delisted":
+                delisted_count += 1
+            elif res["status"] == "invalid":
+                recrawl_queued_count += 1
+                anomalies.append(res)
                         
-    logging.info(f"Scan finished. Found {len(anomalies)} anomalies. Auto-cleaned: {cleaned_count} evaluations.")
+    logger.info(
+        "Scan finished. Anomalies: %d, Delisted: %d, Auto-Heal queued: %d",
+        len(anomalies), delisted_count, recrawl_queued_count
+    )
     
-    # 2. HTMLパースエラー（monitor_error_pages.py）のレポート読み込み
+    # HTMLパースエラー（monitor_error_pages.py）のレポート読み込み
     html_errors_list = []
-    
     try:
-        logging.info("Running monitor_error_pages.py as a subprocess...")
+        logger.info("Running monitor_error_pages.py as a subprocess...")
         crawler_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         script_path = os.path.join(crawler_dir, "scripts", "ops", "monitor_error_pages.py")
         if not os.path.exists(script_path):
@@ -176,8 +251,7 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         if os.path.exists(script_path):
             subprocess.run([sys.executable, script_path], check=True)
         
-        # 本日の日付のJSONファイルを読み込む
-        today_str = datetime.date.today().strftime("%Y%m%d")
+        today_str = datetime.datetime.now(tz=datetime.timezone.utc).date().strftime("%Y%m%d")
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         report_path = os.path.join(project_root, "logs", f"error_report_{today_str}.json")
@@ -185,82 +259,42 @@ def validate_data(days: int | None = None, scan_all: bool = False):
             with open(report_path, "r", encoding="utf-8") as f:
                 rep = json.load(f)
                 html_errors_list = rep.get("recent_details", [])
-    except Exception as e:
-        logging.exception(f"Failed to integrate monitor_error_pages: {e}")
+    except Exception:
+        logger.exception("Failed to integrate monitor_error_pages")
         
-    # チャンネルごとのメッセージバッファ
-    buffers = {
-        "mansion": [],
-        "kodate": [],
-        "tochi": [],
-        "apartment": [],
-        "invest_kodate": [],
-        "general": []
-    }
-    
-    # 1. HTMLパースエラーの振り分け
-    for err in html_errors_list:
-        comp_type = err.get("company_type", "")
-        ptype = "general"
-        if "mansion" in comp_type:
-            ptype = "mansion"
-        elif "kodate" in comp_type:
-            if "investment" in comp_type or "invest" in comp_type:
-                ptype = "invest_kodate"
-            else:
-                ptype = "kodate"
-        elif "tochi" in comp_type:
-            ptype = "tochi"
-        elif "apartment" in comp_type:
-            ptype = "apartment"
-            
-        buffers[ptype].append(f"  - 🚨 [HTML Error] [{err['company_type']}] Reason: {err['reason']} | URL: {err['url']}")
-        
-    # 2. データアノマリーの振り分け
-    for a in anomalies:
-        ptype = a["property_type"]
-        if ptype in ["invest_apartment", "apartment"]:
-            key = "apartment"
-        elif ptype == "invest_kodate":
-            key = "invest_kodate"
-        elif ptype in ["mansion", "kodate", "tochi"]:
-            key = ptype
-        else:
-            key = "general"
-            
-        severity = "❌ [Critical]" if a["is_critical"] else "💡 [Warning]"
-        reasons_list = a["reasons"]
-        reasons_str = ", ".join(reasons_list) if isinstance(reasons_list, list) else str(reasons_list)
-        buffers[key].append(f"  - {severity} [{a['company']}/{ptype}] {reasons_str} | {a['name']} | URL: {a['url']}")
-        
-    # 各バッファを対応するアラートチャンネルに送信
-    sent_any = False
-    for key, items in buffers.items():
-        if not items:
-            continue
-            
-        msg = f"⚠️ 【不動産クローラー データ監視アラート - {key.upper()}】\n\n"
-        msg += f"🚨 **検出された異常/エラー: {len(items)} 件**\n"
-        for item_str in items[:10]: # 最大10件を表示
-            msg += item_str + "\n"
-        if len(items) > 10:
-            msg += f"  - (他 {len(items) - 10} 件のエラーがあります。)\n"
-            
-        msg += "\n※ 異常データは自動クレンジングまたはスキップ処理が適用されました。"
-        
-        # 投稿先アラートチャンネルの決定
-        from package.utils.slack import get_alert_channel
-        alert_channel = get_alert_channel(key)
-            
-        logging.error(f"Sending {key} alert report to channel: {alert_channel}\n{msg}")
-        async_to_sync(send_slack_message)(msg, channel=alert_channel)
-        sent_any = True
-        
-    if not sent_any:
-        logging.info("No scraping anomalies or HTML errors detected. Data integrity is clean.")
+    # Slack dev-agent 向けレポート作成（アラートチャンネルは汚染せず dev-agent に集約）
+    if anomalies or html_errors_list or delisted_count > 0:
+        msg_lines = [
+            "📋 *【データ整合性検証＆生存確認サマリー (#dev-agent)】*",
+            f"• *掲載終了検知 (非公開化)*: {delisted_count:,} 件",
+            f"• *データ不正検知 (Auto-Healパーサー改修対象)*: {recrawl_queued_count:,} 件",
+            f"• *HTMLパースエラー*: {len(html_errors_list):,} 件",
+            "",
+        ]
+        if anomalies:
+            msg_lines.append("🔍 *検知されたデータ異常（抜粋）*:")
+            for a in anomalies[:5]:
+                reasons_str = ", ".join(a["reasons"])
+                msg_lines.append(f"  - [{a['company']}/{a['property_type']}] {reasons_str} | URL: {a['url']}")
+            if len(anomalies) > 5:
+                msg_lines.append(f"  - (他 {len(anomalies) - 5} 件)")
+
+        if html_errors_list:
+            msg_lines.append("\n🚨 *HTMLエラー（抜粋）*:")
+            for err in html_errors_list[:5]:
+                msg_lines.append(f"  - [{err.get('company_type')}] {err.get('reason')} | URL: {err.get('url')}")
+            if len(html_errors_list) > 5:
+                msg_lines.append(f"  - (他 {len(html_errors_list) - 5} 件)")
+
+        msg_lines.append("\n※ 掲載終了物件は非公開化してリトライ除外、データ不正物件は `needs_parser_fix=True` を付与しパーサー修復待ちとしました。")
+        full_report = "\n".join(msg_lines)
+        logger.info("Reporting validation summary to dev-agent channel:\n%s", full_report)
+        async_to_sync(send_dev_report)(full_report)
+    else:
+        logger.info("No scraping anomalies, delisted items, or HTML errors detected. Data integrity is clean.")
+
 
 if __name__ == "__main__":
-    # monitor_error_pagesのインポートパス解決のため、カレントディレクトリをscriptsに合わせる
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     if scripts_dir not in sys.path:
         sys.path.append(scripts_dir)

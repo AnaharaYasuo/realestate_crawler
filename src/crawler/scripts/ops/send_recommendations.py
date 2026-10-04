@@ -22,7 +22,7 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message, send_crawling_summary_alert
+from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 def _notify_status(msg: str) -> None:
     try:
-        async_to_sync(send_crawling_summary_alert)(msg)
+        async_to_sync(send_dev_report)(msg)
     except Exception as e:
-        logger.warning("Failed to send recommendation status alert: %s", e)
+        logger.warning("Failed to send recommendation status report: %s", e)
 
 LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
@@ -244,12 +244,18 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
 def _fetch_recommendation_candidates():
     threshold_48h = timezone.now() - datetime.timedelta(hours=48)
     candidates = PropertyEvaluation.objects.filter(
-        is_slack_notified=False
+        is_slack_notified=False,
+        is_published=True,
+        needs_recrawl=False,
     ).filter(
         models.Q(analyzed_at__gte=threshold_48h) | models.Q(analyzed_at__isnull=True)
     )
     if not candidates.exists():
-        return PropertyEvaluation.objects.filter(is_slack_notified=False).order_by('-id')[:200]
+        return PropertyEvaluation.objects.filter(
+            is_slack_notified=False,
+            is_published=True,
+            needs_recrawl=False,
+        ).order_by('-id')[:200]
     return candidates
 
 def send_recommendations():
