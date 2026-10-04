@@ -670,6 +670,22 @@ graph TD
   - `footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のタグまたはクラス名配下に存在する要素を `_ingest_tr_specs`, `_ingest_dl_specs`, `_ingest_table_row_specs` の走査対象から除外。
   - ホームズ等のフッターナビ（利回りバナー、投資物件ナビゲーション）がスペック辞書に混入して `PropertyTypeDetector` が誤爆する現象を根絶。
 
+### 6.34 クローラー4時間枠・一覧価格厳格抽出・athome拡張・タイムアウト発報内部設計 (Issue #635)
+- **クローラータイムアウト4時間 (14400s) 延長とパイプライン連動**:
+  - `terraform/variables.tf`: `crawler_timeout` default を `"14400s"`、validation 上限を `14400` に更新。
+  - `terraform/scheduler.tf`: `ml_pipeline_job_scheduler` の cron を `"10 20 * * *"` (20:10 UTC / JST 05:10)、`safety_net_hourly_scheduler` を `"0 17-23 * * *"` に変更。
+  - `terraform/database.tf`: バックアップ開始時刻を `"22:00"` (22:00 UTC / JST 07:00) に変更。
+  - `src/crawler/scripts/ensure_resources_stopped.py`: `DEFAULT_HUNG_THRESHOLD_SEC` を 15000s (14400s + 600s) に変更。
+  - `src/crawler/scripts/ops/run_pipeline.py`: `DEFAULT_TIMEOUT_SEC` を 14400.0 に変更。
+- **アットホームのエリア拡大および並行度向上**:
+  - `src/crawler/routes/athome_routes.py`: 開始 URL を東京 (`tokyo/city/`) だけでなく埼玉 (`saitama/city/`)、神奈川 (`kanagawa/city/`)、千葉 (`chiba/city/`)、愛知 (`aichi/city/`) へ展開。
+  - `src/crawler/package/api/athome.py`: `DETAIL_PARARELL_LIMIT` を 1 から 3 へ引き上げ。
+- **一覧カード価格抽出の厳格化と差分スキップ正常化**:
+  - `src/crawler/package/parser/baseParser.py`: `_extract_card_price` において、カード内テキストから安易な数字を拾わず、単位「万円」「円」の表記を持つ正規表現（100万円以上）のみを価格として抽出。駅徒歩分数や階数・築年数の誤認を排除。
+  - 各パーサーの一覧抽出ロジックで物件カードの価格要素を正確に捕捉し、既存物件の差分スキップ（キャッシュ確認）を100%機能させる。
+- **タイムアウト・異常終了時の Slack 即時発報**:
+  - `src/crawler/scripts/ops/run_pipeline.py`: `TimeoutError` や異常終了の捕捉箇所で `send_crawling_summary_alert` / `send_dev_report` を呼び出し、未完走タスク・エラー詳細を Slack へ即座に通知。
+
 ---
 
 ## 7. 参照ドキュメント

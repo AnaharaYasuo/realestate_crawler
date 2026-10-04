@@ -61,8 +61,8 @@ ERR_NO_COMPUTE_CLIENT: str = (
     "Neither google-cloud-compute nor valid GCP credentials available"
 )
 DEFAULT_GRACE_PERIOD_SEC: float = 900.0
-# 最長ジョブ (クローラー crawler_timeout = 7200s) + 猶予 600s
-DEFAULT_HUNG_THRESHOLD_SEC: float = 7800.0
+# 最長ジョブ (クローラー crawler_timeout = 14400s) + 猶予 600s
+DEFAULT_HUNG_THRESHOLD_SEC: float = 15000.0
 
 
 @dataclass

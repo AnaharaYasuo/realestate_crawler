@@ -563,7 +563,8 @@ class ParserBase(metaclass=ABCMeta):
         return dest_url
     _CARD_KEYWORDS = ('card', 'item', 'bukken', 'property', 'list', 'box', 'row', 'section')
     _PRICE_SELECTORS = ('.price', '.mod-price', '.priceNum', '.priceText', 'span[class*="price"]', 'strong[class*="price"]', 'p[class*="price"]', 'td.price', 'em')
-    _SIMPLE_PRICE_RE = re.compile(r'\d[\d,.]*\s*(?:億[\d,.]*\s*)?万円?')
+    _SIMPLE_PRICE_RE = re.compile(r'(\d[\d,.]*\s*(?:億\s*\d[\d,.]*\s*)?万(?:円)?)')
+    _NON_PRICE_UNITS = ('分', '階', '年', '戸', '室', '台')
 
     @classmethod
     def _is_sub_heading(cls, combined: str) -> bool:
@@ -593,30 +594,33 @@ class ParserBase(metaclass=ABCMeta):
         return first_candidate or link.parent or link
 
     @classmethod
+    def _parse_valid_price(cls, text: str) -> int | None:
+        """テキストから適正価格（100万円以上）を抽出（ノイズ単位除外）"""
+        for m in cls._SIMPLE_PRICE_RE.finditer(text):
+            after = text[m.end():m.end() + 4]
+            if not any(unit in after for unit in cls._NON_PRICE_UNITS):
+                p = converter.parse_price(m.group(1))
+                if p and p >= 1000000:
+                    return p
+        return None
+
+    @classmethod
     def _extract_card_price(cls, link) -> int | None:
-        """カード要素やその周辺から物件価格（整数・円）を抽出する"""
+        """カード要素やその周辺から物件価格（整数・円）を厳格に抽出する (Issue #635: 誤判定完全排除)"""
         if not hasattr(link, 'find_parent'):
             return None
         card = cls._find_card_container(link)
 
-        # 1. card 内の価格専用クラス・要素を優先探索
+        # 1. card 内の価格専用クラス・要素を探索
         for sel in cls._PRICE_SELECTORS:
             el = card.select_one(sel)
             if el:
-                p = converter.parse_price(el.get_text(strip=True))
-                if p and p > 0:
+                p = cls._parse_valid_price(el.get_text(separator=' ', strip=True))
+                if p:
                     return p
 
         # 2. テキスト全体から価格パターンを抽出
-        card_text = card.get_text(separator=' ', strip=True)
-        for chunk in card_text.split():
-            m = cls._SIMPLE_PRICE_RE.search(chunk)
-            if m:
-                p = converter.parse_price(m.group(0))
-                if p and p >= 100000:
-                    return p
-
-        return None
+        return cls._parse_valid_price(card.get_text(separator=' ', strip=True))
 
     async def _parsePageCore(self, response: BeautifulSoup, xpath_fn=None, dest_url_fn=None):
         if not dest_url_fn:
