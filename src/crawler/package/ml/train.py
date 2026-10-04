@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import time
 import pandas as pd
 import numpy as np
 import joblib
@@ -32,6 +33,7 @@ from package.models.evaluation import PropertyEvaluation
 from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
 from django.apps import apps
 from scipy.optimize import minimize
+from package.utils.batch_metrics import BatchMetrics, format_batch_duration
 
 COMPANIES = [
     "mitsui", "sumifu", "tokyu", "nomura", "misawa",
@@ -762,7 +764,9 @@ def _train_single_ptype_models(
     model_dir: str,
     all_ensemble_weights: dict,
     all_smearing_factors: dict
-):
+) -> dict:
+    ptype_start = time.perf_counter()
+    initial_count = len(items)
     if len(items) > 15000:
         print(f"Sampling 15,000 representative properties from {len(items):,} total records for efficient training...", flush=True)
         rng = np.random.default_rng(42)
@@ -794,7 +798,10 @@ def _train_single_ptype_models(
         df = generate_dummy_data(ptype)
         
     # 学習データのクレンジング（外れ値の自動除外）を実行
+    before_clean = len(df)
     df = clean_training_data(df, ptype)
+    after_clean = len(df)
+    outliers_count = before_clean - after_clean
         
     # 掲載日に基づく時間減衰サンプル重みを算出 (Time Decay Weights)
     dates = df["input_date"].values if "input_date" in df.columns else [None] * len(df)
@@ -816,10 +823,26 @@ def _train_single_ptype_models(
     for algo, model in second_ensemble.items():
         joblib.dump(model, os.path.join(model_dir, f"{ptype}_second_stage_{algo}.joblib"))
         
+    duration = time.perf_counter() - ptype_start
+    summary = {
+        "ptype": ptype,
+        "input_count": initial_count,
+        "valid_count": after_clean,
+        "outliers_count": outliers_count,
+        "duration_sec": duration
+    }
+    print(f"[{ptype}] Completed in {format_batch_duration(duration)} (Valid: {after_clean:,}, Filtered: {outliers_count:,})", flush=True)
+
     del items, df, records, first_ensemble, second_ensemble
+    return summary
 
 def main():
+    total_records = 0
     data_by_type = load_all_properties_from_db()
+    for items in data_by_type.values():
+        total_records += len(items)
+
+    metrics = BatchMetrics("ML Model Training", total_target=total_records)
     
     # 統計マスタの構築
     mkt_master = build_mkt_comparison_master(data_by_type)
@@ -838,17 +861,27 @@ def main():
     all_smearing_factors = {}
     
     # 各物件種別の学習を実行
+    ptype_summaries = []
     ptypes = list(data_by_type.keys())
     for ptype in ptypes:
-        _train_single_ptype_models(
+        summary = _train_single_ptype_models(
             ptype, data_by_type[ptype], mkt_master, feature_sets, model_dir,
             all_ensemble_weights, all_smearing_factors
         )
+        ptype_summaries.append(summary)
+        metrics.increment(success=True, count=summary.get("valid_count", 0))
         data_by_type[ptype] = []
         gc.collect()
         
     joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))
     joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
+    
+    metrics.finish()
+    extra_stats = {
+        f"{s['ptype']}": f"{s['valid_count']:,}件 ({format_batch_duration(s['duration_sec'])})"
+        for s in ptype_summaries
+    }
+    print("\n" + metrics.build_log_banner(extra_stats=extra_stats))
     print("\nMachine learning training pipeline completed successfully for all property types with ensemble support, optimal weights, and smearing bias correction!")
 
 if __name__ == "__main__":

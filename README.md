@@ -440,8 +440,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[new_relic_monitoring_requirements.md](docs/requirements/new_relic_monitoring_requirements.md)**: New Relic 統合監視要件定義書 (APM・外形監視・コンテナ/DB・Cloud Logging・GenAI・Change Tracking・アラート) (Issue #471, #473, #478)
     *   **[pipeline_resilience_and_slack_progress_requirements.md](docs/requirements/pipeline_resilience_and_slack_progress_requirements.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知要件定義書 (Issue #492)
     *   **[parser_getter_architecture_requirements.md](docs/requirements/parser_getter_architecture_requirements.md)**: パーサー Getter メソッド化および表示バリエーション吸収 要件定義書 (Issue #564)
-
-
+    *   **[batch_metrics_specification.md](docs/requirements/batch_metrics_specification.md)**: バッチ処理標準メトリクス表示要件定義書 (学習・推定・配信の件数・時間・スループット可視化) (Issue #647)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -456,6 +455,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[new_relic_monitoring_design.md](docs/basic_design/new_relic_monitoring_design.md)**: New Relic 統合監視基本設計書 (フルスタック可観測性・APM・Synthetics・Cloud Run・ログ統合) (Issue #471, #473, #478)
 *   **[pipeline_resilience_and_slack_progress_basic_design.md](docs/basic_design/pipeline_resilience_and_slack_progress_basic_design.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知基本設計書 (Issue #492)
 *   **[parser_getter_architecture_basic_design.md](docs/basic_design/parser_getter_architecture_basic_design.md)**: パーサー Getter メソッド化 基本設計書 (Issue #564)
+*   **[batch_metrics_design.md](docs/basic_design/batch_metrics_design.md)**: バッチ処理標準メトリクス基本設計書 (Issue #647)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -481,6 +481,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[New Relic 統合監視内部詳細設計書](docs/internal_design/new_relic_monitoring_internal_design.md)** - New Relic APM初期化・Synthetics・GenAI監視・デプロイ追跡・NRQLアラート詳細設計 (Issue #471, #473, #478)
 - **[パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知内部詳細設計書](docs/internal_design/pipeline_resilience_and_slack_progress_internal_design.md)** - クローリング異常終了時の後続パイプライン継続実行およびバルク価格推定・お宝物件スクリーニング進捗Slack通知詳細設計書 (Issue #492)
 - **[パーサー Getter メソッド化 内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)** - パーサー Getter メソッド化および表示バリエーション吸収 内部設計書 (Issue #564)
+- **[バッチ処理標準メトリクス内部設計書](docs/internal_design/batch_metrics_internal_design.md)** - バッチ処理標準メトリクス内部設計書 (Issue #647)
 
 
 

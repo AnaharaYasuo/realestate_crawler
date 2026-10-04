@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_crawling_summary_alert
+from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -252,10 +253,12 @@ def _fetch_recommendation_candidates():
     return candidates
 
 def send_recommendations():
+    metrics = BatchMetrics(job_name="Slack Recommendation")
     logger.info("Scanning for new hot recommendation properties to send via Slack...")
     _notify_status("🔍 【お宝物件スクリーニング開始】 未通知の割安物件・高利回り優良物件の抽出を開始します...")
 
     candidates = _fetch_recommendation_candidates()
+    metrics.total_count = len(candidates)
     matched_candidates = []
 
     for eval_rec in candidates:
@@ -267,8 +270,22 @@ def send_recommendations():
             matched_candidates.append((priority, eval_rec, prop, reason))
 
     if not matched_candidates:
-        logger.info("No hot recommendation candidates found.")
-        _notify_status("ℹ️ 【お宝物件通知】 現在配信基準を満たす新規お宝物件はありませんでした (0件)。")
+        metrics.finish()
+        st_str = format_timestamp_jst(metrics.start_time)
+        et_str = format_timestamp_jst(metrics.end_time)
+        logger.info("No hot recommendation candidates found. (Scanned: %d, Elapsed: %s)", len(candidates), metrics.duration_str)
+        _notify_status(
+            f"ℹ️ 【お宝物件通知】 現在配信基準を満たす新規お宝物件はありませんでした (0件)。\n"
+            f"• *実行時間*: {st_str} 〜 {et_str} (所要: {metrics.duration_str})\n"
+            f"• *スクリーニング*: 対象候補 {len(candidates):,} 件を走査 | 基準合致 0 件"
+        )
+        banner = metrics.build_log_banner(
+            title="Slack Recommendation Batch",
+            custom_sections=[
+                f"• スクリーニング: 対象候補 {len(candidates):,} 件 | 基準合致 0 件",
+            ]
+        )
+        logger.info("\n" + banner)
         return
 
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -279,14 +296,34 @@ def send_recommendations():
     )
 
     sent_count = 0
+    channel_counts: dict[str, int] = {}
     for _, eval_rec, prop, reason in top_candidates:
         if _dispatch_single_recommendation(eval_rec, prop, reason):
             sent_count += 1
+            metrics.record_processed(1)
+            ptype_key = eval_rec.property_type.lower().replace("_", "")
+            channel_counts[ptype_key] = channel_counts.get(ptype_key, 0) + 1
+        else:
+            metrics.record_failed(1)
 
-    logger.info(f"Recommendation sending completed. Sent: {sent_count} properties.")
-    _notify_status(
-        f"✅ 【お宝物件配信完了】 計 {sent_count}/{len(top_candidates)} 件のお宝物件カードを配信完了しました。"
+    metrics.finish()
+    logger.info("Recommendation sending completed. Sent: %d properties.", sent_count)
+    finish_msg = metrics.build_recommendation_slack_summary(
+        channel_counts=channel_counts,
+        matched_count=len(matched_candidates),
+        quota=len(top_candidates),
     )
+    _notify_status(finish_msg)
+
+    channel_breakdown = ", ".join(f"{k}: {v}件" for k, v in sorted(channel_counts.items())) if channel_counts else "なし"
+    banner = metrics.build_log_banner(
+        title="Slack Recommendation Batch",
+        custom_sections=[
+            f"• スクリーニング: 対象候補 {len(candidates):,} 件 | 基準合致 {len(matched_candidates):,} 件 | 配信枠 {len(top_candidates)} 件",
+            f"• 配信内訳    : {channel_breakdown}",
+        ]
+    )
+    logger.info("\n" + banner)
  
 def main():
     send_recommendations()

@@ -29,6 +29,7 @@ from package.utils.converter import parse_chidai
 from package.utils.deduplication import find_duplicate_property
 from package.utils.text_risk_analyzer import analyze_text_risks
 from package.utils.slack import send_crawling_summary_alert
+from package.utils.batch_metrics import BatchMetrics
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -224,10 +225,16 @@ def _process_eval_chunk(chunk, predicted_prices, existing_eval_map, company, pro
     """チャンク内の物件を評価しDBに一括保存する"""
     records_to_create = []
     records_to_update = []
+    chunk_passed = 0
+    chunk_duplicates = 0
     for item, price_stage1 in zip(chunk, predicted_prices):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         existing = existing_eval_map.get(page_url)
         rec, is_new = _build_or_update_eval_record(item, price_stage1, existing, company, property_type)
+        if rec.is_first_stage_passed:
+            chunk_passed += 1
+        if getattr(rec, "duplicate_of", None):
+            chunk_duplicates += 1
         if is_new:
             records_to_create.append(rec)
         else:
@@ -239,6 +246,8 @@ def _process_eval_chunk(chunk, predicted_prices, existing_eval_map, company, pro
     if records_to_update:
         _bulk_update_evaluation_records(records_to_update, property_type, batch_size)
 
+    return chunk_passed, chunk_duplicates
+
 
 def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, batch_size=500):
     """単一モデルの物件群を評価（スレッドセーフ）"""
@@ -246,26 +255,30 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
     model_name = model.__name__
     company, property_type = _resolve_company_and_type(model_name)
     evaluated_count = 0
+    passed_count = 0
+    duplicate_count = 0
     try:
         unprocessed_items, skipped_count = _filter_unprocessed_items(
             model, existing_eval_map, force, limit_per_model
         )
         if not unprocessed_items:
-            return evaluated_count, skipped_count
+            return evaluated_count, skipped_count, passed_count, duplicate_count
 
         for chunk_idx in range(0, len(unprocessed_items), batch_size):
             chunk = unprocessed_items[chunk_idx:chunk_idx + batch_size]
             predicted_prices = bulk_predict_first_stage(chunk)
-            _process_eval_chunk(
+            p_cnt, d_cnt = _process_eval_chunk(
                 chunk, predicted_prices, existing_eval_map, company, property_type, batch_size
             )
             evaluated_count += len(chunk)
+            passed_count += p_cnt
+            duplicate_count += d_cnt
             logger.info("Evaluated %d properties for %s...", evaluated_count, model_name)
             sys.stdout.flush()
     finally:
         close_old_connections()
 
-    return evaluated_count, skipped_count
+    return evaluated_count, skipped_count, passed_count, duplicate_count
 
 
 def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
@@ -274,7 +287,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
         "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, force=%s, limit=%s, skip_portals=%s)...",
         concurrency, force, limit_per_model, skip_portals,
     )
-    start_time = time.time()
+    metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
     # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
     existing_eval_map = {
@@ -297,6 +310,8 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
 
     evaluated_count = 0
     skipped_count = 0
+    passed_total = 0
+    duplicate_total = 0
     failed_models = []
     BATCH_SIZE = 500
     slack_progress_active = True
@@ -309,9 +324,20 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
         for future in as_completed(future_to_model):
             m = future_to_model[future]
             try:
-                cnt, skp = future.result()
+                res = future.result()
+                cnt = res[0]
+                skp = res[1]
+                p_cnt = res[2] if len(res) > 2 else 0
+                d_cnt = res[3] if len(res) > 3 else 0
+
                 evaluated_count += cnt
                 skipped_count += skp
+                passed_total += p_cnt
+                duplicate_total += d_cnt
+
+                metrics.record_processed(cnt)
+                metrics.record_skipped(skp)
+
                 if cnt > 0 and slack_progress_active:
                     try:
                         _notify_slack(
@@ -322,18 +348,34 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
                         slack_progress_active = False
             except Exception:
                 failed_models.append(m.__name__)
+                metrics.record_failed(1)
                 logger.exception("Failed evaluating %s", m.__name__)
 
-    duration_str = format_duration(int(time.time() - start_time))
-    finish_msg = (
-        f"✅ 【バルク価格推定完了】\n"
-        f"• 評価完了: {evaluated_count} 件\n"
-        f"• スキップ (評価済): {skipped_count} 件\n"
-        f"• 所要時間: {duration_str}"
-    )
+    metrics.total_count = evaluated_count + skipped_count
+    metrics.finish()
+
+    custom_lines = [
+        f"• *スクリーニング*: 1次通過(割安候補) {passed_total:,} 件 | 重複除外 {duplicate_total:,} 件",
+        f"• *実行環境*: {len(models)} モデル | 並行スレッド {concurrency}",
+    ]
     if failed_models:
-        finish_msg += f"\n⚠️ 評価失敗モデル: {', '.join(failed_models)}"
+        custom_lines.append(f"⚠️ *評価失敗モデル*: {', '.join(failed_models)}")
+
+    finish_msg = metrics.build_slack_summary(
+        title="バルク価格推定完了",
+        custom_lines=custom_lines,
+        emoji="✅" if not failed_models else "⚠️",
+    )
     _notify_slack(finish_msg)
+
+    banner = metrics.build_log_banner(
+        title="Bulk ML Evaluation Batch",
+        custom_sections=[
+            f"• スクリーニング: 1次通過(割安候補) {passed_total:,} 件 | 重複除外 {duplicate_total:,} 件",
+            f"• 実行環境    : {len(models)} モデル | 並行スレッド {concurrency}",
+        ]
+    )
+    logger.info("\n" + banner)
 
     if failed_models:
         logger.error("❌ Bulk ML Evaluation failed on models: %s", failed_models)
