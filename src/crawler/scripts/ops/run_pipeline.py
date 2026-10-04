@@ -91,11 +91,19 @@ def notify_pipeline_timeout_sync(
     task_count: int,
     desc: str,
     reason: str,
+    timeout_sec: float = 5.0,
 ) -> None:
-    """同期コンテキストから Slack タイムアウトアラートを送信するヘルパー"""
+    """同期コンテキストから Slack タイムアウトアラートを送信するヘルパー（有限タイムアウト保証）"""
     try:
         import asyncio
-        asyncio.run(notify_pipeline_timeout(task_index, task_count, desc, reason))
+
+        async def _bounded_send():
+            await asyncio.wait_for(
+                notify_pipeline_timeout(task_index, task_count, desc, reason),
+                timeout=timeout_sec,
+            )
+
+        asyncio.run(_bounded_send())
     except Exception as err:
         logger.warning(f"Failed to send sync timeout Slack notification: {err}")
 
@@ -702,8 +710,14 @@ def main():
         logger.info(BORDER_LINE)
         logger.info("PIPELINE COMPLETED SUCCESSFULLY! All steps finished.")
         logger.info(BORDER_LINE)
-    except Exception:
+    except Exception as exc:
         logger.exception("Pipeline crashed due to unhandled exception")
+        notify_pipeline_timeout_sync(
+            task_index=task_index,
+            task_count=task_count,
+            desc="Pipeline execution",
+            reason=f"Unhandled pipeline exception: {exc}",
+        )
         sys.exit(1)
     finally:
         _execute_safety_teardown(is_coordinator, scripts_dir)
