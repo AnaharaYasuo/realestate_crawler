@@ -1385,6 +1385,11 @@ WARNING: Skipping save for this property due to validation errors.
 | 22| kanriKeitai | Text | ✅ | 管理形態 |
 | 23| kanriKaisya | Text | ✅ | 管理会社 |
 | 24| kouzou | Text | ✅ | 建物構造 |
+| 25| floorType_kai | Int | ✅ | 所在階 (数値) |
+| 26| floorType_chijo | Int | ✅ | 地上階数 (数値) |
+| 27| floorType_chika | Int | ✅ | 地下階数 (数値) |
+| 28| floorType_kouzou | Text | ✅ | 構造種別 (SRC造/RC造/S造/木造) |
+| 29| kyutaishin | Int | ✅ | 旧耐震フラグ (0:新耐震, 1:旧耐震) |
 
 ### 9.3 SmtrcKodate
 **テーブル名**: `smtrc_kodate`
