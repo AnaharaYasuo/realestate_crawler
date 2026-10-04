@@ -1,3 +1,4 @@
+import os
 import chardet
 import aiohttp
 from bs4 import BeautifulSoup
@@ -114,8 +115,17 @@ class ParserBase(metaclass=ABCMeta):
         self.selectors = {}
         self.consecutive_timeouts = 0
         self.MAX_CONSECUTIVE_TIMEOUTS = 3
-        self.MAX_PAGES_PER_JOB = 30
-        self.MAX_PROPERTIES_PER_JOB = 600
+        try:
+            env_max_pages = int(os.getenv("MAX_PAGES_PER_JOB", "2000"))
+            self.MAX_PAGES_PER_JOB = env_max_pages if env_max_pages > 0 else 2000
+        except (ValueError, TypeError):
+            self.MAX_PAGES_PER_JOB = 2000
+
+        try:
+            env_max_props = int(os.getenv("MAX_PROPERTIES_PER_JOB", "50000"))
+            self.MAX_PROPERTIES_PER_JOB = env_max_props if env_max_props > 0 else 50000
+        except (ValueError, TypeError):
+            self.MAX_PROPERTIES_PER_JOB = 50000
 
     @abstractmethod
     def getCharset(self):

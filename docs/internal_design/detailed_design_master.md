@@ -234,6 +234,12 @@ graph TD
 - 同一サイトに対するリクエストで連続 3 回以上のタイムアウト/通信不能が発生した場合、ジョブ実行エンジンが状態異常を検出して当該サイトの処理を即時 Abort（中断）する。
 - リトライの無限ループや後続処理の完全停止（ハングアップ）を防止する。
 
+### 6.9 クローラー安全上限フェイルセーフ設計 (Issue #643)
+- `ParserBase` の安全上限プロパティについて、通常の巡回規模で絶対に誤検知・途中終了しないよう以下の通り適正化する。
+  - `MAX_PAGES_PER_JOB`: 既定値 `2000`（環境変数 `MAX_PAGES_PER_JOB` でオーバーライド可能）
+  - `MAX_PROPERTIES_PER_JOB`: 既定値 `50000`（環境変数 `MAX_PROPERTIES_PER_JOB` でオーバーライド可能）
+- 環境変数のパース時は、正の整数値であればそれを採用し、不正値・0以下の場合は既定値へ安全にフォールバックする。
+
 ### 6.8.1 DB/ProxySQL 死活監視連動クローラー即時停止設計 (Issue #518)
 - `run_all_crawlers.py` のジョブ実行ループ内で `DbLivenessMonitor` が DB 接続先（Django `connection.settings_dict` の `HOST`/`PORT`、未設定時は環境変数 `DB_HOST`/`DB_PORT`。本番は ProxySQL `10.0.0.10:6033`）へ `socket.create_connection` による疎通確認を行う。
   - 監視間隔: `DB_HEALTH_CHECK_INTERVAL_SEC`（既定 15 秒）、ソケットタイムアウト: 3 秒（有限タイムアウト保証）。
