@@ -1519,6 +1519,8 @@ def _effective_sample_size(target: CrawlTarget, sample_size: int | None = None) 
         sample = max(sample, 8)
     if company in ("nomura", "misawa") and "invest" not in ptype:
         sample = max(sample, 8)
+    if company == "nomura" and ("invest" in ptype or ptype == "investment"):
+        sample = max(sample, 12)
     if company in PLAYWRIGHT_COMPANIES:
         # One success is enough; extra Chromium detail hops blow the wall budget.
         sample = 1
