@@ -430,7 +430,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[investment_property_types.md](docs/requirements/investment_property_types.md)**: 投資用物件種別定義一覧
     *   **[sumifu_crawling_report.md](docs/requirements/sumifu_crawling_report.md)**: 住友不動産予備調査レポート
     *   **[additional_brokers_research.md](docs/requirements/additional_brokers_research.md)**: 不動産会社クローラー開発ロードマップ ＆ ターゲットリスト
-    *   **[site_structures/](docs/requirements/site_structures/)**: 各社サイト構造解析資料
+    *   **[site_structures/](docs/2_crawlers/sites/)**: 各社サイト構造解析資料（ietan, haseko, adcast, toho 他）
     *   **[project_status_and_design_intent.md](docs/requirements/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
     *   **[land_evaluation_design.md](docs/requirements/land_evaluation_design.md)**: 土地情報収集＆高精度土地評価エンジン詳細設計書
     *   **[security_scan_workflow.md](docs/requirements/security_scan_workflow.md)**: セキュリティ自動スキャンワークフロー要件定義書 (Trivy, Semgrep, Checkov, Prowler)

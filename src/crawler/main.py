@@ -115,6 +115,8 @@ app.register_blueprint(keikyu_bp)
 app.register_blueprint(sotetsu_bp)
 app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
+from routes.mid_brokers_routes import mid_brokers_bp
+app.register_blueprint(mid_brokers_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
 
