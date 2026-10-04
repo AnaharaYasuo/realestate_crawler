@@ -1456,7 +1456,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     eval_rec.data_quality_issue = "; ".join(reasons)
                     eval_rec.is_published = True
                     eval_rec.save()
-                    logging.warning(
+                    logger.warning(
                         "[DATA INTEGRITY DETECTED ON CRAWL] %s (%s): %s",
                         item.pageUrl, property_type, "; ".join(reasons)
                     )
@@ -1468,8 +1468,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     eval_rec.save()
 
             await sync_to_async(update_eval_flags)()
-        except Exception as e:
-            logging.warning("Failed to validate and tag property integrity for %s: %s", item.pageUrl, e)
+        except (AttributeError, ValueError, TypeError, KeyError) as e:
+            logger.warning("Failed to validate and tag property integrity for %s: %s", item.pageUrl, e)
 
     async def _record_price_revision(self, item, old_p, new_p):
         company = self._detect_company_name(item)
