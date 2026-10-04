@@ -21,7 +21,7 @@ from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
 
 import datetime
 from django.core.exceptions import ValidationError
-from django.db import close_old_connections, OperationalError
+from django.db import DatabaseError, OperationalError, close_old_connections
 from builtins import Exception
 import logging
 
@@ -1365,19 +1365,44 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             logging.error(f"get item exception for URL: {self.url}", exc_info=e)
             return None, False
 
+    @staticmethod
+    def _save_item_record_with_duplicate_fallback(item, model_class, current_day, current_time):
+        try:
+            item.save()
+        except (OperationalError, Exception) as e:
+            if "2006" in str(e) or "gone away" in str(e).lower():
+                close_old_connections()
+                item.save()
+            elif "Duplicate entry" in str(e) or "1062" in str(e):
+                # 並行実行等で直前に他スレッドが同URLを作成した場合は既存レコードを取得して上書き更新
+                try:
+                    latest_existing = UrlMatcher.find_match_in_queryset(
+                        model_class.objects, "pageUrl", item.pageUrl
+                    )
+                    if latest_existing:
+                        item.id = latest_existing.id
+                        item._state.adding = False
+                        item.inputDate = latest_existing.inputDate or current_day
+                        item.inputDateTime = latest_existing.inputDateTime or current_time
+                        item.updateDateTime = current_time
+                        item.save()
+                        return
+                except (OperationalError, DatabaseError, ValueError) as inner_e:
+                    logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
+                raise
+            else:
+                raise
+
     async def _save_property_and_price_history(self, item):
         current_time = datetime.datetime.now()
         current_day = datetime.date.today()
 
         item.pageUrl = UrlMatcher.normalize(item.pageUrl)
         model_class = item.__class__
-        existing_record = None
         try:
-            def get_existing():
-                return UrlMatcher.find_match_in_queryset(
-                    model_class.objects, "pageUrl", item.pageUrl
-                )
-            existing_record = await sync_to_async(get_existing)()
+            existing_record = await sync_to_async(
+                lambda: UrlMatcher.find_match_in_queryset(model_class.objects, "pageUrl", item.pageUrl)
+            )()
         except Exception as e:
             logging.exception(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}")
             return
@@ -1398,18 +1423,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             item.inputDate = current_day
             item.updateDateTime = current_time
 
-        def _save_item_with_retry():
-            try:
-                item.save()
-            except (OperationalError, Exception) as e:
-                if "2006" in str(e) or "gone away" in str(e).lower():
-                    close_old_connections()
-                    item.save()
-                else:
-                    raise
-
         logging.debug(f"Attempting to save item (Single): {item.propertyName} ({item.pageUrl})")
-        await sync_to_async(_save_item_with_retry)()
+        await sync_to_async(self._save_item_record_with_duplicate_fallback)(item, model_class, current_day, current_time)
         logging.debug(f"Successfully saved item (Single): {item.propertyName} ({item.pageUrl})")
 
     async def _record_price_revision(self, item, old_p, new_p):

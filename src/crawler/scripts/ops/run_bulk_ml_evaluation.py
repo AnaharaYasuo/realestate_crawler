@@ -53,6 +53,8 @@ def _notify_slack(msg: str) -> None:
 
 PORTAL_COMPANIES = ["athome", "homes"]
 COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]
+DEFAULT_CONCURRENCY = 8
+DEFAULT_BATCH_SIZE = 1000
 
 def get_all_property_models(skip_portals=False):
     """登録されている全物件モデルを取得"""
@@ -240,7 +242,19 @@ def _process_eval_chunk(chunk, predicted_prices, existing_eval_map, company, pro
             records_to_update.append(rec)
 
     if records_to_create:
-        PropertyEvaluation.objects.bulk_create(records_to_create, batch_size=batch_size)
+        # チャンク内URL重複排除とignore_conflicts=Trueで並行書き込み競合を防御
+        unique_creates = []
+        seen_create_urls = set()
+        for r in records_to_create:
+            if r.property_url and r.property_url not in seen_create_urls:
+                seen_create_urls.add(r.property_url)
+                unique_creates.append(r)
+        if unique_creates:
+            PropertyEvaluation.objects.bulk_create(
+                unique_creates,
+                batch_size=batch_size,
+                ignore_conflicts=True,
+            )
 
     if records_to_update:
         _bulk_update_evaluation_records(records_to_update, property_type, batch_size)
@@ -281,10 +295,11 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
 
 
 def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
-    concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", "4"))
+    concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
+    batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, force=%s, limit=%s, skip_portals=%s)...",
-        concurrency, force, limit_per_model, skip_portals,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s)...",
+        concurrency, batch_size, force, limit_per_model, skip_portals,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -312,12 +327,11 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     passed_total = 0
     duplicate_total = 0
     failed_models = []
-    BATCH_SIZE = 500
     slack_progress_active = True
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
-            executor.submit(_evaluate_single_model, model, existing_eval_map, force, limit_per_model, BATCH_SIZE): model
+            executor.submit(_evaluate_single_model, model, existing_eval_map, force, limit_per_model, batch_size): model
             for model in models
         }
         for future in as_completed(future_to_model):
