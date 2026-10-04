@@ -39,6 +39,7 @@ resource "google_cloud_run_v2_service" "crawler_worker_service" {
           cpu    = "1"
           memory = "2Gi"
         }
+        cpu_idle = true # リクエスト処理中のみCPU割り当て (待機中・破棄待ちのCPU課金を防止)
       }
 
       env {
