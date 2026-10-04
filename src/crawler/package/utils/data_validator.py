@@ -2,6 +2,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+# Error messages (Sonar S1192 constant reuse)
+ERR_MISSING_SENYU = "必須項目欠損 (専有面積が未抽出)"
+ERR_MISSING_FLOOR = "必須項目欠損 (所在階が未抽出)"
+ERR_MISSING_TATEMONO = "必須項目欠損 (建物面積が未抽出)"
+ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
+
 
 class PropertyDataValidator:
     """
@@ -110,38 +116,38 @@ class PropertyDataValidator:
         senyu = getattr(item, "senyuMenseki", None)
         try:
             if not senyu or float(senyu) <= 0:
-                reasons.append("必須項目欠損 (専有面積が未抽出)")
+                reasons.append(ERR_MISSING_SENYU)
         except (ValueError, TypeError):
-            reasons.append("必須項目欠損 (専有面積が未抽出)")
+            reasons.append(ERR_MISSING_SENYU)
 
         floor = getattr(item, "shozaikai", None) or getattr(item, "kaisu", None)
         if not floor or str(floor).strip() in ["", "-", "None"]:
-            reasons.append("必須項目欠損 (所在階が未抽出)")
+            reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod
     def _check_kodate_specs(item: Any, reasons: list[str]) -> None:
         tatemono = getattr(item, "tatemonoMenseki", None)
         try:
             if not tatemono or float(tatemono) <= 0:
-                reasons.append("必須項目欠損 (建物面積が未抽出)")
+                reasons.append(ERR_MISSING_TATEMONO)
         except (ValueError, TypeError):
-            reasons.append("必須項目欠損 (建物面積が未抽出)")
+            reasons.append(ERR_MISSING_TATEMONO)
 
         tochi = getattr(item, "tochiMenseki", None)
         try:
             if not tochi or float(tochi) <= 0:
-                reasons.append("必須項目欠損 (土地面積が未抽出)")
+                reasons.append(ERR_MISSING_TOCHI)
         except (ValueError, TypeError):
-            reasons.append("必須項目欠損 (土地面積が未抽出)")
+            reasons.append(ERR_MISSING_TOCHI)
 
     @staticmethod
     def _check_tochi_specs(item: Any, reasons: list[str]) -> None:
         tochi = getattr(item, "tochiMenseki", None)
         try:
             if not tochi or float(tochi) <= 0:
-                reasons.append("必須項目欠損 (土地面積が未抽出)")
+                reasons.append(ERR_MISSING_TOCHI)
         except (ValueError, TypeError):
-            reasons.append("必須項目欠損 (土地面積が未抽出)")
+            reasons.append(ERR_MISSING_TOCHI)
 
     @staticmethod
     def _check_investment_specs(item: Any, reasons: list[str]) -> None:
