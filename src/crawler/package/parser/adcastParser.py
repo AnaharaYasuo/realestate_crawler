@@ -53,9 +53,11 @@ class AdCastBaseParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         el = response.find(class_=re.compile(r'price', re.I))
-        price_text = converter.extract_price_text(el.get_text(strip=True)) if el else ""
-        if price_text:
-            return price_text
+        if el is not None:
+            txt = el.get_text(strip=True)
+            price_text = converter.extract_price_text(txt)
+            if price_text:
+                return price_text
         specs = specs or self._get_specs(response)
         return specs.get("価格", "") or specs.get("販売価格", "")
 

@@ -56,7 +56,9 @@ class IetanBaseParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         el = response.find(class_=re.compile(r'price', re.I))
-        return converter.extract_price_text(el.get_text(strip=True)) if el else ""
+        if el is not None:
+            return converter.extract_price_text(el.get_text(strip=True))
+        return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
         p_str = self._parsePriceStr(response, specs)
