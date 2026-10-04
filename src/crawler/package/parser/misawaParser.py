@@ -114,13 +114,28 @@ class MisawaParser(ParserBase):
             yield ListItem(url=full_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
-        next_tag = response.select_one('li.next a')
-        if next_tag is None:
-            return ""
-        href = next_tag.get('href')
-        if not href:
-            return ""
-        return self.getRootDestUrl(href)
+        # 多重セレクターおよびテキスト・属性探索によるフォールバック
+        next_tag = (
+            response.select_one('li.next a')
+            or response.select_one('.pager .next a')
+            or response.select_one('.pagination .next a')
+            or response.select_one('a[rel="next"]')
+            or response.select_one('a.next')
+        )
+        if next_tag is not None:
+            href = next_tag.get('href')
+            if href:
+                return self.getRootDestUrl(href)
+
+        # テキスト・記号マッチフォールバック
+        for a in response.select('.pager a, .pagination a, ul.paging a'):
+            text = a.get_text().strip()
+            if "次" in text or "next" in text.lower() or text in (">", "»", "＞"):
+                href = a.get('href')
+                if href:
+                    return self.getRootDestUrl(href)
+
+        return ""
 
     def getRootXpath(self):
         return self.selectors.get('root_xpath', "//ul[contains(@class, 'bukken-list')]/li/a/@href")

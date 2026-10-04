@@ -88,11 +88,25 @@ class SumirinParser(ParserBase):
 
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーションの「次へ」リンクを探す
-        next_a = response.select_one("li.next a, a.next, .pager .next a")
+        next_a = (
+            response.select_one("li.next a")
+            or response.select_one("a.next")
+            or response.select_one(".pager .next a")
+            or response.select_one(".pagination .next a")
+            or response.select_one("a[rel='next']")
+        )
         if next_a:
             href = next_a.get("href")
             if href:
                 return self.getRootDestUrl(href)
+
+        # テキスト・矢印探索
+        for a in response.select(".pager a, .pagination a, nav.pagination a, ul.paging a"):
+            text = a.get_text().strip()
+            if "次" in text or "next" in text.lower() or text in (">", "»", "＞"):
+                href = a.get("href")
+                if href:
+                    return self.getRootDestUrl(href)
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):

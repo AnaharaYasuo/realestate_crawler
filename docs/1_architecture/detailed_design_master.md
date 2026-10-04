@@ -664,9 +664,22 @@ graph TD
   - `.github/workflows/deploy-production.yml` において、`Prune old images (Keep latest 3 versions)` をすべての Cloud Run Job および Cloud Run Service の更新ステップの後（末尾）に配置。
   - マイグレーションやサービス更新が失敗した場合は Prune が呼び出されず、稼働中のコンテナイメージが保護される。
 
+### 6.34 クローラー巡回件数過少・ページネーション停止および0件取得包括復旧内部設計 (Issue #676)
+- **0件取得失敗 (Zero Count Failure) 解消設計**:
+  - `sumifu_investment.py` (`ParseSumifuInvestKodateStartAsync`): `urlList` を最新の戸建て収益物件パラメータまたは一覧取得URLに更新し、カード抽出を担保。
+  - `nomura_investment.py` (`ParseNomuraInvestKodateStartAsync`): `nomu.com/pro/house/` のDOMレイアウトに適合するパース・セレクターを定義。
+- **1ページ目打ち切り (Pagination停止) 解消設計**:
+  - `misawaParser.py`: `parseNextPage` において `li.next a` に加え、`.pager a[rel='next']`, `.pagination-next a`, ページ番号インクリメントのフォールバックチェーンを実装。
+  - `sekisuiParser.py`: `parseNextPage` で `a` タグの完全一致だけでなく、`rel='next'`, クラス名、矢印リンク、クエリパラメータ更新による多段階リンク探索を実装。
+  - `odakyuParser.py`: `parseNextPage` のセレクターチェーンに `.paging li.next a`, `a.next-page`, `a.page-link` 等を追加。
+- **実行時クラッシュ・極小件数サイトの防御的設計**:
+  - `homesParser.py`: 一覧パースおよび詳細パースで属性抽出時の例外を安全に捕捉・フォールバックし、プロセス全体の早期クラッシュを排除。
+  - `sumirinParser.py`, `daiwaParser.py`: 一覧ページからの詳細リンクパターン（正規表現）の許容性を高め、取りこぼしを根絶。
+
 ---
 
 ## 7. 参照ドキュメント
+
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
 - [デプロイ時イメージ管理内部設計書](deploy_image_lifecycle_internal_design.md): deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
