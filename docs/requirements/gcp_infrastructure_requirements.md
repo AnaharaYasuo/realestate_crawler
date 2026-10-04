@@ -44,10 +44,10 @@
   - 8タスクアレイを Modulo ではなく、種別・サイト規模特性（Task 0: 大手マンション、Task 1: 大手戸建、Task 2: 大手土地、Task 3: 大手/信託投資、Task 4: 中小/信託居住、Task 5: Homes全種別、Task 6: Athomeマンション、Task 7: Athomeその他）に基づいて最適分散すること。
 
 ### 3.2 ネットワーク & セキュリティ要件
-- **Bot検知（Anti-Scraping）対策**:
-  - クローラーからの外部HTTPリクエストは、Cloud NAT を経由して「固定静的外部IP (Static External IP)」から発信されること（データセンター変動IPによるブロックの低減）。
+- **外部クローリング通信 (Dynamic IP Direct Egress)**:
+  - クローラーからの外部HTTPリクエストは、Cloud NAT を介さず Google の動的共有外部 IP から直接発信されること（Cloud NAT 固定費削減。全対象サイトにてブロックを受けないことを実証済み）。
 - **閉域通信 (Private IP)**:
-  - クローラーと Cloud SQL 間の通信は、パブリックインターネットに露出させず、Serverless VPC Access を経由したプライベートIP通信（プライベートサービスアクセス）で行うこと。
+  - クローラーと Cloud SQL / ProxySQL 間の通信は、パブリックインターネットに露出させず、Direct VPC Egress (`PRIVATE_RANGES_ONLY`) を経由したプライベートIP通信で行うこと。
 - **最小権限の原則 (Least Privilege)**:
   - クローラー専用の IAM サービスアカウントを払い出し、必要なリソース（Cloud SQL クライアント、GCS オブジェクト操作、Secret アクセス）のみに権限を限定すること。
 
@@ -56,8 +56,9 @@
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
   - Cloud Run Service (Crawler Worker) は `min_instance_count = 0` に加え、`cpu_idle = true`（リクエスト処理中のみCPU割り当て）を適用し、アイドル待機中やコンテナ破棄待ち時間の不要なCPU課金を完全排除すること（Issue #670）。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
-- **Cloud NAT 撤廃に向けた動的IP疎通性保証 (Dynamic IP Crawl Feasibility)**:
-  - クローラーが巡回する全不動産サイト（大手・信託・中堅・電鉄・ハウスメーカー・ポータル全27社）に対して、VPC接続なし（Google動的送信元IP）での一覧・詳細ページ取得疎通検証を行い、WAF/403遮断を受けないことを客観的エビデンスとして担保すること（Issue #670）。
+- **Cloud NAT 撤廃 & PRIVATE_RANGES_ONLY 統合 (Issue #673)**:
+  - 全不動産サイト（全27社・80系統）に対して Google 動的 IP でのアクセス・パース疎通性を実証したことに基づき、全 Cloud Run サービスおよびジョブの VPC Egress を `PRIVATE_RANGES_ONLY` に統一すること。
+  - VPC から Cloud NAT ゲートウェイ（`realestate-nat`）および静的外部 IP（`crawler-nat-static-ip`）を完全撤廃し、月額約 $35〜$40 のインフラ固定維持費を削減すること。
 - **リソースオンデマンド・ライフサイクル制御**:
   - ProxySQL は単一 Compute Engine インスタンス（`proxysql-instance-${var.environment}`）および Direct VPC Egress 構成を採用する。
   - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL インスタンス（または設定に応じた MIG）の起動・稼働状態を検証し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。単一インスタンス構成時は存在しない MIG Autoscaler の操作をスキップし、HTTP 404 エラーによるクラッシュを防止すること。

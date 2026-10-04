@@ -51,13 +51,12 @@ terraform/
 
 ## 3. リソース詳細設計
 
-### 3.1 ネットワーク & NAT (`network.tf`)
+### 3.1 ネットワーク設計 (`network.tf`)
 - `google_compute_network`: カスタムサブネット型 VPC
-- `google_compute_subnetwork`: VPC コネクタ用およびリソース用サブネット（VPC Flow Logs 有効化済）
-- `google_vpc_access_connector`: Cloud Run から VPC への接続インターフェース（`e2-micro`, min: 2, max: 3）
-- `google_compute_router`: Cloud NAT 制御用ルーター
-- `google_compute_address`: 送信元固定用の静的外部 IP アドレス
-- `google_compute_router_nat`: 静的外部 IP を紐付けた NAT ゲートウェイ（全サブネットからの送信パケットのIP固定）
+- `google_compute_subnetwork`: リソース用サブネット（10.0.0.0/24、VPC Flow Logs 有効化済、Private Google Access 有効）
+- **Cloud NAT 撤廃 (Issue #673)**:
+  - 外部クローリング通信における動的 IP 疎通性が実証されたため、Cloud NAT ゲートウェイ（`realestate-nat`）、Cloud Router（`realestate-router`）、および静的外部 IP（`crawler-nat-static-ip`）は撤廃。
+  - 各 Cloud Run サービスおよびジョブは Direct VPC Egress の `PRIVATE_RANGES_ONLY` を使用し、プライベート IP（ProxySQL: `10.0.0.10:6033`、Cloud SQL: `10.65.0.3:3306`）宛て通信のみ VPC 経由でルーティング。外部インターネット宛て通信は Google 動的共有 IP で直接抜ける設計。
 
 ### 3.2 データベース (`database.tf`)
 - `google_compute_global_address`: 内部接続用プライベート IP 範囲
