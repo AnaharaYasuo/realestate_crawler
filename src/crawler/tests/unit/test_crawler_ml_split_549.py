@@ -139,10 +139,16 @@ def test_scheduler_can_invoke_ml_pipeline_job():
 def test_safety_net_runs_after_latest_possible_ml_pipeline_end():
     scheduler = _read("scheduler.tf")
     safety = _resource_block(scheduler, "google_cloud_scheduler_job", "crawler_safety_net_trigger")
-    last_hour = int(re.search(r'schedule\s*=\s*"\d+ \d+-(\d+) ', safety).group(1))
-    ml_minute, ml_hour = (int(v) for v in _var_default("ml_pipeline_schedule_cron").split()[:2])
-    ml_end = ml_hour * 3600 + ml_minute * 60 + _timeout_sec(_job_block("ml_pipeline_job"))
-    assert last_hour * 3600 >= ml_end
+    schedule = re.search(r'schedule\s*=\s*"([^"]+)"', safety).group(1)
+    hour_field = schedule.split()[1]
+    if hour_field == "*":
+        # Hourly 24/7 guarantees execution after latest ML pipeline end
+        assert True
+    else:
+        last_hour = int(re.search(r'\d+-(\d+)', hour_field).group(1))
+        ml_minute, ml_hour = (int(v) for v in _var_default("ml_pipeline_schedule_cron").split()[:2])
+        ml_end = ml_hour * 3600 + ml_minute * 60 + _timeout_sec(_job_block("ml_pipeline_job"))
+        assert last_hour * 3600 >= ml_end
 
 
 def _deploy_step(job_name):

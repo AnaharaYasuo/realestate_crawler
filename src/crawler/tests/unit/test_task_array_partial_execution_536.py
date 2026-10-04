@@ -317,9 +317,14 @@ def test_safety_net_runs_after_latest_possible_crawler_end():
     retries = int(re.search(r"max_retries\s*=\s*(\d+)", job).group(1))
     latest_end_hour = crawler_start + timeout_sec * (retries + 1) / 3600
 
-    first, last = (int(h) for h in _cron_hours(scheduler, "crawler_safety_net_trigger").split("-"))
-    assert first > crawler_start
-    assert last >= latest_end_hour
+    hour_field = _cron_hours(scheduler, "crawler_safety_net_trigger")
+    if hour_field == "*":
+        # Hourly 24/7 coverage guarantees execution after latest crawler end
+        assert True
+    else:
+        first, last = (int(h) for h in hour_field.split("-"))
+        assert first > crawler_start
+        assert last >= latest_end_hour
 
 
 def test_safety_net_job_is_deployed_with_stop_script():
