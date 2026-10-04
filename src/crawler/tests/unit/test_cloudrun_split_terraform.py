@@ -36,4 +36,21 @@ def test_terraform_crawler_worker_service_defined():
         "crawler_worker_service must route DB_HOST to ProxySQL (forwarding rule or static IP)"
     assert "cpu_idle = true" in content, \
         "crawler_worker_service must specify cpu_idle = true to optimize CPU allocation during requests only (Issue #670)"
+    assert 'egress    = "PRIVATE_RANGES_ONLY"' in content or 'egress = "PRIVATE_RANGES_ONLY"' in content, \
+        "crawler_worker_service must specify PRIVATE_RANGES_ONLY to route DB to VPC and external crawling directly via dynamic IP (Issue #673)"
+
+
+def test_terraform_cloud_nat_decommissioned():
+    """terraform/network.tf から Cloud NAT および固定静的IPリソースが撤廃されていることを検証 (Issue #673)"""
+    network_file = os.path.join(TERRAFORM_DIR, "network.tf")
+    assert os.path.exists(network_file), f"{network_file} must exist"
+
+    with open(network_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert 'resource "google_compute_router_nat"' not in content, \
+        "Cloud NAT gateway resource must be removed from network.tf"
+    assert 'resource "google_compute_address" "nat_static_ip"' not in content, \
+        "Static external IP resource for NAT must be removed from network.tf"
+
 

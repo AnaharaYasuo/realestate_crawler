@@ -28,7 +28,7 @@ resource "google_cloud_run_v2_service" "crawler_worker_service" {
         network    = google_compute_network.vpc_network.name
         subnetwork = google_compute_subnetwork.subnet.name
       }
-      egress    = "ALL_TRAFFIC" # 外部スクレイピングは Cloud NAT (固定IP)、DB は ProxySQL 経由
+      egress    = "PRIVATE_RANGES_ONLY" # Cloud SQL/ProxySQLへのDB通信のみVPC経由。外部クローリングはGoogle動的IPで直接通信 (Issue #673)
     }
 
     containers {

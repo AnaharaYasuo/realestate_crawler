@@ -1,7 +1,3 @@
-output "nat_static_ip" {
-  description = "Cloud NAT Static External IP (クローラー送信元固定IP)"
-  value       = google_compute_address.nat_static_ip.address
-}
 
 output "cloud_sql_private_ip" {
   description = "Cloud SQL Private IP Address"

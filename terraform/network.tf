@@ -21,30 +21,9 @@ resource "google_compute_subnetwork" "subnet" {
 }
 
 
-# Static External IP for Cloud NAT (固定送信元IPでBotブロック回避)
-resource "google_compute_address" "nat_static_ip" {
-  name   = "crawler-nat-static-ip-${var.environment}"
-  region = var.region
-}
+# Cloud NAT 撤廃 (Issue #673):
+# 全対象サイトにおいて Google 動的 IP でのアクセス・パース疎通性を実証したため、
+# Cloud NAT ゲートウェイ (realestate-nat) および静的外部 IP (crawler-nat-static-ip) は撤廃済み。
+# 各 Cloud Run / Jobs は PRIVATE_RANGES_ONLY により DB 通信のみ VPC 経由とし、
+# 外部通信は直接インターネットへ抜けることで固定維持費 (月約$35-$40) を完全削減。
 
-# Cloud Router for Cloud NAT
-resource "google_compute_router" "router" {
-  name    = "realestate-router-${var.environment}"
-  region  = var.region
-  network = google_compute_network.vpc_network.id
-}
-
-# Cloud NAT Gateway (VPC Connector経由の全外部通信を固定IP化)
-resource "google_compute_router_nat" "nat_gateway" {
-  name                               = "realestate-nat-${var.environment}"
-  router                             = google_compute_router.router.name
-  region                             = var.region
-  nat_ip_allocate_option             = "MANUAL_ONLY"
-  nat_ips                            = [google_compute_address.nat_static_ip.self_link]
-  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
-
-  log_config {
-    enable = true
-    filter = "ERRORS_ONLY"
-  }
-}
