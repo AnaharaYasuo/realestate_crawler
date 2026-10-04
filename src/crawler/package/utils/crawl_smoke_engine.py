@@ -56,8 +56,7 @@ DEFAULT_JOB_BUDGET_SEC = 20.0
 DEFAULT_HTTP_TIMEOUT_SEC = 3.0
 DEFAULT_MAX_DEPTH = 2
 DEFAULT_SAMPLE_SIZE = 3
-# Stealth/WAF sites need more headroom than the parallel-suite default.
-PLAYWRIGHT_JOB_BUDGET_SEC = 55.0
+PLAYWRIGHT_JOB_BUDGET_SEC = 70.0
 # Sitemap-first discovery is fast; leave headroom under static∥PW CPU contention.
 MIZUHO_JOB_BUDGET_SEC = 50.0
 # Sumusite list+detail under static∥PW load; keep headroom past Chromium wind-down.
@@ -1519,6 +1518,8 @@ def _effective_sample_size(target: CrawlTarget, sample_size: int | None = None) 
         sample = max(sample, 8)
     if company in ("nomura", "misawa") and "invest" not in ptype:
         sample = max(sample, 8)
+    if company == "nomura" and ("invest" in ptype or ptype == "investment"):
+        sample = max(sample, 12)
     if company in PLAYWRIGHT_COMPANIES:
         # One success is enough; extra Chromium detail hops blow the wall budget.
         sample = 1

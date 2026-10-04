@@ -283,6 +283,77 @@ def format_duration(seconds: int) -> str:
     else:
         return f"{s}秒"
 
+
+def get_count_for_job(company: str, ptype: str, start_dt: datetime.datetime | None) -> tuple[int, int, int]:
+    """
+    指定会社・種別における指定日時以降の処理件数内訳を取得する。
+    Returns:
+        (detail_count, skipped_count, total_count)
+    """
+    if apps is None or start_dt is None:
+        return 0, 0, 0
+    try:
+        target = ptype.lower().replace("_", "")
+        for model in apps.get_models():
+            m_name = model.__name__.lower()
+            if m_name.startswith(company.lower()):
+                rest = m_name[len(company):]
+                if rest == target or rest == target.replace("invest", "investment"):
+                    has_update = hasattr(model, "updateDateTime")
+                    has_input = hasattr(model, "inputDateTime")
+
+                    if not has_input and not has_update:
+                        return 0, 0, 0
+
+                    if has_input and has_update:
+                        q_detail = Q(inputDateTime__gte=start_dt)
+                        q_skip = Q(updateDateTime__gte=start_dt) & (Q(inputDateTime__lt=start_dt) | Q(inputDateTime__isnull=True))
+                        detail_cnt = model.objects.filter(q_detail).count()
+                        skip_cnt = model.objects.filter(q_skip).count()
+                        total_cnt = detail_cnt + skip_cnt
+                        return detail_cnt, skip_cnt, total_cnt
+                    elif has_input:
+                        cnt = model.objects.filter(inputDateTime__gte=start_dt).count()
+                        return cnt, 0, cnt
+                    else:
+                        cnt = model.objects.filter(updateDateTime__gte=start_dt).count()
+                        return cnt, 0, cnt
+    except Exception:
+        logger.exception("Failed to get db count for %s - %s", company, ptype)
+        return None, None, None
+    return 0, 0, 0
+
+
+def format_job_success_message(
+    company: str,
+    ptype: str,
+    idx: int,
+    total_jobs: int,
+    detail_cnt: int,
+    skipped_cnt: int,
+    total_cnt: int,
+    duration_job_str: str
+) -> str:
+    """ジョブ正常終了時のSlack通知文面をフォーマット"""
+    return (
+        f"✅ 【成功】 {company} - {ptype} (Job {idx}/{total_jobs}) | "
+        f"詳細処理: {detail_cnt} 件 / 未変更スキップ: {skipped_cnt} 件 (計: {total_cnt} 件) | "
+        f"処理時間: {duration_job_str}"
+    )
+
+
+def format_summary_item_message(
+    company: str,
+    ptype: str,
+    detail_cnt: int,
+    skipped_cnt: int,
+    total_cnt: int,
+    timing_str: str = ""
+) -> str:
+    """24時間サマリーレポート内の各行をフォーマット"""
+    return f"• {company} - {ptype}: 詳細処理 {detail_cnt} 件 / 未変更スキップ {skipped_cnt} 件 (計: {total_cnt} 件){timing_str}"
+
+
 def main():
     """Run or list crawler jobs and report execution results.
 
@@ -306,23 +377,6 @@ def main():
             asyncio.run(send_crawling_summary_alert(msg))
         except Exception as se:
             logging.exception(f"Failed to post Slack status: {se}")
-
-    def get_count_for_job(company, ptype, start_dt):
-        if apps is None or start_dt is None:
-            return 0
-        try:
-            target = ptype.lower().replace("_", "")
-            for model in apps.get_models():
-                m_name = model.__name__.lower()
-                if m_name.startswith(company.lower()):
-                    rest = m_name[len(company):]
-                    if rest == target or rest == target.replace("invest", "investment"):
-                        q = Q(updateDateTime__gte=start_dt) | Q(inputDateTime__gte=start_dt) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=start_dt)
-                        return model.objects.filter(q).count()
-        except Exception as ce:
-            logging.exception(f"Failed to get db count for {company} - {ptype}: {ce}")
-            return None
-        return 0
 
     today_str = datetime.date.today().strftime("%Y%m%d")
     report_path = os.path.join(log_dir, f"crawl_report_{today_str}.json")
@@ -377,22 +431,36 @@ def main():
                 duration_job_str = format_duration(int(elapsed))
                 
                 scraped_cnt = 0
+                detail_cnt = 0
+                skipped_cnt = 0
                 if exit_code == 0:
-                    count_res = get_count_for_job(company, ptype, start_dt)
-                    if count_res is None:
+                    counts = get_count_for_job(company, ptype, start_dt)
+                    if counts[0] is None:
                         status = "failed"
                         error_type = "CountQueryFailure"
                         error_msg = "Database count query failed"
                         post_slack(f"❌ 【失敗: DB件数取得エラー】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 処理時間: {duration_job_str}")
-                    elif count_res > 0:
-                        error_type = ""
-                        scraped_cnt = count_res
-                        post_slack(f"✅ 【成功】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: {scraped_cnt} 件 | 処理時間: {duration_job_str}")
                     else:
-                        status = "failed"
-                        error_type = "ZeroCountFailure"
-                        error_msg = "0 items scraped (Zero count failure)"
-                        post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
+                        detail_cnt, skipped_cnt, scraped_cnt = counts
+                        if scraped_cnt > 0:
+                            error_type = ""
+                            post_slack(
+                                format_job_success_message(
+                                    company=company,
+                                    ptype=ptype,
+                                    idx=idx,
+                                    total_jobs=len(CRAWL_JOBS),
+                                    detail_cnt=detail_cnt,
+                                    skipped_cnt=skipped_cnt,
+                                    total_cnt=scraped_cnt,
+                                    duration_job_str=duration_job_str,
+                                )
+                            )
+                        else:
+                            status = "failed"
+                            error_type = "ZeroCountFailure"
+                            error_msg = "0 items scraped (Zero count failure)"
+                            post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
                 else:
                     error_type = "ProcessCrashFailure"
                     post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
@@ -426,6 +494,8 @@ def main():
                     "duration": duration_job_str,
                     "elapsed_seconds": int(elapsed),
                     "items_count": scraped_cnt,
+                    "detail_count": detail_cnt,
+                    "skipped_count": skipped_cnt,
                     "error_message": error_msg
                 })
 
@@ -435,7 +505,7 @@ def main():
                         property_type=ptype,
                         count=scraped_cnt,
                         duration_sec=float(elapsed),
-                        zero_count=(exit_code == 0 and count_res == 0),
+                        zero_count=(exit_code == 0 and scraped_cnt == 0),
                         status=status,
                         metadata={"exit_code": exit_code, "error_msg": error_msg or ""}
                     )
@@ -457,7 +527,8 @@ def main():
                 prev_db_cnt = extra[1] if len(extra) > 1 else 0
                 last_check_t = extra[2] if len(extra) > 2 else 0.0
                 if (now - last_check_t) >= 15.0:
-                    current_db_cnt = get_count_for_job(company, ptype, start_dt)
+                    counts = get_count_for_job(company, ptype, start_dt)
+                    current_db_cnt = counts[2] if counts[0] is not None else None
                     if current_db_cnt is not None:
                         if current_db_cnt > prev_db_cnt:
                             last_act = now
@@ -731,9 +802,17 @@ def main():
                 prop_type = "investment"
                 
             try:
-                q = Q(updateDateTime__gte=threshold_24h) | Q(inputDateTime__gte=threshold_24h) if hasattr(model, "updateDateTime") else Q(inputDateTime__gte=threshold_24h)
-                count_24h = model.objects.filter(q).count()
-                db_summary.append((company, prop_type, count_24h))
+                if hasattr(model, "updateDateTime"):
+                    detail_24h = model.objects.filter(inputDateTime__gte=threshold_24h).count()
+                    skip_24h = model.objects.filter(
+                        Q(updateDateTime__gte=threshold_24h) & (Q(inputDateTime__lt=threshold_24h) | Q(inputDateTime__isnull=True))
+                    ).count()
+                    total_24h = detail_24h + skip_24h
+                else:
+                    detail_24h = model.objects.filter(inputDateTime__gte=threshold_24h).count()
+                    skip_24h = 0
+                    total_24h = detail_24h
+                db_summary.append((company, prop_type, detail_24h, skip_24h, total_24h))
             except Exception:
                 pass
                 
@@ -758,8 +837,8 @@ def main():
 
         msg_lines.append("\n▼ 過去24時間の新規取得件数内訳:")
         has_new_items = False
-        for comp, ptype, cnt in sorted(db_summary):
-            if cnt > 0:
+        for comp, ptype, detail_cnt, skip_cnt, total_cnt in sorted(db_summary):
+            if total_cnt > 0:
                 timing = job_timings.get((comp.lower(), ptype.lower()))
                 timing_str = ""
                 if timing and timing.get("start_time") and timing.get("end_time"):
@@ -767,7 +846,8 @@ def main():
                     et = timing["end_time"].split(" ")[-1]
                     dur = timing.get("duration", format_duration(timing.get("elapsed_seconds", 0)))
                     timing_str = f" (開始: {st}, 終了: {et}, 所要: {dur})"
-                msg_lines.append(f"• {comp} - {ptype}: {cnt} 件{timing_str}")
+                item_line = format_summary_item_message(comp, ptype, detail_cnt, skip_cnt, total_cnt, timing_str)
+                msg_lines.append(item_line)
                 has_new_items = True
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
@@ -797,7 +877,8 @@ def main():
                     failed_count=len(failed_list),
                     failed_jobs=failed_job_tuples
                 )
-                asyncio.run(send_slack_message(message=auto_heal_msg, channel="#dev-agent"))
+                from package.utils.slack import send_dev_report
+                asyncio.run(send_dev_report(auto_heal_msg))
                 logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
             except Exception as dte:  # noqa: BLE001
                 logger.warning(f"Failed to send Slack DevAgent auto-heal trigger: {dte}")
