@@ -349,7 +349,7 @@ class ParserBase(metaclass=ABCMeta):
         return
 
     _NOISE_CONTAINER_TAGS = frozenset({'footer', 'nav'})
-    _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'nav-')
+    _NOISE_CLASS_OR_ID_PATTERNS = ('footer', 'sidebar', 'recommend', 'related-properties', 'related', 'nav-')
 
     @staticmethod
     def _is_property_context(el) -> bool:

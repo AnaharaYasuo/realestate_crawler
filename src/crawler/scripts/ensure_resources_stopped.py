@@ -451,19 +451,25 @@ def _get_active_cloud_run_executions(
             )
 
         if jobs_list_failed or has_partial_jobs_error:
-            env_suffix = os.getenv("ENVIRONMENT", "prod")
-            candidates = set()
-            for p in job_prefixes:
-                clean_p = p.rstrip("-")
-                candidates.add(clean_p)
-                candidates.add(f"{clean_p}-{env_suffix}")
-                candidates.add(f"{clean_p}-prod")
-                candidates.add(f"{clean_p}-stg")
-            existing_jobs = set(job_full_names)
-            for c in sorted(candidates):
-                c_full = f"projects/{project_id}/locations/{region}/jobs/{c}"
-                if c_full not in existing_jobs:
-                    job_full_names.append(c_full)
+            # First attempt cross-job execution listing under "-" if permitted
+            cross_url = f"https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs/-/executions"
+            cross_resp = requests.get(cross_url, headers=headers, timeout=10)
+            if cross_resp.status_code == 200:
+                job_full_names = [f"projects/{project_id}/locations/{region}/jobs/-"]
+            else:
+                env_suffix = os.getenv("ENVIRONMENT", "prod")
+                candidates = set()
+                for p in job_prefixes:
+                    clean_p = p.rstrip("-")
+                    candidates.add(clean_p)
+                    candidates.add(f"{clean_p}-{env_suffix}")
+                    candidates.add(f"{clean_p}-prod")
+                    candidates.add(f"{clean_p}-stg")
+                existing_jobs = set(job_full_names)
+                for c in sorted(candidates):
+                    c_full = f"projects/{project_id}/locations/{region}/jobs/{c}"
+                    if c_full not in existing_jobs:
+                        job_full_names.append(c_full)
 
         seen_execution_names = set()
         has_execution_error = False
