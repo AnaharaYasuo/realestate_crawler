@@ -54,7 +54,7 @@ def test_send_recommendations_fallback_is_dev_agent(monkeypatch):
 def test_ml_pipeline_aggregated_report_sends_to_dev_report_on_success(monkeypatch):
     """全ジョブ成功時、クローラー集約レポートは send_dev_report のみ呼び出され、send_crawling_summary_alert は呼ばれないこと"""
     rows = [
-        MagicMock(task_index=0, reports=[{"company": "mitsui", "property_type": "mansion", "status": "success"}]),
+        MagicMock(task_index=0, results_json=[{"company": "mitsui", "property_type": "mansion", "status": "success"}]),
     ]
     latest = MagicMock(return_value=rows)
     mock_dev_report = AsyncMock(return_value=True)
@@ -75,7 +75,7 @@ def test_ml_pipeline_aggregated_report_sends_to_dev_report_on_success(monkeypatc
 def test_ml_pipeline_aggregated_report_alerts_property_alert_on_failure(monkeypatch):
     """失敗ジョブを含む場合、クローラー集約レポートは send_dev_report に加え send_crawling_summary_alert にも発報されること"""
     rows = [
-        MagicMock(task_index=0, reports=[{"company": "tokyu", "property_type": "tochi", "status": "failed", "exit_code": 1}]),
+        MagicMock(task_index=0, results_json=[{"company": "tokyu", "property_type": "tochi", "status": "failed", "exit_code": 1}]),
     ]
     latest = MagicMock(return_value=rows)
     mock_dev_report = AsyncMock(return_value=True)
