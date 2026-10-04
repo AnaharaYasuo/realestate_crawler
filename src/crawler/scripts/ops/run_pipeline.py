@@ -66,16 +66,23 @@ async def notify_pipeline_timeout(
     task_count: int,
     desc: str,
     reason: str,
+    unfinished_tasks: list[str] | None = None,
+    error_details: str | None = None,
 ) -> None:
     """パイプラインのタイムアウト・強制終了時に即座に Slack へ緊急アラートを発報する (Issue #635)"""
     idx_str = f"Task {task_index}/{task_count}" if task_index is not None else "Pipeline"
-    msg = (
-        f"🚨 *【クローラー緊急アラート: タイムアウト/強制停止発生】*\n"
-        f"• *対象*: {idx_str}\n"
-        f"• *ステップ*: `{desc}`\n"
-        f"• *停止理由*: {reason}\n"
-        f"• *対応*: リソース安全停止 (Teardown) を実行し、未完走タスクを Safety-Net / ML に引き継ぎます。"
-    )
+    msg_lines = [
+        "🚨 *【クローラー緊急アラート: タイムアウト/強制停止発生】*",
+        f"• *対象*: {idx_str}",
+        f"• *ステップ*: `{desc}`",
+        f"• *停止理由*: {reason}",
+    ]
+    if unfinished_tasks:
+        msg_lines.append(f"• *未完走タスク*: `{', '.join(unfinished_tasks)}`")
+    if error_details:
+        msg_lines.append(f"• *エラー詳細*: ```{error_details[:500]}```")
+    msg_lines.append("• *対応*: リソース安全停止 (Teardown) を実行し、未完走タスクを Safety-Net / ML に引き継ぎます。")
+    msg = "\n".join(msg_lines)
     try:
         await slack_module.send_crawling_summary_alert(msg)
     except Exception as e:
@@ -91,6 +98,8 @@ def notify_pipeline_timeout_sync(
     task_count: int,
     desc: str,
     reason: str,
+    unfinished_tasks: list[str] | None = None,
+    error_details: str | None = None,
     timeout_sec: float = 5.0,
 ) -> None:
     """同期コンテキストから Slack タイムアウトアラートを送信するヘルパー（有限タイムアウト保証）"""
@@ -99,7 +108,14 @@ def notify_pipeline_timeout_sync(
 
         async def _bounded_send():
             await asyncio.wait_for(
-                notify_pipeline_timeout(task_index, task_count, desc, reason),
+                notify_pipeline_timeout(
+                    task_index=task_index,
+                    task_count=task_count,
+                    desc=desc,
+                    reason=reason,
+                    unfinished_tasks=unfinished_tasks,
+                    error_details=error_details,
+                ),
                 timeout=timeout_sec,
             )
 
