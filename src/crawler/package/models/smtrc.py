@@ -20,36 +20,36 @@ class SmtrcModel(PropertyBaseModel, TransportationMixin):
 class SmtrcMansion(SmtrcModel):
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
-    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
 
     balconyMensekiStr = models.TextField(blank=True)
     saikouKadobeya = models.TextField(blank=True)
     saikou = models.TextField(blank=True)
     kadobeya = models.TextField(blank=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kanriKeitaiKaisya = models.TextField(blank=True)
     kanriKeitai = models.TextField(blank=True)
     kanriKaisya = models.TextField(blank=True)
     kanrihiStr = models.TextField(blank=True)
-    kanrihi = models.IntegerField(null=True)
+    kanrihi = models.IntegerField(null=True, blank=True)
     syuzenTsumitateStr = models.TextField(blank=True)
-    syuzenTsumitate = models.IntegerField(null=True)
+    syuzenTsumitate = models.IntegerField(null=True, blank=True)
     tyusyajo = models.TextField(blank=True)
     kouzou = models.TextField(blank=True)
     sonotaHiyouStr = models.TextField(blank=True)
     bunjoKaisya = models.TextField(blank=True)
     sekouKaisya = models.TextField(blank=True)
 
-    floorType_kai = models.IntegerField(null=True)
-    floorType_chijo = models.IntegerField(null=True)
-    floorType_chika = models.IntegerField(null=True)
+    floorType_kai = models.IntegerField(null=True, blank=True)
+    floorType_chijo = models.IntegerField(null=True, blank=True)
+    floorType_chika = models.IntegerField(null=True, blank=True)
     floorType_kouzou = models.TextField(blank=True)
-    kyutaishin = models.IntegerField(null=True)
+    kyutaishin = models.IntegerField(null=True, blank=True)
     balconyMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     senyouNiwaMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     roofBarukoniMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
@@ -61,12 +61,12 @@ class SmtrcMansion(SmtrcModel):
 
 class SmtrcTochi(SmtrcModel):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenchikuJoken = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)
@@ -76,9 +76,9 @@ class SmtrcTochi(SmtrcModel):
 
     setsudou = models.TextField(blank=True)
     douroMuki = models.TextField(blank=True)
-    douroHaba = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    douroHaba = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     douroKubun = models.TextField(blank=True)
-    setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
     maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -96,17 +96,17 @@ class SmtrcTochi(SmtrcModel):
 class SmtrcInvestment(SmtrcModel):
     # 投資用共通
     grossYield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    annualRent = models.IntegerField(null=True)
-    monthlyRent = models.IntegerField(null=True)
+    annualRent = models.IntegerField(null=True, blank=True)
+    monthlyRent = models.IntegerField(null=True, blank=True)
     currentStatus = models.TextField(blank=True)
     propertyType = models.TextField(blank=True) # "Apartment", "Mansion", "Building", "Tochi"
 
     # 建物スペック
     kouzou = models.TextField(blank=True)
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     # 面積
@@ -130,9 +130,9 @@ class SmtrcInvestment(SmtrcModel):
 
 class SmtrcKodate(SmtrcModel):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     tatemonoMensekiStr = models.TextField(blank=True)
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
     kaisuKouzou = models.TextField(blank=True)
     kaisu = models.TextField(blank=True)
@@ -141,9 +141,9 @@ class SmtrcKodate(SmtrcModel):
 
     tyusyajo = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)

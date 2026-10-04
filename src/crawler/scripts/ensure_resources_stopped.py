@@ -368,6 +368,14 @@ def _get_active_cloud_run_executions(
                         resp = client.list_executions(parent=parent, timeout=10.0)
                     for ex in resp:
                         completion_time = getattr(ex, "completion_time", None)
+                        if not completion_time:
+                            conditions = getattr(ex, "conditions", []) or []
+                            for cond in conditions:
+                                if getattr(cond, "type_", None) == "Completed" or getattr(cond, "type", None) == "Completed":
+                                    status_val = str(getattr(cond, "status", ""))
+                                    if "TRUE" in status_val.upper() or "FALSE" in status_val.upper():
+                                        completion_time = True
+                                        break
                         cancelled = getattr(ex, "cancelled", False)
                         if not completion_time and not cancelled:
                             create_time = getattr(ex, "create_time", None)
@@ -513,6 +521,11 @@ def _get_active_cloud_run_executions(
                     if ex_name in seen_execution_names:
                         continue
                     is_completed = bool(ex.get("completionTime"))
+                    if not is_completed:
+                        for cond in ex.get("conditions", []):
+                            if cond.get("type") == "Completed" and cond.get("status") in ("True", "False"):
+                                is_completed = True
+                                break
                     is_cancelled = bool(ex.get("cancelled"))
                     if not is_completed and not is_cancelled:
                         seen_execution_names.add(ex_name)

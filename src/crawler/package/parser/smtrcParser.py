@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import datetime
 import re
 
 from bs4 import BeautifulSoup
@@ -197,6 +198,41 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
     def createEntity(self):
         return SmtrcMansion()
 
+    @staticmethod
+    def _parse_floor_spec(item, kaisu_str: str) -> None:
+        if not kaisu_str:
+            return
+        item.floorType_kai = converter.parse_numeric(kaisu_str)
+        chijo_match = re.search(r"地上\s*(\d+)階", kaisu_str)
+        if chijo_match:
+            item.floorType_chijo = int(chijo_match.group(1))
+        chika_match = re.search(r"地下\s*(\d+)階", kaisu_str)
+        if chika_match:
+            item.floorType_chika = int(chika_match.group(1))
+
+    @staticmethod
+    def _parse_kouzou_spec(kouzou: str) -> str:
+        if not kouzou:
+            return ""
+        if "鉄骨鉄筋コンクリート" in kouzou:
+            return "ＳＲＣ造"
+        if "鉄筋コンクリート" in kouzou:
+            return "ＲＣ造"
+        if "鉄骨" in kouzou:
+            return "Ｓ造"
+        if "木造" in kouzou:
+            return "木造"
+        return ""
+
+    @staticmethod
+    def _parse_kyutaishin_spec(chikunengetsu) -> int:
+        if not chikunengetsu:
+            return 0
+        try:
+            return 1 if chikunengetsu < datetime.date(1982, 1, 1) else 0
+        except Exception:
+            return 0
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -207,8 +243,7 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
         item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "")
-        if item.kaisuStr:
-            item.floorType_kai = converter.parse_numeric(item.kaisuStr)
+        self._parse_floor_spec(item, item.kaisuStr)
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "")
         if item.balconyMensekiStr:
@@ -230,6 +265,9 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
         item.kanriKeitai = specs.get("管理形態", "")
         item.kanriKaisya = specs.get("管理会社", "")
         item.kouzou = specs.get("構造", "")
+        item.floorType_kouzou = self._parse_kouzou_spec(item.kouzou)
+        item.kyutaishin = self._parse_kyutaishin_spec(item.chikunengetsu)
+
         item.bunjoKaisya = specs.get("分譲会社", "")
         item.sekouKaisya = specs.get("施工会社", "")
         
