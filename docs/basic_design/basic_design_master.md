@@ -152,16 +152,15 @@ railwayWalkMinute1 = 5
   - `price_diff`: 価格差（`new_price - old_price`、値下げ時はマイナス）
   - `recorded_at`: 改定検知日時
 
-### Migration & Deduplication Architecture (既存重複移行・正規化設計)
+### Cloud Run Executions Resilient Inspection & Parser Specs Noise Filter (Cloud Run 実行監視耐障害性 & スペックノイズ除外)
 
-過去クロールによって蓄積された同一URLの重複レコードを解消し、過去価格変動を履歴テーブルへ移行するアーキテクチャ。
+#### 1. Cloud Run Executions 照会耐障害性 (`ensure_resources_stopped.py`)
+- プロジェクト全域の `jobs.list` 権限（`run.jobs.list`）が未割り当てまたは 403 PERMISSION_DENIED の環境においても、ゾンビ ProxySQL 検出・安全停止処理を停止させない二段構えのフォールバック機構を採用。
+- `jobs.list` 失敗時は、定義済みジョブプレフィックス（`realestate-crawler-pipeline`, `realestate-ml-pipeline`, `realestate-migrate` 等）と環境サフィックス（`-prod`, `-stg` 等）から具体的なジョブ名を網羅的に組み立て、各ジョブの個別 Executions エンドポイント（`.../jobs/{job_name}/executions`）を直接照会する。
 
-**処理手順:**
-1. 同一 `pageUrl` の複数レコードを `(inputDateTime ASC, id ASC)` 順で取得。
-2. 時系列に価格差分（`old_price != new_price`）を判定し、`PropertyPriceHistory` へ一括投入。
-3. 最新レコードを生存マスタとして保持し、`inputDateTime` に最古日時、`updateDateTime` に最新日時を復元。
-4. 外部参照（`PropertyEvaluation.property_id`）を残す最新レコードの `id` に再リンク更新。
-5. 最新レコード以外の過去重複行をバッチ削除。
+#### 2. パーサー基底スペック解析のノイズ除外 (`ParserBase`)
+- `_get_specs` において、`footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のナビゲーション・フッター配下のタグをスキップ。
+- サイト共通フッターに配置された投資物件・利回りリンク等のバナー情報をスペック辞書に混入させず、物件本文の真正なスペックテーブルのみを抽出することで、動的種別判定における誤爆（非投資物件の投資扱いスキップ）を防止する。
 
 ---
 
