@@ -196,14 +196,13 @@ Cloud Run Jobs の 8並列タスクアレイにおいて、各インスタンス
 3. **早期完了インスタンスの即時安全停止**:
    - ジョブが少ない・軽量なタスク（Task 3, Task 4等）は20〜30分で完了し、コンテナを即時正常終了（Exit 0）させること。
 
-#### FR-012: 全パーサー一覧ページ価格抽出による差分スキップ完全化要件 (Issue #608)
-既存クローリング済み物件の不要な詳細ページ通信を排除し、処理を大幅に高速化するため、以下の要件を満たすこと。
-1. **全パーサー一覧抽出での価格抽出統合**:
-   - すべてのパーサーの一覧抽出インターフェース（`parsePropertyListPage` 等）において、詳細URLのみではなく、一覧カードに表示されている価格情報を抽出し、`ListItem(url=..., price=...)` または `(url, price)` として生成・返却すること。
-2. **価格未変動物件の詳細フェッチ完全スキップ**:
-   - `filter_differential_items` において、一覧から取得した価格とデータベース保存済み価格（`record["price"]`）を比較し、価格が一致し有効期限（TTL）内の物件は詳細ページアクセスを完全にスキップ（HTTP/Playwrightリクエスト 0件）すること。
-3. **アクティブ確認日付（updateDateTime）の一括更新**:
-   - 詳細アクセスをスキップした物件は、掲載継続中（アクティブ）の事実を裏付けるため、`updateDateTime` を現在日時に一括バッチ更新（`_batch_update_cached`）すること。
+#### FR-CRW-013: Cloud Run Executions 取得耐障害性およびスペック解析フッターノイズ除外要件 (Issue #634)
+- **Cloud Run Executions 取得耐障害性 (`ensure_resources_stopped.py`)**:
+  - `_get_active_cloud_run_executions` において、`run_v2` および REST API の `jobs.list` 権限（`run.jobs.list`）が 403 PERMISSION_DENIED 等で拒否された場合でも、対象となるジョブ名候補群（`job_prefixes` および環境サフィックス）に対して直接ジョブ別 Executions エンドポイント（`https://run.googleapis.com/v2/{job_full_name}/executions`）を照会するフォールバックを実行すること。
+  - IAM 定義（`terraform/iam.tf`）において、Crawler Runner サービスアカウントにプロジェクト単位の `roles/run.viewer` を付与し、API 呼び出し権限を担保すること。
+- **パーサースペック解析におけるフッター・ナビゲーションノイズ混入根絶 (`ParserBase`)**:
+  - `_get_specs`（`_ingest_tr_specs`, `_ingest_dl_specs`, `_ingest_table_row_specs`）において、`footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のナビゲーション・フッター要素配下に存在する定義リスト（`dl`）やテーブル（`tr`）を解析対象から除外すること。
+  - サイト共通フッターに記載された投資物件リンクや想定利回りバナーを物件スペックとして誤認識し、非投資物件（土地・マンション・戸建て等）が投資物件と誤判定されて全件スキップ（実質0件取得）となる現象を恒久的に根絶すること。
 
 ---
 

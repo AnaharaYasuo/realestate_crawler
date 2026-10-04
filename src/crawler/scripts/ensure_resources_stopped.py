@@ -410,34 +410,137 @@ def _get_active_cloud_run_executions(
     try:
         jobs_url = f"https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs"
         j_resp = requests.get(jobs_url, headers=headers, timeout=10)
-        if j_resp.status_code != 200:
-            return active_jobs, f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
 
-        jobs_data = j_resp.json().get("jobs", [])
-        for j in jobs_data:
-            j_full_name = j.get("name", "")
+        job_full_names: list[str] = []
+        jobs_list_failed = False
+        jobs_list_err = ""
+        has_partial_jobs_error = False
+        if j_resp.status_code == 200:
+            next_page_token = None
+            seen_job_tokens = set()
+            while True:
+                j_url = jobs_url
+                if next_page_token:
+                    if next_page_token in seen_job_tokens:
+                        has_partial_jobs_error = True
+                        jobs_list_err = f"Repeated nextPageToken {next_page_token} in jobs.list"
+                        logger.warning(jobs_list_err)
+                        break
+                    seen_job_tokens.add(next_page_token)
+                    j_url = f"{jobs_url}?pageToken={next_page_token}"
+                curr_resp = requests.get(j_url, headers=headers, timeout=10) if next_page_token else j_resp
+                if curr_resp.status_code != 200:
+                    has_partial_jobs_error = True
+                    jobs_list_err = f"HTTP {curr_resp.status_code} listing jobs page: {curr_resp.text}"
+                    logger.warning(jobs_list_err)
+                    break
+                curr_data = curr_resp.json()
+                for j in curr_data.get("jobs", []):
+                    name = j.get("name", "")
+                    short = name.rstrip("/").split("/")[-1]
+                    if any(short.startswith(p) for p in job_prefixes):
+                        job_full_names.append(name)
+                next_page_token = curr_data.get("nextPageToken")
+                if not next_page_token:
+                    break
+        else:
+            jobs_list_failed = True
+            jobs_list_err = f"HTTP {j_resp.status_code} listing jobs: {j_resp.text}"
+            logger.warning(
+                f"{jobs_list_err}. Falling back to candidate job execution endpoints."
+            )
+
+        if jobs_list_failed or has_partial_jobs_error:
+            # First attempt cross-job execution listing under "-" if permitted
+            cross_url = f"https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs/-/executions"
+            cross_resp = requests.get(cross_url, headers=headers, timeout=10)
+            if cross_resp.status_code == 200:
+                job_full_names = [f"projects/{project_id}/locations/{region}/jobs/-"]
+            else:
+                env_suffix = os.getenv("ENVIRONMENT", "prod")
+                candidates = set()
+                for p in job_prefixes:
+                    clean_p = p.rstrip("-")
+                    candidates.add(clean_p)
+                    candidates.add(f"{clean_p}-{env_suffix}")
+                    candidates.add(f"{clean_p}-prod")
+                    candidates.add(f"{clean_p}-stg")
+                existing_jobs = set(job_full_names)
+                for c in sorted(candidates):
+                    c_full = f"projects/{project_id}/locations/{region}/jobs/{c}"
+                    if c_full not in existing_jobs:
+                        job_full_names.append(c_full)
+
+        seen_execution_names = set()
+        has_execution_error = False
+        last_candidate_err = ""
+        all_candidates_not_found = True
+        for j_full_name in job_full_names:
             j_short_name = j_full_name.rstrip("/").split("/")[-1]
-            if any(j_short_name.startswith(p) for p in job_prefixes):
-                exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
-                e_resp = requests.get(exec_url, headers=headers, timeout=10)
+            exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
+            next_exec_token = None
+            seen_exec_tokens = set()
+            while True:
+                curr_exec_url = exec_url
+                if next_exec_token:
+                    if next_exec_token in seen_exec_tokens:
+                        has_execution_error = True
+                        last_candidate_err = f"Repeated nextPageToken {next_exec_token} for {j_short_name}"
+                        logger.warning(last_candidate_err)
+                        break
+                    seen_exec_tokens.add(next_exec_token)
+                    curr_exec_url = f"{exec_url}?pageToken={next_exec_token}"
+                e_resp = requests.get(curr_exec_url, headers=headers, timeout=10)
+                if e_resp.status_code == 404:
+                    if next_exec_token:
+                        # 404 on paginated page indicates retrieval failure
+                        has_execution_error = True
+                        last_candidate_err = f"HTTP 404 on pageToken for {j_short_name}"
+                        logger.warning(last_candidate_err)
+                    # Initial 404: job does not exist in this environment
+                    break
+                all_candidates_not_found = False
                 if e_resp.status_code != 200:
-                    return (
-                        active_jobs,
-                        f"HTTP {e_resp.status_code} listing executions for {j_short_name}: {e_resp.text}",
+                    has_execution_error = True
+                    last_candidate_err = f"HTTP {e_resp.status_code}: {e_resp.text}"
+                    logger.debug(
+                        f"HTTP {e_resp.status_code} listing executions for {j_short_name}: {e_resp.text}"
                     )
-                for ex in e_resp.json().get("executions", []):
+                    break
+                e_data = e_resp.json()
+                for ex in e_data.get("executions", []):
+                    ex_name = ex.get("name", "")
+                    if ex_name in seen_execution_names:
+                        continue
                     is_completed = bool(ex.get("completionTime"))
                     is_cancelled = bool(ex.get("cancelled"))
                     if not is_completed and not is_cancelled:
+                        seen_execution_names.add(ex_name)
                         create_ts = ex.get("createTime") or ex.get("startTime")
                         elapsed = _parse_timestamp_to_seconds_ago(create_ts)
+                        exec_job_name = (
+                            ex_name.split("/jobs/")[1].split("/")[0]
+                            if "/jobs/" in ex_name
+                            else j_short_name
+                        )
                         active_jobs.append(
                             CloudRunExecutionInfo(
-                                name=ex.get("name", ""),
-                                job_name=j_short_name,
+                                name=ex_name,
+                                job_name=exec_job_name,
                                 elapsed_sec=elapsed,
                             )
                         )
+                next_exec_token = e_data.get("nextPageToken")
+                if not next_exec_token:
+                    break
+
+        if has_execution_error:
+            return active_jobs, last_candidate_err or jobs_list_err
+        if has_partial_jobs_error:
+            return active_jobs, jobs_list_err
+        if jobs_list_failed and all_candidates_not_found:
+            return active_jobs, jobs_list_err or "All candidate Cloud Run jobs returned 404"
+
         return active_jobs, ""
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed to query Cloud Run Executions via REST: {e}")
