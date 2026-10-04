@@ -83,7 +83,7 @@ def _is_valid_wareki_date(era: str, year: int, month: int) -> bool:
 
 
 def _parse_wareki(s: str):
-    m = re.search(r'(昭和|平成|令和)(\d{1,2}|元)年(?:(\d{1,2})月)?', s)
+    m = re.search(r'(昭和|平成|令和)\s*(\d{1,2}|元)\s*年(?:\s*(\d{1,2})\s*月)?', s)
     if not m:
         return None
 
