@@ -45,7 +45,7 @@
 以下のフィールドは `null=False` で定義されており、欠損時はレコードが保存されません:
 
 **モデルレベルで必須または自動設定:**
-- `propertyName`, `pageUrl`, `inputDate`, `inputDateTime`, `updateDateTime`, `price`, `address`
+- `propertyName`, `pageUrl` (UNIQUE), `inputDate`, `inputDateTime`, `updateDateTime`, `price`, `address`
 - `railway1` (または `traffic` - 生テキストの場合)
 
 **物件種別ごと:**
