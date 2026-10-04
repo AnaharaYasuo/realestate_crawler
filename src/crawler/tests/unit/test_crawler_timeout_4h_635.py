@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Issue #550: クローラーパイプライン Cloud Run Job のタスク上限 1 時間 -> 2 時間延長と、
+Issue #635: クローラーパイプライン Cloud Run Job のタスク上限 2 時間 -> 4 時間延長と、
 内部締め切り・Safety-Net・ML 起動・バックアップ時刻の連動修正の回帰テスト。
 """
 import inspect
@@ -78,18 +78,19 @@ def _deploy_step(job_name):
 
 
 # ---------------------------------------------------------------------------
-# 基準1: crawler_timeout のデフォルト 7200s と変数説明
+# 基準1: crawler_timeout のデフォルト 14400s (4h) と変数説明
 # ---------------------------------------------------------------------------
 
 
-def test_crawler_timeout_default_is_two_hours():
-    assert _var_default("crawler_timeout") == "7200s"
+def test_crawler_timeout_default_is_four_hours():
+    assert _var_default("crawler_timeout") == "14400s"
 
 
 def test_crawler_timeout_description_matches_cloud_run_limit():
     block = _variable_block("crawler_timeout")
     description = re.search(r'description\s*=\s*"([^"]+)"', block).group(1)
     assert "up to 1h" not in description
+    assert "up to 2h" not in description
     assert str(CLOUD_RUN_JOBS_MAX_TIMEOUT_SEC) in description
 
 
@@ -192,7 +193,7 @@ def test_internal_deadline_without_env_matches_crawler_timeout(monkeypatch):
 
 
 @pytest.mark.parametrize(("offset_before_timeout", "expected"), [(301, False), (299, True)])
-def test_deadline_boundary_at_two_hour_limit(monkeypatch, offset_before_timeout, expected):
+def test_deadline_boundary_at_four_hour_limit(monkeypatch, offset_before_timeout, expected):
     """自己打ち切りはタスクタイムアウトの 300 秒前からのみ発動すること"""
     timeout = _crawler_timeout_sec()
     monkeypatch.setenv("IS_CLOUD", "true")
@@ -288,9 +289,9 @@ def test_safety_net_runs_after_latest_crawler_and_ml_end():
     assert last * 3600 >= _ml_latest_end_sec()
 
 
-def test_ml_pipeline_starts_after_two_hour_crawler_deadline():
+def test_ml_pipeline_starts_after_four_hour_crawler_deadline():
     assert _cron_seconds(_var_default("ml_pipeline_schedule_cron")) > _crawler_latest_end_sec()
-    assert _var_default("ml_pipeline_schedule_cron") == "10 18 * * *"
+    assert _var_default("ml_pipeline_schedule_cron") == "10 20 * * *"
 
 
 # ---------------------------------------------------------------------------
@@ -316,3 +317,4 @@ def test_backup_start_time_is_on_the_hour_before_next_crawl():
     start = _backup_start_sec()
     assert start % 3600 == 0
     assert start < 24 * 3600
+    assert start == 22 * 3600  # 22:00 UTC (JST 07:00)

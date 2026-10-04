@@ -36,6 +36,17 @@ class CrawlTarget:
 def _lit(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.JoinedStr):
+        # Extract string prefix from f-strings like f"https://www.athome.co.jp/mansion/chuko/{area}/city/"
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+            elif isinstance(v, ast.FormattedValue):
+                parts.append("tokyo")
+        res = "".join(parts)
+        if res.startswith("http"):
+            return res
     return None
 
 
