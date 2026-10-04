@@ -9,28 +9,27 @@ import realestateSettings
 realestateSettings.configure()
 
 
-from package.utils.slack import send_crawling_summary_alert
+from package.utils.slack import verify_slack_credentials
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 
 async def main():
-    logging.info("Checking Slack connection status...")
+    logger.info("Checking Slack connection status (silent auth.test)...")
     token = os.getenv("SLACK_BOT_TOKEN")
     if not token:
-        logging.error("❌ SLACK_BOT_TOKEN is not set in environment!")
+        logger.error("❌ SLACK_BOT_TOKEN is not set in environment!")
         sys.exit(1)
         
-    channel = os.getenv("SLACK_ALERT_PROPERTY_ALERT", "property_alert")
-    logging.info(f"Targeting channel: {channel}")
-    
-    # 送信テストの実行
-    success = await send_crawling_summary_alert("🔄 【接続テスト】 パイプライン事前接続チェックを実行中...")
-    if success:
-        logging.info("✅ Slack connection is OK! Bot is successfully posting to the channel.")
+    # メッセージ投稿を行わずにトークン認証と権限を安全に検証
+    is_ok, msg = await verify_slack_credentials(token)
+    if is_ok:
+        logger.info(f"✅ Slack connection is OK! {msg}")
         sys.exit(0)
     else:
-        logging.error("❌ Slack notification test FAILED!")
+        logger.error(f"❌ Slack authentication test FAILED: {msg}")
         sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
+

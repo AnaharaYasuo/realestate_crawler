@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
-import os
-import logging
 import asyncio
+import logging
+import os
+from unittest.mock import Mock
+
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -63,6 +65,13 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
         logger.warning("Slack notification skipped: SLACK_BOT_TOKEN or SLACK_CHANNEL_ID not set in environment.")
         return False
 
+    # テスト環境（トークンが mock- または BLOCK_OUTBOUND_SLACK 設定時）は実HTTP通信を行わず安全終了
+    # ただしユニットテストで aiohttp.ClientSession.post がモックされている場合は、モックの振る舞い検証のため通過させる
+    is_mocked = isinstance(aiohttp.ClientSession.post, Mock)
+    if not is_mocked and (os.getenv("BLOCK_OUTBOUND_SLACK") or token.startswith("mock-")):
+        logger.info(f"[TEST GUARD: Slack API call prevented for {target_channel}]: {message[:100]}...")
+        return True
+
     url = "https://slack.com/api/chat.postMessage"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -75,36 +84,35 @@ async def send_slack_message(message: str, channel: str | None = None) -> bool:
 
     try:
         timeout = aiohttp.ClientTimeout(total=10.0)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, headers=headers, json=payload) as response:
-                if response.status != 200:
-                    logger.error(f"Slack API request failed with status code: {response.status}")
-                    return False
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, headers=headers, json=payload) as response:
+            if response.status != 200:
+                logger.error(f"Slack API request failed with status code: {response.status}")
+                return False
                 
-                resp_json = await response.json()
-                if not resp_json.get("ok"):
-                    err_code = resp_json.get("error")
-                    logger.error(f"Slack API returned error: {err_code}")
-                    fallback_channel = os.getenv("SLACK_CHANNEL_ID")
-                    if err_code == "channel_not_found" and fallback_channel and channel != fallback_channel:
-                        # フォールバックチャンネルへ警告メッセージを送信して通知不達を自己報告する
-                        warning_msg = (
-                            f"⚠️ 【システム警告: 通知不達】\n"
-                            f"送信先チャンネル 『{channel}』 が見つからないか、Bot（@property）が参加していません。\n"
-                            f"Slack上で該当のチャンネルを開き、 `/invite @property` コマンドを実行してBotを招待してください。\n\n"
-                            f"**未達メッセージプレビュー**:\n{message[:300]}..."
-                        )
-                        payload_fallback = {
-                            "channel": fallback_channel,
-                            "text": warning_msg
-                        }
-                        await session.post(url, headers=headers, json=payload_fallback)
-                    record_failed_message(channel, err_code, message)
-                    return False
-                
-                logger.info("Successfully posted property alert message to Slack.")
-                await asyncio.sleep(1.0)
-                return True
+            resp_json = await response.json()
+            if not resp_json.get("ok"):
+                err_code = resp_json.get("error")
+                logger.error(f"Slack API returned error: {err_code}")
+                fallback_channel = os.getenv("SLACK_CHANNEL_ID")
+                if err_code == "channel_not_found" and fallback_channel and channel != fallback_channel:
+                    # フォールバックチャンネルへ警告メッセージを送信して通知不達を自己報告する
+                    warning_msg = (
+                        f"⚠️ 【システム警告: 通知不達】\n"
+                        f"送信先チャンネル 『{channel}』 が見つからないか、Bot（@property）が参加していません。\n"
+                        f"Slack上で該当のチャンネルを開き、 `/invite @property` コマンドを実行してBotを招待してください。\n\n"
+                        f"**未達メッセージプレビュー**:\n{message[:300]}..."
+                    )
+                    payload_fallback = {
+                        "channel": fallback_channel,
+                        "text": warning_msg
+                    }
+                    await session.post(url, headers=headers, json=payload_fallback)
+                record_failed_message(channel, err_code, message)
+                return False
+            
+            logger.info("Successfully posted property alert message to Slack.")
+            await asyncio.sleep(1.0)
+            return True
     except Exception as e:
         logger.exception(f"Failed to send Slack notification: {e}")
         record_failed_message(channel, str(e), message)
@@ -153,43 +161,42 @@ async def verify_url_active(url: str) -> bool:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         timeout = aiohttp.ClientTimeout(total=5.0)
-        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    logger.warning(f"URL verification failed (Status: {response.status}): {url}")
+        async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session, session.get(url) as response:
+            if response.status != 200:
+                logger.warning(f"URL verification failed (Status: {response.status}): {url}")
+                return False
+                
+            # HTMLコンテンツを読み込む
+            html_content = await response.text(errors='ignore')
+            
+            # 掲載終了・非公開化を示す具体的なエラーフレーズ群
+            inactive_keywords = [
+                "掲載が終了したか、成約済みになった可能性があります",
+                "お探しの物件は、掲載が終了",
+                "掲載を終了いたしました",
+                "掲載終了物件",
+                "ご指定の物件は掲載を終了",
+                "お探しのページは見つかりませんでした",
+                "お探しの物件は見つかりません",
+                "お探しのページは存在しないか、掲載が終了"
+            ]
+            
+            # HTMLのタイトル部分のチェック
+            import re
+            title_match = re.search(r"<title>(.*?)</title>", html_content, re.IGNORECASE | re.DOTALL)
+            if title_match:
+                title_text = title_match.group(1).strip()
+                if any(t in title_text for t in ["掲載終了", "エラー", "404", "見つかりません"]):
+                    logger.warning(f"URL verification failed (Inactive title '{title_text}' detected): {url}")
                     return False
-                
-                # HTMLコンテンツを読み込む
-                html_content = await response.text(errors='ignore')
-                
-                # 掲載終了・非公開化を示す具体的なエラーフレーズ群
-                inactive_keywords = [
-                    "掲載が終了したか、成約済みになった可能性があります",
-                    "お探しの物件は、掲載が終了",
-                    "掲載を終了いたしました",
-                    "掲載終了物件",
-                    "ご指定の物件は掲載を終了",
-                    "お探しのページは見つかりませんでした",
-                    "お探しの物件は見つかりません",
-                    "お探しのページは存在しないか、掲載が終了"
-                ]
-                
-                # HTMLのタイトル部分のチェック
-                import re
-                title_match = re.search(r"<title>(.*?)</title>", html_content, re.IGNORECASE | re.DOTALL)
-                if title_match:
-                    title_text = title_match.group(1).strip()
-                    if any(t in title_text for t in ["掲載終了", "エラー", "404", "見つかりません"]):
-                        logger.warning(f"URL verification failed (Inactive title '{title_text}' detected): {url}")
-                        return False
-                
-                for kw in inactive_keywords:
-                    if kw in html_content:
-                        logger.warning(f"URL verification failed (Inactive phrase '{kw}' detected): {url}")
-                        return False
-                
-                logger.info(f"URL verification success (Active & Valid): {url}")
-                return True
+            
+            for kw in inactive_keywords:
+                if kw in html_content:
+                    logger.warning(f"URL verification failed (Inactive phrase '{kw}' detected): {url}")
+                    return False
+            
+            logger.info(f"URL verification success (Active & Valid): {url}")
+            return True
     except Exception as e:
         logger.warning(f"URL verification failed with exception: {e} for {url}")
         return False
@@ -209,5 +216,64 @@ async def send_dev_report(report_message: str, channel: str | None = None) -> bo
     """
     target_channel = channel or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
     return await send_slack_message(report_message, target_channel)
+
+
+def get_alert_channel(property_type: str) -> str:
+    """
+    物件種別（mansion, kodate, tochi, apartment, invest_kodate等）に応じた適切なアラートチャンネルを解決します。
+    環境変数（SLACK_ALERT_*）が設定されていればそれを優先し、未設定時は既知のチャンネルIDまたはデフォルトにフォールバックします。
+    """
+    ptype_clean = (property_type or "").lower().replace("-", "_")
+    channel_map = {
+        "mansion": ("SLACK_ALERT_MANSION", "C0BJWUCTRNU"),                   # alerts-mansion
+        "kodate": ("SLACK_ALERT_KODATE", "C0BHZA5ASDT"),                     # alerts-kodate
+        "tochi": ("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS"),                       # alerts-tochi
+        "apartment": ("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0"),         # alerts-invest-apartment
+        "invest_apartment": ("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0"),  # alerts-invest-apartment
+        "invest_kodate": ("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC"),       # alerts-invest-kodate
+        "invest": ("SLACK_ALERT_INVEST", "C0BJ6A7RW2Y"),                     # alerts-invest
+    }
+    if ptype_clean in channel_map:
+        env_var, default_cid = channel_map[ptype_clean]
+        return os.getenv(env_var, default_cid)
+
+    return os.getenv("SLACK_ALERT_PROPERTY_ALERT") or os.getenv("SLACK_CHANNEL_ID") or "property_alert"
+
+
+async def verify_slack_credentials(token: str | None = None) -> tuple[bool, str]:
+    """
+    Slack API の auth.test エンドポイントを呼び出し、実際にメッセージを送信することなく
+    Bot トークンの有効性とワークスペース接続を検証します。
+    戻り値: (is_ok: bool, message: str)
+    """
+    auth_token = token or os.getenv("SLACK_BOT_TOKEN")
+    if not auth_token:
+        return False, "SLACK_BOT_TOKEN is not configured in environment."
+
+    if os.getenv("BLOCK_OUTBOUND_SLACK") or os.getenv("PYTEST_CURRENT_TEST"):
+        return True, "Slack connection verified (test mode / blocked outbound)."
+
+    url = "https://slack.com/api/auth.test"
+    headers = {
+        "Authorization": f"Bearer {auth_token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, headers=headers) as resp:
+            if resp.status != 200:
+                return False, f"Slack API HTTP error: status {resp.status}"
+            data = await resp.json()
+            if data.get("ok"):
+                bot_user = data.get("user", "unknown_user")
+                team = data.get("team", "unknown_team")
+                return True, f"Authenticated successfully as {bot_user} on team {team}"
+            return False, f"Slack auth.test rejected: {data.get('error', 'unknown_error')}"
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        return False, f"Slack auth.test connection failed: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Slack auth.test connection failed: {exc}"
+
 
 

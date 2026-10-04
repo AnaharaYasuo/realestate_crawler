@@ -687,6 +687,9 @@ docs/
 - **[CI/PR監視--watch禁止・有限タイムアウト要件定義書](docs/requirements/finite_timeout_ci_watch_requirements.md)**: 無制限--watch禁止・有限タイムアウトポーリング強制・ハング根絶要件 (Issue #602)
 - **[CI/PR監視--watch禁止・有限タイムアウト基本設計書](docs/basic_design/finite_timeout_ci_watch_basic_design.md)**: 非同期ポーリングアーキテクチャ・スタック検知・即時診断設計 (Issue #602)
 - **[CI/PR監視--watch禁止・有限タイムアウト内部設計書](docs/internal_design/finite_timeout_ci_watch_internal_design.md)**: check_pr_ci_status.py CLI仕様・カテゴリ別分類・タイムアウト制御仕様 (Issue #602)
+- **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正要件定義書](docs/requirements/slack_notification_optimization_requirements.md)**: テスト時実API送信物理遮断・事前接続サイレント化・チャンネル不整合是正要件 (Issue #642)
+- **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正基本設計書](docs/basic_design/slack_notification_optimization_basic_design.md)**: テスト隔離バリア・Silent Health Check・チャンネル集中ルーティング設計 (Issue #642)
+- **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正内部設計書](docs/internal_design/slack_notification_optimization_internal_design.md)**: conftest自動遮断fixture・verify_slack_credentials・get_alert_channel詳細仕様 (Issue #642)
 
 ### 2. 開発を始める
 

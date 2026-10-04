@@ -237,17 +237,8 @@ def validate_data(days: int | None = None, scan_all: bool = False):
         msg += "\n※ 異常データは自動クレンジングまたはスキップ処理が適用されました。"
         
         # 投稿先アラートチャンネルの決定
-        alert_channel = os.getenv("SLACK_ALERT_CHANNEL_ID", "property_alert")
-        if key == "mansion":
-            alert_channel = os.getenv("SLACK_ALERT_MANSION", "C0BJWUCTRNU") # alerts-mansion
-        elif key == "kodate":
-            alert_channel = os.getenv("SLACK_ALERT_KODATE", "C0BHZA5ASDT") # alerts-kodate
-        elif key == "tochi":
-            alert_channel = os.getenv("SLACK_ALERT_TOCHI", "C0BJ2JVGCLS") # alerts-tochi
-        elif key == "apartment":
-            alert_channel = os.getenv("SLACK_ALERT_INVEST_APARTMENT", "C0BJ6B4R3E0") # alerts-invest-apartment
-        elif key == "invest_kodate":
-            alert_channel = os.getenv("SLACK_ALERT_INVEST_KODATE", "C0BJ0KSJEDC") # alerts-invest-kodate
+        from package.utils.slack import get_alert_channel
+        alert_channel = get_alert_channel(key)
             
         logging.error(f"Sending {key} alert report to channel: {alert_channel}\n{msg}")
         async_to_sync(send_slack_message)(msg, channel=alert_channel)
