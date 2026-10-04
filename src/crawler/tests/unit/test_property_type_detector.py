@@ -52,11 +52,15 @@ def test_detect_from_title_tochi():
     title1 = "目黒区自由が丘 売地 建築条件なし 50坪"
     assert PropertyTypeDetector.detect(title=title1) == "tochi"
 
-    title2 = "練馬区東大泉 土地 更地渡し 角地"
+    title2 = "練馬区東大泉 売土地 更地渡し 角地"
     assert PropertyTypeDetector.detect(title=title2) == "tochi"
 
     title3 = "世田谷区 建築条件付土地 好立地"
     assert PropertyTypeDetector.detect(title=title3) == "tochi"
+
+    title4 = "横浜市青葉区 売り土地 閑静な住宅街"
+    assert PropertyTypeDetector.detect(title=title4) == "tochi"
+
 
 
 def test_detect_from_specs():
@@ -194,12 +198,88 @@ def test_detect_from_object_django_model():
 
 
 def test_detect_investment_type():
-    """投資物件のサブ種別判定（Apartment, Mansion, Building）"""
+    """投資物件のサブ種別判定（Apartment, Mansion, Kodate, Building）"""
     assert PropertyTypeDetector.detect_investment_type("○○アパート一棟売り") == "Apartment"
     assert PropertyTypeDetector.detect_investment_type("○○レジデンス 区分") == "Mansion"
-    assert PropertyTypeDetector.detect_investment_type("○○ビル 一棟売り店舗") == "Building"
-    assert PropertyTypeDetector.detect_investment_type("新宿区 事務所ビル") == "Building"
-    assert PropertyTypeDetector.detect_investment_type("タイトル不明", default="Apartment") == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type("○○レジ 1棟") == "Mansion"
+    assert PropertyTypeDetector.detect_investment_type("投資用戸建て オーナーチェンジ") == "Kodate"
+    assert PropertyTypeDetector.detect_investment_type("目黒区 中古戸建 賃貸中") == "Kodate"
+    assert PropertyTypeDetector.detect_investment_type("○○テラスハウス 収益物件") == "Kodate"
+    # 一棟マンションはアパート（一棟集合住宅）カテゴリ
+    assert PropertyTypeDetector.detect_investment_type("○○一棟マンション 満室稼働中") == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"物件種別": "一棟マンション"}) == "Apartment"
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"物件種別": "一戸建"}) == "Kodate"
+    # specs による判定サポート
+    assert PropertyTypeDetector.detect_investment_type("収益物件", specs={"建物種別": "一戸建て"}) == "Kodate"
+    # 区分店舗・区分事務所は Building
+    assert PropertyTypeDetector.detect_investment_type("区分店舗 1階部分") == "Building"
+    assert PropertyTypeDetector.detect_investment_type("区分事務所 駅近") == "Building"
+    assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分店舗"}) == "Building"
+    assert PropertyTypeDetector.detect_investment_type("投資物件", specs={"物件種別": "区分事務所"}) == "Building"
+    # タイトル中の単独「土地」（土地面積併記時も tochi を維持）
+    assert PropertyTypeDetector.detect(title="練馬区東大泉 土地 更地渡し 角地") == "tochi"
+    assert PropertyTypeDetector.detect(title="練馬区 土地 土地面積120㎡") == "tochi"
+    # 本文のみに「土地」がある場合も tochi と判定されること
+    assert PropertyTypeDetector.detect(html_text="東京都世田谷区 土地 80㎡ 更地") == "tochi"
+    # specs の exact '土地'
+    assert PropertyTypeDetector.detect(specs={"種別": "土地"}) == "tochi"
+    assert PropertyTypeDetector.detect(specs={"種別": " 土地 "}) == "tochi"
+    # タイトル「一棟マンション」で specs が「マンション」の場合、Apartment を優先
+    assert PropertyTypeDetector.detect_investment_type(
+        "○○一棟マンション 駅徒歩5分",
+        specs={"物件種別": "マンション"}
+    ) == "Apartment"
+    # タイトルに店舗・事務所があり specs がマンション等の場合、Building を優先
+    assert PropertyTypeDetector.detect_investment_type(
+        "区分店舗 駅徒歩1分",
+        specs={"物件種別": "マンション"}
+    ) == "Building"
+    assert PropertyTypeDetector.detect_investment_type(
+        "○○ビル 1階事務所",
+        specs={"物件種別": "マンション"}
+    ) == "Building"
+
+
+
+
+def test_url_precedence_over_body_rental_signal():
+    """居住用URLがある場合、本文の曖昧な賃貸シグナルに引きずられずURL種別を優先すること"""
+    # URLがmansionで本文にオーナーチェンジがある場合、specs利回りがなければmansion
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/mansion/bkdetail/12345/",
+        html_text="オーナーチェンジ物件につき賃貸中 専有面積55m2",
+    ) == "mansion"
+
+    # URLがkodateで本文に賃貸中がある場合
+    assert PropertyTypeDetector.detect(
+        url="https://www.stepon.co.jp/kodate/detail_12345/",
+        html_text="現在賃貸中につき引渡時期相談 建物面積80m2",
+    ) == "kodate"
+
+    # ただし、specsに数値利回りがある場合は投資物件確定
+    assert PropertyTypeDetector.detect(
+        url="https://www.rehouse.co.jp/buy/mansion/bkdetail/12345/",
+        specs={"grossYield": "6.5%"},
+        html_text="オーナーチェンジ物件",
+    ) == "apartment"
+
+
+def test_tochi_keyword_clean_exclusion():
+    """本文中の『土地権利』『土地面積』などで誤って tochi 判定されないこと"""
+    res = PropertyTypeDetector.detect(
+        html_text="土地権利 所有権 土地面積 120m2 建ぺい率 60% 構造 木造",
+        default="mansion"
+    )
+    assert res != "tochi"
+    # 「土地・建物」「土地建物」フレーズがあっても土地判定されないこと
+    res_tb = PropertyTypeDetector.detect(
+        html_text="土地・建物一括売買 所有権 建物面積80㎡",
+        default="kodate"
+    )
+    assert res_tb != "tochi"
+    # 「一棟アパート 土地・建物」は建物（apartment）として判定されること
+    assert PropertyTypeDetector.detect(title="一棟アパート 土地・建物付き") == "apartment"
+
 
 
 def test_yield_guard_in_detect():

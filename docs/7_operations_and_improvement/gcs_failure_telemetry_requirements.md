@@ -1,0 +1,52 @@
+# GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466)
+
+## 1. 背景と課題
+- Cloud Run Jobs はエフェメラル環境であり、コンテナインスタンスの終了や異常停止（OOMKilled、SIGKILL、Timeout）に伴いローカルファイル（`logs/` や `docs/error_pages/`）はすべて消失する。
+- 複数インスタンス（Task Array: Task 0〜7）による分散クローリング実行時、各タスクのログが Cloud Logging やコンソール上で混在し、どのタスクでどの物件がなぜ失敗したかの特定に多大な調査コストを要していた。
+- 障害発生時に開発者が1サイトずつ手動でエラー内容・生HTML・スタックトレースを収集し、AIエージェント（Antigravity）へ個別入力する手動運用は高負荷であり、全障害をリアルタイム永続化し、人間を介さずSlack経由でAntigravityへ自動流し込み・完全無人一括修復（ゼロタッチ Auto-Heal）できる基盤が不可欠である。
+
+## 2. システム要件
+
+### REQ-001: リアルタイム障害テレメトリの即時GCS永続化
+- クローリングジョブの異常（HTTP 403ブロック、DOMセレクタ変更によるパース失敗、0件取得、未捕捉例外クラッシュ）を検知した瞬間、バッチ全体の終了を待たずに GCS バケット（環境変数 `STORAGE_BUCKET`）へ障害メタデータ JSON および失敗時の生 HTML を即時出力しなければならない。
+- 保存パス規則:
+  - 障害メタデータ: `runs/{YYYYMMDD}/failures/{company}_{property_type}.json`
+  - 失敗生HTML: `runs/{YYYYMMDD}/error_pages/{company}_{property_type}/{url_hash}.html`
+
+### REQ-002: 分散タスク（Task Array）アトミック書き込み
+- 複数の Cloud Run タスク（Task 0〜7）が並行して稼働する場合でも、ジョブ単位（`{company}_{property_type}`）でファイル名を完全分離し、ロック競合や上書き破壊を発生させずにアトミックに保存できること。
+
+### REQ-003: main.py 例外終了コードの適正化
+- `main.py` CLI 実行時の未捕捉例外は `sys.exit(0)` で握りつぶさず、必ず `sys.exit(1)` 等の非ゼロ終了コードで終了し、例外詳細が親プロセスに正しく伝播すること。
+
+### REQ-004: Antigravity用一括回収インターフェース
+- 指定日付（または直近実行）の全分散タスク障害情報を、単一のコマンドまたはAPI（`fetch_run_failures.py`）により 1 回で全件集約・JSONロードできること。
+- ロードされたデータには、失敗企業名・種別、失敗URL、エラー型、スタックトレース、GCS生HTMLパス、修正対象パーサーファイルパスが含まれること。
+- 併せて集約するローカルログのエラー行は指定日付分に限定すること（Issue #533）。ファイル名に対象日付 (`YYYYMMDD`) を含むログは ERROR/CRITICAL 行のうち行頭に別日付を持つ行を除いた全行、それ以外のログは対象日付 (`YYYY-MM-DD`) で始まる ERROR/CRITICAL 行のみを対象とし、過去日のログで出力が肥大化してはならない。
+
+### REQ-004a: バリデーション失敗理由の記録 (Issue #533)
+- DB 保存前バリデーション失敗による障害テレメトリの `error_message` には、物件名に加えて不正・欠損フィールド名を含め、自動修復の手掛かりとできること。
+- 単体テストは障害テレメトリ・エラー HTML を実ワークツリー（`logs/`, `docs/error_pages/` 等）へ書き出してはならず、一時ディレクトリへ隔離すること（偽の障害テレメトリ混入防止）。
+
+### REQ-004b: 障害 HTML の再パース検証による未修正障害の特定 (Issue #561)
+- `fetch_run_failures.py --replay` により、対象日付の `runs/{YYYYMMDD}/error_pages/{company}_{property_type}/*.html`（GCS およびローカルフォールバック）を全件取得し、本番と同一の既存パーサー経路（`UrlRouter.create_parser` → `parsePropertyDetailPage` → `clean_parsed_item` → `full_clean`）で再パースできること。一時スクリプトによる場当たり調査を不要とする。
+- 各 HTML は `ok`（現行コードで解消済み）/ `invalid`（不正フィールド名とエラー内容）/ `parse_error`（例外種別とメッセージ）/ `no_url`（HTML から物件 URL を特定できない）/ `no_parser`（ルーター未対応）に分類され、ジョブ単位で件数およびフィールド別件数が集計されること。
+- `--job {company}_{property_type}` で対象ジョブを絞り込めること。再パースは保存済み HTML のみを用い、相手サーバーおよび DB へアクセスしてはならない（一意性検証は対象外）。
+
+### REQ-005: Slack レポートへの一括修復コマンド自動付与
+- クローリング実行完了通知（または異常アラート）の末尾に、失敗ジョブ数とともに Antigravity 一括修復用のワンライナーコマンド（または GCS パス）を自動記載すること。
+
+### REQ-006: Slack DevAgent ゼロタッチ自動修復トリガー
+- クローリングバッチ完了時に異常終了したジョブが1件以上存在する場合、人間を介さず `#dev-agent` チャンネル宛に自動修復リクエスト（`@DevAgent` メンション）を自動投稿すること。
+- これにより常駐する Antigravity Bot が自動起動し、完全無人（ゼロタッチ）で GCS から障害情報を取得し、コード修正・テスト検証・PR作成までを自律完結できること。
+
+### REQ-007: ネイティブ GCS クライアントおよび生 HTML 直接受け渡し (Issue #477)
+- `ObjectStorageManager` は、`STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合に `google.cloud.storage.Client` を使用してネイティブに GCS と通信し、Cloud Run サービスアカウント権限でアップロード・一覧・読込を実行しなければならない。
+- ローカル環境（MinIO / S3 互換）との完全な後方互換性を維持すること。
+- パースエラー・フェッチエラー時に、すでに取得済みの生 HTML バイト列を `_sync_save_error_html_by_url` および `FailureReporter` に直接渡すことができ、相手サーバーへの再 HTTP リクエストなしで 100% 確実に生 HTML を永続化できること。相手サーバーが 403 ブロックまたはダウンしている場合でも生 HTML が欠損してはならない。
+
+### REQ-008: Cloud 実行インプロセスルーティング整合性とパーサー堅牢性 (Issue #479)
+- `IS_CLOUD=true` 時でも、`ApiRegistry` は `_GCP` 接尾辞を含む全 API パスを完全に解決・ディスパッチ可能とし、Flask 未起動のバッチ環境で HTTP 127.0.0.1:8000 へのフォールバックによる `ConnectionRefusedError` を根絶しなければならない。
+- ミサワホーム（`misawa.py`）の全種別（mansion, kodate, tochi）において、レガシー SSL 暗号スイート（`DEFAULT@SECLEVEL=1`）を有効化し、ハンドシェイク失敗（0件取得）を根絶すること。
+- `homes.py` のマンションパーサーは `HomesMansionParser` を正しくインスタンス化し、`HomesMansion` モデルに格納すること。
+- 面積・割合の数値コンバーター（`converter.py`）は小数点以下 2 桁へ `quantize`（四捨五入）を行い、Django モデルのバリデーションエラーを防止すること。

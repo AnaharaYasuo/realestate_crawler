@@ -1,0 +1,225 @@
+# GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書 (Issue #466)
+
+## 1. データ構造仕様
+
+### 1.1 障害メタデータ JSON (`FailureRecord`)
+各ジョブが異常検知時に GCS へ出力する構造体スキーマ:
+
+```json
+{
+  "run_id": "20260926-002926",
+  "task_index": 1,
+  "task_count": 8,
+  "company": "nomura",
+  "property_type": "mansion",
+  "status": "failed",
+  "exit_code": 1,
+  "error_type": "SelectorMismatch",
+  "error_message": "StrictExtractionFailed: address is empty for URL: https://www.nomu.com/mansion/...",
+  "target_url": "https://www.nomu.com/mansion/ensen_tokyo/2172/2172110/",
+  "gcs_html_path": "gs://realestate-images-prod/runs/20260926/error_pages/nomura_mansion/d41d8cd98f00b204e9800998ecf8427e.html",
+  "parser_file": "src/crawler/package/parser/nomuraParser.py",
+  "traceback": "Traceback (most recent call last):\n  File ...",
+  "timestamp": "2026-09-26T00:29:46.123456+09:00",
+  "duration_seconds": 16
+}
+```
+
+### 1.2 集約マニフェスト (`DailyFailureManifest`)
+`fetch_run_failures.py` が GCS の個別 JSON をワイルドカード取得し、Antigravity へ提供する集約データ:
+
+```json
+{
+  "date": "2026-09-26",
+  "total_failures": 4,
+  "failures": [
+    { /* FailureRecord 1 (nomura-mansion) */ },
+    { /* FailureRecord 2 (mitsui-kodate) */ },
+    { /* FailureRecord 3 (sekisui-kodate) */ },
+    { /* FailureRecord 4 (mitsui-invest_apartment) */ }
+  ]
+}
+```
+
+---
+
+## 2. モジュール詳細設計
+
+### 2.1 `FailureReporter` (`package.utils.failure_reporter`)
+```python
+class FailureReporter:
+    @classmethod
+    def record_job_failure(
+        cls,
+        company: str,
+        property_type: str,
+        error_type: str,
+        error_message: str,
+        target_url: str = "",
+        exit_code: int = 1,
+        traceback_str: str = "",
+        raw_html: Optional[bytes] = None,
+        duration_seconds: int = 0,
+        task_index: Optional[int] = None,
+        task_count: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """障害メタデータおよび生HTMLをGCSへ即時非同期/同期アップロード"""
+
+    @classmethod
+    def fetch_daily_failures(cls, date_str: Optional[str] = None) -> Dict[str, Any]:
+        """GCSから対象日付の全タスク障害JSONを取得・集約"""
+```
+
+- **ローカルログ走査の日付限定 (Issue #533)**: `_scan_local_logs(date_str)` は `STORAGE_LOCAL_FALLBACK_DIR`（既定 `logs`）直下の `*.log` とローテーション済みログ（`RotatingFileHandler` の `*.log.N`、`TimedRotatingFileHandler` の `*.log.YYYY-MM-DD[_HH[-MM[-SS]]]` のみ。`.bak` や圧縮ファイル等は除外）の和集合（重複なし・ファイル名順）を候補とする。ファイル名の独立した日付（前後が数字でない `YYYYMMDD` または `YYYY-MM-DD`、`YYYYMMDD` に正規化）を日付付きログの判定に用い、対象日付以外の日付のみを含むログ、および日付を含まず最終更新日（UTC）が対象日の前日より前のログ（`_modified_on_or_after`。ログ行はローカル時刻のため、UTC では前日となる対象日早朝の更新を許容する前段フィルタで、最終判定は行日付で行う）は開かずに除外し、残りを走査して、
+  - ファイル名に対象日付を含むログ（日付を跨ぐ実行でファイル名に複数日付を含む場合も同様）: 行頭に日付を持たない行（Traceback 等）と行頭が対象日付の ERROR/CRITICAL 行を抽出し、行頭が別日付の行は除外（`_matches_log_date(line, iso_date, require_date=False)`）
+  - ファイル名に日付を含まないログ: 行頭が `YYYY-MM-DD`（対象日付）の ERROR/CRITICAL 行のみ抽出（`require_date=True`）
+- **バリデーション失敗理由 (Issue #533)**: `ParseDetailPageAsyncBase._save_item_record` の `ValidationError` 捕捉時、`_save_error_html_record(item, invalid_fields)` へ `ve.message_dict` のキー（ソート済み）を渡し、`error_message` を `Property Name: <物件名> | Invalid fields: <f1>, <f2>` 形式で記録する。
+
+- **GCS クライアント初期化**:
+  - `STORAGE_BACKEND=gcs` または `IS_CLOUD=true` の場合は `google.cloud.storage.Client()` を使用。
+  - `upload_bytes`, `upload_image_bytes`, `list_files`, `read_text` でネイティブ GCS API を呼び出す。
+  - ローカル開発・テスト時は既存の `STORAGE_ENDPOINT`（MinIO / S3互換）へ自動フォールバック。
+
+### 2.2 `api.py` の直接生 HTML 引き渡し
+- `_sync_save_error_html_by_url(url, model_name, reason, raw_html=None)`:
+  - `raw_html` が与えられた場合は `requests.get` をスキップし、手元の生 HTML をディスクおよび `FailureReporter.record_job_failure` に直接書き込む。
+  - `ParseMiddlePageAsyncBase`: パース例外発生時に `raw_html_content = str(response)` を直接渡す。
+
+### 2.3 `ApiRegistry` レガシー GCP パス互換登録
+- `package/api/registry.py` または各 API ファイルにおいて、`API_KEY_*_GCP` を正規の API ハンドラクラスと紐付けて登録。
+- `_handle_local_execution(api_url, detail_url)` で、`API_KEY_*_GCP` であっても常にローカルインプロセス実行クラスが解決されるようにする。
+
+### 2.4 `converter.py` の Decimal 2 桁丸め
+- `parse_menseki` および `parse_ratio`:
+  - `Decimal(str_val).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)` を適用し、Django の `DecimalField(decimal_places=2)` 制約に準拠させる。
+
+### 2.2 `ObjectStorageManager` (`package.utils.storage`) (Issue #477)
+```python
+class ObjectStorageManager:
+    def __init__(self):
+        self.backend = os.getenv("STORAGE_BACKEND", "minio").lower()
+        self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
+        
+        if self.backend == "gcs" or (os.getenv("IS_CLOUD") and os.getenv("STORAGE_ENDPOINT") is None):
+            from google.cloud import storage as gcs_storage
+            self.gcs_client = gcs_storage.Client()
+            self.gcs_bucket = self.gcs_client.bucket(self.bucket_name)
+            self.is_gcs = True
+        else:
+            # 既存の boto3 / MinIO 初期化
+            self.s3_client = boto3.client('s3', ...)
+            self.is_gcs = False
+
+    def upload_bytes(self, data: bytes, key: str, content_type: str = "application/json") -> str:
+        if self.is_gcs:
+            blob = self.gcs_bucket.blob(key)
+            blob.upload_from_string(data, content_type=content_type)
+            return f"gs://{self.bucket_name}/{key}"
+        # 既存 boto3 実装
+        ...
+
+    def list_files(self, prefix: str) -> list[str]:
+        if self.is_gcs:
+            blobs = self.gcs_client.list_blobs(self.gcs_bucket, prefix=prefix)
+            return [b.name for b in blobs]
+        # 既存 boto3 実装
+        ...
+
+    def read_text(self, key: str) -> str:
+        if self.is_gcs:
+            blob = self.gcs_bucket.blob(key)
+            return blob.download_as_text(encoding="utf-8")
+        # 既存 boto3 実装
+        ...
+```
+
+### 2.3 `api.py` `_sync_save_error_html_by_url` 生 HTML 直接保存 (Issue #477)
+```python
+def _sync_save_error_html_by_url(
+    url: str,
+    model_name: str,
+    reason: str = "Unknown Error",
+    raw_html: Optional[Union[bytes, str]] = None
+) -> None:
+    # raw_html が渡されている場合は再 requests.get を一切行わず直接保存
+    if raw_html is not None:
+        html_bytes = raw_html.encode("utf-8") if isinstance(raw_html, str) else raw_html
+    else:
+        # フォールバック (手元に HTML がない場合のみ再取得試行)
+        ...
+```
+
+### 2.4 `main.py` CLI 例外処理改修
+```python
+# Before
+except Exception as e:
+    logging.exception(f"Error during crawl execution: {e}")
+sys.exit(0)
+
+# After
+except Exception as e:
+    tb = traceback.format_exc()
+    logging.exception(f"Error during crawl execution: {e}")
+    # 障害レポーターへ記録
+    FailureReporter.record_job_failure(
+        company=company,
+        property_type=prop_type,
+        error_type=type(e).__name__,
+        error_message=str(e),
+        exit_code=1,
+        traceback_str=tb
+    )
+    sys.exit(1)
+```
+
+### 2.6 `ErrorPageReplayer` (`package.utils.error_page_replayer`) (Issue #561)
+```python
+class ErrorPageReplayer:
+    @staticmethod
+    def extract_page_url(html_bytes: bytes) -> str | None:
+        """og:url → link[rel=canonical] の順で物件 URL を抽出"""
+
+    @classmethod
+    def replay_html(cls, html_bytes: bytes, job_key: str) -> dict[str, Any]:
+        """1 HTML を再パースし {url, status, invalid_fields, error} を返却"""
+
+    @classmethod
+    def replay_date(cls, date_str: str, job_key: str | None = None) -> dict[str, Any]:
+        """runs/{date}/error_pages/ 配下（GCS + ローカルフォールバック）を全件再パースしジョブ単位で集計"""
+```
+
+- **パーサー解決**: `job_key` を先頭の `_` で `company` と `property_type` に分解し、`UrlRouter` の種別へ正規化（`investment_apartment` / `invest_apartment` → `apartment`、`mansion` / `kodate` / `tochi` はそのまま、それ以外は `None` として URL・HTML から動的判定）したうえで `UrlRouter.create_parser(url, property_type=...)` で取得する。
+- **再パース**: パーサーインスタンスの `_getContent` を保存 HTML を返すコルーチンに、`save_error_html` を何もしない関数に差し替え（再パース失敗が当日の障害テレメトリ・`docs/error_pages/` へ再記録されるのを防ぐ）、`parsePropertyDetailPage(None, url)` を実行する（種別切替・`clean_parsed_item`・`validate_required_fields` を含む本番経路）。続けて `full_clean(validate_unique=False)` を実行する。
+- **分類**: `ValidationError` → `invalid`（`{field: {"value": 値の先頭 80 文字, "errors": [...]}}`）、その他例外 → `parse_error`（`例外クラス名: メッセージ`、先頭 500 文字）、URL 抽出不可 → `no_url`、ルーター未対応 → `no_parser`、それ以外 → `ok`。
+- **集計構造** (`manifest["replay"]`):
+```json
+{
+  "total": 320, "unresolved": 12,
+  "jobs": {
+    "tokyu_tochi": {
+      "total": 130, "status_counts": {"ok": 128, "invalid": 2},
+      "field_counts": {"kenpei": 2},
+      "samples": [{"html_key": "runs/.../09d6.html", "url": "https://...", "status": "invalid", "invalid_fields": {"kenpei": {"value": "...", "errors": ["..."]}}, "error": ""}]
+    }
+  }
+}
+```
+- `samples` は `ok` 以外の結果をジョブあたり最大 5 件保持する。
+- **URL 特定**: サイドカーメタ `{hash}_meta.json` の `target_url` を優先し、無い・壊れている場合は HTML の `og:url` → `canonical` を用いる。HTML は `ParserBase._soup_from_content`（chardet・cp932 補正）で解析し、Shift_JIS ページでも抽出できること。
+- **サイドカーメタ保存**: `FailureReporter.record_job_failure` は生 HTML 保存時に `runs/{date}/error_pages/{job}/{hash}_meta.json`（`target_url`, `error_type`, `error_message`, `timestamp`）を GCS およびローカルフォールバックへ併せて保存する（`html_meta_key(html_key)`）。
+- **CLI 出力**: `fetch_run_failures.py` は起動時に `configure_logging(force_reconfigure=True, output_stream=sys.stderr)` を呼び、ログを標準エラーへ出して標準出力の JSON を汚染しない。
+- `ObjectStorageManager.read_bytes(key)` を追加し、文字コードに依存せず生 HTML を取得する（Shift_JIS 等の HTML を UTF-8 前提の `read_text` で壊さないため）。
+
+### 2.5 `run_all_crawlers.py` でのリアルタイム監視 & Slack `#dev-agent` トリガー
+- `active_processes` のループ内で、`exit_code != 0` または `0 items scraped (Zero count failure)` 検知時に直ちに `FailureReporter.record_job_failure` を呼び出し。
+- 全ジョブ終了後、失敗件数が 1 件以上ある場合:
+  ```python
+  if failed_list:
+      trigger_msg = (
+          f"[AGY-REQ:AUTO-HEAL] @DevAgent 【クローリング障害自動検知】\n"
+          f"本日 ({today_str}) のクローリングで {len(failed_list)} 件の異常を検知しました。\n"
+          f"GCSから障害情報を一括取得して自動修復してください。\n"
+          f"コマンド: python src/crawler/scripts/debug_tools/fetch_run_failures.py --date {today_str}"
+      )
+      send_slack_message(channel="#dev-agent", message=trigger_msg)
+  ```
