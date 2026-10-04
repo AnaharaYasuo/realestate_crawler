@@ -8,57 +8,48 @@ main:
   steps:
     - initVars:
         assign:
-          - projectId: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
-          - location: "asia-northeast1"
-          - zone: "asia-northeast1-b"
-          - proxysqlInstance: "proxysql-instance-prod"
-          - crawlerJob: "realestate-crawler-pipeline-prod"
-          - mlPipelineJob: "realestate-ml-pipeline-prod"
-          - crawlTimeoutSec: 18000 # 5時間
+          - pipelineStart: ${sys.now()}
+          - crawlerFailed: false
+          - crawlerError: null
+          ...
     - tryPipeline:
         try:
           steps:
-            - startProxySQL:
-                call: googleapis.compute.v1.instances.start
-                args:
-                  project: ${projectId}
-                  zone: ${zone}
-                  instance: ${proxysqlInstance}
-            - waitProxySQL:
-                call: sys.sleep
-                args:
-                  seconds: 30
-            - runCrawler:
-                call: googleapis.run.v2.projects.locations.jobs.run
-                args:
-                  name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + crawlerJob}
-                result: crawlerExecution
-            - monitorCrawler:
+            - startProxySQL: ...
+            - waitProxySQLReady: ...
+            - runCrawlerTasks: ...
+            - waitCrawlerCompletion:
+                try:
+                  call: monitorJobExecution
+                  args:
+                    executionName: ${crawlerExecutionName}
+                    timeoutSec: ${crawlTimeoutSec}
+                except:
+                  as: crawlErr
+                  steps:
+                    - recordCrawlError:
+                        assign:
+                          - crawlerFailed: true
+                          - crawlerError: ${crawlErr}
+            - calculateRemainingTime: ...
+            - checkMLDeadline: ...
+            - runMLAndEstimation: ...
+            - waitMLCompletion:
                 call: monitorJobExecution
-                args:
-                  executionName: ${crawlerExecution.name}
-                  timeoutSec: ${crawlTimeoutSec}
-            - runMLPipeline:
-                call: googleapis.run.v2.projects.locations.jobs.run
-                args:
-                  name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
-                result: mlExecution
-            - waitMLPipeline:
-                call: monitorJobExecution
-                args:
-                  executionName: ${mlExecution.name}
-                  timeoutSec: 7200
-        retry:
-          predicate: ${customRetryPredicate}
-          max_retries: 1
-        finally:
+                ...
+        except:
+          as: pipelineError
           steps:
-            - stopProxySQL:
-                call: googleapis.compute.v1.instances.stop
-                args:
-                  project: ${projectId}
-                  zone: ${zone}
-                  instance: ${proxysqlInstance}
+            - stopProxySQLOnError: ...
+            - rethrowPipelineError:
+                raise: ${pipelineError}
+    - stopProxySQLOnSuccess: ...
+    - checkFinalStatus:
+        switch:
+          - condition: ${crawlerFailed}
+            raise:
+              error: "CrawlerPhaseFailed"
+              message: '${"Crawler phase had errors: " + string(crawlerError)}'
 ```
 
 ## 2. クローラー内ハング監視（無進捗検知）の実装
