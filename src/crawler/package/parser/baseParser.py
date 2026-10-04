@@ -381,8 +381,6 @@ class ParserBase(metaclass=ABCMeta):
     def _matches_noise_pattern(cls, el) -> bool:
         if not hasattr(el, 'get'):
             return False
-        if cls._is_property_context(el):
-            return False
         curr_id = str(el.get('id', '')).lower()
         curr_cls = ' '.join(el.get('class', [])).lower()
         return any(pat in curr_id or pat in curr_cls for pat in cls._NOISE_CLASS_OR_ID_PATTERNS)

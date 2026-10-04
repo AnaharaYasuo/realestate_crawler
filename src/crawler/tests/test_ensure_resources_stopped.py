@@ -1210,7 +1210,11 @@ def test_get_active_cloud_run_executions_rest_fallback_on_403(mock_slack):
         if url.endswith("/jobs"):
             return mock_resp_403
         if "/executions" in url:
-            return mock_resp_exec
+            if url.endswith("/jobs/realestate-crawler-pipeline-prod/executions"):
+                return mock_resp_exec
+            mock_not_found = MagicMock()
+            mock_not_found.status_code = 404
+            return mock_not_found
         mock_other = MagicMock()
         mock_other.status_code = 404
         return mock_other

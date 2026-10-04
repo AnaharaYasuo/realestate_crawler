@@ -414,15 +414,23 @@ def _get_active_cloud_run_executions(
         job_full_names: list[str] = []
         jobs_list_failed = False
         jobs_list_err = ""
+        has_partial_jobs_error = False
         if j_resp.status_code == 200:
             next_page_token = None
+            seen_job_tokens = set()
             while True:
                 j_url = jobs_url
                 if next_page_token:
+                    if next_page_token in seen_job_tokens:
+                        has_partial_jobs_error = True
+                        jobs_list_err = f"Repeated nextPageToken {next_page_token} in jobs.list"
+                        logger.warning(jobs_list_err)
+                        break
+                    seen_job_tokens.add(next_page_token)
                     j_url = f"{jobs_url}?pageToken={next_page_token}"
                 curr_resp = requests.get(j_url, headers=headers, timeout=10) if next_page_token else j_resp
                 if curr_resp.status_code != 200:
-                    jobs_list_failed = True
+                    has_partial_jobs_error = True
                     jobs_list_err = f"HTTP {curr_resp.status_code} listing jobs page: {curr_resp.text}"
                     logger.warning(jobs_list_err)
                     break
@@ -442,7 +450,7 @@ def _get_active_cloud_run_executions(
                 f"{jobs_list_err}. Falling back to candidate job execution endpoints."
             )
 
-        if jobs_list_failed:
+        if jobs_list_failed or has_partial_jobs_error:
             env_suffix = os.getenv("ENVIRONMENT", "prod")
             candidates = set()
             for p in job_prefixes:
@@ -465,9 +473,16 @@ def _get_active_cloud_run_executions(
             j_short_name = j_full_name.rstrip("/").split("/")[-1]
             exec_url = f"https://run.googleapis.com/v2/{j_full_name}/executions"
             next_exec_token = None
+            seen_exec_tokens = set()
             while True:
                 curr_exec_url = exec_url
                 if next_exec_token:
+                    if next_exec_token in seen_exec_tokens:
+                        has_execution_error = True
+                        last_candidate_err = f"Repeated nextPageToken {next_exec_token} for {j_short_name}"
+                        logger.warning(last_candidate_err)
+                        break
+                    seen_exec_tokens.add(next_exec_token)
                     curr_exec_url = f"{exec_url}?pageToken={next_exec_token}"
                 e_resp = requests.get(curr_exec_url, headers=headers, timeout=10)
                 if e_resp.status_code == 404:
@@ -515,6 +530,8 @@ def _get_active_cloud_run_executions(
 
         if has_execution_error:
             return active_jobs, last_candidate_err or jobs_list_err
+        if has_partial_jobs_error:
+            return active_jobs, jobs_list_err
         if jobs_list_failed and all_candidates_not_found:
             return active_jobs, jobs_list_err or "All candidate Cloud Run jobs returned 404"
 
