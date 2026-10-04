@@ -14,8 +14,9 @@ from package.parser.smtrcParser import SmtrcMansionParser
 def test_smtrc_mansion_models_blank_true():
     """SmtrcMansion および関連モデルの null=True フィールドで full_clean() がエラーなく通ることを検証"""
     mansion = SmtrcMansion(
-        url="https://smtrc.jp/detail/CompareDetails?propertyCode=NF72C9013&pageId=D010",
+        pageUrl="https://smtrc.jp/detail/CompareDetails?propertyCode=NF72C9013&pageId=D010",
         propertyName="テストマンション",
+        priceStr="5,000万円",
         price=50000000,
         address="東京都港区麻布十番1-1-1",
     )
@@ -64,5 +65,5 @@ def test_smtrc_mansion_parser_floor_and_kyutaishin():
     assert parsed_item.syuzenTsumitate == 12000
 
     # full_clean() should pass cleanly
-    parsed_item.url = "https://smtrc.jp/detail/CompareDetails?propertyCode=NF72C9013&pageId=D010"
+    parsed_item.pageUrl = "https://smtrc.jp/detail/CompareDetails?propertyCode=NF72C9013&pageId=D010"
     parsed_item.full_clean()
