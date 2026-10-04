@@ -250,6 +250,15 @@ class PropertyEvaluation(models.Model):
     is_slack_notified = models.BooleanField(default=False, verbose_name="Slack通知済みフラグ")
     duplicate_of = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='duplicates', verbose_name="名寄せ先親評価レコード")
 
+    # 公開ステータス管理 (Issue #665)
+    is_published = models.BooleanField(default=True, db_index=True, verbose_name="公開中フラグ")
+    delisted_at = models.DateTimeField(null=True, blank=True, verbose_name="掲載終了検知日時")
+
+    # Auto-Heal・パーサー改修 ＆ 再クローリング連携フラグ (Issue #665)
+    needs_parser_fix = models.BooleanField(default=False, db_index=True, verbose_name="パーサー改修必要フラグ")
+    needs_recrawl = models.BooleanField(default=False, db_index=True, verbose_name="再クローリング対象フラグ")
+    data_quality_issue = models.TextField(blank=True, default="", verbose_name="データ不正・欠損理由")
+
     class Meta:
         db_table = 'property_evaluation'
         verbose_name = "物件評価データ"

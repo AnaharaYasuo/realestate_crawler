@@ -322,7 +322,13 @@ def scan_anomalies_and_generate_instructions():
     heal_targets = []
 
     three_days_ago = timezone.now() - timedelta(days=3)
-    eval_anomalies = PropertyEvaluation.objects.filter(analyzed_at__gte=three_days_ago)
+    # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665)
+    eval_anomalies = PropertyEvaluation.objects.filter(
+        needs_parser_fix=True,
+        is_published=True,
+    )
+    if not eval_anomalies.exists():
+        eval_anomalies = PropertyEvaluation.objects.filter(analyzed_at__gte=three_days_ago, is_published=True)
 
     for ev in eval_anomalies:
         model = MODEL_MAP.get((ev.company, ev.property_type))
@@ -333,13 +339,14 @@ def scan_anomalies_and_generate_instructions():
         except model.DoesNotExist:
             continue
 
-        reason = ""
-        if prop.price and prop.price < 1000000:
-            reason = f"価格異常極小: {prop.priceStr} ({prop.price}円)"
-        elif getattr(prop, "tatemonoMenseki", 0) and prop.tatemonoMenseki < 5.0:
-            reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
-        elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
-            reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
+        reason = ev.data_quality_issue or ""
+        if not reason:
+            if prop.price and prop.price < 1000000:
+                reason = f"価格異常極小: {prop.priceStr} ({prop.price}円)"
+            elif getattr(prop, "tatemonoMenseki", 0) and prop.tatemonoMenseki < 5.0:
+                reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
+            elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
+                reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
         elif (
             hasattr(prop, "maguchi")
             and prop.maguchi == 0
