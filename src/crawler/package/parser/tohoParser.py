@@ -58,9 +58,9 @@ class TohoBaseParser(ParserBase):
             return specs["価格"]
         el = response.find(class_=re.compile(r'price', re.I))
         if el:
-            m = re.search(r'([\d,]+万円|[\d,.]+億円)', el.get_text(strip=True))
+            m = re.search(r'[0-9,.]+\s*(?:万円|億円)', el.get_text(strip=True))
             if m:
-                return m.group(1)
+                return m.group(0)
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
@@ -112,6 +112,9 @@ class TohoBaseParser(ParserBase):
         return converter.parse_menseki(val) if val else None
 
 
+SPEC_KEY_STRUCTURE_FLOORS = "構造・階建て"
+
+
 class TohoMansionParser(TohoBaseParser, MansionParserBase):
     def createEntity(self):
         return TohoMansion()
@@ -132,13 +135,13 @@ class TohoMansionParser(TohoBaseParser, MansionParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造・階建て", "") or specs.get("構造", "")
+        return specs.get(SPEC_KEY_STRUCTURE_FLOORS, "") or specs.get("構造", "")
 
     def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        raw = specs.get("所在階", "") or specs.get("構造・階建て", "")
-        m = re.search(r'(\d+階)', raw)
-        return m.group(1) if m else ""
+        raw = specs.get("所在階", "") or specs.get(SPEC_KEY_STRUCTURE_FLOORS, "")
+        m = re.search(r'[0-9]+階', raw)
+        return m.group(0) if m else ""
 
     def _parseSouKosu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
@@ -199,7 +202,7 @@ class TohoKodateParser(TohoBaseParser, KodateParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造・階建て", "") or specs.get("構造", "")
+        return specs.get(SPEC_KEY_STRUCTURE_FLOORS, "") or specs.get("構造", "")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         check_toho_listing_ended(response, getattr(item, 'pageUrl', ''))

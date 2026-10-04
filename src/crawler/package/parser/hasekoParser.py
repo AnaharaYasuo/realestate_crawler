@@ -55,9 +55,9 @@ class HasekoMansionParser(MansionParserBase):
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         el = response.find(class_=re.compile(r'price', re.I))
         if el:
-            m = re.search(r'([\d,]+万円|[\d,.]+億円)', el.get_text(strip=True))
+            m = re.search(r'[0-9,.]+\s*(?:万円|億円)', el.get_text(strip=True))
             if m:
-                return m.group(1)
+                return m.group(0)
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
@@ -93,8 +93,8 @@ class HasekoMansionParser(MansionParserBase):
     def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
         raw = specs.get("所在階", "") or specs.get("構造・階建て", "")
-        m = re.search(r'(\d+階)', raw)
-        return m.group(1) if m else raw
+        m = re.search(r'[0-9]+階', raw)
+        return m.group(0) if m else raw
 
     def _parseSouKosu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
