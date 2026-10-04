@@ -57,10 +57,23 @@ class OdakyuParser(ParserBase):
         return self.BASE_URL + '/' + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
-        # ページネーション内の「次へ」または `paging`, `pagenation-block` 領域内の a タグ
-        for a in response.select(".paging a, .pager a, .pagenation-block a, .pagination a"):
-            text = a.get_text()
-            if "次" in text or "next" in text.lower() or ">" in text:
+        # 1. ページャー内の直接タグ検索
+        next_tag = (
+            response.select_one(".paging li.next a")
+            or response.select_one(".pagenation-block li.next a")
+            or response.select_one(".pager li.next a")
+            or response.select_one(".pagination li.next a")
+            or response.select_one("a[rel='next']")
+        )
+        if next_tag:
+            href = next_tag.get("href")
+            if href:
+                return self.getRootDestUrl(href)
+
+        # 2. ページネーション内の「次へ」またはテキスト探索
+        for a in response.select(".paging a, .pager a, .pagenation-block a, .pagination a, nav.pager a"):
+            text = a.get_text().strip()
+            if "次" in text or "next" in text.lower() or text in (">", "»", "＞"):
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)

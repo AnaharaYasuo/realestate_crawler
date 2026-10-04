@@ -76,10 +76,23 @@ class SekisuiParser(ParserBase):
         return self.BASE_URL + link_url
 
     async def parseNextPage(self, response: BeautifulSoup):
-        # aタグから「次へ」や「次」のテキストを持つリンクを探索
+        # 1. セレクター直接検索
+        next_tag = (
+            response.select_one('a[rel="next"]')
+            or response.select_one('.pager .next a')
+            or response.select_one('.pagination .next a')
+            or response.select_one('a.next')
+            or response.select_one('li.next a')
+        )
+        if next_tag:
+            href = next_tag.get("href")
+            if href:
+                return self.getRootDestUrl(href)
+
+        # 2. aタグから「次へ」や「次」、矢印記号を持つリンクを探索
         for a in response.find_all("a"):
             text = a.get_text().strip()
-            if "次" in text or "next" in text.lower():
+            if "次" in text or "next" in text.lower() or text in (">", "»", "＞"):
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)
