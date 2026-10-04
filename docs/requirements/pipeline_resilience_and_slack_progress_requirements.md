@@ -25,6 +25,10 @@
   - 候補抽出完了時（検出件数、配信対象件数）および配信完了時（配信成功件数）のサマリーをSlack（`property_alert` チャンネル）へ送信すること。
   - 配信対象が0件の場合も、未配信ではなく正常に0件であった事実を明示通知すること。
 
+* **FR-005: Cloud Workflows におけるクローラー障害時のMLパイプライン自動継続 (Cloud Workflows Orchestration Resilience)**
+  - Cloud Workflows (`daily_pipeline.yaml`) において、クローラージョブ（`crawlerJob`）の監視ステップで障害（`JobExecutionFailed` や `JobExecutionTimeout`）が発生した場合でも、即座に例外再送出（ProxySQL停止）せずエラーを記録・捕捉した上で、残余時間（`remainingMLTimeout`）が確保されている限り、後続のML・価格推定ジョブ（`mlPipelineJob`）を確実に実行すること。
+  - MLパイプライン完了後にクローラーまたはMLジョブの失敗を評価し、いずれかで失敗があった場合は最終的にワークフロー全体としてエラー状態を報告すること。
+
 ## 4. 非機能要件 (Non-Functional Requirements)
 * **NFR-001: 既存クローリングアラートおよび個別通知チャネルの保全**
   - 個別のお宝物件カード通知（`goodproperty-*` チャンネル）の仕様・レイアウトはそのまま維持すること。
@@ -37,4 +41,5 @@
 * [ ] 【基準2】バルク価格推定（`run_bulk_ml_evaluation.py`）の開始・進捗・完了サマリーがSlack（`property_alert`）に通知されること。
 * [ ] 【基準3】お宝物件配信（`send_recommendations.py`）の開始・候補抽出状況・完了サマリーがSlack（`property_alert`）に通知されること。
 * [ ] 【基準4】後続ステップ（ML再学習等）でエラーが発生した場合でも、隔離されて価格推定とお宝物件通知が継続実行されること。
-* [ ] 【基準5】ユニットテストおよび統合テストで上記動作が検証され、100% 成功すること。
+* [ ] 【基準5】Cloud Workflows (`daily_pipeline.yaml`) において、クローラージョブが一部または全体で失敗しても後続のML・価格推定ジョブが確実に実行され、ProxySQLが正しくクリーンアップされること。
+* [ ] 【基準6】ユニットテストおよび統合テストで上記動作が検証され、100% 成功すること。

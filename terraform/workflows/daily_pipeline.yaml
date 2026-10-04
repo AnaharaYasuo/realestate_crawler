@@ -15,6 +15,8 @@ main:
           - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
           - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 18000)}  # 5時間 (18,000s)
           - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
+          - crawlerFailed: false
+          - crawlerError: null
 
     - tryPipeline:
         try:
@@ -45,10 +47,18 @@ main:
                   - crawlerExecutionName: ${default(map.get(map.get(crawlerOperation, "response"), "name"), map.get(map.get(crawlerOperation, "metadata"), "name"))}
 
             - waitCrawlerCompletion:
-                call: monitorJobExecution
-                args:
-                  executionName: ${crawlerExecutionName}
-                  timeoutSec: ${crawlTimeoutSec}
+                try:
+                  call: monitorJobExecution
+                  args:
+                    executionName: ${crawlerExecutionName}
+                    timeoutSec: ${crawlTimeoutSec}
+                except:
+                  as: crawlErr
+                  steps:
+                    - recordCrawlError:
+                        assign:
+                          - crawlerFailed: true
+                          - crawlerError: ${crawlErr}
 
             - calculateRemainingTime:
                 assign:
@@ -104,6 +114,13 @@ main:
           project: ${projectId}
           zone: ${zone}
           instance: ${proxysqlInstance}
+
+    - checkFinalStatus:
+        switch:
+          - condition: ${crawlerFailed}
+            raise:
+              error: "CrawlerPhaseFailed"
+              message: '${"Crawler phase finished with failures, but ML estimation completed. Error: " + string(crawlerError)}'
 
 # Subworkflow for polling Cloud Run Job execution until completed or timeout
 monitorJobExecution:

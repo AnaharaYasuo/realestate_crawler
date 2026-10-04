@@ -14,19 +14,23 @@ flowchart TD
 
         P2["Phase 2: クロールタスクアレイ実行<br/>(run.v2.jobs.run / 8並列 / 5h上限)"]
         P2_MONITOR{"完了ポーリング<br/>(30秒間隔)<br/>ハングタスク強制刈り取り"}
+        P2_CATCH["クロールエラー捕捉・記録<br/>(部分失敗/タイムアウトでも後続継続)"]
 
         P3["Phase 3: データ検証 & MLモデル再学習<br/>(ml_pipeline_job --step=train)"]
         
         P4["Phase 4: バルク価格推定 & 割安物件Slack配信<br/>(ml_pipeline_job --step=eval-recommend)"]
 
         P5["Phase 5: ProxySQL 停止<br/>(compute.v1.instances.stop)"]
-        P5_REPORT["日次総合レポート Slack 通知"]
+        P5_REPORT{"総合ステータス評価<br/>(クロール/MLエラーあれば最終FAIL)"}
 
-        P1 --> P1_WAIT --> P2 --> P2_MONITOR --> P3 --> P4 --> P5 --> P5_REPORT
+        P1 --> P1_WAIT --> P2 --> P2_MONITOR
+        P2_MONITOR -->|正常完了| P3
+        P2_MONITOR -->|エラー/タイムアウト| P2_CATCH --> P3
+        P3 --> P4 --> P5 --> P5_REPORT
     end
 
     %% 異常系
-    WORKFLOW_DEF -. "タイムアウト (7h) / 致命的例外 (finally)" .-> P5
+    WORKFLOW_DEF -. "タイムアウト (7h) / 致命的インフラ例外 (ProxySQL停止)" .-> P5
 ```
 
 ## 2. タイムアウト設計仕様

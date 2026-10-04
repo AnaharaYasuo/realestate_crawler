@@ -101,6 +101,34 @@ def test_daily_pipeline_yaml_structure_and_cleanup():
     assert stop_on_succ is True, "stopProxySQLOnSuccess must be defined in main steps for clean teardown"
 
 
+def test_daily_pipeline_crawler_failure_resilience():
+    """daily_pipeline.yaml でクローラージョブが失敗しても ML パイプラインが実行される構造であること."""
+    import yaml
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
+    assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
+
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    main_steps = data["main"]["steps"]
+    try_step = next(s["tryPipeline"] for s in main_steps if "tryPipeline" in s)
+    try_steps = try_step["try"]["steps"]
+
+    # waitCrawlerCompletion ステップを取得
+    crawler_wait_step = next(s["waitCrawlerCompletion"] for s in try_steps if "waitCrawlerCompletion" in s)
+    assert "try" in crawler_wait_step, "waitCrawlerCompletion must wrap monitorJobExecution in a try block to isolate crawler errors"
+    assert "except" in crawler_wait_step, "waitCrawlerCompletion must catch errors in an except block"
+
+    # 後続に runMLAndEstimation が存在すること
+    has_ml_run = any("runMLAndEstimation" in s for s in try_steps)
+    assert has_ml_run is True, "runMLAndEstimation must be present after crawler step"
+
+    # フローの最後にクローラー失敗を評価してエラーを再送出するステップが存在すること
+    has_final_check = any("checkFinalStatus" in s for s in main_steps)
+    assert has_final_check is True, "checkFinalStatus must exist in main steps to report crawler failure after ProxySQL teardown"
+
+
 def test_workflows_tf_configuration():
     """terraform/workflows.tf が存在し、リソースが正しく定義されていること."""
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
