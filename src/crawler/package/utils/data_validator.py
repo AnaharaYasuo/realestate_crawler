@@ -9,6 +9,7 @@ ERR_MISSING_TATEMONO = "必須項目欠損 (建物面積が未抽出)"
 ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
 
 
+
 class PropertyDataValidator:
     """
     物件データの完全性・妥当性を厳格に検査する統一バリデータ (Issue #665)
@@ -130,9 +131,12 @@ class PropertyDataValidator:
             if kaisu_str and str(kaisu_str).strip() not in ["", "-", "None"]:
                 # 所在階を含むか検証 (例: "3階 / 地上10階建", "3階" は可。"地上10階建" のみは建物階数で所在階ではない)
                 s = str(kaisu_str).strip()
-                cleaned = re.sub(r'(?:地上|地下)?\d+階建(?:て)?', '', s)
-                if re.search(r'\d+階', cleaned):
-                    floor = kaisu_str
+                tokens = [t.strip() for t in s.replace('/', ' ').replace('／', ' ').split() if t.strip()]
+                for token in tokens:
+                    if '階' in token and not ('地上' in token or '地下' in token or '建' in token):
+                        if any(ch.isdigit() for ch in token):
+                            floor = kaisu_str
+                            break
         if not floor or str(floor).strip() in ["", "-", "None"]:
             reasons.append(ERR_MISSING_FLOOR)
 
