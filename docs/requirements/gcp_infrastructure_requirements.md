@@ -55,7 +55,7 @@
 ### 3.3 コスト最適化要件
 - **アイドル時コスト最小化**:
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
-  - Cloud Run Service (Crawler Worker) は `min_instance_count = 0` に加え、`cpu_idle = true`（リクエスト処理中のみCPU割り当て）を適用し、アイドル待機中やコンテナ破棄待ち時間の不要なCPU課金を完全排除すること（Issue #670）。
+  - Cloud Run Service (Crawler Worker, Web API, Slack Agent) は `min_instance_count = 0` に加え、`cpu_idle = true`（リクエスト処理中のみCPU割り当て）を適用し、アイドル待機中やコンテナ破棄待ち時間の不要なCPU課金を完全排除すること（Issue #670, #701）。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
 - **Cloud NAT 撤廃 & PRIVATE_RANGES_ONLY 統合 (Issue #673)**:
   - 全不動産サイト（全27社・80系統）に対して Google 動的 IP でのアクセス・パース疎通性を実証したことに基づき、全 Cloud Run サービスおよびジョブの VPC Egress を `PRIVATE_RANGES_ONLY` に統一すること。
