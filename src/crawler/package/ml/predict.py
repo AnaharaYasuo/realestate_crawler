@@ -8,8 +8,9 @@ import joblib
 import logging
 import warnings
 import traceback
-from sklearn.utils.parallel import config_context
 from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.storage import get_storage_manager
+
 
 def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
     if "sklearn.utils.parallel" in str(message):
@@ -23,6 +24,36 @@ warnings.showwarning = _custom_showwarning
 # Django設定のロード
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+def ensure_models_available(model_dir: str = None) -> None:
+    """
+    ローカルモデルディレクトリにjoblibファイルが存在しない場合、
+    GCS/オブジェクトストレージの 'ml_models/' から自動ダウンロードする (Issue #698)。
+    """
+    if model_dir is None:
+        model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    os.makedirs(model_dir, exist_ok=True)
+
+    existing_joblibs = [f for f in os.listdir(model_dir) if f.endswith(".joblib")]
+    if existing_joblibs:
+        return
+
+    try:
+        storage = get_storage_manager()
+        files = storage.list_files("ml_models/")
+        downloaded = 0
+        for key in files:
+            if key.endswith(".joblib"):
+                fname = os.path.basename(key)
+                local_dest = os.path.join(model_dir, fname)
+                storage.download_file(key, local_dest)
+                downloaded += 1
+        if downloaded > 0:
+            logging.info("ML: Successfully downloaded %d models from storage to %s", downloaded, model_dir)
+        else:
+            logging.warning("ML: No models found in storage prefix 'ml_models/'")
+    except Exception as e:
+        logging.warning("ML: Failed to download models from storage: %s", e)
+
 # モデルとマスタのキャッシュ
 _first_stage_models = {}
 _second_stage_models = {}
@@ -31,6 +62,7 @@ _mkt_comparison_master = None
 def _load_mkt_comparison_master(model_dir):
     global _mkt_comparison_master
     if _mkt_comparison_master is None:
+        ensure_models_available(model_dir)
         master_path = os.path.join(model_dir, "mkt_comparison_master.joblib")
         if os.path.exists(master_path):
             try:
@@ -304,13 +336,12 @@ def _ensemble_predict(models, df, weights, ptype, smearing_factor=1.0) -> float:
         return 0.0
         
     preds_log_dict = {}
-    with config_context(assume_finite=True):
-        for algo in loaded_weights.keys():
-            model = models[algo]
-            df_for_pred = _align_features(df, model)
-            pred_log = model.predict(df_for_pred)
-            preds_log_dict[algo] = np.array(pred_log)
-            
+    for algo in loaded_weights.keys():
+        model = models[algo]
+        df_for_pred = _align_features(df, model)
+        pred_log = model.predict(df_for_pred)
+        preds_log_dict[algo] = np.array(pred_log)
+        
     areas = df["area"].values
     final_arr = _apply_smearing_and_ensemble(preds_log_dict, loaded_weights, smearing_factor, areas)
     return float(final_arr[0])
@@ -526,12 +557,11 @@ def _group_properties_by_type(properties_list):
 
 def _predict_batch_ensemble(models, weights, smearing_factor, df):
     preds_log_dict = {}
-    with config_context(assume_finite=True):
-        for algo, model in models.items():
-            if model and weights.get(algo, 0) > 0:
-                df_for_pred = _align_features(df, model)
-                pred_log = model.predict(df_for_pred)
-                preds_log_dict[algo] = np.array(pred_log)
+    for algo, model in models.items():
+        if model and weights.get(algo, 0) > 0:
+            df_for_pred = _align_features(df, model)
+            pred_log = model.predict(df_for_pred)
+            preds_log_dict[algo] = np.array(pred_log)
     areas = df["area"].values
     return _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
 

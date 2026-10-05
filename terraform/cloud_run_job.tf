@@ -504,7 +504,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   template {
     template {
       service_account = google_service_account.crawler_runner.email
-      timeout         = "3600s" # Safety-Net のハング判定 (15000s) 未満 & DBバックアップ時刻 (22:00 UTC) 前に終了
+      timeout         = "7200s" # 2時間 (Issue #698: 通常推論のみ実行。DBバックアップ時刻 23:30 UTC 前に終了)
       max_retries     = 0
 
       vpc_access {
@@ -517,7 +517,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
 
       containers {
         image = "python:3.11-slim"
-        args  = ["--force"]
+        args  = ["--force", "--skip-train"]
 
         resources {
           limits = {
@@ -548,6 +548,10 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
         }
         env {
           name  = "VALIDATE_DATA_SKIP_URL_CHECK"
+          value = "true"
+        }
+        env {
+          name  = "ML_PIPELINE_SKIP_TRAIN"
           value = "true"
         }
         env {

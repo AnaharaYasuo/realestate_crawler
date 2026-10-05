@@ -145,6 +145,55 @@ class ObjectStorageManager:
             logger.exception("Failed to upload bytes '%s' to storage", key)
             raise
 
+    def upload_file(self, local_path: str, key: str, content_type: str = "application/octet-stream") -> str:
+        """
+        ローカルファイルをストレージにアップロードし、参照パスまたはURLを返します。
+        """
+        if self.is_gcs:
+            try:
+                blob = self.gcs_bucket.blob(key)
+                blob.upload_from_filename(local_path, content_type=content_type)
+                gcs_path = f"gs://{self.bucket_name}/{key}"
+                logger.info("Successfully uploaded file '%s' to GCS: %s", local_path, gcs_path)
+                return gcs_path
+            except Exception:
+                logger.exception("Failed to upload file '%s' to GCS key '%s'", local_path, key)
+                raise
+        try:
+            self.s3_client.upload_file(
+                local_path,
+                self.bucket_name,
+                key,
+                ExtraArgs={"ContentType": content_type}
+            )
+            gcs_path = f"gs://{self.bucket_name}/{key}"
+            logger.info("Successfully uploaded file '%s' to storage: %s", local_path, gcs_path)
+            return gcs_path
+        except Exception:
+            logger.exception("Failed to upload file '%s' to storage key '%s'", local_path, key)
+            raise
+
+    def download_file(self, key: str, local_path: str) -> None:
+        """
+        ストレージ上のオブジェクトをローカルファイルにダウンロードします。
+        """
+        os.makedirs(os.path.dirname(os.path.abspath(local_path)), exist_ok=True)
+        if self.is_gcs:
+            try:
+                blob = self.gcs_bucket.blob(key)
+                blob.download_to_filename(local_path)
+                logger.info("Successfully downloaded GCS '%s' to '%s'", key, local_path)
+                return
+            except Exception:
+                logger.exception("Failed to download GCS file '%s' to '%s'", key, local_path)
+                raise
+        try:
+            self.s3_client.download_file(self.bucket_name, key, local_path)
+            logger.info("Successfully downloaded storage '%s' to '%s'", key, local_path)
+        except Exception:
+            logger.exception("Failed to download storage file '%s' to '%s'", key, local_path)
+            raise
+
     def list_files(self, prefix: str, raise_on_error: bool = False) -> list:
         """
         指定したプレフィックスに一致するオブジェクトキー一覧を取得します。
