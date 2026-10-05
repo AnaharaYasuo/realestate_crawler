@@ -6,6 +6,8 @@ from typing import Any
 
 from package.ml.constants import COMPANIES
 
+logger = logging.getLogger(__name__)
+
 
 def get_api_base_url() -> str:
     """価格推定APIのベースURLを解決する"""
@@ -134,8 +136,9 @@ def call_predict_api(
                 int(res_data.get("first_stage_predicted_price", 0)),
                 int(res_data.get("second_stage_predicted_price", 0)),
             )
-        logging.error("API estimation failed: status=%s, response=%s", response.status_code, response.text)
-    except Exception as e:
-        logging.debug("API server not reachable, falling back to local prediction: %s", e)
+        logger.error("API estimation failed: status=%s, response=%s", response.status_code, response.text)
+    except (requests.RequestException, ValueError, KeyError) as e:
+        logger.debug("API server not reachable, falling back to local prediction: %s", e)
 
     return 0, 0
+
