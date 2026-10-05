@@ -50,3 +50,35 @@ def test_model_registry_custom_weights_and_smearing(tmp_path):
     # clear 動作検証
     reg.clear()
     assert reg.smearing("mansion", "first") == 1.0
+
+
+def test_model_registry_parallel_loading_no_duplicate(tmp_path, monkeypatch):
+    reg = ModelRegistry(model_dir=str(tmp_path))
+    load_counts = 0
+    lock = threading.Lock()
+
+    def fake_load_single_model(ptype, stage_key, algo):
+        nonlocal load_counts
+        with lock:
+            load_counts += 1
+        return _DummyModel(42.0)
+
+    monkeypatch.setattr(reg, "_load_single_model", fake_load_single_model)
+
+    results = []
+
+    def worker():
+        m = reg.models("mansion", "first")
+        results.append(m["lgb"].val)
+
+    threads = [threading.Thread(target=worker) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 10
+    assert all(r == 42.0 for r in results)
+    # ALGOS 分 (4 回) のみロードされ、10 スレッド並列でも二重ロードされないこと
+    assert load_counts == 4
+
