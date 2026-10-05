@@ -313,5 +313,38 @@ def test_similarity_score_helpers():
     assert _calculate_date_score(prop1, prop2) == pytest.approx(0.1)
 
 
+def test_get_real_property_caching():
+    """_get_real_property が同一モデル・IDに対して結果をキャッシュし、2回目以降DBアクセスしないことを検証"""
+    from unittest.mock import MagicMock, patch
+    from package.utils.deduplication import _get_real_property, clear_real_property_cache
+
+    clear_real_property_cache()
+
+    eval_mock = MagicMock()
+    eval_mock.company = "mitsui"
+    eval_mock.property_type = "mansion"
+    eval_mock.property_id = 12345
+    eval_mock.id = 1
+
+    fake_model = MagicMock()
+    fake_obj = MagicMock()
+    fake_obj.id = 12345
+    fake_model.objects.filter.return_value.first.return_value = fake_obj
+
+    with patch("django.apps.apps.get_model", return_value=fake_model):
+        # 1回目の呼び出し
+        res1 = _get_real_property(eval_mock)
+        assert res1 == fake_obj
+        assert fake_model.objects.filter.call_count == 1
+
+        # 2回目の呼び出し（キャッシュヒット）
+        res2 = _get_real_property(eval_mock)
+        assert res2 == fake_obj
+        assert fake_model.objects.filter.call_count == 1  # 増加しないこと！
+
+    clear_real_property_cache()
+
+
+
 
 

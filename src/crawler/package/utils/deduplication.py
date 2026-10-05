@@ -1,8 +1,10 @@
 import logging
 import re
 from difflib import SequenceMatcher
+
 from package.models.evaluation import PropertyEvaluation
 from package.utils.url_matcher import UrlMatcher
+
 logger = logging.getLogger(__name__)
 
 def normalize_address(address: str) -> str:
@@ -28,9 +30,14 @@ def normalize_address(address: str) -> str:
     address = address.strip('-')
     return address
 COMPANIES = ['mitsui', 'sumifu', 'tokyu', 'nomura', 'misawa', 'smtrc', 'sumai1', 'mizuho', 'odakyu', 'afr', 'sekisui', 'daiwa', 'totate', 'athome', 'homes', 'seibu', 'keikyu', 'sotetsu', 'keisei', 'daikyo', 'rearie', 'heim', 'sumirin', 'keio']
+_REAL_PROPERTY_CACHE: dict[tuple[str, int], object] = {}
+
+def clear_real_property_cache():
+    """キャッシュをクリアする"""
+    _REAL_PROPERTY_CACHE.clear()
 
 def _get_real_property(eval_rec: PropertyEvaluation):
-    """評価レコードに紐づく物件実データをモデルから解決する"""
+    """評価レコードに紐づく物件実データをモデルから解決する（キャッシュ対応）"""
     try:
         from django.apps import apps
         company = eval_rec.company
@@ -46,9 +53,18 @@ def _get_real_property(eval_rec: PropertyEvaluation):
         if ptype_camel:
             ptype_camel = ptype_camel[0].upper() + ptype_camel[1:]
         model_name = f'{company_camel}{ptype_camel}'
+        
+        cache_key = (model_name, eval_rec.property_id)
+        if cache_key in _REAL_PROPERTY_CACHE:
+            return _REAL_PROPERTY_CACHE[cache_key]
+
         model_class = apps.get_model('package', model_name)
-        return model_class.objects.filter(id=eval_rec.property_id).first()
-    except Exception as e:
+        prop = model_class.objects.filter(id=eval_rec.property_id).first()
+        if len(_REAL_PROPERTY_CACHE) > 10000:
+            _REAL_PROPERTY_CACHE.clear()
+        _REAL_PROPERTY_CACHE[cache_key] = prop
+        return prop
+    except Exception as e:  # noqa: BLE001
         logger.warning(f'Failed to load real property data for evaluation {eval_rec.id}: {e}')
         return None
 
@@ -156,7 +172,7 @@ def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> Prop
     qs = PropertyEvaluation.objects.filter(property_type=new_eval.property_type)
     if new_eval.id is not None:
         qs = qs.filter(id__lt=new_eval.id)
-    candidates = qs.order_by("-id")[:50]
+    candidates = qs.select_related("duplicate_of").order_by("-id")[:50]
     for cand in candidates:
         similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)
         if similarity < 0.85:
