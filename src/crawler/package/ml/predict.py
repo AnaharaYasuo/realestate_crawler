@@ -16,6 +16,9 @@ from package.ml.inference.api_client import (
     get_api_base_url,
     serialize_property,
 )
+from package.ml.inference.ensemble import (
+    apply_smearing_and_ensemble as _apply_smearing_and_ensemble,
+)
 from package.ml.inference.model_registry import (
     ensure_models_available,
     get_default_registry,
@@ -33,6 +36,7 @@ from package.ml.inference.predictor import (
 # 外部呼び出し元への互換性エイリアス
 _serialize_property = serialize_property
 log_prediction_error = _log_prediction_error
+_apply_smearing_and_ensemble = _apply_smearing_and_ensemble
 
 
 def _get_models_and_master(property_type: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
