@@ -547,6 +547,10 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           value = "8"
         }
         env {
+          name  = "VALIDATE_DATA_SKIP_URL_CHECK"
+          value = "true"
+        }
+        env {
           name  = "DB_HOST"
           value = google_compute_address.proxysql_ip.address
         }

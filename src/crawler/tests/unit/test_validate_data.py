@@ -170,5 +170,74 @@ async def test_run_parallel_validation_executes_all_items():
         assert mock_validate.call_count == 2
 
 
+@pytest.mark.asyncio
+async def test_process_property_validation_skip_url_check():
+    """skip_url_check=True の時 verify_url_active を呼ばずにデータ妥当性のみ検証すること"""
+    from scripts.maintenance.validate_data import process_property_validation
+
+    item = MagicMock()
+    item.pageUrl = "https://example.com/prop_valid"
+    item.propertyName = "正常マンション"
+    item.price = 50000000
+    item.senyuMenseki = 70.0
+
+    with patch("scripts.maintenance.validate_data.verify_url_active") as mock_url_active, \
+         patch("scripts.maintenance.validate_data.PropertyDataValidator.validate_property", return_value=(True, [])):
+        
+        # 1. skip_url_check=True: verify_url_active is NOT called
+        res = await process_property_validation(item, "mansion", "mitsui", skip_url_check=True)
+        assert not mock_url_active.called
+        assert res["status"] == "valid"
+
+        # 2. skip_url_check=False: verify_url_active is called
+        mock_url_active.return_value = True
+        res = await process_property_validation(item, "mansion", "mitsui", skip_url_check=False)
+        assert mock_url_active.called
+        assert res["status"] == "valid"
+
+
+def test_validate_data_skip_url_check_env_and_arg(monkeypatch):
+    """validate_data で skip_url_check の引数および環境変数が正しく反映されること"""
+    mock_item = MagicMock()
+    mock_item.id = 301
+    mock_item.pageUrl = "https://example.com/property/301"
+    mock_item.propertyName = "テスト物件"
+
+    mock_qs = MagicMock()
+    mock_qs.__iter__.return_value = [mock_item]
+    mock_model = MagicMock()
+    mock_model.__name__ = "MitsuiMansion"
+    del mock_model.inputDate
+    mock_model.objects.all.return_value = mock_qs
+
+    with patch("scripts.maintenance.validate_data.get_all_models_flat", return_value=[(mock_model, "mitsui", "mansion")]), \
+         patch("scripts.maintenance.validate_data.PropertyEvaluation.objects.filter") as mock_eval_filter, \
+         patch("scripts.maintenance.validate_data._run_parallel_validation") as mock_parallel_run, \
+         patch("scripts.maintenance.validate_data.send_dev_report"), \
+         patch("subprocess.run"):
+        
+        mock_eval_filter.return_value.first.return_value = None
+        mock_parallel_run.return_value = [
+            ({"status": "valid", "reasons": [], "company": "mitsui", "property_type": "mansion", "url": mock_item.pageUrl, "name": mock_item.propertyName, "is_critical": False}, None)
+        ]
+
+        # 1. デフォルト: skip_url_check=False
+        monkeypatch.delenv("VALIDATE_DATA_SKIP_URL_CHECK", raising=False)
+        validate_data()
+        assert mock_parallel_run.call_args[1]["skip_url_check"] is False
+
+        # 2. 引数で skip_url_check=True
+        mock_parallel_run.reset_mock()
+        validate_data(skip_url_check=True)
+        assert mock_parallel_run.call_args[1]["skip_url_check"] is True
+
+        # 3. 環境変数 VALIDATE_DATA_SKIP_URL_CHECK=true
+        mock_parallel_run.reset_mock()
+        monkeypatch.setenv("VALIDATE_DATA_SKIP_URL_CHECK", "true")
+        validate_data()
+        assert mock_parallel_run.call_args[1]["skip_url_check"] is True
+
+
+
 
 

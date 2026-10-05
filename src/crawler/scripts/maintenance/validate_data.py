@@ -107,19 +107,20 @@ async def process_property_validation(
     item: Any,
     property_type: str,
     company: str,
-    eval_rec: PropertyEvaluation | None = None
+    eval_rec: PropertyEvaluation | None = None,
+    skip_url_check: bool = False,
 ) -> dict[str, Any]:
     """
     単一物件レコードの生存確認およびデータ妥当性を検証する。
-    1. 掲載終了（404等）判定時: is_published=False, delisted_at=now, needs_recrawl=False
+    1. 掲載終了（404等）判定時: is_published=False, delisted_at=now, needs_recrawl=False (skip_url_check=True の場合はスキップ)
     2. スペック異常判定時: needs_recrawl=True, data_quality_issue 記録, 予測価格0リセット
     3. 正常時: is_published=True, needs_recrawl=False
     """
     url = getattr(item, "pageUrl", "") or getattr(item, "url", "")
     p_name = getattr(item, "propertyName", "不明な物件名")
 
-    # 1. URL生存確認 (公開中かどうか)
-    if url:
+    # 1. URL生存確認 (公開中かどうか - skip_url_check=True 時は省略)
+    if url and not skip_url_check:
         is_active = await verify_url_active(url)
         if not is_active:
             if eval_rec:
@@ -185,25 +186,32 @@ async def _validate_single_property(
     ptype: str,
     company: str,
     eval_rec: PropertyEvaluation | None,
+    skip_url_check: bool = False,
 ) -> tuple[dict[str, Any], PropertyEvaluation | None]:
     async with sem:
-        res = await process_property_validation(item, ptype, company, eval_rec)
+        res = await process_property_validation(item, ptype, company, eval_rec, skip_url_check=skip_url_check)
         return res, eval_rec
 
 
 async def _run_parallel_validation(
     tasks_input: list[tuple[Any, str, str, PropertyEvaluation | None]],
     concurrency: int = 15,
+    skip_url_check: bool = False,
 ) -> list[tuple[dict[str, Any], PropertyEvaluation | None]]:
     sem = asyncio.Semaphore(concurrency)
     coros = [
-        _validate_single_property(sem, item, ptype, company, eval_rec)
+        _validate_single_property(sem, item, ptype, company, eval_rec, skip_url_check=skip_url_check)
         for item, ptype, company, eval_rec in tasks_input
     ]
     return await asyncio.gather(*coros)
 
 
-def validate_data(days: int | None = None, scan_all: bool = False, concurrency: int | None = None):
+def validate_data(
+    days: int | None = None,
+    scan_all: bool = False,
+    concurrency: int | None = None,
+    skip_url_check: bool = False,
+):
     if concurrency is None:
         try:
             concurrency = int(os.getenv("VALIDATE_DATA_CONCURRENCY", "15").strip())
@@ -212,7 +220,16 @@ def validate_data(days: int | None = None, scan_all: bool = False, concurrency: 
     if concurrency < 1:
         concurrency = 15
 
-    logger.info("Starting automated scraping validation and data integrity checks (concurrency=%d)...", concurrency)
+    if not skip_url_check:
+        env_skip = os.getenv("VALIDATE_DATA_SKIP_URL_CHECK", "").strip().lower()
+        if env_skip in ("true", "1", "yes"):
+            skip_url_check = True
+
+    logger.info(
+        "Starting automated scraping validation and data integrity checks (concurrency=%d, skip_url_check=%s)...",
+        concurrency,
+        skip_url_check,
+    )
     
     if scan_all:
         days_limit = None
@@ -260,7 +277,11 @@ def validate_data(days: int | None = None, scan_all: bool = False, concurrency: 
     logger.info("Total properties to validate: %d. Running parallel verification...", len(tasks_input))
 
     if tasks_input:
-        results = async_to_sync(_run_parallel_validation)(tasks_input, concurrency=concurrency)
+        results = async_to_sync(_run_parallel_validation)(
+            tasks_input,
+            concurrency=concurrency,
+            skip_url_check=skip_url_check,
+        )
         for res, eval_rec in results:
             if eval_rec:
                 with transaction.atomic():
@@ -340,6 +361,12 @@ if __name__ == "__main__":
     parser.add_argument("--all", action="store_true", help="Scan all historical records without date limit.")
     parser.add_argument("--days", type=int, default=None, help="Number of past days to scan (default: 7).")
     parser.add_argument("--concurrency", type=int, default=None, help="Parallel concurrency for URL checks (default: 15).")
+    parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks for faster validation.")
     cli_args = parser.parse_args()
     
-    validate_data(days=cli_args.days, scan_all=cli_args.all, concurrency=cli_args.concurrency)
+    validate_data(
+        days=cli_args.days,
+        scan_all=cli_args.all,
+        concurrency=cli_args.concurrency,
+        skip_url_check=cli_args.skip_url_check,
+    )

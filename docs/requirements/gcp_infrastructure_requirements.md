@@ -38,7 +38,7 @@
     - **中小・電鉄・ハウスメーカー (積水, 大和, 旭化成, 小田急等 17社)**: 最大 1 プロセス（同一会社内完全直列で安全・低負荷消化）
   - ML学習（LightGBM, XGBoost, CatBoost, RF）でコンテナのマルチCPUコア（`n_jobs=-1`）を完全活用すること。
   - バルク価格推論（`run_bulk_ml_evaluation.py`）において、マルチスレッド/並行プール（4〜8並行）で物件モデル群を並行推論・永続化できること。
-  - データ検証（`validate_data.py`）において、直近物件のURL生存確認（`verify_url_active`）を非同期並行化（`asyncio.gather` / セマフォ10〜20並行）して処理時間を短縮すること。
+  - データ検証（`validate_data.py`）において、直近物件のURL生存確認（`verify_url_active`）を非同期並行化（`asyncio.gather` / セマフォ10〜20並行）して処理時間を短縮すること。また、大量物件蓄積時や緊急実行時にURL生存確認をスキップ可能な実行オプション（`--skip-url-check` / 環境変数 `VALIDATE_DATA_SKIP_URL_CHECK=true`）を提供すること。
   - ML Pipeline Job（`realestate-ml-pipeline-prod`）のタイムアウトを 7,200秒（2時間）とし、データ検証・モデル再学習・バルク価格推定・お宝物件配信まで安全に完遂できること（Safety-Net 15,000秒上限未満を維持）。
 - **パイプライン制御 & 完了検知**:
   - ディスパッチャーによる全タスク投入後、DB（`crawler_task_execution`）上で全タスクの完了を検知し、後続の「データ検証 ➔ ML再学習 ➔ バルク推論 ➔ Slack通知」を一貫自動実行できること。
