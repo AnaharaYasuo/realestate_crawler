@@ -124,8 +124,15 @@ class PropertyDataValidator:
             getattr(item, "shozaikai", None)
             or getattr(item, "kaisu", None)
             or getattr(item, "floorType_kai", None)
-            or getattr(item, "kaisuStr", None)
         )
+        if not floor or str(floor).strip() in ["", "-", "None"]:
+            kaisu_str = getattr(item, "kaisuStr", None)
+            if kaisu_str and str(kaisu_str).strip() not in ["", "-", "None"]:
+                # 所在階を含むか検証 (例: "3階 / 地上10階建", "3階" は可。"地上10階建" のみは建物階数で所在階ではない)
+                s = str(kaisu_str).strip()
+                cleaned = re.sub(r'(?:地上|地下)?\d+階建(?:て)?', '', s)
+                if re.search(r'\d+階', cleaned):
+                    floor = kaisu_str
         if not floor or str(floor).strip() in ["", "-", "None"]:
             reasons.append(ERR_MISSING_FLOOR)
 

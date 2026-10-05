@@ -74,12 +74,12 @@ def test_validator_floor_fallbacks():
     _is_valid, reasons = PropertyDataValidator.validate_property(item, "mansion")
     assert ERR_MISSING_FLOOR not in reasons
 
-    # 階数情報が全くない場合は ERR_MISSING_FLOOR が検知される
-    item_empty = SmtrcMansion()
-    item_empty.senyuMenseki = 70.0
-    item_empty.floorType_kai = None
-    item_empty.kaisuStr = ""
+    # 建物全体の総階数（例: "地上10階建"）のみで所在階がない場合は ERR_MISSING_FLOOR が検知される
+    item_building_only = SmtrcMansion()
+    item_building_only.senyuMenseki = 70.0
+    item_building_only.floorType_kai = None
+    item_building_only.kaisuStr = "地上10階建"
 
-    is_valid_empty, reasons_empty = PropertyDataValidator.validate_property(item_empty, "mansion")
-    assert ERR_MISSING_FLOOR in reasons_empty
-    assert is_valid_empty is False
+    is_valid_bldg, reasons_bldg = PropertyDataValidator.validate_property(item_building_only, "mansion")
+    assert ERR_MISSING_FLOOR in reasons_bldg
+    assert is_valid_bldg is False
