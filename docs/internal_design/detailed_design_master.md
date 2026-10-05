@@ -727,6 +727,20 @@ graph TD
      - `database.tf`: Cloud SQL 自動バックアップ `start_time` を `"23:30"` に変更（ML 最遅終了 21:10 UTC + 7200s = 23:10 UTC より後）。
      - `test_crawler_timeout_4h_635.py`: バックアップ時刻アサーション（`start == 23 * 3600 + 1800`）を更新。
 
+### 6.37 バルクML価格推定処理の高速化とDB・N+1ボトルネック解消内部設計 (Issue #704)
+- **背景と課題**:
+  - `run_bulk_ml_evaluation.py` の実行時、一次判定通過物件の重複検知（`find_duplicate_property`）において、比較対象候補 50 件ごとに `_get_real_property(cand)` が呼ばれ、都度 DB クエリ（N+1）が同期発行されていた。
+  - これにより DB 往復待機（I/Oブロック）が CPU / メモリの大半を遊ばせ、推定処理全体の遅延要因（1000件で10分以上）となっていた。
+- **改修内容**:
+  1. **実物件レコード取得のインメモリキャッシュ (`package/utils/deduplication.py`)**:
+     - `_get_real_property(eval_rec)` にプロセス内辞書または LRU キャッシュ（`_REAL_PROPERTY_CACHE` または `functools.lru_cache` 相当）を導入。
+     - 同一 `(company, property_type, property_id)` に対する DB クエリを1回のみとし、2回目以降はキャッシュから即時取得して N+1 クエリを根絶。
+     - 呼び出し元から `prop_b` が渡された場合は DB クエリ自体を完全にバイパス。
+  2. **未処理物件走査の最適化 (`scripts/ops/run_bulk_ml_evaluation.py`)**:
+     - `_filter_unprocessed_items` において、`existing_eval_map` に登録済みの URL を用いて、不要な重複 ORM インスタンス生成を抑制。
+  3. **整合性およびテスト検証**:
+     - 既存の `test_deduplication.py` および新規ベンチマーク/ユニットテストによる機能検証。
+
 ---
 
 ## 7. 参照ドキュメント

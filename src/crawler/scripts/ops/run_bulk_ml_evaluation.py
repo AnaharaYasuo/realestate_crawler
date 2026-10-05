@@ -25,7 +25,7 @@ from package.models.evaluation import PropertyEvaluation
 from package.ml.predict import bulk_predict_first_stage
 from package.ml.investment_evaluator import evaluate_investment_property
 from package.utils.converter import parse_chidai
-from package.utils.deduplication import find_duplicate_property
+from package.utils.deduplication import clear_real_property_cache, find_duplicate_property
 from package.utils.text_risk_analyzer import analyze_text_risks
 from package.utils.slack import send_dev_report
 from package.utils.batch_metrics import BatchMetrics
@@ -115,10 +115,10 @@ def _resolve_company_and_type(model_name: str) -> tuple[str, str]:
 
 
 def _filter_unprocessed_items(model, existing_eval_map, force, limit_per_model):
-    """未処理物件を走査してリスト化する"""
+    """未処理物件を走査してリスト化する（イテレータによるストリーミング取得でRAM圧迫と過剰フェッチを防止）"""
     unprocessed_items = []
     skipped_count = 0
-    for item in model.objects.all():
+    for item in model.objects.all().iterator(chunk_size=2000):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         if not page_url:
             continue
@@ -299,6 +299,7 @@ def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, bat
 
 
 def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
+    clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
     batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
     logger.info(
@@ -399,6 +400,7 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
         logger.error("❌ Bulk ML Evaluation failed on models: %s", failed_models)
         sys.exit(1)
 
+    clear_real_property_cache()
     logger.info("✅ Bulk ML Evaluation Finished! Evaluated: %d, Skipped (Already done): %d", evaluated_count, skipped_count)
     sys.stdout.flush()
 
