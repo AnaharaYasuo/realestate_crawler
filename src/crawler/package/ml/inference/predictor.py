@@ -30,10 +30,17 @@ def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[
             df[col] = 0.0
     df = df[feature_cols].copy()
     
-    # object 型列の混入防止（バッチ依存コード化の地雷を排除）
+    # object 型列の正規化（None 等の欠損値を NaN に正規化しつつ数値化、変換不能な文字列を検出）
     for col in df.columns:
         if df[col].dtype == "object":
-            raise ValueError(f"ML feature column '{col}' has object dtype which is not allowed.")
+            converted = pd.to_numeric(df[col], errors="coerce")
+            invalid_mask = df[col].notna() & converted.isna()
+            if invalid_mask.any():
+                invalid_val = df[col][invalid_mask].iloc[0]
+                raise ValueError(
+                    f"ML feature column '{col}' has invalid non-numeric value: {invalid_val!r}"
+                )
+            df[col] = converted
     return df
 
 
