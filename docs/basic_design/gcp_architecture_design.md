@@ -123,6 +123,10 @@ Cloud Tasks のキューイングおよび流量制御機能（`max_dispatches_p
   - LightGBM, XGBoost, CatBoost, RandomForest の学習時に `n_jobs=-1`（または利用可能CPUコア数）を指定し、マルチコア並列化。
 - **バルク推論 (`run_bulk_ml_evaluation.py`)**:
   - `ThreadPoolExecutor`（4〜8並行）により、物件モデル群を並行して一括推論＆DB永続化。直列ループによる処理ボトルネックを解消。
+- **データ検証の非同期並行化 & 掲載確認スキップ制御 (`validate_data.py`)**:
+  - 直近物件の掲載確認（`verify_url_active`）を `asyncio.Semaphore`（並行度 10〜20）および `asyncio.gather` により並行化。数千件のURL生存確認を短時間で完了。
+  - 大量物件蓄積時や定期パイプライン実行時に備え、実行パラメータ（`--skip-url-check` / 環境変数 `VALIDATE_DATA_SKIP_URL_CHECK=true`）によりURL生存確認をスキップしデータ妥当性検証のみ実行可能。
+  - ML Pipeline Job のタイムアウトは 3600秒（1時間）を維持し、Cloud SQL バックアップ（22:00 UTC）前に確実に完遂する。
 - **サイト内詳細取得並行度 (`_getCloudPararellLimit`)**:
   - 環境変数 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 5）により、GCP帯域に最適化された並行リクエスト数を安全に設定可能。
 

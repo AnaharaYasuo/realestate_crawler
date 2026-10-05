@@ -224,6 +224,7 @@ def main(argv=None):
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
+    parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
     args = parser.parse_args(argv)
 
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
@@ -235,7 +236,7 @@ def main(argv=None):
     ops_dir = current_dir
 
     logger.info(SEPARATOR)
-    logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals})")
+    logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals}, skip_url_check={args.skip_url_check})")
     logger.info(SEPARATOR)
 
     try:
@@ -256,10 +257,10 @@ def main(argv=None):
             logger.warning(f"⚠️ 一部タスク未完了/失敗 (失敗: {failed})。--force 指定のため完了分のデータで続行します。")
 
         # Step 2: データ検証 & クレンジング
-        run_command([
-            sys.executable,
-            os.path.join(maintenance_dir, "validate_data.py")
-        ], "Step 1/5: Scraping Data Validation & Automated Cleansing")
+        validate_cmd = [sys.executable, os.path.join(maintenance_dir, "validate_data.py")]
+        if args.skip_url_check:
+            validate_cmd.append("--skip-url-check")
+        run_command(validate_cmd, f"Step 1/5: Scraping Data Validation & Automated Cleansing{' [Skip URL Check]' if args.skip_url_check else ''}")
 
         # AI自己修復用のバグ指示書生成
         run_command([
