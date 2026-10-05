@@ -53,9 +53,9 @@ def attach_image_scores(
     layout_scores: list[float] | None,
 ) -> None:
     """二次推論用の室内・間取りスコアを特徴量辞書に付与"""
-    for i, _ in enumerate(sub_indices):
-        int_score = interior_scores[i] if interior_scores and i < len(interior_scores) else 3.0
-        lay_score = layout_scores[i] if layout_scores and i < len(layout_scores) else 3.0
+    for i, g_idx in enumerate(sub_indices):
+        int_score = interior_scores[g_idx] if interior_scores and g_idx < len(interior_scores) else 3.0
+        lay_score = layout_scores[g_idx] if layout_scores and g_idx < len(layout_scores) else 3.0
         features_list[i]["interior_score"] = float(int_score) if int_score is not None else 3.0
         features_list[i]["layout_score"] = float(lay_score) if lay_score is not None else 3.0
 

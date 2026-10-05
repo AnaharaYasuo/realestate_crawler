@@ -2,7 +2,9 @@
 
 
 import threading
+import time
 
+from package.ml.inference import model_registry as mr_module
 from package.ml.inference.model_registry import ModelRegistry
 
 
@@ -53,21 +55,27 @@ def test_model_registry_custom_weights_and_smearing(tmp_path):
 
 
 def test_model_registry_parallel_loading_no_duplicate(tmp_path, monkeypatch):
+    # 外部ストレージアクセス防止
+    monkeypatch.setattr(mr_module, "ensure_models_available", lambda _: None)
+
     reg = ModelRegistry(model_dir=str(tmp_path))
     load_counts = 0
     lock = threading.Lock()
 
     def fake_load_single_model(ptype, stage_key, algo):
         nonlocal load_counts
+        time.sleep(0.01)  # 同時実行ウィンドウを確保
         with lock:
             load_counts += 1
         return _DummyModel(42.0)
 
     monkeypatch.setattr(reg, "_load_single_model", fake_load_single_model)
 
+    barrier = threading.Barrier(10)
     results = []
 
     def worker():
+        barrier.wait()
         m = reg.models("mansion", "first")
         results.append(m["lgb"].val)
 
