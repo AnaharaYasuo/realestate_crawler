@@ -8,9 +8,10 @@ import joblib
 import logging
 import warnings
 import traceback
-from sklearn.utils.parallel import config_context
+from sklearn import config_context
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.storage import get_storage_manager
+
 
 def _custom_showwarning(message, category, filename, lineno, file=None, line=None):
     if "sklearn.utils.parallel" in str(message):
