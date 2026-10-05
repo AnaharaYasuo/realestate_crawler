@@ -11,6 +11,8 @@ from typing import Any
 
 from package.ml.inference.api_client import (
     call_predict_api as _call_predict_api,
+)
+from package.ml.inference.api_client import (
     get_api_base_url,
     serialize_property,
 )
@@ -20,7 +22,11 @@ from package.ml.inference.model_registry import (
 )
 from package.ml.inference.predictor import (
     bulk_predict,
+)
+from package.ml.inference.predictor import (
     detect_property_type as _detect_property_type,
+)
+from package.ml.inference.predictor import (
     log_prediction_error as _log_prediction_error,
 )
 
