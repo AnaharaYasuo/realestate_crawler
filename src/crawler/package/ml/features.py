@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 import datetime
+import logging
 import re
+import threading
 from decimal import Decimal
 from typing import Dict, Tuple, Any, Optional
 from package.utils.plot_shape_analyzer import analyze_plot_shape
 from package.utils import converter
+
+logger = logging.getLogger(__name__)
 
 # 再調達単価 (万円/㎡) と法定耐用年数
 REPLACEMENT_COSTS = {
@@ -715,53 +719,76 @@ _hazard_cache: Dict[Tuple[str, str], Any] = {}
 _zone_cache: Dict[str, Any] = {}
 _macro_cache: Dict[str, Any] = {}
 
-def _init_muni_cache(muni_cls):
-    global _muni_cache, _muni_pref_cache
-    if not _muni_cache:
-        for m in muni_cls.objects.all():
-            _muni_cache[(m.prefecture, m.city)] = m
-            _muni_pref_cache.setdefault(m.prefecture, []).append(m)
+_cache_lock = threading.Lock()
 
-def _init_lp_cache(lp_cls):
-    global _lp_cache, _lp_pref_res_cache, _lp_pref_comm_cache
-    if not _lp_cache:
-        for lp in lp_cls.objects.all():
-            _lp_cache[(lp.prefecture, lp.city, lp.land_use)] = lp
-            if lp.land_use == 'residential':
-                _lp_pref_res_cache.setdefault(lp.prefecture, []).append(lp)
-            elif lp.land_use == 'commercial':
-                _lp_pref_comm_cache.setdefault(lp.prefecture, []).append(lp)
 
-def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls):
-    global _station_cache, _hazard_cache, _zone_cache, _macro_cache
-    if not _station_cache:
-        for s in station_cls.objects.all():
-            _station_cache[s.station_name] = s
-    if not _hazard_cache:
-        for hz in hazard_cls.objects.all():
-            _hazard_cache[(hz.prefecture, hz.city)] = hz
-    if not _zone_cache:
-        for z in zone_cls.objects.all():
-            _zone_cache[z.zone_name] = z
-    _macro_cache.clear()
-    for macro in macro_cls.objects.all():
-        _macro_cache[macro.year_month] = macro
+def _init_muni_cache(muni_cls) -> bool:
+    if _muni_cache:
+        return False
+    _muni_pref_cache.clear()
+    for m in muni_cls.objects.all():
+        _muni_cache[(m.prefecture, m.city)] = m
+        _muni_pref_cache.setdefault(m.prefecture, []).append(m)
+    return True
 
-def _init_global_caches():
+def _init_lp_cache(lp_cls) -> bool:
+    if _lp_cache:
+        return False
+    _lp_pref_res_cache.clear()
+    _lp_pref_comm_cache.clear()
+    for lp in lp_cls.objects.all():
+        _lp_cache[(lp.prefecture, lp.city, lp.land_use)] = lp
+        if lp.land_use == 'residential':
+            _lp_pref_res_cache.setdefault(lp.prefecture, []).append(lp)
+        elif lp.land_use == 'commercial':
+            _lp_pref_comm_cache.setdefault(lp.prefecture, []).append(lp)
+    return True
+
+def _fill_if_empty(cache: dict, model_cls, key_func) -> bool:
+    if cache:
+        return False
+    for rec in model_cls.objects.all():
+        cache[key_func(rec)] = rec
+    return bool(cache)
+
+def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls) -> bool:
+    loaded = _fill_if_empty(_station_cache, station_cls, lambda s: s.station_name)
+    loaded |= _fill_if_empty(_hazard_cache, hazard_cls, lambda hz: (hz.prefecture, hz.city))
+    loaded |= _fill_if_empty(_zone_cache, zone_cls, lambda z: z.zone_name)
+    loaded |= _fill_if_empty(_macro_cache, macro_cls, lambda m: m.year_month)
+    return loaded
+
+def _all_caches_populated() -> bool:
+    return all((_muni_cache, _lp_cache, _station_cache, _hazard_cache, _zone_cache, _macro_cache))
+
+def _clear_all_caches() -> None:
+    for cache in (_muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache,
+                  _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache):
+        cache.clear()
+
+def _init_global_caches(force_refresh: bool = False):
     """
-    特徴量抽出のボトルネックを解消するため、
     全 Potential 関連マスタを一括でインメモリキャッシュします。
+    ロード済みのキャッシュは再クエリしない（物件毎の呼び出しでも DB アクセス・接続切断は発生しない）。
+    force_refresh=True でマスタ更新後に明示的に再ロードします。
     """
+    if not force_refresh and _all_caches_populated():
+        return
     from package.models.evaluation import MunicipalPotential, StationPotential, LandPricePotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex
-    _init_muni_cache(MunicipalPotential)
-    _init_lp_cache(LandPricePotential)
-    _init_misc_caches(StationPotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex)
+    with _cache_lock:
+        if force_refresh:
+            _clear_all_caches()
+        loaded = _init_muni_cache(MunicipalPotential)
+        loaded |= _init_lp_cache(LandPricePotential)
+        loaded |= _init_misc_caches(StationPotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex)
 
-    from django.db import connections
-    try:
-        connections.close_all()
-    except Exception:
-        pass
+    if loaded:
+        # 一括ロード直後のみ接続を解放（スレッドプール実行時に長時間接続を保持しないため）
+        from django.db import DatabaseError, connections
+        try:
+            connections.close_all()
+        except DatabaseError as e:
+            logger.debug("ML: connections.close_all failed: %s", e)
 
 _load_all_potential_caches_once = _init_global_caches
 
@@ -1626,22 +1653,62 @@ def _extract_legal_and_furuya_features(
     res["rights_ratio"] = rights_ratio
     return res
 
-def _resolve_building_master_obj(property_obj):
-    bm_obj = _get_attr(property_obj, 'building_master', None)
-    if bm_obj:
-        return bm_obj
+_BM_PREFETCH_CHUNK = 500  # SQLite の変数上限(999)を超えないよう IN 句を分割
+
+
+def _building_master_key(property_obj) -> tuple[str, str] | None:
     try:
-        from package.models.building_master import BuildingMaster
         from package.utils.building_resolver import normalize_building_name, normalize_building_address
         p_name = _get_attr(property_obj, 'propertyName', '') or _get_attr(property_obj, 'title', '') or ''
         p_addr = _get_attr(property_obj, 'address', '') or ''
         n_name = normalize_building_name(p_name)
         n_addr = normalize_building_address(p_addr)
-        if n_name and n_addr:
-            return BuildingMaster.objects.filter(normalized_name=n_name, normalized_address=n_addr).first()
     except Exception:
-        pass
-    return None
+        return None
+    return (n_name, n_addr) if n_name and n_addr else None
+
+
+def _prefetch_building_masters(properties_list) -> dict[tuple[str, str], Any] | None:
+    """建物マスタ未紐付けの物件について、正規化キーで BuildingMaster を一括取得する"""
+    keys = set()
+    for prop in properties_list:
+        if _get_attr(prop, 'building_master', None):
+            continue
+        key = _building_master_key(prop)
+        if key:
+            keys.add(key)
+    if not keys:
+        return {}
+    lookup = {}
+    try:
+        from package.models.building_master import BuildingMaster
+        names = sorted({k[0] for k in keys})
+        for i in range(0, len(names), _BM_PREFETCH_CHUNK):
+            for bm in BuildingMaster.objects.filter(normalized_name__in=names[i:i + _BM_PREFETCH_CHUNK]):
+                key = (bm.normalized_name, bm.normalized_address)
+                if key in keys:
+                    lookup.setdefault(key, bm)
+    except Exception:
+        logger.warning("ML: BuildingMaster prefetch failed; falling back to per-property lookup", exc_info=True)
+        return None
+    return lookup
+
+
+def _resolve_building_master_obj(property_obj, bm_lookup=None):
+    bm_obj = _get_attr(property_obj, 'building_master', None)
+    if bm_obj:
+        return bm_obj
+    key = _building_master_key(property_obj)
+    if not key:
+        return None
+    if bm_lookup is not None:
+        return bm_lookup.get(key)
+    from django.db import DatabaseError
+    try:
+        from package.models.building_master import BuildingMaster
+        return BuildingMaster.objects.filter(normalized_name=key[0], normalized_address=key[1]).first()
+    except DatabaseError:
+        return None
 
 def _extract_bm_seismic_and_elevator(bm_obj, combined_text):
     eq_res = getattr(bm_obj, 'earthquake_resistance', '') or ''
@@ -1680,8 +1747,8 @@ def _extract_land_rent_features(property_obj, combined_text):
     land_rent_ratio = (annual_land_rent / price_man_val) if price_man_val > 0 else 0.0
     return monthly_land_rent, annual_land_rent, land_rent_liability, land_rent_ratio
 
-def _extract_building_master_and_amenity_features(property_obj, combined_text):
-    bm_obj = _resolve_building_master_obj(property_obj)
+def _extract_building_master_and_amenity_features(property_obj, combined_text, bm_lookup=None):
+    bm_obj = _resolve_building_master_obj(property_obj, bm_lookup)
     dev_tier = getattr(bm_obj, 'developer_tier', 'unknown') if bm_obj else 'unknown'
     dev_scores = {"major_reputable": 1.0, "standard": 0.5}
     contractor_tier = getattr(bm_obj, 'contractor_tier', 'unknown') if bm_obj else 'unknown'
@@ -1754,10 +1821,12 @@ def _calculate_kanri_and_lifespan(property_obj, chikunen):
     kouzou_lifespan_ratio = min(2.5, float(chikunen) / float(lifespan_val)) if lifespan_val > 0 else 1.0
     return kanrihi, syuzen, kouzou_str, kouzou_lifespan_ratio
 
-def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None):
+def build_features(property_obj, property_type, base_date=None, mkt_comparison_master=None, building_master_lookup=None):
     """
     共通特徴量エンジニアリング関数 (Djangoモデルオブジェクトまたは辞書に対応)
+    building_master_lookup: build_features_batch が一括取得した建物マスタ（None なら物件単位で解決）
     """
+    _init_global_caches()
     address1, address2, station1, company = _extract_clean_address(property_obj)
     eval_base_date, ref_prop_date, time_diff_months, is_legacy = _resolve_eval_dates_and_diff(property_obj, base_date)
     macro_repi, jgb, nikkei, reit, const_cost = _extract_macro_features(ref_prop_date, property_type)
@@ -1765,7 +1834,6 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     walk_min, bus_min, bus_walk, bus_use = _extract_traffic_and_walk_min(property_obj)
     area, tatemono_area, tochi_area, setback_ratio_temp = _calculate_area_and_setback(property_obj, property_type)
 
-    _init_global_caches()
     pop_growth, income, total_population, income_growth_rate, pop_density = _query_municipal_potential(address1, address2)
     passenger_volume = _query_station_volume(station1)
     effective_walk_min = _calculate_effective_walk_min(walk_min, bus_use, bus_min, bus_walk, pop_density)
@@ -1811,7 +1879,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         property_type, combined_text, chikunen, tochi_area, tatemono_area,
         average_land_price, scale_discount, cost_approach_value, income_approach_value, residual_land_value
     )
-    bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text)
+    bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text, building_master_lookup)
 
     kanrihi, syuzen, kouzou_str, kouzou_lifespan_ratio = _calculate_kanri_and_lifespan(property_obj, chikunen)
 
@@ -1906,15 +1974,20 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
 def build_features_batch(properties_list, property_type, base_date=None, mkt_comparison_master=None):
     """
     複数物件リストに対して一括で特徴量辞書リストを生成する高パフォーマンスヘルパー
+    （参照マスタは1回だけロードし、建物マスタは一括取得する）
     """
     _init_global_caches()
+    bm_lookup = _prefetch_building_masters(properties_list)
     results = []
     for prop in properties_list:
         try:
-            feats = build_features(prop, property_type, base_date=base_date, mkt_comparison_master=mkt_comparison_master)
+            feats = build_features(prop, property_type, base_date=base_date, mkt_comparison_master=mkt_comparison_master,
+                                   building_master_lookup=bm_lookup)
             results.append(feats)
         except Exception:
             # 万一の個別パース例外時は空辞書でなくデフォルト値でフォールバック
+            logger.warning("ML: build_features failed for %s (%s); using fallback features",
+                           _get_attr(prop, 'pageUrl', None) or _get_attr(prop, 'address', ''), property_type, exc_info=True)
             fallback = dict.fromkeys(FEATURE_SETS.get(property_type, {}).get("first", []), 0.0)
             fallback["area"] = 50.0
             results.append(fallback)

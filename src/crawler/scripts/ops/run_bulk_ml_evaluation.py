@@ -56,6 +56,24 @@ COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1",
 DEFAULT_CONCURRENCY = 8
 DEFAULT_BATCH_SIZE = 1000
 
+BASE_UPDATE_FIELDS = (
+    "company", "property_type", "property_id", "first_stage_predicted_price",
+    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
+    "monthly_land_rent", "land_rent_liability",
+    "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
+    "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
+    "is_sublease", "bath_type", "gas_type", "sewage_type",
+    "has_elevator", "is_stair_only_3f_plus", "is_old_earthquake_standard",
+)
+INVESTMENT_UPDATE_FIELDS = (
+    "estimated_sekisan_price", "net_operating_income", "debt_service",
+    "dscr", "total_investment_score",
+)
+# 評価マップで読み込む列（スキップ判定用 + bulk_update 対象の全列）
+EVAL_MAP_FIELDS = (
+    "id", "property_url", "second_stage_predicted_price", "is_published", "needs_recrawl",
+) + BASE_UPDATE_FIELDS + INVESTMENT_UPDATE_FIELDS
+
 def get_all_property_models(skip_portals=False):
     """登録されている全物件モデルを取得"""
     property_models = []
@@ -181,7 +199,7 @@ def _build_or_update_eval_record(item, price_stage1, existing, company, property
         _populate_text_risks(rec, item)
         is_new = True
 
-    if is_passed and not rec.duplicate_of:
+    if is_passed and not rec.duplicate_of_id:
         dup = find_duplicate_property(rec, new_prop=item)
         if dup:
             rec.duplicate_of = dup
@@ -205,20 +223,9 @@ def _bulk_update_evaluation_records(records_to_update, property_type, batch_size
     if not valid_updates:
         return
 
-    update_fields = [
-        "company", "property_type", "property_id", "first_stage_predicted_price",
-        "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
-        "monthly_land_rent", "land_rent_liability",
-        "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
-        "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
-        "is_sublease", "bath_type", "gas_type", "sewage_type",
-        "has_elevator", "is_stair_only_3f_plus", "is_old_earthquake_standard",
-    ]
+    update_fields = list(BASE_UPDATE_FIELDS)
     if "investment" in property_type or "invest" in property_type:
-        update_fields.extend([
-            "estimated_sekisan_price", "net_operating_income", "debt_service",
-            "dscr", "total_investment_score",
-        ])
+        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
     PropertyEvaluation.objects.bulk_update(
         valid_updates,
         fields=update_fields,
@@ -238,7 +245,7 @@ def _process_eval_chunk(chunk, predicted_prices, existing_eval_map, company, pro
         rec, is_new = _build_or_update_eval_record(item, price_stage1, existing, company, property_type)
         if rec.is_first_stage_passed:
             chunk_passed += 1
-        if getattr(rec, "duplicate_of", None):
+        if getattr(rec, "duplicate_of_id", None):
             chunk_duplicates += 1
         if is_new:
             records_to_create.append(rec)
@@ -309,12 +316,10 @@ def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
     # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
+    #    後段で参照・bulk_update する全フィールドを読み込み、遅延ロードクエリを発生させない
     existing_eval_map = {
         e.property_url: e
-        for e in PropertyEvaluation.objects.all().only(
-            "id", "property_url", "first_stage_predicted_price", "second_stage_predicted_price", "is_first_stage_passed",
-            "is_published", "needs_recrawl"
-        )
+        for e in PropertyEvaluation.objects.all().only(*EVAL_MAP_FIELDS)
     }
 
     models = get_all_property_models(skip_portals=skip_portals)
