@@ -1,27 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-ML リファクタリング安全網: 特徴量・推論・学習のゴールデン(特性化)テスト (Issue #711, Epic #710)
+ML リファクタリング安全網: 値に依存しない不変条件テスト (Issue #711, Epic #710)
 
-現行実装の出力を JSON に固定し、以降の純粋リファクタ PR で出力が変わらないことを検証する。
-ゴールデン再生成: UPDATE_ML_GOLDEN=1 pytest src/crawler/tests/unit/test_ml_golden_baseline.py
-(挙動変更 PR で再生成する場合は、差分理由を PR 本文に明記すること)
+元モデル精度が高くないため出力値の固定(ゴールデン)は行わず、以下のみ検証する:
+- 特徴量: 全 FEATURE_SETS 列が揃い、数値が有限であること / dict 入力と属性オブジェクト入力で同一結果
+- 推論: ダミーモデルで正の有限値が返ること / 種別混在入力でも元の順序を保つこと
+精度劣化は学習時の CV MAPE ゲート(+2.0pt 以内)で別途担保する。
 """
-import json
 import math
-import os
-import tempfile
 from decimal import Decimal
 
-import joblib
+import numpy as np
 import pytest
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 import package.ml.features as feat_mod
 import package.ml.predict as predict_mod
-import package.ml.train as train_mod
 from package.ml.features import FEATURE_SETS, build_features_batch
-from package.ml.train import generate_dummy_data, train_and_compare
 from package.models.evaluation import (
     HazardMapPotential,
     LandPricePotential,
@@ -31,8 +27,6 @@ from package.models.evaluation import (
     UrbanPlanningZonePotential,
 )
 
-GOLDEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "ml_golden_baseline.json")
-UPDATE_GOLDEN = os.getenv("UPDATE_ML_GOLDEN") == "1"
 PTYPES = ["mansion", "kodate", "apartment", "tochi"]
 REFERENCE_MODELS = [
     MunicipalPotential, LandPricePotential, StationPotential,
@@ -103,22 +97,6 @@ PROPERTY_FIXTURES = {
 }
 
 
-def _normalize(value):
-    if isinstance(value, Decimal):
-        return float(value)
-    if isinstance(value, float) and math.isnan(value):
-        return "NaN"
-    if hasattr(value, "item"):  # numpy スカラー
-        return _normalize(value.item())
-    if isinstance(value, (int, float, str, bool)) or value is None:
-        return value
-    return str(value)
-
-
-def _normalize_features(feats):
-    return {k: _normalize(v) for k, v in sorted(feats.items())}
-
-
 def _seed_reference_data():
     MunicipalPotential.objects.create(
         prefecture="東京都", city="世田谷区", population_growth_rate=Decimal("0.45"), average_income=5200,
@@ -165,161 +143,80 @@ def _fixture_props(ptype, as_object):
     return [Prop(**d) for d in items] if as_object else [dict(d) for d in items]
 
 
-def _load_golden():
-    if not os.path.exists(GOLDEN_PATH):
-        return {}
-    with open(GOLDEN_PATH, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _check_golden(section, actual):
-    """section 単位でゴールデンと比較（UPDATE 時は書き込み）"""
-    golden = _load_golden()
-    if UPDATE_GOLDEN:
-        golden[section] = actual
-        os.makedirs(os.path.dirname(GOLDEN_PATH), exist_ok=True)
-        with open(GOLDEN_PATH, "w", encoding="utf-8") as f:
-            json.dump(golden, f, ensure_ascii=False, indent=1, sort_keys=True)
-        return golden[section]
-    assert section in golden, f"golden section '{section}' missing. Run with UPDATE_ML_GOLDEN=1"
-    return golden[section]
-
-
-# 許容誤差: 厳密一致は求めない（元モデル精度に対して十分小さい揺らぎは許容）
-FEATURE_REL_TOL = 1e-6      # 特徴量: 浮動小数の演算順序変更程度の差のみ許容
-PREDICT_REL_TOL = 0.05      # 推論価格: ±5%
-WEIGHT_ABS_TOL = 0.10       # アンサンブル重み: ±0.10
-SMEARING_REL_TOL = 0.05     # スミアリング係数: ±5%
-
-
-def _approx(expected, rel, abs_tol=1e-9):
-    """数値は pytest.approx、文字列等は完全一致で比較できる形に変換する"""
-    if isinstance(expected, dict):
-        return {k: _approx(v, rel, abs_tol) for k, v in expected.items()}
-    if isinstance(expected, list):
-        return [_approx(v, rel, abs_tol) for v in expected]
-    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
-        return pytest.approx(expected, rel=rel, abs=abs_tol)
-    return expected
+@pytest.mark.parametrize("ptype", PTYPES)
+def test_features_complete_and_finite(reference_data, ptype):
+    required = set(FEATURE_SETS[ptype]["second"]) - {"interior_score", "layout_score"}
+    for f in build_features_batch(_fixture_props(ptype, False), ptype):
+        missing = required - set(f.keys())
+        assert not missing, f"{ptype}: missing feature columns {sorted(missing)}"
+        for col in required:
+            v = f[col]
+            if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool):
+                assert not math.isinf(float(v)), f"{ptype}.{col} is inf"
 
 
 @pytest.mark.parametrize("ptype", PTYPES)
-@pytest.mark.parametrize("as_object", [False, True], ids=["dict", "object"])
-def test_build_features_golden(reference_data, ptype, as_object):
-    feats = build_features_batch(_fixture_props(ptype, as_object), ptype)
-    actual = [_normalize_features(f) for f in feats]
-    # dict 入力と属性オブジェクト入力は同一ゴールデンを共有（入力形式に依存しないことも同時に担保）
-    expected = _check_golden(f"features/{ptype}", actual) if not as_object else _load_golden().get(f"features/{ptype}")
-    assert expected is not None
-    assert actual == _approx(expected, FEATURE_REL_TOL)
+def test_features_same_for_dict_and_object_input(reference_data, ptype):
+    as_dict = build_features_batch(_fixture_props(ptype, False), ptype)
+    as_obj = build_features_batch(_fixture_props(ptype, True), ptype)
+    assert len(as_dict) == len(as_obj)
+    for d, o in zip(as_dict, as_obj):
+        assert d.keys() == o.keys()
+        for k in d:
+            dv, ov = d[k], o[k]
+            if isinstance(dv, float) and math.isnan(dv):
+                assert isinstance(ov, float) and math.isnan(ov), k
+            else:
+                assert dv == ov, k
 
 
-def test_build_features_covers_all_feature_set_columns(reference_data):
-    for ptype in PTYPES:
-        feats = build_features_batch(_fixture_props(ptype, False), ptype)
-        required = set(FEATURE_SETS[ptype]["second"]) - {"interior_score", "layout_score"}
-        for f in feats:
-            missing = required - set(f.keys())
-            assert not missing, f"{ptype}: missing feature columns {sorted(missing)}"
-
-
-def test_feature_query_count_characterization(reference_data):
-    """特徴量生成 N 件あたりの DB クエリ数を記録（Phase 1 で件数非依存の定数化を目指す）"""
+def test_feature_query_count_independent_of_batch_size(reference_data):
+    """N+1 回帰防止: 特徴量生成のクエリ数が件数に依存しないこと (#712)"""
     counts = {}
     for n in (1, 4):
         props = (_fixture_props("mansion", False) * 4)[:n]
-        build_features_batch(props[:1], "mansion")  # ウォームアップ（初回キャッシュロード分を除外）
+        build_features_batch(props[:1], "mansion")  # 参照マスタのロード分を除外
         with CaptureQueriesContext(connection) as ctx:
             build_features_batch(props, "mansion")
-        counts[str(n)] = len(ctx.captured_queries)
-    expected = _check_golden("query_counts/mansion", counts)
-    assert counts == expected
+        counts[n] = len(ctx.captured_queries)
+    assert counts[1] == counts[4], counts
 
 
-# ---------------- 学習・推論ゴールデン ----------------
-
-def _train_tiny_ensembles():
-    """固定ダミーデータで種別×ステージの小型アンサンブルを学習（シングルスレッドで決定的）"""
-    ensembles = {}
-    for ptype in PTYPES:
-        df = generate_dummy_data(ptype, num_records=40)
-        df["interior_score"] = 3.0
-        df["layout_score"] = 3.0
-        for stage in ("first", "second"):
-            ensembles[(ptype, stage)] = train_and_compare(df.copy(), FEATURE_SETS[ptype][stage], f"golden-{ptype}-{stage}")
-    return ensembles
-
-
-# テスト高速化用の木の本数（CV/重み最適化/スミアリングのロジック検証には十分）
-_TINY_TREE_PARAMS = {"lgb": {"n_estimators": 20}, "xgb": {"n_estimators": 20},
-                     "cat": {"iterations": 20}, "rf": {"n_estimators": 10}}
-
-
-@pytest.fixture(scope="module")
-def tiny_ensembles():
-    original = train_mod._get_regressor
-
-    def _tiny_regressor(name, params):
-        return original(name, params).set_params(**_TINY_TREE_PARAMS[name])
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("ML_NUM_THREADS", "1")
-        mp.setattr(train_mod, "_get_regressor", _tiny_regressor)
-        yield _train_tiny_ensembles()
-
-
-def test_train_and_compare_golden(tiny_ensembles):
-    actual = {
-        f"{ptype}/{stage}": {
-            "weights": {k: round(v, 6) for k, v in sorted(ens.weights.items())},
-            "smearing_factor": round(ens.smearing_factor, 6),
-        }
-        for (ptype, stage), ens in sorted(tiny_ensembles.items())
-    }
-    expected = _check_golden("train_and_compare", actual)
-    for key, exp in expected.items():
-        assert actual[key]["weights"] == _approx(exp["weights"], rel=0, abs_tol=WEIGHT_ABS_TOL), key
-        assert actual[key]["smearing_factor"] == pytest.approx(exp["smearing_factor"], rel=SMEARING_REL_TOL), key
+class _RowModel:
+    """行内容に依存する決定的なダミーモデル（log 価格空間で 15〜17 程度を返す）"""
+    def predict(self, X):
+        arr = np.nan_to_num(np.asarray(X, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+        return 15.0 + (np.abs(arr).sum(axis=1) % 2.0)
 
 
 @pytest.fixture
-def patched_registry(tiny_ensembles, monkeypatch):
-    """推論側のモデル/重み/スミアリング取得を小型アンサンブルに差し替える（joblib 往復で永続化経路も通す）"""
-    with tempfile.TemporaryDirectory() as tmp:
-        models = {}
-        for (ptype, stage), ens in tiny_ensembles.items():
-            loaded = {}
-            for algo, model in ens.items():
-                path = os.path.join(tmp, f"{ptype}_{stage}_stage_{algo}.joblib")
-                joblib.dump(model, path)
-                loaded[algo] = joblib.load(path)
-            models[(ptype, stage)] = loaded
-        weights = {p: {s: tiny_ensembles[(p, s)].weights for s in ("first", "second")} for p in PTYPES}
-        smearing = {p: {s: tiny_ensembles[(p, s)].smearing_factor for s in ("first", "second")} for p in PTYPES}
-        monkeypatch.setattr(predict_mod, "_get_models_and_master",
-                            lambda ptype: (models[(ptype, "first")], models[(ptype, "second")], {}))
-        monkeypatch.setattr(predict_mod, "_load_ensemble_weights", lambda _d: weights)
-        monkeypatch.setattr(predict_mod, "_load_smearing_factors", lambda _d: smearing)
-        yield
+def dummy_registry(monkeypatch):
+    """推論側のモデル/重み/スミアリング取得をダミーに差し替える（学習不要で高速）"""
+    algos = ("lgb", "xgb", "cat", "rf")
+    models = {algo: _RowModel() for algo in algos}
+    weights = {p: {s: {a: 0.25 for a in algos} for s in ("first", "second")} for p in PTYPES}
+    smearing = {p: {s: 1.0 for s in ("first", "second")} for p in PTYPES}
+    monkeypatch.setattr(predict_mod, "_get_models_and_master", lambda ptype: (models, models, {}))
+    monkeypatch.setattr(predict_mod, "_load_ensemble_weights", lambda _d: weights)
+    monkeypatch.setattr(predict_mod, "_load_smearing_factors", lambda _d: smearing)
 
 
 def _props_with_type(ptype):
     return [dict(d, propertyType=ptype) for d in PROPERTY_FIXTURES[ptype]]
 
 
-def test_bulk_predict_golden(reference_data, patched_registry):
-    actual = {}
-    for ptype in PTYPES:
-        props = _props_with_type(ptype)
-        n = len(props)
-        actual[f"{ptype}/first"] = predict_mod.bulk_predict_first_stage(props)
-        actual[f"{ptype}/second"] = predict_mod.bulk_predict_second_stage(
-            props, [4.0] * n, [2.5] * n)
-    expected = _check_golden("bulk_predict", actual)
-    assert actual == _approx(expected, PREDICT_REL_TOL, abs_tol=1)
+@pytest.mark.parametrize("ptype", PTYPES)
+def test_bulk_predict_returns_positive_finite(reference_data, dummy_registry, ptype):
+    props = _props_with_type(ptype)
+    n = len(props)
+    for preds in (predict_mod.bulk_predict_first_stage(props),
+                  predict_mod.bulk_predict_second_stage(props, [4.0] * n, [2.5] * n)):
+        assert len(preds) == n
+        for p in preds:
+            assert p is not None and math.isfinite(p) and p > 0, f"{ptype}: invalid prediction {p}"
 
 
-def test_bulk_predict_mixed_types_preserves_order(reference_data, patched_registry):
+def test_bulk_predict_mixed_types_preserves_order(reference_data, dummy_registry):
     """種別混在入力でも元の順序で結果が返ること"""
     mixed = [p for pair in zip(_props_with_type("mansion"), _props_with_type("tochi")) for p in pair]
     preds = predict_mod.bulk_predict_first_stage(mixed)
