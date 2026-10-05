@@ -120,7 +120,12 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_SENYU)
 
-        floor = getattr(item, "shozaikai", None) or getattr(item, "kaisu", None)
+        floor = (
+            getattr(item, "shozaikai", None)
+            or getattr(item, "kaisu", None)
+            or getattr(item, "floorType_kai", None)
+            or getattr(item, "kaisuStr", None)
+        )
         if not floor or str(floor).strip() in ["", "-", "None"]:
             reasons.append(ERR_MISSING_FLOOR)
 

@@ -697,6 +697,9 @@ docs/
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正要件定義書](docs/requirements/slack_notification_optimization_requirements.md)**: テスト時実API送信物理遮断・事前接続サイレント化・チャンネル不整合是正要件 (Issue #642)
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正基本設計書](docs/basic_design/slack_notification_optimization_basic_design.md)**: テスト隔離バリア・Silent Health Check・チャンネル集中ルーティング設計 (Issue #642)
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正内部設計書](docs/internal_design/slack_notification_optimization_internal_design.md)**: conftest自動遮断fixture・verify_slack_credentials・get_alert_channel詳細仕様 (Issue #642)
+- **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消要件定義書](docs/requirements/smtrc_timeout_and_parser_heal_requirements.md)**: smtrcタイムアウト延長(2400s)・所在階複合表記抽出・バリデータ階数判定フォールバック要件 (Issue #723)
+- **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消基本設計書](docs/basic_design/smtrc_timeout_and_parser_heal_basic_design.md)**: API/パーサー/バリデータ3層連携による巡回安定化・階数判定基本設計 (Issue #723)
+- **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消内部設計書](docs/internal_design/smtrc_timeout_and_parser_heal_internal_design.md)**: _getTimeOutSecond/kaisuStr/floorType_kai詳細実装およびテスト仕様 (Issue #723)
 
 ### 2. 開発を始める
 
