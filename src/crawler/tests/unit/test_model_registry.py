@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 """ModelRegistry ユニットテスト (Issue #714)"""
+
 
 import threading
 

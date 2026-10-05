@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ML 特徴量アライメントとアンサンブル演算 (Issue #714)"""
 
 import logging

@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 """API 経由での価格推定クライアントおよびプロパティシリアライザ (Issue #714)"""
 
 import logging
 import os
 from typing import Any
+
 from package.ml.constants import COMPANIES
 
 
@@ -29,8 +29,9 @@ def _prop_to_float(v: Any) -> float | None:
         return None
     try:
         return float(v)
-    except Exception:
+    except (ValueError, TypeError):
         return None
+
 
 
 def _serialize_chikunengetsu_field(item: Any) -> str:

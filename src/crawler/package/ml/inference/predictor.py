@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """一括ベクトル化推論 (bulk_predict) およびローカル予測エンジン (Issue #714)"""
 
 import datetime
