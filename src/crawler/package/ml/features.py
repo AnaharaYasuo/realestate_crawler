@@ -784,11 +784,11 @@ def _init_global_caches(force_refresh: bool = False):
 
     if loaded:
         # 一括ロード直後のみ接続を解放（スレッドプール実行時に長時間接続を保持しないため）
-        from django.db import connections
+        from django.db import DatabaseError, connections
         try:
             connections.close_all()
-        except Exception:
-            pass
+        except DatabaseError as e:
+            logger.debug("ML: connections.close_all failed: %s", e)
 
 _load_all_potential_caches_once = _init_global_caches
 
@@ -1656,7 +1656,7 @@ def _extract_legal_and_furuya_features(
 _BM_PREFETCH_CHUNK = 500  # SQLite の変数上限(999)を超えないよう IN 句を分割
 
 
-def _building_master_key(property_obj) -> Optional[Tuple[str, str]]:
+def _building_master_key(property_obj) -> tuple[str, str] | None:
     try:
         from package.utils.building_resolver import normalize_building_name, normalize_building_address
         p_name = _get_attr(property_obj, 'propertyName', '') or _get_attr(property_obj, 'title', '') or ''
