@@ -83,8 +83,9 @@ terraform/
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
 - `google_cloud_run_v2_job` (DBマイグレーション `migrate_job`):
   - DDL スキーマ更新のため、直接 Cloud SQL (`google_sql_database_instance.mysql_instance.private_ip_address:3306`) に接続
-- `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`):
-  - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定
+- `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`, `crawler_worker_service`):
+  - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定（API サービスは直接 Cloud SQL 接続）。
+  - コスト最適化: `resources.cpu_idle = true`（アクセス/リクエスト処理中のみCPU割り当て）を適用し、待機中・破棄待ちのCPU課金を防止（Issue #670, #701）。
 
 ### 3.4 コネクションプーリング層 (`proxysql.tf`)
 - `google_service_account`: ProxySQL インスタンス専用の最小権限サービスアカウント (`proxysql-sa-${var.environment}`)
