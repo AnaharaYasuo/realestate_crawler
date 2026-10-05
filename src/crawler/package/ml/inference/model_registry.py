@@ -4,13 +4,17 @@ import logging
 import os
 import threading
 from typing import Any
+
 import joblib
 
 from package.ml.constants import ALGOS, DEFAULT_ENSEMBLE_WEIGHTS, PROPERTY_TYPES
 from package.utils.storage import get_storage_manager
 
+logger = logging.getLogger(__name__)
+
 
 def ensure_models_available(model_dir: str | None = None) -> None:
+
     """ローカルモデルディレクトリにjoblibが存在しない場合、オブジェクトストレージからダウンロード"""
     if model_dir is None:
         model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
@@ -31,11 +35,12 @@ def ensure_models_available(model_dir: str | None = None) -> None:
                 storage.download_file(key, local_dest)
                 downloaded += 1
         if downloaded > 0:
-            logging.info("ML: Successfully downloaded %d models from storage to %s", downloaded, model_dir)
+            logger.info("ML: Successfully downloaded %d models from storage to %s", downloaded, model_dir)
         else:
-            logging.warning("ML: No models found in storage prefix 'ml_models/'")
+            logger.warning("ML: No models found in storage prefix 'ml_models/'")
     except Exception as e:
-        logging.warning("ML: Failed to download models from storage: %s", e)
+        logger.warning("ML: Failed to download models from storage: %s", e)
+
 
 
 class ModelRegistry:
@@ -69,10 +74,10 @@ class ModelRegistry:
                         model.set_params(n_jobs=1)
                     except Exception:
                         pass
-                logging.info("ML: Loaded %s %s %s model.", ptype, stage_key, algo)
+                logger.info("ML: Loaded %s %s %s model.", ptype, stage_key, algo)
                 return model
             except Exception as e:
-                logging.exception("ML: Failed to load %s %s %s model: %s", ptype, stage_key, algo, e)
+                logger.exception("ML: Failed to load %s %s %s model: %s", ptype, stage_key, algo, e)
 
         # Legacy fallback
         if algo == "lgb":
@@ -80,7 +85,7 @@ class ModelRegistry:
             if os.path.exists(legacy_path):
                 try:
                     model = joblib.load(legacy_path)
-                    logging.info("ML: Loaded %s %s legacy model as lgb.", ptype, stage_key)
+                    logger.info("ML: Loaded %s %s legacy model as lgb.", ptype, stage_key)
                     return model
                 except Exception:
                     pass
@@ -116,12 +121,12 @@ class ModelRegistry:
             if os.path.exists(master_path):
                 try:
                     self._market_master = joblib.load(master_path)
-                    logging.info("ML: Loaded market comparison master.")
+                    logger.info("ML: Loaded market comparison master.")
                 except Exception as e:
-                    logging.exception("ML: Failed to load market comparison master: %s", e)
+                    logger.exception("ML: Failed to load market comparison master: %s", e)
                     self._market_master = {}
             else:
-                logging.warning("ML: Market comparison master not found. Run train.py first.")
+                logger.warning("ML: Market comparison master not found. Run train.py first.")
                 self._market_master = {}
             return self._market_master
 
@@ -134,9 +139,9 @@ class ModelRegistry:
                 if os.path.exists(path):
                     try:
                         self._smearing_factors = joblib.load(path)
-                        logging.info("ML: Loaded smearing factors.")
+                        logger.info("ML: Loaded smearing factors.")
                     except Exception as e:
-                        logging.exception("ML: Failed to load smearing factors: %s", e)
+                        logger.exception("ML: Failed to load smearing factors: %s", e)
                         self._smearing_factors = {}
                 else:
                     self._smearing_factors = {}
@@ -154,12 +159,13 @@ class ModelRegistry:
                 if os.path.exists(path):
                     try:
                         self._ensemble_weights = joblib.load(path)
-                        logging.info("ML: Loaded dynamic ensemble weights.")
+                        logger.info("ML: Loaded dynamic ensemble weights.")
                     except Exception as e:
-                        logging.exception("ML: Failed to load ensemble weights: %s", e)
+                        logger.exception("ML: Failed to load ensemble weights: %s", e)
                         self._ensemble_weights = {}
                 else:
                     self._ensemble_weights = {}
+
 
             dynamic = self._ensemble_weights.get(ptype, {}).get(s_key)
             if dynamic:

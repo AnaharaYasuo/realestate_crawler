@@ -2,11 +2,14 @@
 
 import logging
 from typing import Any
+
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 _FEATURE_NAMES_CACHE: dict[int, list[str]] = {}
+
 
 
 def _extract_from_booster(model: Any) -> list[str] | None:
@@ -70,7 +73,7 @@ def align_features(df: pd.DataFrame, model: Any) -> pd.DataFrame:
     """DataFrame の列順および不足列をモデルの期待入力に合わせて整列"""
     expected_features = extract_expected_feature_names(model)
     if not expected_features:
-        logging.warning("ML: Could not extract feature names from model. Using DataFrame columns as is.")
+        logger.warning("ML: Could not extract feature names from model. Using DataFrame columns as is.")
         return df
 
     missing = [c for c in expected_features if c not in df.columns]
@@ -89,9 +92,10 @@ def apply_smearing_and_ensemble(
     areas: np.ndarray,
 ) -> np.ndarray:
     """対数予測値に対しスミアリング補正と重み付きアンサンブルを適用して金額配列を算出"""
-    total_weight = sum(weights.get(algo, 0.0) for algo in preds_log_dict.keys())
+    total_weight = sum(weights.get(algo, 0.0) for algo in preds_log_dict)
     if total_weight <= 0:
         total_weight = 1.0
+
 
     num_samples = len(areas)
     ensemble_pred_units = np.zeros(num_samples, dtype=float)
