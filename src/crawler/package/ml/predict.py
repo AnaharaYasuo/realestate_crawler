@@ -8,7 +8,6 @@ import joblib
 import logging
 import warnings
 import traceback
-from sklearn import config_context
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.storage import get_storage_manager
 
@@ -337,13 +336,12 @@ def _ensemble_predict(models, df, weights, ptype, smearing_factor=1.0) -> float:
         return 0.0
         
     preds_log_dict = {}
-    with config_context(assume_finite=True):
-        for algo in loaded_weights.keys():
-            model = models[algo]
-            df_for_pred = _align_features(df, model)
-            pred_log = model.predict(df_for_pred)
-            preds_log_dict[algo] = np.array(pred_log)
-            
+    for algo in loaded_weights.keys():
+        model = models[algo]
+        df_for_pred = _align_features(df, model)
+        pred_log = model.predict(df_for_pred)
+        preds_log_dict[algo] = np.array(pred_log)
+        
     areas = df["area"].values
     final_arr = _apply_smearing_and_ensemble(preds_log_dict, loaded_weights, smearing_factor, areas)
     return float(final_arr[0])
@@ -559,12 +557,11 @@ def _group_properties_by_type(properties_list):
 
 def _predict_batch_ensemble(models, weights, smearing_factor, df):
     preds_log_dict = {}
-    with config_context(assume_finite=True):
-        for algo, model in models.items():
-            if model and weights.get(algo, 0) > 0:
-                df_for_pred = _align_features(df, model)
-                pred_log = model.predict(df_for_pred)
-                preds_log_dict[algo] = np.array(pred_log)
+    for algo, model in models.items():
+        if model and weights.get(algo, 0) > 0:
+            df_for_pred = _align_features(df, model)
+            pred_log = model.predict(df_for_pred)
+            preds_log_dict[algo] = np.array(pred_log)
     areas = df["area"].values
     return _apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
 
