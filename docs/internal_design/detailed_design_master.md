@@ -693,6 +693,23 @@ graph TD
 - **タイムアウト・異常終了時の Slack 即時発報**:
   - `src/crawler/scripts/ops/run_pipeline.py`: `TimeoutError` や異常終了の捕捉箇所で `send_crawling_summary_alert` / `send_dev_report` を呼び出し、未完走タスク・エラー詳細を Slack へ即座に通知。
 
+### 6.35 詳細取得非同期並行化・差分TTL30日・タイムアウト5時間枠・DB保護内部設計 (Issue #692)
+- **詳細取得非同期並行化 (`src/crawler/package/api/api.py`)**:
+  - `_handle_local_execution`: 直列同期待機（`t.join(1.0)`）を解消し、`asyncio.to_thread` を用いた非同期実行へ変更。呼出元の `_callApi` / `_fetchWithEachSession` のセマフォ制御下で、最大 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 2）の並行数で安全に詳細パース・保存を実行。
+  - プロセス内でのスレッド生成・DBコネクション破棄（`close_old_connections()` / `connections.close_all()`）を確実に担保し、DB接続リークを防止。
+- **プロセス並行度抑制 (`src/crawler/scripts/ops/run_all_crawlers.py`)**:
+  - `parse_args` の `default_parallel` を 35 から 6 に抑制。Cloud Run 8タスク同時稼働時の最大DB接続数を ProxySQL バックエンド上限（50）未満に制限。
+- **差分クロール TTL 30日化 (`src/crawler/package/api/differential.py`, `src/crawler/package/api/api.py`)**:
+  - `DIFFERENTIAL_TTL_DAYS` のデフォルトを `7` から `30` に変更。
+  - 一覧カードから抽出された価格がDB既存価格と一致しかつ最終更新から30日以内の物件は詳細アクセスを完全にスキップ。
+- **クローラータイムアウト5時間 (18000s) 延長とパイプライン連動**:
+  - `src/crawler/scripts/ops/run_all_crawlers.py`: `timeout_sec` のデフォルトを 18000 に変更。
+  - `src/crawler/scripts/ops/run_pipeline.py`: `DEFAULT_TIMEOUT_SEC` を 18000.0 に変更。
+  - `src/crawler/scripts/ensure_resources_stopped.py`: `DEFAULT_HUNG_THRESHOLD_SEC` を 18600.0 (18000s + 600s) に変更。
+  - `terraform/variables.tf`: `crawler_timeout` default を `"18000s"`、validation 上限を `18000` に更新。
+  - `terraform/variables.tf`: `ml_pipeline_schedule_cron` default を `"10 21 * * *"` (21:10 UTC / 06:10 JST) に変更。
+  - `terraform/database.tf`: バックアップ開始時刻 `start_time` を `"23:00"` (23:00 UTC / 08:00 JST) に変更。
+
 ---
 
 ## 7. 参照ドキュメント
