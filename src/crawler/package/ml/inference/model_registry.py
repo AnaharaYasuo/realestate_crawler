@@ -76,8 +76,8 @@ class ModelRegistry:
                         pass
                 logger.info("ML: Loaded %s %s %s model.", ptype, stage_key, algo)
                 return model
-            except Exception as e:
-                logger.exception("ML: Failed to load %s %s %s model: %s", ptype, stage_key, algo, e)
+            except Exception:
+                logger.exception("ML: Failed to load %s %s %s model", ptype, stage_key, algo)
 
         # Legacy fallback
         if algo == "lgb":
@@ -97,8 +97,9 @@ class ModelRegistry:
         cache_key = (ptype, stage_key)
 
         with self._lock:
-            if cache_key in self._models and self._models[cache_key]:
-                return self._models[cache_key]
+            existing = self._models.get(cache_key)
+            if existing:
+                return existing
 
             ensure_models_available(self.model_dir)
             loaded_dict: dict[str, Any] = {}
@@ -122,8 +123,8 @@ class ModelRegistry:
                 try:
                     self._market_master = joblib.load(master_path)
                     logger.info("ML: Loaded market comparison master.")
-                except Exception as e:
-                    logger.exception("ML: Failed to load market comparison master: %s", e)
+                except Exception:
+                    logger.exception("ML: Failed to load market comparison master")
                     self._market_master = {}
             else:
                 logger.warning("ML: Market comparison master not found. Run train.py first.")
@@ -140,8 +141,8 @@ class ModelRegistry:
                     try:
                         self._smearing_factors = joblib.load(path)
                         logger.info("ML: Loaded smearing factors.")
-                    except Exception as e:
-                        logger.exception("ML: Failed to load smearing factors: %s", e)
+                    except Exception:
+                        logger.exception("ML: Failed to load smearing factors")
                         self._smearing_factors = {}
                 else:
                     self._smearing_factors = {}
@@ -160,11 +161,12 @@ class ModelRegistry:
                     try:
                         self._ensemble_weights = joblib.load(path)
                         logger.info("ML: Loaded dynamic ensemble weights.")
-                    except Exception as e:
-                        logger.exception("ML: Failed to load ensemble weights: %s", e)
+                    except Exception:
+                        logger.exception("ML: Failed to load ensemble weights")
                         self._ensemble_weights = {}
                 else:
                     self._ensemble_weights = {}
+
 
 
             dynamic = self._ensemble_weights.get(ptype, {}).get(s_key)
