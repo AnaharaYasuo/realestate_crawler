@@ -4,6 +4,7 @@ import datetime
 import logging
 import os
 from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -12,8 +13,11 @@ from package.ml.inference.ensemble import align_features, apply_smearing_and_ens
 from package.ml.inference.model_registry import ModelRegistry, get_default_registry
 from package.utils.property_type_detector import PropertyTypeDetector
 
+logger = logging.getLogger(__name__)
+
 
 def detect_property_type(property_obj: Any) -> str:
+
     """オブジェクトまたは辞書から物件種別を判定"""
     return PropertyTypeDetector.detect_from_object(property_obj)
 
@@ -193,8 +197,9 @@ def log_prediction_error(
         page_url = get_attr(property_obj, "pageUrl", "") or get_attr(property_obj, "page_url", "")
         address = get_attr(property_obj, "address", "") or f"{features.get('prefecture', '')}{features.get('city', '')}"
 
+        now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         row = {
-            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": now_str,
             "property_type": property_type,
             "page_url": page_url,
             "address": address,
@@ -208,7 +213,8 @@ def log_prediction_error(
         header = not os.path.exists(log_path)
         try:
             df_row.to_csv(log_path, mode="a", index=False, header=header, encoding="utf-8-sig")
-            logging.info(f"ML: Logged prediction error for {page_url} (Error: {error_ratio*100:.1f}%)")
-        except Exception as e:
-            logging.exception(f"ML: Failed to write prediction error log: {e}")
+            logger.info("ML: Logged prediction error for %s (Error: %.1f%%)", page_url, error_ratio * 100)
+        except Exception:
+            logger.exception("ML: Failed to write prediction error log")
+
 
