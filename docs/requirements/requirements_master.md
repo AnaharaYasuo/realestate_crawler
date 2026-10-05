@@ -73,6 +73,14 @@
 - **MLパイプラインタイムアウトの2時間 (7200s) 延長とバックアップ時刻の整合性確保**:
   - Cloud Run Job `realestate-ml-pipeline-prod` のタイムアウトを `3600s`（1時間）から `7200s`（2時間）へ延長すること。
   - ML パイプラインの最遅終了時刻（21:10 UTC + 7200s = 23:10 UTC）に合わせて、Cloud SQL 自動バックアップ開始時刻 `start_time` を `23:00` から `23:30` に調整し、単体テスト（`test_crawler_timeout_4h_635.py`）のアサーションおよび整合性を完全担保すること。
+
+#### FR-ML-704: バルクML価格推定処理の高速化とDB・N+1ボトルネック解消要件 (Issue #704)
+- **重複物件判定時の実物件情報取得（_get_real_property）キャッシュ化**:
+  - `calculate_property_similarity` および `find_duplicate_property` において、`PropertyEvaluation` から紐づく実物件モデル（`_get_real_property`）を問い合わせる処理に LRU キャッシュまたはインメモリ辞書キャッシュ（`property_cache`）を導入し、重複判定ごとの DB N+1 クエリを根絶すること。
+- **未処理物件抽出（_filter_unprocessed_items）の最適化**:
+  - `run_bulk_ml_evaluation.py` の未処理物件走査において、不要なカラムを含まないイテレーション、または評価済み URL 辞書による早期判定で不要な ORM 生成・転送オーバーヘッドを最小化すること。
+- **互換性と整合性の維持**:
+  - 既存の重複判定ロジック（類似度スコア算出・親レコード特定）およびテストケースとの完全な互換性を維持すること。
 - **アットホームの対象エリア拡大および並行度向上**:
   - 対象エリアを従来の東京都 (`tokyo/city/`) から、埼玉県 (`saitama/city/`)、神奈川県 (`kanagawa/city/`)、千葉県 (`chiba/city/`)、愛知県 (`aichi/city/`) を含む1都4県へ拡張すること。
   - 詳細取得並列度 `DETAIL_PARARELL_LIMIT` を 1 から 3 へ引き上げ、巡回スループットを3倍化すること。
