@@ -62,6 +62,17 @@
 - **クローラータイムアウト4時間 (14400s) 延長**:
   - `crawler_timeout` の上限およびデフォルトを 14400s (4時間) とし、内部締め切り `CLOUD_RUN_JOB_TIMEOUT_SEC` も連動すること。
   - Safety-Net のハング判定閾値を 15000s (14400s + 600s)、ML パイプライン起動時刻を 20:10 UTC (クローラー 16:00 UTC 開始 + 4時間 + 10分バッファ)、Cloud SQL バックアップ時刻を 22:00 UTC へ連動変更すること。
+
+#### FR-ML-698: MLパイプラインの学習スキップオプション・GCSモデル永続化同期およびジョブタイムアウト2時間延長要件 (Issue #698)
+- **通常実行時のモデル学習スキップ**:
+  - `run_ml_pipeline.py` に `--skip-train` CLI オプションおよび環境変数 `ML_PIPELINE_SKIP_TRAIN=true` を導入し、日次の通常実行では時間のかかるモデル再学習（`train.py`、約42分）をスキップしてバルク価格推定・投資評価（`run_bulk_ml_evaluation.py`）を即座に開始できること。
+  - Cloud Run Job `realestate-ml-pipeline-prod` の実行引数または環境変数に上記オプションを反映すること。
+- **GCSバケットへの学習済みモデル群の永続化同期**:
+  - `train.py` 実行後、生成されたすべてのモデル成果物（`*.joblib`）を GCS バケット（`ml_models/` プレフィックス）へ自動アップロードして永続化すること。
+  - 推論実行時（`predict.py` または `run_ml_pipeline.py`）、ローカルの `models/` ディレクトリにモデルが存在しない場合、GCS から最新のモデル群を自動ダウンロードして推論を可能とすること。
+- **MLパイプラインタイムアウトの2時間 (7200s) 延長とバックアップ時刻の整合性確保**:
+  - Cloud Run Job `realestate-ml-pipeline-prod` のタイムアウトを `3600s`（1時間）から `7200s`（2時間）へ延長すること。
+  - ML パイプラインの最遅終了時刻（21:10 UTC + 7200s = 23:10 UTC）に合わせて、Cloud SQL 自動バックアップ開始時刻 `start_time` を `23:00` から `23:30` に調整し、単体テスト（`test_crawler_timeout_4h_635.py`）のアサーションおよび整合性を完全担保すること。
 - **アットホームの対象エリア拡大および並行度向上**:
   - 対象エリアを従来の東京都 (`tokyo/city/`) から、埼玉県 (`saitama/city/`)、神奈川県 (`kanagawa/city/`)、千葉県 (`chiba/city/`)、愛知県 (`aichi/city/`) を含む1都4県へ拡張すること。
   - 詳細取得並列度 `DETAIL_PARARELL_LIMIT` を 1 から 3 へ引き上げ、巡回スループットを3倍化すること。

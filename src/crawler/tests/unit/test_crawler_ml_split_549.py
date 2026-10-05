@@ -78,13 +78,13 @@ def test_ml_pipeline_timeout_is_below_safety_net_hung_threshold():
         ensure_resources_stopped.check_and_stop_proxysql_mig
     ).parameters["timeout_threshold_sec"].default
     timeout = _timeout_sec(_job_block("ml_pipeline_job"))
-    assert timeout == 3600
+    assert timeout == 7200
     assert timeout < threshold
 
 
 def test_ml_pipeline_job_runs_with_force_arg():
     block = _job_block("ml_pipeline_job")
-    assert re.search(r'args\s*=\s*\["--force"\]', block)
+    assert re.search(r'args\s*=\s*\["--force",\s*"--skip-train"\]', block)
     assert "template[0].template[0].containers[0].args" not in block
 
 

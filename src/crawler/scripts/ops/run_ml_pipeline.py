@@ -225,7 +225,10 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
     parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
+    parser.add_argument("--skip-train", action="store_true", help="Skip ML model training and run estimation only (Issue #698)")
     args = parser.parse_args(argv)
+
+    skip_train = args.skip_train or os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1")
 
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)              # .../scripts
@@ -236,7 +239,7 @@ def main(argv=None):
     ops_dir = current_dir
 
     logger.info(SEPARATOR)
-    logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals}, skip_url_check={args.skip_url_check})")
+    logger.info(f"Starting ML ESTIMATION & RECOMMENDATION PIPELINE (skip_portals={args.skip_portals}, skip_url_check={args.skip_url_check}, skip_train={skip_train})")
     logger.info(SEPARATOR)
 
     try:
@@ -269,10 +272,13 @@ def main(argv=None):
         ], "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
 
         # Step 3: 最新データによるMLモデル再学習
-        run_command([
-            sys.executable,
-            os.path.join(crawler_dir, "package", "ml", "train.py")
-        ], "Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
+        if not skip_train:
+            run_command([
+                sys.executable,
+                os.path.join(crawler_dir, "package", "ml", "train.py")
+            ], "Step 2/5: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)")
+        else:
+            logger.info("⏩ [SKIP] Step 2/5: ML Model Re-Training skipped (--skip-train enabled). Running estimation only.")
 
         # Step 4: 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
