@@ -113,7 +113,19 @@ class PropertyDataValidator:
             cls._check_investment_specs(item, reasons)
 
     @staticmethod
-    def _check_mansion_specs(item: Any, reasons: list[str]) -> None:
+    def _has_located_floor(kaisu_str: Any) -> bool:
+        if not kaisu_str or str(kaisu_str).strip() in ["", "-", "None"]:
+            return False
+        tokens = [t.strip() for t in str(kaisu_str).replace('/', ' ').replace('／', ' ').split() if t.strip()]
+        return any(
+            '階' in token
+            and not ('地上' in token or '地下' in token or '建' in token)
+            and any(ch.isdigit() for ch in token)
+            for token in tokens
+        )
+
+    @classmethod
+    def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:
         senyu = getattr(item, "senyuMenseki", None)
         try:
             if not senyu or float(senyu) <= 0:
@@ -126,18 +138,11 @@ class PropertyDataValidator:
             or getattr(item, "kaisu", None)
             or getattr(item, "floorType_kai", None)
         )
-        if not floor or str(floor).strip() in ["", "-", "None"]:
-            kaisu_str = getattr(item, "kaisuStr", None)
-            if kaisu_str and str(kaisu_str).strip() not in ["", "-", "None"]:
-                # 所在階を含むか検証 (例: "3階 / 地上10階建", "3階" は可。"地上10階建" のみは建物階数で所在階ではない)
-                s = str(kaisu_str).strip()
-                tokens = [t.strip() for t in s.replace('/', ' ').replace('／', ' ').split() if t.strip()]
-                for token in tokens:
-                    if '階' in token and not ('地上' in token or '地下' in token or '建' in token):
-                        if any(ch.isdigit() for ch in token):
-                            floor = kaisu_str
-                            break
-        if not floor or str(floor).strip() in ["", "-", "None"]:
+        has_floor = bool(floor and str(floor).strip() not in ["", "-", "None"])
+        if not has_floor and cls._has_located_floor(getattr(item, "kaisuStr", None)):
+            has_floor = True
+
+        if not has_floor:
             reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod
