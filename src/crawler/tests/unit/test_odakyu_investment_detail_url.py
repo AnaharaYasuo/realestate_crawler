@@ -72,3 +72,42 @@ def test_odakyu_investment_list_card_parses_yield_and_derived_rent():
     assert item.address
     assert item.grossYield and float(item.grossYield) > 0
     assert item.annualRent and item.annualRent > 0
+
+
+def test_odakyu_investment_list_card_parses_specs_menseki_madori_chikunengetsu():
+    html = """
+    <html><body>
+      <li class="estate-block">
+        <input type="checkbox" name="ids[]" value="B03131-000206"/>
+        <h2 class="estate-block-name"><a href="/mansion/detail/B03131-000206/">鶴川ハイツ</a></h2>
+        <p class="estate-info-catch">【オーナーチェンジ】利回り8.5％</p>
+        <p class="estate-price-item"><strong>2,698</strong>万円</p>
+        <div class="estate-info-list">
+          <dl class="address"><dt>所在地</dt><dd>川崎市麻生区岡上４丁目</dd></dl>
+          <dl class="address"><dt>交通</dt><dd>小田急線「鶴川」駅徒歩5分</dd></dl>
+          <dl class="status">
+            <dt>間取り</dt><dd>3LDK</dd>
+            <dt>専有面積</dt><dd>56.31m²</dd>
+          </dl>
+          <dl class="status">
+            <dt>階数</dt><dd>4/8階</dd>
+            <dt>築年月</dt><dd>1980年05月</dd>
+          </dl>
+        </div>
+      </li>
+    </body></html>
+    """
+    parser = OdakyuInvestmentParser()
+    soup = BeautifulSoup(html, "html.parser")
+    item = parser.createEntity()
+    item.pageUrl = "https://www.odakyu-chukai.com/invest/list/?focus=B03131-000206"
+    item = parser._parsePropertyDetailPage(item, soup)
+    assert item.propertyName == "鶴川ハイツ"
+    assert float(item.tatemonoMenseki) == 56.31
+    assert item.tatemonoMensekiStr == "56.31m²"
+    assert item.madori == "3LDK"
+    assert item.kaisuStr == "4/8階"
+    assert item.chikunengetsuStr == "1980年05月"
+    assert item.chikunengetsu is not None
+    assert str(item.chikunengetsu) == "1980-05-01"
+
