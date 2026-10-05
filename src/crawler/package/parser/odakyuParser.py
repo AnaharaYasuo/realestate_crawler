@@ -600,6 +600,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
 
     def _parse_invest_list_card(self, item, block, focus_id: str = ""):
         self._fill_invest_card_identity(item, block, focus_id)
+        self._fill_invest_card_specs(item, block)
         catch_text = self._fill_invest_card_yield_rent(item, block)
         item.propertyType = PropertyTypeDetector.detect_investment_type(
             (item.propertyName or "") + " " + catch_text
@@ -623,6 +624,30 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         if focus_id:
             item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
 
+    def _fill_invest_card_specs(self, item, block) -> None:
+        for dl in block.select(".estate-info-list dl"):
+            dts = [dt.get_text(strip=True) for dt in dl.find_all("dt")]
+            dds = [dd.get_text(" ", strip=True) for dd in dl.find_all("dd")]
+            for dt_text, dd_text in zip(dts, dds):
+                self._apply_invest_card_field(item, dt_text, dd_text)
+
+    def _apply_invest_card_field(self, item, dt_text: str, dd_text: str) -> None:
+        if not dt_text or not dd_text:
+            return
+        if ("専有面積" in dt_text or "建物面積" in dt_text) and not getattr(item, "tatemonoMenseki", None):
+            item.tatemonoMensekiStr = dd_text
+            item.tatemonoMenseki = converter.parse_menseki(dd_text)
+        elif "土地面積" in dt_text and not getattr(item, "tochiMenseki", None):
+            item.tochiMensekiStr = dd_text
+            item.tochiMenseki = converter.parse_menseki(dd_text)
+        elif "間取り" in dt_text and not getattr(item, "madori", None):
+            item.madori = dd_text
+        elif "階数" in dt_text and not getattr(item, "kaisuStr", None):
+            item.kaisuStr = dd_text
+        elif "築年月" in dt_text and not getattr(item, "chikunengetsuStr", None):
+            item.chikunengetsuStr = dd_text
+            item.chikunengetsu = converter.parse_chikunengetsu(dd_text)
+
     @staticmethod
     def _invest_card_address(block) -> str:
         for dl in block.select(".estate-info-list dl.address"):
@@ -642,6 +667,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.grossYield = converter.parse_ratio(gy_m.group(1) + "%")
         self._derive_annual_rent_from_yield(item)
         return catch_text
+
 
     @staticmethod
     def _derive_annual_rent_from_yield(item) -> None:
