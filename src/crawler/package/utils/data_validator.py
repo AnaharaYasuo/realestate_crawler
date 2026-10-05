@@ -9,6 +9,7 @@ ERR_MISSING_TATEMONO = "必須項目欠損 (建物面積が未抽出)"
 ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
 
 
+
 class PropertyDataValidator:
     """
     物件データの完全性・妥当性を厳格に検査する統一バリデータ (Issue #665)
@@ -112,7 +113,19 @@ class PropertyDataValidator:
             cls._check_investment_specs(item, reasons)
 
     @staticmethod
-    def _check_mansion_specs(item: Any, reasons: list[str]) -> None:
+    def _has_located_floor(kaisu_str: Any) -> bool:
+        if not kaisu_str or str(kaisu_str).strip() in ["", "-", "None"]:
+            return False
+        tokens = [t.strip() for t in str(kaisu_str).replace('/', ' ').replace('／', ' ').split() if t.strip()]
+        return any(
+            '階' in token
+            and not ('地上' in token or '地下' in token or '建' in token)
+            and any(ch.isdigit() for ch in token)
+            for token in tokens
+        )
+
+    @classmethod
+    def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:
         senyu = getattr(item, "senyuMenseki", None)
         try:
             if not senyu or float(senyu) <= 0:
@@ -120,8 +133,16 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_SENYU)
 
-        floor = getattr(item, "shozaikai", None) or getattr(item, "kaisu", None)
-        if not floor or str(floor).strip() in ["", "-", "None"]:
+        floor = (
+            getattr(item, "shozaikai", None)
+            or getattr(item, "kaisu", None)
+            or getattr(item, "floorType_kai", None)
+        )
+        has_floor = bool(floor and str(floor).strip() not in ["", "-", "None"])
+        if not has_floor and cls._has_located_floor(getattr(item, "kaisuStr", None)):
+            has_floor = True
+
+        if not has_floor:
             reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod

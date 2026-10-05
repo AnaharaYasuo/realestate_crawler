@@ -36,7 +36,7 @@ def setup_macro_data():
             "cpi_core": 108.2,
         }
     )
-    _init_global_caches()
+    _init_global_caches(force_refresh=True)
 
 
 def test_macro_economic_index_model():
