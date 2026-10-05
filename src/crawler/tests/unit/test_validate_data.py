@@ -96,3 +96,79 @@ def test_validate_data_recent_days_filtering(monkeypatch):
             validate_data(days=-1)
 
 
+def test_validate_data_parallel_concurrency_execution(monkeypatch):
+    """並行実行時に _run_parallel_validation が指定された並行度で呼ばれること"""
+    mock_item = MagicMock()
+    mock_item.id = 201
+    mock_item.pageUrl = "https://example.com/property/201"
+    mock_item.propertyName = "並行テスト物件"
+    mock_item.price = 50000000
+    mock_item.senyuMenseki = 60.0
+
+    mock_qs = MagicMock()
+    mock_qs.__iter__.return_value = [mock_item]
+    mock_model = MagicMock()
+    mock_model.__name__ = "MitsuiMansion"
+    del mock_model.inputDate
+    mock_model.objects.all.return_value = mock_qs
+
+    with patch("scripts.maintenance.validate_data.get_all_models_flat", return_value=[(mock_model, "mitsui", "mansion")]), \
+         patch("scripts.maintenance.validate_data.PropertyEvaluation.objects.filter") as mock_eval_filter, \
+         patch("scripts.maintenance.validate_data._run_parallel_validation") as mock_parallel_run, \
+         patch("scripts.maintenance.validate_data.send_dev_report"), \
+         patch("subprocess.run"):
+        
+        mock_eval_filter.return_value.first.return_value = None
+        mock_parallel_run.return_value = [
+            ({"status": "valid", "reasons": [], "company": "mitsui", "property_type": "mansion", "url": mock_item.pageUrl, "name": mock_item.propertyName, "is_critical": False}, None)
+        ]
+
+        # 1. デフォルト並行度 (15)
+        validate_data()
+        assert mock_parallel_run.called
+        assert mock_parallel_run.call_args[1]["concurrency"] == 15
+
+        # 2. 引数で concurrency=20 指定
+        mock_parallel_run.reset_mock()
+        validate_data(concurrency=20)
+        assert mock_parallel_run.called
+        assert mock_parallel_run.call_args[1]["concurrency"] == 20
+
+        # 3. 環境変数 VALIDATE_DATA_CONCURRENCY=10
+        mock_parallel_run.reset_mock()
+        monkeypatch.setenv("VALIDATE_DATA_CONCURRENCY", "10")
+        validate_data()
+        assert mock_parallel_run.called
+        assert mock_parallel_run.call_args[1]["concurrency"] == 10
+
+
+@pytest.mark.asyncio
+async def test_run_parallel_validation_executes_all_items():
+    """_run_parallel_validation がすべてのタスクを非同期処理し結果を返すこと"""
+    from scripts.maintenance.validate_data import _run_parallel_validation
+
+    item1 = MagicMock()
+    item1.pageUrl = "https://example.com/prop1"
+    item2 = MagicMock()
+    item2.pageUrl = "https://example.com/prop2"
+
+    tasks = [
+        (item1, "mansion", "mitsui", None),
+        (item2, "kodate", "sumifu", None),
+    ]
+
+    with patch("scripts.maintenance.validate_data.process_property_validation") as mock_validate:
+        mock_validate.side_effect = [
+            {"status": "valid", "reasons": []},
+            {"status": "delisted", "reasons": []},
+        ]
+
+        results = await _run_parallel_validation(tasks, concurrency=5)
+        assert len(results) == 2
+        assert results[0][0]["status"] == "valid"
+        assert results[1][0]["status"] == "delisted"
+        assert mock_validate.call_count == 2
+
+
+
+

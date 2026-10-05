@@ -504,7 +504,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
   template {
     template {
       service_account = google_service_account.crawler_runner.email
-      timeout         = "3600s" # Safety-Net のハング判定 (7800s) 未満
+      timeout         = "7200s" # 2時間 (並行検証化と合わせて余裕を持たせる。Safety-Net のハング判定 15000s 未満)
       max_retries     = 0
 
       vpc_access {
