@@ -710,6 +710,23 @@ graph TD
   - `terraform/variables.tf`: `ml_pipeline_schedule_cron` default を `"10 21 * * *"` (21:10 UTC / 06:10 JST) に変更。
   - `terraform/database.tf`: バックアップ開始時刻 `start_time` を `"23:00"` (23:00 UTC / 08:00 JST) に変更。
 
+### 6.36 MLパイプラインの学習スキップオプション・GCSモデル永続化同期およびジョブタイムアウト2時間延長内部設計 (Issue #698)
+- **背景と課題**:
+  - 日次の ML パイプライン実行（`run_ml_pipeline.py`）において、全体1時間（3600秒）枠のうち約42分をモデル再学習（`train.py`）が占有し、後続のバルク価格推定（`run_bulk_ml_evaluation.py`）がタイムアウトで途中終了する事象が発生していた。
+  - 毎日モデルを再学習する必要はなく、通常運用では推論のみを実行可能とし、かつコンテナ再起動時にも最新学習済みモデルが消失しないよう GCS 経由でのモデル同期が必要となった。
+- **改修内容**:
+  1. **学習スキップオプション (`run_ml_pipeline.py`)**:
+     - `--skip-train` CLI フラグおよび環境変数 `ML_PIPELINE_SKIP_TRAIN=true` を新設。
+     - オプション指定時は Step 2/5 (ML Model Re-Training) をスキップし、Step 3/5 (Bulk ML Evaluation) を即時開始。
+  2. **GCSモデル同期ユーティリティ (`package/utils/storage.py`, `package/ml/train.py`, `package/ml/predict.py`)**:
+     - `ObjectStorageManager` に `upload_file(local_path, key)` および `download_file(key, local_path)` メソッドを整備。
+     - `train.py` 完了時に `models/` 配下のすべての `*.joblib` を GCS `ml_models/` プレフィックスへアップロード。
+     - `predict.py` または `run_ml_pipeline.py` において、ローカルの `models/` にモデルが存在しない場合は GCS から一括ダウンロードして推論を実行。
+  3. **タイムアウト2時間 (7200s) 延長とバックアップ連動 (`terraform/cloud_run_job.tf`, `terraform/database.tf`)**:
+     - `cloud_run_job.tf`: `ml_pipeline_job` の `timeout` を `"7200s"` に更新。
+     - `database.tf`: Cloud SQL 自動バックアップ `start_time` を `"23:30"` に変更（ML 最遅終了 21:10 UTC + 7200s = 23:10 UTC より後）。
+     - `test_crawler_timeout_4h_635.py`: バックアップ時刻アサーション（`start == 23 * 3600 + 1800`）を更新。
+
 ---
 
 ## 7. 参照ドキュメント

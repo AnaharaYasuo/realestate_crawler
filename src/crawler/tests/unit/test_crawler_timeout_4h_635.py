@@ -311,15 +311,22 @@ def _backup_start_sec():
 
 
 def test_backup_starts_after_latest_crawler_end():
-    assert _backup_start_sec() >= _crawler_latest_end_sec()
+    # 00:00 UTC represents next-day rollover (86400s), which is after crawler latest end (21:00 UTC = 75600s)
+    backup_sec = _backup_start_sec()
+    effective_backup_sec = backup_sec if backup_sec > 0 else 86400
+    assert effective_backup_sec >= _crawler_latest_end_sec()
 
 
 def test_backup_starts_after_latest_ml_pipeline_end():
-    assert _backup_start_sec() >= _ml_latest_end_sec()
+    # 00:00 UTC represents next-day rollover (86400s), which is after ML pipeline latest end (23:10 UTC = 83400s)
+    backup_sec = _backup_start_sec()
+    effective_backup_sec = backup_sec if backup_sec > 0 else 86400
+    assert effective_backup_sec >= _ml_latest_end_sec()
 
 
 def test_backup_start_time_is_on_the_hour_before_next_crawl():
     start = _backup_start_sec()
     assert start % 3600 == 0
     assert start < 24 * 3600
-    assert start == 23 * 3600  # 23:00 UTC (JST 08:00)
+    assert start == 0  # 00:00 UTC (JST 09:00)
+

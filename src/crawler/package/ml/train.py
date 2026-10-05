@@ -33,6 +33,7 @@ from django.apps import apps
 from package.ml.features import FEATURE_SETS, build_features, calculate_chikunen
 from package.models.evaluation import PropertyEvaluation
 from package.utils.batch_metrics import BatchMetrics, format_batch_duration
+from package.utils.storage import get_storage_manager
 from scipy.optimize import minimize
 
 COMPANIES = [
@@ -875,6 +876,20 @@ def main():
         
     joblib.dump(all_ensemble_weights, os.path.join(model_dir, "ensemble_weights.joblib"))
     joblib.dump(all_smearing_factors, os.path.join(model_dir, "smearing_factors.joblib"))
+
+    # クラウド環境またはストレージ連携時は学習済みモデル群をGCSへ自動アップロード (Issue #698)
+    try:
+        storage = get_storage_manager()
+        uploaded_count = 0
+        for f in os.listdir(model_dir):
+            if f.endswith(".joblib"):
+                local_fpath = os.path.join(model_dir, f)
+                gcs_key = f"ml_models/{f}"
+                storage.upload_file(local_fpath, gcs_key)
+                uploaded_count += 1
+        logger.info(f"ML: Successfully uploaded {uploaded_count} models to storage prefix 'ml_models/'")
+    except Exception as e:
+        logger.warning(f"ML: Failed to upload models to storage: {e}")
     
     metrics.finish()
     custom_sections = [
