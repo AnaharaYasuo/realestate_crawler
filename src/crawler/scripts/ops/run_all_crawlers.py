@@ -48,7 +48,7 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
-    default_parallel = 35
+    default_parallel = 6
     default_playwright_parallel = 3
     parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
@@ -87,7 +87,7 @@ logger = logging.getLogger(__name__)
 
 
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", 180))
-timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 10800))
+timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 18000))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
