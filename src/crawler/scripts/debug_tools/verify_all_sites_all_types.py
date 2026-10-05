@@ -14,7 +14,7 @@ import setup_env
 from bs4 import BeautifulSoup
 
 
-COMPANIES = [
+SITE_TYPE_CONFIGS = [
     ("mitsui", "mitsuiParser", [
         ("mansion", "MitsuiMansionParser", "MitsuiMansion"),
         ("kodate", "MitsuiKodateParser", "MitsuiKodate"),
@@ -210,7 +210,7 @@ def verify_all_targets():
     
     soup = BeautifulSoup(SAMPLE_HTML, 'html.parser')
     
-    for company, module_name, types in COMPANIES:
+    for company, module_name, types in SITE_TYPE_CONFIGS:
         try:
             parser_mod = importlib.import_module(f"package.parser.{module_name}")
             model_mod = importlib.import_module(f"package.models.{company}")
