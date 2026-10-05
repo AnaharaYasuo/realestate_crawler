@@ -734,9 +734,11 @@ def _soup_looks_blocked(soup: BeautifulSoup) -> bool:
         return True
     if "認証中" in title or "認証にご協力" in title:
         return True
+    if "メンテナンス中" in title or "maintenance" in title_l:
+        return True
     body_text = soup.get_text(" ", strip=True)[:800]
     body_l = body_text.lower()
-    if "403 forbidden" in body_l or "access denied" in body_l:
+    if "403 forbidden" in body_l or "access denied" in body_l or "メンテナンス中" in body_text:
         return True
     # Athome bot interstitial (HTTP 200 with empty property shell).
     if "認証中" in body_text or "認証にご協力ください" in body_text:
@@ -1409,7 +1411,7 @@ def _append_parent_listing_seeds(seeds: list[str], company: str) -> None:
     # Broader parent listing pages often have inventory when leaf areas are empty.
     # Mizuho parents burn a full Playwright bypass each (~30s) — never invent them.
     # Nomura leaf ensen URLs are denser than invented parents (which flake under load).
-    if company.lower() in ("mizuho", "nomura"):
+    if company.lower() in ("mizuho", "nomura", "sumai1"):
         return
     for seed in list(seeds):
         if "?" in seed:

@@ -50,7 +50,7 @@ class ParseSmtrcMansionStartAsync(ParseMiddlePageAsyncBase):
         return 1
 
     def _getTimeOutSecond(self):
-        return 600
+        return 2400
 
     def _getApiKey(self):
         return API_KEY_SMTRC_MANSION_DETAIL
@@ -96,7 +96,7 @@ class ParseSmtrcKodateStartAsync(ParseMiddlePageAsyncBase):
         return 1
 
     def _getTimeOutSecond(self):
-        return 600
+        return 2400
 
     def _getApiKey(self):
         return API_KEY_SMTRC_KODATE_DETAIL
@@ -142,7 +142,7 @@ class ParseSmtrcTochiStartAsync(ParseMiddlePageAsyncBase):
         return 1
 
     def _getTimeOutSecond(self):
-        return 600
+        return 2400
 
     def _getApiKey(self):
         return API_KEY_SMTRC_TOCHI_DETAIL
@@ -188,7 +188,7 @@ class ParseSmtrcInvestmentStartAsync(ParseMiddlePageAsyncBase):
         return 1
 
     def _getTimeOutSecond(self):
-        return 600
+        return 2400
 
     def _getApiKey(self):
         return API_KEY_SMTRC_INVESTMENT_DETAIL

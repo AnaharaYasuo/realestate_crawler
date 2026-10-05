@@ -242,7 +242,12 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
-        item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "")
+        item.kaisuStr = (
+            specs.get("所在階", "")
+            or specs.get("所在階/階建", "")
+            or specs.get("所在階／階建", "")
+            or specs.get("階数", "")
+        )
         self._parse_floor_spec(item, item.kaisuStr)
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "")
