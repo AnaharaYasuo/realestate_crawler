@@ -74,6 +74,41 @@ def predict_batch_ensemble(
     return apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
 
 
+def _resolve_models_and_master(
+    reg: ModelRegistry,
+    ptype: str,
+    stage_key: str,
+    models_provider: Any,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """モデル辞書および市場マスタを解決"""
+    if callable(models_provider):
+        first_m, second_m, mkt_master = models_provider(ptype)
+        return (second_m if stage_key == "second" else first_m), mkt_master
+    return reg.models(ptype, stage_key), reg.market_master()
+
+
+def _resolve_weights_and_smearing(
+    reg: ModelRegistry,
+    ptype: str,
+    stage_key: str,
+    dynamic_weights: dict[str, Any] | None,
+    smearing_factors: dict[str, Any] | None,
+) -> tuple[dict[str, float], float]:
+    """重みとスミアリング係数を解決"""
+    if dynamic_weights and ptype in dynamic_weights:
+        weights = dynamic_weights.get(ptype, {}).get(stage_key) or reg.weights(ptype, stage_key)
+    else:
+        weights = reg.weights(ptype, stage_key)
+
+    if smearing_factors and ptype in smearing_factors:
+        val = smearing_factors.get(ptype, {}).get(stage_key, 1.0)
+        smearing_factor = float(val) if val and float(val) > 0 else 1.0
+    else:
+        smearing_factor = reg.smearing(ptype, stage_key)
+
+    return weights, smearing_factor
+
+
 def bulk_predict(
     properties_list: list[Any],
     stage: str = "first",
@@ -86,16 +121,6 @@ def bulk_predict(
 ) -> list[int]:
     """
     複数物件に対する一括ベクトル化推論 (一次・二次統合)
-
-    Args:
-        properties_list: 対象物件オブジェクトまたは辞書のリスト
-        stage: 'first' または 'second'
-        interior_scores: 二次推論用の内装スコアリスト (任意)
-        layout_scores: 二次推論用の間取りスコアリスト (任意)
-        registry: ModelRegistry インスタンス (None の場合は既定シングルトン)
-        models_provider: 既存テスト互換用モデル取得プロバイダ (ptype -> (first, second, master))
-        weights_provider: 既存テスト互換用重み取得プロバイダ
-        smearing_provider: 既存テスト互換用スミアリング取得プロバイダ
     """
     if not properties_list:
         return []
@@ -105,18 +130,11 @@ def bulk_predict(
     grouped_props = group_properties_by_type(properties_list)
     final_results = [0] * len(properties_list)
 
-    # 既存テストの monkeypatch 対応: providers が渡されている場合はそちらを優先
     dynamic_weights = weights_provider(reg.model_dir) if callable(weights_provider) else None
     smearing_factors = smearing_provider(reg.model_dir) if callable(smearing_provider) else None
 
     for ptype, items in grouped_props.items():
-        if callable(models_provider):
-            first_m, second_m, mkt_master = models_provider(ptype)
-            models = second_m if stage_key == "second" else first_m
-        else:
-            models = reg.models(ptype, stage_key)
-            mkt_master = reg.market_master()
-
+        models, mkt_master = _resolve_models_and_master(reg, ptype, stage_key, models_provider)
         if not models:
             continue
 
@@ -130,23 +148,16 @@ def bulk_predict(
         feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
         df = prepare_df_features(features_list, feature_cols)
 
-        if dynamic_weights and ptype in dynamic_weights:
-            weights = dynamic_weights.get(ptype, {}).get(stage_key) or reg.weights(ptype, stage_key)
-        else:
-            weights = reg.weights(ptype, stage_key)
-
-        if smearing_factors and ptype in smearing_factors:
-            val = smearing_factors.get(ptype, {}).get(stage_key, 1.0)
-            smearing_factor = float(val) if val and float(val) > 0 else 1.0
-        else:
-            smearing_factor = reg.smearing(ptype, stage_key)
+        weights, smearing_factor = _resolve_weights_and_smearing(
+            reg, ptype, stage_key, dynamic_weights, smearing_factors
+        )
 
         preds_arr = predict_batch_ensemble(models, weights, smearing_factor, df)
         for i, val in enumerate(preds_arr):
-            original_idx = sub_indices[i]
-            final_results[original_idx] = int(max(0, val))
+            final_results[sub_indices[i]] = int(max(0, val))
 
     return final_results
+
 
 
 def log_prediction_error(

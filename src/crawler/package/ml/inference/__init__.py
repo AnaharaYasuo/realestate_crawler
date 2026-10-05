@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ML 推論パッケージ (Issue #714)"""
 
 from package.ml.inference.api_client import (

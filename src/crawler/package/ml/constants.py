@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ML パイプライン共通定数定義 (Issue #710, #714)"""
 
 PROPERTY_TYPES: tuple[str, ...] = ("mansion", "kodate", "apartment", "tochi")
