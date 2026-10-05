@@ -82,8 +82,8 @@ def _deploy_step(job_name):
 # ---------------------------------------------------------------------------
 
 
-def test_crawler_timeout_default_is_four_hours():
-    assert _var_default("crawler_timeout") == "14400s"
+def test_crawler_timeout_default_is_five_hours():
+    assert _var_default("crawler_timeout") == "18000s"
 
 
 def test_crawler_timeout_description_matches_cloud_run_limit():
@@ -296,7 +296,7 @@ def test_safety_net_runs_after_latest_crawler_and_ml_end():
 
 def test_ml_pipeline_starts_after_four_hour_crawler_deadline():
     assert _cron_seconds(_var_default("ml_pipeline_schedule_cron")) > _crawler_latest_end_sec()
-    assert _var_default("ml_pipeline_schedule_cron") == "10 20 * * *"
+    assert _var_default("ml_pipeline_schedule_cron") == "10 21 * * *"
 
 
 # ---------------------------------------------------------------------------
@@ -322,4 +322,4 @@ def test_backup_start_time_is_on_the_hour_before_next_crawl():
     start = _backup_start_sec()
     assert start % 3600 == 0
     assert start < 24 * 3600
-    assert start == 22 * 3600  # 22:00 UTC (JST 07:00)
+    assert start == 23 * 3600  # 23:00 UTC (JST 08:00)

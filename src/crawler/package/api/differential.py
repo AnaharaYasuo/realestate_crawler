@@ -86,7 +86,7 @@ async def _batch_update_cached(model_class: Any, to_skip: list[str], now: Any) -
 async def filter_differential_items(
     items: list[Any],
     model_class: Any,
-    ttl_days: int = 7,
+    ttl_days: int = 30,
     force_full: bool = False,
     enabled: bool = True,
 ) -> tuple[list[str], list[str]]:
