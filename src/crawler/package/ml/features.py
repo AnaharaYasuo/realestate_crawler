@@ -1668,7 +1668,7 @@ def _building_master_key(property_obj) -> tuple[str, str] | None:
     return (n_name, n_addr) if n_name and n_addr else None
 
 
-def _prefetch_building_masters(properties_list) -> Dict[Tuple[str, str], Any]:
+def _prefetch_building_masters(properties_list) -> dict[tuple[str, str], Any] | None:
     """建物マスタ未紐付けの物件について、正規化キーで BuildingMaster を一括取得する"""
     keys = set()
     for prop in properties_list:
@@ -1703,10 +1703,11 @@ def _resolve_building_master_obj(property_obj, bm_lookup=None):
         return None
     if bm_lookup is not None:
         return bm_lookup.get(key)
+    from django.db import DatabaseError
     try:
         from package.models.building_master import BuildingMaster
         return BuildingMaster.objects.filter(normalized_name=key[0], normalized_address=key[1]).first()
-    except Exception:
+    except DatabaseError:
         return None
 
 def _extract_bm_seismic_and_elevator(bm_obj, combined_text):
