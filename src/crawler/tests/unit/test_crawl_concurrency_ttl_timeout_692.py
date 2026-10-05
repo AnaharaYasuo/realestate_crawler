@@ -43,12 +43,30 @@ def test_ensure_resources_stopped_hung_threshold_is_five_hours_plus_grace():
     assert ensure_resources_stopped.DEFAULT_HUNG_THRESHOLD_SEC == 18600.0
 
 
+class _DummyProc(api_module.ApiAsyncProcBase):
+    def _generateParser(self):
+        return None
+    def _getApiKey(self):
+        return ""
+    def _getTimeOutSecond(self):
+        return 10
+    def _treatPage(self, _session, *arg):
+        return None
+    def _getTreatPageArg(self):
+        return None
+    def _callApi(self, url_list):
+        return None
+
+_DummyProc.__abstractmethods__ = frozenset()
+
+
 @pytest.mark.asyncio
 async def test_handle_local_execution_async_concurrent():
     """基準1: _handle_local_execution が同期シグネチャを保持しつつ asyncio.to_thread で並行実行可能であること"""
-    proc = api_module.ApiAsyncProcBase()
+    proc = _DummyProc()
     assert not inspect.iscoroutinefunction(proc._handle_local_execution)
     with patch("package.api.api.ApiRegistry.get", return_value=None):
         res = await asyncio.to_thread(proc._handle_local_execution, "http://localhost/test", "http://example.com/item1")
         assert res is None
+
 

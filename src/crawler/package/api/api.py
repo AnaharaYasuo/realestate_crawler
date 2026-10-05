@@ -817,26 +817,35 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         logger.debug("Local routing to %s", getattr(target_class, "__name__", str(target_class)))
         parent_keys = _current_dispatch_keys()
 
-        if os.path.exists("stop.flag"):
-            return detail_url, 200, "Aborted"
-
         child_errors: list[BaseException] = []
-        new_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(new_loop)
-        _crawl_run_state.keys = parent_keys
-        try:
-            target_class().main(detail_url)
-        except Exception as exc:  # noqa: BLE001
-            child_errors.append(exc)
-        finally:
-            _crawl_run_state.keys = None
+
+        def run_in_new_loop():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            _crawl_run_state.keys = parent_keys
             try:
-                from django.db import close_old_connections, connections
+                target_class().main(detail_url)
+            except Exception as exc:  # noqa: BLE001
+                child_errors.append(exc)
+            finally:
+                _crawl_run_state.keys = None
+                try:
+                    from django.db import close_old_connections, connections
+                    close_old_connections()
+                    connections.close_all()
+                except Exception:
+                    pass
+                new_loop.close()
+
+        t = threading.Thread(target=run_in_new_loop)
+        t.start()
+        while t.is_alive():
+            t.join(1.0)
+            if os.path.exists("stop.flag"):
+                print("stop.flag found, forcing exit...", flush=True)
+                from django.db import close_old_connections
                 close_old_connections()
-                connections.close_all()
-            except Exception:
-                pass
-            new_loop.close()
+                os._exit(0)
 
         if child_errors:
             logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
