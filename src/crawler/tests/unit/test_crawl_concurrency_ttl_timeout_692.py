@@ -45,9 +45,10 @@ def test_ensure_resources_stopped_hung_threshold_is_five_hours_plus_grace():
 
 @pytest.mark.asyncio
 async def test_handle_local_execution_async_concurrent():
-    """基準1: _handle_local_execution が非同期コルーチンであり並行実行可能であること"""
+    """基準1: _handle_local_execution が同期シグネチャを保持しつつ asyncio.to_thread で並行実行可能であること"""
     proc = api_module.ApiAsyncProcBase()
-    assert inspect.iscoroutinefunction(proc._handle_local_execution)
+    assert not inspect.iscoroutinefunction(proc._handle_local_execution)
     with patch("package.api.api.ApiRegistry.get", return_value=None):
-        res = await proc._handle_local_execution("http://localhost/test", "http://example.com/item1")
+        res = await asyncio.to_thread(proc._handle_local_execution, "http://localhost/test", "http://example.com/item1")
         assert res is None
+

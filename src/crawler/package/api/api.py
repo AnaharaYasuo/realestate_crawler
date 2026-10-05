@@ -805,7 +805,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
-    async def _handle_local_execution(self, api_url, detail_url):
+    def _handle_local_execution(self, api_url, detail_url):
         parsed = urlparse(api_url)
         path = parsed.path
         target_class = ApiRegistry.get(path)
@@ -817,34 +817,31 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         logger.debug("Local routing to %s", getattr(target_class, "__name__", str(target_class)))
         parent_keys = _current_dispatch_keys()
 
-        def _execute_sync():
-            if os.path.exists("stop.flag"):
-                return detail_url, 200, "Aborted"
+        if os.path.exists("stop.flag"):
+            return detail_url, 200, "Aborted"
 
-            child_errors: list[BaseException] = []
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            _crawl_run_state.keys = parent_keys
+        child_errors: list[BaseException] = []
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        _crawl_run_state.keys = parent_keys
+        try:
+            target_class().main(detail_url)
+        except Exception as exc:  # noqa: BLE001
+            child_errors.append(exc)
+        finally:
+            _crawl_run_state.keys = None
             try:
-                target_class().main(detail_url)
-            except Exception as exc:  # noqa: BLE001
-                child_errors.append(exc)
-            finally:
-                _crawl_run_state.keys = None
-                try:
-                    from django.db import close_old_connections, connections
-                    close_old_connections()
-                    connections.close_all()
-                except Exception:
-                    pass
-                new_loop.close()
+                from django.db import close_old_connections, connections
+                close_old_connections()
+                connections.close_all()
+            except Exception:
+                pass
+            new_loop.close()
 
-            if child_errors:
-                logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
-                return detail_url, 500, "LocalError"
-            return detail_url, 200, "LocalSync"
-
-        return await asyncio.to_thread(_execute_sync)
+        if child_errors:
+            logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
+            return detail_url, 500, "LocalError"
+        return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
         if os.path.exists("stop.flag"):
@@ -865,7 +862,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
         send_state = {"sent": False}
 
-        local_result = await self._handle_local_execution(api_url, detail_url)
+        local_result = await asyncio.to_thread(self._handle_local_execution, api_url, detail_url)
         if local_result is not None:
             return local_result
 
