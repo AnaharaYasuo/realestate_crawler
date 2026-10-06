@@ -788,3 +788,8 @@ graph TD
 
 
 
+
+
+## 保存後データ品質チェックの共通化 (Issue #741)
+- `package.utils.data_validator.tag_property_integrity` を単件保存・バッチ保存(`_afterRunProc`)の保存後に共通呼び出しし、NGなら `PropertyEvaluation.needs_parser_fix=True` (auto_heal_parsers 対象)、OKなら解消する。
+- `PropertyDataValidator` は全ページ必須項目(物件名・住所・交通)、居住用(mansion/kodate)の間取り・築年月の欠損をNG判定する。
