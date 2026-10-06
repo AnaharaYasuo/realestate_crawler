@@ -33,21 +33,23 @@ def _should_skip_item(existing_eval: Any, force: bool) -> bool:
     return bool(not force and existing_eval and existing_eval.first_stage_predicted_price is not None)
 
 
-def iter_unprocessed_items(
+def iter_active_items(
     model: Any,
     existing_eval_map: dict[str, Any],
     force: bool = False,
-) -> Iterator[tuple[Any | None, bool]]:
-    """未処理物件を走査し、(item, was_skipped) を yield する"""
+) -> Iterator[tuple[Any, int]]:
+    """スキップ判定を通過した物件と、その直前までのスキップ累積数を yield する"""
+    skipped_count = 0
     for item in model.objects.all().order_by("pk").iterator(chunk_size=2000):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         if not page_url:
             continue
         existing_eval = existing_eval_map.get(page_url)
         if _should_skip_item(existing_eval, force):
-            yield None, True
-        else:
-            yield item, False
+            skipped_count += 1
+            continue
+        yield item, skipped_count
+        skipped_count = 0
 
 
 def iter_unprocessed_chunks(
@@ -64,26 +66,20 @@ def iter_unprocessed_chunks(
         (chunk_items, skipped_count_in_this_yield)
     """
     current_chunk: list[Any] = []
-    skipped_count = 0
+    chunk_skipped = 0
     yielded_total = 0
 
-    for item, was_skipped in iter_unprocessed_items(model, existing_eval_map, force):
-        if was_skipped:
-            skipped_count += 1
-            continue
-
+    for item, skp in iter_active_items(model, existing_eval_map, force):
+        chunk_skipped += skp
         current_chunk.append(item)
-        remaining = (limit - yielded_total) if limit is not None else chunk_size
-        if len(current_chunk) >= min(chunk_size, remaining):
-            to_yield = current_chunk[:remaining] if limit is not None else current_chunk
-            yield to_yield, skipped_count
-            yielded_total += len(to_yield)
+        target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
+        if len(current_chunk) >= target_size:
+            yield current_chunk, chunk_skipped
+            yielded_total += len(current_chunk)
             current_chunk = []
-            skipped_count = 0
+            chunk_skipped = 0
             if limit is not None and yielded_total >= limit:
                 return
 
     if current_chunk:
-        remaining = (limit - yielded_total) if limit is not None else len(current_chunk)
-        if remaining > 0:
-            yield current_chunk[:remaining], skipped_count
+        yield current_chunk, chunk_skipped

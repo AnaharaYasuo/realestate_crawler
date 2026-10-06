@@ -163,7 +163,7 @@ def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None,
                         notify_slack(
                             f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
                         )
-                    except (RuntimeError, OSError, ConnectionError) as se:
+                    except (RuntimeError, OSError) as se:
                         logger.warning("Per-model progress Slack notification failed: %s", se)
                         slack_progress_active = False
             except Exception:

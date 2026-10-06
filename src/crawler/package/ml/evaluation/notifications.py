@@ -15,6 +15,6 @@ def notify_slack(msg: str) -> None:
     try:
         report_func = globals().get("send_dev_report", send_dev_report)
         async_to_sync(report_func)(msg)
-    except (RuntimeError, OSError, ConnectionError) as se:
+    except (RuntimeError, OSError) as se:
         logger.warning("Failed to send Slack report: %s", se)
 
