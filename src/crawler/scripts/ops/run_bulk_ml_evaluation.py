@@ -1,420 +1,59 @@
 # ruff: noqa: E402
-"""
-バルクML評価バッチスクリプト (Option B)
-
-クローリングによって保存された未評価物件に対して、
-MLモデルをメモリ上に一度だけロードし、一括で一次・二次理論価格評価および投資評価を実行します。
-"""
-import logging
+"""バルクML評価バッチ CLI スクリプト (Option B / Issue #716)"""
+import argparse
 import os
 import sys
-from asgiref.sync import async_to_sync
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from decimal import Decimal
 
 _scripts_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _crawler_dir = os.path.dirname(_scripts_dir)
 sys.path.insert(0, _crawler_dir)
-
 import realestateSettings
 realestateSettings.configure()
 
-from django.db import close_old_connections
-from django.apps import apps
+from package.ml.evaluation.notifications import notify_slack
+from package.ml.evaluation.persistence import bulk_update_evaluation_records, save_chunk
+from package.ml.evaluation.record_builder import (
+    build_or_update_eval_record, extract_land_rent_and_liability, populate_text_risks,
+)
+from package.ml.evaluation.runner import evaluate_single_model, run_bulk_evaluation as _orig_run_bulk_evaluation
+from package.ml.evaluation.targets import get_all_property_models
 from package.models.evaluation import PropertyEvaluation
-from package.ml.predict import bulk_predict_first_stage
-from package.ml.investment_evaluator import evaluate_investment_property
-from package.utils.converter import parse_chidai
-from package.utils.deduplication import clear_real_property_cache, find_duplicate_property
-from package.utils.text_risk_analyzer import analyze_text_risks
 from package.utils.slack import send_dev_report
-from package.utils.batch_metrics import BatchMetrics
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+_populate_text_risks = populate_text_risks
+_extract_land_rent_and_liability = extract_land_rent_and_liability
+_build_or_update_eval_record = build_or_update_eval_record
+_bulk_update_evaluation_records = bulk_update_evaluation_records
+_process_eval_chunk = save_chunk
+_evaluate_single_model = evaluate_single_model
+_notify_slack = notify_slack
+__all__ = [
+    "PropertyEvaluation", "_build_or_update_eval_record", "_bulk_update_evaluation_records",
+    "_evaluate_single_model", "_extract_land_rent_and_liability", "_notify_slack",
+    "_populate_text_risks", "_process_eval_chunk", "get_all_property_models",
+    "run_bulk_evaluation", "send_dev_report",
+]
 
+def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None, skip_portals: bool = False) -> None:
+    """CLI および外部呼び出し用のバルク評価実行（後方互換 monkeypatch 対応）"""
+    import package.ml.evaluation.notifications as notif_mod
+    import package.ml.evaluation.runner as runner_mod
+    import package.ml.evaluation.targets as tgts_mod
+    this_mod = sys.modules[__name__]
+    runner_mod.evaluate_single_model = getattr(this_mod, "_evaluate_single_model", _evaluate_single_model)
+    runner_mod.get_all_property_models = tgts_mod.get_all_property_models = getattr(this_mod, "get_all_property_models", get_all_property_models)
+    notif_mod.send_dev_report = getattr(this_mod, "send_dev_report", send_dev_report)
+    _orig_run_bulk_evaluation(force=force, limit_per_model=limit_per_model, skip_portals=skip_portals)
 
-def format_duration(seconds: int) -> str:
-    """Format duration seconds to readable string."""
-    h, rem = divmod(int(seconds), 3600)
-    m, s = divmod(rem, 60)
-    if h > 0:
-        return f"{h}時間{m}分{s}秒"
-    if m > 0:
-        return f"{m}分{s}秒"
-    return f"{s}秒"
-
-
-def _notify_slack(msg: str) -> None:
-    try:
-        async_to_sync(send_dev_report)(msg)
-    except Exception as se:
-        logger.warning("Failed to send Slack progress report: %s", se)
-
-PORTAL_COMPANIES = ["athome", "homes"]
-COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]
-DEFAULT_CONCURRENCY = 8
-DEFAULT_BATCH_SIZE = 1000
-
-BASE_UPDATE_FIELDS = (
-    "company", "property_type", "property_id", "first_stage_predicted_price",
-    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
-    "monthly_land_rent", "land_rent_liability",
-    "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
-    "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
-    "is_sublease", "bath_type", "gas_type", "sewage_type",
-    "has_elevator", "is_stair_only_3f_plus", "is_old_earthquake_standard",
-)
-INVESTMENT_UPDATE_FIELDS = (
-    "estimated_sekisan_price", "net_operating_income", "debt_service",
-    "dscr", "total_investment_score",
-)
-# 評価マップで読み込む列（スキップ判定用 + bulk_update 対象の全列）
-EVAL_MAP_FIELDS = (
-    "id", "property_url", "second_stage_predicted_price", "is_published", "needs_recrawl",
-) + BASE_UPDATE_FIELDS + INVESTMENT_UPDATE_FIELDS
-
-def get_all_property_models(skip_portals=False):
-    """登録されている全物件モデルを取得"""
-    property_models = []
-    target_companies = [c for c in COMPANIES if not (skip_portals and c in PORTAL_COMPANIES)]
-    app_config = apps.get_app_config("package")
-    for model in app_config.get_models():
-        model_name = model.__name__.lower()
-        if any(model_name.startswith(c) for c in target_companies):
-            property_models.append(model)
-    return property_models
-
-
-def _populate_text_risks(evaluation_record, item):
-    """物件テキストからプロ目線リスクフラグを抽出し評価レコードに反映する"""
-    full_text = " ".join(filter(None, [
-        getattr(item, "propertyName", ""),
-        getattr(item, "address", ""),
-        getattr(item, "traffic", ""),
-        getattr(item, "biko", ""),
-        getattr(item, "tochikenri", ""),
-        getattr(item, "genkyo", ""),
-        getattr(item, "torihiki", ""),
-        getattr(item, "setsubi", ""),
-    ]))
-    chikunengetsu = getattr(item, "chikunengetsu", None)
-    if chikunengetsu:
-        chikunengetsu_str = chikunengetsu.strftime("%Y年%m月") if hasattr(chikunengetsu, "strftime") else str(chikunengetsu)
-    else:
-        chikunengetsu_str = getattr(item, "chikunengetsuStr", None)
-    kaisu_str = getattr(item, "kaisu", None) or getattr(item, "shozaikai", None)
-    total_floors = getattr(item, "chijoKaisu", None) or getattr(item, "totalFloors", None)
-    parsed_total_floors = None
-    if total_floors is not None:
-        try:
-            parsed_total_floors = int(str(total_floors).replace("階", "").strip())
-        except ValueError:
-            parsed_total_floors = None
-    risks = analyze_text_risks(
-        full_text,
-        chikunengetsu_str=chikunengetsu_str,
-        kaisu_str=str(kaisu_str) if kaisu_str is not None else None,
-        total_floors=parsed_total_floors,
-    )
-    for k, v in risks.items():
-        setattr(evaluation_record, k, v)
-
-
-def _resolve_company_and_type(model_name: str) -> tuple[str, str]:
-    """モデル名から会社名と物件種別を判定する"""
-    company = "unknown"
-    for c in COMPANIES:
-        if model_name.lower().startswith(c):
-            company = c
-            break
-    property_type = model_name.lower().replace(company, "")
-    return company, property_type
-
-
-def _filter_unprocessed_items(model, existing_eval_map, force, limit_per_model):
-    """未処理物件を走査してリスト化する（イテレータによるストリーミング取得でRAM圧迫と過剰フェッチを防止）"""
-    unprocessed_items = []
-    skipped_count = 0
-    for item in model.objects.all().iterator(chunk_size=2000):
-        page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-        if not page_url:
-            continue
-        existing_eval = existing_eval_map.get(page_url)
-        # 公開終了物件または再クロール待ちの不正物件は評価対象から除外 (Issue #665)
-        if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
-            skipped_count += 1
-            continue
-        if not force and existing_eval and existing_eval.first_stage_predicted_price is not None:
-            skipped_count += 1
-            continue
-        unprocessed_items.append(item)
-        if limit_per_model and len(unprocessed_items) >= limit_per_model:
-            break
-    return unprocessed_items, skipped_count
-
-
-def _extract_land_rent_and_liability(item) -> tuple[int | None, Decimal | None]:
-    """物件から地代および借地権負担（債務控除額）を算出する"""
-    chidai_val = getattr(item, "chidai", None)
-    if chidai_val is None and getattr(item, "chidaiStr", None):
-        chidai_val = parse_chidai(item.chidaiStr)
-    monthly_rent = int(chidai_val) if chidai_val and int(chidai_val) > 0 else None
-    liability = Decimal(int((monthly_rent * 12.0) / 10000.0 / 0.05)) if monthly_rent else None
-    return monthly_rent, liability
-
-
-def _build_or_update_eval_record(item, price_stage1, existing, company, property_type):
-    """単一物件の評価レコードを生成または更新する"""
-    page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-    asking_price = (float(item.price) / 10000.0) if getattr(item, "price", None) else 0.0
-    is_passed = bool(price_stage1 > 0 and asking_price > 0 and price_stage1 >= asking_price)
-
-    monthly_rent, liability = _extract_land_rent_and_liability(item)
-
-    if existing and existing.pk:
-        rec = existing
-        rec.company = company
-        rec.property_type = property_type
-        rec.property_id = item.id
-        rec.first_stage_predicted_price = price_stage1
-        rec.is_first_stage_passed = is_passed
-        rec.analysis_status = "pending"
-        rec.monthly_land_rent = monthly_rent
-        rec.land_rent_liability = liability
-        _populate_text_risks(rec, item)
-        is_new = False
-    else:
-        rec = PropertyEvaluation(
-            property_url=page_url,
-            company=company,
-            property_type=property_type,
-            property_id=item.id,
-            first_stage_predicted_price=price_stage1,
-            is_first_stage_passed=is_passed,
-            analysis_status="pending",
-            monthly_land_rent=monthly_rent,
-            land_rent_liability=liability,
-        )
-        _populate_text_risks(rec, item)
-        is_new = True
-
-    if is_passed and not rec.duplicate_of_id:
-        dup = find_duplicate_property(rec, new_prop=item)
-        if dup:
-            rec.duplicate_of = dup
-            rec.is_slack_notified = True
-
-    if "investment" in property_type or "invest" in property_type:
-        rec = evaluate_investment_property(item, rec)
-
-    return rec, is_new
-
-
-def _bulk_update_evaluation_records(records_to_update, property_type, batch_size):
-    """更新対象レコードの重複を除去してbulk_updateを実行する"""
-    valid_updates = []
-    seen_pks = set()
-    for r in records_to_update:
-        if r.pk and r.pk not in seen_pks:
-            seen_pks.add(r.pk)
-            valid_updates.append(r)
-
-    if not valid_updates:
-        return
-
-    update_fields = list(BASE_UPDATE_FIELDS)
-    if "investment" in property_type or "invest" in property_type:
-        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
-    PropertyEvaluation.objects.bulk_update(
-        valid_updates,
-        fields=update_fields,
-        batch_size=batch_size,
-    )
-
-
-def _process_eval_chunk(chunk, predicted_prices, existing_eval_map, company, property_type, batch_size):
-    """チャンク内の物件を評価しDBに一括保存する"""
-    records_to_create = []
-    records_to_update = []
-    chunk_passed = 0
-    chunk_duplicates = 0
-    for item, price_stage1 in zip(chunk, predicted_prices):
-        page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-        existing = existing_eval_map.get(page_url)
-        rec, is_new = _build_or_update_eval_record(item, price_stage1, existing, company, property_type)
-        if rec.is_first_stage_passed:
-            chunk_passed += 1
-        if getattr(rec, "duplicate_of_id", None):
-            chunk_duplicates += 1
-        if is_new:
-            records_to_create.append(rec)
-        else:
-            records_to_update.append(rec)
-
-    if records_to_create:
-        # チャンク内URL重複排除とignore_conflicts=Trueで並行書き込み競合を防御
-        unique_creates = []
-        seen_create_urls = set()
-        for r in records_to_create:
-            if r.property_url and r.property_url not in seen_create_urls:
-                seen_create_urls.add(r.property_url)
-                unique_creates.append(r)
-        if unique_creates:
-            PropertyEvaluation.objects.bulk_create(
-                unique_creates,
-                batch_size=batch_size,
-                ignore_conflicts=True,
-            )
-
-    if records_to_update:
-        _bulk_update_evaluation_records(records_to_update, property_type, batch_size)
-
-    return chunk_passed, chunk_duplicates
-
-
-def _evaluate_single_model(model, existing_eval_map, force, limit_per_model, batch_size=500):
-    """単一モデルの物件群を評価（スレッドセーフ）"""
-    close_old_connections()
-    model_name = model.__name__
-    company, property_type = _resolve_company_and_type(model_name)
-    evaluated_count = 0
-    passed_count = 0
-    duplicate_count = 0
-    try:
-        unprocessed_items, skipped_count = _filter_unprocessed_items(
-            model, existing_eval_map, force, limit_per_model
-        )
-        if not unprocessed_items:
-            return evaluated_count, skipped_count, passed_count, duplicate_count
-
-        for chunk_idx in range(0, len(unprocessed_items), batch_size):
-            chunk = unprocessed_items[chunk_idx:chunk_idx + batch_size]
-            predicted_prices = bulk_predict_first_stage(chunk)
-            p_cnt, d_cnt = _process_eval_chunk(
-                chunk, predicted_prices, existing_eval_map, company, property_type, batch_size
-            )
-            evaluated_count += len(chunk)
-            passed_count += p_cnt
-            duplicate_count += d_cnt
-            logger.info("Evaluated %d properties for %s...", evaluated_count, model_name)
-            sys.stdout.flush()
-    finally:
-        close_old_connections()
-
-    return evaluated_count, skipped_count, passed_count, duplicate_count
-
-
-def run_bulk_evaluation(force=False, limit_per_model=None, skip_portals=False):
-    clear_real_property_cache()
-    concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
-    batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
-    logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals,
-    )
-    metrics = BatchMetrics(job_name="Bulk ML Evaluation")
-
-    # 1. 評価済みレコードを一括ロード (N+1解消のためのインメモリ辞書化)
-    #    後段で参照・bulk_update する全フィールドを読み込み、遅延ロードクエリを発生させない
-    existing_eval_map = {
-        e.property_url: e
-        for e in PropertyEvaluation.objects.all().only(*EVAL_MAP_FIELDS)
-    }
-
-    models = get_all_property_models(skip_portals=skip_portals)
-    if not models:
-        logger.error("❌ No property models found for evaluation.")
-        _notify_slack("⚠️ 【バルク価格推定エラー】 評価対象の物件モデルが0件でした。処理を中断します。")
-        sys.exit(1)
-
-    _notify_slack(
-        f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
-        f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{' [ポータル割愛]' if skip_portals else ''})..."
-    )
-
-    evaluated_count = 0
-    skipped_count = 0
-    passed_total = 0
-    duplicate_total = 0
-    failed_models = []
-    slack_progress_active = True
-
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        future_to_model = {
-            executor.submit(_evaluate_single_model, model, existing_eval_map, force, limit_per_model, batch_size): model
-            for model in models
-        }
-        for future in as_completed(future_to_model):
-            m = future_to_model[future]
-            try:
-                res = future.result()
-                cnt = res[0]
-                skp = res[1]
-                p_cnt = res[2] if len(res) > 2 else 0
-                d_cnt = res[3] if len(res) > 3 else 0
-
-                evaluated_count += cnt
-                skipped_count += skp
-                passed_total += p_cnt
-                duplicate_total += d_cnt
-
-                metrics.record_processed(cnt)
-                metrics.record_skipped(skp)
-
-                if cnt > 0 and slack_progress_active:
-                    try:
-                        _notify_slack(
-                            f"📊 【価格推定進捗】 {m.__name__}: 評価 {cnt} 件 (スキップ: {skp} 件) | 累計 {evaluated_count} 件完了"
-                        )
-                    except Exception as se:
-                        logger.warning("Per-model progress Slack notification failed, disabling further progress notifications: %s", se)
-                        slack_progress_active = False
-            except Exception:
-                failed_models.append(m.__name__)
-                metrics.record_failed(1)
-                logger.exception("Failed evaluating %s", m.__name__)
-
-    metrics.total_count = evaluated_count + skipped_count
-    metrics.finish()
-
-    custom_lines = [
-        f"• *スクリーニング*: 1次通過(割安候補) {passed_total:,} 件 | 重複除外 {duplicate_total:,} 件",
-        f"• *実行環境*: {len(models)} モデル | 並行スレッド {concurrency}",
-    ]
-    if failed_models:
-        custom_lines.append(f"⚠️ *評価失敗モデル*: {', '.join(failed_models)}")
-
-    finish_msg = metrics.build_slack_summary(
-        title="バルク価格推定完了",
-        custom_lines=custom_lines,
-        emoji="✅" if not failed_models else "⚠️",
-    )
-    _notify_slack(finish_msg)
-
-    banner = metrics.build_log_banner(
-        title="Bulk ML Evaluation Batch",
-        custom_sections=[
-            f"• スクリーニング: 1次通過(割安候補) {passed_total:,} 件 | 重複除外 {duplicate_total:,} 件",
-            f"• 実行環境    : {len(models)} モデル | 並行スレッド {concurrency}",
-        ]
-    )
-    logger.info("\n" + banner)
-
-    if failed_models:
-        logger.error("❌ Bulk ML Evaluation failed on models: %s", failed_models)
-        sys.exit(1)
-
-    clear_real_property_cache()
-    logger.info("✅ Bulk ML Evaluation Finished! Evaluated: %d, Skipped (Already done): %d", evaluated_count, skipped_count)
-    sys.stdout.flush()
-
-
-if __name__ == "__main__":
-    import argparse
+def main() -> None:
+    """CLI エントリポイント"""
     parser = argparse.ArgumentParser(description="Bulk ML Evaluation Batch")
     parser.add_argument("--force", action="store_true", help="Force re-evaluation of already evaluated properties")
     parser.add_argument("--limit", type=int, default=None, help="Limit properties per model for testing")
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes)")
     args = parser.parse_args()
     run_bulk_evaluation(force=args.force, limit_per_model=args.limit, skip_portals=args.skip_portals)
+
+
+if __name__ == "__main__":
+    main()

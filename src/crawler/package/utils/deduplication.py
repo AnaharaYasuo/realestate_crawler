@@ -29,7 +29,10 @@ def normalize_address(address: str) -> str:
     address = re.sub(r'-+', '-', address)
     address = address.strip('-')
     return address
-COMPANIES = ['mitsui', 'sumifu', 'tokyu', 'nomura', 'misawa', 'smtrc', 'sumai1', 'mizuho', 'odakyu', 'afr', 'sekisui', 'daiwa', 'totate', 'athome', 'homes', 'seibu', 'keikyu', 'sotetsu', 'keisei', 'daikyo', 'rearie', 'heim', 'sumirin', 'keio']
+
+
+from package.ml.constants import COMPANIES
+
 _REAL_PROPERTY_CACHE: dict[tuple[str, int], object] = {}
 
 def clear_real_property_cache():

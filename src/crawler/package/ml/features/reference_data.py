@@ -8,19 +8,27 @@ import threading
 from typing import Any
 
 from package.ml.features.constants import PREFECTURE_BASE_LAND_PRICES
+from package.ml.features.reference_records import (
+    HazardMapRecord,
+    LandPriceRecord,
+    MacroEconomicRecord,
+    MunicipalRecord,
+    StationRecord,
+    UrbanPlanningZoneRecord,
+)
 
 logger = logging.getLogger(__name__)
 
-# グローバルキャッシュ変数
-_muni_cache: dict[tuple[str, str], Any] = {}
-_muni_pref_cache: dict[str, list] = {}
-_station_cache: dict[str, Any] = {}
-_lp_cache: dict[tuple[str, str, str], Any] = {}
-_lp_pref_res_cache: dict[str, list] = {}
-_lp_pref_comm_cache: dict[str, list] = {}
-_hazard_cache: dict[tuple[str, str], Any] = {}
-_zone_cache: dict[str, Any] = {}
-_macro_cache: dict[str, Any] = {}
+# グローバルキャッシュ変数 (軽量 dataclass slots=True レコードを保持)
+_muni_cache: dict[tuple[str, str], MunicipalRecord] = {}
+_muni_pref_cache: dict[str, list[MunicipalRecord]] = {}
+_station_cache: dict[str, StationRecord] = {}
+_lp_cache: dict[tuple[str, str, str], LandPriceRecord] = {}
+_lp_pref_res_cache: dict[str, list[LandPriceRecord]] = {}
+_lp_pref_comm_cache: dict[str, list[LandPriceRecord]] = {}
+_hazard_cache: dict[tuple[str, str], HazardMapRecord] = {}
+_zone_cache: dict[str, UrbanPlanningZoneRecord] = {}
+_macro_cache: dict[str, MacroEconomicRecord] = {}
 
 _cache_lock = threading.Lock()
 
@@ -73,9 +81,22 @@ def _init_muni_cache(muni_cls) -> bool:
     if _muni_cache:
         return False
     _muni_pref_cache.clear()
-    for m in muni_cls.objects.all():
-        _muni_cache[(m.prefecture, m.city)] = m
-        _muni_pref_cache.setdefault(m.prefecture, []).append(m)
+    fields = [
+        "prefecture", "city", "population_growth_rate", "average_income",
+        "total_population", "income_growth_rate", "population_density",
+    ]
+    for row in muni_cls.objects.values(*fields):
+        rec = MunicipalRecord(
+            prefecture=row["prefecture"],
+            city=row["city"],
+            population_growth_rate=float(row["population_growth_rate"]) if row["population_growth_rate"] is not None else 0.0,
+            average_income=int(row["average_income"]),
+            total_population=row["total_population"],
+            income_growth_rate=float(row["income_growth_rate"]) if row["income_growth_rate"] is not None else None,
+            population_density=float(row["population_density"]) if row["population_density"] is not None else None,
+        )
+        _muni_cache[(rec.prefecture, rec.city)] = rec
+        _muni_pref_cache.setdefault(rec.prefecture, []).append(rec)
     return True
 
 
@@ -84,29 +105,105 @@ def _init_lp_cache(lp_cls) -> bool:
         return False
     _lp_pref_res_cache.clear()
     _lp_pref_comm_cache.clear()
-    for lp in lp_cls.objects.all():
-        _lp_cache[(lp.prefecture, lp.city, lp.land_use)] = lp
-        if lp.land_use == 'residential':
-            _lp_pref_res_cache.setdefault(lp.prefecture, []).append(lp)
-        elif lp.land_use == 'commercial':
-            _lp_pref_comm_cache.setdefault(lp.prefecture, []).append(lp)
+    fields = [
+        "prefecture", "city", "average_land_price", "estimated_rosenka_price",
+        "estimated_fixed_asset_price", "land_price_growth_rate", "land_use",
+    ]
+    for row in lp_cls.objects.values(*fields):
+        rec = LandPriceRecord(
+            prefecture=row["prefecture"],
+            city=row["city"],
+            average_land_price=int(row["average_land_price"]),
+            estimated_rosenka_price=row["estimated_rosenka_price"],
+            estimated_fixed_asset_price=row["estimated_fixed_asset_price"],
+            land_price_growth_rate=float(row["land_price_growth_rate"]) if row["land_price_growth_rate"] is not None else None,
+            land_use=row["land_use"],
+        )
+        _lp_cache[(rec.prefecture, rec.city, rec.land_use)] = rec
+        if rec.land_use == "residential":
+            _lp_pref_res_cache.setdefault(rec.prefecture, []).append(rec)
+        elif rec.land_use == "commercial":
+            _lp_pref_comm_cache.setdefault(rec.prefecture, []).append(rec)
     return True
 
 
-def _fill_if_empty(cache: dict, model_cls, key_func) -> bool:
+def _load_stations(station_cls) -> bool:
+    if _station_cache:
+        return False
+    for row in station_cls.objects.values("station_name", "passenger_volume"):
+        rec = StationRecord(station_name=row["station_name"], passenger_volume=int(row["passenger_volume"]))
+        _station_cache[rec.station_name] = rec
+    return bool(_station_cache)
+
+
+def _load_hazards(hazard_cls) -> bool:
+    if _hazard_cache:
+        return False
+    for row in hazard_cls.objects.values("prefecture", "city", "flood_risk_level", "landslide_risk_level"):
+        h_rec = HazardMapRecord(
+            prefecture=row["prefecture"],
+            city=row["city"],
+            flood_risk_level=int(row["flood_risk_level"]),
+            landslide_risk_level=int(row["landslide_risk_level"]),
+        )
+        _hazard_cache[(h_rec.prefecture, h_rec.city)] = h_rec
+    return bool(_hazard_cache)
+
+
+def _load_zones(zone_cls) -> bool:
+    if _zone_cache:
+        return False
+    for row in zone_cls.objects.values("zone_name", "max_kenpei", "max_youseki"):
+        z_rec = UrbanPlanningZoneRecord(
+            zone_name=row["zone_name"],
+            max_kenpei=int(row["max_kenpei"]),
+            max_youseki=int(row["max_youseki"]),
+        )
+        _zone_cache[z_rec.zone_name] = z_rec
+    return bool(_zone_cache)
+
+
+def _to_float_or_none(val: Any) -> float | None:
+    return float(val) if val is not None else None
+
+
+def _load_macros(macro_cls) -> bool:
+    if _macro_cache:
+        return False
+    macro_fields = [
+        "year_month", "repi_mansion", "repi_kodate", "repi_tochi",
+        "jgb_10y_yield", "nikkei_225", "tse_reit_index", "construction_cost_index",
+    ]
+    for row in macro_cls.objects.values(*macro_fields):
+        m_rec = MacroEconomicRecord(
+            year_month=row["year_month"],
+            repi_mansion=_to_float_or_none(row["repi_mansion"]),
+            repi_kodate=_to_float_or_none(row["repi_kodate"]),
+            repi_tochi=_to_float_or_none(row["repi_tochi"]),
+            jgb_10y_yield=_to_float_or_none(row["jgb_10y_yield"]),
+            nikkei_225=_to_float_or_none(row["nikkei_225"]),
+            tse_reit_index=_to_float_or_none(row["tse_reit_index"]),
+            construction_cost_index=_to_float_or_none(row["construction_cost_index"]),
+        )
+        _macro_cache[m_rec.year_month] = m_rec
+    return bool(_macro_cache)
+
+
+def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls) -> bool:
+    loaded = _load_stations(station_cls)
+    loaded |= _load_hazards(hazard_cls)
+    loaded |= _load_zones(zone_cls)
+    loaded |= _load_macros(macro_cls)
+    return loaded
+
+
+def _fill_if_empty(cache: dict, model_cls: Any, key_func: Any) -> bool:
+    """後方互換性エイリアス"""
     if cache:
         return False
     for rec in model_cls.objects.all():
         cache[key_func(rec)] = rec
     return bool(cache)
-
-
-def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls) -> bool:
-    loaded = _fill_if_empty(_station_cache, station_cls, lambda s: s.station_name)
-    loaded |= _fill_if_empty(_hazard_cache, hazard_cls, lambda hz: (hz.prefecture, hz.city))
-    loaded |= _fill_if_empty(_zone_cache, zone_cls, lambda z: z.zone_name)
-    loaded |= _fill_if_empty(_macro_cache, macro_cls, lambda m: m.year_month)
-    return loaded
 
 
 def _all_caches_populated() -> bool:
