@@ -1,0 +1,25 @@
+#!/bin/sh
+# .githooks/post-checkout
+# Auto-sync CodeGraph index after git checkout (branch switches)
+
+export MSYS_NO_PATHCONV=1
+
+prev_head="$1"
+new_head="$2"
+is_branch_checkout="$3"
+
+sync_codegraph() {
+    # If Windows and cmd.exe exists, prefer running through cmd to bypass PowerShell execution policy
+    if command -v cmd.exe >/dev/null 2>&1; then
+        cmd.exe /c "codegraph sync" >/dev/null 2>&1 || true
+    elif command -v codegraph >/dev/null 2>&1; then
+        codegraph sync >/dev/null 2>&1 || true
+    fi
+}
+
+# Only sync when switching branches (flag is 1)
+if [ "$is_branch_checkout" = "1" ]; then
+    sync_codegraph || true
+fi
+
+exit 0
