@@ -29,11 +29,32 @@ SUMAI1_PARSER_MODULE = "package.parser.sumai1Parser"
 SUMAI1_MODEL_MODULE = "package.models.sumai1"
 HEIM_PARSER_MODULE = "package.parser.heimParser"
 HEIM_MODEL_MODULE = "package.models.heim"
+DAIKYO_PARSER_MODULE = "package.parser.daikyoParser"
+DAIKYO_MODEL_MODULE = "package.models.daikyo"
+MIZUHO_PARSER_MODULE = "package.parser.mizuhoParser"
+MIZUHO_MODEL_MODULE = "package.models.mizuho"
+DAIWA_PARSER_MODULE = "package.parser.daiwaParser"
+DAIWA_MODEL_MODULE = "package.models.daiwa"
+ODAKYU_PARSER_MODULE = "package.parser.odakyuParser"
+ODAKYU_MODEL_MODULE = "package.models.odakyu"
+KEIO_PARSER_MODULE = "package.parser.keioParser"
+KEIO_MODEL_MODULE = "package.models.keio"
+KEIKYU_PARSER_MODULE = "package.parser.keikyuParser"
+KEIKYU_MODEL_MODULE = "package.models.keikyu"
+KEISEI_PARSER_MODULE = "package.parser.keiseiParser"
+KEISEI_MODEL_MODULE = "package.models.keisei"
+SUMIRIN_PARSER_MODULE = "package.parser.sumirinParser"
+SUMIRIN_MODEL_MODULE = "package.models.sumirin"
 
 
 HEIM_DETAIL_PATTERN = re.compile(
     r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"
 )
+DAIKYO_DETAIL_PATTERN = re.compile(r"daikyo-anabuki\.co\.jp/buy/detail/")
+MIZUHO_BUYERS_PATTERN = re.compile(r"mizuho-re\.co\.jp/buyers/")
+KEIO_SALE_PATTERN = re.compile(r"chukai\.keiofudosan\.co\.jp/sale/")
+KEIKYU_DETAIL_PATTERN = re.compile(r"keikyu-sumai\.com/contents/code/detail/")
+KEISEI_DETAIL_PATTERN = re.compile(r"keisei-land\.co\.jp/contents/code/detail/")
 
 
 class UrlRouter:
@@ -108,7 +129,7 @@ class UrlRouter:
             "model_cls": "TokyuTochi",
         },
         {
-            "pattern": re.compile(r"livable\.co\.jp/toushi/.*C[A-Z0-9]+"),
+            "pattern": re.compile(r"livable\.co\.jp/(?:toushi|fudosan-toushi)/.*C[A-Z0-9]+"),
             "site": "tokyu",
             "property_type": "apartment",
             "parser_module": TOKYU_PARSER_MODULE,
@@ -176,6 +197,15 @@ class UrlRouter:
         },
         {
             "pattern": re.compile(r"athome\.co\.jp/tochi/"),
+            "site": "athome",
+            "property_type": "tochi",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeTochiParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeTochi",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
             "site": "athome",
             "property_type": "tochi",
             "parser_module": ATHOME_PARSER_MODULE,
@@ -479,6 +509,294 @@ class UrlRouter:
             "parser_cls": "HeimTochiParser",
             "model_module": HEIM_MODEL_MODULE,
             "model_cls": "HeimTochi",
+        },
+
+        # 大京穴吹不動産 (Daikyo)
+        {
+            "pattern": DAIKYO_DETAIL_PATTERN,
+            "site": "daikyo",
+            "property_type": "mansion",
+            "parser_module": DAIKYO_PARSER_MODULE,
+            "parser_cls": "DaikyoMansionParser",
+            "model_module": DAIKYO_MODEL_MODULE,
+            "model_cls": "DaikyoMansion",
+        },
+        {
+            "pattern": DAIKYO_DETAIL_PATTERN,
+            "site": "daikyo",
+            "property_type": "kodate",
+            "parser_module": DAIKYO_PARSER_MODULE,
+            "parser_cls": "DaikyoKodateParser",
+            "model_module": DAIKYO_MODEL_MODULE,
+            "model_cls": "DaikyoKodate",
+        },
+        {
+            "pattern": DAIKYO_DETAIL_PATTERN,
+            "site": "daikyo",
+            "property_type": "tochi",
+            "parser_module": DAIKYO_PARSER_MODULE,
+            "parser_cls": "DaikyoTochiParser",
+            "model_module": DAIKYO_MODEL_MODULE,
+            "model_cls": "DaikyoTochi",
+        },
+
+        # みずほ不動産販売 (Mizuho)
+        {
+            "pattern": re.compile(r"mizuho-re\.co\.jp/investors/"),
+            "site": "mizuho",
+            "property_type": "apartment",
+            "parser_module": MIZUHO_PARSER_MODULE,
+            "parser_cls": "MizuhoInvestmentParser",
+            "model_module": MIZUHO_MODEL_MODULE,
+            "model_cls": "MizuhoInvestment",
+        },
+        {
+            "pattern": MIZUHO_BUYERS_PATTERN,
+            "site": "mizuho",
+            "property_type": "mansion",
+            "parser_module": MIZUHO_PARSER_MODULE,
+            "parser_cls": "MizuhoMansionParser",
+            "model_module": MIZUHO_MODEL_MODULE,
+            "model_cls": "MizuhoMansion",
+        },
+        {
+            "pattern": MIZUHO_BUYERS_PATTERN,
+            "site": "mizuho",
+            "property_type": "kodate",
+            "parser_module": MIZUHO_PARSER_MODULE,
+            "parser_cls": "MizuhoKodateParser",
+            "model_module": MIZUHO_MODEL_MODULE,
+            "model_cls": "MizuhoKodate",
+        },
+        {
+            "pattern": MIZUHO_BUYERS_PATTERN,
+            "site": "mizuho",
+            "property_type": "tochi",
+            "parser_module": MIZUHO_PARSER_MODULE,
+            "parser_cls": "MizuhoTochiParser",
+            "model_module": MIZUHO_MODEL_MODULE,
+            "model_cls": "MizuhoTochi",
+        },
+
+        # 大和ハウスリアルエステート (Daiwa)
+        {
+            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/mansion/"),
+            "site": "daiwa",
+            "property_type": "mansion",
+            "parser_module": DAIWA_PARSER_MODULE,
+            "parser_cls": "DaiwaMansionParser",
+            "model_module": DAIWA_MODEL_MODULE,
+            "model_cls": "DaiwaMansion",
+        },
+        {
+            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/kodate/"),
+            "site": "daiwa",
+            "property_type": "kodate",
+            "parser_module": DAIWA_PARSER_MODULE,
+            "parser_cls": "DaiwaKodateParser",
+            "model_module": DAIWA_MODEL_MODULE,
+            "model_cls": "DaiwaKodate",
+        },
+        {
+            "pattern": re.compile(r"dh-realestate\.co\.jp/buy/tochi/"),
+            "site": "daiwa",
+            "property_type": "tochi",
+            "parser_module": DAIWA_PARSER_MODULE,
+            "parser_cls": "DaiwaTochiParser",
+            "model_module": DAIWA_MODEL_MODULE,
+            "model_cls": "DaiwaTochi",
+        },
+
+        # 東急リバブル提携 住み替え (Tokyu Sumikae)
+        {
+            "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/mansion/"),
+            "site": "tokyu",
+            "property_type": "mansion",
+            "parser_module": TOKYU_PARSER_MODULE,
+            "parser_cls": "TokyuMansionParser",
+            "model_module": TOKYU_MODEL_MODULE,
+            "model_cls": "TokyuMansion",
+        },
+        {
+            "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/kodate/"),
+            "site": "tokyu",
+            "property_type": "kodate",
+            "parser_module": TOKYU_PARSER_MODULE,
+            "parser_cls": "TokyuKodateParser",
+            "model_module": TOKYU_MODEL_MODULE,
+            "model_cls": "TokyuKodate",
+        },
+        {
+            "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/tochi/"),
+            "site": "tokyu",
+            "property_type": "tochi",
+            "parser_module": TOKYU_PARSER_MODULE,
+            "parser_cls": "TokyuTochiParser",
+            "model_module": TOKYU_MODEL_MODULE,
+            "model_cls": "TokyuTochi",
+        },
+
+        # 小田急不動産 (Odakyu)
+        {
+            "pattern": re.compile(r"odakyu-chukai\.com/invest/"),
+            "site": "odakyu",
+            "property_type": "apartment",
+            "parser_module": ODAKYU_PARSER_MODULE,
+            "parser_cls": "OdakyuInvestmentParser",
+            "model_module": ODAKYU_MODEL_MODULE,
+            "model_cls": "OdakyuInvestment",
+        },
+        {
+            "pattern": re.compile(r"odakyu-chukai\.com/mansion/"),
+            "site": "odakyu",
+            "property_type": "mansion",
+            "parser_module": ODAKYU_PARSER_MODULE,
+            "parser_cls": "OdakyuMansionParser",
+            "model_module": ODAKYU_MODEL_MODULE,
+            "model_cls": "OdakyuMansion",
+        },
+        {
+            "pattern": re.compile(r"odakyu-chukai\.com/kodate/"),
+            "site": "odakyu",
+            "property_type": "kodate",
+            "parser_module": ODAKYU_PARSER_MODULE,
+            "parser_cls": "OdakyuKodateParser",
+            "model_module": ODAKYU_MODEL_MODULE,
+            "model_cls": "OdakyuKodate",
+        },
+        {
+            "pattern": re.compile(r"odakyu-chukai\.com/tochi/"),
+            "site": "odakyu",
+            "property_type": "tochi",
+            "parser_module": ODAKYU_PARSER_MODULE,
+            "parser_cls": "OdakyuTochiParser",
+            "model_module": ODAKYU_MODEL_MODULE,
+            "model_cls": "OdakyuTochi",
+        },
+
+        # 京王不動産 (Keio)
+        {
+            "pattern": KEIO_SALE_PATTERN,
+            "site": "keio",
+            "property_type": "mansion",
+            "parser_module": KEIO_PARSER_MODULE,
+            "parser_cls": "KeioMansionParser",
+            "model_module": KEIO_MODEL_MODULE,
+            "model_cls": "KeioMansion",
+        },
+        {
+            "pattern": KEIO_SALE_PATTERN,
+            "site": "keio",
+            "property_type": "kodate",
+            "parser_module": KEIO_PARSER_MODULE,
+            "parser_cls": "KeioKodateParser",
+            "model_module": KEIO_MODEL_MODULE,
+            "model_cls": "KeioKodate",
+        },
+        {
+            "pattern": KEIO_SALE_PATTERN,
+            "site": "keio",
+            "property_type": "tochi",
+            "parser_module": KEIO_PARSER_MODULE,
+            "parser_cls": "KeioTochiParser",
+            "model_module": KEIO_MODEL_MODULE,
+            "model_cls": "KeioTochi",
+        },
+
+        # 京急すまい (Keikyu)
+        {
+            "pattern": KEIKYU_DETAIL_PATTERN,
+            "site": "keikyu",
+            "property_type": "mansion",
+            "parser_module": KEIKYU_PARSER_MODULE,
+            "parser_cls": "KeikyuMansionParser",
+            "model_module": KEIKYU_MODEL_MODULE,
+            "model_cls": "KeikyuMansion",
+        },
+        {
+            "pattern": KEIKYU_DETAIL_PATTERN,
+            "site": "keikyu",
+            "property_type": "kodate",
+            "parser_module": KEIKYU_PARSER_MODULE,
+            "parser_cls": "KeikyuKodateParser",
+            "model_module": KEIKYU_MODEL_MODULE,
+            "model_cls": "KeikyuKodate",
+        },
+        {
+            "pattern": KEIKYU_DETAIL_PATTERN,
+            "site": "keikyu",
+            "property_type": "tochi",
+            "parser_module": KEIKYU_PARSER_MODULE,
+            "parser_cls": "KeikyuTochiParser",
+            "model_module": KEIKYU_MODEL_MODULE,
+            "model_cls": "KeikyuTochi",
+        },
+
+        # 京成不動産 (Keisei)
+        {
+            "pattern": KEISEI_DETAIL_PATTERN,
+            "site": "keisei",
+            "property_type": "mansion",
+            "parser_module": KEISEI_PARSER_MODULE,
+            "parser_cls": "KeiseiMansionParser",
+            "model_module": KEISEI_MODEL_MODULE,
+            "model_cls": "KeiseiMansion",
+        },
+        {
+            "pattern": KEISEI_DETAIL_PATTERN,
+            "site": "keisei",
+            "property_type": "kodate",
+            "parser_module": KEISEI_PARSER_MODULE,
+            "parser_cls": "KeiseiKodateParser",
+            "model_module": KEISEI_MODEL_MODULE,
+            "model_cls": "KeiseiKodate",
+        },
+        {
+            "pattern": KEISEI_DETAIL_PATTERN,
+            "site": "keisei",
+            "property_type": "tochi",
+            "parser_module": KEISEI_PARSER_MODULE,
+            "parser_cls": "KeiseiTochiParser",
+            "model_module": KEISEI_MODEL_MODULE,
+            "model_cls": "KeiseiTochi",
+        },
+
+        # 住友林業ホームサービス すみなび (Sumirin)
+        {
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/mansion/"),
+            "site": "sumirin",
+            "property_type": "mansion",
+            "parser_module": SUMIRIN_PARSER_MODULE,
+            "parser_cls": "SumirinMansionParser",
+            "model_module": SUMIRIN_MODEL_MODULE,
+            "model_cls": "SumirinMansion",
+        },
+        {
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/kodate/"),
+            "site": "sumirin",
+            "property_type": "kodate",
+            "parser_module": SUMIRIN_PARSER_MODULE,
+            "parser_cls": "SumirinKodateParser",
+            "model_module": SUMIRIN_MODEL_MODULE,
+            "model_cls": "SumirinKodate",
+        },
+        {
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/tochi/"),
+            "site": "sumirin",
+            "property_type": "tochi",
+            "parser_module": SUMIRIN_PARSER_MODULE,
+            "parser_cls": "SumirinTochiParser",
+            "model_module": SUMIRIN_MODEL_MODULE,
+            "model_cls": "SumirinTochi",
+        },
+        {
+            "pattern": re.compile(r"suminavi\.com/buy/estate/estateInfo/toushi/"),
+            "site": "sumirin",
+            "property_type": "apartment",
+            "parser_module": SUMIRIN_PARSER_MODULE,
+            "parser_cls": "SumirinInvestmentParser",
+            "model_module": SUMIRIN_MODEL_MODULE,
+            "model_cls": "SumirinInvestment",
         },
     ]
 

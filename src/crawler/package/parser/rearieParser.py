@@ -7,7 +7,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.rearie import RearieMansion, RearieKodate, RearieTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -307,6 +307,14 @@ class RearieParser(ParserBase):
         return super()._split_address(address)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 0. 掲載終了・トップページリダイレクトの早期検知
+        title_text = response.title.get_text().strip() if response.title else ""
+        body_text = response.body.get_text() if response.body else ""
+        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "掲載終了物件"]):
+            raise ListingEndedException("Rearie listing ended")
+        if "- パナソニック ホームズ株式会社 - Panasonic" in title_text and not response.select("dl.table-view, table"):
+            raise ListingEndedException("Rearie redirected to top page (listing ended)")
+
         item = super()._parsePropertyDetailPage(item, response)
         
         # タイトル/物件名
