@@ -136,8 +136,7 @@ async def _recrawl_single_url(
         try:
             logger.info("Recrawling anomaly URL: %s", url)
             runner = AnomalyDetailRunner(url)
-            await runner.run()
-            await circuit_breaker.record_success()
+            item = await runner.run()
         except (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError):
             await circuit_breaker.record_failure(is_timeout_or_connection=True)
             logger.exception("Timeout or connection failure recrawling %s", url)
@@ -154,11 +153,17 @@ async def _recrawl_single_url(
                 return "failed"
             if not latest.is_published:
                 return "delisted"
-            if not latest.needs_parser_fix:
+            if item is not None and not latest.needs_parser_fix:
                 return "resolved"
-            return "unresolved"
+            return "failed" if item is None else "unresolved"
 
-        return await sync_to_async(get_post_state)()
+        outcome = await sync_to_async(get_post_state)()
+        if outcome in ("resolved", "delisted"):
+            await circuit_breaker.record_success()
+        else:
+            await circuit_breaker.record_failure(is_timeout_or_connection=False)
+
+        return outcome
 
 
 async def recrawl_anomalies_async(
