@@ -123,8 +123,8 @@ def test_ml_pipeline_scheduler_triggers_ml_job_after_crawler_deadline():
     crawler_minute, crawler_hour = (int(v) for v in _var_default("schedule_cron").split()[:2])
     crawler_timeout = int(_var_default("crawler_timeout").rstrip("s"))
     crawler_deadline = crawler_hour * 3600 + crawler_minute * 60 + crawler_timeout
-    assert ml_hour * 3600 + ml_minute * 60 > crawler_deadline
-    assert _var_default("ml_pipeline_schedule_cron") == "10 21 * * *"
+    assert ml_hour * 3600 + ml_minute * 60 + 86400 > crawler_deadline  # crawl は日跨ぎ (01:00 UTC 終了)
+    assert _var_default("ml_pipeline_schedule_cron") == "10 1 * * *"
 
 
 def test_scheduler_can_invoke_ml_pipeline_job():
