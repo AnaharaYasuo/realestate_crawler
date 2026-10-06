@@ -10,7 +10,12 @@ from typing import Optional, Any, Tuple
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 
-from package.ml.predict import predict_first_stage_local, predict_second_stage_local, _serialize_property
+from package.ml.predict import (
+    _serialize_property,
+    predict_both_stages,
+    predict_first_stage_local,
+    predict_second_stage_local,
+)
 from package.utils.url_security import UrlSecurityValidator
 from package.utils.url_router import UrlRouter
 from package.utils.property_type_detector import PropertyTypeDetector
@@ -120,9 +125,9 @@ def _predict_price_internal(property_type, data):
     interior_score = float(data.get("interior_score", 3.0))
     layout_score = float(data.get("layout_score", 3.0))
     try:
-        # 価格推定の実行
-        first_stage_pred = predict_first_stage_local(property_data)
-        second_stage_pred = predict_second_stage_local(property_data, interior_score, layout_score)
+        # 価格推定の実行 (一次・二次を特徴量1回生成で同時算出)
+        both_preds = predict_both_stages([property_data], [interior_score], [layout_score])
+        first_stage_pred, second_stage_pred = both_preds[0] if both_preds else (0, 0)
         
         return jsonify({
             "success": True,
@@ -959,8 +964,8 @@ async def _execute_predict_by_url(
         property_type = PropertyTypeDetector.detect_from_object(target_item) or property_type
 
     serialized = _serialize_property(target_item, property_type)
-    first_pred = predict_first_stage_local(serialized)
-    second_pred = predict_second_stage_local(serialized, interior_score, layout_score)
+    both_preds = predict_both_stages([serialized], [interior_score], [layout_score])
+    first_pred, second_pred = both_preds[0] if both_preds else (0, 0)
 
     first_val = int(first_pred or 0)
     second_val = int(second_pred or first_val)

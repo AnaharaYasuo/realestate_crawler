@@ -23,13 +23,13 @@ def detect_property_type(property_obj: Any) -> str:
 
 
 def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[str]) -> pd.DataFrame:
-    """特徴量辞書リストから DataFrame を生成し、未定義列を 0.0 で初期化"""
+    """特徴量辞書リストから DataFrame を生成し、未定義列を 0.0 で初期化 (float32 でメモリ半減)"""
     df = pd.DataFrame(features_list)
     for col in feature_cols:
         if col not in df.columns:
             df[col] = 0.0
     df = df[feature_cols].copy()
-    
+
     # object 型列の正規化（None 等の欠損値を NaN に正規化しつつ数値化、変換不能な文字列を検出）
     for col in df.columns:
         if df[col].dtype == "object":
@@ -41,6 +41,12 @@ def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[
                     f"ML feature column '{col}' has invalid non-numeric value: {invalid_val!r}"
                 )
             df[col] = converted
+
+    # float64 列を float32 へキャストして推論ピークメモリを削減
+    float_cols = df.select_dtypes(include=["float64"]).columns
+    if len(float_cols) > 0:
+        df[float_cols] = df[float_cols].astype(np.float32)
+
     return df
 
 
@@ -128,10 +134,9 @@ def bulk_predict(
     models_provider: Any = None,
     weights_provider: Any = None,
     smearing_provider: Any = None,
+    features_list: list[dict[str, Any]] | None = None,
 ) -> list[int]:
-    """
-    複数物件に対する一括ベクトル化推論 (一次・二次統合)
-    """
+    """複数物件に対する一括ベクトル化推論 (一次・二次統合)"""
     if not properties_list:
         return []
 
@@ -150,13 +155,17 @@ def bulk_predict(
 
         sub_indices = [idx for idx, _ in items]
         sub_props = [p for _, p in items]
-        features_list = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
+
+        if features_list is not None and len(features_list) == len(properties_list):
+            group_features = [dict(features_list[idx]) for idx in sub_indices]
+        else:
+            group_features = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
 
         if stage_key == "second":
-            attach_image_scores(features_list, sub_indices, interior_scores, layout_scores)
+            attach_image_scores(group_features, sub_indices, interior_scores, layout_scores)
 
         feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
-        df = prepare_df_features(features_list, feature_cols)
+        df = prepare_df_features(group_features, feature_cols)
 
         weights, smearing_factor = _resolve_weights_and_smearing(
             reg, ptype, stage_key, dynamic_weights, smearing_factors
@@ -167,6 +176,62 @@ def bulk_predict(
             final_results[sub_indices[i]] = int(max(0, val))
 
     return final_results
+
+
+def predict_both_stages(
+    properties_list: list[Any],
+    interior_scores: list[float] | None = None,
+    layout_scores: list[float] | None = None,
+    registry: ModelRegistry | None = None,
+    models_provider: Any = None,
+    weights_provider: Any = None,
+    smearing_provider: Any = None,
+) -> list[tuple[int, int]]:
+    """一次・二次理論価格を一括算出。特徴量抽出を1回のみ実行して一時メモリとレイテンシを削減 (Issue #717)"""
+    if not properties_list:
+        return []
+
+    reg = registry or get_default_registry()
+    grouped_props = group_properties_by_type(properties_list)
+    results: list[tuple[int, int]] = [(0, 0)] * len(properties_list)
+
+    dynamic_weights = weights_provider(reg.model_dir) if callable(weights_provider) else None
+    smearing_factors = smearing_provider(reg.model_dir) if callable(smearing_provider) else None
+
+    for ptype, items in grouped_props.items():
+        sub_indices = [idx for idx, _ in items]
+        sub_props = [p for _, p in items]
+
+        models_first, mkt_master = _resolve_models_and_master(reg, ptype, "first", models_provider)
+        models_second, _ = _resolve_models_and_master(reg, ptype, "second", models_provider)
+
+        # 共通特徴量を 1 回のみ生成
+        base_features = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
+
+        # 一次推論
+        p1_list = [0] * len(sub_indices)
+        if models_first:
+            cols1 = FEATURE_SETS.get(ptype, {}).get("first", [])
+            df1 = prepare_df_features(base_features, cols1)
+            w1, sf1 = _resolve_weights_and_smearing(reg, ptype, "first", dynamic_weights, smearing_factors)
+            p1_arr = predict_batch_ensemble(models_first, w1, sf1, df1)
+            p1_list = [int(max(0, val)) for val in p1_arr]
+
+        # 二次推論（室内・間取りスコアを付与）
+        p2_list = [0] * len(sub_indices)
+        if models_second:
+            feat2 = [dict(f) for f in base_features]
+            attach_image_scores(feat2, sub_indices, interior_scores, layout_scores)
+            cols2 = FEATURE_SETS.get(ptype, {}).get("second", [])
+            df2 = prepare_df_features(feat2, cols2)
+            w2, sf2 = _resolve_weights_and_smearing(reg, ptype, "second", dynamic_weights, smearing_factors)
+            p2_arr = predict_batch_ensemble(models_second, w2, sf2, df2)
+            p2_list = [int(max(0, val)) for val in p2_arr]
+
+        for i, idx in enumerate(sub_indices):
+            results[idx] = (p1_list[i], p2_list[i])
+
+    return results
 
 
 
