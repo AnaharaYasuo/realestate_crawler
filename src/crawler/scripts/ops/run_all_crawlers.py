@@ -87,7 +87,7 @@ logger = logging.getLogger(__name__)
 
 
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", 180))
-timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", 32400))
+timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "32400"))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
