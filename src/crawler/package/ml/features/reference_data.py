@@ -127,54 +127,69 @@ def _init_lp_cache(lp_cls) -> bool:
     return True
 
 
+def _load_stations(station_cls) -> bool:
+    if _station_cache:
+        return False
+    for row in station_cls.objects.values("station_name", "passenger_volume"):
+        rec = StationRecord(station_name=row["station_name"], passenger_volume=int(row["passenger_volume"]))
+        _station_cache[rec.station_name] = rec
+    return bool(_station_cache)
+
+
+def _load_hazards(hazard_cls) -> bool:
+    if _hazard_cache:
+        return False
+    for row in hazard_cls.objects.values("prefecture", "city", "flood_risk_level", "landslide_risk_level"):
+        h_rec = HazardMapRecord(
+            prefecture=row["prefecture"],
+            city=row["city"],
+            flood_risk_level=int(row["flood_risk_level"]),
+            landslide_risk_level=int(row["landslide_risk_level"]),
+        )
+        _hazard_cache[(h_rec.prefecture, h_rec.city)] = h_rec
+    return bool(_hazard_cache)
+
+
+def _load_zones(zone_cls) -> bool:
+    if _zone_cache:
+        return False
+    for row in zone_cls.objects.values("zone_name", "max_kenpei", "max_youseki"):
+        z_rec = UrbanPlanningZoneRecord(
+            zone_name=row["zone_name"],
+            max_kenpei=int(row["max_kenpei"]),
+            max_youseki=int(row["max_youseki"]),
+        )
+        _zone_cache[z_rec.zone_name] = z_rec
+    return bool(_zone_cache)
+
+
+def _load_macros(macro_cls) -> bool:
+    if _macro_cache:
+        return False
+    macro_fields = [
+        "year_month", "repi_mansion", "repi_kodate", "repi_tochi",
+        "jgb_10y_yield", "nikkei_225", "tse_reit_index", "construction_cost_index",
+    ]
+    for row in macro_cls.objects.values(*macro_fields):
+        m_rec = MacroEconomicRecord(
+            year_month=row["year_month"],
+            repi_mansion=float(row["repi_mansion"]) if row["repi_mansion"] is not None else None,
+            repi_kodate=float(row["repi_kodate"]) if row["repi_kodate"] is not None else None,
+            repi_tochi=float(row["repi_tochi"]) if row["repi_tochi"] is not None else None,
+            jgb_10y_yield=float(row["jgb_10y_yield"]) if row["jgb_10y_yield"] is not None else None,
+            nikkei_225=float(row["nikkei_225"]) if row["nikkei_225"] is not None else None,
+            tse_reit_index=float(row["tse_reit_index"]) if row["tse_reit_index"] is not None else None,
+            construction_cost_index=float(row["construction_cost_index"]) if row["construction_cost_index"] is not None else None,
+        )
+        _macro_cache[m_rec.year_month] = m_rec
+    return bool(_macro_cache)
+
+
 def _init_misc_caches(station_cls, hazard_cls, zone_cls, macro_cls) -> bool:
-    loaded = False
-    if not _station_cache:
-        for row in station_cls.objects.values("station_name", "passenger_volume"):
-            rec = StationRecord(station_name=row["station_name"], passenger_volume=int(row["passenger_volume"]))
-            _station_cache[rec.station_name] = rec
-        loaded = bool(_station_cache)
-
-    if not _hazard_cache:
-        for row in hazard_cls.objects.values("prefecture", "city", "flood_risk_level", "landslide_risk_level"):
-            h_rec = HazardMapRecord(
-                prefecture=row["prefecture"],
-                city=row["city"],
-                flood_risk_level=int(row["flood_risk_level"]),
-                landslide_risk_level=int(row["landslide_risk_level"]),
-            )
-            _hazard_cache[(h_rec.prefecture, h_rec.city)] = h_rec
-        loaded |= bool(_hazard_cache)
-
-    if not _zone_cache:
-        for row in zone_cls.objects.values("zone_name", "max_kenpei", "max_youseki"):
-            z_rec = UrbanPlanningZoneRecord(
-                zone_name=row["zone_name"],
-                max_kenpei=int(row["max_kenpei"]),
-                max_youseki=int(row["max_youseki"]),
-            )
-            _zone_cache[z_rec.zone_name] = z_rec
-        loaded |= bool(_zone_cache)
-
-    if not _macro_cache:
-        macro_fields = [
-            "year_month", "repi_mansion", "repi_kodate", "repi_tochi",
-            "jgb_10y_yield", "nikkei_225", "tse_reit_index", "construction_cost_index",
-        ]
-        for row in macro_cls.objects.values(*macro_fields):
-            m_rec = MacroEconomicRecord(
-                year_month=row["year_month"],
-                repi_mansion=float(row["repi_mansion"]) if row["repi_mansion"] is not None else None,
-                repi_kodate=float(row["repi_kodate"]) if row["repi_kodate"] is not None else None,
-                repi_tochi=float(row["repi_tochi"]) if row["repi_tochi"] is not None else None,
-                jgb_10y_yield=float(row["jgb_10y_yield"]) if row["jgb_10y_yield"] is not None else None,
-                nikkei_225=float(row["nikkei_225"]) if row["nikkei_225"] is not None else None,
-                tse_reit_index=float(row["tse_reit_index"]) if row["tse_reit_index"] is not None else None,
-                construction_cost_index=float(row["construction_cost_index"]) if row["construction_cost_index"] is not None else None,
-            )
-            _macro_cache[m_rec.year_month] = m_rec
-        loaded |= bool(_macro_cache)
-
+    loaded = _load_stations(station_cls)
+    loaded |= _load_hazards(hazard_cls)
+    loaded |= _load_zones(zone_cls)
+    loaded |= _load_macros(macro_cls)
     return loaded
 
 

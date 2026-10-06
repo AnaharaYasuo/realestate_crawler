@@ -125,6 +125,47 @@ def _resolve_weights_and_smearing(
     return weights, smearing_factor
 
 
+def _predict_single_type_group(
+    reg: ModelRegistry,
+    ptype: str,
+    items: list[tuple[int, Any]],
+    stage_key: str,
+    models_provider: Any,
+    dynamic_weights: Any,
+    smearing_factors: Any,
+    features_list: list[dict[str, Any]] | None,
+    interior_scores: list[float] | None,
+    layout_scores: list[float] | None,
+    total_props_len: int,
+    final_results: list[int],
+) -> None:
+    models, mkt_master = _resolve_models_and_master(reg, ptype, stage_key, models_provider)
+    if not models:
+        return
+
+    sub_indices = [idx for idx, _ in items]
+    sub_props = [p for _, p in items]
+
+    if features_list is not None and len(features_list) == total_props_len:
+        group_features = [dict(features_list[idx]) for idx in sub_indices]
+    else:
+        group_features = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
+
+    if stage_key == "second":
+        attach_image_scores(group_features, sub_indices, interior_scores, layout_scores)
+
+    feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
+    df = prepare_df_features(group_features, feature_cols)
+
+    weights, smearing_factor = _resolve_weights_and_smearing(
+        reg, ptype, stage_key, dynamic_weights, smearing_factors
+    )
+
+    preds_arr = predict_batch_ensemble(models, weights, smearing_factor, df)
+    for i, val in enumerate(preds_arr):
+        final_results[sub_indices[i]] = int(max(0, val))
+
+
 def bulk_predict(
     properties_list: list[Any],
     stage: str = "first",
@@ -149,31 +190,20 @@ def bulk_predict(
     smearing_factors = smearing_provider(reg.model_dir) if callable(smearing_provider) else None
 
     for ptype, items in grouped_props.items():
-        models, mkt_master = _resolve_models_and_master(reg, ptype, stage_key, models_provider)
-        if not models:
-            continue
-
-        sub_indices = [idx for idx, _ in items]
-        sub_props = [p for _, p in items]
-
-        if features_list is not None and len(features_list) == len(properties_list):
-            group_features = [dict(features_list[idx]) for idx in sub_indices]
-        else:
-            group_features = build_features_batch(sub_props, ptype, mkt_comparison_master=mkt_master)
-
-        if stage_key == "second":
-            attach_image_scores(group_features, sub_indices, interior_scores, layout_scores)
-
-        feature_cols = FEATURE_SETS.get(ptype, {}).get(stage_key, [])
-        df = prepare_df_features(group_features, feature_cols)
-
-        weights, smearing_factor = _resolve_weights_and_smearing(
-            reg, ptype, stage_key, dynamic_weights, smearing_factors
+        _predict_single_type_group(
+            reg=reg,
+            ptype=ptype,
+            items=items,
+            stage_key=stage_key,
+            models_provider=models_provider,
+            dynamic_weights=dynamic_weights,
+            smearing_factors=smearing_factors,
+            features_list=features_list,
+            interior_scores=interior_scores,
+            layout_scores=layout_scores,
+            total_props_len=len(properties_list),
+            final_results=final_results,
         )
-
-        preds_arr = predict_batch_ensemble(models, weights, smearing_factor, df)
-        for i, val in enumerate(preds_arr):
-            final_results[sub_indices[i]] = int(max(0, val))
 
     return final_results
 
