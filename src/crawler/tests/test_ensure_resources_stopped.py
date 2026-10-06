@@ -967,7 +967,7 @@ def test_proxysql_instance_with_active_job_within_timeout_skips_stop(mock_slack)
         assert result.forced_stop is False
         assert result.skipped_reason == "job_running"
         mock_slack.assert_called_once()
-        assert "正常実行中のためProxySQL停止をスキップしました" in mock_slack.call_args[0][0]
+        assert "正常実行中のためProxySQLの起動を継続しました" in mock_slack.call_args[0][0]
 
 
 def test_proxysql_instance_exact_grace_period_skips_stop(mock_slack):
