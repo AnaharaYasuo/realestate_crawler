@@ -368,3 +368,25 @@ src/crawler/package/ml/evaluation/
 - `iter_unprocessed_chunks`: `model.objects.order_by("pk").iterator(chunk_size=2000)` により DB から順次フェッチし、`chunk_size`（既定 1,000 件）ごとに yield。
 - 同時にメモリに保持する物件オブジェクト数を `chunk_size` 以下に厳格制限し、大手ポータル（athome, homes 等）処理時の RAM 急増（OOM）を防止。
 - スクリプト `run_bulk_ml_evaluation.py` は 60 行以下の CLI エントリポイントとし、後方互換 import を維持。
+
+---
+
+## 11. 参照マスタ軽量化および推論一時メモリ最適化仕様 (Issue #717)
+
+推論プロセスと参照マスタキャッシュの常駐メモリ、および推論時の一時メモリを削減するためのアーキテクチャ。
+
+### 11.1 参照マスタの軽量レコード化 (`package.ml.features.reference_data`)
+- Django ORM モデルインスタンスの辞書キャッシュを撤廃し、スロット化されたイミュータブルなデータクラス（`@dataclass(slots=True, frozen=True)`）へ置き換え。
+  - `MunicipalRecord`: `prefecture`, `city`, `population_growth_rate`, `average_income`, `total_population`, `income_growth_rate`, `population_density`
+  - `LandPriceRecord`: `prefecture`, `city`, `average_land_price`, `estimated_rosenka_price`, `estimated_fixed_asset_price`, `land_price_growth_rate`, `land_use`
+  - `StationRecord`: `station_name`, `passenger_volume`
+  - `HazardMapRecord`: `prefecture`, `city`, `flood_risk_level`, `landslide_risk_level`
+  - `UrbanPlanningZoneRecord`: `zone_name`, `max_kenpei`, `max_youseki`
+  - `MacroEconomicRecord`: `year_month`, `repi_mansion`, `repi_kodate`, `repi_tochi`, `jgb_10y_yield`, `nikkei_225`, `tse_reit_index`, `construction_cost_index`
+- ロード処理は `objects.values(*fields)` で行い、Decimal 値を float へ変換して dataclass に格納。Django モデルの内部状態（`_state`、キャッシュ等）をメモリから完全に排除。
+
+### 11.2 推論一時メモリ削減 (`package.ml.inference`)
+- `align_features`: DataFrame の明示的 `copy()` を撤廃し、`df.reindex(columns=expected, fill_value=0.0)` を活用した 1 回の再インデックス整列でメモリコピーを最小化。
+- `prepare_df_features`: 数値特徴量 DataFrame を `float32` 化して推論ピークメモリを半減。
+- `predict_both_stages`: 一次理論価格と二次理論価格を同時に求める経路において、共通特徴量生成（`build_features_batch`）を 1 回のみ実行し、画像スコア付与後に二次推論を実行することで、特徴量生成の重複オーバーヘッドを完全に解消。
+

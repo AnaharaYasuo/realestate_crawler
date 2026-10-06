@@ -70,19 +70,13 @@ def extract_expected_feature_names(model: Any) -> list[str] | None:
 
 
 def align_features(df: pd.DataFrame, model: Any) -> pd.DataFrame:
-    """DataFrame の列順および不足列をモデルの期待入力に合わせて整列"""
+    """DataFrame の列順および不足列をモデルの期待入力に合わせて整列 (copy() を排除し reindex を活用)"""
     expected_features = extract_expected_feature_names(model)
     if not expected_features:
         logger.warning("ML: Could not extract feature names from model. Using DataFrame columns as is.")
         return df
 
-    missing = [c for c in expected_features if c not in df.columns]
-    if missing:
-        df_aligned = df.copy()
-        for col in missing:
-            df_aligned[col] = 0.0
-        return df_aligned[expected_features]
-    return df[expected_features]
+    return df.reindex(columns=expected_features, fill_value=0.0)
 
 
 def apply_smearing_and_ensemble(

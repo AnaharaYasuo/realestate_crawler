@@ -25,6 +25,7 @@ from package.ml.inference.model_registry import (
 )
 from package.ml.inference.predictor import (
     bulk_predict,
+    predict_both_stages,
 )
 from package.ml.inference.predictor import (
     detect_property_type as _detect_property_type,
@@ -148,6 +149,7 @@ __all__ = [
     "ensure_models_available",
     "get_api_base_url",
     "log_prediction_error",
+    "predict_both_stages",
     "predict_first_stage",
     "predict_first_stage_local",
     "predict_second_stage",
