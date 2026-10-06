@@ -1777,6 +1777,19 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
         elif is_skipped:
             logging.info(f"Skipped property processing (Lifecycle / Filtered) for URL: {self.url}")
+            try:
+                def update_delisted():
+                    eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
+                    if eval_rec:
+                        eval_rec.is_published = False
+                        eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
+                        eval_rec.needs_parser_fix = False
+                        eval_rec.needs_recrawl = False
+                        eval_rec.save()
+                        logging.info(f"[Lifecycle] Marked PropertyEvaluation as delisted: {self.url}")
+                await sync_to_async(update_delisted)()
+            except Exception as le_err:
+                logging.warning(f"Failed to mark PropertyEvaluation as delisted for {self.url}: {le_err}")
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
