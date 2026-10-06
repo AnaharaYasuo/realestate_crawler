@@ -36,13 +36,7 @@ from package.utils.batch_metrics import BatchMetrics, format_batch_duration
 from package.utils.storage import get_storage_manager
 from scipy.optimize import minimize
 
-COMPANIES = [
-    "mitsui", "sumifu", "tokyu", "nomura", "misawa",
-    "smtrc", "sumai1", "mizuho", "odakyu", "afr",
-    "sekisui", "daiwa", "totate", "athome", "homes",
-    "seibu", "keikyu", "sotetsu", "keisei", "daikyo",
-    "rearie", "heim", "sumirin", "keio"
-]
+from package.ml.constants import COMPANIES
 
 def calculate_time_decay_weights(dates, base_date=None, decay_rate=0.0005, min_weight=0.20):
     """

@@ -22,6 +22,7 @@ realestateSettings.configure()
 from django.db import close_old_connections
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
+from package.ml.constants import COMPANIES
 from package.ml.predict import bulk_predict_first_stage
 from package.ml.investment_evaluator import evaluate_investment_property
 from package.utils.converter import parse_chidai
@@ -52,7 +53,6 @@ def _notify_slack(msg: str) -> None:
         logger.warning("Failed to send Slack progress report: %s", se)
 
 PORTAL_COMPANIES = ["athome", "homes"]
-COMPANIES = ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]
 DEFAULT_CONCURRENCY = 8
 DEFAULT_BATCH_SIZE = 1000
 

@@ -22,11 +22,7 @@ realestateSettings.configure()
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 
-COMPANIES = [
-    "mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho",
-    "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu",
-    "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"
-]
+from package.ml.constants import COMPANIES
 
 def analyze():
     print("Fetching actual prices from portal tables...")
