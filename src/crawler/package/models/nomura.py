@@ -124,6 +124,7 @@ class NomuraInvestmentKodate(NomuraModel):
     kouzou = models.TextField()
     chikunengetsuStr = models.TextField()
     chikunengetsu = models.DateField(null=True)
+    madori = models.TextField(blank=True, default="")
     
     # Land Details
     kenpeiStr = models.TextField(default="", blank=True)
@@ -155,7 +156,7 @@ class NomuraInvestmentApartment(NomuraModel):
     kouzou = models.TextField()
     chikunengetsuStr = models.TextField()
     chikunengetsu = models.DateField(null=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     
     # Land Details
     kenpeiStr = models.TextField(default="", blank=True)

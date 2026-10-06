@@ -149,3 +149,19 @@ async def test_parse_property_detail_page_raises_listing_ended():
     with patch.object(parser, "_getContent", new_callable=AsyncMock, return_value=ended_html):
         with pytest.raises(ListingEndedException):
             await parser.parsePropertyDetailPage(mock_session, "https://www.rehouse.co.jp/mansion/bkdetail/12345/")
+
+
+def test_base_parser_non_property_url_rejection_baikyaku():
+    """/baikyaku/ などの非物件URLが _is_non_property_href および _reject_non_property_url で除外されること"""
+    from package.parser.baseParser import SkipPropertyException
+
+    baikyaku_urls = [
+        "https://www.livable.co.jp/baikyaku/mansion/#p-sl-datatype__search",
+        "https://www.livable.co.jp/baikyaku/tochi/chika/",
+        "/baikyaku/kodate/",
+    ]
+    for url in baikyaku_urls:
+        assert ParserBase._is_non_property_href(url) is True
+        with pytest.raises(SkipPropertyException):
+            ParserBase._reject_non_property_url(url)
+
