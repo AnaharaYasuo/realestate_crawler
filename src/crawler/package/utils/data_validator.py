@@ -222,7 +222,7 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
     """
     is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
     issue = "; ".join(reasons)
-    eval_rec, created = PropertyEvaluation.objects.get_or_create(
+    eval_rec, _ = PropertyEvaluation.objects.get_or_create(
         property_url=item.pageUrl,
         defaults={
             "company": company,
@@ -234,15 +234,13 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
             "data_quality_issue": issue,
         },
     )
-    if created:
-        return is_valid, reasons
     if not is_valid:
         eval_rec.needs_parser_fix = True
         eval_rec.data_quality_issue = issue
         eval_rec.is_published = True
         eval_rec.save()
     else:
-        # 正常保存 = 再掲載含め公開状態へ復旧 (修復フラグの有無に依存しない)
+        # 正常保存は再掲載を含め公開状態へ復旧する。修復フラグの有無には依存しない
         eval_rec.needs_parser_fix = False
         eval_rec.needs_recrawl = False
         eval_rec.is_published = True
