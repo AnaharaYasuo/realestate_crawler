@@ -937,6 +937,23 @@ def _save_property_evaluation(target_item, url, site, property_type, first_val, 
         logging.warning(f"Failed to update PropertyEvaluation for {url}: {e}")
 
 
+def _compute_item_prediction(serialized: dict, interior_score: float, layout_score: float) -> tuple[int, int]:
+    """モック有無を考慮して一次・二次推論値を算出"""
+    is_p1 = getattr(predict_first_stage_local, "_mock_name", None) is not None or hasattr(predict_first_stage_local, "mock") or type(predict_first_stage_local).__name__ in ("MagicMock", "Mock", "AsyncMock")
+    is_p2 = getattr(predict_second_stage_local, "_mock_name", None) is not None or hasattr(predict_second_stage_local, "mock") or type(predict_second_stage_local).__name__ in ("MagicMock", "Mock", "AsyncMock")
+
+    if is_p1 or is_p2:
+        p1 = predict_first_stage_local(serialized)
+        p2 = predict_second_stage_local(serialized, interior_score, layout_score)
+    else:
+        both = predict_both_stages([serialized], [interior_score], [layout_score])
+        p1, p2 = both[0] if both else (0, 0)
+
+    val1 = int(p1 or 0)
+    val2 = int(p2 or val1)
+    return val1, val2
+
+
 async def _execute_predict_by_url(
     url: str,
     force_refresh: bool,
@@ -972,18 +989,7 @@ async def _execute_predict_by_url(
         property_type = PropertyTypeDetector.detect_from_object(target_item) or property_type
 
     serialized = _serialize_property(target_item, property_type)
-    is_p1_patched = getattr(predict_first_stage_local, "_mock_name", None) is not None or hasattr(predict_first_stage_local, "mock") or type(predict_first_stage_local).__name__ in ("MagicMock", "Mock", "AsyncMock")
-    is_p2_patched = getattr(predict_second_stage_local, "_mock_name", None) is not None or hasattr(predict_second_stage_local, "mock") or type(predict_second_stage_local).__name__ in ("MagicMock", "Mock", "AsyncMock")
-
-    if is_p1_patched or is_p2_patched:
-        first_pred = predict_first_stage_local(serialized)
-        second_pred = predict_second_stage_local(serialized, interior_score, layout_score)
-    else:
-        both_preds = predict_both_stages([serialized], [interior_score], [layout_score])
-        first_pred, second_pred = both_preds[0] if both_preds else (0, 0)
-
-    first_val = int(first_pred or 0)
-    second_val = int(second_pred or first_val)
+    first_val, second_val = _compute_item_prediction(serialized, interior_score, layout_score)
 
     _save_property_evaluation(target_item, url, site, property_type, first_val, second_val, interior_score, layout_score)
 
