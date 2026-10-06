@@ -2,11 +2,23 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from package.models.evaluation import PropertyEvaluation
+
 # Error messages (Sonar S1192 constant reuse)
 ERR_MISSING_SENYU = "必須項目欠損 (専有面積が未抽出)"
 ERR_MISSING_FLOOR = "必須項目欠損 (所在階が未抽出)"
 ERR_MISSING_TATEMONO = "必須項目欠損 (建物面積が未抽出)"
 ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
+ERR_MISSING_NAME = "必須項目欠損 (物件名が未抽出)"
+ERR_MISSING_ADDRESS = "必須項目欠損 (住所が未抽出)"
+ERR_MISSING_TRAFFIC = "必須項目欠損 (交通が未抽出)"
+ERR_MISSING_MADORI = "必須項目欠損 (間取りが未抽出)"
+ERR_MISSING_AGE = "必須項目欠損 (築年月が未抽出)"
+_BLANKS = ("", "-", "None", "nan")
+
+
+def _blank(val: Any) -> bool:
+    return val is None or str(val).strip() in _BLANKS
 
 
 
@@ -27,6 +39,7 @@ class PropertyDataValidator:
         reasons: list[str] = []
         ptype = (property_type or "").lower().replace("-", "_")
 
+        cls._check_common_required(item, reasons)
         price_val = cls._validate_price(item, reasons)
         area = cls._extract_and_validate_area(item, ptype, reasons)
         cls._validate_unit_price(price_val, area, reasons)
@@ -34,6 +47,24 @@ class PropertyDataValidator:
         cls._validate_type_specific_specs(item, ptype, reasons)
 
         return len(reasons) == 0, reasons
+
+    @staticmethod
+    def _check_common_required(item: Any, reasons: list[str]) -> None:
+        """全ページに必ず存在する項目 (物件名・住所・交通) の欠損検査"""
+        if _blank(getattr(item, "propertyName", None)):
+            reasons.append(ERR_MISSING_NAME)
+        if _blank(getattr(item, "address", None)):
+            reasons.append(ERR_MISSING_ADDRESS)
+        if _blank(getattr(item, "traffic", None)) and _blank(getattr(item, "station1", None)):
+            reasons.append(ERR_MISSING_TRAFFIC)
+
+    @staticmethod
+    def _check_madori_and_age(item: Any, reasons: list[str]) -> None:
+        """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査"""
+        if _blank(getattr(item, "madori", None)):
+            reasons.append(ERR_MISSING_MADORI)
+        if _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
+            reasons.append(ERR_MISSING_AGE)
 
     @staticmethod
     def _validate_price(item: Any, reasons: list[str]) -> float:
@@ -103,6 +134,8 @@ class PropertyDataValidator:
 
     @classmethod
     def _validate_type_specific_specs(cls, item: Any, ptype: str, reasons: list[str]) -> None:
+        if ptype in ["mansion", "kodate"]:
+            cls._check_madori_and_age(item, reasons)
         if ptype == "mansion":
             cls._check_mansion_specs(item, reasons)
         elif ptype in ["kodate", "invest_kodate"]:
@@ -180,3 +213,39 @@ class PropertyDataValidator:
                     reasons.append(f"利回り異常 ({y_val:.1f}%: 0%以下または100%超)")
             except (ValueError, TypeError):
                 pass
+
+
+def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:
+    """
+    保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True (オートヒール対象)、
+    OKなら解消する。単件保存・バッチ保存・validate_data.py から共通利用。
+    """
+    is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
+    issue = "; ".join(reasons)
+    eval_rec, created = PropertyEvaluation.objects.get_or_create(
+        property_url=item.pageUrl,
+        defaults={
+            "company": company,
+            "property_type": property_type,
+            "property_id": getattr(item, "id", 0) or 0,
+            "is_published": True,
+            "needs_parser_fix": not is_valid,
+            "needs_recrawl": False,
+            "data_quality_issue": issue,
+        },
+    )
+    if created:
+        return is_valid, reasons
+    if not is_valid:
+        eval_rec.needs_parser_fix = True
+        eval_rec.data_quality_issue = issue
+        eval_rec.is_published = True
+        eval_rec.save()
+    elif eval_rec.needs_parser_fix:
+        eval_rec.needs_parser_fix = False
+        eval_rec.needs_recrawl = False
+        eval_rec.is_published = True
+        eval_rec.delisted_at = None
+        eval_rec.data_quality_issue = ""
+        eval_rec.save()
+    return is_valid, reasons

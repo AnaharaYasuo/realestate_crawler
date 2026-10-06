@@ -36,7 +36,7 @@ from package.utils.url_matcher import UrlMatcher
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.converter import parse_chidai
 from package.utils.failure_reporter import FailureReporter
-from package.utils.data_validator import PropertyDataValidator
+from package.utils.data_validator import tag_property_integrity
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -1432,46 +1432,21 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _validate_and_tag_property_integrity(self, item):
         """通常クローリング保存直後にデータ品質を検証し、パーサー修復要否をPropertyEvaluationに記録する"""
+        await sync_to_async(self._tag_integrity_sync)(item)
+
+    def _tag_integrity_sync(self, item):
+        """単件・バッチ保存共通の保存後整合性チェック (tag_property_integrity)"""
         try:
             company = self._detect_company_name(item)
             property_type = PropertyTypeDetector.detect_from_object(item)
-            is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
-
-            def update_eval_flags():
-                eval_rec, _ = PropertyEvaluation.objects.get_or_create(
-                    property_url=item.pageUrl,
-                    defaults={
-                        "company": company,
-                        "property_type": property_type,
-                        "property_id": getattr(item, "id", 0) or 0,
-                        "is_published": True,
-                        "needs_parser_fix": not is_valid,
-                        "needs_recrawl": False,
-                        "data_quality_issue": "; ".join(reasons) if not is_valid else "",
-                    }
+            is_valid, reasons = tag_property_integrity(item, property_type, company)
+            if not is_valid:
+                logger.warning(
+                    "[DATA INTEGRITY DETECTED ON CRAWL] %s (%s): %s",
+                    item.pageUrl, property_type, "; ".join(reasons)
                 )
-                if not is_valid:
-                    eval_rec.needs_parser_fix = True
-                    eval_rec.data_quality_issue = "; ".join(reasons)
-                    eval_rec.is_published = True
-                    eval_rec.save()
-                    logger.warning(
-                        "[DATA INTEGRITY DETECTED ON CRAWL] %s (%s): %s",
-                        item.pageUrl, property_type, "; ".join(reasons)
-                    )
-                elif eval_rec.needs_parser_fix:
-                    # 既に正常データが取得できた場合はパーサー修復フラグを解消し公開状態に復旧
-                    eval_rec.needs_parser_fix = False
-                    eval_rec.needs_recrawl = False
-                    eval_rec.is_published = True
-                    eval_rec.delisted_at = None
-                    eval_rec.data_quality_issue = ""
-                    eval_rec.save()
-
-            await sync_to_async(update_eval_flags)()
         except (AttributeError, ValueError, TypeError, KeyError) as e:
             logger.warning("Failed to validate and tag property integrity for %s: %s", item.pageUrl, e)
-
     async def _record_price_revision(self, item, old_p, new_p):
         company = self._detect_company_name(item)
         property_type = PropertyTypeDetector.detect_from_object(item)
@@ -1831,6 +1806,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             logging.info("Attempting to save item (Batch): %s (%s)", item.propertyName, item.pageUrl)
             item.save(False, False, None, None)
             logging.info("Successfully saved item (Batch): %s:%s", item.propertyName, item.pageUrl)
+            return True
         except ValidationError as ve:
             msg = f"Validation failed for property: {getattr(item, 'pageUrl', 'UNKNOWN_URL')}\n"
             msg += f"Property name: {getattr(item, 'propertyName', 'UNKNOWN')}\n"
@@ -1846,7 +1822,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     def _save_item_with_retry(self, item, max_retries: int = 3):
         for attempt in range(max_retries):
             try:
-                self._save_item_record(item)
+                if self._save_item_record(item):
+                    self._tag_integrity_sync(item)
                 close_old_connections()
                 return
             except OperationalError as e:
