@@ -25,3 +25,21 @@ resource "google_project_iam_member" "scheduler_workflows_invoker" {
   role    = "roles/workflows.invoker"
   member  = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
+
+
+# Recrawl Anomalies Workflow Pipeline (Issue #738)
+resource "google_workflows_workflow" "recrawl_anomalies_workflow" {
+  name            = "realestate-recrawl-anomalies-pipeline-${var.environment}"
+  region          = var.region
+  description     = "Orchestrated pipeline for anomaly recrawl with ProxySQL lifecycle management and 5h deadline"
+  service_account = google_service_account.crawler_runner.email
+
+  # ワークフロー上限: 5時間 (18,000秒)
+  source_contents = file("${path.module}/workflows/recrawl_anomalies_pipeline.yaml")
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_cloud_run_v2_job.recrawl_anomalies_job,
+    google_compute_instance.proxysql_instance
+  ]
+}

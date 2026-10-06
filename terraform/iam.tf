@@ -123,3 +123,21 @@ resource "google_cloud_run_v2_job_iam_member" "safety_net_run_invoker" {
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
+
+
+# Grant Cloud Run Job Executor & Viewer to crawler_runner for Recrawl Anomalies Job (Issue #738)
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_recrawl_executor" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.recrawl_anomalies_job.name
+  role     = "roles/run.jobsExecutor"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "crawler_runner_recrawl_viewer" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.recrawl_anomalies_job.name
+  role     = "roles/run.viewer"
+  member   = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
