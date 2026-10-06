@@ -16,11 +16,11 @@ from package.utils.data_validator import (
 
 
 def _mansion(**over):
-    base = dict(
-        propertyName="テストマンション", address="東京都港区1-1", traffic="JR山手線 渋谷駅 徒歩5分",
-        station1="渋谷", price=50000000, senyuMenseki=70.5, madori="3LDK", kaisu="5階",
-        chikunengetsu=datetime(2015, 5, 1, tzinfo=timezone.utc), chikunengetsuStr="",
-    )
+    base = {
+        "propertyName": "テストマンション", "address": "東京都港区1-1", "traffic": "JR山手線 渋谷駅 徒歩5分",
+        "station1": "渋谷", "price": 50000000, "senyuMenseki": 70.5, "madori": "3LDK", "kaisu": "5階",
+        "chikunengetsu": datetime(2015, 5, 1, tzinfo=timezone.utc), "chikunengetsuStr": "",
+    }
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -42,14 +42,14 @@ def test_missing_required_field_detected(field, err):
 
 
 def test_missing_traffic_detected_only_when_both_empty():
-    ok, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1=""), "mansion")
+    _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1=""), "mansion")
     assert ERR_MISSING_TRAFFIC in reasons
-    ok, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1="渋谷"), "mansion")
+    _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1="渋谷"), "mansion")
     assert ERR_MISSING_TRAFFIC not in reasons
 
 
 def test_missing_age_detected():
-    ok, reasons = PropertyDataValidator.validate_property(
+    _, reasons = PropertyDataValidator.validate_property(
         _mansion(chikunengetsu=None, chikunengetsuStr=""), "mansion")
     assert ERR_MISSING_AGE in reasons
 
