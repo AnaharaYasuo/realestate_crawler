@@ -347,6 +347,24 @@ graph TD
 - 全4種別（`mansion`, `kodate`, `apartment`, `tochi`）の `FEATURE_SETS` に定義された全特徴量について、`build_features` の返却値がすべて例外なく `int` または `float` の完全数値型であることを単体テスト（`test_all_features_strictly_numeric`）により100%保証。
 - 欠損値や未入力文字列が発生した場合でも、堅牢なフォールバックロジックにより安全な標準数値（例: 間口未入力時6.0m、方角未入力時180°・日照0.88）へ自動置換され、学習・推論パイプラインのNaN例外停止を完全に防御。
 
+---
 
+## 10. バルクML価格推定のストリーミング処理・責務分割アーキテクチャ (Issue #716)
 
+肥大化していた単一スクリプト（`run_bulk_ml_evaluation.py`）を責務ごとのサブモジュール群（`package.ml.evaluation`）へ分割し、未評価物件の全件 list 化を廃止してチャンク単位のジェネレータストリーミング処理を導入しました。
 
+### 10.1 パッケージ構成 (`package.ml.evaluation`)
+```
+src/crawler/package/ml/evaluation/
+├── __init__.py           # パッケージ公開シンボル
+├── targets.py            # 対象モデル走査および未評価物件のストリーミング抽出 (iter_unprocessed_chunks)
+├── record_builder.py     # 評価レコード生成・プロ目線リスク判定 (build_or_update_eval_record)
+├── persistence.py        # 評価レコードの DB 一括保存・更新 (save_chunk, bulk_update_evaluation_records)
+├── notifications.py      # Slack dev-agent への開始・進捗・完了サマリー通知 (notify_slack)
+└── runner.py             # 並列実行オーケストレーター (evaluate_single_model, run_bulk_evaluation)
+```
+
+### 10.2 ストリーミングとメモリ上限
+- `iter_unprocessed_chunks`: `model.objects.order_by("pk").iterator(chunk_size=2000)` により DB から順次フェッチし、`chunk_size`（既定 1,000 件）ごとに yield。
+- 同時にメモリに保持する物件オブジェクト数を `chunk_size` 以下に厳格制限し、大手ポータル（athome, homes 等）処理時の RAM 急増（OOM）を防止。
+- スクリプト `run_bulk_ml_evaluation.py` は 60 行以下の CLI エントリポイントとし、後方互換 import を維持。
