@@ -800,3 +800,11 @@ graph TD
 - **パナソニック ホームズ / リアリエ (`rearieParser.py`)**:
   - 物件終了時にトップページへリダイレクトされる仕様（タイトルに `- パナソニック ホームズ株式会社 - Panasonic` を含み、物件スペック `dl.table-view` 不在）を `ListingEndedException` として検知し、安全に掲載終了ステータスへと遷移させる。
 
+## URLルーター網羅性と未解決ドメインの解消 (Issue #746)
+- **大京穴吹不動産 (`daikyoParser.py`)**: `daikyo-anabuki.co.jp/buy/detail/` から `DaikyoMansionParser`, `DaikyoKodateParser`, `DaikyoTochiParser` を動的解決。
+- **みずほ不動産販売 (`mizuhoParser.py`)**: `mizuho-re.co.jp/investors/` から `MizuhoInvestmentParser`, `mizuho-re.co.jp/buyers/` から Mansion/Kodate/Tochi パーサーを解決。
+- **大和ハウスリアルエステート (`daiwaParser.py`)**: `dh-realestate.co.jp/buy/` から `DaiwaMansionParser`, `DaiwaKodateParser`, `DaiwaTochiParser` を解決。
+- **東急リバブル (`tokyuParser.py`)**: 提携サイト `sumikae.ttfuhan.co.jp/` および投資用URL `/fudosan-toushi/` をカバー。
+- **小田急不動産 (`odakyuParser.py`)**: `/invest/` から `OdakyuInvestmentParser`, その他各物件種別パーサーを解決。
+- **電鉄系・ハウスメーカー系**: 京王 (`chukai.keiofudosan.co.jp`), 京急 (`keikyu-sumai.com`), 京成 (`keisei-land.co.jp`), 住友林業 (`suminavi.com`), アットホームその他 (`athome.co.jp/buy_other/`) を `ROUTES` に登録し未解決URLを根絶。
+

@@ -23,6 +23,17 @@ tasks:
     cmds:
       - git config core.hooksPath .githooks
 
+  codegraph:sync:
+    desc: Synchronize CodeGraph index with latest codebase changes
+    cmds:
+      - cmd /c codegraph sync || codegraph sync || true
+
+  codegraph:status:
+    desc: Display current CodeGraph index status and statistics
+    cmds:
+      - cmd /c codegraph status || codegraph status || true
+
+
 
   logs:
     desc: Tail the application logs

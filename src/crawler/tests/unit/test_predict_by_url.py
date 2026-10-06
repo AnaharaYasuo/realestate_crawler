@@ -147,6 +147,113 @@ def test_url_router_resolution():
     heim_plan_url = "https://www.tokyo816.jp/plan_detail/12345/index.html"
     assert router.resolve(heim_plan_url)["site"] == "heim"
 
+    # 大京穴吹不動産 (Daikyo)
+    daikyo_url = "https://www.daikyo-anabuki.co.jp/buy/detail/MHF89471/"
+    route_daikyo = router.resolve(daikyo_url)
+    assert route_daikyo is not None
+    assert route_daikyo["site"] == "daikyo"
+    assert route_daikyo["property_type"] == "mansion"
+    from package.parser.daikyoParser import DaikyoMansionParser
+    assert isinstance(UrlRouter.create_parser(daikyo_url), DaikyoMansionParser)
+
+    # みずほ不動産販売 (Mizuho)
+    mizuho_invest_url = "https://www.mizuho-re.co.jp/investors/property/000000935845/"
+    route_mizuho_i = router.resolve(mizuho_invest_url)
+    assert route_mizuho_i is not None
+    assert route_mizuho_i["site"] == "mizuho"
+    assert route_mizuho_i["property_type"] == "apartment"
+    from package.parser.mizuhoParser import MizuhoInvestmentParser, MizuhoMansionParser
+    assert isinstance(UrlRouter.create_parser(mizuho_invest_url), MizuhoInvestmentParser)
+
+    mizuho_buyer_url = "https://www.mizuho-re.co.jp/buyers/property/001201249674/"
+    route_mizuho_m = router.resolve(mizuho_buyer_url, property_type="mansion")
+    assert route_mizuho_m is not None
+    assert route_mizuho_m["site"] == "mizuho"
+    assert isinstance(UrlRouter.create_parser(mizuho_buyer_url, property_type="mansion"), MizuhoMansionParser)
+
+    # 大和ハウスリアルエステート (Daiwa)
+    daiwa_url = "https://www.dh-realestate.co.jp/buy/mansion/f0065000hd260047"
+    route_daiwa = router.resolve(daiwa_url)
+    assert route_daiwa is not None
+    assert route_daiwa["site"] == "daiwa"
+    assert route_daiwa["property_type"] == "mansion"
+    from package.parser.daiwaParser import DaiwaMansionParser
+    assert isinstance(UrlRouter.create_parser(daiwa_url), DaiwaMansionParser)
+
+    # 東急リバブル (Tokyu: fudosan-toushi & sumikae)
+    tokyu_toushi_url = "https://www.livable.co.jp/fudosan-toushi/C13269J06/"
+    route_tokyu_toushi = router.resolve(tokyu_toushi_url)
+    assert route_tokyu_toushi is not None
+    assert route_tokyu_toushi["site"] == "tokyu"
+    assert route_tokyu_toushi["property_type"] == "apartment"
+    from package.parser.tokyuParser import TokyuInvestmentApartmentParser, TokyuMansionParser
+    assert isinstance(UrlRouter.create_parser(tokyu_toushi_url), TokyuInvestmentApartmentParser)
+
+    sumikae_url = "https://sumikae.ttfuhan.co.jp/mansion/DMHF91449/"
+    route_sumikae = router.resolve(sumikae_url)
+    assert route_sumikae is not None
+    assert route_sumikae["site"] == "tokyu"
+    assert route_sumikae["property_type"] == "mansion"
+    assert isinstance(UrlRouter.create_parser(sumikae_url), TokyuMansionParser)
+
+    # 小田急不動産 (Odakyu)
+    odakyu_invest_url = "https://www.odakyu-chukai.com/invest/list?focus=VA0389"
+    route_odakyu_i = router.resolve(odakyu_invest_url)
+    assert route_odakyu_i is not None
+    assert route_odakyu_i["site"] == "odakyu"
+    assert route_odakyu_i["property_type"] == "apartment"
+    from package.parser.odakyuParser import OdakyuInvestmentParser, OdakyuMansionParser
+    assert isinstance(UrlRouter.create_parser(odakyu_invest_url), OdakyuInvestmentParser)
+
+    odakyu_mansion_url = "https://www.odakyu-chukai.com/mansion/detail/B01412-008200/"
+    route_odakyu_m = router.resolve(odakyu_mansion_url)
+    assert route_odakyu_m is not None
+    assert route_odakyu_m["site"] == "odakyu"
+    assert route_odakyu_m["property_type"] == "mansion"
+    assert isinstance(UrlRouter.create_parser(odakyu_mansion_url), OdakyuMansionParser)
+
+    # 京王不動産 (Keio)
+    keio_url = "https://chukai.keiofudosan.co.jp/sale/2127977638870000006546/"
+    route_keio = router.resolve(keio_url)
+    assert route_keio is not None
+    assert route_keio["site"] == "keio"
+    from package.parser.keioParser import KeioMansionParser
+    assert isinstance(UrlRouter.create_parser(keio_url), KeioMansionParser)
+
+    # 京急すまい (Keikyu)
+    keikyu_url = "https://www.keikyu-sumai.com/contents/code/detail/152450258/"
+    route_keikyu = router.resolve(keikyu_url)
+    assert route_keikyu is not None
+    assert route_keikyu["site"] == "keikyu"
+    from package.parser.keikyuParser import KeikyuMansionParser
+    assert isinstance(UrlRouter.create_parser(keikyu_url), KeikyuMansionParser)
+
+    # 京成不動産 (Keisei)
+    keisei_url = "https://www.keisei-land.co.jp/contents/code/detail/6083101/"
+    route_keisei = router.resolve(keisei_url)
+    assert route_keisei is not None
+    assert route_keisei["site"] == "keisei"
+    from package.parser.keiseiParser import KeiseiMansionParser
+    assert isinstance(UrlRouter.create_parser(keisei_url), KeiseiMansionParser)
+
+    # 住友林業ホームサービス すみなび (Sumirin)
+    sumirin_url = "https://www.suminavi.com/buy/estate/estateInfo/mansion/kansai/633928/"
+    route_sumirin = router.resolve(sumirin_url)
+    assert route_sumirin is not None
+    assert route_sumirin["site"] == "sumirin"
+    assert route_sumirin["property_type"] == "mansion"
+    from package.parser.sumirinParser import SumirinMansionParser
+    assert isinstance(UrlRouter.create_parser(sumirin_url), SumirinMansionParser)
+
+    # アットホーム その他 (Athome buy_other)
+    athome_other_url = "https://www.athome.co.jp/buy_other/6991614140?BKLISTID=001LPC&SEARCHDIV=1&sref=list_simple"
+    route_athome_other = router.resolve(athome_other_url)
+    assert route_athome_other is not None
+    assert route_athome_other["site"] == "athome"
+    assert route_athome_other["property_type"] == "tochi"
+    from package.parser.athomeParser import AthomeTochiParser
+    assert isinstance(UrlRouter.create_parser(athome_other_url), AthomeTochiParser)
+
 
 # ==============================================================================
 # 3. Singleflight Concurrency Control Unit Tests
