@@ -14,20 +14,14 @@ LISTING_ENDED_TITLE_KEYWORDS: tuple[str, ...] = (
     "ご成約",
     "お探しの物件は見つかりません",
     "お探しのページは見つかりません",
+    "お探しのページが見つかりません",
     "物件が見つかりません",
 )
 
-LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
-    "掲載が終了したか、成約済みになった可能性があります",
-    "お探しの物件は、掲載が終了",
-    "掲載を終了いたしました",
-    "掲載終了物件",
-    "ご指定の物件は掲載を終了",
-    "お探しのページは見つかりませんでした",
-    "お探しの物件は見つかりませんでした",
-    "お探しのページは存在しないか、掲載が終了",
-    "現在、掲載を停止しております",
-    "この物件は現在掲載されていません",
+CHALLENGE_TITLE_KEYWORDS: tuple[str, ...] = (
+    "認証にご協力ください",
+    "認証中",
+    "Just a moment...",
 )
 ```
 
@@ -40,8 +34,8 @@ LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
         """物件詳細ページが掲載終了・非公開状態の場合に ListingEndedException を送出"""
         title = soup.title.string.strip() if soup.title and soup.title.string else ""
         if title:
-            if "サーバーが混み合っています" in title:
-                logging.info(f"Server busy for URL: {url}")
+            if "サーバーが混み合っています" in title or any(kw in title for kw in cls.CHALLENGE_TITLE_KEYWORDS):
+                logging.info(f"Server busy / Challenge detected for URL: {url}")
                 raise ServerBusyException()
             if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
                 logging.info(f"Listing ended (title match: '{title}') for URL: {url}")

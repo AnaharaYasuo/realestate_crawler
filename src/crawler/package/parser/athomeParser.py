@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, SkipPropertyException
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, ServerBusyException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -33,7 +33,7 @@ _ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
 )
 _ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
 _ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
-_ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Just a moment...")
+_ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Click to verify", "パズル認証", "Just a moment...")
 _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
     '--no-sandbox',
@@ -234,8 +234,8 @@ class AthomeParser(ParserBase):
         await asyncio.sleep(0.5)
         try:
             return await self._athome_fetch_with_playwright(url)
-        except Exception as e:
-            logger.exception("Playwright stealth fetch failed for %s: %s", url, e)
+        except Exception:
+            logger.exception("Playwright stealth fetch failed for %s", url)
             return await super()._getContent(session, url)
 
     @staticmethod
@@ -335,7 +335,7 @@ class AthomeParser(ParserBase):
                 return a
         return None
 
-    async def parseNextPage(self, response, base_domain: Optional[str] = None):
+    async def parseNextPage(self, response, base_domain: str | None = None):
         """
         一覧ページから「次へ」のページリンクを抽出し、絶対URLとして返す
         """
@@ -396,7 +396,7 @@ class AthomeParser(ParserBase):
             return True
         return any(kw in path for kw in ATHOME_LIST_KEYWORDS)
 
-    async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> Tuple[List[str], Optional[str]]:
+    async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> tuple[list[str], str | None]:
         try:
             list_html = await self._getContent(None, curr_l_url)
             if not list_html:
@@ -434,7 +434,7 @@ class AthomeParser(ParserBase):
 
     ATHOME_ALLOWED_HOSTS = ("www.athome.co.jp", "toushi-athome.jp", "athome.co.jp")
 
-    def _classify_and_collect_athome_url(self, href: str, detail_links: set, list_links: set) -> Tuple[Optional[str], Optional[str]]:
+    def _classify_and_collect_athome_url(self, href: str, detail_links: set, list_links: set) -> tuple[str | None, str | None]:
         parsed_url = urllib.parse.urlparse(href)
         if parsed_url.netloc and parsed_url.netloc not in self.ATHOME_ALLOWED_HOSTS:
             return None, None
@@ -450,9 +450,8 @@ class AthomeParser(ParserBase):
             if normalized not in detail_links:
                 detail_links.add(normalized)
                 return normalized, None
-        elif self._is_athome_list_url(path, href, is_list_or_nav):
-            if normalized not in list_links and normalized != "https://toushi-athome.jp/":
-                list_links.add(normalized)
+        elif self._is_athome_list_url(path, href, is_list_or_nav) and normalized not in list_links and normalized != "https://toushi-athome.jp/":
+            list_links.add(normalized)
         return None, base
 
     @classmethod
@@ -502,10 +501,14 @@ class AthomeParser(ParserBase):
                     yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 0. 掲載終了・物件不在の早期検知
+        # 0. 認証チャレンジ画面の早期検知（エラー化せず ServerBusyException として待避）
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
-        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件", "【アットホーム】認証中"]) or response.select_one(".mod-message-end, .not-found"):
+        if any(msg in title_text or msg in body_text for msg in _ATHOME_CHALLENGE_MARKERS):
+            raise ServerBusyException("Athome challenge/verification detected")
+
+        # 掲載終了・物件不在の早期検知
+        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "お探しのページは見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Athome listing ended or not found")
 
         # 共通の親メソッド呼び出し
