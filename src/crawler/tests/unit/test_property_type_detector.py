@@ -50,6 +50,7 @@ def test_detect_from_title_kodate():
     title_invest_kodate = "葛飾区金町 一戸建て オーナーチェンジ 表面利回り6.8%"
     assert PropertyTypeDetector.detect(title=title_invest_kodate) == "invest_kodate"
     assert PropertyTypeDetector.detect(title="大田区東雪谷 一戸建て（オーナーチェンジ物件）") == "invest_kodate"
+    assert PropertyTypeDetector.detect(title="世田谷区桜 中古一戸建", specs={"想定利回り": "7.5%"}) == "invest_kodate"
 
 
 def test_detect_from_title_tochi():
@@ -292,7 +293,7 @@ def test_yield_guard_in_detect():
     # 1. タイトルに「中古マンション」とあっても「利回り」があれば apartment
     assert PropertyTypeDetector.detect(title="品川区中古マンション 表面利回り7.8%") == "apartment"
     assert PropertyTypeDetector.detect(title="新宿区区分マンション オーナーチェンジ物件") == "apartment"
-    assert PropertyTypeDetector.detect(title="世田谷区新築一戸建て 想定利回り6.2%") == "apartment"
+    assert PropertyTypeDetector.detect(title="世田谷区新築一戸建て 想定利回り6.2%") == "invest_kodate"
 
     # 2. specsに利回り表記がある場合
     specs = {"物件名": "グランドメゾン", "現況利回り": "8.5%"}
