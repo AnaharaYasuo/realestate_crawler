@@ -755,6 +755,19 @@ graph TD
      - プロセス内並行数は通常クローラーと完全同一の `DETAIL_PARARELL_LIMIT = 3`（`CLOUD_DETAIL_CONCURRENCY` / `--concurrency` で上書き可能）でセマフォ制御。
      - 各物件の URL から `UrlRouter.create_parser(url)` でパーサーを動的解決し、詳細ページを取得・保存。
      - 正常取得時は既存の `_validate_and_tag_property_integrity()` により `needs_parser_fix=False` を解除。
+  3. **再巡回専用 Cloud Run Job ＆ Cloud Workflows オーケストレーション (Issue #738)**:
+      - **Cloud Run Job (`realestate-recrawl-anomalies-${var.environment}`)**:
+        - タイムアウト上限は通常クローリングと完全同期の 5時間（`18000s`）。
+        - 実行コマンド: `["python", "src/crawler/scripts/maintenance/recrawl_anomalies.py"]`
+        - ProxySQL（VPC内部 10.0.0.10:6033）経由での安全な DB アクセス。
+      - **Cloud Workflows (`realestate-recrawl-anomalies-pipeline-${var.environment}`)**:
+        - `daily_pipeline.yaml` の堅牢運用パターンを踏襲:
+          - Step 1: ProxySQL VM インスタンス自動起動
+          - Step 2: systemd デーモン受付待機（25秒）
+          - Step 3: Cloud Run Job 実行 & 5時間上限ポーリング監視（一時的 API 障害時のリトライ耐性付き）
+          - Step 4: タイムアウト時能動キャンセル（`executions.cancel`）
+          - Step 5: 二重 try-except による ProxySQL VM 停止の絶対保証（放置課金防止）
+        - 実行時引数オーバーライド（`concurrency`, `limit`, `taskCount`）に対応。
 
 ---
 
