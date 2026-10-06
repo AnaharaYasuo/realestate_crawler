@@ -13,8 +13,6 @@ from django.db import connections, reset_queries
 from package.ml.predict import (
     _serialize_property,
     predict_both_stages,
-    predict_first_stage_local,
-    predict_second_stage_local,
 )
 from package.utils.url_security import UrlSecurityValidator
 from package.utils.url_router import UrlRouter
