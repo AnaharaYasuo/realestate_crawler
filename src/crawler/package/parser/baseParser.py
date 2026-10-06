@@ -147,6 +147,9 @@ class ParserBase(metaclass=ABCMeta):
             el = response.select_one('.price, .mod-price, span.priceNum, td.price, .priceText')
             if el:
                 price_str = el.get_text(strip=True)
+        # ラベル文字列そのものを値として拾った場合は無効 (#761)
+        if price_str in ('価格', '販売価格', '物件価格'):
+            return ''
         return price_str
 
     def get_price(self, response: BeautifulSoup) -> int | Decimal | None:
