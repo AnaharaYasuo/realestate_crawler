@@ -794,6 +794,12 @@ graph TD
 - `package.utils.data_validator.tag_property_integrity` を単件保存・バッチ保存(`_afterRunProc`)の保存後に共通呼び出しし、NGなら `PropertyEvaluation.needs_parser_fix=True` (auto_heal_parsers 対象)、OKなら解消する。
 - `PropertyDataValidator` は全ページ必須項目(物件名・住所・交通)、居住用(mansion/kodate)の間取り・築年月の欠損をNG判定する。
 
+## 掲載終了・リダイレクト画面検知の適正化 (Issue #747)
+- **アットホーム (`athomeParser.py`)**:
+  - Playwright/DOM取得時の中間画面（タイトルに `【アットホーム】認証中` を含む、または `認証中` でスペックテーブル不在）を `ListingEndedException` として検知し、パース失敗（`StrictExtractionFailed`）による ERROR ログ出力を防止。
+- **パナソニック ホームズ / リアリエ (`rearieParser.py`)**:
+  - 物件終了時にトップページへリダイレクトされる仕様（タイトルに `- パナソニック ホームズ株式会社 - Panasonic` を含み、物件スペック `dl.table-view` 不在）を `ListingEndedException` として検知し、安全に掲載終了ステータスへと遷移させる。
+
 ## URLルーター網羅性と未解決ドメインの解消 (Issue #746)
 - **大京穴吹不動産 (`daikyoParser.py`)**: `daikyo-anabuki.co.jp/buy/detail/` から `DaikyoMansionParser`, `DaikyoKodateParser`, `DaikyoTochiParser` を動的解決。
 - **みずほ不動産販売 (`mizuhoParser.py`)**: `mizuho-re.co.jp/investors/` から `MizuhoInvestmentParser`, `mizuho-re.co.jp/buyers/` から Mansion/Kodate/Tochi パーサーを解決。

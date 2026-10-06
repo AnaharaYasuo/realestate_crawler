@@ -70,3 +70,47 @@ def test_server_busy_detection():
     soup = BeautifulSoup(html, "html.parser")
     with pytest.raises(ServerBusyException):
         DummyParser._raise_if_listing_ended(soup, "https://example.com/property/123")
+
+
+def test_athome_auth_intermediate_page_raises_listing_ended():
+    """アットホームの認証中または物件不在中間画面では ListingEndedException が送出されること (Issue #747)"""
+    html = """
+    <html>
+        <head><title>【アットホーム】認証中</title><style>body { display: none !important; }</style></head>
+        <body>
+            <div class="container">
+                <div class="center">認証中</div>
+            </div>
+        </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    from package.parser.athomeParser import AthomeMansionParser
+    from package.models.athome import AthomeMansion
+    parser = AthomeMansionParser()
+    item = AthomeMansion()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(item, soup)
+
+
+def test_rearie_redirect_to_top_page_raises_listing_ended():
+    """パナソニックホームズ（リアリエ）で物件終了時にトップページへリダイレクトされた場合、ListingEndedException が送出されること (Issue #747)"""
+    html = """
+    <!doctype html>
+    <html lang="ja">
+      <head>
+        <title>- パナソニック ホームズ株式会社 - Panasonic</title>
+      </head>
+      <body>
+        <header><h1>パナソニック ホームズ</h1></header>
+        <nav>注文住宅 リフォーム 賃貸住宅</nav>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    from package.parser.rearieParser import RearieMansionParser
+    from package.models.rearie import RearieMansion
+    parser = RearieMansionParser()
+    item = RearieMansion()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(item, soup)

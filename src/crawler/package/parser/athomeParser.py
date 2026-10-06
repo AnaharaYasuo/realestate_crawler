@@ -505,7 +505,7 @@ class AthomeParser(ParserBase):
         # 0. 掲載終了・物件不在の早期検知
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
-        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]) or response.select_one(".mod-message-end, .not-found"):
+        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件", "【アットホーム】認証中"]) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Athome listing ended or not found")
 
         # 共通の親メソッド呼び出し
