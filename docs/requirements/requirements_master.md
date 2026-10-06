@@ -253,6 +253,15 @@ Cloud Run Jobs の 8並列タスクアレイにおいて、各インスタンス
 - **動的オーバーライド (`os.getenv`)**:
   - 環境変数 `MAX_PAGES_PER_JOB` および `MAX_PROPERTIES_PER_JOB` が指定されている場合、正の整数値であれば動的に上書き適用可能とすること。
 
+#### FR-CRW-015: 不整合データ (needs_parser_fix) の分散再クローリングおよび掲載終了連携要件 (Issue #735)
+1. **ピンポイント再取得**: `PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)` を対象とし、パーサー改修後やデータ不整合検知後に異常フラグが付与された物件のみをピンポイントで再取得すること。
+2. **通常クローラー準拠の並列・分散制御**:
+   - **水平分散**: Cloud Run Jobs の 8並列タスクアレイ（`CLOUD_RUN_TASK_INDEX` / `CLOUD_RUN_TASK_COUNT=8`）および CLI オプション（`--task-index`, `--task-count`）による Modulo 分割（`property_id % task_count == task_index`）に対応し、タスク毎に均等・決定論的に分散実行すること。
+   - **プロセス内並行度**: 通常クローラーの詳細取得上限と完全同一の `DETAIL_PARARELL_LIMIT = 3`（`CLOUD_DETAIL_CONCURRENCY` / `--concurrency` で上書き可能）でセマフォ制御すること。
+3. **フラグライフサイクルの自動更新**:
+   - **再取得成功時**: 正常データ抽出完了後、自動で `needs_parser_fix=False` および `data_quality_issue=""` に更新すること。
+   - **掲載終了検知時**: 404 や販売終了文言（`ListingEndedException` / `SkipPropertyException`）を検知した場合、自動で `is_published=False`、`delisted_at=now()`、`needs_parser_fix=False` に更新すること。
+
 ---
 
 # 投資用物件 サンプルURL・取得項目調査

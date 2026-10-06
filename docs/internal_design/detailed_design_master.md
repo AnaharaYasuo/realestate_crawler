@@ -741,6 +741,21 @@ graph TD
   3. **整合性およびテスト検証**:
      - 既存の `test_deduplication.py` および新規ベンチマーク/ユニットテストによる機能検証。
 
+### 6.38 不整合物件 (needs_parser_fix) の分散再クローリングバッチ & 掲載終了連携内部設計 (Issue #735)
+- **背景と課題**:
+  - `validate_data.py` やクローリング時のリアルタイム検証で `needs_parser_fix=True` が付与された異常物件は、パーサー改修後やサイト仕様変更後に再クローリングして最新化・正常化する必要がある。
+  - 通常の全件巡回 API とは異なり、異常物件のみをピンポイントで再取得し、正常取得時には `needs_parser_fix=False` を解除し、掲載終了（404・販売終了）時には `is_published=False` / `delisted_at=now()` を反映する仕組みが求められる。
+  - また、対象が数千件規模に及ぶ場合でも、通常クローラーと同等の並列度（Cloud Run Jobs タスクアレイ 8 並列、プロセス内並行数 3）で安全・高速に分散実行できる必要がある。
+- **改修内容**:
+  1. **詳細パース基底クラスにおける掲載終了検知 (`package/api/api.py: ParseDetailPageAsyncBase`)**:
+     - `_treatPage()` において `is_skipped`（`ListingEndedException` / `SkipPropertyException`）検知時、`PropertyEvaluation` の `is_published=False`, `delisted_at=timezone.now()`, `needs_parser_fix=False` を更新・保存。
+  2. **分散再クローリングバッチ (`scripts/maintenance/recrawl_anomalies.py`)**:
+     - `PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)` を走査。
+     - Cloud Run Jobs タスクアレイ環境変数（`CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_COUNT=8`）および CLI オプション（`--task-index`, `--task-count`）による Modulo 分割（`property_id % task_count == task_index`）でタスク毎の担当物件を決定論的に抽出。
+     - プロセス内並行数は通常クローラーと完全同一の `DETAIL_PARARELL_LIMIT = 3`（`CLOUD_DETAIL_CONCURRENCY` / `--concurrency` で上書き可能）でセマフォ制御。
+     - 各物件の URL から `UrlRouter.create_parser(url)` でパーサーを動的解決し、詳細ページを取得・保存。
+     - 正常取得時は既存の `_validate_and_tag_property_integrity()` により `needs_parser_fix=False` を解除。
+
 ---
 
 ## 7. 参照ドキュメント
