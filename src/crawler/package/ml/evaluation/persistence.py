@@ -51,6 +51,24 @@ def bulk_update_evaluation_records(
     )
 
 
+def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
+    """重複URLを除去して bulk_create を実行する"""
+    if not records_to_create:
+        return
+    unique_creates = []
+    seen_create_urls = set()
+    for r in records_to_create:
+        if r.property_url and r.property_url not in seen_create_urls:
+            seen_create_urls.add(r.property_url)
+            unique_creates.append(r)
+    if unique_creates:
+        PropertyEvaluation.objects.bulk_create(
+            unique_creates,
+            batch_size=batch_size,
+            ignore_conflicts=True,
+        )
+
+
 def save_chunk(
     chunk: list[Any],
     predicted_prices: list[float],
@@ -78,20 +96,7 @@ def save_chunk(
         else:
             records_to_update.append(rec)
 
-    if records_to_create:
-        unique_creates = []
-        seen_create_urls = set()
-        for r in records_to_create:
-            if r.property_url and r.property_url not in seen_create_urls:
-                seen_create_urls.add(r.property_url)
-                unique_creates.append(r)
-        if unique_creates:
-            PropertyEvaluation.objects.bulk_create(
-                unique_creates,
-                batch_size=batch_size,
-                ignore_conflicts=True,
-            )
-
+    _bulk_create_records(records_to_create, batch_size)
     if records_to_update:
         bulk_update_evaluation_records(records_to_update, property_type, batch_size)
 

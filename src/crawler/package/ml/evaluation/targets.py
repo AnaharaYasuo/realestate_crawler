@@ -26,6 +26,13 @@ def get_all_property_models(skip_portals: bool = False) -> list[Any]:
     return property_models
 
 
+def _should_skip_item(existing_eval: Any, force: bool) -> bool:
+    """スキップ対象物件か判定する (Cognitive Complexity 分散)"""
+    if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
+        return True
+    return bool(not force and existing_eval and existing_eval.first_stage_predicted_price is not None)
+
+
 def iter_unprocessed_chunks(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -49,12 +56,7 @@ def iter_unprocessed_chunks(
             continue
 
         existing_eval = existing_eval_map.get(page_url)
-        # 公開終了物件または再クロール待ちの不正物件は除外 (Issue #665)
-        if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
-            skipped_count += 1
-            continue
-
-        if not force and existing_eval and existing_eval.first_stage_predicted_price is not None:
+        if _should_skip_item(existing_eval, force):
             skipped_count += 1
             continue
 
