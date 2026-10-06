@@ -700,6 +700,9 @@ docs/
 - **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消要件定義書](docs/requirements/smtrc_timeout_and_parser_heal_requirements.md)**: smtrcタイムアウト延長(2400s)・所在階複合表記抽出・バリデータ階数判定フォールバック要件 (Issue #723)
 - **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消基本設計書](docs/basic_design/smtrc_timeout_and_parser_heal_basic_design.md)**: API/パーサー/バリデータ3層連携による巡回安定化・階数判定基本設計 (Issue #723)
 - **[smtrcタイムアウト延長・所在階パースおよびバリデータ誤検知解消内部設計書](docs/internal_design/smtrc_timeout_and_parser_heal_internal_design.md)**: _getTimeOutSecond/kaisuStr/floorType_kai詳細実装およびテスト仕様 (Issue #723)
+- **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復要件定義書](docs/requirements/safetynet_msg_and_sumifu_invest_requirements.md)**: ProxySQL稼働維持通知文言の改善およびsumifu invest_kodateセレクターKeyError解消要件 (Issue #727)
+- **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復基本設計書](docs/basic_design/safetynet_msg_and_sumifu_invest_basic_design.md)**: ensure_resources_stopped通知ヘッダー変更およびsumifu.yaml定義拡張基本設計 (Issue #727)
+- **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復内部設計書](docs/internal_design/safetynet_msg_and_sumifu_invest_internal_design.md)**: GCE/MIG通知メッセージ更新・sumifuParser property_type設定詳細仕様 (Issue #727)
 
 ### 2. 開発を始める
 

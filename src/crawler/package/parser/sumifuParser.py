@@ -840,6 +840,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
 
 class SumifuInvestmentKodateParser(SumifuInvestmentParserBase, KodateParserBase):
+    property_type = 'invest_kodate'
 
     def _parseTochiMenseki(self, response, specs=None):
         return super()._parseTochiMenseki(response, specs)
@@ -884,6 +885,7 @@ class SumifuInvestmentKodateParser(SumifuInvestmentParserBase, KodateParserBase)
 
 
 class SumifuInvestmentApartmentParser(SumifuInvestmentParserBase, InvestmentParserBase):
+    property_type = 'invest_apartment'
 
     def _parseGrossYield(self, response, specs=None):
         return super()._parseGrossYield(response, specs)
