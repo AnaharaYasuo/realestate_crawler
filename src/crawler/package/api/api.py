@@ -1460,9 +1460,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         item.pageUrl, property_type, "; ".join(reasons)
                     )
                 elif eval_rec.needs_parser_fix:
-                    # 既に正常データが取得できた場合はパーサー修復フラグを解消
+                    # 既に正常データが取得できた場合はパーサー修復フラグを解消し公開状態に復旧
                     eval_rec.needs_parser_fix = False
                     eval_rec.needs_recrawl = False
+                    eval_rec.is_published = True
+                    eval_rec.delisted_at = None
                     eval_rec.data_quality_issue = ""
                     eval_rec.save()
 
@@ -1776,7 +1778,20 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
         elif is_skipped:
-            logging.info(f"Skipped property processing (Lifecycle / Filtered) for URL: {self.url}")
+            logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
+            try:
+                def update_delisted():
+                    eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
+                    if eval_rec:
+                        eval_rec.is_published = False
+                        eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
+                        eval_rec.needs_parser_fix = False
+                        eval_rec.needs_recrawl = False
+                        eval_rec.save()
+                        logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
+                await sync_to_async(update_delisted)()
+            except (DatabaseError, OperationalError, AttributeError, ValueError) as le_err:
+                logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
