@@ -24,8 +24,8 @@ def test_workflows_timeout_definitions():
     workflow_total_timeout_sec = int(max_duration_match.group(1))
     crawler_phase_timeout_sec = int(crawl_timeout_match.group(1))
 
-    assert crawler_phase_timeout_sec == 5 * 3600, f"Expected 18000, got {crawler_phase_timeout_sec}"
-    assert workflow_total_timeout_sec == 7 * 3600, f"Expected 25200, got {workflow_total_timeout_sec}"
+    assert crawler_phase_timeout_sec == 9 * 3600, f"Expected 18000, got {crawler_phase_timeout_sec}"
+    assert workflow_total_timeout_sec == 11 * 3600, f"Expected 25200, got {workflow_total_timeout_sec}"
     assert crawler_phase_timeout_sec < workflow_total_timeout_sec
     # 後続フェーズ (ML学習 + 価格推定 + 配信 + 停止) に最低 2 時間のバッファが確保されていること
     assert (workflow_total_timeout_sec - crawler_phase_timeout_sec) >= 2 * 3600

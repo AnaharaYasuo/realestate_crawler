@@ -72,8 +72,8 @@ def test_server_busy_detection():
         DummyParser._raise_if_listing_ended(soup, "https://example.com/property/123")
 
 
-def test_athome_auth_intermediate_page_raises_listing_ended():
-    """アットホームの認証中または物件不在中間画面では ListingEndedException が送出されること (Issue #747)"""
+def test_athome_auth_intermediate_page_raises_server_busy():
+    """アットホームの認証中または物件不在中間画面では ServerBusyException (待避) が送出されること (Issue #752)"""
     html = """
     <html>
         <head><title>【アットホーム】認証中</title><style>body { display: none !important; }</style></head>
@@ -89,7 +89,7 @@ def test_athome_auth_intermediate_page_raises_listing_ended():
     from package.models.athome import AthomeMansion
     parser = AthomeMansionParser()
     item = AthomeMansion()
-    with pytest.raises(ListingEndedException):
+    with pytest.raises(ServerBusyException):
         parser._parsePropertyDetailPage(item, soup)
 
 
@@ -114,3 +114,31 @@ def test_rearie_redirect_to_top_page_raises_listing_ended():
     item = RearieMansion()
     with pytest.raises(ListingEndedException):
         parser._parsePropertyDetailPage(item, soup)
+
+
+def test_rearie_empty_shell_with_blank_table_view_raises_listing_ended():
+    """掲載終了でタイトルがブランドのみ・dl.table-view が空殻のページは ListingEndedException (Issue #761)"""
+    html = """
+    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
+    <body><h1></h1><dl class="table-view"><div><dt></dt><dd></dd></div></dl></body></html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    from package.parser.rearieParser import RearieMansionParser
+    from package.models.rearie import RearieMansion
+    parser = RearieMansionParser()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(RearieMansion(), soup)
+
+
+def test_rearie_layout_table_brand_only_raises_listing_ended():
+    """レイアウト用tableが存在しても物件スペックが無ければ掲載終了扱い (CodeRabbit指摘 #761)"""
+    html = """
+    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
+    <body><table><tr><td>ナビゲーション</td><td>フッター</td></tr></table></body></html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    from package.parser.rearieParser import RearieMansionParser
+    from package.models.rearie import RearieMansion
+    parser = RearieMansionParser()
+    with pytest.raises(ListingEndedException):
+        parser._parsePropertyDetailPage(RearieMansion(), soup)

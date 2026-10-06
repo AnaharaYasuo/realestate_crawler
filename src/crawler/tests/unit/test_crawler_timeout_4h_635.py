@@ -61,13 +61,18 @@ def _cron_seconds(cron):
     return hour * 3600 + minute * 60
 
 
+def _after_crawl_start(sec):
+    """schedule_cron 以前の時刻は翌日扱い (クロールが日跨ぎするため)."""
+    return sec + 86400 if sec <= _cron_seconds(_var_default("schedule_cron")) else sec
+
+
 def _crawler_latest_end_sec():
     return _cron_seconds(_var_default("schedule_cron")) + _crawler_timeout_sec()
 
 
 def _ml_latest_end_sec():
     ml_timeout = int(re.search(r'timeout\s*=\s*"(\d+)s"', _job_block("ml_pipeline_job")).group(1))
-    return _cron_seconds(_var_default("ml_pipeline_schedule_cron")) + ml_timeout
+    return _after_crawl_start(_cron_seconds(_var_default("ml_pipeline_schedule_cron"))) + ml_timeout
 
 
 def _deploy_step(job_name):
@@ -83,7 +88,7 @@ def _deploy_step(job_name):
 
 
 def test_crawler_timeout_default_is_five_hours():
-    assert _var_default("crawler_timeout") == "18000s"
+    assert _var_default("crawler_timeout") == "32400s"
 
 
 def test_crawler_timeout_description_matches_cloud_run_limit():
@@ -111,7 +116,7 @@ def test_crawler_timeout_validation_cannot_exceed_hung_threshold():
 
 def test_crawler_timeout_validation_cannot_overlap_ml_start():
     latest = _cron_seconds(_var_default("schedule_cron")) + _validation_upper_bound()
-    assert latest < _cron_seconds(_var_default("ml_pipeline_schedule_cron"))
+    assert latest < _after_crawl_start(_cron_seconds(_var_default("ml_pipeline_schedule_cron")))
 
 
 def test_crawler_job_uses_crawler_timeout_variable():
@@ -295,8 +300,8 @@ def test_safety_net_runs_after_latest_crawler_and_ml_end():
 
 
 def test_ml_pipeline_starts_after_four_hour_crawler_deadline():
-    assert _cron_seconds(_var_default("ml_pipeline_schedule_cron")) > _crawler_latest_end_sec()
-    assert _var_default("ml_pipeline_schedule_cron") == "10 21 * * *"
+    assert _after_crawl_start(_cron_seconds(_var_default("ml_pipeline_schedule_cron"))) > _crawler_latest_end_sec()
+    assert _var_default("ml_pipeline_schedule_cron") == "10 1 * * *"
 
 
 # ---------------------------------------------------------------------------
@@ -312,15 +317,13 @@ def _backup_start_sec():
 
 def test_backup_starts_after_latest_crawler_end():
     # 00:00 UTC represents next-day rollover (86400s), which is after crawler latest end (21:00 UTC = 75600s)
-    backup_sec = _backup_start_sec()
-    effective_backup_sec = backup_sec if backup_sec > 0 else 86400
+    effective_backup_sec = _after_crawl_start(_backup_start_sec())
     assert effective_backup_sec >= _crawler_latest_end_sec()
 
 
 def test_backup_starts_after_latest_ml_pipeline_end():
     # 00:00 UTC represents next-day rollover (86400s), which is after ML pipeline latest end (23:10 UTC = 83400s)
-    backup_sec = _backup_start_sec()
-    effective_backup_sec = backup_sec if backup_sec > 0 else 86400
+    effective_backup_sec = _after_crawl_start(_backup_start_sec())
     assert effective_backup_sec >= _ml_latest_end_sec()
 
 
@@ -328,5 +331,5 @@ def test_backup_start_time_is_on_the_hour_before_next_crawl():
     start = _backup_start_sec()
     assert start % 3600 == 0
     assert start < 24 * 3600
-    assert start == 0  # 00:00 UTC (JST 09:00)
+    assert start == 4 * 3600  # 04:00 UTC (JST 13:00)
 

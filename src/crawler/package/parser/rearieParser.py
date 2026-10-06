@@ -312,8 +312,11 @@ class RearieParser(ParserBase):
         body_text = response.body.get_text() if response.body else ""
         if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "掲載終了物件"]):
             raise ListingEndedException("Rearie listing ended")
-        if "- パナソニック ホームズ株式会社 - Panasonic" in title_text and not response.select("dl.table-view, table"):
-            raise ListingEndedException("Rearie redirected to top page (listing ended)")
+        # ブランドタイトルのみで物件スペック（価格・面積・所在地等のキー）が存在しない場合はトップ転送/掲載終了
+        if "- パナソニック ホームズ株式会社 - Panasonic" in title_text:
+            specs = self._get_specs(response)
+            if not any(k in specs for k in ["価格", "販売価格", "物件価格", "専有面積", "建物面積", "土地面積", "所在地"]):
+                raise ListingEndedException("Rearie redirected to top page (listing ended)")
 
         item = super()._parsePropertyDetailPage(item, response)
         

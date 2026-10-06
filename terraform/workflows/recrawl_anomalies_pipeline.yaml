@@ -6,13 +6,13 @@ main:
     - initVars:
         assign:
           - pipelineStart: ${sys.now()}
-          - maxPipelineDurationSec: 18000  # 5時間 (18,000s: 通常クローラーと同一)
+          - maxPipelineDurationSec: 32400  # 9時間 (32,400s: 通常クローラーと同一)
           - projectId: ${default(map.get(args, "projectId"), sys.get_env("GOOGLE_CLOUD_PROJECT_ID"))}
           - location: ${default(map.get(args, "location"), "asia-northeast1")}
           - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
           - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
           - recrawlJob: ${default(map.get(args, "recrawlJob"), "realestate-recrawl-anomalies-prod")}
-          - rawTimeoutSec: ${default(map.get(args, "timeoutSec"), 18000)}
+          - rawTimeoutSec: ${default(map.get(args, "timeoutSec"), 32400)}
           - recrawlTimeoutSec: ${int(math.min(rawTimeoutSec, maxPipelineDurationSec - 300))} # 停止用5分バッファを確保
           - concurrency: ${default(map.get(args, "concurrency"), null)}
           - limit: ${default(map.get(args, "limit"), null)}
