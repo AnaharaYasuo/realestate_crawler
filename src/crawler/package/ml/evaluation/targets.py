@@ -33,6 +33,23 @@ def _should_skip_item(existing_eval: Any, force: bool) -> bool:
     return bool(not force and existing_eval and existing_eval.first_stage_predicted_price is not None)
 
 
+def iter_unprocessed_items(
+    model: Any,
+    existing_eval_map: dict[str, Any],
+    force: bool = False,
+) -> Iterator[tuple[Any | None, bool]]:
+    """未処理物件を走査し、(item, was_skipped) を yield する"""
+    for item in model.objects.all().order_by("pk").iterator(chunk_size=2000):
+        page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
+        if not page_url:
+            continue
+        existing_eval = existing_eval_map.get(page_url)
+        if _should_skip_item(existing_eval, force):
+            yield None, True
+        else:
+            yield item, False
+
+
 def iter_unprocessed_chunks(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -46,17 +63,12 @@ def iter_unprocessed_chunks(
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
-    current_chunk = []
+    current_chunk: list[Any] = []
     skipped_count = 0
     yielded_total = 0
 
-    for item in model.objects.all().order_by("pk").iterator(chunk_size=2000):
-        page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-        if not page_url:
-            continue
-
-        existing_eval = existing_eval_map.get(page_url)
-        if _should_skip_item(existing_eval, force):
+    for item, was_skipped in iter_unprocessed_items(model, existing_eval_map, force):
+        if was_skipped:
             skipped_count += 1
             continue
 
@@ -66,11 +78,10 @@ def iter_unprocessed_chunks(
             yielded_total += len(current_chunk)
             current_chunk = []
             skipped_count = 0
-
             if limit and yielded_total >= limit:
-                break
+                return
 
-    if current_chunk and (not limit or yielded_total < limit):
-        if limit and (yielded_total + len(current_chunk) > limit):
-            current_chunk = current_chunk[: limit - yielded_total]
-        yield current_chunk, skipped_count
+    if current_chunk:
+        remaining_budget = (limit - yielded_total) if limit else len(current_chunk)
+        if remaining_budget > 0:
+            yield current_chunk[:remaining_budget], skipped_count
