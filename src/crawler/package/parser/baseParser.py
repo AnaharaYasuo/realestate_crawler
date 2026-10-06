@@ -515,7 +515,7 @@ class ParserBase(metaclass=ABCMeta):
             return True
         if href.startswith(('javascript:', 'mailto:', 'tel:')):
             return True
-        skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, '/shiritai/', '/360/', '/benefit/')
+        skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, '/shiritai/', '/360/', '/benefit/', '/baikyaku/')
         return any(tok in href for tok in skip_tokens)
 
     @staticmethod
@@ -1143,7 +1143,7 @@ class ParserBase(metaclass=ABCMeta):
         if not url:
             return
         u_lower = str(url).lower()
-        skip_parts = ('/shiritai/', '/360/', '/chintai/', '/rent/', TOKEN_INQUIRY, TOKEN_CONTACT, '/benefit/')
+        skip_parts = ('/shiritai/', '/360/', '/chintai/', '/rent/', TOKEN_INQUIRY, TOKEN_CONTACT, '/benefit/', '/baikyaku/')
         if any(p in u_lower for p in skip_parts):
             logging.info(f'Fast-skipping non-property/rental URL: {url}')
             raise SkipPropertyException(f'Non-property URL skipped: {url}')

@@ -332,6 +332,15 @@ class UrlRouter:
             "model_cls": "NomuraInvestmentApartment",
         },
         {
+            "pattern": re.compile(r"nomu\.com/pro/"),
+            "site": "nomura",
+            "property_type": "invest_kodate",
+            "parser_module": NOMURA_PARSER_MODULE,
+            "parser_cls": "NomuraInvestmentKodateParser",
+            "model_module": NOMURA_MODEL_MODULE,
+            "model_cls": "NomuraInvestmentKodate",
+        },
+        {
             "pattern": re.compile(r"nomu\.com/mansion/"),
             "site": "nomura",
             "property_type": "mansion",

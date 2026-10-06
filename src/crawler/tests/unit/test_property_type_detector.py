@@ -46,6 +46,11 @@ def test_detect_from_title_kodate():
     title3 = "杉並区 一戸建 南西角地"
     assert PropertyTypeDetector.detect(title=title3) == "kodate"
 
+    # 投資用戸建て（オーナーチェンジ・利回りあり）
+    title_invest_kodate = "葛飾区金町 一戸建て オーナーチェンジ 表面利回り6.8%"
+    assert PropertyTypeDetector.detect(title=title_invest_kodate) == "invest_kodate"
+    assert PropertyTypeDetector.detect(title="大田区東雪谷 一戸建て（オーナーチェンジ物件）") == "invest_kodate"
+
 
 def test_detect_from_title_tochi():
     """タイトルから土地・売地が正しく判定されること"""

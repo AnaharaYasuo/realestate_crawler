@@ -1215,6 +1215,7 @@ class NomuraInvestmentKodateParser(NomuraInvestmentParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response):
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Kodate"
+        item.madori = self._parseMadori(response)
         item.setsudou = self._parseSetsudou(response)
         item.chimoku = self._parseChimoku(response)
         item.youtoChiiki = self._parseYoutoChiiki(response)
