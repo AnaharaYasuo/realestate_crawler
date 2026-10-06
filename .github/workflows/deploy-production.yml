@@ -164,6 +164,13 @@ jobs:
             --args=--project-id=sumifu,--region=asia-northeast1,--instance-name=proxysql-instance-prod \
             --region=asia-northeast1
 
+      - name: Update Recrawl Anomalies Job Image
+        run: |
+          gcloud run jobs update realestate-recrawl-anomalies-prod \
+            --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
+            --command=python,src/crawler/scripts/maintenance/recrawl_anomalies.py \
+            --region=asia-northeast1
+
       - name: Prune old images (Keep latest 3 versions)
         # Executed only after all jobs and services have successfully updated their image references
         run: |

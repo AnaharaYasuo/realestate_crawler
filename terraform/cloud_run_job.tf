@@ -669,3 +669,119 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
 }
 
 
+
+
+# Cloud Run Job for Recrawl Anomalies (Issue #738)
+resource "google_cloud_run_v2_job" "recrawl_anomalies_job" {
+  name     = "realestate-recrawl-anomalies-${var.environment}"
+  location = var.region
+
+  depends_on = [
+    google_project_service.enabled_services,
+    google_sql_database_instance.mysql_instance,
+    google_compute_address.proxysql_ip,
+    google_compute_subnetwork.subnet,
+    google_secret_manager_secret_version.db_password_version,
+    google_secret_manager_secret_iam_member.secret_accessor
+  ]
+
+  template {
+    template {
+      service_account = google_service_account.crawler_runner.email
+      timeout         = var.crawler_timeout # 通常クローラーと完全同期の5時間 (18,000s)
+      max_retries     = 0
+
+      vpc_access {
+        network_interfaces {
+          network    = google_compute_network.vpc_network.name
+          subnetwork = google_compute_subnetwork.subnet.name
+        }
+        egress = "PRIVATE_RANGES_ONLY"
+      }
+
+      containers {
+        image   = "python:3.11-slim"
+        command = ["python", "src/crawler/scripts/maintenance/recrawl_anomalies.py"]
+
+        resources {
+          limits = {
+            cpu    = var.crawler_cpu
+            memory = var.crawler_memory
+          }
+        }
+
+        env {
+          name  = "IS_CLOUD"
+          value = "true"
+        }
+        env {
+          name  = "LOG_FORMAT"
+          value = "json"
+        }
+        env {
+          name  = "PYTHONIOENCODING"
+          value = "utf-8"
+        }
+        env {
+          name  = "DB_HOST"
+          value = google_compute_address.proxysql_ip.address
+        }
+        env {
+          name  = "DB_NAME"
+          value = var.db_name
+        }
+        env {
+          name  = "DB_USER"
+          value = var.db_user
+        }
+        env {
+          name  = "DB_PORT"
+          value = "6033"
+        }
+        env {
+          name  = "CONN_MAX_AGE"
+          value = "0"
+        }
+        env {
+          name = "DB_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.db_password_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        # Slack トークン設定
+        env {
+          name = "SLACK_BOT_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        # Slack チャンネル設定
+        env {
+          name  = "SLACK_CHANNEL_ID"
+          value = "C0BGJF4E737"
+        }
+        env {
+          name  = "SLACK_DEV_CHANNEL"
+          value = "C0BKBHWD26T"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].template[0].containers[0].command
+    ]
+  }
+}
