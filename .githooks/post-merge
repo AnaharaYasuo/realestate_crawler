@@ -1,0 +1,18 @@
+#!/bin/sh
+# .githooks/post-merge
+# Auto-sync CodeGraph index after git pull / git merge
+
+export MSYS_NO_PATHCONV=1
+
+sync_codegraph() {
+    # If Windows and cmd.exe exists, prefer running through cmd to bypass PowerShell execution policy
+    if command -v cmd.exe >/dev/null 2>&1; then
+        cmd.exe /c "codegraph sync" >/dev/null 2>&1 || true
+    elif command -v codegraph >/dev/null 2>&1; then
+        codegraph sync >/dev/null 2>&1 || true
+    fi
+}
+
+# Run sync safely in background or foreground without blocking or failing git operations
+sync_codegraph || true
+exit 0
