@@ -241,7 +241,8 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
         eval_rec.data_quality_issue = issue
         eval_rec.is_published = True
         eval_rec.save()
-    elif eval_rec.needs_parser_fix:
+    else:
+        # 正常保存 = 再掲載含め公開状態へ復旧 (修復フラグの有無に依存しない)
         eval_rec.needs_parser_fix = False
         eval_rec.needs_recrawl = False
         eval_rec.is_published = True
