@@ -1,8 +1,17 @@
 # プロジェクト共通開発ルール
 
 ## 作業着手前の最新 master 同期義務原則 (Pre-Flight Master Sync)
-- **いかなる調査・改修・開発作業の開始前にも、必ず `git checkout master && git pull origin master` を実行してローカル環境を最新の master に同期完了した上で、作業ブランチ（`fix/<issue_num>-<topic>` または `feature/<issue_num>-<topic>`）を作成・チェックアウトしてから作業を開始しなければならない。**
+- **いかなる調査・改修・開発作業の開始前にも、必ず `git checkout master && git pull origin master` を実行し、続いて `codegraph sync`（Windows は `cmd /c codegraph sync`）を実行してローカルのコードグラフインデックスを最新化完了した上で、作業ブランチ（`fix/<issue_num>-<topic>` または `feature/<issue_num>-<topic>`）を作成・チェックアウトしてから作業を開始しなければならない。**
 - このルールは例外なく常時厳守される。
+
+## 【プロジェクト普遍ルール】CodeGraph ファースト調査・影響範囲（Blast Radius）分析原則
+- **広範囲 grep / 全文 Read 乱用の禁止**:
+  - コード構造の把握、バグ調査、機能追加、リファクタリングにおいて、推測によるファイル全体の連続 Read や不要な広範囲 grep の実行を禁止する。
+- **`codegraph_explore` ワンショット探索の義務化**:
+  - 対象シンボルや関心領域の調査時は、必ず CodeGraph MCP ツール `codegraph_explore` をファーストコールすること。
+  - 1回の呼び出しで「行番号付きソースコード」「呼出元 / 呼出先（Callers / Callees）」「影響範囲（Blast Radius / 関連テスト一覧）」を一括取得し、コンテキスト消費を最小化して安全に変更計画を立案すること。
+- **Worktree 連携**:
+  - Worktree 配下での作業時も、`codegraph_explore` に Worktree パス（`projectPath`）を渡すか、リポジトリルートの `.codegraph/` インデックスを参照して正確な解析を継続すること。
 
 ## 【プロジェクト普遍ルール】常時 git worktree 運用原則 (Always Worktree Principle)
 - **メイン作業ツリー直接変更の厳禁**:
@@ -10,7 +19,7 @@
   - **必ず `git worktree` を使用し、作業ブランチ専用の独立したワークツリー（`.worktrees/<branch-name>`）を作成して作業を実行すること**。
   - これにより、並行作業時のコンフリクト、未コミット変更の巻き込み、別Issueへの混入を物理的に根絶する。
 - **標準ワークツリー運用フロー**:
-  1. `git checkout master && git pull origin master`（メインリポジトリの master 最新化）
+  1. `git checkout master && git pull origin master && cmd /c codegraph sync`（メインリポジトリの master およびインデックス最新化）
   2. `git worktree add .worktrees/<branch-name> -b <branch-name>`（専用ワークツリー作成）
   3. 専用ワークツリー内で作業・テスト・Sonar/CodeRabbit検証・コミット・プッシュ・PR作成
   4. マージ完了後、`git worktree remove .worktrees/<branch-name>` でクリーンアップ

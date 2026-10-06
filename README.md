@@ -443,6 +443,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[batch_metrics_specification.md](docs/requirements/batch_metrics_specification.md)**: バッチ処理標準メトリクス表示要件定義書 (学習・推定・配信の件数・時間・スループット可視化) (Issue #647)
     *   **[slack_validation_delisted_requirements.md](docs/requirements/slack_validation_delisted_requirements.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携要件定義書 (Issue #665)
     *   **[slack_notification_channel_separation_requirements.md](docs/requirements/slack_notification_channel_separation_requirements.md)**: Slack通知チャンネル責務分離要件定義書 (Issue #688)
+    *   **[codegraph_operational_integration_requirements.md](docs/requirements/codegraph_operational_integration_requirements.md)**: CodeGraphインデックス自動同期およびMCP運用の組み込み要件定義書 (Issue #744)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -460,6 +461,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[batch_metrics_design.md](docs/basic_design/batch_metrics_design.md)**: バッチ処理標準メトリクス基本設計書 (Issue #647)
 *   **[slack_validation_delisted_basic_design.md](docs/basic_design/slack_validation_delisted_basic_design.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携基本設計書 (Issue #665)
 *   **[slack_notification_channel_separation_basic_design.md](docs/basic_design/slack_notification_channel_separation_basic_design.md)**: Slack通知チャンネル責務分離基本設計書 (Issue #688)
+*   **[codegraph_operational_integration_basic_design.md](docs/basic_design/codegraph_operational_integration_basic_design.md)**: CodeGraph 運用組み込み基本設計書 (Gitフック・Taskfile・エージェント規範) (Issue #744)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -488,6 +490,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[バッチ処理標準メトリクス内部設計書](docs/internal_design/batch_metrics_internal_design.md)** - バッチ処理標準メトリクス内部設計書 (Issue #647)
 - **[Slack進捗通知分離・公開終了保持・厳格バリデーション内部設計書](docs/internal_design/slack_validation_delisted_internal_design.md)** - Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携内部設計書 (Issue #665)
 - **[Slack通知チャンネル責務分離内部設計書](docs/internal_design/slack_notification_channel_separation_internal_design.md)** - Slack通知チャンネル責務分離内部設計書 (Issue #688)
+- **[CodeGraph 運用組み込み内部設計書](docs/internal_design/codegraph_operational_integration_internal_design.md)** - Git フック仕様（post-merge / post-checkout）、Taskfile定義、AGENTS.md行動規範および自動テスト仕様 (Issue #744)
 
 
 
