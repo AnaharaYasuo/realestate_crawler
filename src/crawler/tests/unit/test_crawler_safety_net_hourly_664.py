@@ -102,4 +102,4 @@ def test_safety_net_skips_when_ml_pipeline_job_is_running(mock_slack):
         assert result.skipped_reason == "job_running"
         mock_stop.assert_not_called()
         mock_slack.assert_called_once()
-        assert "クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました" in mock_slack.call_args[0][0]
+        assert "クローラー/MLパイプライン正常実行中のためProxySQLの起動を継続しました" in mock_slack.call_args[0][0]
