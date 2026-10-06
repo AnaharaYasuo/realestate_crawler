@@ -163,6 +163,10 @@ def _load_zones(zone_cls) -> bool:
     return bool(_zone_cache)
 
 
+def _to_float_or_none(val: Any) -> float | None:
+    return float(val) if val is not None else None
+
+
 def _load_macros(macro_cls) -> bool:
     if _macro_cache:
         return False
@@ -173,13 +177,13 @@ def _load_macros(macro_cls) -> bool:
     for row in macro_cls.objects.values(*macro_fields):
         m_rec = MacroEconomicRecord(
             year_month=row["year_month"],
-            repi_mansion=float(row["repi_mansion"]) if row["repi_mansion"] is not None else None,
-            repi_kodate=float(row["repi_kodate"]) if row["repi_kodate"] is not None else None,
-            repi_tochi=float(row["repi_tochi"]) if row["repi_tochi"] is not None else None,
-            jgb_10y_yield=float(row["jgb_10y_yield"]) if row["jgb_10y_yield"] is not None else None,
-            nikkei_225=float(row["nikkei_225"]) if row["nikkei_225"] is not None else None,
-            tse_reit_index=float(row["tse_reit_index"]) if row["tse_reit_index"] is not None else None,
-            construction_cost_index=float(row["construction_cost_index"]) if row["construction_cost_index"] is not None else None,
+            repi_mansion=_to_float_or_none(row["repi_mansion"]),
+            repi_kodate=_to_float_or_none(row["repi_kodate"]),
+            repi_tochi=_to_float_or_none(row["repi_tochi"]),
+            jgb_10y_yield=_to_float_or_none(row["jgb_10y_yield"]),
+            nikkei_225=_to_float_or_none(row["nikkei_225"]),
+            tse_reit_index=_to_float_or_none(row["tse_reit_index"]),
+            construction_cost_index=_to_float_or_none(row["construction_cost_index"]),
         )
         _macro_cache[m_rec.year_month] = m_rec
     return bool(_macro_cache)
