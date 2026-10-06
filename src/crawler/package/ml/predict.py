@@ -20,7 +20,7 @@ from package.ml.inference.ensemble import (
     apply_smearing_and_ensemble,
 )
 from package.ml.inference.model_registry import (
-    ensure_models_available,
+    ensure_models_available as _ensure_models_available,
     get_default_registry,
 )
 from package.ml.inference.predictor import (
@@ -32,6 +32,7 @@ from package.ml.inference.predictor import (
 from package.ml.inference.predictor import (
     log_prediction_error as _log_prediction_error,
 )
+from package.utils.storage import get_storage_manager
 
 # 外部呼び出し元への互換性エイリアス
 _serialize_property = serialize_property
@@ -67,6 +68,11 @@ def _load_smearing_factors(model_dir: str | None = None) -> dict[str, Any]:
 def preload_all_models() -> None:
     """全物件種別のモデルおよびマスタをメモリへ事前ロード"""
     get_default_registry().preload()
+
+
+def ensure_models_available(model_dir: str | None = None) -> None:
+    """ローカルモデルディレクトリにjoblibが存在しない場合、オブジェクトストレージからダウンロード"""
+    _ensure_models_available(model_dir, storage_manager_getter=get_storage_manager)
 
 
 def bulk_predict_first_stage(properties_list: list[Any]) -> list[int]:

@@ -13,8 +13,10 @@ from package.utils.storage import get_storage_manager
 logger = logging.getLogger(__name__)
 
 
-def ensure_models_available(model_dir: str | None = None) -> None:
-
+def ensure_models_available(
+    model_dir: str | None = None,
+    storage_manager_getter: Any = None,
+) -> None:
     """ローカルモデルディレクトリにjoblibが存在しない場合、オブジェクトストレージからダウンロード"""
     if model_dir is None:
         model_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
@@ -25,7 +27,8 @@ def ensure_models_available(model_dir: str | None = None) -> None:
         return
 
     try:
-        storage = get_storage_manager()
+        getter = storage_manager_getter or get_storage_manager
+        storage = getter()
         files = storage.list_files("ml_models/")
         downloaded = 0
         for key in files:
