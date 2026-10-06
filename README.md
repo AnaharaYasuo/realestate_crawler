@@ -471,7 +471,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャ、投資用物件取得戦略、および価格推定APIの詳細
 - **[価格推定API OpenAPI仕様書](docs/api/openapi.yaml)** - Swaggerで閲覧可能な価格推定API仕様書（OpenAPI 3.0）
 - **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
-- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)** - 機械学習モデル・学習プロセス仕様書（2段階スクリーニング・特徴量・フォールバック設計）
+- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)** - 機械学習モデル・学習・推論・バルク評価パイプライン仕様書（2段階スクリーニング・特徴量・責務分割アーキテクチャ・参照マスタ軽量化・ストリーミング評価）
 - **[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md)** - 一項目一メソッド（Template Method パターン）、基底クラス `@abstractmethod` 抽象設計規約、および関数名漢字利用禁止規約
 - **[日次予測精度診断運用ポリシー](docs/internal_design/ml_prediction_diagnostics_policy.md)** - MdAPEを主軸とした価格帯・種別別ズレ日次診断、ワースト要因タギング、AIインサイト運用仕様
 - **[SonarCloud課題全件解消詳細設計](docs/internal_design/sonar_zero_issues_internal_design.md)** - SonarCloud課題ゼロ化およびStrict Quality Gate・CI多層防御モジュール詳細設計書
