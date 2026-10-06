@@ -214,7 +214,7 @@ def main():
     default_concurrency = int(cloud_concurrency_env) if cloud_concurrency_env and cloud_concurrency_env.isdigit() else DETAIL_PARARELL_LIMIT
     concurrency = args.concurrency if args.concurrency is not None else default_concurrency
 
-    asyncio.run(
+    _, stats = asyncio.run(
         recrawl_anomalies_async(
             task_index=task_index,
             task_count=task_count,
@@ -223,6 +223,15 @@ def main():
             dry_run=args.dry_run,
         )
     )
+
+    failed_cnt = stats.get("failed", 0)
+    circuit_cnt = stats.get("skipped_by_circuit_breaker", 0)
+    if failed_cnt > 0 or circuit_cnt > 0:
+        logger.error(
+            "Recrawl finished with errors (Failed: %d, Skipped by circuit breaker: %d)",
+            failed_cnt, circuit_cnt
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
