@@ -1460,9 +1460,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         item.pageUrl, property_type, "; ".join(reasons)
                     )
                 elif eval_rec.needs_parser_fix:
-                    # 既に正常データが取得できた場合はパーサー修復フラグを解消
+                    # 既に正常データが取得できた場合はパーサー修復フラグを解消し公開状態に復旧
                     eval_rec.needs_parser_fix = False
                     eval_rec.needs_recrawl = False
+                    eval_rec.is_published = True
+                    eval_rec.delisted_at = None
                     eval_rec.data_quality_issue = ""
                     eval_rec.save()
 

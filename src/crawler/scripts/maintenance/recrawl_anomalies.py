@@ -23,6 +23,8 @@ while True:
         break
     _cur = _parent
 
+from asgiref.sync import sync_to_async
+from django.db.models import F
 from package.api.mitsui import DETAIL_PARARELL_LIMIT
 from package.models.evaluation import PropertyEvaluation
 from package.utils.task_distribution import get_task_config
@@ -30,16 +32,29 @@ from package.utils.url_router import UrlRouter
 
 logger = logging.getLogger(__name__)
 
+# サーキットブレイカー: 連続タイムアウトFast-Fail上限
+MAX_CONSECUTIVE_TIMEOUTS = 3
+
 
 def filter_targets_by_task(records: list[Any], task_index: int | None, task_count: int) -> list[Any]:
-    """
-    対象レコードを Cloud Run Jobs タスクアレイの Modulo 分割により抽出する
-    """
+    """対象レコードを Cloud Run Jobs タスクアレイの Modulo 分割により抽出する (後方互換/単体テスト用)"""
     if task_index is None or task_count <= 1:
         return records
     if task_index < 0 or task_index >= task_count:
         raise ValueError(f"task_index ({task_index}) out of range for task_count ({task_count})")
     return [rec for rec in records if (getattr(rec, "property_id", 0) or 0) % task_count == task_index]
+
+
+def fetch_assigned_targets(task_index: int | None, task_count: int, limit: int | None = None) -> list[Any]:
+    """各タスクの担当条件(Modulo)と--limitをDjangoクエリに直接適用して取得する"""
+    qs = PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)
+    if task_index is not None and task_count > 1:
+        # Django DB 側で Modulo フィルタを適用し、不要な全件ロードを抑制
+        qs = qs.annotate(mod_id=F("property_id") % task_count).filter(mod_id=task_index)
+    qs = qs.order_by("property_id")
+    if limit and limit > 0:
+        qs = qs[:limit]
+    return list(qs)
 
 
 class AnomalyDetailRunner:
@@ -52,7 +67,6 @@ class AnomalyDetailRunner:
         if not self.parser:
             logger.warning("No parser resolved for URL: %s", self.url)
             return None
-        # 詳細取得基底クラスの仕組みを直接利用して最新取得
         from package.api.api import ParseDetailPageAsyncBase
 
         class DirectDetailProc(ParseDetailPageAsyncBase):
@@ -80,19 +94,71 @@ class AnomalyDetailRunner:
         return await proc._run(self.url)
 
 
-async def _recrawl_single_url(sem: asyncio.Semaphore, eval_rec: Any) -> tuple[str, bool]:
-    """単一物件の再取得をセマフォ制御下で実行"""
+class CircuitBreakerState:
+    """連続タイムアウト・接続失敗を監視するサーキットブレイカー"""
+    def __init__(self, threshold: int = MAX_CONSECUTIVE_TIMEOUTS):
+        self.consecutive_failures = 0
+        self.is_tripped = False
+        self.threshold = threshold
+        self.lock = asyncio.Lock()
+
+    async def record_success(self):
+        async with self.lock:
+            self.consecutive_failures = 0
+
+    async def record_failure(self, is_timeout_or_connection: bool):
+        async with self.lock:
+            if is_timeout_or_connection:
+                self.consecutive_failures += 1
+                if self.consecutive_failures >= self.threshold:
+                    self.is_tripped = True
+                    logger.error(
+                        "Circuit breaker TRIPPED: %d consecutive timeouts/connection errors. Aborting remaining recrawls.",
+                        self.consecutive_failures,
+                    )
+            else:
+                self.consecutive_failures = 0
+
+
+async def _recrawl_single_url(
+    sem: asyncio.Semaphore,
+    eval_rec: Any,
+    circuit_breaker: CircuitBreakerState,
+) -> str:
+    """単一物件の再取得を実行し、永続化後のステータス (resolved, delisted, unresolved, failed, skipped) を返す"""
+    if circuit_breaker.is_tripped:
+        return "skipped_by_circuit_breaker"
+
     url = eval_rec.property_url
     async with sem:
+        if circuit_breaker.is_tripped:
+            return "skipped_by_circuit_breaker"
         try:
             logger.info("Recrawling anomaly URL: %s", url)
             runner = AnomalyDetailRunner(url)
-            item = await runner.run()
-            success = item is not None
-            return url, success
+            await runner.run()
+            await circuit_breaker.record_success()
+        except (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError):
+            await circuit_breaker.record_failure(is_timeout_or_connection=True)
+            logger.exception("Timeout or connection failure recrawling %s", url)
+            return "failed"
         except Exception:
+            await circuit_breaker.record_failure(is_timeout_or_connection=False)
             logger.exception("Failed recrawling anomaly URL %s", url)
-            return url, False
+            return "failed"
+
+        # 永続化後の最新レコード状態を確認して分類
+        def get_post_state():
+            latest = PropertyEvaluation.objects.filter(property_url=url).first()
+            if not latest:
+                return "failed"
+            if not latest.is_published:
+                return "delisted"
+            if not latest.needs_parser_fix:
+                return "resolved"
+            return "unresolved"
+
+        return await sync_to_async(get_post_state)()
 
 
 async def recrawl_anomalies_async(
@@ -102,38 +168,33 @@ async def recrawl_anomalies_async(
     limit: int | None = None,
     dry_run: bool = False,
 ):
-    """
-    不整合物件の分散再クローリング本体ロジック
-    """
-    # 1. 対象レコード取得 (needs_parser_fix=True かつ 公開中)
-    from asgiref.sync import sync_to_async
-    def fetch_records():
-        return list(PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True).order_by("property_id"))
-
-    all_targets = await sync_to_async(fetch_records)()
-    logger.info("Found total %d candidate properties with needs_parser_fix=True", len(all_targets))
-
-    # 2. タスクアレイによる担当物件の分割
-    my_targets = filter_targets_by_task(all_targets, task_index=task_index, task_count=task_count)
-    if limit and limit > 0:
-        my_targets = my_targets[:limit]
-
+    """不整合物件の分散再クローリング本体ロジック"""
+    # 1. 担当条件と上限を DB クエリに直接適用して取得
+    my_targets = await sync_to_async(fetch_assigned_targets)(task_index=task_index, task_count=task_count, limit=limit)
     logger.info(
         "Task [%s/%d]: Assigned %d properties to recrawl (Concurrency: %d, DryRun: %s)",
         task_index, task_count, len(my_targets), concurrency, dry_run
     )
 
     if dry_run or not my_targets:
-        return len(my_targets), 0
+        return len(my_targets), {}
 
-    # 3. セマフォ制御並行実行 (通常クローラーと同一並行度)
+    # 2. セマフォ制御 & サーキットブレイカー付き並行実行
     sem = asyncio.Semaphore(concurrency)
-    tasks = [_recrawl_single_url(sem, rec) for rec in my_targets]
-    results = await asyncio.gather(*tasks)
+    circuit_breaker = CircuitBreakerState()
+    tasks = [_recrawl_single_url(sem, rec, circuit_breaker) for rec in my_targets]
+    outcomes = await asyncio.gather(*tasks)
 
-    success_cnt = sum(1 for _, ok in results if ok)
-    logger.info("Finished recrawl for task [%s/%d]: Success %d / Total %d", task_index, task_count, success_cnt, len(my_targets))
-    return len(my_targets), success_cnt
+    # 3. 結果の集計 (resolved, delisted, unresolved, failed, skipped_by_circuit_breaker)
+    stats: dict[str, int] = {}
+    for outcome in outcomes:
+        stats[outcome] = stats.get(outcome, 0) + 1
+
+    logger.info(
+        "Finished recrawl for task [%s/%d]: Total %d, Stats: %s",
+        task_index, task_count, len(my_targets), stats
+    )
+    return len(my_targets), stats
 
 
 def main():
@@ -145,7 +206,6 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Simulate task allocation without fetching")
     args = parser.parse_args()
 
-    # 環境変数から Cloud Run Jobs 設定を自動検出
     env_index, env_count = get_task_config()
     task_index = args.task_index if args.task_index is not None else env_index
     task_count = args.task_count if args.task_count is not None else (env_count if env_count > 1 else 8)
