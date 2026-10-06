@@ -73,15 +73,17 @@ def iter_unprocessed_chunks(
             continue
 
         current_chunk.append(item)
-        if len(current_chunk) >= chunk_size:
-            yield current_chunk, skipped_count
-            yielded_total += len(current_chunk)
+        remaining = (limit - yielded_total) if limit is not None else chunk_size
+        if len(current_chunk) >= min(chunk_size, remaining):
+            to_yield = current_chunk[:remaining] if limit is not None else current_chunk
+            yield to_yield, skipped_count
+            yielded_total += len(to_yield)
             current_chunk = []
             skipped_count = 0
-            if limit and yielded_total >= limit:
+            if limit is not None and yielded_total >= limit:
                 return
 
     if current_chunk:
-        remaining_budget = (limit - yielded_total) if limit else len(current_chunk)
-        if remaining_budget > 0:
-            yield current_chunk[:remaining_budget], skipped_count
+        remaining = (limit - yielded_total) if limit is not None else len(current_chunk)
+        if remaining > 0:
+            yield current_chunk[:remaining], skipped_count
