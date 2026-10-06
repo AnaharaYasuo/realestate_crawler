@@ -50,6 +50,11 @@ SUMIRIN_MODEL_MODULE = "package.models.sumirin"
 HEIM_DETAIL_PATTERN = re.compile(
     r"tokyo816\.jp/(?:plan_detail|bunjou/property)/|tokyo816\.jp/.*detail\.php|sumu-heim\.jp"
 )
+DAIKYO_DETAIL_PATTERN = re.compile(r"daikyo-anabuki\.co\.jp/buy/detail/")
+MIZUHO_BUYERS_PATTERN = re.compile(r"mizuho-re\.co\.jp/buyers/")
+KEIO_SALE_PATTERN = re.compile(r"chukai\.keiofudosan\.co\.jp/sale/")
+KEIKYU_DETAIL_PATTERN = re.compile(r"keikyu-sumai\.com/contents/code/detail/")
+KEISEI_DETAIL_PATTERN = re.compile(r"keisei-land\.co\.jp/contents/code/detail/")
 
 
 class UrlRouter:
@@ -508,7 +513,7 @@ class UrlRouter:
 
         # 大京穴吹不動産 (Daikyo)
         {
-            "pattern": re.compile(r"daikyo-anabuki\.co\.jp/buy/detail/"),
+            "pattern": DAIKYO_DETAIL_PATTERN,
             "site": "daikyo",
             "property_type": "mansion",
             "parser_module": DAIKYO_PARSER_MODULE,
@@ -517,7 +522,7 @@ class UrlRouter:
             "model_cls": "DaikyoMansion",
         },
         {
-            "pattern": re.compile(r"daikyo-anabuki\.co\.jp/buy/detail/"),
+            "pattern": DAIKYO_DETAIL_PATTERN,
             "site": "daikyo",
             "property_type": "kodate",
             "parser_module": DAIKYO_PARSER_MODULE,
@@ -526,7 +531,7 @@ class UrlRouter:
             "model_cls": "DaikyoKodate",
         },
         {
-            "pattern": re.compile(r"daikyo-anabuki\.co\.jp/buy/detail/"),
+            "pattern": DAIKYO_DETAIL_PATTERN,
             "site": "daikyo",
             "property_type": "tochi",
             "parser_module": DAIKYO_PARSER_MODULE,
@@ -546,7 +551,7 @@ class UrlRouter:
             "model_cls": "MizuhoInvestment",
         },
         {
-            "pattern": re.compile(r"mizuho-re\.co\.jp/buyers/"),
+            "pattern": MIZUHO_BUYERS_PATTERN,
             "site": "mizuho",
             "property_type": "mansion",
             "parser_module": MIZUHO_PARSER_MODULE,
@@ -555,7 +560,7 @@ class UrlRouter:
             "model_cls": "MizuhoMansion",
         },
         {
-            "pattern": re.compile(r"mizuho-re\.co\.jp/buyers/"),
+            "pattern": MIZUHO_BUYERS_PATTERN,
             "site": "mizuho",
             "property_type": "kodate",
             "parser_module": MIZUHO_PARSER_MODULE,
@@ -564,7 +569,7 @@ class UrlRouter:
             "model_cls": "MizuhoKodate",
         },
         {
-            "pattern": re.compile(r"mizuho-re\.co\.jp/buyers/"),
+            "pattern": MIZUHO_BUYERS_PATTERN,
             "site": "mizuho",
             "property_type": "tochi",
             "parser_module": MIZUHO_PARSER_MODULE,
@@ -671,7 +676,7 @@ class UrlRouter:
 
         # 京王不動産 (Keio)
         {
-            "pattern": re.compile(r"chukai\.keiofudosan\.co\.jp/sale/"),
+            "pattern": KEIO_SALE_PATTERN,
             "site": "keio",
             "property_type": "mansion",
             "parser_module": KEIO_PARSER_MODULE,
@@ -680,7 +685,7 @@ class UrlRouter:
             "model_cls": "KeioMansion",
         },
         {
-            "pattern": re.compile(r"chukai\.keiofudosan\.co\.jp/sale/"),
+            "pattern": KEIO_SALE_PATTERN,
             "site": "keio",
             "property_type": "kodate",
             "parser_module": KEIO_PARSER_MODULE,
@@ -689,7 +694,7 @@ class UrlRouter:
             "model_cls": "KeioKodate",
         },
         {
-            "pattern": re.compile(r"chukai\.keiofudosan\.co\.jp/sale/"),
+            "pattern": KEIO_SALE_PATTERN,
             "site": "keio",
             "property_type": "tochi",
             "parser_module": KEIO_PARSER_MODULE,
@@ -700,7 +705,7 @@ class UrlRouter:
 
         # 京急すまい (Keikyu)
         {
-            "pattern": re.compile(r"keikyu-sumai\.com/contents/code/detail/"),
+            "pattern": KEIKYU_DETAIL_PATTERN,
             "site": "keikyu",
             "property_type": "mansion",
             "parser_module": KEIKYU_PARSER_MODULE,
@@ -709,7 +714,7 @@ class UrlRouter:
             "model_cls": "KeikyuMansion",
         },
         {
-            "pattern": re.compile(r"keikyu-sumai\.com/contents/code/detail/"),
+            "pattern": KEIKYU_DETAIL_PATTERN,
             "site": "keikyu",
             "property_type": "kodate",
             "parser_module": KEIKYU_PARSER_MODULE,
@@ -718,7 +723,7 @@ class UrlRouter:
             "model_cls": "KeikyuKodate",
         },
         {
-            "pattern": re.compile(r"keikyu-sumai\.com/contents/code/detail/"),
+            "pattern": KEIKYU_DETAIL_PATTERN,
             "site": "keikyu",
             "property_type": "tochi",
             "parser_module": KEIKYU_PARSER_MODULE,
@@ -729,7 +734,7 @@ class UrlRouter:
 
         # 京成不動産 (Keisei)
         {
-            "pattern": re.compile(r"keisei-land\.co\.jp/contents/code/detail/"),
+            "pattern": KEISEI_DETAIL_PATTERN,
             "site": "keisei",
             "property_type": "mansion",
             "parser_module": KEISEI_PARSER_MODULE,
@@ -738,7 +743,7 @@ class UrlRouter:
             "model_cls": "KeiseiMansion",
         },
         {
-            "pattern": re.compile(r"keisei-land\.co\.jp/contents/code/detail/"),
+            "pattern": KEISEI_DETAIL_PATTERN,
             "site": "keisei",
             "property_type": "kodate",
             "parser_module": KEISEI_PARSER_MODULE,
@@ -747,7 +752,7 @@ class UrlRouter:
             "model_cls": "KeiseiKodate",
         },
         {
-            "pattern": re.compile(r"keisei-land\.co\.jp/contents/code/detail/"),
+            "pattern": KEISEI_DETAIL_PATTERN,
             "site": "keisei",
             "property_type": "tochi",
             "parser_module": KEISEI_PARSER_MODULE,
