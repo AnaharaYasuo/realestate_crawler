@@ -37,8 +37,8 @@
 - `AGENTS.md` の「作業着手前の最新 master 同期義務原則 (Pre-Flight Master Sync)」に `codegraph sync` を追記。
 - 「【プロジェクト普遍ルール】常時 git worktree 運用原則」に CodeGraph インデックス同期および `codegraph_explore` 呼び出し時の `projectPath` 取扱いを追記。
 - 「【プロジェクト普遍ルール】CodeGraph ファースト調査・影響範囲分析原則」セクションを新設。
-
-## 4. 自動テスト仕様 (`src/crawler/tests/unit/test_codegraph_hooks.py`)
-- フックスクリプト（`post-merge`, `post-checkout`）の存在および実行可能パーミッションを検証。
-- フックスクリプト内に `codegraph sync` 呼び出しおよび安全な終了処理が含まれることをアサート。
-- `Taskfile.yml` に `codegraph:sync` タスクが正しく定義されていることを検証。
+## 4. 動作検証仕様
+- フックスクリプト（`post-merge`, `post-checkout`）の存在および実行可能パーミッション（exit 0 保証）を検証。
+- フックスクリプト内に `codegraph sync` 呼び出しおよびフェイルセーフ処理が含まれることを確認。
+- `Taskfile.yml` に `codegraph:sync` および `codegraph:status` タスクが正しく定義されていることを確認。
+- アプリ本体（`src/`）のロジック変更を伴わないため、余計な CI 実行を誘発するユニットテストファイルは作成せず、Git フックおよびタスクランナーの直接実行により品質を保証。
