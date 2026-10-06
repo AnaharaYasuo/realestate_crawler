@@ -799,7 +799,7 @@ def check_and_stop_proxysql_instance(
                 for j in active_jobs
             )
             info_msg = (
-                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました*\n"
+                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQLの起動を継続しました*\n"
                 f"・プロジェクト: `{project_id}`\n"
                 f"・稼働ジョブ: {job_desc}\n"
                 f"・ProxySQL: `{instance_name}` (RUNNING)"
@@ -1041,7 +1041,7 @@ def check_and_stop_proxysql_mig(
                 for j in active_jobs
             )
             info_msg = (
-                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQL停止をスキップしました*\n"
+                f":information_source: *【Safety-Net】クローラー/MLパイプライン正常実行中のためProxySQLの起動を継続しました*\n"
                 f"・プロジェクト: `{project_id}`\n"
                 f"・稼働ジョブ: {job_desc}\n"
                 f"・MIGサイズ: `{current_target_size}` 台"
