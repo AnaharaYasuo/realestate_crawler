@@ -247,6 +247,8 @@ class PropertyTypeDetector:
         )
         # 数値利回り・オーナーチェンジ等の実投資シグナルを売地より優先
         if cls._has_yield_signal(text):
+            if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
+                return "invest_kodate"
             return "apartment"
         if has_definite_tochi:
             return "tochi"
@@ -318,6 +320,8 @@ class PropertyTypeDetector:
     ) -> Optional[str]:
         specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype == "apartment":
+            if title and cls._first_keyword_hit(title, cls.KODATE_KEYWORDS):
+                return "invest_kodate"
             return "apartment"
         if title:
             title_ptype = cls._match_keywords(title)

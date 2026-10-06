@@ -254,6 +254,21 @@ def test_url_router_resolution():
     from package.parser.athomeParser import AthomeTochiParser
     assert isinstance(UrlRouter.create_parser(athome_other_url), AthomeTochiParser)
 
+    # 野村不動産 (Nomura: pro apartment & pro invest_kodate)
+    nomura_pro_url = "https://www.nomu.com/pro/bukken_local_id/FB9C6017/"
+    route_nomura_apt = router.resolve(nomura_pro_url)
+    assert route_nomura_apt is not None
+    assert route_nomura_apt["site"] == "nomura"
+    assert route_nomura_apt["property_type"] == "apartment"
+
+    route_nomura_kodate = router.resolve(nomura_pro_url, property_type="invest_kodate")
+    assert route_nomura_kodate is not None
+    assert route_nomura_kodate["site"] == "nomura"
+    assert route_nomura_kodate["property_type"] == "invest_kodate"
+    from package.parser.nomuraParser import NomuraInvestmentKodateParser, NomuraInvestmentApartmentParser
+    assert isinstance(UrlRouter.create_parser(nomura_pro_url, property_type="invest_kodate"), NomuraInvestmentKodateParser)
+    assert isinstance(UrlRouter.create_parser(nomura_pro_url, property_type="apartment"), NomuraInvestmentApartmentParser)
+
 
 # ==============================================================================
 # 3. Singleflight Concurrency Control Unit Tests

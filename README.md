@@ -706,6 +706,9 @@ docs/
 - **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復要件定義書](docs/requirements/safetynet_msg_and_sumifu_invest_requirements.md)**: ProxySQL稼働維持通知文言の改善およびsumifu invest_kodateセレクターKeyError解消要件 (Issue #727)
 - **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復基本設計書](docs/basic_design/safetynet_msg_and_sumifu_invest_basic_design.md)**: ensure_resources_stopped通知ヘッダー変更およびsumifu.yaml定義拡張基本設計 (Issue #727)
 - **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復内部設計書](docs/internal_design/safetynet_msg_and_sumifu_invest_internal_design.md)**: GCE/MIG通知メッセージ更新・sumifuParser property_type設定詳細仕様 (Issue #727)
+- **[野村投資用戸建て誤ルーティング修復および非物件URLノイズ抑止要件定義書](docs/requirements/nomura_invest_routing_and_noise_filter_requirements.md)**: 野村投資用戸建てルーティング・モデル適正化および非物件ノイズ除外要件 (Issue #754)
+- **[野村投資用戸建て誤ルーティング修復および非物件URLノイズ抑止内部設計書](docs/internal_design/nomura_invest_routing_and_noise_filter_internal_design.md)**: NomuraInvestmentApartment soukosu blank許容・UrlRouter invest_kodate追加・ParserBaseノイズURL除外仕様 (Issue #754)
+
 
 ### 2. 開発を始める
 
