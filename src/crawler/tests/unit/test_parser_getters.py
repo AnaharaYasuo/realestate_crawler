@@ -323,6 +323,12 @@ class TestParserGettersBase:
         assert parser.get_price_str(soup) == "3,580万円"
         assert parser.get_address(soup) == "東京都世田谷区桜丘1丁目"
 
+    def test_get_price_str_rejects_label_text_761(self):
+        parser = DummyParser()
+        soup = BeautifulSoup('<html><body><span class="price">価格</span></body></html>', "html.parser")
+        assert parser.get_price_str(soup) == ""
+        assert not parser.get_price(soup)
+
     def test_get_setsudou_and_douro_breakdown(self):
         parser = DummyParser()
         html = """
