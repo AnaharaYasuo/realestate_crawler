@@ -94,6 +94,7 @@ investment:
   field_mappings:
     利回り: "grossYield"
     表面利回り: "grossYield"
+    現行利回り: "grossYield"
     想定年間収入: "annualRent"
     年間想定収入: "annualRent"
     現況: "currentStatus"

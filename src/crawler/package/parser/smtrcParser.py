@@ -521,6 +521,7 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
             specs.get("利回り", "")
             or specs.get("表面利回り", "")
             or specs.get("想定利回り", "")
+            or specs.get("現行利回り", "")
         )
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
