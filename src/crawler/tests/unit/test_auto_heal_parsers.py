@@ -29,7 +29,7 @@ def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
     ]
     # mitsui mansion: 3件, tokyu tochi: 2件, sumifu kodate: 1件
     # 各グループから代表1件ずつ抽出されるため合計3件
-    aggregated = aggregate_and_sort_targets(raw_targets, max_targets=10)
+    aggregated = aggregate_and_sort_targets(raw_targets)
     assert len(aggregated) == 3
     # 頻度順に並んでいるか（1位グループ: mitsui mansion, 2位グループ: tokyu tochi, 3位グループ: sumifu kodate）
     assert aggregated[0]["company"] == "mitsui"
@@ -41,13 +41,17 @@ def test_aggregate_and_sort_targets_counts_frequency_and_sorts():
 
 
 def test_aggregate_and_sort_targets_truncates_at_max_targets():
-    # 15種類の異なるエラー
+    # 60種類の異なるエラーでデフォルト50件への切り捨てを検証
     raw_targets = [
         {"company": f"c_{i}", "property_type": "mansion", "reason": f"error_{i}", "url": f"https://example.com/{i}"}
-        for i in range(15)
+        for i in range(60)
     ]
-    aggregated = aggregate_and_sort_targets(raw_targets, max_targets=10)
-    assert len(aggregated) == 10
+    aggregated = aggregate_and_sort_targets(raw_targets)
+    assert len(aggregated) == 50
+
+    # 明示的な max_targets 指定時
+    aggregated_custom = aggregate_and_sort_targets(raw_targets, max_targets=20)
+    assert len(aggregated_custom) == 20
 
 
 def test_notify_auto_heal_request_with_targets():

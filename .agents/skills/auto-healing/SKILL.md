@@ -8,9 +8,9 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 このスキルは、クローリング監視アラートや0件取得検出時（またはユーザーからの `/auto-heal` 指示時）にトリガーされ、人手を介さずに全自動でバグ修正および後修復検証を行う実行ガイドラインです。
 
 ## 実行原則（トークン節約＆効率化）
-* **発生頻度順（Top-10 First）優先修復 ＆ 実行契機の限定**:
+* **発生頻度順（Top-50 First）優先修復 ＆ 実行契機の限定**:
   - 全体クローリング完了時（`run_all_crawlers.py` 末尾）または手動 `/auto-heal` 呼び出し時の**1回のみ**実行。物件ごとのクローリングループ内での常時・逐次実行は完全禁止。
-  - 全方位の無差別探索を行わず、`Temp/auto_heal_instruction.json` または障害テレメトリから**発生件数の多いエラー上位（最大10件）**を抽出し、頻度順に1件ずつピンポイントで修復する。
+  - 全方位の無差別探索を行わず、`Temp/auto_heal_instruction.json` または障害テレメトリから**発生件数の多いエラー上位（最大50件）**を抽出し、頻度順に1件ずつピンポイントで修復する。
 * **ローカルへの生ログ読み込み完全禁止 (Direct-to-AI / No Local Log Ingestion)**:
   - ローカルマシン環境や Antigravity のコンテキストに生ログ（数十〜数百行）を読み込むことを完全禁止。
   - エラー集計・要約はコンテナ内メモリから Google Cloud Gemini (Flash) へダイレクトに送信し、AI が要約した数行の抜粋テキストのみを指示書・通知経由で受け取る。
@@ -23,8 +23,8 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 
 ## 実行ステップ
 
-### 1. 指示書およびエラー集計からの修復対象特定（Top-10）
-* `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大10件）の修復対象を特定。
+### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
+* `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
 * 同一サイト＆種別で大量（数十〜200件等）の失敗が発生している場合は、`python src/crawler/scripts/debug_tools/bulk_auto_heal_diagnose.py --site <site> --type <type>` を実行し、全失敗サンプルを圧縮して Gemini Flash へ1リクエスト投入することで、包括的修正マニフェスト（`Temp/auto_heal_bulk_fix_manifest.json`）を生成して一括原因究明を行う。
 * ローカルへのログファイルの引き出し・読み込みは行わず、指示書の要約情報および対象URL・パーサーを直接確認。
 * パーサー未整備エラー（`[PARSER_UNAVAILABLE]`）が検知された場合、新規パーサー開発対象（Backlog）として自律的に開発タスクを起票・実装する。
