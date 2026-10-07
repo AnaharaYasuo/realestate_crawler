@@ -54,3 +54,31 @@
     - 「ビル」「店舗」「事務所」➔ `"Building"`
     - それ以外（「アパート」「一棟アパート」等）➔ `"Apartment"`
 
+## 4. オートヒール異常解消・低価格物件許容・投資パーサー是正内部設計（Issue #769）
+
+### 4.1 `PropertyDataValidator` 拡張 (`src/crawler/package/utils/data_validator.py`)
+- **`_is_low_price_allowed(item, ptype)`**:
+  - 地目（`chimoku`）が山林、原野、雑種地、農地、畑、田、保安林のいずれか
+  - 物件名または備考に「山林」「原野」「資材置場」「持分」「オーナーチェンジ」のいずれかを含む
+  - 物件種別が `tochi`、`investment`、`invest`、`investmentapartment` 等
+- **価格・単価閾値の動的切り替え**:
+  - `_validate_price`: `min_price_man = 1.0 if _is_low_price_allowed else 100.0`
+  - `_validate_unit_price`: `min_unit = 10.0 if _is_low_price_allowed else 1000.0`
+
+### 4.2 `TokyuParser` 改修 (`src/crawler/package/parser/tokyuParser.py`)
+- **`check_tokyu_listing_ended`**:
+  - `title_text` に「収益物件（建物）一覧」「投資用不動産 | 収益物件」を含む場合も `ListingEndedException` を送出。
+- **`_parseGrossYield`**:
+  - 正規表現マッチなし時のフォールバックを `Decimal(0)` から `None` に変更。
+- **`TokyuInvestmentKodateParser._parsePropertyDetailPage`**:
+  - タイトルまたは物件名に「マンション」「区分」「一室」が含まれ、かつ土地面積がない場合、または土地面積が0以下の場合は `SkipPropertyException` を送出。
+
+### 4.3 `OdakyuParser` 改修 (`src/crawler/package/parser/odakyuParser.py`)
+- **`_invest_card_traffic`**:
+  - `.estate-info-list dl` から `dt: 交通` を抽出し返却。
+- **`_fill_invest_card_identity`**:
+  - `traffic_str` を抽出し、`item.traffic` セットおよび `_populateTraffic(item, [traffic_str])` を呼出。
+- **`_apply_invest_card_field`**:
+  - `dt_text` に「交通」が含まれる場合のハンドリングを追加。
+
+

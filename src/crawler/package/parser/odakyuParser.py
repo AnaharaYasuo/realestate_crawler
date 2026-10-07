@@ -621,6 +621,10 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         item.address = self._invest_card_address(block)
         if item.address:
             item.address1, item.address2, item.address3 = self._split_address(item.address)
+        traffic_str = self._invest_card_traffic(block)
+        if traffic_str:
+            item.traffic = traffic_str
+            self._populateTraffic(item, [traffic_str])
         if focus_id:
             item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
 
@@ -640,6 +644,9 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         elif "土地面積" in dt_text and not getattr(item, "tochiMenseki", None):
             item.tochiMensekiStr = dd_text
             item.tochiMenseki = converter.parse_menseki(dd_text)
+        elif "交通" in dt_text and not getattr(item, "traffic", None):
+            item.traffic = dd_text
+            self._populateTraffic(item, [dd_text])
         elif "間取り" in dt_text and not getattr(item, "madori", None):
             item.madori = dd_text
         elif "階数" in dt_text and not getattr(item, "kaisuStr", None):
@@ -650,11 +657,20 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
 
     @staticmethod
     def _invest_card_address(block) -> str:
-        for dl in block.select(".estate-info-list dl.address"):
+        for dl in block.select(".estate-info-list dl.address, .estate-info-list dl"):
             dt = dl.find("dt")
             if dt and "所在地" in dt.get_text():
                 addr_dd = dl.find("dd")
                 return addr_dd.get_text(" ", strip=True) if addr_dd else ""
+        return ""
+
+    @staticmethod
+    def _invest_card_traffic(block) -> str:
+        for dl in block.select(".estate-info-list dl.address, .estate-info-list dl"):
+            dt = dl.find("dt")
+            if dt and "交通" in dt.get_text():
+                traf_dd = dl.find("dd")
+                return traf_dd.get_text(" ", strip=True) if traf_dd else ""
         return ""
 
     def _fill_invest_card_yield_rent(self, item, block) -> str:
