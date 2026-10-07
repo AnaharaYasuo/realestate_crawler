@@ -63,6 +63,14 @@
   - `crawler_timeout` の上限およびデフォルトを 14400s (4時間) とし、内部締め切り `CLOUD_RUN_JOB_TIMEOUT_SEC` も連動すること。
   - Safety-Net のハング判定閾値を 15000s (14400s + 600s)、ML パイプライン起動時刻を 20:10 UTC (クローラー 16:00 UTC 開始 + 4時間 + 10分バッファ)、Cloud SQL バックアップ時刻を 22:00 UTC へ連動変更すること。
 
+#### FR-ML-773: 再クローリング時公開終了物件の不整合フラグ維持およびML学習データからの不整合物件除外要件 (Issue #773)
+- **再クローリング時公開終了物件の不整合フラグ維持**:
+  - `ParseDetailPageAsyncBase._treatPage` において、`SkipPropertyException` 等で公開終了（`is_skipped=True`）を検知した際、すでに `needs_parser_fix=True` であればこれを `False` にリセットせず維持すること。
+  - `is_published = False` と `delisted_at` を正しく記録しつつ、再クローリング対象フラグ（`needs_recrawl = False`）のみを解除すること。
+- **ML学習データローダーにおける不整合物件の除外**:
+  - `data_loader.py` の `get_evaluation_and_duplicate_caches`（または除外URLキャッシュ）において、`needs_parser_fix=True` または `data_quality_issue` が設定されている物件URLを抽出し、重複物件URLと同様に学習レコード収集対象から除外すること。
+  - 外れ値やスペック欠損を持つ異常データが機械学習モデル（CatBoost / LightGBM）に混入するのを防止すること。
+
 #### FR-ML-698: MLパイプラインの学習スキップオプション・GCSモデル永続化同期およびジョブタイムアウト2時間延長要件 (Issue #698)
 - **通常実行時のモデル学習スキップ**:
   - `run_ml_pipeline.py` に `--skip-train` CLI オプションおよび環境変数 `ML_PIPELINE_SKIP_TRAIN=true` を導入し、日次の通常実行では時間のかかるモデル再学習（`train.py`、約42分）をスキップしてバルク価格推定・投資評価（`run_bulk_ml_evaluation.py`）を即座に開始できること。
