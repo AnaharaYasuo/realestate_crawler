@@ -121,10 +121,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 10) -> list[dict]:
+def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 50) -> list[dict]:
     """
     検知された異常物件リストを (company, property_type, reason_prefix) 単位で集計し、
-    発生件数（頻度）が多い順にソートして上位グループから代表レコード1件ずつ最大 max_targets 件（デフォルト10件）を返却する。
+    発生件数（頻度）が多い順にソートして上位グループから代表レコード1件ずつ最大 max_targets 件（デフォルト50件）を返却する。
     各要素には frequency フィールドが付与される。
     """
     if not raw_targets:
@@ -214,7 +214,7 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
         ]
     )
     if len(top_targets) > 5:
-        default_summary += f"\n... 他 {len(top_targets) - 5} 件 (最大10件を優先修復対象に選定)"
+        default_summary += f"\n... 他 {len(top_targets) - 5} 件 (最大50件を優先修復対象に選定)"
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key or genai is None:
@@ -233,9 +233,9 @@ def summarize_errors_with_gemini(top_targets: list[dict]) -> str:
     try:
         http_options = types.HttpOptions(timeout=10000) if types else None
         with genai.Client(api_key=api_key, http_options=http_options) as client:
-            items_text = json.dumps(top_targets[:10], ensure_ascii=False, indent=2)
+            items_text = json.dumps(top_targets[:50], ensure_ascii=False, indent=2)
             prompt = (
-                "以下の不動産クローラーのエラー上位リスト（Top 10）を読み、AI開発エージェント向けに"
+                "以下の不動産クローラーのエラー上位リスト（Top 50）を読み、AI開発エージェント向けに"
                 "修復優先度・影響サイト・原因セレクターやパース不備をCaveman形式（簡潔・余計な修飾語なし・箇条書き）で要約してください。\n\n"
                 f"{items_text}"
             )
@@ -313,7 +313,7 @@ def scan_anomalies_and_generate_instructions():
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
     直近でエラーが検出された物件のURLをDBからスキャンし、
-    発生頻度の高い上位エラー（Top 10）に絞り込んで自己修復指示書 (auto_heal_instruction.json) を出力します。
+    発生頻度の高い上位エラー（Top 50）に絞り込んで自己修復指示書 (auto_heal_instruction.json) を出力します。
     """
     logger.info(
         "Scanning for scraping anomalies and errors to build AI self-healing instructions..."
@@ -382,8 +382,8 @@ def scan_anomalies_and_generate_instructions():
             logger.info("Removed stale auto_heal_instruction.json")
         return
 
-    # 発生頻度順（Top 10）に優先順位付け
-    top_targets = aggregate_and_sort_targets(heal_targets, max_targets=10)
+    # 発生頻度順（Top 50）に優先順位付け
+    top_targets = aggregate_and_sort_targets(heal_targets, max_targets=50)
 
     # Google Cloud Gemini (Flash) を直接呼び出し、インメモリでエラー要約（ローカル一時ファイル経由なし）
     ai_summary = summarize_errors_with_gemini(top_targets)
@@ -398,7 +398,7 @@ def scan_anomalies_and_generate_instructions():
         "total_anomalies_detected": len(heal_targets),
         "ai_summary": ai_summary,
         "targets": top_targets,
-        "action_required": f"Please inspect the target URLs in prioritized order (Top-10 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, run verification tests, and commit/push/merge changes to master.",
+        "action_required": f"Please inspect the target URLs in prioritized order (Top-50 frequency first), analyze why their data parsed incorrectly, fix the corresponding parser inside {parser_rel_dir}/, run verification tests, and commit/push/merge changes to master.",
     }
 
     os.makedirs(temp_dir, exist_ok=True)
