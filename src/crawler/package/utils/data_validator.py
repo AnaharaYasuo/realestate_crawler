@@ -66,7 +66,6 @@ class PropertyDataValidator:
         if _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
             reasons.append(ERR_MISSING_AGE)
 
-    @staticmethod
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
         """山林・原野・雑種地・農地・持分売買・投資区分など低価格（10万〜100万円未満）が正常なケース"""

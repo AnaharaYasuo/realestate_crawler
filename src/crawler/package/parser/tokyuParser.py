@@ -1566,17 +1566,15 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         title_text = response.title.get_text() if response.title else ""
         h1_text = (response.find("h1") or "").get_text() if response.find("h1") else ""
         combined_text = f"{title_text} {h1_text} {item.propertyName or ''}"
-        if "マンション" in combined_text or "区分" in combined_text or "一室" in combined_text:
-            if not specs.get("土地面積") and not getattr(item, "tochiMenseki", None):
-                raise SkipPropertyException(f"Tokyu investment kodate parser skipping non-kodate unit: {item.propertyName}")
+        if ("マンション" in combined_text or "区分" in combined_text or "一室" in combined_text) and not specs.get("土地面積") and not getattr(item, "tochiMenseki", None):
+            raise SkipPropertyException(f"Tokyu investment kodate parser skipping non-kodate unit: {item.propertyName}")
 
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Kodate"
 
         # 戸建て投資で土地面積が取得できない場合はスキップ
-        if not getattr(item, "tochiMenseki", None) or float(item.tochiMenseki) <= 0:
-            if not specs.get("土地面積"):
-                raise SkipPropertyException(f"Tokyu investment kodate missing land area: {item.propertyName}")
+        if (not getattr(item, "tochiMenseki", None) or float(item.tochiMenseki) <= 0) and not specs.get("土地面積"):
+            raise SkipPropertyException(f"Tokyu investment kodate missing land area: {item.propertyName}")
 
         # shidoMenseki
         item.shidoMensekiStr = self._parseDetailString(response, '私道面積')
