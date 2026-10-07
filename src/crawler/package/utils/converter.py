@@ -42,12 +42,19 @@ def parse_yen(text):
     """
     円単位の文字列を数値に変換する
     例: "15,760円" -> 15760
+        "12,270,000円（2026年8月18日確認）" -> 12270000
     """
     if not text or text == "-":
         return None
     try:
-        # 数字以外の文字を除去
-        val = re.sub(r'\D', '', text)
+        # "12,270,000円（2026年確認）" 等、末尾に日付や注記が含まれるケースに対応
+        yen_match = re.search(r'(\d[\d,]*)\s*円', str(text))
+        if yen_match:
+            val_clean = yen_match.group(1).replace(',', '')
+            if val_clean:
+                return int(val_clean)
+        # 数字以外の文字を除去 (フォールバック)
+        val = re.sub(r'\D', '', str(text))
         if val:
             return int(val)
     except Exception:
