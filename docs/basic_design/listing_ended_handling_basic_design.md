@@ -58,6 +58,17 @@ LISTING_ENDED_BODY_KEYWORDS = (
    - HTTP 404, 410 を検知し `ListingEndedException` を送出（既存仕様の継続維持）。
 2. **タイトル・ヘッダーレベル (`_raise_on_listing_title` / `_check_listing_ended`)**:
    - `<title>`, `<h1>`, `<h2>` 等からキーワード照合。高速判定。
+
+---
+
+## 4. 東急リバブル カタログ・売り出し終了判定 (Issue #764)
+
+東急リバブルの物件URL（`/mansion/C.../`）において、売出中の部屋がないカタログページは以下の特徴を持つ：
+- タイトルに `購入・売却・賃貸 物件情報` を含む（売出中物件は `｜マンション購入｜東急リバブル`）。
+- または、販売価格がなく、本文中に `売り出し中の物件を見る` 等の売り出し部屋なし案内を含む。
+
+`tokyuParser.py` の `check_tokyu_listing_ended` で上記パターンを検出し、`ListingEndedException` を送出する。
+
 3. **本文・メッセージボックスレベル**:
    - タイトル等で判定できない場合、ページ内エラー通知領域（`.not-found`, `.mod-message-end`, `.error-message` 等）または本文テキストからキーワード走査。
 4. **ディスパッチ層 (`api.py`)**:
