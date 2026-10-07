@@ -82,9 +82,9 @@ class PropertyDataValidator:
             return True
 
         invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
-        if ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]:
-            if any(kw in full_text for kw in invest_keywords) or getattr(item, "yieldRate", None) is not None:
-                return True
+        is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
+        if is_invest_type and (any(kw in full_text for kw in invest_keywords) or getattr(item, "yieldRate", None) is not None):
+            return True
         return False
 
     @classmethod
