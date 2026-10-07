@@ -44,6 +44,11 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     all_text = f"{title_text} {h1_text} {body_text}"
     if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
         raise ListingEndedException(f"Tokyu listing ended: {page_url}")
+    # 東急カタログページ・売り出し住戸なし判定 (Issue #764)
+    if "購入・売却・賃貸 物件情報" in title_text:
+        raise ListingEndedException(f"Tokyu catalog page (no active listing): {page_url}")
+    if "売り出し中の物件を見る" in all_text and not bool(response.select_one(".price, .p-detail-hero__price")):
+        raise ListingEndedException(f"Tokyu no active rooms (ended): {page_url}")
 
 
 class TokyuParser(ParserBase):
