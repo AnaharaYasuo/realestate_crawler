@@ -40,9 +40,9 @@ class PropertyDataValidator:
         ptype = (property_type or "").lower().replace("-", "_")
 
         cls._check_common_required(item, reasons)
-        price_val = cls._validate_price(item, reasons)
+        price_val = cls._validate_price(item, ptype, reasons)
         area = cls._extract_and_validate_area(item, ptype, reasons)
-        cls._validate_unit_price(price_val, area, reasons)
+        cls._validate_unit_price(item, ptype, price_val, area, reasons)
         cls._validate_age(item, reasons)
         cls._validate_type_specific_specs(item, ptype, reasons)
 
@@ -66,8 +66,35 @@ class PropertyDataValidator:
         if _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
             reasons.append(ERR_MISSING_AGE)
 
-    @staticmethod
-    def _validate_price(item: Any, reasons: list[str]) -> float:
+    @classmethod
+    def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
+        """山林・原野・雑種地・農地・持分売買・投資区分など低価格（10万〜100万円未満）が正常なケース"""
+        chimoku = str(getattr(item, "chimoku", "") or "")
+        valid_chimoku = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
+        if any(target in chimoku for target in valid_chimoku):
+            return True
+
+        name = str(getattr(item, "propertyName", "") or "")
+        biko = str(getattr(item, "biko", "") or "")
+        full_text = f"{name} {biko}"
+        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ"]
+        if any(kw in full_text for kw in specific_keywords):
+            return True
+
+        invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
+        is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
+        has_valid_yield = False
+        raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
+        if raw_yield is not None:
+            try:
+                y_val = float(raw_yield)
+                has_valid_yield = y_val > 0
+            except (ValueError, TypeError):
+                has_valid_yield = False
+        return is_invest_type and (any(kw in full_text for kw in invest_keywords) or has_valid_yield)
+
+    @classmethod
+    def _validate_price(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         price = getattr(item, "price", 0) or 0
         try:
             price_val = float(price)
@@ -75,8 +102,10 @@ class PropertyDataValidator:
             price_val = 0.0
 
         price_man = price_val / 10000.0
-        if price_man <= 0 or price_man < 100.0:
-            reasons.append(f"価格異常 ({price_man:.1f}万円: 100万円未満または0円)")
+        # 100万円未満の価格チェック: 山林や投資用区分・持分等は1万円以上を許容
+        min_price_man = 1.0 if cls._is_low_price_allowed(item, ptype) else 100.0
+        if price_man <= 0 or price_man < min_price_man:
+            reasons.append(f"価格異常 ({price_man:.1f}万円: {min_price_man:.0f}万円未満または0円)")
         elif price_man > 200000.0:
             reasons.append(f"価格異常 ({price_man:.1f}万円: 20億円超の異常値疑い)")
         return price_val
@@ -102,12 +131,14 @@ class PropertyDataValidator:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
         return area
 
-    @staticmethod
-    def _validate_unit_price(price_val: float, area: float, reasons: list[str]) -> None:
+    @classmethod
+    def _validate_unit_price(cls, item: Any, ptype: str, price_val: float, area: float, reasons: list[str]) -> None:
         if price_val > 0 and area > 5.0:
             unit_price = price_val / area
-            if unit_price < 1000.0:
-                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1000円/㎡未満)")
+            # 山林・原野・安価な土地/投資物件は単価10円/㎡まで許容
+            min_unit = 10.0 if cls._is_low_price_allowed(item, ptype) else 1000.0
+            if unit_price < min_unit:
+                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: {min_unit:.0f}円/㎡未満)")
             elif unit_price > 15000000.0:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
 
@@ -212,7 +243,7 @@ class PropertyDataValidator:
                 if y_val <= 0 or y_val > 100.0:
                     reasons.append(f"利回り異常 ({y_val:.1f}%: 0%以下または100%超)")
             except (ValueError, TypeError):
-                pass
+                reasons.append(f"利回り異常 ({yield_rate}: 数値変換不能)")
 
 
 def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:

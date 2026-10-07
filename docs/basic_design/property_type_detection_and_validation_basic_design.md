@@ -34,3 +34,16 @@ flowchart TD
   - デフォルト `VALIDATE_DATA_DAYS = 7`。
   - `item.inputDate >= since` または `item.updateDateTime >= since_dt` の条件でクエリをフィルタリング（`filter(inputDate__gte=since)`）。
   - 全件フルスキャンを行いたい場合のために、環境変数または引数で全件モード（`--all` または `VALIDATE_DATA_DAYS=0`）も許容する。
+
+### 2.3 PropertyDataValidator (Issue #769)
+- **低価格・低単価の過剰検知防止**:
+  - `_is_low_price_allowed(item, ptype)` により、地目（山林、原野、農地等）や物件名・備考（資材置場、持分等）、種別（土地・投資用）を判定。
+  - 該当物件の下限価格を1万円、下限単価を10円/㎡に緩和し、適正な安価物件の誤検知を防止。
+
+### 2.4 Tokyu / Odakyu パーサー是正 (Issue #769)
+- **Tokyu**:
+  - `_parseGrossYield`: 利回り記載なし時に `None` を返却。
+  - `check_tokyu_listing_ended`: 一覧ページへのリダイレクト（収益物件一覧等）を掲載終了として検知。
+  - `TokyuInvestmentKodateParser`: 土地面積のない区分所有物件をスキップ。
+- **Odakyu**:
+  - `_invest_card_traffic` および `_apply_invest_card_field`: 一覧カードから「交通」を抽出し `_populateTraffic` を呼出。

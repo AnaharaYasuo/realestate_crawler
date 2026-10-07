@@ -145,6 +145,23 @@ def test_validator_saikenchiku_fuka_is_not_invalid():
     assert len(reasons) == 0
 
 
+def test_validator_low_price_allowed_for_sanrin_tochi():
+    # 山林・原野などの安価な土地（例: 10万円, 500㎡）が過剰検知されないこと (Issue #769)
+    item = DummyTochi(price=100000, tochiMenseki=500.0)
+    item.chimoku = "山林"
+    is_valid, reasons = PropertyDataValidator.validate_property(item, "tochi")
+    assert is_valid is True
+    assert len(reasons) == 0
+
+
+def test_validator_low_price_allowed_for_invest_condo():
+    # 投資用格安物件（例: 85万円）が過剰検知されないこと (Issue #769)
+    item = DummyInvestmentApartment(price=850000, tatemonoMenseki=20.0, yieldRate=15.0)
+    is_valid, reasons = PropertyDataValidator.validate_property(item, "investmentapartment")
+    assert is_valid is True
+    assert len(reasons) == 0
+
+
 @pytest.mark.asyncio
 async def test_delisted_property_handling():
     """URL生存確認で404/掲載終了判定された場合、is_published=False, delisted_at がセットされ、needs_recrawl=False となること"""
