@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 from django.apps import apps
+from django.db.models import Q
 from package.ml.constants import COMPANIES
 from package.ml.features import build_features_batch
 from package.models.evaluation import PropertyEvaluation
@@ -28,13 +29,24 @@ def get_evaluation_and_duplicate_caches() -> tuple[dict[str, tuple[float, float]
             )
     logger.info("Cached %d evaluations.", len(eval_map))
 
-    logger.info("Caching duplicate property URLs...")
+    logger.info("Caching duplicate and invalid property URLs to exclude...")
     duplicate_urls = set(
         PropertyEvaluation.objects.filter(duplicate_of__isnull=False)
         .values_list("property_url", flat=True)
     )
-    logger.info("Found %d duplicate properties to exclude.", len(duplicate_urls))
-    return eval_map, duplicate_urls
+
+    # Issue #773: 不整合フラグ (needs_parser_fix=True) またはデータ品質異常 (data_quality_issue != "") の物件を学習から除外
+    invalid_urls = set(
+        PropertyEvaluation.objects.filter(
+            Q(needs_parser_fix=True) | ~Q(data_quality_issue="")
+        ).values_list("property_url", flat=True)
+    )
+    excluded_urls = duplicate_urls | invalid_urls
+    logger.info(
+        "Found %d excluded properties (%d duplicates, %d invalid/anomalies).",
+        len(excluded_urls), len(duplicate_urls), len(invalid_urls)
+    )
+    return eval_map, excluded_urls
 
 
 def collect_model_classes_by_type() -> dict[str, list[tuple[str, Any]]]:

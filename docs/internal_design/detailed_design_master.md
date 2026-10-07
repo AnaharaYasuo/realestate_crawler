@@ -808,3 +808,11 @@ graph TD
 - **小田急不動産 (`odakyuParser.py`)**: `/invest/` から `OdakyuInvestmentParser`, その他各物件種別パーサーを解決。
 - **電鉄系・ハウスメーカー系**: 京王 (`chukai.keiofudosan.co.jp`), 京急 (`keikyu-sumai.com`), 京成 (`keisei-land.co.jp`), 住友林業 (`suminavi.com`), アットホームその他 (`athome.co.jp/buy_other/`) を `ROUTES` に登録し未解決URLを根絶。
 
+## 再クローリング時公開終了物件の不整合フラグ維持およびML学習データからの不整合物件除外 (Issue #773)
+- **公開終了検知時のフラグ維持制御 (`ParseDetailPageAsyncBase._treatPage`)**:
+  - `is_skipped=True` 検知時、`PropertyEvaluation` の `needs_parser_fix` を一律で `False` に上書きしていた処理を改修。既存レコードの `needs_parser_fix` が `True` の場合はその値をそのまま維持し、パーサー改修・原因追跡の監査性を保証する。
+- **MLストリーミングデータローダーの除外キャッシュ (`data_loader.py`)**:
+  - `get_evaluation_and_duplicate_caches()` において、`PropertyEvaluation` から `needs_parser_fix=True` または `data_quality_issue` が空でない（不整合検知済み）URLを `invalid_urls` として抽出。
+  - `duplicate_urls`（重複物件URL）と `invalid_urls` を統合した `excluded_urls` を構築し、各モデルからの軽量レコード収集（`_collect_lightweight_records_for_ptype`）時にスキップさせることで、異常データによるモデル汚染を完全に遮断する。
+
+

@@ -43,8 +43,8 @@ class TotateParser(ParserBase):
         for a in response.select(".paging a, .pager a"):
             text = a.get_text()
             if "次" in text or "next" in text.lower() or ">" in text:
-                href = a.get("href")
-                if href:
+                href = (a.get("href") or "").strip()
+                if href and not href.startswith("javascript:") and not href.startswith("#"):
                     return self.getRootDestUrl(href)
         return ""
 
