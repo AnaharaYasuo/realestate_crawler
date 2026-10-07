@@ -110,4 +110,6 @@ def test_odakyu_investment_list_card_parses_specs_menseki_madori_chikunengetsu()
     assert item.chikunengetsuStr == "1980年05月"
     assert item.chikunengetsu is not None
     assert str(item.chikunengetsu) == "1980-05-01"
+    assert "鶴川" in item.traffic
+    assert item.station1 == "鶴川"
 

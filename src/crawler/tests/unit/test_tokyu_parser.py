@@ -8,7 +8,7 @@ from package.models.tokyu import (
     TokyuMansion,
     TokyuTochi,
 )
-from package.parser.baseParser import ListingEndedException
+from package.parser.baseParser import ListingEndedException, SkipPropertyException
 from package.parser.tokyuParser import (
     TokyuInvestmentApartmentParser,
     TokyuInvestmentKodateParser,
@@ -66,4 +66,41 @@ class TestTokyuParser:
         active_html = "<html><head><title>北千住パーク・ファミリア(C13267U96)｜マンション購入｜東急リバブル</title></head><body><div class='price'>6,199万円</div></body></html>"
         soup_active = BeautifulSoup(active_html, "html.parser")
         check_tokyu_listing_ended(soup_active, "https://www.livable.co.jp/mansion/C13267U96/")
+
+        # 4. 収益物件（建物）一覧ページへのリダイレクト検知 (Issue #769)
+        invest_list_html = "<html><head><title>投資用不動産 | 収益物件（建物）一覧｜東急リバブル</title></head><body><h1>収益物件（建物）一覧</h1></body></html>"
+        soup_invest = BeautifulSoup(invest_list_html, "html.parser")
+        with pytest.raises(ListingEndedException):
+            check_tokyu_listing_ended(soup_invest, "https://www.livable.co.jp/toushi/toushi-b/xxx/")
+
+    def test_tokyu_investment_gross_yield_missing_returns_none(self):
+        # 利回り記載のないページでは Decimal(0) ではなく None を返すこと (Issue #769)
+        parser = TokyuInvestmentApartmentParser(None)
+        html = "<html><body><div id='propertySummarySection'><dl><dt>価格</dt><dd>5,000万円</dd></dl></div></body></html>"
+        soup = BeautifulSoup(html, "html.parser")
+        yield_val = parser._parseGrossYield(soup)
+        assert yield_val is None
+
+    def test_tokyu_investment_kodate_skips_non_kodate(self):
+        # 区分マンションなど土地面積のない物件が戸建て投資クローラーに混入した場合スキップすること (Issue #769)
+        parser = TokyuInvestmentKodateParser(None)
+        html = """
+        <html>
+        <head><title>ライオンズシティ高砂（マンション区分）｜東急リバブル</title></head>
+        <body>
+          <h1>ライオンズシティ高砂</h1>
+          <div id='propertySummarySection'>
+            <dl>
+              <dt>価格</dt><dd>1,200万円</dd>
+              <dt>専有面積</dt><dd>25.5㎡</dd>
+            </dl>
+          </div>
+        </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        item = parser.createEntity()
+        item.propertyName = "ライオンズシティ高砂"
+        with pytest.raises(SkipPropertyException):
+            parser._parsePropertyDetailPage(item, soup)
 

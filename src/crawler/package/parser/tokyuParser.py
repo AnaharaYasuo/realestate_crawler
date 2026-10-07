@@ -16,6 +16,7 @@ from package.parser.baseParser import (
     ListingEndedException,
     MansionParserBase,
     ParserBase,
+    SkipPropertyException,
     TochiParserBase,
 )
 from package.parser.investmentParser import InvestmentParser
@@ -44,8 +45,8 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
     all_text = f"{title_text} {h1_text} {body_text}"
     if any(msg in all_text for msg in ["掲載終了しました", "掲載を終了いたしました", "掲載を終了しました", "お探しの物件は見つかりませんでした", "指定された物件は掲載を終了", "掲載終了物件"]):
         raise ListingEndedException(f"Tokyu listing ended: {page_url}")
-    # 東急カタログページ・売り出し住戸なし判定 (Issue #764)
-    if "購入・売却・賃貸 物件情報" in title_text:
+    # 東急カタログページ・売り出し住戸なし・一覧リダイレクト判定 (Issue #764, #769)
+    if "購入・売却・賃貸 物件情報" in title_text or "収益物件（建物）一覧" in title_text or "投資用不動産 | 収益物件" in title_text:
         raise ListingEndedException(f"Tokyu catalog page (no active listing): {page_url}")
     if "売り出し中の物件を見る" in all_text and not bool(response.select_one(".price, .p-detail-hero__price")):
         raise ListingEndedException(f"Tokyu no active rooms (ended): {page_url}")
@@ -1429,7 +1430,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             pass
         return None
 
-    def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal:
+    def _parseGrossYield(self, response: BeautifulSoup, specs=None) -> Decimal | None:
         if specs is None:
             specs = self._scrape_specs(response)
         val_str = (
@@ -1447,7 +1448,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             if fallback:
                 val_str = fallback
         match = re.search(r"(\d+(\.\d+)?)", val_str or "")
-        return Decimal(match.group(1)) if match else Decimal(0)
+        return Decimal(match.group(1)) if match else None
 
     def _parseAnnualRent(self, response: BeautifulSoup, specs=None) -> int | None:
         if specs is None:
@@ -1560,11 +1561,25 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         return TokyuInvestmentKodate()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._scrape_specs(response)
+        # 区分マンションや土地面積が存在しない物件の混入ガード (Issue #769)
+        title_text = response.title.get_text() if response.title else ""
+        h1_text = (response.find("h1") or "").get_text() if response.find("h1") else ""
+        combined_text = f"{title_text} {h1_text} {item.propertyName or ''}"
+        if "マンション" in combined_text or "区分" in combined_text or "一室" in combined_text:
+            if not specs.get("土地面積") and not getattr(item, "tochiMenseki", None):
+                raise SkipPropertyException(f"Tokyu investment kodate parser skipping non-kodate unit: {item.propertyName}")
+
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Kodate"
-        
+
+        # 戸建て投資で土地面積が取得できない場合はスキップ
+        if not getattr(item, "tochiMenseki", None) or float(item.tochiMenseki) <= 0:
+            if not specs.get("土地面積"):
+                raise SkipPropertyException(f"Tokyu investment kodate missing land area: {item.propertyName}")
+
         # shidoMenseki
         item.shidoMensekiStr = self._parseDetailString(response, '私道面積')
         item.shidoMenseki = self._parseMenseki(response, '私道面積') or 0
-        
+
         return item
