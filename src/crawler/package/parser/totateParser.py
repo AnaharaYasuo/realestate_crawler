@@ -1,12 +1,12 @@
 from decimal import Decimal
-# -*- coding: utf-8 -*-
-from bs4 import BeautifulSoup
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
-from package.models.totate import TotateMansion, TotateKodate, TotateTochi
-from package.utils.selector_loader import SelectorLoader
-from package.utils import converter
+import base64
 import re
 import urllib.parse
+from bs4 import BeautifulSoup
+from package.models.totate import TotateKodate, TotateMansion, TotateTochi
+from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.utils import converter
+from package.utils.selector_loader import SelectorLoader
 
 class TotateParser(ParserBase):
 
@@ -38,14 +38,31 @@ class TotateParser(ParserBase):
             return self.BASE_URL + link_url
         return self.BASE_URL + '/' + link_url
 
+    def _extract_next_anchor_url(self, a) -> str | None:
+        text = a.get_text()
+        if not ("次" in text or "next" in text.lower() or ">" in text):
+            return None
+        data_href = a.get("data-href")
+        if data_href:
+            try:
+                decoded_qs = base64.b64decode(data_href).decode("utf-8")
+                if decoded_qs.startswith("?"):
+                    return self.getRootDestUrl(f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/{decoded_qs}")
+                if decoded_qs:
+                    return self.getRootDestUrl(decoded_qs)
+            except Exception:
+                pass
+        href = a.get("href")
+        if href and not href.startswith("javascript:"):
+            return self.getRootDestUrl(href)
+        return None
+
     async def parseNextPage(self, response: BeautifulSoup):
         # 東京建物の改ページリンク。pagingクラスなどの a タグから next または数字を探す。
         for a in response.select(".paging a, .pager a"):
-            text = a.get_text()
-            if "次" in text or "next" in text.lower() or ">" in text:
-                href = (a.get("href") or "").strip()
-                if href and not href.startswith("javascript:") and not href.startswith("#"):
-                    return self.getRootDestUrl(href)
+            next_url = self._extract_next_anchor_url(a)
+            if next_url:
+                return next_url
         return ""
 
     def _is_totate_detail_path(self, path: str) -> bool:
