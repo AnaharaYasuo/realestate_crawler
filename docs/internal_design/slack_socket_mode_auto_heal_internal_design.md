@@ -129,3 +129,10 @@ def notify_auto_heal_request(heal_targets: list[dict]):
    - `user="U12345"`, `text="修正して"` ➔ `(True, "修正して")` を検証。
 5. `test_should_process_slack_event_unauthorized_user`:
    - `user="UNAUTHORIZED"`, `text="修正して"` ➔ `(False, "")` を検証。
+
+## 3. 自己修復完了報告プロトコル仕様
+自己修復および後続テスト検証が完了した際、エージェントは報告事項として以下の3項目を明示する：
+1. **問題事象**: 発生エラー、対象サイト、物件種別、対象URL、件数、原因
+2. **修正内容**: 変更対象ファイル、差分概要
+3. **修正後の動作確認結果**: 実行したテストコマンド、全件成功（Pass）の事実
+
