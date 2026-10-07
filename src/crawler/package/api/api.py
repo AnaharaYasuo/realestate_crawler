@@ -1760,7 +1760,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     if eval_rec:
                         eval_rec.is_published = False
                         eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
-                        eval_rec.needs_parser_fix = False
+                        # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
+                        eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
                         eval_rec.needs_recrawl = False
                         eval_rec.save()
                         logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)

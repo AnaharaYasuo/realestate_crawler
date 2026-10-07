@@ -47,7 +47,7 @@ async def test_detail_async_listing_ended_marks_delisted():
         assert item is None
         assert mock_eval.is_published is False
         assert mock_eval.delisted_at is not None
-        assert mock_eval.needs_parser_fix is False
+        assert mock_eval.needs_parser_fix is True
         mock_eval.save.assert_called_once()
 
 
