@@ -70,11 +70,15 @@ class PropertyDataValidator:
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
         """山林・原野・雑種地・農地・持分売買・投資区分など低価格（10万〜100万円未満）が正常なケース"""
         chimoku = str(getattr(item, "chimoku", "") or "")
+        valid_chimoku = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
+        if any(target in chimoku for target in valid_chimoku):
+            return True
+
         name = str(getattr(item, "propertyName", "") or "")
         biko = str(getattr(item, "biko", "") or "")
-        full_text = f"{chimoku} {name} {biko}"
-        keywords = ["山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "資材置場", "持分", "オーナーチェンジ"]
-        if any(kw in full_text for kw in keywords):
+        full_text = f"{name} {biko}"
+        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ"]
+        if any(kw in full_text for kw in specific_keywords):
             return True
         return ptype in ["tochi", "investment", "invest", "investmentapartment", "investment_apartment"]
 
