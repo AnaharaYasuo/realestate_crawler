@@ -83,7 +83,15 @@ class PropertyDataValidator:
 
         invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
         is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
-        return is_invest_type and (any(kw in full_text for kw in invest_keywords) or getattr(item, "yieldRate", None) is not None)
+        has_valid_yield = False
+        raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
+        if raw_yield is not None:
+            try:
+                y_val = float(raw_yield)
+                has_valid_yield = y_val > 0
+            except (ValueError, TypeError):
+                has_valid_yield = False
+        return is_invest_type and (any(kw in full_text for kw in invest_keywords) or has_valid_yield)
 
     @classmethod
     def _validate_price(cls, item: Any, ptype: str, reasons: list[str]) -> float:
@@ -235,7 +243,7 @@ class PropertyDataValidator:
                 if y_val <= 0 or y_val > 100.0:
                     reasons.append(f"利回り異常 ({y_val:.1f}%: 0%以下または100%超)")
             except (ValueError, TypeError):
-                pass
+                reasons.append(f"利回り異常 ({yield_rate}: 数値変換不能)")
 
 
 def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:
