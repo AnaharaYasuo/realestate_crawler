@@ -83,9 +83,7 @@ class PropertyDataValidator:
 
         invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
         is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
-        if is_invest_type and (any(kw in full_text for kw in invest_keywords) or getattr(item, "yieldRate", None) is not None):
-            return True
-        return False
+        return is_invest_type and (any(kw in full_text for kw in invest_keywords) or getattr(item, "yieldRate", None) is not None)
 
     @classmethod
     def _validate_price(cls, item: Any, ptype: str, reasons: list[str]) -> float:
