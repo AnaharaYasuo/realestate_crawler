@@ -88,7 +88,7 @@ def test_validator_price_too_low():
 
 
 def test_validator_price_too_high():
-    item = DummyMansion(price=3000000000)  # 30億円
+    item = DummyMansion(price=6000000000)  # 60億円 (>50億円)
     is_valid, reasons = PropertyDataValidator.validate_property(item, "mansion")
     assert is_valid is False
     assert any("価格異常" in r for r in reasons)
