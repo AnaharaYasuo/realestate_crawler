@@ -122,7 +122,7 @@ class DaikyoParser(ParserBase):
                 normalized = self._normalize_detail_url(href)
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    logging.info(f"[Daikyo] Match detail link: {normalized}")
+                    logging.debug(f"[Daikyo] Match detail link: {normalized}")
                     yield normalized
 
     def _extract_pref_urls(self, response: BeautifulSoup) -> set:

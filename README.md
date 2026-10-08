@@ -711,6 +711,9 @@ docs/
 - **[Safety-Net通知文言改善および住友不動産投資用戸建てセレクター修復内部設計書](docs/internal_design/safetynet_msg_and_sumifu_invest_internal_design.md)**: GCE/MIG通知メッセージ更新・sumifuParser property_type設定詳細仕様 (Issue #727)
 - **[野村投資用戸建て誤ルーティング修復および非物件URLノイズ抑止要件定義書](docs/requirements/nomura_invest_routing_and_noise_filter_requirements.md)**: 野村投資用戸建てルーティング・モデル適正化および非物件ノイズ除外要件 (Issue #754)
 - **[野村投資用戸建て誤ルーティング修復および非物件URLノイズ抑止内部設計書](docs/internal_design/nomura_invest_routing_and_noise_filter_internal_design.md)**: NomuraInvestmentApartment soukosu blank許容・UrlRouter invest_kodate追加・ParserBaseノイズURL除外仕様 (Issue #754)
+- **[ログ出力改善・TRACE/DEBUG新設およびノーレベル出力禁止要件定義書](docs/requirements/logging_trace_debug_requirements.md)**: TRACE/DEBUG新設・print禁止・infoログ適正化要件 (Issue #783)
+- **[ログ出力改善・TRACE/DEBUG新設およびノーレベル出力禁止基本設計書](docs/basic_design/logging_trace_debug_basic_design.md)**: ログレベル階層・Cloud Loggingマッピング・レベル適正化基本設計 (Issue #783)
+- **[ログ出力改善・TRACE/DEBUG新設およびノーレベル出力禁止内部設計書](docs/internal_design/logging_trace_debug_internal_design.md)**: logging_config.py trace実装・呼出箇所移行詳細仕様 (Issue #783)
 
 
 ### 2. 開発を始める
