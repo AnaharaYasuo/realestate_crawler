@@ -15,6 +15,7 @@ import hashlib
 from pathlib import Path
 from django.db import models
 from package.utils import converter
+from package.utils import logging_config  # noqa: F401
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 from package.utils.failure_reporter import FailureReporter
@@ -1148,7 +1149,7 @@ class ParserBase(metaclass=ABCMeta):
         u_lower = str(url).lower()
         skip_parts = ('/shiritai/', '/360/', '/chintai/', '/rent/', TOKEN_INQUIRY, TOKEN_CONTACT, '/benefit/', '/baikyaku/')
         if any(p in u_lower for p in skip_parts):
-            logging.info(f'Fast-skipping non-property/rental URL: {url}')
+            logging.debug(f'Fast-skipping non-property/rental URL: {url}')
             raise SkipPropertyException(f'Non-property URL skipped: {url}')
 
     @staticmethod
@@ -1249,11 +1250,11 @@ class ParserBase(metaclass=ABCMeta):
         for h1_tag in clean_soup.find_all("h1"):
             h1_text = h1_tag.get_text().strip()
             if any(kw in h1_text for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
-                logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+                logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
                 raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
         if cls._check_body_listing_ended(clean_soup):
-            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
             raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
     @classmethod
@@ -1261,10 +1262,10 @@ class ParserBase(metaclass=ABCMeta):
         if not title:
             return
         if "サーバーが混み合っています" in title:
-            logging.info(f"Server busy for URL: {url}")
+            logging.debug(f"Server busy for URL: {url}")
             raise ServerBusyException()
         if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
-            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
             raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
     @staticmethod
