@@ -15,20 +15,30 @@ import structlog
 from structlog.stdlib import BoundLogger
 
 TRACE_LEVEL_NUM = 5
-logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
-logging.TRACE = TRACE_LEVEL_NUM
 
 
-def _logging_logger_trace(self, msg, *args, **kwargs):
-    if self.isEnabledFor(TRACE_LEVEL_NUM):
-        self._log(TRACE_LEVEL_NUM, msg, args, **kwargs)
+def setup_trace_level() -> None:
+    """
+    TRACE ログレベル (5) を標準 logging および structlog に登録・修復。
+    外部ライブラリ (newrelic 等) による不正な logging.Logger.trace 上書きを恒久的に是正します。
+    """
+    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+    logging.TRACE = TRACE_LEVEL_NUM
+
+    def _logging_logger_trace(self, msg, *args, **kwargs):
+        if self.isEnabledFor(TRACE_LEVEL_NUM):
+            self._log(TRACE_LEVEL_NUM, msg, args, **kwargs)
+
+    logging.Logger.trace = _logging_logger_trace
+    logging.trace = lambda msg, *args, **kwargs: logging.log(TRACE_LEVEL_NUM, msg, *args, **kwargs)  # noqa: LOG015
 
 
-logging.Logger.trace = _logging_logger_trace
-logging.trace = lambda msg, *args, **kwargs: logging.log(TRACE_LEVEL_NUM, msg, *args, **kwargs)  # noqa: LOG015
+setup_trace_level()
 
 
 def _bound_logger_trace(self, event=None, *args, **kw):
+    if getattr(logging.Logger.trace, "__module__", "") != __name__:
+        setup_trace_level()
     return self._proxy_to_logger("trace", event, *args, **kw)
 
 
@@ -155,6 +165,7 @@ def configure_logging(
         return
 
     _reconfigure_io_streams()
+    setup_trace_level()
     stream = output_stream or sys.stdout
     resolved_format = _determine_log_format(log_format)
 
