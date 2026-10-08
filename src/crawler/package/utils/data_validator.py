@@ -79,7 +79,7 @@ class PropertyDataValidator:
         name = str(getattr(item, "propertyName", "") or "")
         biko = str(getattr(item, "biko", "") or "")
         full_text = f"{name} {biko}"
-        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ", "古家", "空き家", "空家", "戸建"]
+        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ", "古家", "空き家", "空家"]
         if any(kw in full_text for kw in specific_keywords):
             return True
 
