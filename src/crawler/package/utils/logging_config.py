@@ -6,7 +6,6 @@ Google Cloud Logging (GCP Cloud Run / Cloud Functions / GKE) 準拠の構造化J
 標準ライブラリの logging.getLogger(__name__) と structlog の双方を自動ブリッジします。
 """
 import datetime
-import io
 import logging
 import os
 import sys
@@ -111,7 +110,7 @@ def _reconfigure_io_streams():
         if hasattr(stream, "reconfigure"):
             try:
                 stream.reconfigure(encoding="utf-8", errors="replace")
-            except (AttributeError, io.UnsupportedOperation, ValueError):
+            except (AttributeError, ValueError):
                 pass
 
 
