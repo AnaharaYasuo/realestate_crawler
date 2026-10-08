@@ -134,16 +134,13 @@ def test_no_raw_print_in_production_code():
 
     raw_prints = []
     for py_file in crawler_package.rglob("*.py"):
-        try:
-            tree = ast.parse(py_file.read_text(encoding="utf-8"))
-        except Exception as e:
-            continue
+        content = py_file.read_text(encoding="utf-8")
+        tree = ast.parse(content, filename=str(py_file))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == "print":
-                    raw_prints.append(f"{py_file.relative_to(crawler_package)}:{node.lineno}")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+                raw_prints.append(f"{py_file.relative_to(crawler_package)}:{node.lineno}")
 
-    assert len(raw_prints) == 0, f"Raw print() found in package code:\n" + "\n".join(raw_prints)
+    assert len(raw_prints) == 0, "Raw print() found in package code:\n" + "\n".join(raw_prints)
 
 
 def test_no_newline_in_message_payload(monkeypatch):
