@@ -81,5 +81,5 @@ CHALLENGE_TITLE_KEYWORDS: tuple[str, ...] = (
 ## 2. 各社パーサーの整理
 
 * `athomeParser.py`: `_parsePropertyDetailPage` 内で独自に実施していた `ListingEndedException` の事前チェックを維持しつつ、共通判定と重複しても安全に動作することを保証。
-* `tokyuParser.py`: `check_tokyu_listing_ended` は互換性のため維持し、基底クラス側でも包括検知。さらにタイトルが「購入・売却・賃貸 物件情報」を含む場合、または価格が存在せず「売り出し中の物件を見る」等の案内を含むカタログ・売出終了ページを検知して `ListingEndedException` を送出 (Issue #764)。
+* `tokyuParser.py`: `check_tokyu_listing_ended` は互換性のため維持し、基底クラス側でも包括検知。さらにタイトルが「購入・売却・賃貸 物件情報」を含む場合、または価格が存在せず「売り出し中の物件を見る」等の案内を含むカタログ・売出終了ページ、ならびに投資物件で詳細表が存在せず地域一覧（「投資物件・収益物件（建物）」等）へリダイレクトされたページを検知して `ListingEndedException` を送出 (Issue #764, #769, #782)。
 

@@ -73,6 +73,12 @@ class TestTokyuParser:
         with pytest.raises(ListingEndedException):
             check_tokyu_listing_ended(soup_invest, "https://www.livable.co.jp/toushi/toushi-b/xxx/")
 
+        # 5. 地域別投資物件一覧へのリダイレクト検知 (Issue #782)
+        regional_invest_html = "<html><head><title>宮城県多賀城市の投資物件・収益物件（建物）｜東急リバブル</title></head><body><h1>多賀城市の投資用物件（建物）</h1><h2>おすすめの投資用物件</h2></body></html>"
+        soup_regional = BeautifulSoup(regional_invest_html, "html.parser")
+        with pytest.raises(ListingEndedException):
+            check_tokyu_listing_ended(soup_regional, "https://www.livable.co.jp/fudosan-toushi/C04266464/")
+
     def test_tokyu_investment_gross_yield_missing_returns_none(self):
         # 利回り記載のないページでは Decimal(0) ではなく None を返すこと (Issue #769)
         parser = TokyuInvestmentApartmentParser(None)
