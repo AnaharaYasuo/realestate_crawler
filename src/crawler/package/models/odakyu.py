@@ -125,6 +125,14 @@ class OdakyuInvestment(OdakyuModel):
     class Meta(OdakyuModel.Meta):
         db_table = "odakyu_investment"
 
+    def save(self, *args, **kwargs):
+        if not self.pk and getattr(self, "pageUrl", None):
+            existing = OdakyuInvestment.objects.filter(pageUrl=self.pageUrl).first()
+            if existing:
+                self.pk = existing.pk
+                self.id = existing.pk
+        super().save(*args, **kwargs)
+
 
 class OdakyuKodate(OdakyuModel):
     tochiMensekiStr = models.TextField(blank=True)
