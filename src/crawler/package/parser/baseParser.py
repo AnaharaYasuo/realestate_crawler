@@ -1068,6 +1068,17 @@ class ParserBase(metaclass=ABCMeta):
         if not hasattr(item, 'grossYield'):
             return
         f_obj = item._meta.get_field('grossYield')
+        current_yield = getattr(item, 'grossYield', None)
+        if current_yield is None or (isinstance(current_yield, (int, float, Decimal)) and current_yield <= 0):
+            price = getattr(item, 'price', None)
+            annual_rent = getattr(item, 'annualRent', None)
+            if not annual_rent and hasattr(item, 'monthlyRent') and getattr(item, 'monthlyRent', None):
+                annual_rent = int(item.monthlyRent) * 12
+            if price and annual_rent and price > 0 and annual_rent > 0:
+                calc_yield = round((float(annual_rent) / float(price)) * 100.0, 2)
+                if 0 < calc_yield <= 100.0:
+                    setattr(item, 'grossYield', Decimal(str(calc_yield)))
+                    return
         if getattr(item, 'grossYield', None) is None and (not f_obj.null):
             setattr(item, 'grossYield', Decimal('0.0'))
 
