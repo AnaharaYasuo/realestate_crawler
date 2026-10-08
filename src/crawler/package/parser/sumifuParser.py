@@ -14,6 +14,7 @@ import re
 from package.utils import converter
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 import logging
+from package.utils import logging_config  # noqa: F401
 from package.utils.selector_loader import SelectorLoader
 from package.api.differential import ListItem
 import urllib.parse
@@ -111,7 +112,7 @@ class SumifuParser(ParserBase):
 
     def getPropertyListXpath(self):
         xpath = self.selectors.get('property_list_xpath', '')
-        logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
+        logging.trace(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
     def getPropertyListDestUrl(self, link_url):
@@ -123,7 +124,7 @@ class SumifuParser(ParserBase):
 
     async def getPropertyListNextPageUrl(self, response):
         await asyncio.sleep(0)
-        logging.info("getPropertyListNextPageUrl")
+        logging.trace("getPropertyListNextPageUrl")
         next_page_selector = self.selectors.get('next_page')
         next_link = response.select_one(next_page_selector) if next_page_selector else None
         # Or simpler search for text "次へ"
@@ -140,7 +141,7 @@ class SumifuParser(ParserBase):
         next_page_url = urllib.parse.urljoin(self.BASE_URL, href)
         if JAVASCRIPT_PREFIX in next_page_url or VOID_0 in next_page_url:
             return None
-        logging.info("getPropertyListNextPageUrl next_page_url:" + next_page_url)
+        logging.trace("getPropertyListNextPageUrl next_page_url:" + next_page_url)
         return next_page_url
 
 

@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
 import io
 import json
 import logging
-import os
-import sys
-import pytest
 
 from package.utils.logging_config import configure_logging, get_logger
 
@@ -85,6 +81,66 @@ def test_log_level_filtering(monkeypatch):
     data = json.loads(lines[0])
     assert data.get("severity") == "INFO"
     assert "このインフォメッセージ" in data.get("message", "")
+
+
+def test_trace_and_debug_levels(monkeypatch):
+    """新設 TRACE レベル (5) および DEBUG レベル (10) の連携とフィルタリングを検証"""
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    monkeypatch.setenv("LOG_LEVEL", "TRACE")
+    stream = io.StringIO()
+    configure_logging(force_reconfigure=True, output_stream=stream, log_format="json", log_level="TRACE")
+
+    logger = get_logger("test.trace")
+    logger.trace("構造化トレースログテスト", step="xpath_eval")
+    logging.trace("標準ロガートレーステスト")
+    logger.debug("構造化デバッグログテスト")
+
+    lines = [l for l in stream.getvalue().strip().split("\n") if l.strip()]
+    assert len(lines) == 3
+    parsed = [json.loads(l) for l in lines]
+
+    assert parsed[0].get("severity") == "DEBUG"
+    assert parsed[0].get("original_level") == "TRACE"
+    assert "構造化トレースログテスト" in parsed[0].get("message", "")
+    assert parsed[0].get("step") == "xpath_eval"
+
+    assert parsed[1].get("severity") == "DEBUG"
+    assert parsed[1].get("original_level") == "TRACE"
+    assert "標準ロガートレーステスト" in parsed[1].get("message", "")
+
+    assert parsed[2].get("severity") == "DEBUG"
+    assert "構造化デバッグログテスト" in parsed[2].get("message", "")
+
+    # LOG_LEVEL=DEBUG の場合、TRACE はフィルタリングされる
+    stream_debug = io.StringIO()
+    configure_logging(force_reconfigure=True, output_stream=stream_debug, log_format="json", log_level="DEBUG")
+    logger.trace("このトレースメッセージは出力されない")
+    logger.debug("このデバッグメッセージは出力される")
+
+    debug_lines = [l for l in stream_debug.getvalue().strip().split("\n") if l.strip()]
+    assert len(debug_lines) == 1
+    debug_parsed = json.loads(debug_lines[0])
+    assert debug_parsed.get("severity") == "DEBUG"
+    assert "このデバッグメッセージは出力される" in debug_parsed.get("message", "")
+
+
+def test_no_raw_print_in_production_code():
+    """本番コアコード（src/crawler/package/ 配下）内に生の print() 呼び出しが残存していないことを AST 静的解析で検証"""
+    import ast
+    from pathlib import Path
+
+    crawler_package = Path(__file__).resolve().parent.parent.parent / "package"
+    assert crawler_package.exists(), f"Package dir not found: {crawler_package}"
+
+    raw_prints = []
+    for py_file in crawler_package.rglob("*.py"):
+        content = py_file.read_text(encoding="utf-8")
+        tree = ast.parse(content, filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print":
+                raw_prints.append(f"{py_file.relative_to(crawler_package)}:{node.lineno}")
+
+    assert len(raw_prints) == 0, "Raw print() found in package code:\n" + "\n".join(raw_prints)
 
 
 def test_no_newline_in_message_payload(monkeypatch):

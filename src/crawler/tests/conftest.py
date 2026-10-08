@@ -15,6 +15,8 @@ crawler_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if crawler_path not in sys.path:
     sys.path.insert(0, crawler_path)
 
+import package.utils.logging_config  # noqa: F401  # Register TRACE log level globally for all tests
+
 # 普遍原則 (AGENTS.md): 固定モックファイルは使用せず、動的ライブ検証を実施
 
 

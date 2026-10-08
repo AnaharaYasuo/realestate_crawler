@@ -1057,7 +1057,7 @@ class MisawaInvestmentKodateParser(MisawaInvestmentParser, KodateParserBase):
         )
 
         if not any(x in syumoku for x in ["戸建", "一戸建て", "借地権付建物"]):
-             logging.info(f"[MisawaKodate] Skipping non-kodate property: {syumoku} at {item.pageUrl}")
+             logging.debug(f"[MisawaKodate] Skipping non-kodate property: {syumoku} at {item.pageUrl}")
              from package.parser.baseParser import SkipPropertyException
              raise SkipPropertyException()
 
@@ -1137,7 +1137,7 @@ class MisawaInvestmentApartmentParser(MisawaInvestmentParser, InvestmentParserBa
         )
 
         if not any(x in syumoku for x in ["アパート", "一棟アパート", "一棟マンション", "マンション", "ビル", "店舗"]):
-             logging.info(f"[MisawaApartment] Skipping non-apartment property: {syumoku} at {item.pageUrl}")
+             logging.debug(f"[MisawaApartment] Skipping non-apartment property: {syumoku} at {item.pageUrl}")
              from package.parser.baseParser import SkipPropertyException
              raise SkipPropertyException()
 

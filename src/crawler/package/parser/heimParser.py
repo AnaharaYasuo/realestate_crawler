@@ -76,7 +76,7 @@ class HeimParser(ParserBase):
                     continue
                 # Defer property hubs without plan_detail — smoke expands them.
                 detail_links.add(normalized)
-                logging.info(f"[Heim] Match detail link: {normalized}")
+                logging.debug(f"[Heim] Match detail link: {normalized}")
                 yield normalized
 
 

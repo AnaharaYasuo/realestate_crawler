@@ -131,7 +131,7 @@ class KeikyuParser(ParserBase):
                 normalized = f"{self.BASE_URL}{path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    logging.info(f"[Keikyu] Match detail link: {normalized}")
+                    logging.debug(f"[Keikyu] Match detail link: {normalized}")
                     yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
