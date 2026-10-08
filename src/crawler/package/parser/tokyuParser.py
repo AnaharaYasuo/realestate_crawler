@@ -121,7 +121,7 @@ class TokyuParser(ParserBase):
 
     async def getPropertyListNextPageUrl(self, response):
         await asyncio.sleep(0)
-        logger.info("getPropertyListNextPageUrl")
+        logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
                 next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')

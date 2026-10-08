@@ -85,7 +85,7 @@ class SotetsuParser(ParserBase):
                 normalized = f"{self.BASE_URL}{path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    logging.info(f"[Sotetsu] Match detail link: {normalized}")
+                    logging.debug(f"[Sotetsu] Match detail link: {normalized}")
                     yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:

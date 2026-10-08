@@ -64,7 +64,7 @@ class MitsuiParser(ParserBase):
 
     def getRootXpath(self):
         xpath = self.selectors.get('root_xpath', '')
-        logging.info(f"[{self.property_type}] root_xpath: {xpath}")
+        logging.trace(f"[{self.property_type}] root_xpath: {xpath}")
         return xpath
 
     def getRootDestUrl(self, link_url):
@@ -92,7 +92,7 @@ class MitsuiParser(ParserBase):
 
     def getAreaXpath(self):
         xpath = self.selectors.get('area_xpath', '')
-        logging.info(f"[{self.property_type}] area_xpath: {xpath}")
+        logging.trace(f"[{self.property_type}] area_xpath: {xpath}")
         return xpath
 
     def getAreaDestUrl(self, link_url):
@@ -113,7 +113,7 @@ class MitsuiParser(ParserBase):
 
     def getPropertyListXpath(self):
         xpath = self.selectors.get('property_list_xpath', '')
-        logging.info(f"[{self.property_type}] property_list_xpath: {xpath}")
+        logging.trace(f"[{self.property_type}] property_list_xpath: {xpath}")
         return xpath
 
     def getPropertyListDestUrl(self, link_url):
@@ -126,7 +126,7 @@ class MitsuiParser(ParserBase):
 
     async def getPropertyListNextPageUrl(self, response):
         await asyncio.sleep(0)
-        logging.info("getPropertyListNextPageUrl")
+        logging.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
                 next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
@@ -1430,7 +1430,7 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
                 # Add buildingTypes parameter to existing URL
                 separator = '&' if '?' in base_url else '?'
                 filtered_url = f"{base_url}{separator}buildingTypes={building_type}"
-                logging.info(f"[Kodate] Generated URL with buildingTypes={building_type}: {filtered_url}")
+                logging.debug(f"[Kodate] Generated URL with buildingTypes={building_type}: {filtered_url}")
                 yield filtered_url
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
@@ -1489,7 +1489,7 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser, InvestmentParserBa
                 # Add buildingTypes parameter to existing URL
                 separator = '&' if '?' in base_url else '?'
                 filtered_url = f"{base_url}{separator}buildingTypes={building_type}"
-                logging.info(f"[Apartment] Generated URL with buildingTypes={building_type}: {filtered_url}")
+                logging.debug(f"[Apartment] Generated URL with buildingTypes={building_type}: {filtered_url}")
                 yield filtered_url
 
     async def parsePropertyListPage(self, response):

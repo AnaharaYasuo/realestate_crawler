@@ -1148,7 +1148,7 @@ class ParserBase(metaclass=ABCMeta):
         u_lower = str(url).lower()
         skip_parts = ('/shiritai/', '/360/', '/chintai/', '/rent/', TOKEN_INQUIRY, TOKEN_CONTACT, '/benefit/', '/baikyaku/')
         if any(p in u_lower for p in skip_parts):
-            logging.info(f'Fast-skipping non-property/rental URL: {url}')
+            logging.debug(f'Fast-skipping non-property/rental URL: {url}')
             raise SkipPropertyException(f'Non-property URL skipped: {url}')
 
     @staticmethod
@@ -1249,11 +1249,11 @@ class ParserBase(metaclass=ABCMeta):
         for h1_tag in clean_soup.find_all("h1"):
             h1_text = h1_tag.get_text().strip()
             if any(kw in h1_text for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
-                logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+                logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
                 raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
         if cls._check_body_listing_ended(clean_soup):
-            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
             raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
     @classmethod
@@ -1261,10 +1261,10 @@ class ParserBase(metaclass=ABCMeta):
         if not title:
             return
         if "サーバーが混み合っています" in title:
-            logging.info(f"Server busy for URL: {url}")
+            logging.debug(f"Server busy for URL: {url}")
             raise ServerBusyException()
         if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
-            logging.info(f"{MSG_LISTING_ENDED_PREFIX} {url}")
+            logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
             raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")
 
     @staticmethod
@@ -1290,12 +1290,12 @@ class ParserBase(metaclass=ABCMeta):
         if not (detected_type and self.property_type and (detected_type != self.property_type)):
             return (self, item)
         if self.sectional_unit_guard_enabled and self.property_type == 'mansion' and self._is_sectional_unit(specs, soup):
-            logging.info(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' skipped (sectional unit)")
+            logging.debug(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' skipped (sectional unit)")
             return (self, item)
         target_parser = UrlRouter.create_parser(url=url, title=title, html_text=soup.get_text()[:2000], specs=specs, property_type=detected_type)
         if not target_parser or target_parser.__class__ == self.__class__:
             return (self, item)
-        logging.info(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})")
+        logging.debug(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})")
         new_item = target_parser.createEntity()
         new_item.pageUrl = url
         return (target_parser, new_item)

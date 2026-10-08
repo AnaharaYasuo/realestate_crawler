@@ -153,7 +153,7 @@ class RearieParser(ParserBase):
                     normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}"
                     if normalized not in detail_links:
                         detail_links.add(normalized)
-                        logging.info(f"[Rearie] Match detail link: {normalized}")
+                        logging.debug(f"[Rearie] Match detail link: {normalized}")
                         yield normalized
 
     def _parse_json_price(self, item, data: dict):

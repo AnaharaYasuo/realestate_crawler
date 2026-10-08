@@ -842,7 +842,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         while t.is_alive():
             t.join(1.0)
             if os.path.exists("stop.flag"):
-                print("stop.flag found, forcing exit...", flush=True)
+                logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
                 close_old_connections()
                 os._exit(0)

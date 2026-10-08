@@ -6,12 +6,31 @@ Google Cloud Logging (GCP Cloud Run / Cloud Functions / GKE) 準拠の構造化J
 ローカル開発時のカラーコンソールログを透過的に提供します。
 標準ライブラリの logging.getLogger(__name__) と structlog の双方を自動ブリッジします。
 """
+import datetime
+import logging
 import os
 import sys
-import logging
-import datetime
-from typing import Optional, Any
+from typing import Any
+
 import structlog
+from structlog.stdlib import BoundLogger
+
+TRACE_LEVEL_NUM = 5
+if not hasattr(logging, "TRACE"):
+    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+    logging.TRACE = TRACE_LEVEL_NUM
+
+    def _logging_logger_trace(self, msg, *args, **kwargs):
+        if self.isEnabledFor(TRACE_LEVEL_NUM):
+            self._log(TRACE_LEVEL_NUM, msg, args, **kwargs)
+
+    logging.Logger.trace = _logging_logger_trace
+    logging.trace = lambda msg, *args, **kwargs: logging.log(TRACE_LEVEL_NUM, msg, *args, **kwargs)  # noqa: LOG015
+
+if not hasattr(BoundLogger, "trace"):
+    def _bound_logger_trace(self, event=None, *args, **kw):
+        return self._proxy_to_logger("trace", event, *args, **kw)
+    BoundLogger.trace = _bound_logger_trace
 
 GCP_SOURCE_LOCATION_KEY = "logging.googleapis.com/sourceLocation"
 _configured = False
@@ -37,6 +56,7 @@ def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
     # 1. severity マッピング
     raw_level = str(event_dict.pop("level", method_name or "info")).upper()
     severity_map = {
+        "TRACE": "DEBUG",
         "DEBUG": "DEBUG",
         "INFO": "INFO",
         "WARN": "WARNING",
@@ -46,6 +66,8 @@ def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
         "FATAL": "CRITICAL",
         "EXCEPTION": "ERROR",
     }
+    if raw_level == "TRACE":
+        event_dict["original_level"] = "TRACE"
     event_dict["severity"] = severity_map.get(raw_level, raw_level)
 
     # 2. message フィールド
@@ -92,7 +114,7 @@ def _reconfigure_io_streams():
                 pass
 
 
-def _determine_log_format(log_format: Optional[str]) -> str:
+def _determine_log_format(log_format: str | None) -> str:
     if log_format:
         return log_format
     env_format = os.getenv("LOG_FORMAT", "").lower()
@@ -122,8 +144,8 @@ def _build_processor_formatter(shared_processors: list, log_format: str) -> stru
 def configure_logging(
     force_reconfigure: bool = False,
     output_stream: Any = None,
-    log_format: Optional[str] = None,
-    log_level: Optional[str] = None
+    log_format: str | None = None,
+    log_level: str | None = None
 ):
     """
     structlog および標準 logging を一括初期化。
@@ -179,7 +201,7 @@ def configure_logging(
     _configured = True
 
 
-def get_logger(name: Optional[str] = None):
+def get_logger(name: str | None = None):
     """構造化ロガーインスタンスを取得"""
     if not _configured:
         configure_logging()

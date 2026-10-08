@@ -154,7 +154,7 @@ class KeioParser(ParserBase):
                     normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                     if normalized not in detail_links:
                         detail_links.add(normalized)
-                        logging.info(f"[Keio] Match detail link: {normalized}")
+                        logging.debug(f"[Keio] Match detail link: {normalized}")
                         yield normalized
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
