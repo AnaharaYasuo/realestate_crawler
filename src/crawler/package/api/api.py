@@ -37,6 +37,7 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.converter import parse_chidai
 from package.utils.failure_reporter import FailureReporter
 from package.utils.data_validator import tag_property_integrity
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -990,7 +991,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')
             if custom_cloud_limit and custom_cloud_limit.isdigit():
                 return int(custom_cloud_limit)
-            pararell_limit = self._getCloudPararellLimit()
+            return AdaptiveConcurrencyController.get_effective_concurrency()
         return pararell_limit
 
     @abstractmethod
@@ -1828,6 +1829,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 close_old_connections()
                 return
             except OperationalError as e:
+                if AdaptiveConcurrencyController.is_db_overload_error(e):
+                    AdaptiveConcurrencyController.record_db_overload(f"OperationalError: {e}")
                 if attempt < max_retries - 1:
                     logging.warning("Database error (attempt %d/%d): %s. Retrying in 5 seconds...", attempt + 1, max_retries, e)
                     close_old_connections()

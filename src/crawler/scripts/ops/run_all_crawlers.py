@@ -42,13 +42,14 @@ from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
-    default_parallel = 6
+    default_parallel = 9
     default_playwright_parallel = 3
     parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
@@ -513,6 +514,7 @@ def main():
                     logger.warning(f"Failed to record New Relic metrics for {company} - {ptype}: {nre}")
 
                 del active_processes[idx]
+                AdaptiveConcurrencyController.set_active_jobs_count(len(active_processes))
                 continue
 
         # 子プロセスの進捗監視（1ループあたり最大1ジョブのみDB件数増分を確認し、DB負荷を最小化）
@@ -699,6 +701,7 @@ def main():
                     )
                     now_ts = time.time()
                     active_processes[idx] = (proc, company, ptype, now_ts, start_dt, now_ts)
+                    AdaptiveConcurrencyController.set_active_jobs_count(len(active_processes))
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
                     logger.exception(f"Failed to start crawl job for {company} - {ptype}")
