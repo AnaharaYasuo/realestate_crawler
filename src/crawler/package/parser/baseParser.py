@@ -15,6 +15,7 @@ import hashlib
 from pathlib import Path
 from django.db import models
 from package.utils import converter
+from package.utils import logging_config  # noqa: F401
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.url_router import UrlRouter
 from package.utils.failure_reporter import FailureReporter
@@ -1290,12 +1291,12 @@ class ParserBase(metaclass=ABCMeta):
         if not (detected_type and self.property_type and (detected_type != self.property_type)):
             return (self, item)
         if self.sectional_unit_guard_enabled and self.property_type == 'mansion' and self._is_sectional_unit(specs, soup):
-            logging.debug(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' skipped (sectional unit)")
+            logging.info(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' -> detected '{detected_type}' skipped (sectional unit)")
             return (self, item)
         target_parser = UrlRouter.create_parser(url=url, title=title, html_text=soup.get_text()[:2000], specs=specs, property_type=detected_type)
         if not target_parser or target_parser.__class__ == self.__class__:
             return (self, item)
-        logging.debug(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})")
+        logging.info(f"[PropertyTypeSwitch] URL {url}: expected '{self.property_type}' ({self.__class__.__name__}) -> detected '{detected_type}' ({target_parser.__class__.__name__})")
         new_item = target_parser.createEntity()
         new_item.pageUrl = url
         return (target_parser, new_item)

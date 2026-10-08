@@ -14,6 +14,7 @@ import re
 from package.utils import converter
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
 import logging
+from package.utils import logging_config  # noqa: F401
 from package.utils.selector_loader import SelectorLoader
 from package.api.differential import ListItem
 import urllib.parse

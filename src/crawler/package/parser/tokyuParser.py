@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import asyncio
 import datetime
 from decimal import Decimal
@@ -21,6 +20,7 @@ from package.parser.baseParser import (
 )
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
+from package.utils import logging_config  # noqa: F401
 from package.utils.selector_loader import SelectorLoader
 from package.api.differential import ListItem
 
@@ -929,7 +929,6 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
         item.kuiki = self._parseKuiki(response)
         
         # 統一土地評価フィールドのパース ＆ 代入
-        import re
         if item.setsumen is not None:
             item.maguchiStr = item.setsumen
             m = FLOAT_PATTERN.search(item.maguchiStr)
@@ -996,8 +995,8 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
                 return None
             items = [self._parse_nextjs_property_item(it) for it in property_list]
             return [it for it in items if it is not None]
-        except Exception as e:
-            logger.exception("Error parsing __NEXT_DATA__: %s", e)
+        except Exception:
+            logger.exception("Error parsing __NEXT_DATA__")
             return None
 
     def _extract_selector_urls(self, response):
@@ -1344,8 +1343,8 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
             if getattr(item, 'tochiMenseki', None) and getattr(item, 'maguchi', None) and item.maguchi > 0:
                 item.okuyuki = round(Decimal(item.tochiMenseki) / item.maguchi, 2)
                 item.okuyukiStr = f"{item.okuyuki}m"
-        except (TypeError, ValueError, AttributeError, KeyError) as e:
-            logger.exception("Error parsing setsudou fields: %s", e)
+        except (TypeError, ValueError, AttributeError, KeyError):
+            logger.exception("Error parsing setsudou fields")
 
     def _parsePropertyDetailPage(self, item, response):
         # Override to support Next.js JSON data extraction with fallback

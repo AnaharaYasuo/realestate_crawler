@@ -21,6 +21,7 @@ from package.parser.baseParser import (
     TochiParserBase,
 )
 from package.utils import converter
+from package.utils import logging_config  # noqa: F401
 from package.utils.selector_loader import SelectorLoader
 
 REGEX_DECIMAL = r'[\d\.]+'

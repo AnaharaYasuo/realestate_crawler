@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 統合構造化ロギング設定モジュール (logging_config.py)
 
@@ -7,6 +6,7 @@ Google Cloud Logging (GCP Cloud Run / Cloud Functions / GKE) 準拠の構造化J
 標準ライブラリの logging.getLogger(__name__) と structlog の双方を自動ブリッジします。
 """
 import datetime
+import io
 import logging
 import os
 import sys
@@ -16,21 +16,24 @@ import structlog
 from structlog.stdlib import BoundLogger
 
 TRACE_LEVEL_NUM = 5
-if not hasattr(logging, "TRACE"):
-    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
-    logging.TRACE = TRACE_LEVEL_NUM
+logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+logging.TRACE = TRACE_LEVEL_NUM
 
-    def _logging_logger_trace(self, msg, *args, **kwargs):
-        if self.isEnabledFor(TRACE_LEVEL_NUM):
-            self._log(TRACE_LEVEL_NUM, msg, args, **kwargs)
 
-    logging.Logger.trace = _logging_logger_trace
-    logging.trace = lambda msg, *args, **kwargs: logging.log(TRACE_LEVEL_NUM, msg, *args, **kwargs)  # noqa: LOG015
+def _logging_logger_trace(self, msg, *args, **kwargs):
+    if self.isEnabledFor(TRACE_LEVEL_NUM):
+        self._log(TRACE_LEVEL_NUM, msg, args, **kwargs)
 
-if not hasattr(BoundLogger, "trace"):
-    def _bound_logger_trace(self, event=None, *args, **kw):
-        return self._proxy_to_logger("trace", event, *args, **kw)
-    BoundLogger.trace = _bound_logger_trace
+
+logging.Logger.trace = _logging_logger_trace
+logging.trace = lambda msg, *args, **kwargs: logging.log(TRACE_LEVEL_NUM, msg, *args, **kwargs)  # noqa: LOG015
+
+
+def _bound_logger_trace(self, event=None, *args, **kw):
+    return self._proxy_to_logger("trace", event, *args, **kw)
+
+
+BoundLogger.trace = _bound_logger_trace
 
 GCP_SOURCE_LOCATION_KEY = "logging.googleapis.com/sourceLocation"
 _configured = False
@@ -40,9 +43,7 @@ def _is_cloud_environment() -> bool:
     """GCP / クラウド実行環境かどうかを判定"""
     if os.getenv("IS_CLOUD", "").lower() in ("true", "1", "yes"):
         return True
-    if any(os.getenv(k) for k in ("K_SERVICE", "CLOUD_RUN_JOB", "GOOGLE_CLOUD_PROJECT", "GAE_SERVICE")):
-        return True
-    return False
+    return bool(any(os.getenv(k) for k in ("K_SERVICE", "CLOUD_RUN_JOB", "GOOGLE_CLOUD_PROJECT", "GAE_SERVICE")))
 
 
 def add_gcp_cloud_logging_fields(logger, method_name, event_dict):
@@ -110,7 +111,7 @@ def _reconfigure_io_streams():
         if hasattr(stream, "reconfigure"):
             try:
                 stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
+            except (AttributeError, io.UnsupportedOperation, ValueError):
                 pass
 
 
