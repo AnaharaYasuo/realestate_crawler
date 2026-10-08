@@ -1064,12 +1064,34 @@ class ParserBase(metaclass=ABCMeta):
                 setattr(item, 'chidaiStr', cs_val)
 
     @staticmethod
+    def _compute_fallback_yield(item: models.Model) -> Optional[Decimal]:
+        price = getattr(item, 'price', None)
+        annual_rent = getattr(item, 'annualRent', None)
+        if not annual_rent and hasattr(item, 'monthlyRent'):
+            monthly_rent = getattr(item, 'monthlyRent', None)
+            if monthly_rent:
+                annual_rent = int(monthly_rent) * 12
+        if price and annual_rent and price > 0 and annual_rent > 0:
+            calc_yield = round((float(annual_rent) / float(price)) * 100.0, 2)
+            if 0 < calc_yield <= 100.0:
+                return Decimal(str(calc_yield))
+        return None
+
+    @staticmethod
     def _guard_gross_yield(item: models.Model) -> None:
         if not hasattr(item, 'grossYield'):
             return
+        current_yield = getattr(item, 'grossYield', None)
+        is_empty = current_yield is None or (isinstance(current_yield, (int, float, Decimal)) and current_yield <= 0)
+        if is_empty:
+            fallback = ParserBase._compute_fallback_yield(item)
+            if fallback is not None:
+                setattr(item, 'grossYield', fallback)
+                return
         f_obj = item._meta.get_field('grossYield')
         if getattr(item, 'grossYield', None) is None and (not f_obj.null):
             setattr(item, 'grossYield', Decimal('0.0'))
+
 
     @staticmethod
     def _normalize_station_fields(item: models.Model) -> None:

@@ -85,6 +85,9 @@ class PropertyDataValidator:
 
         invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
         is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
+        url_str = str(getattr(item, "pageUrl", "") or "").lower()
+        if "toushi" in url_str or "invest" in url_str:
+            return True
         has_valid_yield = False
         raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
         if raw_yield is not None:
@@ -108,8 +111,8 @@ class PropertyDataValidator:
         min_price_man = 1.0 if cls._is_low_price_allowed(item, ptype) else 100.0
         if price_man <= 0 or price_man < min_price_man:
             reasons.append(f"価格異常 ({price_man:.1f}万円: {min_price_man:.0f}万円未満または0円)")
-        elif price_man > 200000.0:
-            reasons.append(f"価格異常 ({price_man:.1f}万円: 20億円超の異常値疑い)")
+        elif price_man > 500000.0:
+            reasons.append(f"価格異常 ({price_man:.1f}万円: 50億円超の異常値疑い)")
         return price_val
 
     @staticmethod
