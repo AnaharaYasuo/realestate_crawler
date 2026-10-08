@@ -57,6 +57,7 @@ def test_odakyu_investment_list_card_parses_yield_and_derived_rent():
         <p class="estate-price-item"><strong>680</strong>万円</p>
         <div class="estate-info-list">
           <dl class="address"><dt>所在地</dt><dd>坂東市辺田</dd></dl>
+          <dl class="status"><dt>建物面積</dt><dd>85.0m²</dd></dl>
         </div>
         <h2 class="estate-block-name"><a href="//detail/VI0023//">ロジュマン坂東市辺田</a></h2>
       </div>
@@ -112,4 +113,29 @@ def test_odakyu_investment_list_card_parses_specs_menseki_madori_chikunengetsu()
     assert str(item.chikunengetsu) == "1980-05-01"
     assert "鶴川" in item.traffic
     assert item.station1 == "鶴川"
+
+
+def test_odakyu_investment_list_card_parses_without_menseki_if_yield_present():
+    html = """
+    <html><body>
+      <div class="estate-block">
+        <input type="checkbox" name="ids[]" value="VI0023"/>
+        <p class="estate-info-catch">【オーナーチェンジ物件】利回り16.76％戸建賃貸</p>
+        <p class="estate-price-item"><strong>680</strong>万円</p>
+        <div class="estate-info-list">
+          <dl class="address"><dt>所在地</dt><dd>坂東市辺田</dd></dl>
+        </div>
+        <h2 class="estate-block-name"><a href="//detail/VI0023//">ロジュマン坂東市辺田</a></h2>
+      </div>
+    </body></html>
+    """
+    parser = OdakyuInvestmentParser()
+    soup = BeautifulSoup(html, "html.parser")
+    item = parser.createEntity()
+    item.pageUrl = "https://www.odakyu-chukai.com/invest/list/?focus=VI0023"
+    item = parser._parsePropertyDetailPage(item, soup)
+    assert item.propertyName.startswith("ロジュマン")
+    assert item.grossYield and float(item.grossYield) > 0
+    assert item.annualRent and item.annualRent > 0
+
 

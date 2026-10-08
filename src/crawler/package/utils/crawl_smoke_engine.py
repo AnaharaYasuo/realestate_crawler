@@ -677,6 +677,7 @@ _COMPANY_BUDGET_FLOOR_EARLY: dict[str, float] = {
     "sumifu": 35.0,
     "sumai1": 40.0,
     "keio": 40.0,
+    "keikyu": 45.0,
 }
 
 

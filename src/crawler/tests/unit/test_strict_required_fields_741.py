@@ -59,3 +59,20 @@ def test_tochi_does_not_require_madori_or_age():
         propertyName="売地", address="東京都", traffic="駅 徒歩3分", price=30000000, tochiMenseki=150.0)
     ok, reasons = PropertyDataValidator.validate_property(item, "tochi")
     assert ok, reasons
+
+
+def test_investment_does_not_require_traffic_when_missing():
+    item = SimpleNamespace(
+        propertyName="一棟アパート",
+        address="埼玉県川口市",
+        traffic="",
+        station1="",
+        price=30000000,
+        tatemonoMenseki=120.0,
+        tochiMenseki=150.0,
+        grossYield=7.5,
+    )
+    ok, reasons = PropertyDataValidator.validate_property(item, "investment_apartment")
+    assert ERR_MISSING_TRAFFIC not in reasons
+    assert ok, reasons
+

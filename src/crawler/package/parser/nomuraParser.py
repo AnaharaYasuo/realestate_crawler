@@ -803,6 +803,7 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
         item.tochiMenseki = self._parseTochiMenseki(response)
         item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
         item.tatemonoMenseki = self._parseTatemonoMenseki(response)
+        item.madori = self._parseMadori(response)
         item.kouzou = self._parseKouzou(response)
         item.kaisuStr = self._parseKaisuStr(response)
         item.chikunengetsuStr = self._parseChikunengetsuStr(response)
