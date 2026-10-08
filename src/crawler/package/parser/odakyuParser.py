@@ -609,14 +609,6 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             raise SkipPropertyException(
                 f"Odakyu invest list card missing yield/rent: {item.propertyName[:60]}"
             )
-        has_area = bool(
-            (getattr(item, "tatemonoMenseki", None) and item.tatemonoMenseki > 0)
-            or (getattr(item, "tochiMenseki", None) and item.tochiMenseki > 0)
-        )
-        if not has_area:
-            raise SkipPropertyException(
-                f"Odakyu invest list card missing menseki: {item.propertyName[:60]}"
-            )
         return item
 
     def _fill_invest_card_identity(self, item, block, focus_id: str = "") -> None:

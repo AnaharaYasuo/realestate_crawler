@@ -115,10 +115,7 @@ def test_odakyu_investment_list_card_parses_specs_menseki_madori_chikunengetsu()
     assert item.station1 == "鶴川"
 
 
-def test_odakyu_investment_list_card_skips_when_menseki_missing():
-    import pytest
-    from package.parser.baseParser import SkipPropertyException
-
+def test_odakyu_investment_list_card_parses_without_menseki_if_yield_present():
     html = """
     <html><body>
       <div class="estate-block">
@@ -136,7 +133,9 @@ def test_odakyu_investment_list_card_skips_when_menseki_missing():
     soup = BeautifulSoup(html, "html.parser")
     item = parser.createEntity()
     item.pageUrl = "https://www.odakyu-chukai.com/invest/list/?focus=VI0023"
-    with pytest.raises(SkipPropertyException, match="missing menseki"):
-        parser._parsePropertyDetailPage(item, soup)
+    item = parser._parsePropertyDetailPage(item, soup)
+    assert item.propertyName.startswith("ロジュマン")
+    assert item.grossYield and float(item.grossYield) > 0
+    assert item.annualRent and item.annualRent > 0
 
 
