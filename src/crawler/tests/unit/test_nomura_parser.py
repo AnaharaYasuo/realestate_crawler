@@ -30,6 +30,8 @@ class TestNomuraParser:
         parser = NomuraKodateParser(None)
         entity = parser.createEntity()
         assert isinstance(entity, NomuraKodate)
+        assert hasattr(entity, "madori")
+        assert entity.madori == ""
 
     def test_create_entity_tochi(self):
         parser = NomuraTochiParser(None)
