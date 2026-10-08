@@ -625,6 +625,10 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         if traffic_str:
             item.traffic = traffic_str
             self._populateTraffic(item, [traffic_str])
+        if not focus_id:
+            cb = block.select_one('input[name="ids[]"]')
+            if cb:
+                focus_id = (cb.get("value") or "").strip()
         if focus_id:
             item.pageUrl = f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(focus_id)}"
 
