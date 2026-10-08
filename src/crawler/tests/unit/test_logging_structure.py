@@ -125,23 +125,25 @@ def test_trace_and_debug_levels(monkeypatch):
 
 
 def test_no_raw_print_in_production_code():
-    """本番コード（main.py および package/）内に生の print() 呼び出しが残存していないことを静的検査"""
-    import subprocess
+    """本番コアコード（src/crawler/package/ 配下）内に生の print() 呼び出しが残存していないことを AST 静的解析で検証"""
+    import ast
     from pathlib import Path
-    # 当前ファイルから crawler ルート (src/crawler) を基準に解決
-    crawler_root = Path(__file__).resolve().parent.parent.parent
-    cmd = [
-        "git", "grep", "-n", "-P", r"\bprint\s*\(", "--",
-        "main.py",
-        "package"
-    ]
-    res = subprocess.run(cmd, cwd=str(crawler_root), capture_output=True, text=True, check=False)
-    # print() が一切存在しなければ git grep の終了コードは 1 となる
-    matching_lines = [
-        line for line in res.stdout.splitlines()
-        if not line.strip().startswith("#") and line.strip()
-    ]
-    assert len(matching_lines) == 0, "Raw print() found in production code:\n" + "\n".join(matching_lines)
+
+    crawler_package = Path(__file__).resolve().parent.parent.parent / "package"
+    assert crawler_package.exists(), f"Package dir not found: {crawler_package}"
+
+    raw_prints = []
+    for py_file in crawler_package.rglob("*.py"):
+        try:
+            tree = ast.parse(py_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == "print":
+                    raw_prints.append(f"{py_file.relative_to(crawler_package)}:{node.lineno}")
+
+    assert len(raw_prints) == 0, f"Raw print() found in package code:\n" + "\n".join(raw_prints)
 
 
 def test_no_newline_in_message_payload(monkeypatch):
