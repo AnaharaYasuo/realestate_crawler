@@ -39,7 +39,7 @@ class PropertyDataValidator:
         reasons: list[str] = []
         ptype = (property_type or "").lower().replace("-", "_")
 
-        cls._check_common_required(item, reasons)
+        cls._check_common_required(item, ptype, reasons)
         price_val = cls._validate_price(item, ptype, reasons)
         area = cls._extract_and_validate_area(item, ptype, reasons)
         cls._validate_unit_price(item, ptype, price_val, area, reasons)
@@ -48,15 +48,17 @@ class PropertyDataValidator:
 
         return len(reasons) == 0, reasons
 
-    @staticmethod
-    def _check_common_required(item: Any, reasons: list[str]) -> None:
+    @classmethod
+    def _check_common_required(cls, item: Any, ptype: str, reasons: list[str]) -> None:
         """全ページに必ず存在する項目 (物件名・住所・交通) の欠損検査"""
         if _blank(getattr(item, "propertyName", None)):
             reasons.append(ERR_MISSING_NAME)
         if _blank(getattr(item, "address", None)):
             reasons.append(ERR_MISSING_ADDRESS)
         if _blank(getattr(item, "traffic", None)) and _blank(getattr(item, "station1", None)):
-            reasons.append(ERR_MISSING_TRAFFIC)
+            is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
+            if not is_invest:
+                reasons.append(ERR_MISSING_TRAFFIC)
 
     @staticmethod
     def _check_madori_and_age(item: Any, reasons: list[str]) -> None:
@@ -77,7 +79,7 @@ class PropertyDataValidator:
         name = str(getattr(item, "propertyName", "") or "")
         biko = str(getattr(item, "biko", "") or "")
         full_text = f"{name} {biko}"
-        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ"]
+        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ", "古家", "空き家", "空家"]
         if any(kw in full_text for kw in specific_keywords):
             return True
 

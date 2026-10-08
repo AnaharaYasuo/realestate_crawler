@@ -53,6 +53,7 @@ class NomuraMansion(NomuraModel):
         db_table = "nomura_mansion"
 
 class NomuraKodate(NomuraModel):
+    madori = models.TextField(blank=True, default="")
     tochiMensekiStr = models.TextField(default="")
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
     tatemonoMensekiStr = models.TextField(default="")
