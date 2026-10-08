@@ -540,6 +540,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         return super()._parseTatemonoMenseki(response, specs)
 
     property_type = 'investment'
+    CB_SELECTOR = 'input[name="ids[]"]'
 
     def __init__(self, params=None):
         super().__init__(params)
@@ -577,7 +578,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
 
     def _iter_invest_list_focus_urls(self, response: BeautifulSoup):
         for block in response.select(".estate-block"):
-            cb = block.select_one('input[name="ids[]"]')
+            cb = block.select_one(self.CB_SELECTOR)
             if cb is None:
                 continue
             vid = (cb.get("value") or "").strip()
@@ -626,7 +627,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             item.traffic = traffic_str
             self._populateTraffic(item, [traffic_str])
         if not focus_id:
-            cb = block.select_one('input[name="ids[]"]')
+            cb = block.select_one(self.CB_SELECTOR)
             if cb:
                 focus_id = (cb.get("value") or "").strip()
         if focus_id:
@@ -735,7 +736,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
     def _resolve_invest_list_block(self, blocks, focus: str):
         if focus:
             for block in blocks:
-                cb = block.select_one('input[name="ids[]"]')
+                cb = block.select_one(self.CB_SELECTOR)
                 if cb and (cb.get("value") or "").strip() == focus:
                     return block
             raise ListingEndedException(
