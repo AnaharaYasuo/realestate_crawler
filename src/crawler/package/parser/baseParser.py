@@ -966,6 +966,7 @@ class ParserBase(metaclass=ABCMeta):
     def _validate_item_field(self, item: models.Model, field: str) -> Optional[dict]:
         if not hasattr(item, field):
             return None
+
         val = getattr(item, field, None)
         if self._is_under_construction_item(item) and field in ('tatemonoMenseki', 'chikunengetsuStr'):
             return None
@@ -1116,11 +1117,11 @@ class ParserBase(metaclass=ABCMeta):
             setattr(item, 'genkyo', curr_val)
 
     def clean_parsed_item(self, item: models.Model) -> models.Model:
-        self.validate_extracted_fields(item)
         self._clean_char_text_fields(item)
         self._clean_int_fields(item)
         self._autofill_chidai_from_soup(item)
         self._guard_gross_yield(item)
+        self.validate_extracted_fields(item)
         self._normalize_station_fields(item)
         self._sync_genkyo_current_status(item)
         return item

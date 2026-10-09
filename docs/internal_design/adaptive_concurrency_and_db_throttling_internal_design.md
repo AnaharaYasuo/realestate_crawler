@@ -52,14 +52,23 @@ class AdaptiveConcurrencyController:
         ...
 ```
 
-### 2.2 `api.py` との統合点
-1. **`_getPararellLimit(self)`**:
-   - `CLOUD_DETAIL_CONCURRENCY` が環境変数にあればそれを尊重。
-   - なければ `AdaptiveConcurrencyController.get_current_limit()` を呼び出してセマフォ数を決定。
-2. **`_save_item_with_retry(self, item, max_retries=3)`**:
-   - `OperationalError` 発生時、`AdaptiveConcurrencyController.is_overload_error(e)` を判定。
-   - 該当する場合、`record_db_overload()` をトリガーして即座にスロットリングを開始し、`sleep(attempt * 2 + 2)` でバックオフ。
+### 2.4 WAF防護対象サイトの並行度キャップ・アクセスディレイ設計 (Issue #804)
+- **`AdaptiveConcurrencyController.SITE_CONCURRENCY_CAPS`**:
+  ```python
+  SITE_CONCURRENCY_CAPS = {
+      "nomura": 2,
+      "mitsui": 2,
+  }
+  ```
+  - `get_effective_concurrency(company: str | None = None, active_jobs: int | None = None) -> int` で、対象サイト名がキャップ指定されている場合は `min(calculated_concurrency, cap)` を適用する。
+- **アクセスディレイ (`api.py`)**:
+  - `SITE_DOWNLOAD_DELAYS = {"nomura": 1.0, "mitsui": 1.0}` を定義し、`_fetch_detail_item` 内での詳細ページ取得前に `await asyncio.sleep(delay)` を挿入。
 
-### 2.3 `run_all_crawlers.py` との統合点
-- `default_parallel = 9` に変更。
-- 新規プロセス起動時および終了回収時に、アクティブプロセス数（`len(active_processes)`）を状態ファイル等へ記録、または環境変数 `CONTAINER_ACTIVE_JOBS` を子プロセスに渡す。
+### 2.5 パーサー不整合および抽出例外修復設計 (Issue #804)
+1. **`TokyuInvestmentApartmentParser`**:
+   - `baseParser.py` の `clean_parsed_item()` 内で、`_guard_gross_yield()` を `validate_extracted_fields()` より先に呼び出す。
+   - モデル定義（`TokyuInvestmentApartment`）で `grossYield` や `annualRent` が `null=True` の場合、かつ元ページに賃料情報が存在しない場合はバリデーションエラーとして扱わず許容する。
+2. **`MitsuiInvestmentApartmentParser`**:
+   - `_delegate_shumoku_parser` において、`shumoku` に「土地」が含まれる場合、または `url` に `/tochi/` が含まれる場合は `SkipPropertyException("土地物件のためスキップ")` を発生させる。
+3. **`AthomeTochiParser`**:
+   - `TochiParserBase.get_tochi_menseki_str()` を呼び出すことで「敷地面積」「区画面積」「面積」のフォールバックを有効化。
