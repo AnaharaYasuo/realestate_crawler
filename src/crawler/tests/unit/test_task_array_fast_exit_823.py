@@ -82,3 +82,14 @@ def test_is_last_completing_task_db_error_fallback():
         
         with patch("scripts.ops.run_all_crawlers.CrawlerTaskExecution.objects", mock_objects):
             assert is_last_completing_task(1, 5) is False
+
+
+def test_crawler_watchdog_hang_threshold_configuration():
+    """CRAWLER_HANG_THRESHOLD_SEC 環境変数が指定された場合、check_job_hung がその値で判定すること"""
+    from package.utils.crawler_watchdog import check_job_hung
+
+    now = 2000.0
+    # 600秒閾値の場合: 500秒前は未検知、601秒前は検知
+    assert check_job_hung(last_activity_time=now - 500.0, current_time=now, threshold_sec=600.0) is False
+    assert check_job_hung(last_activity_time=now - 601.0, current_time=now, threshold_sec=600.0) is True
+
