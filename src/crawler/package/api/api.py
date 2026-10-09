@@ -1836,12 +1836,15 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             await self._save_property_and_price_history(item)
             if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
                 await self._perform_inline_ml_evaluation(item)
+            self._check_crawler_limit()
         except OperationalError as e:
             if AdaptiveConcurrencyController.is_db_overload_error(e):
                 AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
             logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
+            return
         except Exception:
             logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
+            return
         await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
 
     async def _handle_skipped_property(self):
