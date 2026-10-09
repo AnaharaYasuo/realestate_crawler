@@ -151,9 +151,11 @@ jobs:
           gcloud run jobs update realestate-ml-pipeline-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_ml_pipeline.py \
-            --args=--force,--skip-train \
+            --args=--force \
             --max-retries=0 \
-            --task-timeout=3600s \
+            --cpu=2 \
+            --memory=2Gi \
+            --task-timeout=7200s \
             --region=asia-northeast1
 
       - name: Update Safety Net Job Image
@@ -169,6 +171,8 @@ jobs:
           gcloud run jobs update realestate-recrawl-anomalies-prod \
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/maintenance/recrawl_anomalies.py \
+            --cpu=2 \
+            --memory=2Gi \
             --region=asia-northeast1
 
       - name: Prune old images (Keep latest 3 versions)

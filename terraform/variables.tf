@@ -52,6 +52,24 @@ variable "crawler_memory" {
   default     = "4Gi"
 }
 
+variable "ml_pipeline_cpu" {
+  type        = string
+  description = "CPU limit for ML Pipeline Cloud Run Job (Issue #809: reduced from 4 to 2 based on actual utilization <42%)"
+  default     = "2"
+}
+
+variable "ml_pipeline_memory" {
+  type        = string
+  description = "Memory limit for ML Pipeline Cloud Run Job (Issue #809: reduced from 8Gi to 2Gi based on actual utilization <21%)"
+  default     = "2Gi"
+}
+
+variable "recrawl_memory" {
+  type        = string
+  description = "Memory limit for Recrawl Anomalies Cloud Run Job (Issue #809: reduced from 4Gi to 2Gi based on actual utilization <22%)"
+  default     = "2Gi"
+}
+
 variable "crawler_timeout" {
   type        = string
   description = "Per-task execution timeout for the crawler Cloud Run Job (default 9h: 32400s; Cloud Run Jobs max is 86400s, but capped at 32400s by the Safety-Net hung threshold 33000s and ml_pipeline_schedule_cron). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"

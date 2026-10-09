@@ -145,3 +145,26 @@ flowchart TD
   - GitHub Actions `deploy-production.yml` での Docker push 直後に、最新3世代を超過する古いイメージダイジェストを取得して一括削除。
   - イメージが push された瞬間に即時削除され、月額約 1,000 円超のストレージ課金（81.6GB）を約 5GB へ圧縮・恒久維持。
 
+---
+
+## 5. Cloud Run Job 過剰プロビジョニング解消とリソース適正化 (Issue #809)
+
+### 5.1 実測メトリクスに基づくダブつき判定
+直近の Cloud Monitoring 実績値（過去7日間）の分析結果：
+1. **`realestate-ml-pipeline-prod`**:
+   - 従来スペック: **4 vCPU / 8 GiB**
+   - 実利用率 (p99): **CPU 平均 17.34% (Max 41.77%)**, **Memory 平均 11.30% (Max 20.97% = 約1.67 GiB)**
+   - 判定: CPU・メモリ共に約4倍の過剰プロビジョニング。
+   - 対策: 日次バッチでのモデル再学習（`package/ml/train.py`）を不要化しデフォルトでスキップ（推論・推定のみ実行）。スペックを **2 vCPU / 2 GiB** へ縮小（実行コスト約 75% 削減）。
+2. **`realestate-recrawl-anomalies-prod`**:
+   - 従来スペック: **2 vCPU / 4 GiB**
+   - 実利用率 (p99): **CPU 平均 68.1% (Max 78.87%)**, **Memory 平均 16.50% (Max 21.95% = 約880 MB)**
+   - 判定: メモリが約4倍過剰プロビジョニング。
+   - 対策: スペックを **2 vCPU / 2 GiB** へ縮小（メモリコスト 50% 削減）。
+
+### 5.2 ML パイプライン学習不要化アーキテクチャ (`run_ml_pipeline.py`)
+- `run_ml_pipeline.py` において、`--train` フラグが明示的に渡された場合のみモデル再学習ステップを実行し、日常の定期実行では学習ステップを完全にスキップ。
+- `--skip-train` は後方互換性のために受け入れ可能としつつ、デフォルトで `skip_train = True` として推論（`run_bulk_ml_evaluation.py`）とお宝物件通知（`send_recommendations.py`）のみを実行。
+- これにより、推論実行時のメモリ消費量は 1.67 GiB 未満に安定し、2 GiB RAM コンテナ環境で安全に動作する。
+
+

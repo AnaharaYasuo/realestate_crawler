@@ -517,12 +517,12 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
 
       containers {
         image = "python:3.11-slim"
-        args  = ["--force", "--skip-train"]
+        args  = ["--force"]
 
         resources {
           limits = {
-            cpu    = "4"
-            memory = "8Gi"
+            cpu    = var.ml_pipeline_cpu
+            memory = var.ml_pipeline_memory
           }
         }
 
@@ -706,7 +706,7 @@ resource "google_cloud_run_v2_job" "recrawl_anomalies_job" {
         resources {
           limits = {
             cpu    = var.crawler_cpu
-            memory = var.crawler_memory
+            memory = var.recrawl_memory
           }
         }
 

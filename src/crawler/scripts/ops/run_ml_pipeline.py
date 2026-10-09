@@ -225,10 +225,19 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
     parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
-    parser.add_argument("--skip-train", action="store_true", help="Skip ML model training and run estimation only (Issue #698)")
+    parser.add_argument("--skip-train", action="store_true", default=None, help="Skip ML model training (deprecated: skipped by default, Issue #809)")
+    parser.add_argument("--train", action="store_true", default=False, help="Explicitly enable ML model training (Issue #809)")
     args = parser.parse_args(argv)
 
-    skip_train = args.skip_train or os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1")
+    # Issue #809: デフォルトで学習は不要化・スキップ（推論のみ実行）。--train 指定時のみ学習を実行。
+    if args.train:
+        skip_train = False
+    else:
+        skip_train = True
+    if os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("false", "0"):
+        skip_train = False
+    elif os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1"):
+        skip_train = True
 
     current_dir = os.path.dirname(os.path.abspath(__file__)) # .../scripts/ops
     scripts_dir = os.path.dirname(current_dir)              # .../scripts

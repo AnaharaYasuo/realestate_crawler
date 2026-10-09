@@ -36,11 +36,11 @@
     - **超大規模ポータル (Browser: Athome)**: 最大 3 プロセス並行（Playwrightの並行消化加速）
     - **大手仲介 (三井, 住友, 東急, 野村, ミサワ)**: 最大 5 プロセス並行（各コンテナ起動時に全種別を一斉並列実行可能化）
     - **中小・電鉄・ハウスメーカー (積水, 大和, 旭化成, 小田急等 17社)**: 最大 1 プロセス（同一会社内完全直列で安全・低負荷消化）
-  - ML学習（LightGBM, XGBoost, CatBoost, RF）でコンテナのマルチCPUコア（`n_jobs=-1`）を完全活用すること。
+  - 日常バッチでのMLモデル再学習は不要化し、デフォルトでスキップ（推論・推定のみ実行、明示的な `--train` 指定時のみ学習実行）とすること (Issue #809)。
   - データ検証（`validate_data.py`）において、直近物件のURL生存確認（`verify_url_active`）を非同期並行化（`asyncio.gather` / セマフォ10〜20並行）して処理時間を短縮すること。また、大量物件蓄積時や日次定期パイプライン実行時にURL生存確認をスキップ可能な実行オプション（`--skip-url-check` / 環境変数 `VALIDATE_DATA_SKIP_URL_CHECK=true`）を提供すること。
-  - ML Pipeline Job（`realestate-ml-pipeline-prod`）は、データ検証のスキップ制御およびバルク推論の並列化により 3,600秒（1時間）以内で安全に完遂し、Cloud SQL バックアップ（22:00 UTC）との重複を防止すること。
+  - ML Pipeline Job（`realestate-ml-pipeline-prod`）は、データ検証のスキップ制御およびバルク推論の最適化により安全に完遂し、Cloud SQL バックアップ（04:00 UTC）との重複を防止すること。
 - **パイプライン制御 & 完了検知**:
-  - ディスパッチャーによる全タスク投入後、DB（`crawler_task_execution`）上で全タスクの完了を検知し、後続の「データ検証 ➔ ML再学習 ➔ バルク推論 ➔ Slack通知」を一貫自動実行できること。
+  - ディスパッチャーによる全タスク投入後、DB（`crawler_task_execution`）上で全タスクの完了を検知し、後続の「データ検証 ➔ バルク推論 ➔ Slack通知」を一貫自動実行できること。
 - **種別・サイト規模別タスクアレイ分散制御 (Issue #608)**:
   - 8タスクアレイを Modulo ではなく、種別・サイト規模特性（Task 0: 大手マンション、Task 1: 大手戸建、Task 2: 大手土地、Task 3: 大手/信託投資、Task 4: 中小/信託居住、Task 5: Homes全種別、Task 6: Athomeマンション、Task 7: Athomeその他）に基づいて最適分散すること。
 
@@ -147,7 +147,8 @@
 - **ジョブの二分割 ＆ オンデマンド待機課金ゼロ化 (Two-Phase Decoupled Jobs)**:
   - 親ジョブを「タスク投入役（Dispatcher Job）」と「学習・推論役（ML Pipeline Job）」の2つに分割すること。
   - Dispatcher Job はバッチ開始時に ProxySQL MIG をスケールアウト（`size: 0 -> 1`）し、疎通確認後に Cloud Tasks へタスクを投入して即座に終了（プロセス exit 0）し、クローリング中の親ジョブ待機課金を ¥0 とすること。
-  - ML Pipeline Job はクローリング全完了後に起動し、4vCPU / 8GiB の集中リソースで ML モデル再学習・バルク価格推定・お宝物件 Slack 通知を実行し、完了フックで ProxySQL MIG を安全にスケールイン（`size: 1 -> 0`）停止すること。
+  - ML Pipeline Job はクローリング全完了後に起動し、2vCPU / 2GiB の適正化されたリソースでバルク価格推定・お宝物件 Slack 通知を実行（定期日次学習は不要化・スキップし推論のみ実行、Issue #809）し、完了フックで ProxySQL MIG を安全にスケールイン（`size: 1 -> 0`）停止すること。
+  - Recrawl Anomalies Job は 2vCPU / 2GiB の適正リソースで異常物件の再クロールを実行すること (Issue #809)。
 
 ### 3.6 データベース監視・ヘルスチェック認証およびログ重大度昇格要件 (Database Monitoring & Log Severity Elevation)
 - **ProxySQL 監視専用ユーザー (`monitor`) の独立プロビジョニング**:

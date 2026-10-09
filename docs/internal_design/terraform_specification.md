@@ -83,6 +83,12 @@ terraform/
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
 - `google_cloud_run_v2_job` (DBマイグレーション `migrate_job`):
   - DDL スキーマ更新のため、直接 Cloud SQL (`google_sql_database_instance.mysql_instance.private_ip_address:3306`) に接続
+- `google_cloud_run_v2_job` (`ml_pipeline_job` / `realestate-ml-pipeline`):
+  - 実行イメージ: `${region}-docker.pkg.dev/${project_id}/realestate-crawler/crawler:latest`
+  - 実行引数: `["python", "src/crawler/scripts/ops/run_ml_pipeline.py", "--force"]`
+  - スペック適正化 (Issue #809): 2vCPU / 2GiB (`var.ml_pipeline_cpu`, `var.ml_pipeline_memory`)。実測値 (CPU 17%, Memory 11%) に基づき 4vCPU/8GiB から縮小。日常学習は不要化（スキップ）。
+- `google_cloud_run_v2_job` (`recrawl_anomalies_job` / `realestate-recrawl-anomalies`):
+  - スペック適正化 (Issue #809): 2vCPU / 2GiB (`var.crawler_cpu`, `var.recrawl_memory`)。実測値 (Memory 16.5%) に基づきメモリ 4GiB から 2GiB へ縮小。
 - `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`, `crawler_worker_service`):
   - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定（API サービスは直接 Cloud SQL 接続）。
   - コスト最適化: `resources.cpu_idle = true`（アクセス/リクエスト処理中のみCPU割り当て）を適用し、待機中・破棄待ちのCPU課金を防止（Issue #670, #701）。
