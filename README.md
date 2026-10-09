@@ -717,9 +717,11 @@ docs/
 - **[ログ出力改善・TRACE/DEBUG新設およびノーレベル出力禁止基本設計書](docs/basic_design/logging_trace_debug_basic_design.md)**: ログレベル階層・Cloud Loggingマッピング・レベル適正化基本設計 (Issue #783)
 - **[ログ出力改善・TRACE/DEBUG新設およびノーレベル出力禁止内部設計書](docs/internal_design/logging_trace_debug_internal_design.md)**: logging_config.py trace実装・呼出箇所移行詳細仕様 (Issue #783)
 - **[Auto-Heal一括修復要件定義書](docs/requirements/auto_heal_bulk_fixes_requirements.md)**: 野村戸建間取り・小田急投資面積欠損スキップ・投資交通および低価格バリデータ適正化要件 (Issue #787)
-- **[Auto-Heal一括修復内部設計書](docs/internal_design/auto_heal_bulk_fixes_internal_design.md)**: NomuraKodate madoriカラム追加・OdakyuInvestmentParser SkipPropertyException・PropertyDataValidator詳細仕様 (Issue #787)
 - **[残留50課題パース・バリデーション一括解消要件定義書](docs/requirements/heal_50_residual_issues_requirements.md)**: 三井交通tdヘッダー・東急階数/構造SCSSフォールバック・利回り0%許容・古民家1850年許容・所在階復元および評価レコード適正化要件 (Issue #794)
 - **[残留50課題パース・バリデーション一括解消内部設計書](docs/internal_design/heal_50_residual_issues_design.md)**: ParserBase._getValueByLabel拡張・TokyuMansionParser SCSSフォールバック・PropertyDataValidator調整・一括解決スクリプト仕様 (Issue #794)
+- **[適応型並列度＆DB過負荷制御要件定義書](docs/requirements/adaptive_concurrency_and_db_throttling_requirements.md)**: ジョブ並列度1.5倍化(9並列)・アクティブジョブ連動詳細並行度・DB過負荷自己適応型スロットリング要件 (Issue #795)
+- **[適応型並列度＆DB過負荷制御外部設計書](docs/external_design/adaptive_concurrency_and_db_throttling_external_design.md)**: CLIオプション(--parallel 9)・環境変数および動的ログ仕様 (Issue #795)
+- **[適応型並列度＆DB過負荷制御内部設計書](docs/internal_design/adaptive_concurrency_and_db_throttling_internal_design.md)**: AdaptiveConcurrencyController・_save_item_with_retryサーキットブレーカー詳細仕様 (Issue #795)
 
 
 ### 2. 開発を始める

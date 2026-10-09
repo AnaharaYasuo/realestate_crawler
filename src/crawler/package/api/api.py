@@ -4,6 +4,7 @@ import os
 import json
 import ssl
 import threading
+import time
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
@@ -37,6 +38,7 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.converter import parse_chidai
 from package.utils.failure_reporter import FailureReporter
 from package.utils.data_validator import tag_property_integrity
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -712,6 +714,58 @@ def require_eval_record(eval_record, page_url: str):
     return eval_record
 
 
+class DynamicSemaphore:
+    """動的リサイズ可能な asyncio.Semaphore ラッパー"""
+
+    def __init__(self, value: int = 1, sem: Any = None):
+        if sem is not None:
+            self._sem = sem
+            self._capacity = getattr(sem, "_value", value)
+        else:
+            self._capacity = value
+            self._sem = asyncio.Semaphore(value=value)
+        self._pending_shrink = 0
+
+    @property
+    def capacity(self) -> int:
+        return self._capacity
+
+    @property
+    def value(self) -> int:
+        return max(0, self._sem._value - self._pending_shrink)
+
+    def resize(self, new_capacity: int) -> None:
+        if new_capacity == self._capacity:
+            return
+        diff = new_capacity - self._capacity
+        self._capacity = new_capacity
+        if diff > 0:
+            if self._pending_shrink > 0:
+                reclaimed = min(diff, self._pending_shrink)
+                self._pending_shrink -= reclaimed
+                diff -= reclaimed
+            for _ in range(diff):
+                self._sem.release()
+        elif diff < 0:
+            shrink_needed = abs(diff)
+            # 現在利用可能なトークンから直接回収
+            while shrink_needed > 0 and self._sem._value > 0:
+                self._sem._value -= 1
+                shrink_needed -= 1
+            # 貸出中で回収できなかった分は保留にし、release時に消費
+            if shrink_needed > 0:
+                self._pending_shrink += shrink_needed
+
+    async def acquire(self) -> None:
+        await self._sem.acquire()
+
+    def release(self) -> None:
+        if self._pending_shrink > 0:
+            self._pending_shrink -= 1
+            return
+        self._sem.release()
+
+
 class ApiAsyncProcBase(metaclass=ABCMeta):
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
     headersJson = {
@@ -720,20 +774,41 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     }
     _loop: Optional[asyncio.AbstractEventLoop] = None
     middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
+    _semaphore: DynamicSemaphore | None = None
+    _semaphore_limit: int | None = None
+    _last_limit_check_time: float = 0.0
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
         self._semaphore = None
+        self._semaphore_limit = None
+        self._last_limit_check_time = 0.0
 
     @property
-    def semaphore(self):
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(value=self._getPararellLimit())
+    def semaphore(self) -> DynamicSemaphore:
+        now = time.time()
+        last_check = getattr(self, "_last_limit_check_time", 0.0)
+        sem = getattr(self, "_semaphore", None)
+        # 1秒以内の同一プロセス内アクセスはキャッシュしてファイルIOとロック取得を回避
+        if sem is None or (now - last_check) >= 1.0:
+            current_limit = self._getPararellLimit()
+            self._last_limit_check_time = now
+            if sem is None:
+                self._semaphore_limit = current_limit
+                self._semaphore = DynamicSemaphore(value=current_limit)
+            elif getattr(self, "_semaphore_limit", None) != current_limit:
+                if hasattr(self._semaphore, "resize"):
+                    self._semaphore.resize(current_limit)
+                self._semaphore_limit = current_limit
         return self._semaphore
 
     @semaphore.setter
     def semaphore(self, value):
-        self._semaphore = value
+        if value is not None and not isinstance(value, DynamicSemaphore) and hasattr(value, "acquire"):
+            # 既存テストコード等で asyncio.Semaphore(n) が直接代入された場合も透過的に受容
+            self._semaphore = DynamicSemaphore(sem=value)
+        else:
+            self._semaphore = value
 
     def _getActiveEventLoop(self):
         try:
@@ -990,7 +1065,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')
             if custom_cloud_limit and custom_cloud_limit.isdigit():
                 return int(custom_cloud_limit)
-            pararell_limit = self._getCloudPararellLimit()
+            return AdaptiveConcurrencyController.get_effective_concurrency()
         return pararell_limit
 
     @abstractmethod
@@ -1366,30 +1441,41 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None, False
 
     @staticmethod
-    def _save_item_record_with_duplicate_fallback(item, model_class, current_day, current_time):
+    def _handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
+        """並行実行等で直前に他スレッドが同URLを作成した場合は既存レコードを取得して上書き更新"""
+        try:
+            latest_existing = UrlMatcher.find_match_in_queryset(
+                model_class.objects, "pageUrl", item.pageUrl
+            )
+            if latest_existing:
+                item.id = latest_existing.id
+                item._state.adding = False
+                item.inputDate = latest_existing.inputDate or current_day
+                item.inputDateTime = latest_existing.inputDateTime or current_time
+                item.updateDateTime = current_time
+                item.save()
+                return True
+        except (OperationalError, DatabaseError, ValueError) as inner_e:
+            if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
+                AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
+            logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
+        return False
+
+    @classmethod
+    def _save_item_record_with_duplicate_fallback(cls, item, model_class, current_day, current_time):
         try:
             item.save()
-        except (OperationalError, Exception) as e:
-            if "2006" in str(e) or "gone away" in str(e).lower():
+        except Exception as e:
+            if isinstance(e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"SingleSave: {e}")
+
+            err_str = str(e).lower()
+            if "2006" in err_str or "gone away" in err_str:
                 close_old_connections()
                 item.save()
-            elif "Duplicate entry" in str(e) or "1062" in str(e):
-                # 並行実行等で直前に他スレッドが同URLを作成した場合は既存レコードを取得して上書き更新
-                try:
-                    latest_existing = UrlMatcher.find_match_in_queryset(
-                        model_class.objects, "pageUrl", item.pageUrl
-                    )
-                    if latest_existing:
-                        item.id = latest_existing.id
-                        item._state.adding = False
-                        item.inputDate = latest_existing.inputDate or current_day
-                        item.inputDateTime = latest_existing.inputDateTime or current_time
-                        item.updateDateTime = current_time
-                        item.save()
-                        return
-                except (OperationalError, DatabaseError, ValueError) as inner_e:
-                    logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
-                raise
+            elif "duplicate entry" in err_str or "1062" in err_str:
+                if not cls._handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
+                    raise
             else:
                 raise
 
@@ -1403,8 +1489,13 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             existing_record = await sync_to_async(
                 lambda: UrlMatcher.find_match_in_queryset(model_class.objects, "pageUrl", item.pageUrl)
             )()
-        except Exception as e:
-            logging.exception(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}")
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"CheckExisting: {e}")
+            logger.exception("Operational error checking existing record for %s, aborting save", item.pageUrl)
+            return
+        except Exception:
+            logger.exception("Failed to check existing record for %s, aborting save", item.pageUrl)
             return
 
         if existing_record:
@@ -1740,34 +1831,50 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception as ex:
             logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
 
+    async def _handle_saved_property(self, item):
+        try:
+            await self._save_property_and_price_history(item)
+            if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
+                await self._perform_inline_ml_evaluation(item)
+            self._check_crawler_limit()
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
+            logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
+            return
+        except Exception:
+            logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
+            return
+        await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+
+    async def _handle_skipped_property(self):
+        logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
+        try:
+            def update_delisted():
+                eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
+                if eval_rec:
+                    eval_rec.is_published = False
+                    eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
+                    # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
+                    eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+                    eval_rec.needs_recrawl = False
+                    eval_rec.save()
+                    logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
+            await sync_to_async(update_delisted)()
+        except OperationalError as le_err:
+            if AdaptiveConcurrencyController.is_db_overload_error(le_err):
+                AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+        except (DatabaseError, AttributeError, ValueError) as le_err:
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+
     async def _treatPage(self, _session, *arg):
         item, is_skipped = await self._fetch_detail_item()
 
         if item is not None:
-            try:
-                await self._save_property_and_price_history(item)
-                if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
-                    await self._perform_inline_ml_evaluation(item)
-                self._check_crawler_limit()
-            except Exception as e:
-                logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
-            await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+            await self._handle_saved_property(item)
         elif is_skipped:
-            logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
-            try:
-                def update_delisted():
-                    eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
-                    if eval_rec:
-                        eval_rec.is_published = False
-                        eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
-                        # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
-                        eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
-                        eval_rec.needs_recrawl = False
-                        eval_rec.save()
-                        logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
-                await sync_to_async(update_delisted)()
-            except (DatabaseError, OperationalError, AttributeError, ValueError) as le_err:
-                logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+            await self._handle_skipped_property()
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
@@ -1828,6 +1935,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 close_old_connections()
                 return
             except OperationalError as e:
+                if AdaptiveConcurrencyController.is_db_overload_error(e):
+                    AdaptiveConcurrencyController.record_db_overload(f"OperationalError: {e}")
                 if attempt < max_retries - 1:
                     logging.warning("Database error (attempt %d/%d): %s. Retrying in 5 seconds...", attempt + 1, max_retries, e)
                     close_old_connections()
