@@ -23,9 +23,9 @@ def test_differential_ttl_default_is_30_days():
 
 
 def test_run_all_crawlers_default_parallel_is_safe():
-    """基準2: DB保護のためデフォルト並行度が 6 に抑制されていること"""
+    """基準2 (Issue #795で1.5倍化): デフォルト並行度が 9 に設定されていること"""
     code = inspect.getsource(run_all_crawlers.parse_args)
-    assert "default_parallel = 6" in code
+    assert "default_parallel = 9" in code
 
 
 def test_run_all_crawlers_timeout_is_five_hours():

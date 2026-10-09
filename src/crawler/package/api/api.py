@@ -770,24 +770,29 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     }
     _loop: Optional[asyncio.AbstractEventLoop] = None
     middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
+    _semaphore: DynamicSemaphore | None = None
+    _semaphore_limit: int | None = None
+    _last_limit_check_time: float = 0.0
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
-        self._semaphore: DynamicSemaphore | None = None
-        self._semaphore_limit: int | None = None
-        self._last_limit_check_time: float = 0.0
+        self._semaphore = None
+        self._semaphore_limit = None
+        self._last_limit_check_time = 0.0
 
     @property
     def semaphore(self) -> DynamicSemaphore:
         now = time.time()
+        last_check = getattr(self, "_last_limit_check_time", 0.0)
+        sem = getattr(self, "_semaphore", None)
         # 1秒以内の同一プロセス内アクセスはキャッシュしてファイルIOとロック取得を回避
-        if self._semaphore is None or (now - self._last_limit_check_time) >= 1.0:
+        if sem is None or (now - last_check) >= 1.0:
             current_limit = self._getPararellLimit()
             self._last_limit_check_time = now
-            if self._semaphore is None:
+            if sem is None:
                 self._semaphore_limit = current_limit
                 self._semaphore = DynamicSemaphore(value=current_limit)
-            elif self._semaphore_limit != current_limit:
+            elif getattr(self, "_semaphore_limit", None) != current_limit:
                 self._semaphore.resize(current_limit)
                 self._semaphore_limit = current_limit
         return self._semaphore
