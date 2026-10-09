@@ -121,21 +121,44 @@ class AdaptiveConcurrencyController:
         return state.get("active_jobs_count", 1)
 
     @classmethod
+    def _get_lock_file(cls) -> str:
+        return cls.STATE_FILE + ".lock"
+
+    @classmethod
     def _read_state(cls) -> dict[str, Any]:
         if not os.path.exists(cls.STATE_FILE):
             return {}
         try:
-            with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return {}
+            from filelock import FileLock
+            lock = FileLock(cls._get_lock_file(), timeout=3)
+            with lock:
+                with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            try:
+                with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError):
+                return {}
 
     @classmethod
     def _write_state(cls, data: dict[str, Any]) -> None:
         try:
-            current = cls._read_state()
-            current.update(data)
-            with open(cls.STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump(current, f)
-        except OSError as e:
+            from filelock import FileLock
+            lock = FileLock(cls._get_lock_file(), timeout=5)
+            with lock:
+                current = {}
+                if os.path.exists(cls.STATE_FILE):
+                    try:
+                        with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                            current = json.load(f)
+                    except (OSError, json.JSONDecodeError):
+                        current = {}
+                current.update(data)
+                dir_name = os.path.dirname(cls.STATE_FILE)
+                with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
+                    json.dump(current, tf)
+                    temp_path = tf.name
+                os.replace(temp_path, cls.STATE_FILE)
+        except Exception as e:
             logger.debug(f"Failed to write concurrency state file: {e}")

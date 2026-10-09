@@ -725,11 +725,25 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
         self._semaphore = None
+        self._semaphore_limit = None
 
     @property
     def semaphore(self):
+        current_limit = self._getPararellLimit()
         if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(value=self._getPararellLimit())
+            self._semaphore_limit = current_limit
+            self._semaphore = asyncio.Semaphore(value=current_limit)
+        elif self._semaphore_limit != current_limit:
+            diff = current_limit - self._semaphore_limit
+            self._semaphore_limit = current_limit
+            if diff > 0:
+                for _ in range(diff):
+                    self._semaphore.release()
+            elif diff < 0:
+                # 縮小時は利用可能な許可トークンを回収して徐々に絞り込む
+                for _ in range(abs(diff)):
+                    if self._semaphore._value > 0:
+                        self._semaphore._value -= 1
         return self._semaphore
 
     @semaphore.setter
@@ -1370,7 +1384,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     def _save_item_record_with_duplicate_fallback(item, model_class, current_day, current_time):
         try:
             item.save()
-        except (OperationalError, Exception) as e:
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"SingleSave: {e}")
             if "2006" in str(e) or "gone away" in str(e).lower():
                 close_old_connections()
                 item.save()
@@ -1389,6 +1405,32 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         item.save()
                         return
                 except (OperationalError, DatabaseError, ValueError) as inner_e:
+                    if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
+                        AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
+                    logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
+                raise
+            else:
+                raise
+        except Exception as e:
+            if "2006" in str(e) or "gone away" in str(e).lower():
+                close_old_connections()
+                item.save()
+            elif "Duplicate entry" in str(e) or "1062" in str(e):
+                try:
+                    latest_existing = UrlMatcher.find_match_in_queryset(
+                        model_class.objects, "pageUrl", item.pageUrl
+                    )
+                    if latest_existing:
+                        item.id = latest_existing.id
+                        item._state.adding = False
+                        item.inputDate = latest_existing.inputDate or current_day
+                        item.inputDateTime = latest_existing.inputDateTime or current_time
+                        item.updateDateTime = current_time
+                        item.save()
+                        return
+                except (OperationalError, DatabaseError, ValueError) as inner_e:
+                    if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
+                        AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
                     logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
                 raise
             else:
@@ -1404,6 +1446,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             existing_record = await sync_to_async(
                 lambda: UrlMatcher.find_match_in_queryset(model_class.objects, "pageUrl", item.pageUrl)
             )()
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"CheckExisting: {e}")
+            logging.exception(f"Operational error checking existing record for {item.pageUrl}, aborting save: {e}")
+            return
         except Exception as e:
             logging.exception(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}")
             return
@@ -1749,7 +1796,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 await self._save_property_and_price_history(item)
                 if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
                     await self._perform_inline_ml_evaluation(item)
-                self._check_crawler_limit()
+            except OperationalError as e:
+                if AdaptiveConcurrencyController.is_db_overload_error(e):
+                    AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
+                logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
             except Exception as e:
                 logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
             await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
@@ -1767,7 +1817,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                         eval_rec.save()
                         logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
                 await sync_to_async(update_delisted)()
-            except (DatabaseError, OperationalError, AttributeError, ValueError) as le_err:
+            except OperationalError as le_err:
+                if AdaptiveConcurrencyController.is_db_overload_error(le_err):
+                    AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
+                logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+            except (DatabaseError, AttributeError, ValueError) as le_err:
                 logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")

@@ -76,3 +76,69 @@ def test_db_overload_throttling_and_recovery(tmp_path):
         with patch.object(AdaptiveConcurrencyController, "_get_current_time", return_value=time.time() + 70):
             assert AdaptiveConcurrencyController.is_throttled() is False
             assert AdaptiveConcurrencyController.get_effective_concurrency(active_jobs=1) == 15
+
+
+def test_state_atomic_write_and_filelock(tmp_path):
+    """状態ファイルのロック付きアトミック書き込みと読み込みの整合性テスト"""
+    state_file = str(tmp_path / "test_concurrency_state_atomic.json")
+    with patch.object(AdaptiveConcurrencyController, "STATE_FILE", state_file):
+        AdaptiveConcurrencyController.set_active_jobs_count(5)
+        assert AdaptiveConcurrencyController.get_active_jobs_count() == 5
+        assert os.path.exists(state_file)
+
+        # 複数回更新してもJSON整合性が維持されること
+        AdaptiveConcurrencyController.record_db_overload("Test overload")
+        assert AdaptiveConcurrencyController.is_throttled() is True
+        assert AdaptiveConcurrencyController.get_active_jobs_count() == 5
+
+
+def test_dynamic_semaphore_adjustment():
+    """実効並行度の変化に応じてセマフォ許可数が動的に追従すること"""
+    from package.api.api import ApiAsyncProcBase
+
+    class DummyApi(ApiAsyncProcBase):
+        def __init__(self, limit=5):
+            self._mock_limit = limit
+            super().__init__()
+
+        def _generateParser(self):
+            return None
+
+        def _getLocalPararellLimit(self):
+            return self._mock_limit
+
+        def _getCloudPararellLimit(self):
+            return self._mock_limit
+
+        def _getTimeOutSecond(self):
+            return 10
+
+        def _getApiKey(self):
+            return ""
+
+        async def _treatPage(self, _session, *arg):
+            pass
+
+        def _getTreatPageArg(self):
+            return None
+
+        async def _callApi(self, url_list):
+            return []
+
+    dummy = DummyApi(limit=5)
+    # 初期セマフォ値は 5
+    sem = dummy.semaphore
+    assert sem._value == 5
+
+    # 並行度が 8 に拡大された場合
+    dummy._mock_limit = 8
+    sem2 = dummy.semaphore
+    assert sem2 is sem
+    assert sem._value == 8
+
+    # 並行度が 2 に縮小された場合
+    dummy._mock_limit = 2
+    sem3 = dummy.semaphore
+    assert sem3 is sem
+    assert sem._value == 2
+
