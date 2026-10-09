@@ -69,3 +69,25 @@ investment:
     row_selector: "div, dl"
     header: "dt"
     value: "dd"
+
+invest_kodate:
+  title: "h1"
+  next_page: "次へ"
+  saikou_key: "向き"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a"
+  table:
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
+    row_selector: "div, dl"
+    header: "dt"
+    value: "dd"
+
+invest_apartment:
+  title: "h1"
+  next_page: "次へ"
+  saikou_key: "向き"
+  property_links: "h3[class*='PropertyPanel_propertyName'] a"
+  table:
+    selector: "#propertySummarySection dl, div.m-status-table__wrapper, dl"
+    row_selector: "div, dl"
+    header: "dt"
+    value: "dd"

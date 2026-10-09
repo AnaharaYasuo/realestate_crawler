@@ -201,13 +201,28 @@ class SmtrcParser(ParserBase):
             return content_bytes
 
     async def _getContent(self, session, url):
-        """HTTPリクエストでWAF 403が発生した場合、Playwrightステルス取得に自動フォールバック"""
+        """HTTPリクエストでWAF 403や微小レスポンス（<1000 bytes）が発生した場合、Playwrightステルス取得にフォールバック"""
         try:
-            return await super()._getContent(session, url)
+            content = await super()._getContent(session, url)
+            if len(content) >= 1000:
+                return content
+            logger.warning("smtrc small content (%s bytes) detected for %s, falling back to Playwright stealth...", len(content), url)
+            pw_content = await self._smtrc_fetch_with_playwright(url)
+            if len(pw_content) >= 1000:
+                return pw_content
+            # リトライ
+            logger.warning("smtrc retry Playwright stealth for %s...", url)
+            retried_content = await self._smtrc_fetch_with_playwright(url)
+            if len(retried_content) < 1000:
+                raise RuntimeError(f"smtrc Playwright fetch failed: content size too small ({len(retried_content)} bytes) for {url}")
+            return retried_content
         except Exception as e:
             if "403" in str(e) or "Forbidden" in str(e):
                 logger.warning("smtrc WAF 403 detected for %s, falling back to Playwright stealth...", url)
-                return await self._smtrc_fetch_with_playwright(url)
+                fb_content = await self._smtrc_fetch_with_playwright(url)
+                if len(fb_content) < 1000:
+                    raise RuntimeError(f"smtrc Playwright fetch failed on WAF fallback: content size too small ({len(fb_content)} bytes) for {url}")
+                return fb_content
             raise
 
 class SmtrcMansionParser(SmtrcParser, MansionParserBase):
