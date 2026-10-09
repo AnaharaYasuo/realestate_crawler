@@ -13,6 +13,7 @@ import atexit
 import asyncio
 import socket
 import threading
+import tempfile
 
 _cur = os.path.abspath(__file__)
 while True:
