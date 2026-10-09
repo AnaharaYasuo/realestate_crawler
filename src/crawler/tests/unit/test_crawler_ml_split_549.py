@@ -84,7 +84,7 @@ def test_ml_pipeline_timeout_is_below_safety_net_hung_threshold():
 
 def test_ml_pipeline_job_runs_with_force_arg():
     block = _job_block("ml_pipeline_job")
-    assert re.search(r'args\s*=\s*\["--force",\s*"--skip-train"\]', block)
+    assert re.search(r'args\s*=\s*\["--force"\]', block)
     assert "template[0].template[0].containers[0].args" not in block
 
 
@@ -164,7 +164,7 @@ def test_deploy_disables_crawler_retries():
     assert "--max-retries=0" in _deploy_step("realestate-crawler-pipeline-prod")
 
 
-@pytest.mark.parametrize("flag", ["--args=--force,--skip-train", "--max-retries=0", "--task-timeout=3600s"])
+@pytest.mark.parametrize("flag", ["--args=--force", "--max-retries=0", "--task-timeout=7200s"])
 def test_deploy_applies_ml_pipeline_job_settings(flag):
     assert flag in _deploy_step("realestate-ml-pipeline-prod")
 
@@ -342,6 +342,22 @@ def ml_main(monkeypatch):
 
 def test_ml_main_order_with_force(ml_main):
     assert run_ml_pipeline.main(argv=["--force"]) == 0
+    assert ml_main == [
+        "startup",
+        "wait_for_db.py",
+        "barrier",
+        "report",
+        "validate_data.py",
+        "auto_heal_parsers.py",
+        "run_bulk_ml_evaluation.py",
+        "send_recommendations.py",
+        "run_daily_prediction_diagnostics.py",
+        "scale:0",
+    ]
+
+
+def test_ml_main_order_with_force_and_train(ml_main):
+    assert run_ml_pipeline.main(argv=["--force", "--train"]) == 0
     assert ml_main == [
         "startup",
         "wait_for_db.py",
