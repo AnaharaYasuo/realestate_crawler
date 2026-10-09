@@ -1381,58 +1381,41 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None, False
 
     @staticmethod
-    def _save_item_record_with_duplicate_fallback(item, model_class, current_day, current_time):
+    def _handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
+        """並行実行等で直前に他スレッドが同URLを作成した場合は既存レコードを取得して上書き更新"""
+        try:
+            latest_existing = UrlMatcher.find_match_in_queryset(
+                model_class.objects, "pageUrl", item.pageUrl
+            )
+            if latest_existing:
+                item.id = latest_existing.id
+                item._state.adding = False
+                item.inputDate = latest_existing.inputDate or current_day
+                item.inputDateTime = latest_existing.inputDateTime or current_time
+                item.updateDateTime = current_time
+                item.save()
+                return True
+        except (OperationalError, DatabaseError, ValueError) as inner_e:
+            if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
+                AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
+            logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
+        return False
+
+    @classmethod
+    def _save_item_record_with_duplicate_fallback(cls, item, model_class, current_day, current_time):
         try:
             item.save()
-        except OperationalError as e:
-            if AdaptiveConcurrencyController.is_db_overload_error(e):
-                AdaptiveConcurrencyController.record_db_overload(f"SingleSave: {e}")
-            if "2006" in str(e) or "gone away" in str(e).lower():
-                close_old_connections()
-                item.save()
-            elif "Duplicate entry" in str(e) or "1062" in str(e):
-                # 並行実行等で直前に他スレッドが同URLを作成した場合は既存レコードを取得して上書き更新
-                try:
-                    latest_existing = UrlMatcher.find_match_in_queryset(
-                        model_class.objects, "pageUrl", item.pageUrl
-                    )
-                    if latest_existing:
-                        item.id = latest_existing.id
-                        item._state.adding = False
-                        item.inputDate = latest_existing.inputDate or current_day
-                        item.inputDateTime = latest_existing.inputDateTime or current_time
-                        item.updateDateTime = current_time
-                        item.save()
-                        return
-                except (OperationalError, DatabaseError, ValueError) as inner_e:
-                    if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
-                        AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
-                    logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
-                raise
-            else:
-                raise
         except Exception as e:
-            if "2006" in str(e) or "gone away" in str(e).lower():
+            if isinstance(e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"SingleSave: {e}")
+
+            err_str = str(e).lower()
+            if "2006" in err_str or "gone away" in err_str:
                 close_old_connections()
                 item.save()
-            elif "Duplicate entry" in str(e) or "1062" in str(e):
-                try:
-                    latest_existing = UrlMatcher.find_match_in_queryset(
-                        model_class.objects, "pageUrl", item.pageUrl
-                    )
-                    if latest_existing:
-                        item.id = latest_existing.id
-                        item._state.adding = False
-                        item.inputDate = latest_existing.inputDate or current_day
-                        item.inputDateTime = latest_existing.inputDateTime or current_time
-                        item.updateDateTime = current_time
-                        item.save()
-                        return
-                except (OperationalError, DatabaseError, ValueError) as inner_e:
-                    if isinstance(inner_e, OperationalError) and AdaptiveConcurrencyController.is_db_overload_error(inner_e):
-                        AdaptiveConcurrencyController.record_db_overload(f"SingleSaveFallback: {inner_e}")
-                    logger.warning(f"Failed fallback update on duplicate for {item.pageUrl}: {inner_e}")
-                raise
+            elif "duplicate entry" in err_str or "1062" in err_str:
+                if not cls._handle_duplicate_entry_fallback(item, model_class, current_day, current_time):
+                    raise
             else:
                 raise
 
@@ -1788,41 +1771,47 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception as ex:
             logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
 
+    async def _handle_saved_property(self, item):
+        try:
+            await self._save_property_and_price_history(item)
+            if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
+                await self._perform_inline_ml_evaluation(item)
+        except OperationalError as e:
+            if AdaptiveConcurrencyController.is_db_overload_error(e):
+                AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
+            logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
+        except Exception as e:
+            logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
+        await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+
+    async def _handle_skipped_property(self):
+        logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
+        try:
+            def update_delisted():
+                eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
+                if eval_rec:
+                    eval_rec.is_published = False
+                    eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
+                    # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
+                    eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+                    eval_rec.needs_recrawl = False
+                    eval_rec.save()
+                    logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
+            await sync_to_async(update_delisted)()
+        except OperationalError as le_err:
+            if AdaptiveConcurrencyController.is_db_overload_error(le_err):
+                AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+        except (DatabaseError, AttributeError, ValueError) as le_err:
+            logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+
     async def _treatPage(self, _session, *arg):
         item, is_skipped = await self._fetch_detail_item()
 
         if item is not None:
-            try:
-                await self._save_property_and_price_history(item)
-                if os.getenv("ENABLE_INLINE_ML_EVALUATION", "false").lower() in ("true", "1"):
-                    await self._perform_inline_ml_evaluation(item)
-            except OperationalError as e:
-                if AdaptiveConcurrencyController.is_db_overload_error(e):
-                    AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
-                logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
-            except Exception as e:
-                logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
-            await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+            await self._handle_saved_property(item)
         elif is_skipped:
-            logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
-            try:
-                def update_delisted():
-                    eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
-                    if eval_rec:
-                        eval_rec.is_published = False
-                        eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
-                        # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
-                        eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
-                        eval_rec.needs_recrawl = False
-                        eval_rec.save()
-                        logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
-                await sync_to_async(update_delisted)()
-            except OperationalError as le_err:
-                if AdaptiveConcurrencyController.is_db_overload_error(le_err):
-                    AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
-                logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
-            except (DatabaseError, AttributeError, ValueError) as le_err:
-                logger.warning("Failed to mark PropertyEvaluation as delisted for %s: %s", self.url, le_err)
+            await self._handle_skipped_property()
         else:
             await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 

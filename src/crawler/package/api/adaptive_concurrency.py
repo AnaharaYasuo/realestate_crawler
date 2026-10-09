@@ -131,9 +131,8 @@ class AdaptiveConcurrencyController:
         try:
             from filelock import FileLock
             lock = FileLock(cls._get_lock_file(), timeout=3)
-            with lock:
-                with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+            with lock, open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
         except Exception:
             try:
                 with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
