@@ -814,7 +814,9 @@ def main():
             if not crawler_ok:
                 logger.error(f"❌ Task {task_index}/{task_count} のクローリングが失敗しました。")
                 sys.exit(1)
-            return
+            # タスクアレイ完了時は不要な待機を回避し確実に exit(0) でコンテナを終了する (Issue #823)
+            logger.info(f"✔ Task {task_index}/{task_count} の処理がすべて完了しました。プロセスを正常終了します。")
+            sys.exit(0)
 
         failed_steps = _run_post_crawl_pipeline(
             crawler_dir,

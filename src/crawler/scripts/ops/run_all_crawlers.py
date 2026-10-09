@@ -202,6 +202,35 @@ def record_task_start(task_index, task_count, jobs_assigned):
     return record
 
 
+def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
+    """タスクアレイ実行において、自タスク以外の全タスクが終端状態 (COMPLETED/FAILED) かを判定する (Issue #823)"""
+    if task_count <= 1 or task_index is None:
+        return True
+
+    execution_id = get_execution_id()
+    execution_date = get_execution_date()
+    if not execution_id:
+        # 実行 ID が不明な場合は安全のため単独扱い（集約実行）
+        return True
+
+    try:
+        from django.db import close_old_connections
+        close_old_connections()
+        records = list(CrawlerTaskExecution.objects.filter(
+            execution_date=execution_date,
+            execution_id=execution_id
+        ))
+        status_map = {r.task_index: r.status for r in records}
+        pending = [
+            idx for idx in range(task_count)
+            if idx != task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
+        ]
+        return len(pending) == 0
+    except Exception as e:
+        logger.warning(f"Failed to check other tasks status: {e}. Defaulting to False to avoid duplicate aggregation.")
+        return False
+
+
 def _mark_task_failed(task_exec_record):
     try:
         task_exec_record.status = "FAILED"
@@ -829,7 +858,21 @@ def main():
             logger.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
         except Exception as dbe:
             logger.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
-    
+
+    # 分散タスクアレイ実行時の全体集約・レポート委譲制御 (B案: Issue #823)
+    # 他タスクがまだ実行中の場合は、全体DB集計・Slackレポート・エラー監視をスキップし即座に終了する
+    if task_count > 1 and task_index is not None and not is_last_completing_task(task_index, task_count):
+        logger.info(
+            f"✔ [Fast Exit] Task {task_index}/{task_count} finished all assigned jobs. "
+            "Other tasks are still running. Skipping full aggregation/reporting and exiting immediately."
+        )
+        return
+
+    logger.info(
+        f"✔ [Final Aggregation] Task {task_index if task_index is not None else 0}/{task_count} is the final completing task. "
+        "Executing full database aggregation, Slack crawl status reporting, and error monitoring..."
+    )
+
     # Slack notifications for crawl statuses
     try:
         threshold_24h = timezone.now() - datetime.timedelta(hours=24)
