@@ -833,5 +833,16 @@ graph TD
 - **日次MLパイプラインの学習スキップ標準化**:
   - 日次実行における `run_ml_pipeline.py` 呼び出し引数に `--skip-train` を反映（または環境変数 `ML_PIPELINE_SKIP_TRAIN=true`）。日次はバルク推論とお宝通知のみを実行し、学習は月次スケジュールに委譲。
 
+## 6.33 日次定常巡回におけるポータル除外とタスク数動的最適化設計 (Issue #813)
+- **Cloud Scheduler 定義 (`terraform/scheduler.tf`)**:
+  - `crawler_daily_trigger` のリクエストペイロード `argument` に `"skipPortals": true` を追加。
+- **Cloud Workflows 定義 (`terraform/workflows/daily_pipeline.yaml`)**:
+  - `initVars`: `skipPortals` 引数（デフォルト: `true`）を取得。
+  - `buildCrawlerArgs`:
+    - `skipPortals == true` の場合、`crawlerArgs` に `"--skip-portals"` を追加。
+    - `checkTaskCount`: `explicitTaskCount` 未指定時、`company/propertyType/sites` が指定されておらず、かつ `skipPortals == true` の場合は `effectiveTaskCount = 5` を設定（Task 0〜4 のみ起動し、ポータル担当の Task 5〜7 を起動抑止）。
+  - `runMLAndEstimation`:
+    - `skipPortals == true` の場合、ML Pipeline ジョブの引数に `"--skip-portals"` を渡す。
+
 
 

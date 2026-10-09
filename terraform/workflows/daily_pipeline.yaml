@@ -20,10 +20,12 @@ main:
           - company: ${default(map.get(args, "company"), null)}
           - propertyType: ${default(map.get(args, "propertyType"), default(map.get(args, "type"), null))}
           - sites: ${default(map.get(args, "sites"), null)}
+          - skipPortals: ${default(map.get(args, "skipPortals"), true)}
           - explicitTaskCount: ${default(map.get(args, "taskCount"), null)}
           - skipTrain: ${default(map.get(args, "skipTrain"), true)}
           - crawlerArgs: []
           - effectiveTaskCount: null
+          - mlArgs: ["--force", "--skip-train"]
 
     - buildCrawlerArgs:
         steps:
@@ -42,6 +44,12 @@ main:
                 - condition: ${sites != null}
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--sites=" + string(sites)])}
+          - checkSkipPortals:
+              switch:
+                - condition: ${skipPortals}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-portals"])}
+                    - mlArgs: ${list.concat(mlArgs, ["--skip-portals"])}
           - checkTaskCount:
               switch:
                 - condition: ${explicitTaskCount != null}
@@ -51,6 +59,10 @@ main:
                   # 単一会社または明示的絞り込み時はコンテナ起動数を動的に抑制 (不要コンテナの起動を抑止)
                   assign:
                     - effectiveTaskCount: 1
+                - condition: ${skipPortals}
+                  # ポータル除外時: Task 5(homes), 6(athome mansion), 7(athome other) を除外して 5 タスクに抑制
+                  assign:
+                    - effectiveTaskCount: 5
 
     - tryPipeline:
         try:
@@ -116,7 +128,7 @@ main:
                   body:
                     overrides:
                       containerOverrides:
-                        - args: ["--force", "--skip-train"]
+                        - args: ${mlArgs}
                   connector_params:
                     skip_polling: true
                 result: mlOperation
