@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
 import datetime
+import logging
 import re
 
 from bs4 import BeautifulSoup
@@ -16,6 +16,25 @@ from package.parser.baseParser import (
 from package.utils import converter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.selector_loader import SelectorLoader
+
+logger = logging.getLogger(__name__)
+
+_SMTRC_PLAYWRIGHT_ARGS = [
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-infobars',
+    '--window-position=0,0',
+    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+]
+_SMTRC_STEALTH_INIT = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'languages', { get: () => ['ja-JP', 'ja', 'en-US', 'en'] });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    window.chrome = { runtime: {} };
+"""
 
 
 class SmtrcParser(ParserBase):
@@ -140,6 +159,56 @@ class SmtrcParser(ParserBase):
             if l:
                 lines.append(l)
         return lines
+
+    async def _smtrc_fetch_with_playwright(self, url: str) -> bytes:
+        from playwright.async_api import async_playwright
+
+        logger.info("Playwright: fetching smtrc URL with stealth: %s...", url)
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=_SMTRC_PLAYWRIGHT_ARGS,
+            )
+            try:
+                context = await browser.new_context(
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+                    ),
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='ja-JP',
+                    timezone_id='Asia/Tokyo',
+                )
+                try:
+                    await context.add_init_script(_SMTRC_STEALTH_INIT)
+                    page = await context.new_page()
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=2000)
+                        except Exception as idle_err:
+                            logger.debug("smtrc networkidle skipped: %s", idle_err)
+                        await page.wait_for_timeout(500)
+                        content_str = await page.content()
+                    finally:
+                        await page.close()
+                finally:
+                    await context.close()
+            finally:
+                await browser.close()
+            content_bytes = content_str.encode('utf-8')
+            logger.info("Playwright stealth fetch success: %s bytes for smtrc URL: %s", len(content_bytes), url)
+            return content_bytes
+
+    async def _getContent(self, session, url):
+        """HTTPリクエストでWAF 403が発生した場合、Playwrightステルス取得に自動フォールバック"""
+        try:
+            return await super()._getContent(session, url)
+        except Exception as e:
+            if "403" in str(e) or "Forbidden" in str(e):
+                logger.warning("smtrc WAF 403 detected for %s, falling back to Playwright stealth...", url)
+                return await self._smtrc_fetch_with_playwright(url)
+            raise
 
 class SmtrcMansionParser(SmtrcParser, MansionParserBase):
     def _parseFloor(self, response, specs=None):

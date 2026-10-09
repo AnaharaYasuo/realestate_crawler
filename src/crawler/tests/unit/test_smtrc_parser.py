@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-"""
-三井住友トラスト不動産 パーサー ユニットテスト
-※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
-"""
+import pytest
+from unittest.mock import AsyncMock, patch
 from package.parser.smtrcParser import SmtrcMansionParser, SmtrcKodateParser, SmtrcInvestmentParser
 from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcInvestment
+from package.parser.baseParser import LoadPropertyPageException
 
 def test_smtrc_mansion_parser():
     parser = SmtrcMansionParser()
@@ -20,3 +18,19 @@ def test_smtrc_investment_parser():
     parser = SmtrcInvestmentParser()
     item = parser.createEntity()
     assert isinstance(item, SmtrcInvestment)
+
+@pytest.mark.asyncio
+async def test_smtrc_get_content_waf_403_fallback():
+    parser = SmtrcMansionParser()
+    session = AsyncMock()
+    test_url = "https://smtrc.jp/list/listViewLive/index?search=city&prefcode=13&bukenkind=1"
+
+    # Simulate base _getContent raising 403 LoadPropertyPageException
+    with patch("package.parser.baseParser.ParserBase._getContent", side_effect=LoadPropertyPageException("HTTP Status 403 Forbidden (Possible WAF/Bot Protection)")) as mock_base_get:
+        with patch.object(parser, "_smtrc_fetch_with_playwright", new_callable=AsyncMock) as mock_playwright:
+            mock_playwright.return_value = b"<html><body>Playwright Content</body></html>"
+            result = await parser._getContent(session, test_url)
+            assert result == b"<html><body>Playwright Content</body></html>"
+            mock_base_get.assert_called_once_with(session, test_url)
+            mock_playwright.assert_called_once_with(test_url)
+
