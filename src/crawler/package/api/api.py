@@ -1432,10 +1432,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except OperationalError as e:
             if AdaptiveConcurrencyController.is_db_overload_error(e):
                 AdaptiveConcurrencyController.record_db_overload(f"CheckExisting: {e}")
-            logging.exception(f"Operational error checking existing record for {item.pageUrl}, aborting save: {e}")
+            logger.exception("Operational error checking existing record for %s, aborting save", item.pageUrl)
             return
-        except Exception as e:
-            logging.exception(f"Failed to check existing record for {item.pageUrl}, aborting save: {e}")
+        except Exception:
+            logger.exception("Failed to check existing record for %s, aborting save", item.pageUrl)
             return
 
         if existing_record:
@@ -1779,9 +1779,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except OperationalError as e:
             if AdaptiveConcurrencyController.is_db_overload_error(e):
                 AdaptiveConcurrencyController.record_db_overload(f"TreatPageSave: {e}")
-            logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
-        except Exception as e:
-            logging.exception("Failed to save item (Single): %s for URL: %s", e, item.pageUrl)
+            logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
+        except Exception:
+            logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
         await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
 
     async def _handle_skipped_property(self):

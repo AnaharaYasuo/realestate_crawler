@@ -133,7 +133,7 @@ class AdaptiveConcurrencyController:
             lock = FileLock(cls._get_lock_file(), timeout=3)
             with lock, open(cls.STATE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001
             try:
                 with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
                     return json.load(f)
@@ -159,5 +159,5 @@ class AdaptiveConcurrencyController:
                     json.dump(current, tf)
                     temp_path = tf.name
                 os.replace(temp_path, cls.STATE_FILE)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.debug(f"Failed to write concurrency state file: {e}")
