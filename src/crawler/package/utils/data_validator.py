@@ -43,7 +43,7 @@ class PropertyDataValidator:
         price_val = cls._validate_price(item, ptype, reasons)
         area = cls._extract_and_validate_area(item, ptype, reasons)
         cls._validate_unit_price(item, ptype, price_val, area, reasons)
-        cls._validate_age(item, reasons)
+        cls._validate_age(item, ptype, reasons)
         cls._validate_type_specific_specs(item, ptype, reasons)
 
         return len(reasons) == 0, reasons
@@ -148,12 +148,14 @@ class PropertyDataValidator:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
 
     @staticmethod
-    def _validate_age(item: Any, reasons: list[str]) -> None:
+    def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:
         current_year = datetime.now(timezone.utc).year
+        # 戸建て・古民家（京町家等）は明治初期（1850年以降）を許容、マンション・投資等は1900年以降
+        min_year = 1850 if "kodate" in ptype else 1900
         chikunengetsu = getattr(item, "chikunengetsu", None)
         if chikunengetsu and isinstance(chikunengetsu, datetime):
-            if chikunengetsu.year < 1900:
-                reasons.append(f"築年数異常 ({chikunengetsu.year}年: 1900年以前)")
+            if chikunengetsu.year < min_year:
+                reasons.append(f"築年数異常 ({chikunengetsu.year}年: {min_year}年以前)")
             elif chikunengetsu.year > current_year + 3:
                 reasons.append(f"築年数異常 ({chikunengetsu.year}年: 未来年)")
             return
@@ -163,8 +165,8 @@ class PropertyDataValidator:
             match = re.search(r"(\d{4})年", chikunen_str)
             if match:
                 y = int(match.group(1))
-                if y < 1900:
-                    reasons.append(f"築年数異常 ({y}年: 1900年以前)")
+                if y < min_year:
+                    reasons.append(f"築年数異常 ({y}年: {min_year}年以前)")
                 elif y > current_year + 3:
                     reasons.append(f"築年数異常 ({y}年: 未来年)")
 
@@ -179,7 +181,7 @@ class PropertyDataValidator:
         elif ptype == "tochi":
             cls._check_tochi_specs(item, reasons)
         elif "apartment" in ptype or "invest" in ptype:
-            cls._check_investment_specs(item, reasons)
+            cls._check_investment_specs(item, ptype, reasons)
 
     @staticmethod
     def _has_located_floor(kaisu_str: Any) -> bool:
@@ -188,7 +190,7 @@ class PropertyDataValidator:
         tokens = [t.strip() for t in str(kaisu_str).replace('/', ' ').replace('／', ' ').split() if t.strip()]
         return any(
             '階' in token
-            and not ('地上' in token or '地下' in token or '建' in token)
+            and not ('地下' in token or '建' in token)
             and any(ch.isdigit() for ch in token)
             for token in tokens
         )
@@ -239,14 +241,23 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_TOCHI)
 
-    @staticmethod
-    def _check_investment_specs(item: Any, reasons: list[str]) -> None:
+    @classmethod
+    def _check_investment_specs(cls, item: Any, ptype: str, reasons: list[str]) -> None:
         yield_rate = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
         if yield_rate is not None:
             try:
                 y_val = float(yield_rate)
-                if y_val <= 0 or y_val > 100.0:
-                    reasons.append(f"利回り異常 ({y_val:.1f}%: 0%以下または100%超)")
+                # 0.0% は利回り未記載・未算出として許容
+                # 格安物件（1000万円未満）やボロ戸建て投資は100%超（最大1000%）を許容、一般投資アパート等は100%上限
+                price = getattr(item, "price", 0) or 0
+                try:
+                    price_val = float(price)
+                except (ValueError, TypeError):
+                    price_val = 0.0
+                is_low_price_invest = price_val > 0 and price_val < 10000000.0
+                max_yield = 1000.0 if (is_low_price_invest or cls._is_low_price_allowed(item, ptype) and "invest" not in str(getattr(item, "pageUrl", "")).lower()) else 100.0
+                if y_val < 0 or y_val > max_yield:
+                    reasons.append(f"利回り異常 ({y_val:.1f}%: 0%未満または{max_yield:.0f}%超)")
             except (ValueError, TypeError):
                 reasons.append(f"利回り異常 ({yield_rate}: 数値変換不能)")
 

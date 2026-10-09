@@ -201,7 +201,7 @@ class TokyuParser(ParserBase):
 
         wrappers = response.select(table_selector)
         if not wrappers:
-            return {}
+            wrappers = response.find_all('dl')
 
         for target_wrapper in wrappers:
             rows = target_wrapper.select(row_selector)
@@ -210,6 +210,11 @@ class TokyuParser(ParserBase):
                 self._scrape_dl_direct_children(target_wrapper, specs)
             # Case 2: rows (div/dl) contain dt/dd
             self._scrape_row_dt_dd(rows, header_selector, value_selector, specs)
+
+        # Fallback: if specs still empty, scan any remaining dl tags directly
+        if not specs:
+            for dl in response.find_all('dl'):
+                self._scrape_dl_direct_children(dl, specs)
 
         self._scrape_specs_cache[resp_id] = specs
         return specs

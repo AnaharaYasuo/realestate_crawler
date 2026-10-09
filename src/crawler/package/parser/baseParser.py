@@ -845,7 +845,7 @@ class ParserBase(metaclass=ABCMeta):
     def _getValueByLabel(self, soup: BeautifulSoup, label: str):
         if not soup or not label:
             return None
-        for tag in soup.find_all(['th', 'dt', 'span']):
+        for tag in soup.find_all(['th', 'dt', 'span', 'td']):
             txt = tag.get_text(strip=True)
             if not txt:
                 continue
