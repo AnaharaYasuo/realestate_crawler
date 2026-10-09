@@ -4,6 +4,7 @@ import os
 import json
 import ssl
 import threading
+import time
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
@@ -713,6 +714,54 @@ def require_eval_record(eval_record, page_url: str):
     return eval_record
 
 
+class DynamicSemaphore:
+    """動的リサイズ可能な asyncio.Semaphore ラッパー"""
+
+    def __init__(self, value: int = 1):
+        self._capacity = value
+        self._sem = asyncio.Semaphore(value=value)
+        self._pending_shrink = 0
+
+    @property
+    def capacity(self) -> int:
+        return self._capacity
+
+    @property
+    def value(self) -> int:
+        return max(0, self._sem._value - self._pending_shrink)
+
+    def resize(self, new_capacity: int) -> None:
+        if new_capacity == self._capacity:
+            return
+        diff = new_capacity - self._capacity
+        self._capacity = new_capacity
+        if diff > 0:
+            if self._pending_shrink > 0:
+                reclaimed = min(diff, self._pending_shrink)
+                self._pending_shrink -= reclaimed
+                diff -= reclaimed
+            for _ in range(diff):
+                self._sem.release()
+        elif diff < 0:
+            shrink_needed = abs(diff)
+            # 現在利用可能なトークンから直接回収
+            while shrink_needed > 0 and self._sem._value > 0:
+                self._sem._value -= 1
+                shrink_needed -= 1
+            # 貸出中で回収できなかった分は保留にし、release時に消費
+            if shrink_needed > 0:
+                self._pending_shrink += shrink_needed
+
+    async def acquire(self) -> None:
+        await self._sem.acquire()
+
+    def release(self) -> None:
+        if self._pending_shrink > 0:
+            self._pending_shrink -= 1
+            return
+        self._sem.release()
+
+
 class ApiAsyncProcBase(metaclass=ABCMeta):
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
     headersJson = {
@@ -724,26 +773,23 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
-        self._semaphore = None
-        self._semaphore_limit = None
+        self._semaphore: Optional[DynamicSemaphore] = None
+        self._semaphore_limit: Optional[int] = None
+        self._last_limit_check_time: float = 0.0
 
     @property
-    def semaphore(self):
-        current_limit = self._getPararellLimit()
-        if self._semaphore is None:
-            self._semaphore_limit = current_limit
-            self._semaphore = asyncio.Semaphore(value=current_limit)
-        elif self._semaphore_limit != current_limit:
-            diff = current_limit - self._semaphore_limit
-            self._semaphore_limit = current_limit
-            if diff > 0:
-                for _ in range(diff):
-                    self._semaphore.release()
-            elif diff < 0:
-                # 縮小時は利用可能な許可トークンを回収して徐々に絞り込む
-                for _ in range(abs(diff)):
-                    if self._semaphore._value > 0:
-                        self._semaphore._value -= 1
+    def semaphore(self) -> DynamicSemaphore:
+        now = time.time()
+        # 1秒以内の同一プロセス内アクセスはキャッシュしてファイルIOとロック取得を回避
+        if self._semaphore is None or (now - self._last_limit_check_time) >= 1.0:
+            current_limit = self._getPararellLimit()
+            self._last_limit_check_time = now
+            if self._semaphore is None:
+                self._semaphore_limit = current_limit
+                self._semaphore = DynamicSemaphore(value=current_limit)
+            elif self._semaphore_limit != current_limit:
+                self._semaphore.resize(current_limit)
+                self._semaphore_limit = current_limit
         return self._semaphore
 
     @semaphore.setter

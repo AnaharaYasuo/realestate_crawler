@@ -92,53 +92,77 @@ def test_state_atomic_write_and_filelock(tmp_path):
         assert AdaptiveConcurrencyController.get_active_jobs_count() == 5
 
 
-def test_dynamic_semaphore_adjustment():
-    """実効並行度の変化に応じてセマフォ許可数が動的に追従すること"""
-    from package.api.api import ApiAsyncProcBase
+import pytest
 
-    class DummyApi(ApiAsyncProcBase):
-        def __init__(self, limit=5):
-            self._mock_limit = limit
-            super().__init__()
 
-        def _generateParser(self):
-            return None
+@pytest.mark.asyncio
+async def test_dynamic_semaphore_adjustment(tmp_path):
+    """実効並行度の変化に応じてセマフォ許可数が動的に追従すること（実ファイル非依存＆貸出中縮小検証）"""
+    state_file = str(tmp_path / "test_dummy_state.json")
+    with patch.object(AdaptiveConcurrencyController, "STATE_FILE", state_file):
+        from package.api.api import ApiAsyncProcBase
 
-        def _getLocalPararellLimit(self):
-            return self._mock_limit
+        class DummyApi(ApiAsyncProcBase):
+            def __init__(self, limit=5):
+                self._mock_limit = limit
+                super().__init__()
 
-        def _getCloudPararellLimit(self):
-            return self._mock_limit
+            def _generateParser(self):
+                return None
 
-        def _getTimeOutSecond(self):
-            return 10
+            def _getLocalPararellLimit(self):
+                return self._mock_limit
 
-        def _getApiKey(self):
-            return ""
+            def _getCloudPararellLimit(self):
+                return self._mock_limit
 
-        async def _treatPage(self, _session, *arg):
-            pass
+            def _getTimeOutSecond(self):
+                return 10
 
-        def _getTreatPageArg(self):
-            return None
+            def _getApiKey(self):
+                return ""
 
-        async def _callApi(self, url_list):
-            return []
+            async def _treatPage(self, _session, *arg):
+                pass
 
-    dummy = DummyApi(limit=5)
-    # 初期セマフォ値は 5
-    sem = dummy.semaphore
-    assert sem._value == 5
+            def _getTreatPageArg(self):
+                return None
 
-    # 並行度が 8 に拡大された場合
-    dummy._mock_limit = 8
-    sem2 = dummy.semaphore
-    assert sem2 is sem
-    assert sem._value == 8
+            async def _callApi(self, url_list):
+                return []
 
-    # 並行度が 2 に縮小された場合
-    dummy._mock_limit = 2
-    sem3 = dummy.semaphore
-    assert sem3 is sem
-    assert sem._value == 2
+        dummy = DummyApi(limit=5)
+        # 初期セマフォ値は 5
+        sem = dummy.semaphore
+        assert sem.capacity == 5
+        assert sem.value == 5
+
+        # セマフォの全5許可を取得
+        for _ in range(5):
+            await sem.acquire()
+        assert sem.value == 0
+
+        # 全許可貸出中に上限を 2 に縮小
+        dummy._mock_limit = 2
+        dummy._last_limit_check_time = 0.0  # キャッシュ無効化
+        sem_shrunk = dummy.semaphore
+        assert sem_shrunk is sem
+        assert sem.capacity == 2
+
+        # 取得した5つの許可を順次解放
+        for _ in range(5):
+            sem.release()
+
+        # 5つ全て解放された後の値が 2 に収束していることを検証
+        assert sem.value == 2
+        assert sem.capacity == 2
+
+        # 続けて上限を 15 に戻し、許可数が15を超えないことを確認
+        dummy._mock_limit = 15
+        dummy._last_limit_check_time = 0.0
+        sem_expanded = dummy.semaphore
+        assert sem_expanded is sem
+        assert sem.capacity == 15
+        assert sem.value == 15
+
 
