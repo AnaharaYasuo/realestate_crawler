@@ -17,6 +17,40 @@ main:
           - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
           - crawlerFailed: false
           - crawlerError: null
+          - company: ${default(map.get(args, "company"), null)}
+          - propertyType: ${default(map.get(args, "propertyType"), default(map.get(args, "type"), null))}
+          - sites: ${default(map.get(args, "sites"), null)}
+          - explicitTaskCount: ${default(map.get(args, "taskCount"), null)}
+          - skipTrain: ${default(map.get(args, "skipTrain"), true)}
+          - crawlerArgs: []
+          - effectiveTaskCount: null
+
+    - buildCrawlerArgs:
+        steps:
+          - checkCompany:
+              switch:
+                - condition: ${company != null}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--company=" + string(company)])}
+          - checkPropertyType:
+              switch:
+                - condition: ${propertyType != null}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--property-type=" + string(propertyType)])}
+          - checkSites:
+              switch:
+                - condition: ${sites != null}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--sites=" + string(sites)])}
+          - checkTaskCount:
+              switch:
+                - condition: ${explicitTaskCount != null}
+                  assign:
+                    - effectiveTaskCount: ${int(explicitTaskCount)}
+                - condition: ${company != null or propertyType != null or sites != null}
+                  # 単一会社または明示的絞り込み時はコンテナ起動数を動的に抑制 (不要コンテナの起動を抑止)
+                  assign:
+                    - effectiveTaskCount: 1
 
     - tryPipeline:
         try:
@@ -37,7 +71,11 @@ main:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + crawlerJob}
-                  body: {}
+                  body:
+                    overrides:
+                      taskCount: ${effectiveTaskCount}
+                      containerOverrides:
+                        - args: ${crawlerArgs}
                   connector_params:
                     skip_polling: true
                 result: crawlerOperation
@@ -75,7 +113,10 @@ main:
                 call: googleapis.run.v2.projects.locations.jobs.run
                 args:
                   name: ${"projects/" + projectId + "/locations/" + location + "/jobs/" + mlPipelineJob}
-                  body: {}
+                  body:
+                    overrides:
+                      containerOverrides:
+                        - args: ["--force", "--skip-train"]
                   connector_params:
                     skip_polling: true
                 result: mlOperation
