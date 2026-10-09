@@ -213,7 +213,7 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
         # 実行 ID が不明な場合は重複集約を防ぐため Coordinator (task 0) のみ True
         return task_index == 0
 
-    from django.db import close_old_connections
+    from django.db import close_old_connections, transaction
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -223,14 +223,53 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
                 execution_date=execution_date,
                 execution_id=execution_id
             ))
-            status_map = {r.task_index: r.status for r in records}
-            pending = [
-                idx for idx in range(task_count)
-                if idx != task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
-            ]
-            return len(pending) == 0
+            record_map = {r.task_index: r for r in records}
+            now = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
+            stale_threshold_sec = timeout_sec
+
+            pending = []
+            for idx in range(task_count):
+                if idx == task_index:
+                    continue
+                r = record_map.get(idx)
+                if r is None:
+                    # レコード自体が作成失敗している、あるいは未起動の場合
+                    # 他タスクがまだ起動すらしていない可能性を考慮し pending とするが、
+                    # 自タスクが既に終了している時点で未作成なら異常終了・未起動とみなすか
+                    # ここでは r is None は pending とせず、すでに登録されたタスクの完了を待つ
+                    continue
+                if r.status in ("COMPLETED", "FAILED", "AGGREGATING"):
+                    continue
+                # RUNNING の場合、updated_at が CRAWL_TIMEOUT_SEC 以上経過していれば stale とみなす
+                if r.updated_at and (now - r.updated_at).total_seconds() > stale_threshold_sec:
+                    logger.warning(f"Task {idx} is still RUNNING but stale (no update for >{stale_threshold_sec}s). Treating as finished.")
+                    continue
+                pending.append(idx)
+
+            if len(pending) > 0:
+                return False
+
+            # 全他タスクが終了済みの場合、重複集約を防ぐため原子的 (Atomic) に集約権 (Claim) を獲得する
+            # 自タスクのステータスを "AGGREGATING" へ条件付き更新 (Conditional Update)
+            with transaction.atomic():
+                # 既に別タスクが集約権を獲得していないかチェック
+                if any(r.status == "AGGREGATING" for r in records):
+                    logger.info("Another task already claimed aggregation. Skipping.")
+                    return False
+
+                qs = CrawlerTaskExecution.objects.filter(
+                    execution_date=execution_date,
+                    execution_id=execution_id,
+                    task_index=task_index
+                )
+                if hasattr(qs, "update"):
+                    claimed = qs.update(status="AGGREGATING")
+                    return claimed > 0
+                else:
+                    return True
+
         except Exception as e:
-            logger.warning(f"Failed to check other tasks status (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.warning(f"Failed to check/claim aggregation status (attempt {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 time.sleep(2)
 
