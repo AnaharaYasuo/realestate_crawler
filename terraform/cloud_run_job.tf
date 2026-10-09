@@ -186,6 +186,10 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           name  = "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED"
           value = "true"
         }
+        env {
+          name  = "CRAWLER_HANG_THRESHOLD_SEC"
+          value = "600"
+        }
 
         # Playwright は --disable-dev-shm-usage フラグで /tmp を利用するため shm の個別マウント不要
       }

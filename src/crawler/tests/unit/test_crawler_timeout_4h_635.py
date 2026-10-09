@@ -153,7 +153,8 @@ def _gcloud_command_args(job_name):
 def test_deploy_applies_crawler_timeout_and_env_from_variable():
     args = _gcloud_command_args("realestate-crawler-pipeline-prod")
     assert "--task-timeout=${CRAWLER_TIMEOUT_SEC}s" in args
-    assert "--update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC}" in args
+    env_arg = next((a for a in args if a.startswith("--update-env-vars=")), "")
+    assert "CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC}" in env_arg
     assert args[-1] == "--region=asia-northeast1"
 
 
