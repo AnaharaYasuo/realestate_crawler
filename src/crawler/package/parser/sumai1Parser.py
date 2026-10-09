@@ -74,6 +74,7 @@ class Sumai1Parser(ParserBase):
 
     BASE_URL = 'https://www.sumai1.com'
     property_type = ''
+    REQUEST_TIMEOUT_SEC = 25
 
     def __init__(self, params=None):
         super().__init__()
