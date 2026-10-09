@@ -8,7 +8,7 @@ import time
 import traceback
 from urllib.parse import urlparse
 from abc import ABCMeta, abstractmethod
-from typing import Any, Dict, Optional, Tuple  # noqa: UP035
+from typing import Any, ClassVar, Dict, Optional, Tuple  # noqa: UP035
 from pathlib import Path
 import re
 import uuid
@@ -1059,13 +1059,42 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         except Exception:
             logging.exception("Failed to save error HTML for %s", url)
 
+    def _resolve_target_company(self) -> str | None:
+        """APIインスタンスまたはパーサーから対象企業名を特定"""
+        comp = getattr(self, "company", None)
+        if comp:
+            return str(comp).lower()
+        if hasattr(self, "parser") and self.parser:
+            p_comp = getattr(self.parser, "company", None)
+            if p_comp:
+                return str(p_comp).lower()
+        cls_name = self.__class__.__name__.lower()
+        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+            if c in cls_name:
+                return c
+        return None
+
     def _getPararellLimit(self):
         pararell_limit = self._getLocalPararellLimit()
+        company = self._resolve_target_company()
+
         if os.getenv('IS_CLOUD', ''):
             custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')
             if custom_cloud_limit and custom_cloud_limit.isdigit():
-                return int(custom_cloud_limit)
-            return AdaptiveConcurrencyController.get_effective_concurrency()
+                limit = int(custom_cloud_limit)
+                if company:
+                    cap = AdaptiveConcurrencyController.SITE_CONCURRENCY_CAPS.get(company)
+                    if cap is not None:
+                        limit = min(limit, cap)
+                return limit
+            return AdaptiveConcurrencyController.get_effective_concurrency(company=company)
+
+        # Apply WAF caps locally as well if applicable
+        if company:
+            cap = AdaptiveConcurrencyController.SITE_CONCURRENCY_CAPS.get(company)
+            if cap is not None:
+                pararell_limit = min(pararell_limit, cap)
+
         return pararell_limit
 
     @abstractmethod
@@ -1393,12 +1422,26 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 return c
         return "unknown"
 
+    SITE_DOWNLOAD_DELAYS: ClassVar[dict[str, float]] = {
+        "nomura": 1.0,
+        "mitsui": 1.0,
+    }
+
+    async def _apply_download_delay_if_needed(self):
+        """WAF/レートリミット保護対象サイトの場合に適切な待機時間を挿入"""
+        company = self._resolve_target_company()
+        if company:
+            delay = self.SITE_DOWNLOAD_DELAYS.get(company, 0.0)
+            if delay > 0.0:
+                await asyncio.sleep(delay)
+
     async def _fetch_detail_item(self):
         async def get_item():
             item = None
             _connector = self._generateConnector(self._getActiveEventLoop())
             await self.semaphore.acquire()
             try:
+                await self._apply_download_delay_if_needed()
                 async with aiohttp.ClientSession(
                     headers=header,
                     connector=self._generateConnector(self._getActiveEventLoop()),

@@ -7,7 +7,7 @@ import logging
 import os
 import tempfile
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +101,25 @@ class AdaptiveConcurrencyController:
         last_time = state.get("last_overload_time", 0)
         return (cls._get_current_time() - last_time) < cls.DEFAULT_THROTTLE_SECONDS
 
+    SITE_CONCURRENCY_CAPS: ClassVar[dict[str, int]] = {
+        "nomura": 2,
+        "mitsui": 2,
+    }
+
     @classmethod
-    def get_effective_concurrency(cls, active_jobs: int | None = None) -> int:
-        """スロットリング状態を考慮した実効並行度を返す"""
+    def get_effective_concurrency(cls, company: str | None = None, active_jobs: int | None = None) -> int:
+        """スロットリング状態およびサイト別WAFキャップを考慮した実効並行度を返す"""
         if cls.is_throttled():
-            return cls.THROTTLED_CONCURRENCY
-        return cls.calculate_detail_concurrency(active_jobs)
+            concurrency = cls.THROTTLED_CONCURRENCY
+        else:
+            concurrency = cls.calculate_detail_concurrency(active_jobs)
+
+        if company:
+            cap = cls.SITE_CONCURRENCY_CAPS.get(company.lower())
+            if cap is not None:
+                concurrency = min(concurrency, cap)
+
+        return concurrency
 
     @classmethod
     def set_active_jobs_count(cls, count: int) -> None:
