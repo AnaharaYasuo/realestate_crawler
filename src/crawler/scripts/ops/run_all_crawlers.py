@@ -202,8 +202,12 @@ def record_task_start(task_index, task_count, jobs_assigned):
     return record
 
 
-def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
-    """タスクアレイ実行において、自タスク以外の全タスクが終端状態 (COMPLETED/FAILED) かを判定する (Issue #823)"""
+def is_last_completing_task(
+    task_index: int | None,
+    task_count: int,
+    task_start_dt: datetime.datetime | None = None
+) -> bool:
+    """タスクアレイ実行において、自タスク以外の全タスクが終端状態 (COMPLETED/FAILED) かを判定し、原子的集約権を獲得する (Issue #823)"""
     if task_count <= 1 or task_index is None:
         return True
 
@@ -215,6 +219,11 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
 
     from django.db import close_old_connections, transaction
 
+    now = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
+    start_dt = task_start_dt or now
+    elapsed_since_start = (now - start_dt).total_seconds()
+    stale_threshold_sec = timeout_sec
+
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -224,8 +233,6 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
                 execution_id=execution_id
             ))
             record_map = {r.task_index: r for r in records}
-            now = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
-            stale_threshold_sec = timeout_sec
 
             pending = []
             for idx in range(task_count):
@@ -233,10 +240,9 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
                     continue
                 r = record_map.get(idx)
                 if r is None:
-                    # レコード自体が作成失敗している、あるいは未起動の場合
-                    # 他タスクがまだ起動すらしていない可能性を考慮し pending とするが、
-                    # 自タスクが既に終了している時点で未作成なら異常終了・未起動とみなすか
-                    # ここでは r is None は pending とせず、すでに登録されたタスクの完了を待つ
+                    # 自タスク開始から timeout_sec 未満の間は、未起動・未登録タスクを pending として待機
+                    if elapsed_since_start < stale_threshold_sec:
+                        pending.append(idx)
                     continue
                 if r.status in ("COMPLETED", "FAILED", "AGGREGATING"):
                     continue
@@ -249,24 +255,25 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
             if len(pending) > 0:
                 return False
 
-            # 全他タスクが終了済みの場合、重複集約を防ぐため原子的 (Atomic) に集約権 (Claim) を獲得する
-            # 自タスクのステータスを "AGGREGATING" へ条件付き更新 (Conditional Update)
+            # 全他タスクが終了済みの場合、重複集約を防ぐため行ロック (select_for_update) を伴う atomic クレームを実行
             with transaction.atomic():
-                # 既に別タスクが集約権を獲得していないかチェック
-                if any(r.status == "AGGREGATING" for r in records):
+                qs_locked = CrawlerTaskExecution.objects.select_for_update().filter(
+                    execution_date=execution_date,
+                    execution_id=execution_id
+                )
+                locked_records = list(qs_locked) if hasattr(qs_locked, "select_for_update") else list(qs_locked)
+
+                # 最新のロック下で他タスクが集約権を獲得済みか再検査
+                if any(lr.task_index != task_index and lr.status == "AGGREGATING" for lr in locked_records):
                     logger.info("Another task already claimed aggregation. Skipping.")
                     return False
 
-                qs = CrawlerTaskExecution.objects.filter(
+                claimed = CrawlerTaskExecution.objects.filter(
                     execution_date=execution_date,
                     execution_id=execution_id,
                     task_index=task_index
-                )
-                if hasattr(qs, "update"):
-                    claimed = qs.update(status="AGGREGATING")
-                    return claimed > 0
-                else:
-                    return True
+                ).update(status="AGGREGATING")
+                return claimed > 0
 
         except Exception as e:
             logger.warning(f"Failed to check/claim aggregation status (attempt {attempt + 1}/{max_retries}): {e}")
@@ -907,7 +914,7 @@ def main():
 
     # 分散タスクアレイ実行時の全体集約・レポート委譲制御 (B案: Issue #823)
     # 他タスクがまだ実行中の場合は、全体DB集計・Slackレポート・エラー監視をスキップし即座に終了する
-    if task_count > 1 and task_index is not None and not is_last_completing_task(task_index, task_count):
+    if task_count > 1 and task_index is not None and not is_last_completing_task(task_index, task_count, task_start_dt=batch_start_dt):
         logger.info(
             f"✔ [Fast Exit] Task {task_index}/{task_count} finished all assigned jobs. "
             "Other tasks are still running. Skipping full aggregation/reporting and exiting immediately."

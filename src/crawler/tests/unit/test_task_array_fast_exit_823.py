@@ -68,6 +68,16 @@ def test_is_last_completing_task_all_other_tasks_finished():
         
         mock_objects = MagicMock()
         mock_objects.filter.return_value = [rec0, rec1, rec2, rec3, rec4]
+        mock_objects.select_for_update.return_value.filter.return_value = [rec0, rec1, rec2, rec3, rec4]
+        mock_filter_update = MagicMock()
+        mock_filter_update.update.return_value = 1
+
+        def filter_side_effect(**kwargs):
+            if "task_index" in kwargs:
+                return mock_filter_update
+            return [rec0, rec1, rec2, rec3, rec4]
+
+        mock_objects.filter.side_effect = filter_side_effect
         
         with patch("scripts.ops.run_all_crawlers.CrawlerTaskExecution.objects", mock_objects):
             # 自タスクが 3 の場合、自分以外の 0, 1, 2, 4 はすべて終了済みなので自分が最後 (True)
