@@ -261,9 +261,9 @@ class PropertyDataValidator:
         if yield_rate is not None:
             try:
                 y_val = float(yield_rate)
-                # 0.0% は利回り未記載・未算出として許容
-                # 格安物件（1000万円未満のボロ戸建て投資等）のみ100%超（最大1000%）を許容し、
-                # 高額な通常投資物件（一棟マンション・アパート等）は一律100%上限とする
+                # 利回り未記載または未算出のゼロ値は許容
+                # 一千万円未満の低廉投資物件のみ特例として上限千パーセントまで許容
+                # それ以外の一般投資用不動産は上限百パーセントを維持
                 price = getattr(item, "price", 0) or 0
                 try:
                     price_val = float(price)
