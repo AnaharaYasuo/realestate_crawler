@@ -43,7 +43,7 @@ class PropertyDataValidator:
         price_val = cls._validate_price(item, ptype, reasons)
         area = cls._extract_and_validate_area(item, ptype, reasons)
         cls._validate_unit_price(item, ptype, price_val, area, reasons)
-        cls._validate_age(item, reasons)
+        cls._validate_age(item, ptype, reasons)
         cls._validate_type_specific_specs(item, ptype, reasons)
 
         return len(reasons) == 0, reasons
@@ -148,12 +148,14 @@ class PropertyDataValidator:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
 
     @staticmethod
-    def _validate_age(item: Any, reasons: list[str]) -> None:
+    def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:
         current_year = datetime.now(timezone.utc).year
+        # 戸建て・古民家（京町家等）は明治初期（1850年以降）を許容、マンション・投資等は1900年以降
+        min_year = 1850 if "kodate" in ptype else 1900
         chikunengetsu = getattr(item, "chikunengetsu", None)
         if chikunengetsu and isinstance(chikunengetsu, datetime):
-            if chikunengetsu.year < 1900:
-                reasons.append(f"築年数異常 ({chikunengetsu.year}年: 1900年以前)")
+            if chikunengetsu.year < min_year:
+                reasons.append(f"築年数異常 ({chikunengetsu.year}年: {min_year}年以前)")
             elif chikunengetsu.year > current_year + 3:
                 reasons.append(f"築年数異常 ({chikunengetsu.year}年: 未来年)")
             return
@@ -163,8 +165,8 @@ class PropertyDataValidator:
             match = re.search(r"(\d{4})年", chikunen_str)
             if match:
                 y = int(match.group(1))
-                if y < 1900:
-                    reasons.append(f"築年数異常 ({y}年: 1900年以前)")
+                if y < min_year:
+                    reasons.append(f"築年数異常 ({y}年: {min_year}年以前)")
                 elif y > current_year + 3:
                     reasons.append(f"築年数異常 ({y}年: 未来年)")
 
@@ -179,19 +181,33 @@ class PropertyDataValidator:
         elif ptype == "tochi":
             cls._check_tochi_specs(item, reasons)
         elif "apartment" in ptype or "invest" in ptype:
-            cls._check_investment_specs(item, reasons)
+            cls._check_investment_specs(item, ptype, reasons)
 
     @staticmethod
     def _has_located_floor(kaisu_str: Any) -> bool:
+        """
+        kaisuStr から所在階情報（例: '3階/7階建', '所在階: 5階', '5階部分'）の有無を判定。
+        建物全体の総階数（'地上7階', '7階建'）のみの場合は所在階未抽出として False を返す。
+        """
         if not kaisu_str or str(kaisu_str).strip() in ["", "-", "None"]:
             return False
-        tokens = [t.strip() for t in str(kaisu_str).replace('/', ' ').replace('／', ' ').split() if t.strip()]
-        return any(
-            '階' in token
-            and not ('地上' in token or '地下' in token or '建' in token)
-            and any(ch.isdigit() for ch in token)
-            for token in tokens
-        )
+        s = str(kaisu_str).strip()
+        # 所在階表記が明示されている場合
+        if any(term in s for term in ["所在階", "階部分", "階／", "階/"]):
+            return True
+        # スラッシュ区切りで所在階/建物階数となっている場合 (例: 3階 / 地上7階)
+        tokens = [t.strip() for t in s.replace('/', ' ').replace('／', ' ').split() if t.strip()]
+        if len(tokens) >= 2:
+            return any(
+                '階' in token
+                and not ('地上' in token or '地下' in token or '建' in token or '総' in token)
+                and any(ch.isdigit() for ch in token)
+                for token in tokens
+            )
+        # 単一トークンで "地上X階" や "X階建" は建物総階数であり所在階ではない
+        if '地上' in s or '建' in s:
+            return False
+        return '階' in s and any(ch.isdigit() for ch in s)
 
     @classmethod
     def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:
@@ -239,14 +255,24 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_TOCHI)
 
-    @staticmethod
-    def _check_investment_specs(item: Any, reasons: list[str]) -> None:
+    @classmethod
+    def _check_investment_specs(cls, item: Any, ptype: str, reasons: list[str]) -> None:
         yield_rate = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
         if yield_rate is not None:
             try:
                 y_val = float(yield_rate)
-                if y_val <= 0 or y_val > 100.0:
-                    reasons.append(f"利回り異常 ({y_val:.1f}%: 0%以下または100%超)")
+                # 利回り未記載または未算出のゼロ値は許容
+                # 一千万円未満の低廉投資物件のみ特例として上限千パーセントまで許容
+                # それ以外の一般投資用不動産は上限百パーセントを維持
+                price = getattr(item, "price", 0) or 0
+                try:
+                    price_val = float(price)
+                except (ValueError, TypeError):
+                    price_val = 0.0
+                is_low_price_invest = price_val > 0 and price_val < 10000000.0
+                max_yield = 1000.0 if is_low_price_invest else 100.0
+                if y_val < 0 or y_val > max_yield:
+                    reasons.append(f"利回り異常 ({y_val:.1f}%: 0%未満または{max_yield:.0f}%超)")
             except (ValueError, TypeError):
                 reasons.append(f"利回り異常 ({yield_rate}: 数値変換不能)")
 
