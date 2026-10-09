@@ -1233,6 +1233,20 @@ MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグ�
 3. **日次MLパイプラインの分離**:
    - 日次の `run_ml_pipeline.py`（または `daily_pipeline.yaml` 経由）では、`--skip-train` を標準化し、モデル再学習を行わずにバルク価格推定とお宝物件通知のみを迅速に実行する。
 
+## 25. 日次定常巡回におけるポータル除外とタスク数最適化アーキテクチャ (Issue #813)
+
+### 25.1 概要と目的
+大手ポータルサイト（athome, homes）はクロール件数およびHTML解析負荷が大きく、夜間日次バッチの実行時間を長時間化させる要因となる。日次の定常ワークフロー実行時はポータルサイトをクローリング対象から除外し、独自仲介・電鉄・ハウスメーカー系サイトに集中させることで、パイプラインの安定完遂とリソースコスト最適化を実現する。
+
+### 25.2 処理連携仕様
+1. **Cloud Scheduler (`scheduler.tf`)**:
+   - 日次トリガー `crawler_daily_trigger` のリクエストボディに `skipPortals = true` を設定。
+2. **Cloud Workflows (`daily_pipeline.yaml`)**:
+   - 引数 `skipPortals`（デフォルト: `true`）を受け取り、true の場合はクローラージョブ引数に `--skip-portals` を付加。
+   - ポータル除外時、ポータル専用タスク（Task 5, 6, 7）の起動を抑制し、`taskCount` を 5 に設定。
+   - 後続の ML パイプライン実行ステップ（`runMLAndEstimation`）においても、`--skip-portals` を連携。
+
+
 
 
 

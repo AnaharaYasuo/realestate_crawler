@@ -282,6 +282,15 @@ Cloud Run Jobs の 8並列タスクアレイにおいて、各インスタンス
 4. **日次パイプラインにおけるML学習スキップと価格推定維持**:
    - 日次実行ワークフローにおいて、MLモデルの再学習（`train.py`）をスキップ（`--skip-train` / `ML_PIPELINE_SKIP_TRAIN=true`）し、価格推定（`run_bulk_ml_evaluation.py`）およびお宝物件通知（`send_recommendations.py`）のみを実行すること。MLモデルの再学習は月次等の定期バッチに分離すること。
 
+#### FR-CRW-017: 深夜日次ワークフロー実行時におけるポータルサイト（athome/homes）除外要件 (Issue #813)
+1. **日次定常実行時のポータルサイト除外**:
+   - 深夜1時（JST）から実行される日次パイプライン（Cloud Scheduler -> Cloud Workflows: `daily_pipeline.yaml`）において、クローリング対象から大手ポータルサイト（アットホーム: athome、ホームズ: homes）を除外（`skipPortals: true`）して実行すること。
+2. **Cloud Workflows でのタスク数自動最適化**:
+   - `skipPortals: true` 指定時、全8タスクのうちポータル専用タスク（Task 5: homes, Task 6: athome mansion, Task 7: athome その他）の起動を抑制し、`taskCount: 5` で実行すること。
+3. **ML推論・価格推定におけるポータル除外連携**:
+   - 日次パイプラインの後続 ML 推論・評価ステップにおいても `--skip-portals` を連携させ、高速かつ低コストに日次バッチを完遂させること。
+
+
 ---
 
 # 投資用物件 サンプルURL・取得項目調査
