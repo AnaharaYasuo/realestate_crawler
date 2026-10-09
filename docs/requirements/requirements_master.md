@@ -270,6 +270,18 @@ Cloud Run Jobs の 8並列タスクアレイにおいて、各インスタンス
    - **再取得成功時**: 正常データ抽出完了後、自動で `needs_parser_fix=False` および `data_quality_issue=""` に更新すること。
    - **掲載終了検知時**: 404 や販売終了文言（`ListingEndedException` / `SkipPropertyException`）を検知した場合、自動で `is_published=False`、`delisted_at=now()`、`needs_parser_fix=False` に更新すること。
 
+#### FR-CRW-016: 指定サイト・物件種別絞り込みクローリングおよび不要コンテナ起動抑制要件 (Issue #801)
+1. **サイトと物件種別の柔軟な組み合わせ指定**:
+   - Cloud Workflows 引数（`company`, `propertyType` / `type`）、およびクローラー CLI / 環境変数において、特定サイト（カンマ区切りまたは単一）と特定物件種別（カンマ区切りまたは単一）をAND条件で組み合わせて対象ジョブを絞り込み可能であること。
+   - `sites` トークン指定（`tokyu:mansion`, `sumifu` 等）とも併用・互換性を維持すること。
+2. **Cloud Workflows レベルでのタスク数動的抑制**:
+   - Cloud Workflows (`daily_pipeline.yaml`) において、指定されたサイト・種別の組み合わせに合致する対象ジョブ数（`target_jobs_count`）に応じて、Cloud Run Job 実行時の `taskCount`（コンテナ起動数）を動的に抑制すること。
+   - 不要なコンテナを物理的に起動させず、Cloud Run リソースおよびコスト消費を最小化すること。
+3. **コンテナ内ゼロジョブ即時終了フェイルセーフ**:
+   - 起動されたタスク（コンテナ）において、自タスクに割り当てられた担当ジョブが0件である場合、DB疎通待機やProxySQL起動を待機することなく即座に正常終了（Exit Code 0）すること。
+4. **日次パイプラインにおけるML学習スキップと価格推定維持**:
+   - 日次実行ワークフローにおいて、MLモデルの再学習（`train.py`）をスキップ（`--skip-train` / `ML_PIPELINE_SKIP_TRAIN=true`）し、価格推定（`run_bulk_ml_evaluation.py`）およびお宝物件通知（`send_recommendations.py`）のみを実行すること。MLモデルの再学習は月次等の定期バッチに分離すること。
+
 ---
 
 # 投資用物件 サンプルURL・取得項目調査

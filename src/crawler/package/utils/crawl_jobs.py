@@ -151,6 +151,8 @@ def _apply_sites_filter(
     selected: list[tuple[str, str]], sites_raw: str
 ) -> list[tuple[str, str]]:
     tokens = [t.strip() for t in sites_raw.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError(f"No valid site tokens found in sites={sites_raw!r}")
     matched: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     job_ids = {f"{c}_{p}": (c, p) for c, p in selected}
@@ -169,13 +171,21 @@ def _apply_company_type_filter(
     company: str | None,
     property_type: str | None,
 ) -> list[tuple[str, str]]:
-    if not company_l:
-        if type_l:
-            raise ValueError("CRAWL_GUARANTEE_TYPE / TYPE requires COMPANY to be set")
+    if not company_l and not type_l:
         return selected
-    selected = [(c, p) for c, p in selected if c.lower() == company_l]
-    if type_l:
-        selected = [(c, p) for c, p in selected if p.lower() == type_l]
+
+    companies = [c.strip().lower() for c in (company or "").split(",") if c.strip()]
+    if company_l and not companies:
+        raise ValueError(f"No valid company tokens found in company={company!r}")
+
+    types = [t.strip().lower() for t in (property_type or "").split(",") if t.strip()]
+    if type_l and not types:
+        raise ValueError(f"No valid property_type tokens found in property_type={property_type!r}")
+
+    if companies:
+        selected = [(c, p) for c, p in selected if c.lower() in companies]
+    if types:
+        selected = [(c, p) for c, p in selected if p.lower() in types]
     if not selected:
         raise ValueError(
             f"No CRAWL_JOBS match COMPANY={company!r} TYPE={property_type!r}"
@@ -198,8 +208,7 @@ def filter_crawl_jobs(
       - job id: ``sumifu_mansion`` / ``odakyu_investment``
       - company:type: ``sumifu:mansion`` or ``sumifu/mansion``
 
-    ``company`` / ``property_type`` further AND-filter (optional TYPE alone is invalid
-    without COMPANY — ignored if COMPANY empty).
+    ``company`` / ``property_type`` further AND-filter (supports comma-separated values).
     Empty filters return the full job list unchanged.
     """
     selected = list(jobs if jobs is not None else CRAWL_JOBS)

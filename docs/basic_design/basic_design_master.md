@@ -1216,6 +1216,23 @@ MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグ�
   - デプロイ途中で障害が発生した場合は Prune が自動スキップされ、稼働中のリソースが参照している実体イメージを安全に保護する。
   - 詳細は [デプロイ時イメージ管理基本設計書](deploy_image_lifecycle_basic_design.md) を参照。
 
+---
+
+## 24. 指定サイト・物件種別絞り込みクローリングおよび不要コンテナ起動抑制アーキテクチャ (Issue #801)
+
+### 24.1 概要と目的
+未完走ジョブの再実行や特定サイト・種別の集中的なデータ収集において、全ジョブ実行および不要なタスクアレイコンテナ起動（8並列など）によるコスト・実行時間の浪費を防ぐため、ターゲット絞り込みとコンテナ起動数の動的制御を実現する。
+
+### 24.2 処理フローと連携仕様
+1. **Cloud Workflows (`daily_pipeline.yaml`)**:
+   - 実行時パラメータとして `company`（例: `"sumifu,mitsui"`）、`propertyType`（例: `"mansion,kodate"`）、`taskCount`（明示指定用）を受け付ける。
+   - `company` や `propertyType` が指定された場合、対象ジョブの存在を確認し、Cloud Run Job 起動時の `containerOverrides` の引数に `--company` / `--property-type` を渡す。
+   - 起動する `taskCount` は、明示指定がない場合でも指定条件によって必要最小限（例: 単一会社・単一特定種別の場合は 1）に動的抑制し、余剰コンテナをそもそも起動させない。
+2. **コンテナ内フェイルセーフ (`run_pipeline.py` & `run_all_crawlers.py`)**:
+   - コンテナ起動後、自タスク番号（`CLOUD_RUN_TASK_INDEX`）に割り当てられた対象ジョブ件数が 0 件の場合、Cloud SQL確認、ProxySQL起動待機、DB疎通チェック、マイグレーション等を一切行わず、即座に Exit Code 0（正常終了）する。
+3. **日次MLパイプラインの分離**:
+   - 日次の `run_ml_pipeline.py`（または `daily_pipeline.yaml` 経由）では、`--skip-train` を標準化し、モデル再学習を行わずにバルク価格推定とお宝物件通知のみを迅速に実行する。
+
 
 
 

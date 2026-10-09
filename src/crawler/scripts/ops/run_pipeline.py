@@ -29,13 +29,15 @@ init_new_relic()
 from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
+from package.models.crawler_task_execution import CrawlerTaskExecution
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs
 from package.utils.task_distribution import (
+    distribute_jobs,
     get_execution_date,
     get_execution_id,
     get_task_config,
     pin_execution_date,
 )
-from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.gcp_resources import (
     check_cloud_sql_status,
     patch_proxysql_autoscaler,
@@ -486,11 +488,25 @@ def _run_crawler_step(
     task_count: int,
     ops_dir: str,
     skip_portals: bool,
+    company: str | None = None,
+    property_type: str | None = None,
+    sites: str | None = None,
 ) -> tuple[bool, bool]:
     crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
     if skip_portals:
         crawl_cmd.append("--skip-portals")
-    step1_title = f"Step 1/6: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if skip_portals else ''}"
+    if company:
+        crawl_cmd.append(f"--company={company}")
+    if property_type:
+        crawl_cmd.append(f"--property-type={property_type}")
+    if sites:
+        crawl_cmd.append(f"--sites={sites}")
+
+    target_suffix = ""
+    if company or property_type or sites:
+        target_suffix = f" [Targets: c={company}, t={property_type}, s={sites}]"
+
+    step1_title = f"Step 1/6: Parallel Crawling{' [Task ' + str(task_index) + '/' + str(task_count) + ']' if is_task_array else ''}{' [Skip Portals]' if skip_portals else ''}{target_suffix}"
     crawler_ok = True
     try:
         run_command(crawl_cmd, step1_title)
@@ -525,6 +541,7 @@ def _run_post_crawl_pipeline(
     maintenance_dir: str,
     debug_tools_dir: str,
     skip_portals: bool,
+    skip_train: bool = False,
 ) -> list[str]:
     failed_steps = []
 
@@ -555,20 +572,24 @@ def _run_post_crawl_pipeline(
         logger.error(f"❌ [Step 2.5/6 Error] Auto-heal instruction generation failed: {e}")
 
     # Step 2 (3/6): 最新データによるMLモデル再学習 (失敗時も価格推定を継続)
-    try:
-        run_command(
-            [
-                sys.executable,
-                os.path.join(crawler_dir, "package", "ml", "train.py"),
-            ],
-            "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)",
-        )
-    except Exception as e:
-        failed_steps.append("Step 3/6: ML Model Re-Training")
-        logger.error(
-            f"❌ [Step 3/6 Error] ML Re-training failed: {e}. "
-            "Continuing with existing models for evaluation and recommendations."
-        )
+    skip_ml_train = skip_train or os.getenv("ML_PIPELINE_SKIP_TRAIN", "").lower() in ("true", "1")
+    if not skip_ml_train:
+        try:
+            run_command(
+                [
+                    sys.executable,
+                    os.path.join(crawler_dir, "package", "ml", "train.py"),
+                ],
+                "Step 3/6: ML Model Re-Training (LightGBM, XGBoost, CatBoost, RandomForest)",
+            )
+        except Exception as e:
+            failed_steps.append("Step 3/6: ML Model Re-Training")
+            logger.error(
+                f"❌ [Step 3/6 Error] ML Re-training failed: {e}. "
+                "Continuing with existing models for evaluation and recommendations."
+            )
+    else:
+        logger.info("⏩ [SKIP] Step 3/6: ML Model Re-Training skipped (--skip-train enabled). Running estimation only.")
 
     # Step 3 (4/6): 一括価格予測・投資シミュレーション評価のDB更新 (バルクML推論)
     try:
@@ -620,11 +641,93 @@ def main():
         action="store_true",
         help="Skip large portal sites (homes, athome)",
     )
+    parser.add_argument(
+        "--company",
+        type=str,
+        default=None,
+        help="Target company name(s), comma-separated (e.g. sumifu,mitsui).",
+    )
+    parser.add_argument(
+        "--property-type",
+        "--type",
+        dest="property_type",
+        type=str,
+        default=None,
+        help="Target property type(s), comma-separated (e.g. mansion,kodate).",
+    )
+    parser.add_argument(
+        "--sites",
+        type=str,
+        default=None,
+        help="Target site tokens, comma-separated (e.g. sumifu:mansion,tokyu).",
+    )
+    parser.add_argument(
+        "--skip-train",
+        action="store_true",
+        help="Skip ML model training and run estimation only (Issue #698, #801)",
+    )
     args = parser.parse_args()
     pin_execution_date()
 
     global _is_coordinator, _task_index, _task_count
     task_index, task_count = get_task_config()
+
+    # 対象ジョブの事前判定: 自タスクに割り当てられるジョブが存在するか確認 (Issue #801)
+    target_jobs = list(CRAWL_JOBS)
+    if args.skip_portals:
+        portal_companies = {"athome", "homes"}
+        target_jobs = [j for j in target_jobs if j[0].lower() not in portal_companies]
+    company_arg = getattr(args, "company", None)
+    prop_type_arg = getattr(args, "property_type", None)
+    sites_arg = getattr(args, "sites", None)
+    if company_arg or prop_type_arg or sites_arg:
+        target_jobs = filter_crawl_jobs(
+            target_jobs,
+            sites=sites_arg,
+            company=company_arg,
+            property_type=prop_type_arg,
+        )
+    if task_count > 1 and task_index is not None:
+        target_jobs = distribute_jobs(target_jobs, task_index, task_count)
+
+    if not target_jobs:
+        logger.info(
+            f"✔ [Fast Exit] Task {task_index if task_index is not None else 0}/{task_count}: "
+            f"担当ジョブが0件のためリソース起動を行わず即座に正常終了します。"
+        )
+        if task_count > 1 and task_index is not None:
+            _bind_parent_db_timeouts()
+            recorded = False
+            for attempt in range(1, TASK_RECONCILE_MAX_ATTEMPTS + 1):
+                try:
+                    close_old_connections()
+                    CrawlerTaskExecution.objects.update_or_create(
+                        execution_date=get_execution_date(),
+                        task_index=task_index,
+                        execution_id=get_execution_id(),
+                        defaults={
+                            "task_count": task_count,
+                            "status": "COMPLETED",
+                            "jobs_assigned": 0,
+                            "jobs_success": 0,
+                            "jobs_failed": 0,
+                        },
+                    )
+                    recorded = True
+                    break
+                except Exception as dbe:  # noqa: BLE001
+                    logger.warning(
+                        f"Failed to record fast exit CrawlerTaskExecution (attempt {attempt}/{TASK_RECONCILE_MAX_ATTEMPTS}): {dbe}"
+                    )
+                    if attempt < TASK_RECONCILE_MAX_ATTEMPTS:
+                        time.sleep(TASK_RECONCILE_INTERVAL_SEC)
+            if not recorded:
+                logger.error(
+                    f"❌ Failed to record fast exit CrawlerTaskExecution for task {task_index}. Exiting with error."
+                )
+                sys.exit(1)
+        sys.exit(0)
+
     is_task_array = task_count > 1 and task_index is not None
     is_coordinator = not is_task_array or task_index == 0
     _is_coordinator = is_coordinator
@@ -633,11 +736,12 @@ def main():
 
     logger.info(BORDER_LINE)
     logger.info(
-        f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals})"
+        f"Starting REALESTATE CRAWLER & ML ESTIMATION PIPELINE (skip_portals={args.skip_portals}, "
+        f"company={args.company}, property_type={args.property_type}, sites={args.sites})"
     )
     if is_task_array:
         logger.info(
-            f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'})"
+            f"🎯 [Task Array Mode] Task {task_index}/{task_count} (Role: {'Coordinator' if is_coordinator else 'Worker'}, Assigned Jobs: {len(target_jobs)})"
         )
     logger.info(BORDER_LINE)
 
@@ -702,6 +806,9 @@ def main():
             task_count,
             ops_dir,
             args.skip_portals,
+            company=args.company,
+            property_type=args.property_type,
+            sites=args.sites,
         )
         if not should_continue:
             if not crawler_ok:
@@ -710,7 +817,12 @@ def main():
             return
 
         failed_steps = _run_post_crawl_pipeline(
-            crawler_dir, ops_dir, maintenance_dir, debug_tools_dir, args.skip_portals
+            crawler_dir,
+            ops_dir,
+            maintenance_dir,
+            debug_tools_dir,
+            args.skip_portals,
+            skip_train=args.skip_train,
         )
         _check_failed_slack_notifications(failed_slack_file)
 

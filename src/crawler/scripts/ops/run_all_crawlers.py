@@ -45,6 +45,8 @@ from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs  # noqa: E402  — SSOT for production + tests
+
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -57,6 +59,9 @@ def parse_args():
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
     parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    parser.add_argument("--company", type=str, default=None, help="Target company name(s), comma-separated (e.g. sumifu,mitsui).")
+    parser.add_argument("--property-type", "--type", dest="property_type", type=str, default=None, help="Target property type(s), comma-separated (e.g. mansion,kodate).")
+    parser.add_argument("--sites", type=str, default=None, help="Target site tokens, comma-separated (e.g. sumifu:mansion,tokyu).")
     return parser.parse_args()
 
 # ポータルサイトおよび Playwright を使用する高メモリ負荷サイトのリスト
@@ -396,9 +401,41 @@ def main():
         target_jobs = [j for j in target_jobs if j[0].lower() not in PORTAL_COMPANIES]
         logging.info(f"Skipping portal sites ({', '.join(PORTAL_COMPANIES)}). Active jobs: {len(target_jobs)}/{len(CRAWL_JOBS)}")
 
+    company_arg = getattr(args, "company", None)
+    prop_type_arg = getattr(args, "property_type", None)
+    sites_arg = getattr(args, "sites", None)
+    if company_arg or prop_type_arg or sites_arg:
+        target_jobs = filter_crawl_jobs(
+            target_jobs,
+            sites=sites_arg,
+            company=company_arg,
+            property_type=prop_type_arg,
+        )
+        logger.info(f"🎯 [Target Filter] Filtered jobs to {len(target_jobs)} jobs based on company={company_arg}, property_type={prop_type_arg}, sites={sites_arg}")
+
     if task_count > 1 and task_index is not None:
         target_jobs = distribute_jobs(target_jobs, task_index, task_count)
         logging.info(f"🎯 [Task Array] Task {task_index}/{task_count} に {len(target_jobs)} 件のジョブを割り当てました")
+
+    if not target_jobs:
+        logger.info(f"✔ [Fast Exit] Task {task_index if task_index is not None else 0}/{task_count}: 担当ジョブが0件のため即座に正常終了します。")
+        if task_count > 1 and task_index is not None:
+            try:
+                CrawlerTaskExecution.objects.update_or_create(
+                    execution_date=get_execution_date(),
+                    task_index=task_index,
+                    execution_id=get_execution_id(),
+                    defaults={
+                        "task_count": task_count,
+                        "status": "COMPLETED",
+                        "jobs_assigned": 0,
+                        "jobs_success": 0,
+                        "jobs_failed": 0,
+                    },
+                )
+            except Exception as dbe:
+                logger.warning(f"Failed to record fast exit CrawlerTaskExecution: {dbe}")
+        return
 
     # DB にタスク実行状態を登録
     task_exec_record = record_task_start(task_index, task_count, len(target_jobs))
@@ -894,7 +931,6 @@ def main():
                     failed_count=len(failed_list),
                     failed_jobs=failed_job_tuples
                 )
-                from package.utils.slack import send_dev_report
                 asyncio.run(send_dev_report(auto_heal_msg))
                 logger.info(f"Triggered Slack DevAgent auto-heal for {len(failed_list)} failed jobs.")
             except Exception as dte:  # noqa: BLE001
