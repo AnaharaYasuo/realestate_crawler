@@ -1039,7 +1039,13 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
         specs = self._get_specs_table(response)
 
         # 土地面積
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("区画面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("面積", "")
+            or self.get_tochi_menseki_str(response)
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 

@@ -18,6 +18,7 @@ from package.parser.baseParser import (
     KodateParserBase,
     MansionParserBase,
     ParserBase,
+    SkipPropertyException,
     TochiParserBase,
 )
 from package.utils import converter
@@ -1163,12 +1164,22 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             if key_spaced and key_spaced not in data:
                 data[key_spaced] = val
 
+    @staticmethod
+    def _check_land_exclusion(page_url: str, shumoku: str) -> None:
+        """非投資用土地物件の除外判定"""
+        is_bldg = any(b in shumoku for b in ("アパート", "マンション", "ビル", "一棟", "戸建", "テラス"))
+        if "/tochi/" in page_url or ("土地" in shumoku and not is_bldg):
+            raise SkipPropertyException(f"Mitsui investment skipped non-investment land property: {page_url} (種別: {shumoku})")
+
     def _delegate_shumoku_parser(self, item, response: BeautifulSoup):
         """物件種目の動的判定と委譲処理 (Dynamic Dispatch)"""
         if getattr(self, '_is_delegating', False):
             return None
         specs = self._get_specs(response)
-        shumoku = specs.get("物件種目", specs.get("物件種別", specs.get("種別", "")))
+        shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
+        page_url = getattr(item, "pageUrl", "") or ""
+        self._check_land_exclusion(page_url, shumoku)
+
         if not shumoku:
             return None
 
