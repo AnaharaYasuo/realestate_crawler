@@ -717,9 +717,13 @@ def require_eval_record(eval_record, page_url: str):
 class DynamicSemaphore:
     """動的リサイズ可能な asyncio.Semaphore ラッパー"""
 
-    def __init__(self, value: int = 1):
-        self._capacity = value
-        self._sem = asyncio.Semaphore(value=value)
+    def __init__(self, value: int = 1, sem: Any = None):
+        if sem is not None:
+            self._sem = sem
+            self._capacity = getattr(sem, "_value", value)
+        else:
+            self._capacity = value
+            self._sem = asyncio.Semaphore(value=value)
         self._pending_shrink = 0
 
     @property
@@ -793,13 +797,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 self._semaphore_limit = current_limit
                 self._semaphore = DynamicSemaphore(value=current_limit)
             elif getattr(self, "_semaphore_limit", None) != current_limit:
-                self._semaphore.resize(current_limit)
+                if hasattr(self._semaphore, "resize"):
+                    self._semaphore.resize(current_limit)
                 self._semaphore_limit = current_limit
         return self._semaphore
 
     @semaphore.setter
     def semaphore(self, value):
-        self._semaphore = value
+        if value is not None and not isinstance(value, DynamicSemaphore) and hasattr(value, "acquire"):
+            # 既存テストコード等で asyncio.Semaphore(n) が直接代入された場合も透過的に受容
+            self._semaphore = DynamicSemaphore(sem=value)
+        else:
+            self._semaphore = value
 
     def _getActiveEventLoop(self):
         try:
