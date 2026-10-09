@@ -1,6 +1,7 @@
 """
 コンテナ内動的詳細並行度制御およびDB過負荷自己適応サーキットブレーカー (Issue #795)
 """
+# Dynamic concurrency allocation and database circuit breaker mechanism
 import json
 import logging
 import os
