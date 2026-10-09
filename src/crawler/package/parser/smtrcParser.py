@@ -26,7 +26,6 @@ _SMTRC_PLAYWRIGHT_ARGS = [
     '--disable-dev-shm-usage',
     '--disable-infobars',
     '--window-position=0,0',
-    '--ignore-certificate-errors',
     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
 ]
