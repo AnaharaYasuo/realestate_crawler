@@ -966,13 +966,6 @@ class ParserBase(metaclass=ABCMeta):
     def _validate_item_field(self, item: models.Model, field: str) -> Optional[dict]:
         if not hasattr(item, field):
             return None
-        # If the model explicitly allows null on this field and it's empty, do not treat as fatal error
-        try:
-            f_obj = item._meta.get_field(field)
-            if f_obj.null and getattr(item, field, None) is None:
-                return None
-        except Exception:
-            pass
 
         val = getattr(item, field, None)
         if self._is_under_construction_item(item) and field in ('tatemonoMenseki', 'chikunengetsuStr'):
