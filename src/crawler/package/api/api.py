@@ -773,8 +773,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def __init__(self):
         self.parser:ParserBase = self._generateParser()
-        self._semaphore: Optional[DynamicSemaphore] = None
-        self._semaphore_limit: Optional[int] = None
+        self._semaphore: DynamicSemaphore | None = None
+        self._semaphore_limit: int | None = None
         self._last_limit_check_time: float = 0.0
 
     @property
