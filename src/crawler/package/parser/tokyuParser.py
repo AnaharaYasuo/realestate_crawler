@@ -1539,6 +1539,7 @@ class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase
 
 
 class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
+    property_type = 'invest_kodate'
 
     def _parseTochiMenseki(self, response, specs=None):
         return super()._parseTochiMenseki(response, specs)

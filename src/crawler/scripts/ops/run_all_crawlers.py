@@ -301,30 +301,42 @@ def get_count_for_job(company: str, ptype: str, start_dt: datetime.datetime | No
         return 0, 0, 0
     try:
         target = ptype.lower().replace("_", "")
+        valid_targets = {target, target.replace("invest", "investment")}
+        if "investkodate" in target or "investmentkodate" in target:
+            valid_targets.update({"investapartment", "investmentapartment"})
+
+        total_detail_cnt = 0
+        total_skip_cnt = 0
+        matched_any = False
+
         for model in apps.get_models():
             m_name = model.__name__.lower()
             if m_name.startswith(company.lower()):
                 rest = m_name[len(company):]
-                if rest == target or rest == target.replace("invest", "investment"):
+                if rest in valid_targets:
                     has_update = hasattr(model, "updateDateTime")
                     has_input = hasattr(model, "inputDateTime")
 
                     if not has_input and not has_update:
-                        return 0, 0, 0
+                        continue
 
+                    matched_any = True
                     if has_input and has_update:
                         q_detail = Q(inputDateTime__gte=start_dt)
                         q_skip = Q(updateDateTime__gte=start_dt) & (Q(inputDateTime__lt=start_dt) | Q(inputDateTime__isnull=True))
                         detail_cnt = model.objects.filter(q_detail).count()
                         skip_cnt = model.objects.filter(q_skip).count()
-                        total_cnt = detail_cnt + skip_cnt
-                        return detail_cnt, skip_cnt, total_cnt
+                        total_detail_cnt += detail_cnt
+                        total_skip_cnt += skip_cnt
                     elif has_input:
                         cnt = model.objects.filter(inputDateTime__gte=start_dt).count()
-                        return cnt, 0, cnt
+                        total_detail_cnt += cnt
                     else:
                         cnt = model.objects.filter(updateDateTime__gte=start_dt).count()
-                        return cnt, 0, cnt
+                        total_detail_cnt += cnt
+
+        if matched_any:
+            return total_detail_cnt, total_skip_cnt, total_detail_cnt + total_skip_cnt
     except Exception:
         logger.exception("Failed to get db count for %s - %s", company, ptype)
         return None, None, None
