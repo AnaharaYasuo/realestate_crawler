@@ -18,8 +18,12 @@ python src/crawler/scripts/ops/run_all_crawlers.py [OPTIONS]
 | `ENABLE_ADAPTIVE_DETAIL_CONCURRENCY` | `true` | 動的詳細並列度制御の有効化フラグ。 |
 | `MAX_TOTAL_DETAIL_CONCURRENCY` | `36` | コンテナ全体で許容される詳細リクエストの総上限目安。 |
 | `DB_OVERLOAD_THROTTLE_CONCURRENCY` | `2` | DB過負荷エラー検知時の緊急縮小詳細並列度。 |
+| `SITE_CONCURRENCY_CAPS` | `nomura: 2, mitsui: 2, smtrc: 2` | WAF防護対象サイト向け詳細並行度強制制限キャップ。 |
 
-### 1.3 ログ・メトリクス出力
+### 1.3 IAM 構成 (Terraform)
+- `crawler-runner` サービスアカウントに `roles/run.developer` を付与し、Cloud Workflows から `runWithOverrides`（引数・タスク数指定）による Cloud Run Job 起動を許可。
+
+### 1.4 ログ・メトリクス出力
 - **並列度決定ログ**:
   ```text
   [Concurrency] Active jobs in container: 1 -> Allocating detail concurrency: 15 (Max allowed)

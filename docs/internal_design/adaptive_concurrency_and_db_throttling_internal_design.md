@@ -52,17 +52,20 @@ class AdaptiveConcurrencyController:
         ...
 ```
 
-### 2.4 WAF防護対象サイトの並行度キャップ・アクセスディレイ設計 (Issue #804)
+### 2.4 WAF防護対象サイトの並行度キャップ・アクセスディレイ設計 (Issue #804, Issue #807)
 - **`AdaptiveConcurrencyController.SITE_CONCURRENCY_CAPS`**:
   ```python
   SITE_CONCURRENCY_CAPS = {
       "nomura": 2,
       "mitsui": 2,
+      "smtrc": 2,
   }
   ```
   - `get_effective_concurrency(company: str | None = None, active_jobs: int | None = None) -> int` で、対象サイト名がキャップ指定されている場合は `min(calculated_concurrency, cap)` を適用する。
 - **アクセスディレイ (`api.py`)**:
-  - `SITE_DOWNLOAD_DELAYS = {"nomura": 1.0, "mitsui": 1.0}` を定義し、`_fetch_detail_item` 内での詳細ページ取得前に `await asyncio.sleep(delay)` を挿入。
+  - `SITE_DOWNLOAD_DELAYS = {"nomura": 1.0, "mitsui": 1.0, "smtrc": 1.0}` を定義し、`_fetch_detail_item` 内での詳細ページ取得前に `await asyncio.sleep(delay)` を挿入。
+- **smtrc WAF 403 対策 (`smtrcParser.py`)**:
+  - `smtrc` は Bot判定WAFにより 403 を返却する場合があるため、HTTPヘッダーの適正化および必要に応じた Playwright ステルス取得フォールバックを実装。
 
 ### 2.5 パーサー不整合および抽出例外修復設計 (Issue #804)
 1. **`TokyuInvestmentApartmentParser`**:

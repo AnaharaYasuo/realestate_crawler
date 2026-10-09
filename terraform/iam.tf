@@ -40,12 +40,12 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
   member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
-# Grant Cloud Run Job Executor & Viewer to crawler_runner (Workflows orchestrates Cloud Run Jobs)
+# Grant Cloud Run Developer & Viewer to crawler_runner (Workflows orchestrates Cloud Run Jobs with overrides)
 resource "google_cloud_run_v2_job_iam_member" "crawler_runner_crawler_executor" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.crawler_pipeline_job.name
-  role     = "roles/run.jobsExecutor"
+  role     = "roles/run.developer"
   member   = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
@@ -69,7 +69,7 @@ resource "google_cloud_run_v2_job_iam_member" "crawler_runner_ml_executor" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.ml_pipeline_job.name
-  role     = "roles/run.jobsExecutor"
+  role     = "roles/run.developer"
   member   = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 

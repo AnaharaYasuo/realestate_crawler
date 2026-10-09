@@ -1425,15 +1425,30 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     SITE_DOWNLOAD_DELAYS: ClassVar[dict[str, float]] = {
         "nomura": 1.0,
         "mitsui": 1.0,
+        "smtrc": 1.0,
     }
+    _SITE_RATE_LOCKS: ClassVar[dict[str, asyncio.Lock]] = {}
+    _SITE_LAST_START_TIMES: ClassVar[dict[str, float]] = {}
 
     async def _apply_download_delay_if_needed(self):
-        """WAF/レートリミット保護対象サイトの場合に適切な待機時間を挿入"""
+        """WAF/レートリミット保護対象サイトの場合に並行リクエスト間で適切な間隔（レートリミット）を保証"""
         company = self._resolve_target_company()
-        if company:
-            delay = self.SITE_DOWNLOAD_DELAYS.get(company, 0.0)
-            if delay > 0.0:
-                await asyncio.sleep(delay)
+        if not company:
+            return
+        delay = self.SITE_DOWNLOAD_DELAYS.get(company, 0.0)
+        if delay <= 0.0:
+            return
+
+        if company not in self._SITE_RATE_LOCKS:
+            self._SITE_RATE_LOCKS[company] = asyncio.Lock()
+
+        async with self._SITE_RATE_LOCKS[company]:
+            last_time = self._SITE_LAST_START_TIMES.get(company, 0.0)
+            now = time.monotonic()
+            elapsed = now - last_time
+            if elapsed < delay:
+                await asyncio.sleep(delay - elapsed)
+            self._SITE_LAST_START_TIMES[company] = time.monotonic()
 
     async def _fetch_detail_item(self):
         async def get_item():

@@ -16,12 +16,15 @@ class TestAdaptiveConcurrencySiteCaps(unittest.TestCase):
         base_concurrency = AdaptiveConcurrencyController.calculate_detail_concurrency(active_jobs=1)
         self.assertEqual(base_concurrency, 15)
 
-        # nomura and mitsui should be capped at 2
+        # nomura, mitsui, and smtrc should be capped at 2
         effective_nomura = AdaptiveConcurrencyController.get_effective_concurrency(company="nomura", active_jobs=1)
         self.assertEqual(effective_nomura, 2)
 
         effective_mitsui = AdaptiveConcurrencyController.get_effective_concurrency(company="mitsui", active_jobs=1)
         self.assertEqual(effective_mitsui, 2)
+
+        effective_smtrc = AdaptiveConcurrencyController.get_effective_concurrency(company="smtrc", active_jobs=1)
+        self.assertEqual(effective_smtrc, 2)
 
         # Uncapped site (e.g. tokyu) should remain 15
         effective_tokyu = AdaptiveConcurrencyController.get_effective_concurrency(company="tokyu", active_jobs=1)
