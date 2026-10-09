@@ -25,9 +25,11 @@ def test_is_last_completing_task_single_task():
 
 
 def test_is_last_completing_task_no_execution_id():
-    """実行 ID が取得できない環境では安全のため True (集計実行) と判定"""
+    """実行 ID が取得できない環境では重複集約を防ぐため Coordinator (task 0) のみ True と判定"""
     with patch("scripts.ops.run_all_crawlers.get_execution_id", return_value=""):
-        assert is_last_completing_task(1, 5) is True
+        assert is_last_completing_task(0, 5) is True
+        assert is_last_completing_task(1, 5) is False
+        assert is_last_completing_task(2, 5) is False
 
 
 def test_is_last_completing_task_other_tasks_running():
@@ -73,15 +75,18 @@ def test_is_last_completing_task_all_other_tasks_finished():
 
 
 def test_is_last_completing_task_db_error_fallback():
-    """DB 取得失敗時は安全のため False（不要な集計重複を避ける）"""
+    """DB 取得失敗時はリトライ後に安全のため False（不要な集計重複を避ける）"""
     with patch("scripts.ops.run_all_crawlers.get_execution_id", return_value="exec-123"), \
-         patch("scripts.ops.run_all_crawlers.get_execution_date", return_value="20261010"):
+         patch("scripts.ops.run_all_crawlers.get_execution_date", return_value="20261010"), \
+         patch("time.sleep") as mock_sleep:
         
         mock_objects = MagicMock()
         mock_objects.filter.side_effect = RuntimeError("DB connection timeout")
         
         with patch("scripts.ops.run_all_crawlers.CrawlerTaskExecution.objects", mock_objects):
             assert is_last_completing_task(1, 5) is False
+            assert mock_objects.filter.call_count == 3
+            assert mock_sleep.call_count == 2
 
 
 def test_crawler_watchdog_hang_threshold_configuration():

@@ -210,25 +210,32 @@ def is_last_completing_task(task_index: int | None, task_count: int) -> bool:
     execution_id = get_execution_id()
     execution_date = get_execution_date()
     if not execution_id:
-        # 実行 ID が不明な場合は安全のため単独扱い（集約実行）
-        return True
+        # 実行 ID が不明な場合は重複集約を防ぐため Coordinator (task 0) のみ True
+        return task_index == 0
 
-    try:
-        from django.db import close_old_connections
-        close_old_connections()
-        records = list(CrawlerTaskExecution.objects.filter(
-            execution_date=execution_date,
-            execution_id=execution_id
-        ))
-        status_map = {r.task_index: r.status for r in records}
-        pending = [
-            idx for idx in range(task_count)
-            if idx != task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
-        ]
-        return len(pending) == 0
-    except Exception as e:
-        logger.warning(f"Failed to check other tasks status: {e}. Defaulting to False to avoid duplicate aggregation.")
-        return False
+    from django.db import close_old_connections
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            close_old_connections()
+            records = list(CrawlerTaskExecution.objects.filter(
+                execution_date=execution_date,
+                execution_id=execution_id
+            ))
+            status_map = {r.task_index: r.status for r in records}
+            pending = [
+                idx for idx in range(task_count)
+                if idx != task_index and status_map.get(idx) not in ("COMPLETED", "FAILED")
+            ]
+            return len(pending) == 0
+        except Exception as e:
+            logger.warning(f"Failed to check other tasks status (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
+    logger.warning("All attempts to check other tasks status failed. Defaulting to False to avoid duplicate aggregation.")
+    return False
 
 
 def _mark_task_failed(task_exec_record):
@@ -873,6 +880,46 @@ def main():
         "Executing full database aggregation, Slack crawl status reporting, and error monitoring..."
     )
 
+    # 複数タスク構成の場合、同一 execution_id を持つ全タスクの実行結果を集約
+    all_task_results = list(results)
+    total_assigned_count = len(target_jobs)
+    total_success_count = summary["success_jobs"]
+    total_failed_count = summary["failed_jobs"]
+
+    if task_count > 1:
+        exec_id = get_execution_id()
+        exec_dt = get_execution_date()
+        if exec_id:
+            try:
+                task_records = CrawlerTaskExecution.objects.filter(
+                    execution_date=exec_dt,
+                    execution_id=exec_id
+                )
+                fetched_results = []
+                seen_jobs = set()
+                # まず自タスクの結果を登録
+                for r in results:
+                    key = (r["company"].lower(), r["property_type"].lower())
+                    seen_jobs.add(key)
+                    fetched_results.append(r)
+                # 他タスクの結果を追加
+                for tr in task_records:
+                    if tr.task_index == task_index:
+                        continue
+                    if isinstance(tr.results_json, list):
+                        for r in tr.results_json:
+                            key = (r.get("company", "").lower(), r.get("property_type", "").lower())
+                            if key not in seen_jobs:
+                                seen_jobs.add(key)
+                                fetched_results.append(r)
+                all_task_results = fetched_results
+                total_assigned_count = len(all_task_results)
+                total_success_count = sum(1 for r in all_task_results if r.get("status") == "success")
+                total_failed_count = sum(1 for r in all_task_results if r.get("status") in ["failed", "timeout", "error", "hung_timeout"])
+                logger.info(f"✔ Aggregated all tasks results: total={total_assigned_count}, success={total_success_count}, failed={total_failed_count}")
+            except Exception as e:
+                logger.warning(f"Failed to aggregate multi-task results from DB: {e}. Falling back to current task results.")
+
     # Slack notifications for crawl statuses
     try:
         threshold_24h = timezone.now() - datetime.timedelta(hours=24)
@@ -921,20 +968,20 @@ def main():
                 
         # Format Slack Message
         header_title = "📢 【クローリング実行状況レポート】"
-        if task_count > 1 and task_index is not None:
-            header_title = f"📢 【クローリング実行状況レポート (Task {task_index}/{task_count})】"
+        if task_count > 1:
+            header_title = f"📢 【クローリング実行状況レポート (全体集約 / Task 0..{task_count - 1})】"
         msg_lines = [header_title]
         msg_lines.append(f"開始時間: {batch_start_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"終了時間: {batch_end_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"所要時間: {duration_str}")
-        if task_count > 1 and task_index is not None:
-            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
+        if task_count > 1:
+            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (実行ジョブ: {total_assigned_count}, 成功: {total_success_count}, 失敗: {total_failed_count})")
         else:
             msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
         
         # Build lookup from results for job timings
         job_timings = {}
-        for r in results:
+        for r in all_task_results:
             key = (r["company"].lower(), r["property_type"].lower())
             job_timings[key] = r
 
@@ -955,7 +1002,7 @@ def main():
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
             
-        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
+        failed_list = [r for r in all_task_results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
         if failed_list:
             msg_lines.append("\n⚠️ 異常が発生したクローラー:")
             for f in failed_list:
