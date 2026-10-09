@@ -39,6 +39,11 @@ class AdaptiveConcurrencyController:
     THROTTLED_CONCURRENCY = 2
 
     @classmethod
+    def get_state_file_path(cls) -> str:
+        """状態ファイルのパスを取得（環境変数 CRAWLER_CONCURRENCY_STATE_FILE 優先）"""
+        return os.getenv("CRAWLER_CONCURRENCY_STATE_FILE") or cls.STATE_FILE
+
+    @classmethod
     def _get_current_time(cls) -> float:
         return time.time()
 
@@ -123,42 +128,46 @@ class AdaptiveConcurrencyController:
 
     @classmethod
     def _get_lock_file(cls) -> str:
-        return cls.STATE_FILE + ".lock"
+        return cls.get_state_file_path() + ".lock"
 
     @classmethod
     def _read_state(cls) -> dict[str, Any]:
-        if not os.path.exists(cls.STATE_FILE):
+        state_file = cls.get_state_file_path()
+        if not os.path.exists(state_file):
             return {}
         try:
             from filelock import FileLock
             lock = FileLock(cls._get_lock_file(), timeout=3)
-            with lock, open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+            with lock, open(state_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:  # noqa: BLE001
             try:
-                with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                with open(state_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except (OSError, json.JSONDecodeError):
                 return {}
 
     @classmethod
     def _write_state(cls, data: dict[str, Any]) -> None:
+        state_file = cls.get_state_file_path()
         try:
             from filelock import FileLock
             lock = FileLock(cls._get_lock_file(), timeout=5)
             with lock:
                 current = {}
-                if os.path.exists(cls.STATE_FILE):
+                if os.path.exists(state_file):
                     try:
-                        with open(cls.STATE_FILE, "r", encoding="utf-8") as f:
+                        with open(state_file, "r", encoding="utf-8") as f:
                             current = json.load(f)
                     except (OSError, json.JSONDecodeError):
                         current = {}
                 current.update(data)
-                dir_name = os.path.dirname(cls.STATE_FILE)
-                with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
+                dir_name = os.path.dirname(state_file)
+                if dir_name:
+                    os.makedirs(dir_name, exist_ok=True)
+                with tempfile.NamedTemporaryFile("w", dir=dir_name or None, delete=False, encoding="utf-8") as tf:
                     json.dump(current, tf)
                     temp_path = tf.name
-                os.replace(temp_path, cls.STATE_FILE)
+                os.replace(temp_path, state_file)
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Failed to write concurrency state file: {e}")

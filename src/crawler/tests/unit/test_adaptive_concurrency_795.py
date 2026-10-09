@@ -166,3 +166,14 @@ async def test_dynamic_semaphore_adjustment(tmp_path):
         assert sem.value == 15
 
 
+def test_crawler_concurrency_state_file_env_override(tmp_path):
+    """CRAWLER_CONCURRENCY_STATE_FILE 環境変数が設定されている場合、そのパスが優先されること"""
+    custom_state_file = str(tmp_path / "custom_state.json")
+    with patch.dict(os.environ, {"CRAWLER_CONCURRENCY_STATE_FILE": custom_state_file}):
+        assert AdaptiveConcurrencyController.get_state_file_path() == custom_state_file
+        AdaptiveConcurrencyController.set_active_jobs_count(7)
+        assert os.path.exists(custom_state_file)
+        assert AdaptiveConcurrencyController.get_active_jobs_count() == 7
+
+
+

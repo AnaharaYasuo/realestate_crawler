@@ -373,6 +373,13 @@ def main():
     clean_zombies()
     bound_db_connect_timeout()
 
+    # 実行単位で独立した動的並行度状態ファイルを設定（子プロセスへ継承）
+    if "CRAWLER_CONCURRENCY_STATE_FILE" not in os.environ:
+        os.environ["CRAWLER_CONCURRENCY_STATE_FILE"] = os.path.join(
+            tempfile.gettempdir(),
+            f"crawler_concurrency_state_{os.getpid()}_{int(time.time())}.json"
+        )
+
     def post_slack(msg):
         try:
             asyncio.run(send_crawling_summary_alert(msg))
