@@ -185,15 +185,29 @@ class PropertyDataValidator:
 
     @staticmethod
     def _has_located_floor(kaisu_str: Any) -> bool:
+        """
+        kaisuStr から所在階情報（例: '3階/7階建', '所在階: 5階', '5階部分'）の有無を判定。
+        建物全体の総階数（'地上7階', '7階建'）のみの場合は所在階未抽出として False を返す。
+        """
         if not kaisu_str or str(kaisu_str).strip() in ["", "-", "None"]:
             return False
-        tokens = [t.strip() for t in str(kaisu_str).replace('/', ' ').replace('／', ' ').split() if t.strip()]
-        return any(
-            '階' in token
-            and not ('地下' in token or '建' in token)
-            and any(ch.isdigit() for ch in token)
-            for token in tokens
-        )
+        s = str(kaisu_str).strip()
+        # 所在階表記が明示されている場合
+        if any(term in s for term in ["所在階", "階部分", "階／", "階/"]):
+            return True
+        # スラッシュ区切りで所在階/建物階数となっている場合 (例: 3階 / 地上7階)
+        tokens = [t.strip() for t in s.replace('/', ' ').replace('／', ' ').split() if t.strip()]
+        if len(tokens) >= 2:
+            return any(
+                '階' in token
+                and not ('地上' in token or '地下' in token or '建' in token or '総' in token)
+                and any(ch.isdigit() for ch in token)
+                for token in tokens
+            )
+        # 単一トークンで "地上X階" や "X階建" は建物総階数であり所在階ではない
+        if '地上' in s or '建' in s:
+            return False
+        return '階' in s and any(ch.isdigit() for ch in s)
 
     @classmethod
     def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:
@@ -248,14 +262,15 @@ class PropertyDataValidator:
             try:
                 y_val = float(yield_rate)
                 # 0.0% は利回り未記載・未算出として許容
-                # 格安物件（1000万円未満）やボロ戸建て投資は100%超（最大1000%）を許容、一般投資アパート等は100%上限
+                # 格安物件（1000万円未満のボロ戸建て投資等）のみ100%超（最大1000%）を許容し、
+                # 高額な通常投資物件（一棟マンション・アパート等）は一律100%上限とする
                 price = getattr(item, "price", 0) or 0
                 try:
                     price_val = float(price)
                 except (ValueError, TypeError):
                     price_val = 0.0
                 is_low_price_invest = price_val > 0 and price_val < 10000000.0
-                max_yield = 1000.0 if (is_low_price_invest or cls._is_low_price_allowed(item, ptype) and "invest" not in str(getattr(item, "pageUrl", "")).lower()) else 100.0
+                max_yield = 1000.0 if is_low_price_invest else 100.0
                 if y_val < 0 or y_val > max_yield:
                     reasons.append(f"利回り異常 ({y_val:.1f}%: 0%未満または{max_yield:.0f}%超)")
             except (ValueError, TypeError):

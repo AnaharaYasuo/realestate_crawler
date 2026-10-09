@@ -193,7 +193,7 @@ class TokyuParser(ParserBase):
         specs = {}
         table_config = self.selectors.get('table', {})
         table_selector = table_config.get(
-            'selector', 'div.m-status-table__wrapper, #propertySummarySection dl'
+            'selector', 'div.m-status-table__wrapper, #propertySummarySection dl, div[class*="detail"], div[class*="Detail"], main, #main, article'
         )
         row_selector = table_config.get('row_selector', 'div, dl')
         header_selector = table_config.get('header', 'dt')
@@ -201,7 +201,9 @@ class TokyuParser(ParserBase):
 
         wrappers = response.select(table_selector)
         if not wrappers:
-            wrappers = response.find_all('dl')
+            # 物件詳細・メインコンテナ内に限定して dl を探索（ナビやフッター、関連物件等を除外）
+            content_area = response.select_one('main, #main, article, #contents, .contents, div[class*="detail"]') or response
+            wrappers = content_area.find_all('dl')
 
         for target_wrapper in wrappers:
             rows = target_wrapper.select(row_selector)
@@ -211,9 +213,10 @@ class TokyuParser(ParserBase):
             # Case 2: rows (div/dl) contain dt/dd
             self._scrape_row_dt_dd(rows, header_selector, value_selector, specs)
 
-        # Fallback: if specs still empty, scan any remaining dl tags directly
+        # Fallback: if specs still empty, scan dl tags in main content area directly
         if not specs:
-            for dl in response.find_all('dl'):
+            content_area = response.select_one('main, #main, article, #contents, .contents, div[class*="detail"]') or response
+            for dl in content_area.find_all('dl'):
                 self._scrape_dl_direct_children(dl, specs)
 
         self._scrape_specs_cache[resp_id] = specs
@@ -665,7 +668,10 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
         kaisu = self._get_spec_val(specs, "所在階")
         if kaisu:
             return kaisu
-        return self._get_spec_val(specs, "所在階数").split("/")[0].strip()
+        val_kaisuu = self._get_spec_val(specs, "所在階数")
+        if val_kaisuu:
+            return val_kaisuu.split("/")[0].strip()
+        return self._get_spec_val(specs, "階数")
 
     def _parseTatemonoKaisu(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)

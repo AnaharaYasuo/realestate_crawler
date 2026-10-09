@@ -103,7 +103,7 @@ def test_data_validator_old_age_allowed():
 
 
 def test_data_validator_mansion_kaisu_str_fallback():
-    """floorType_kai が空でも kaisuStr に地上階情報がある場合は所在階欠損としないこと"""
+    """floorType_kai が空でも kaisuStr に所在階情報がある場合は所在階欠損としないこと"""
     item = SimpleNamespace(
         propertyName="ライオンズマンション北綾瀬第７",
         address="東京都足立区大谷田５丁目",
@@ -115,7 +115,7 @@ def test_data_validator_mansion_kaisu_str_fallback():
         floorType_kai=None,
         shozaikai=None,
         kaisu=None,
-        kaisuStr="地上7階",
+        kaisuStr="3階 / 地上7階",
         chikunengetsuStr="1995年8月",
         pageUrl="https://www.livable.co.jp/mansion/C13267Q02/",
     )

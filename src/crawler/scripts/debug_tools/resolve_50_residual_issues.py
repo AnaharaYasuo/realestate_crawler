@@ -66,18 +66,7 @@ async def resolve_all_residual_issues():
                 prop.save(update_fields=["kaisuStr"])
                 repaired_count += 1
 
-        # 2. 現行のバリデータで検証
-        valid, _reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
-
-        if valid:
-            ev.needs_parser_fix = False
-            ev.data_quality_issue = ""
-            ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
-            resolved_count += 1
-            continue
-
-        # 3. バリデーションNGの場合、URLが現在も公開中かチェック
-        # （すでに公開終了していれば is_published=False とし、オートヒール・アクティブ一覧から除外）
+        # 2. 公開状況（URL生存確認）の先行チェック
         if url:
             is_active = await verify_url_active(url)
             if not is_active:
@@ -91,17 +80,21 @@ async def resolve_all_residual_issues():
                 resolved_count += 1
                 continue
 
-        # 4. 公開中だが依然としてスペック欠損（価格0円や土地面積0㎡の過去不正パースデータ等）
-        # 物件情報が空欄（価格0円等）の場合は、最新実ページから再取得を試みる
-        price = getattr(prop, "price", 0) or 0
-        if price == 0 and url:
-            # 過去のパース失敗のまま放置された物件は delisted またはリセット
+        # 3. 公開中物件に対する現行バリデータ検証
+        valid, _reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
+        if valid:
             ev.needs_parser_fix = False
             ev.data_quality_issue = ""
             ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
             resolved_count += 1
-        else:
-            remaining_count += 1
+            continue
+
+        # 4. バリデーションNGだが価格0等の異常データは再クロール要フラグを設定
+        price = getattr(prop, "price", 0) or 0
+        if price == 0 and url:
+            ev.needs_recrawl = True
+            ev.save(update_fields=["needs_recrawl"])
+        remaining_count += 1
 
         if (idx + 1) % 500 == 0:
             print(f"Processed {idx + 1}/{len(target_evals)}... (Resolved: {resolved_count}, Delisted: {delisted_count})")
