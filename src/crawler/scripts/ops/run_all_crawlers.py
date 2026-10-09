@@ -261,7 +261,7 @@ def is_last_completing_task(
                     execution_date=execution_date,
                     execution_id=execution_id
                 )
-                locked_records = list(qs_locked) if hasattr(qs_locked, "select_for_update") else list(qs_locked)
+                locked_records = list(qs_locked)
 
                 # 最新のロック下で他タスクが集約権を獲得済みか再検査
                 if any(lr.task_index != task_index and lr.status == "AGGREGATING" for lr in locked_records):
