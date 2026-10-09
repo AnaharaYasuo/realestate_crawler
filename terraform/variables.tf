@@ -42,14 +42,14 @@ variable "db_user" {
 
 variable "crawler_cpu" {
   type        = string
-  description = "CPU limit for Cloud Run Job (e.g. 2, 4)"
-  default     = "2"
+  description = "CPU limit for Cloud Run Job (Issue #814: reduced from 2 to 1 based on actual utilization <50%)"
+  default     = "1"
 }
 
 variable "crawler_memory" {
   type        = string
-  description = "Memory limit for Cloud Run Job (e.g. 4Gi, 8Gi)"
-  default     = "4Gi"
+  description = "Memory limit for Cloud Run Job (Issue #814: optimized from 4Gi to 3Gi covering p99 2.2GiB with safety margin)"
+  default     = "3Gi"
 }
 
 variable "ml_pipeline_cpu" {

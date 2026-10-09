@@ -114,6 +114,8 @@ jobs:
             --image=asia-northeast1-docker.pkg.dev/sumifu/realestate-crawler-prod/crawler:${{ github.sha }} \
             --command=python,src/crawler/scripts/ops/run_pipeline.py \
             --max-retries=0 \
+            --cpu=1 \
+            --memory=3Gi \
             --task-timeout=${CRAWLER_TIMEOUT_SEC}s \
             --update-env-vars=CLOUD_RUN_JOB_TIMEOUT_SEC=${CRAWLER_TIMEOUT_SEC} \
             --region=asia-northeast1

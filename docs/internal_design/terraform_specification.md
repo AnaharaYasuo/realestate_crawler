@@ -41,8 +41,8 @@ terraform/
 | `db_tier` | `string` | `"db-f1-micro"` | Cloud SQL マシンスペック (`db-f1-micro` または `db-g1-small` / `db-custom-2-7680`) |
 | `db_name` | `string` | `"real_estate"` | MySQL データベース名 |
 | `db_user` | `string` | `"sumifu"` | MySQL ユーザー名 |
-| `crawler_cpu` | `string` | `"2"` | Cloud Run Jobs CPU コア数 |
-| `crawler_memory` | `string` | `"4Gi"` | Cloud Run Jobs メモリ割り当て |
+| `crawler_cpu` | `string` | `"1"` | Cloud Run Jobs CPU コア数 (Issue #814: 2 -> 1 に縮小) |
+| `crawler_memory` | `string` | `"3Gi"` | Cloud Run Jobs メモリ割り当て (Issue #814: 4Gi -> 3Gi に適正化) |
 | `crawler_timeout` | `string` | `"7200s"` | クローラー Cloud Run Job の 1 タスクあたりのタイムアウト（2 時間。Cloud Run Jobs の上限は 24 時間 = `86400s` だが、Safety-Net の hung 判定 7800s・`ml_pipeline_schedule_cron`・バックアップ開始時刻と整合させるため validation で `1s`〜`7200s` に制限）。同値の秒数を環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC` としてジョブに渡し、`run_pipeline.py` の内部締め切りと一致させる（Issue #550） |
 | `schedule_cron` | `string` | `"0 16 * * *"` | Cloud Scheduler 実行cron式（UTC 16:00 = JST 01:00） |
 | `ml_pipeline_schedule_cron` | `string` | `"10 18 * * *"` | ML Pipeline Job 起動cron式（UTC 18:10 = JST 03:10）。`schedule_cron` + `crawler_timeout`（最遅 18:00 UTC）より後であること（Issue #550） |
