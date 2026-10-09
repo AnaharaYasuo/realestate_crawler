@@ -1425,6 +1425,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     SITE_DOWNLOAD_DELAYS: ClassVar[dict[str, float]] = {
         "nomura": 1.0,
         "mitsui": 1.0,
+        "smtrc": 1.0,
     }
 
     async def _apply_download_delay_if_needed(self):

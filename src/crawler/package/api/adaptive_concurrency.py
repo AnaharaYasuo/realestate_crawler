@@ -104,6 +104,7 @@ class AdaptiveConcurrencyController:
     SITE_CONCURRENCY_CAPS: ClassVar[dict[str, int]] = {
         "nomura": 2,
         "mitsui": 2,
+        "smtrc": 2,
     }
 
     @classmethod
