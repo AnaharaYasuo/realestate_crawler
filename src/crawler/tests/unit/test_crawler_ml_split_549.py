@@ -164,7 +164,7 @@ def test_deploy_disables_crawler_retries():
     assert "--max-retries=0" in _deploy_step("realestate-crawler-pipeline-prod")
 
 
-@pytest.mark.parametrize("flag", ["--args=--force", "--max-retries=0", "--task-timeout=3600s"])
+@pytest.mark.parametrize("flag", ["--args=--force,--skip-train", "--max-retries=0", "--task-timeout=3600s"])
 def test_deploy_applies_ml_pipeline_job_settings(flag):
     assert flag in _deploy_step("realestate-ml-pipeline-prod")
 

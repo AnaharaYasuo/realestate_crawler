@@ -815,4 +815,23 @@ graph TD
   - `get_evaluation_and_duplicate_caches()` において、`PropertyEvaluation` から `needs_parser_fix=True` または `data_quality_issue` が空でない（不整合検知済み）URLを `invalid_urls` として抽出。
   - `duplicate_urls`（重複物件URL）と `invalid_urls` を統合した `excluded_urls` を構築し、各モデルからの軽量レコード収集（`_collect_lightweight_records_for_ptype`）時にスキップさせることで、異常データによるモデル汚染を完全に遮断する。
 
+## 6.32 指定サイト・種別絞り込みクローリングおよび不要コンテナ起動抑制内部設計 (Issue #801)
+- **ジョブフィルタリングの拡張 (`package/utils/crawl_jobs.py`)**:
+  - `filter_crawl_jobs(jobs, *, sites=None, company=None, property_type=None)` において、カンマ区切りによる複数サイト（`company="sumifu,mitsui"`）および複数種別（`property_type="mansion,kodate"`）のAND組み合わせフィルタを完全サポート。
+- **タスク分散と動的タスク数計算 (`package/utils/task_distribution.py`)**:
+  - 対象ジョブ件数と指定タスク数に基づく安全な割り当て。
+  - `distribute_jobs(jobs, task_index, task_count)` において、割り当てジョブ数が0件の場合は空リストを返却。
+- **コンテナ内ゼロジョブ即時正常終了 (`scripts/ops/run_pipeline.py` & `run_all_crawlers.py`)**:
+  - `run_pipeline.py` の `main()` において、引数 `--company` / `--property-type` を受け取り。
+  - Step 0（ProxySQL起動やDBマイグレーション）の実行前に、自タスク番号（`task_index`）の担当ジョブが存在するか判定。
+  - 担当ジョブが0件の場合、「`Task {task_index}/{task_count}: 対象ジョブが0件のため即座に正常終了します。`」とログ出力し、リソース起動処理を行わずに `sys.exit(0)`。
+  - これにより、意図せず立ち上がった余剰コンテナは数ミリ秒でExit 0し課金とリソース消費を防止。
+- **Cloud Workflows オーケストレーション (`terraform/workflows/daily_pipeline.yaml`)**:
+  - `args` より `company` / `propertyType` / `taskCount` を受け取る。
+  - 引数が渡された場合、`runCrawlerTasks` の `containerOverrides` の `args` に `--company=${company}`、`--property-type=${propertyType}` を付与。
+  - また、引数がある場合は `taskCount` を動的に制限（`min(target_task_count, 8)`）し、対象外のコンテナをそもそも起動させない。
+- **日次MLパイプラインの学習スキップ標準化**:
+  - 日次実行における `run_ml_pipeline.py` 呼び出し引数に `--skip-train` を反映（または環境変数 `ML_PIPELINE_SKIP_TRAIN=true`）。日次はバルク推論とお宝通知のみを実行し、学習は月次スケジュールに委譲。
+
+
 
