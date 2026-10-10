@@ -125,7 +125,7 @@ class DaiwaParser(ParserBase):
         price_val = None
         card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
         if card:
-            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
             if p_elem:
                 text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
                 price_val = converter.parse_price(text)

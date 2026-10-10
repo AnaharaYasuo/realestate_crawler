@@ -193,8 +193,7 @@ class AfrParser(ParserBase):
         access_str = specs.get("交通", "")
         if access_str:
             lines = [line.strip() for line in re.split(r'[\r\n]+', access_str) if line.strip()]
-            for line in lines:
-                traffic_lines.append(line)
+            traffic_lines.extend(lines)
         return traffic_lines
 
     def _parseImages(self, response: BeautifulSoup):

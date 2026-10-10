@@ -166,6 +166,22 @@ class DaikyoParser(ParserBase):
                 pref_urls.add(self.getRootDestUrl(href))
         return pref_urls
 
+    async def _step_pref_page(self, s, curr_p_url: str, visited_p_urls: set, detail_links: set):
+        try:
+            p_html = await self._getContent(s, curr_p_url)
+            if not p_html:
+                return [], None
+            p_soup = BeautifulSoup(p_html, "html.parser")
+            links = list(self._extract_detail_links(p_soup, detail_links))
+            next_page = await self.parseNextPage(p_soup)
+            if next_page and next_page not in visited_p_urls:
+                visited_p_urls.add(next_page)
+                return links, next_page
+            return links, None
+        except Exception as pe:
+            logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
+            return [], None
+
     async def _crawl_pref_url(self, p_url: str, detail_links: set, session: Optional[aiohttp.ClientSession] = None):
         curr_p_url = p_url
         visited_p_urls = {curr_p_url}
@@ -177,22 +193,10 @@ class DaikyoParser(ParserBase):
         try:
             while curr_p_url and page_count < self.MAX_PREF_PAGES:
                 page_count += 1
-                try:
-                    p_html = await self._getContent(s, curr_p_url)
-                    if not p_html:
-                        break
-                    p_soup = BeautifulSoup(p_html, "html.parser")
-                    for link in self._extract_detail_links(p_soup, detail_links):
-                        yield link
-
-                    next_page = await self.parseNextPage(p_soup)
-                    if next_page and next_page not in visited_p_urls:
-                        visited_p_urls.add(next_page)
-                        curr_p_url = next_page
-                    else:
-                        break
-                except Exception as pe:
-                    logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
+                links, curr_p_url = await self._step_pref_page(s, curr_p_url, visited_p_urls, detail_links)
+                for link in links:
+                    yield link
+                if not curr_p_url:
                     break
         finally:
             if own_session is not None and not own_session.closed:
