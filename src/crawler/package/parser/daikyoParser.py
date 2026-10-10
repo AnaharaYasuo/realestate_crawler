@@ -226,13 +226,14 @@ class DaikyoParser(ParserBase):
                     await asyncio.gather(*tasks, return_exceptions=True)
                     await queue.put(None)
 
-                asyncio.create_task(_waiter())
+                waiter_task = asyncio.create_task(_waiter())
 
                 while True:
                     item = await queue.get()
                     if item is None:
                         break
                     yield item
+                await waiter_task
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
