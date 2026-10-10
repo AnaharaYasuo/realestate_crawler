@@ -542,17 +542,21 @@ def _run_post_crawl_pipeline(
     debug_tools_dir: str,
     skip_portals: bool,
     skip_train: bool = False,
+    skip_url_check: bool = False,
 ) -> list[str]:
     failed_steps = []
 
     # Step 1.5 (2/6): 不正データ自動検証 & クレンジング & HTMLエラー監視
     try:
+        validate_cmd = [
+            sys.executable,
+            os.path.join(maintenance_dir, "validate_data.py"),
+        ]
+        if skip_url_check or os.getenv("VALIDATE_DATA_SKIP_URL_CHECK", "").lower() in ("true", "1"):
+            validate_cmd.append("--skip-url-check")
         run_command(
-            [
-                sys.executable,
-                os.path.join(maintenance_dir, "validate_data.py"),
-            ],
-            "Step 2/6: Scraping Data Validation & Automated Cleansing",
+            validate_cmd,
+            f"Step 2/6: Scraping Data Validation & Automated Cleansing{' [Skip URL Check]' if '--skip-url-check' in validate_cmd else ''}",
         )
     except Exception as e:
         failed_steps.append("Step 2/6: Scraping Data Validation & Automated Cleansing")
@@ -665,6 +669,11 @@ def main():
         "--skip-train",
         action="store_true",
         help="Skip ML model training and run estimation only (Issue #698, #801)",
+    )
+    parser.add_argument(
+        "--skip-url-check",
+        action="store_true",
+        help="Skip HTTP URL active checks in validate_data.py (Issue #837)",
     )
     args = parser.parse_args()
     pin_execution_date()
@@ -825,6 +834,7 @@ def main():
             debug_tools_dir,
             args.skip_portals,
             skip_train=args.skip_train,
+            skip_url_check=args.skip_url_check,
         )
         _check_failed_slack_notifications(failed_slack_file)
 
