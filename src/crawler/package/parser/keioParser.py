@@ -138,32 +138,38 @@ class KeioParser(ParserBase):
         href = next_el.get("href")
         return self._build_page_url(target_page, href)
 
-    async def parseRootPage(self, response: BeautifulSoup):
+    def _extract_price_from_card(self, a):
+        card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
+        if not card:
+            return None
+        p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+        if not p_elem:
+            return None
+        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+        return converter.parse_price(text)
+
+    def _extract_keio_item(self, a, detail_links: set, base_search_url: str):
         from package.api.differential import ListItem
+        href = a.get("href")
+        if not href or "/sale/" not in href or not href.strip("/").split("/")[-1].isdigit():
+            return None
+        full_url = urllib.parse.urljoin(base_search_url, href)
+        parsed = urllib.parse.urlparse(full_url)
+        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if normalized in detail_links:
+            return None
+        detail_links.add(normalized)
+        logging.debug(f"[Keio] Match detail link: {normalized}")
+        return ListItem(url=normalized, price=self._extract_price_from_card(a))
+
+    async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        
-        # 物件種別から実際の検索結果パスを解決
         base_search_url = "https://chukai.keiofudosan.co.jp/sale/search/area/pref_13/"
-        
+
         for a in response.find_all("a", class_="abs_link"):
-            href = a.get("href")
-            if href:
-                # /sale/<id>/ のパターンを抽出する
-                if "/sale/" in href and href.strip("/").split("/")[-1].isdigit():
-                    full_url = urllib.parse.urljoin(base_search_url, href)
-                    parsed = urllib.parse.urlparse(full_url)
-                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                    if normalized not in detail_links:
-                        detail_links.add(normalized)
-                        logging.debug(f"[Keio] Match detail link: {normalized}")
-                        price_val = None
-                        card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
-                        if card:
-                            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
-                            if p_elem:
-                                text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
-                                price_val = converter.parse_price(text)
-                        yield ListItem(url=normalized, price=price_val)
+            item = self._extract_keio_item(a, detail_links, base_search_url)
+            if item:
+                yield item
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = super()._get_specs(response)

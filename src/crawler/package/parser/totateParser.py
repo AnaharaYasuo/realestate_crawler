@@ -81,30 +81,38 @@ class TotateParser(ParserBase):
             path += '/'
         return f"{self.BASE_URL}{path}"
 
-    async def parseRootPage(self, response: BeautifulSoup):
+    def _extract_price_from_card(self, a):
+        card = a.find_parent(class_=re.compile(r'item|box|card', re.I)) or a.parent
+        if not card:
+            return None
+        p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+        if not p_elem:
+            return None
+        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+        return converter.parse_price(text)
+
+    def _extract_totate_item(self, a, detail_links: set):
         from package.api.differential import ListItem
+        href = a.get("href")
+        if not href:
+            return None
+        normalized = self._normalize_totate_detail_url(href)
+        if not normalized or normalized in detail_links:
+            return None
+        detail_links.add(normalized)
+        return ListItem(url=normalized, price=self._extract_price_from_card(a))
+
+    async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
-        # 物件詳細リンクは /mansion/NFD1C4021/ や /mansion/DMHF95604/ など英数字ID
         selectors = (
             ".items .item h4.name a, "
             f"a[href^='/{self.property_type or 'mansion'}/N'], "
             f"a[href*='/{self.property_type or 'mansion'}/']"
         )
         for a in response.select(selectors):
-            href = a.get("href")
-            if not href:
-                continue
-            normalized = self._normalize_totate_detail_url(href)
-            if normalized and normalized not in detail_links:
-                detail_links.add(normalized)
-                price_val = None
-                card = a.find_parent(class_=re.compile(r'item|box|card', re.I)) or a.parent
-                if card:
-                    p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
-                    if p_elem:
-                        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
-                        price_val = converter.parse_price(text)
-                yield ListItem(url=normalized, price=price_val)
+            item = self._extract_totate_item(a, detail_links)
+            if item:
+                yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         for btn in response.find_all(class_=re.compile(r'btn|button|map', re.I)):
