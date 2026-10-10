@@ -144,16 +144,15 @@ class DaikyoParser(ParserBase):
                 items_found = True
                 yield item
 
-        if not items_found:
-            for a in soup.select('a[href*="detail"]'):
-                href = a.get("href")
-                if not href:
-                    continue
-                normalized = self._normalize_detail_url(href)
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    logging.debug(f"[Daikyo] Fallback detail link: {normalized}")
-                    yield ListItem(url=normalized, price=None)
+        for a in soup.select('a[href*="detail"]'):
+            href = a.get("href")
+            if not href:
+                continue
+            normalized = self._normalize_detail_url(href)
+            if normalized not in detail_links:
+                detail_links.add(normalized)
+                logging.debug(f"[Daikyo] Additional detail link: {normalized}")
+                yield ListItem(url=normalized, price=None)
 
     def _extract_pref_urls(self, response: BeautifulSoup) -> set:
         slug_map = {"kodate": "house", "tochi": "land"}

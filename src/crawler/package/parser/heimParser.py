@@ -67,9 +67,10 @@ class HeimParser(ParserBase):
             return None
         full_url = urllib.parse.urljoin(base_domain, href)
         parsed = urllib.parse.urlparse(full_url)
-        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-        if normalized.endswith("/"):
-            normalized = normalized[:-1]
+        path = parsed.path.rstrip("/")
+        normalized = f"{parsed.scheme}://{parsed.netloc}{path}"
+        if parsed.query:
+            normalized = f"{normalized}?{parsed.query}"
         if normalized in detail_links or normalized.endswith("/bunjou"):
             return None
         # Defer property hubs without plan_detail — smoke expands them.
