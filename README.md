@@ -740,6 +740,8 @@ docs/
 - **[ローカルDockerクローラーコスト削減要件定義書](docs/requirements/local_docker_crawler_cost_saving_requirements.md)**: Cloud Runコスト削減・IAP ProxySQLトンネル・GCS直接永続化・並列度制御要件 (Issue #857)
 - **[ローカルDockerクローラーコスト削減外部設計書](docs/external_design/local_docker_crawler_cost_saving_external_design.md)**: ローカルDocker・IAPトンネル・ProxySQL・GCS連携アーキテクチャ外部仕様 (Issue #857)
 - **[ローカルDockerクローラーコスト削減内部設計書](docs/internal_design/local_docker_crawler_cost_saving_internal_design.md)**: Terraform IAPファイアウォール・run_all_crawlers並列度制御・docker-compose環境変数内部仕様 (Issue #857)
+- **[マルチイベントループレートリミットおよびウォッチドッグ公平化要件定義書](docs/requirements/rate_limit_and_watchdog_fairness_requirements.md)**: マルチイベントループ下でのasyncio.Lock競合解消および親監視ループ公平化要件 (Issue #860)
+- **[マルチイベントループレートリミットおよびウォッチドッグ公平化内部設計書](docs/internal_design/rate_limit_and_watchdog_fairness_internal_design.md)**: threading.Lock予約方式レートリミッターおよびbreak除去公平化詳細仕様 (Issue #860)
 
 
 ### 2. 開発を始める
