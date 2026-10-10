@@ -202,6 +202,88 @@ def record_task_start(task_index, task_count, jobs_assigned):
     return record
 
 
+def is_last_completing_task(
+    task_index: int | None,
+    task_count: int,
+    task_start_dt: datetime.datetime | None = None
+) -> bool:
+    """タスクアレイ実行において、自タスク以外の全タスクが終端状態 (COMPLETED/FAILED) かを判定し、原子的集約権を獲得する (Issue #823)"""
+    if task_count <= 1 or task_index is None:
+        return True
+
+    execution_id = get_execution_id()
+    execution_date = get_execution_date()
+    if not execution_id:
+        # 実行 ID が不明な場合は重複集約を防ぐため Coordinator (task 0) のみ True
+        return task_index == 0
+
+    from django.db import close_old_connections, transaction
+
+    now = timezone.now() if timezone is not None else datetime.datetime.now(datetime.timezone.utc)
+    start_dt = task_start_dt or now
+    elapsed_since_start = (now - start_dt).total_seconds()
+    stale_threshold_sec = timeout_sec
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            close_old_connections()
+            records = list(CrawlerTaskExecution.objects.filter(
+                execution_date=execution_date,
+                execution_id=execution_id
+            ))
+            record_map = {r.task_index: r for r in records}
+
+            pending = []
+            for idx in range(task_count):
+                if idx == task_index:
+                    continue
+                r = record_map.get(idx)
+                if r is None:
+                    # 自タスク開始から timeout_sec 未満の間は、未起動・未登録タスクを pending として待機
+                    if elapsed_since_start < stale_threshold_sec:
+                        pending.append(idx)
+                    continue
+                if r.status in ("COMPLETED", "FAILED", "AGGREGATING"):
+                    continue
+                # RUNNING の場合、updated_at が CRAWL_TIMEOUT_SEC 以上経過していれば stale とみなす
+                if r.updated_at and (now - r.updated_at).total_seconds() > stale_threshold_sec:
+                    logger.warning(f"Task {idx} is still RUNNING but stale (no update for >{stale_threshold_sec}s). Treating as finished.")
+                    continue
+                pending.append(idx)
+
+            if len(pending) > 0:
+                return False
+
+            # 全他タスクが終了済みの場合、重複集約を防ぐため行ロック (select_for_update) を伴う atomic クレームを実行
+            with transaction.atomic():
+                qs_locked = CrawlerTaskExecution.objects.select_for_update().filter(
+                    execution_date=execution_date,
+                    execution_id=execution_id
+                )
+                locked_records = list(qs_locked)
+
+                # 最新のロック下で他タスクが集約権を獲得済みか再検査
+                if any(lr.task_index != task_index and lr.status == "AGGREGATING" for lr in locked_records):
+                    logger.info("Another task already claimed aggregation. Skipping.")
+                    return False
+
+                claimed = CrawlerTaskExecution.objects.filter(
+                    execution_date=execution_date,
+                    execution_id=execution_id,
+                    task_index=task_index
+                ).update(status="AGGREGATING")
+                return claimed > 0
+
+        except Exception as e:
+            logger.warning(f"Failed to check/claim aggregation status (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+
+    logger.warning("All attempts to check other tasks status failed. Defaulting to False to avoid duplicate aggregation.")
+    return False
+
+
 def _mark_task_failed(task_exec_record):
     try:
         task_exec_record.status = "FAILED"
@@ -829,7 +911,61 @@ def main():
             logger.info(f"✔ CrawlerTaskExecution updated: status={task_exec_record.status}, success={task_exec_record.jobs_success}, failed={task_exec_record.jobs_failed}")
         except Exception as dbe:
             logger.warning(f"Failed to update CrawlerTaskExecution finish: {dbe}")
-    
+
+    # 分散タスクアレイ実行時の全体集約・レポート委譲制御 (B案: Issue #823)
+    # 他タスクがまだ実行中の場合は、全体DB集計・Slackレポート・エラー監視をスキップし即座に終了する
+    if task_count > 1 and task_index is not None and not is_last_completing_task(task_index, task_count, task_start_dt=batch_start_dt):
+        logger.info(
+            f"✔ [Fast Exit] Task {task_index}/{task_count} finished all assigned jobs. "
+            "Other tasks are still running. Skipping full aggregation/reporting and exiting immediately."
+        )
+        return
+
+    logger.info(
+        f"✔ [Final Aggregation] Task {task_index if task_index is not None else 0}/{task_count} is the final completing task. "
+        "Executing full database aggregation, Slack crawl status reporting, and error monitoring..."
+    )
+
+    # 複数タスク構成の場合、同一 execution_id を持つ全タスクの実行結果を集約
+    all_task_results = list(results)
+    total_assigned_count = len(target_jobs)
+    total_success_count = summary["success_jobs"]
+    total_failed_count = summary["failed_jobs"]
+
+    if task_count > 1:
+        exec_id = get_execution_id()
+        exec_dt = get_execution_date()
+        if exec_id:
+            try:
+                task_records = CrawlerTaskExecution.objects.filter(
+                    execution_date=exec_dt,
+                    execution_id=exec_id
+                )
+                fetched_results = []
+                seen_jobs = set()
+                # まず自タスクの結果を登録
+                for r in results:
+                    key = (r["company"].lower(), r["property_type"].lower())
+                    seen_jobs.add(key)
+                    fetched_results.append(r)
+                # 他タスクの結果を追加
+                for tr in task_records:
+                    if tr.task_index == task_index:
+                        continue
+                    if isinstance(tr.results_json, list):
+                        for r in tr.results_json:
+                            key = (r.get("company", "").lower(), r.get("property_type", "").lower())
+                            if key not in seen_jobs:
+                                seen_jobs.add(key)
+                                fetched_results.append(r)
+                all_task_results = fetched_results
+                total_assigned_count = len(all_task_results)
+                total_success_count = sum(1 for r in all_task_results if r.get("status") == "success")
+                total_failed_count = sum(1 for r in all_task_results if r.get("status") in ["failed", "timeout", "error", "hung_timeout"])
+                logger.info(f"✔ Aggregated all tasks results: total={total_assigned_count}, success={total_success_count}, failed={total_failed_count}")
+            except Exception as e:
+                logger.warning(f"Failed to aggregate multi-task results from DB: {e}. Falling back to current task results.")
+
     # Slack notifications for crawl statuses
     try:
         threshold_24h = timezone.now() - datetime.timedelta(hours=24)
@@ -878,20 +1014,20 @@ def main():
                 
         # Format Slack Message
         header_title = "📢 【クローリング実行状況レポート】"
-        if task_count > 1 and task_index is not None:
-            header_title = f"📢 【クローリング実行状況レポート (Task {task_index}/{task_count})】"
+        if task_count > 1:
+            header_title = f"📢 【クローリング実行状況レポート (全体集約 / Task 0..{task_count - 1})】"
         msg_lines = [header_title]
         msg_lines.append(f"開始時間: {batch_start_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"終了時間: {batch_end_dt.strftime(DATETIME_FORMAT)}")
         msg_lines.append(f"所要時間: {duration_str}")
-        if task_count > 1 and task_index is not None:
-            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (Task {task_index}/{task_count} 担当: {len(target_jobs)}, 成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
+        if task_count > 1:
+            msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (実行ジョブ: {total_assigned_count}, 成功: {total_success_count}, 失敗: {total_failed_count})")
         else:
             msg_lines.append(f"総ジョブ数: {len(CRAWL_JOBS)} (成功: {summary['success_jobs']}, 失敗: {summary['failed_jobs']})")
         
         # Build lookup from results for job timings
         job_timings = {}
-        for r in results:
+        for r in all_task_results:
             key = (r["company"].lower(), r["property_type"].lower())
             job_timings[key] = r
 
@@ -912,7 +1048,7 @@ def main():
         if not has_new_items:
             msg_lines.append("• 新規取得物件なし")
             
-        failed_list = [r for r in results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
+        failed_list = [r for r in all_task_results if r["status"] in ["failed", "timeout", "error", "hung_timeout"]]
         if failed_list:
             msg_lines.append("\n⚠️ 異常が発生したクローラー:")
             for f in failed_list:

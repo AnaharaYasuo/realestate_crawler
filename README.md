@@ -446,6 +446,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[codegraph_operational_integration_requirements.md](docs/requirements/codegraph_operational_integration_requirements.md)**: CodeGraphインデックス自動同期およびMCP運用の組み込み要件定義書 (Issue #744)
     *   **[yield_and_validator_thresholds_requirements.md](docs/requirements/yield_and_validator_thresholds_requirements.md)**: 投資物件利回り補正およびバリデーション許容境界の是正要件定義書 (Issue #791)
     *   **[crawler_stability_and_count_requirements.md](docs/requirements/crawler_stability_and_count_requirements.md)**: クローラー巡回安定化・動的種別集計・WAF/タイムアウト耐性強化 要件定義書 (Issue #819, #820, #821, #822)
+    *   **[task_array_fast_exit_requirements.md](docs/requirements/task_array_fast_exit_requirements.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 要件定義書 (Issue #823)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -466,6 +467,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[codegraph_operational_integration_basic_design.md](docs/basic_design/codegraph_operational_integration_basic_design.md)**: CodeGraph 運用組み込み基本設計書 (Gitフック・Taskfile・エージェント規範) (Issue #744)
 *   **[yield_and_validator_thresholds_basic_design.md](docs/basic_design/yield_and_validator_thresholds_basic_design.md)**: 投資物件利回り補正およびバリデーション許容境界の是正基本設計書 (Issue #791)
 *   **[crawler_stability_and_count_external_design.md](docs/external_design/crawler_stability_and_count_external_design.md)**: クローラー巡回安定化・動的種別集計・WAF/タイムアウト耐性強化 外部設計書 (Issue #819, #820, #821, #822)
+*   **[task_array_fast_exit_external_design.md](docs/external_design/task_array_fast_exit_external_design.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 外部設計書 (Issue #823)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -497,6 +499,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[CodeGraph 運用組み込み内部設計書](docs/internal_design/codegraph_operational_integration_internal_design.md)** - Git フック仕様（post-merge / post-checkout）、Taskfile定義、AGENTS.md行動規範および自動テスト仕様 (Issue #744)
 - **[投資物件利回り補正およびバリデーション許容境界の是正内部設計書](docs/internal_design/yield_and_validator_thresholds_internal_design.md)** - 利回りフォールバック自動算出、投資ポータルURL低額許容、および50億円上限閾値設定 (Issue #791)
 - **[クローラー巡回安定化・動的種別集計・WAF/タイムアウト耐性強化内部設計書](docs/internal_design/crawler_stability_and_count_internal_design.md)** - 動的種別判定集計・Tokyu/Sumifu投資モデル合算・SMTRC WAFリトライ・Sumai1タイムアウト緩和 (Issue #819, #820, #821, #822)
+- **[タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 内部設計書](docs/internal_design/task_array_fast_exit_internal_design.md)** - 先行完了タスクの全体集約スキップ・即時exit(0)および最終完了タスクへのレポート委譲 (Issue #823)
 
 
 
