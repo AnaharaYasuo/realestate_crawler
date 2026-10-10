@@ -737,6 +737,9 @@ docs/
 - **[全サイト一覧並列化および価格一致スキップ最適化要件定義書](docs/requirements/all_parsers_speed_and_cost_optimization_requirements.md)**: 残り15サイトの一覧価格抽出・階層Semaphore並行化・差分スキップ全面展開要件 (Issue #854)
 - **[全サイト一覧並列化および価格一致スキップ最適化外部設計書](docs/external_design/all_parsers_speed_and_cost_optimization_external_design.md)**: 15サイトのListItem返却および階層並列ストリーミング外部仕様 (Issue #854)
 - **[全サイト一覧並列化および価格一致スキップ最適化内部設計書](docs/internal_design/all_parsers_speed_and_cost_optimization_internal_design.md)**: 15パーサーの詳細実装・Queue/Semaphore並行化内部仕様 (Issue #854)
+- **[ローカルDockerクローラーコスト削減要件定義書](docs/requirements/local_docker_crawler_cost_saving_requirements.md)**: Cloud Runコスト削減・IAP ProxySQLトンネル・GCS直接永続化・並列度制御要件 (Issue #857)
+- **[ローカルDockerクローラーコスト削減外部設計書](docs/external_design/local_docker_crawler_cost_saving_external_design.md)**: ローカルDocker・IAPトンネル・ProxySQL・GCS連携アーキテクチャ外部仕様 (Issue #857)
+- **[ローカルDockerクローラーコスト削減内部設計書](docs/internal_design/local_docker_crawler_cost_saving_internal_design.md)**: Terraform IAPファイアウォール・run_all_crawlers並列度制御・docker-compose環境変数内部仕様 (Issue #857)
 
 
 ### 2. 開発を始める

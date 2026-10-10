@@ -53,7 +53,7 @@ class AdaptiveConcurrencyController:
         アクティブジョブ数に基づいて1ジョブあたりの詳細並行度を計算。
         環境変数 CLOUD_DETAIL_CONCURRENCY が設定されている場合は最優先。
         """
-        env_limit = os.getenv("CLOUD_DETAIL_CONCURRENCY")
+        env_limit = os.getenv("DETAIL_CONCURRENCY") or os.getenv("CLOUD_DETAIL_CONCURRENCY")
         if env_limit and env_limit.isdigit() and int(env_limit) > 0:
             return int(env_limit)
 
