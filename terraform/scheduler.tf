@@ -24,6 +24,7 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
         crawlerJob       = google_cloud_run_v2_job.crawler_pipeline_job.name
         mlPipelineJob    = google_cloud_run_v2_job.ml_pipeline_job.name
         skipPortals      = true
+        skipUrlCheck     = true
       })
     }))
   }
