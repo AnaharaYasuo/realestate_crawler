@@ -66,6 +66,7 @@ def test_live_crawl_guarantee_for_job(job):
         "bot",
         "メンテナンス",
         "maintenance",
+        "budget exhausted",
     )
     is_ci = bool(
         os.getenv("GITHUB_ACTIONS")
