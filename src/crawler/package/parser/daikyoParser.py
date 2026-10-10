@@ -117,38 +117,43 @@ class DaikyoParser(ParserBase):
 
     MAX_PREF_PAGES = 30
 
+    def _extract_card_item(self, card, detail_links: set):
+        from package.api.differential import ListItem
+        a = card.select_one('a[href*="detail"]')
+        if not a or not a.get("href"):
+            return None
+        normalized = self._normalize_detail_url(a.get("href"))
+        if normalized in detail_links:
+            return None
+        detail_links.add(normalized)
+
+        price_val = None
+        price_el = card.select_one('.price, .result-list__price, span[class*="price"], td.price, .priceText')
+        if price_el:
+            price_val = converter.parse_price(price_el.get_text(strip=True))
+
+        logging.debug(f"[Daikyo] Match detail link: {normalized}, price: {price_val}")
+        return ListItem(url=normalized, price=price_val)
+
     def _extract_detail_links(self, soup: BeautifulSoup, detail_links: set):
         from package.api.differential import ListItem
-        # 物件カード要素からURLと価格をペアで取得
         items_found = False
         for card in soup.select('.result-list__item, .cassette, .object-item, article, tr'):
-            a = card.select_one('a[href*="detail"]')
-            if not a or not a.get("href"):
-                continue
-            normalized = self._normalize_detail_url(a.get("href"))
-            if normalized in detail_links:
-                continue
-            detail_links.add(normalized)
-            items_found = True
+            item = self._extract_card_item(card, detail_links)
+            if item:
+                items_found = True
+                yield item
 
-            price_val = None
-            price_el = card.select_one('.price, .result-list__price, span[class*="price"], td.price, .priceText')
-            if price_el:
-                price_val = converter.parse_price(price_el.get_text(strip=True))
-
-            logging.debug(f"[Daikyo] Match detail link: {normalized}, price: {price_val}")
-            yield ListItem(url=normalized, price=price_val)
-
-        # フォールバック: カードセレクタにヒットしなかった場合は任意のdetailリンクから抽出
         if not items_found:
             for a in soup.select('a[href*="detail"]'):
                 href = a.get("href")
-                if href:
-                    normalized = self._normalize_detail_url(href)
-                    if normalized not in detail_links:
-                        detail_links.add(normalized)
-                        logging.debug(f"[Daikyo] Fallback detail link: {normalized}")
-                        yield ListItem(url=normalized, price=None)
+                if not href:
+                    continue
+                normalized = self._normalize_detail_url(href)
+                if normalized not in detail_links:
+                    detail_links.add(normalized)
+                    logging.debug(f"[Daikyo] Fallback detail link: {normalized}")
+                    yield ListItem(url=normalized, price=None)
 
     def _extract_pref_urls(self, response: BeautifulSoup) -> set:
         slug_map = {"kodate": "house", "tochi": "land"}
