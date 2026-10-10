@@ -3,10 +3,10 @@
 Issue #851: クローリング高速化およびCloud Runコスト最適化のユニットテスト
 """
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from bs4 import BeautifulSoup
 
-from package.parser.daikyoParser import DaikyoMansionParser, DaikyoKodateParser
+from package.parser.daikyoParser import DaikyoMansionParser
 from package.api.differential import ListItem
 from package.utils.task_distribution import distribute_jobs, _assign_8_task_index
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
