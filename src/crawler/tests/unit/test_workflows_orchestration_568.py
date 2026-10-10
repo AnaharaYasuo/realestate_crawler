@@ -173,3 +173,28 @@ def test_workflows_monitor_job_execution_fast_fail():
         with open(yaml_path, "r", encoding="utf-8") as f:
             yaml_text = f.read()
         assert "JobExecutionNotFound" in yaml_text, f"{yaml_filename} must raise JobExecutionNotFound on repeated failures"
+
+
+def test_workflows_configurable_url_verification():
+    """daily_pipeline.yaml において、死活検証(skipUrlCheck)がデフォルト true でスキップされ、
+    crawlerArgs および mlArgs に --skip-url-check が伝搬されること.
+    """
+    import yaml
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
+    assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
+
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # skipUrlCheck のデフォルト値が true (スキップ) で定義されていること
+    assert 'skipUrlCheck' in content
+    assert 'checkSkipUrlCheck' in content
+    assert '--skip-url-check' in content
+
+    # Cloud Scheduler (scheduler.tf) の日次トリガー引数に skipUrlCheck = true が明示設定されていること
+    scheduler_tf_path = os.path.join(repo_root, "terraform", "scheduler.tf")
+    with open(scheduler_tf_path, "r", encoding="utf-8") as f:
+        scheduler_content = f.read()
+    assert 'skipUrlCheck' in scheduler_content
+

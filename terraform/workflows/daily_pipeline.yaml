@@ -23,6 +23,7 @@ main:
           - skipPortals: ${default(map.get(args, "skipPortals"), true)}
           - explicitTaskCount: ${default(map.get(args, "taskCount"), null)}
           - skipTrain: ${default(map.get(args, "skipTrain"), true)}
+          - skipUrlCheck: ${default(map.get(args, "skipUrlCheck"), not default(map.get(args, "enableUrlCheck"), false))}
           - crawlerArgs: []
           - effectiveTaskCount: null
           - mlArgs: ["--force", "--skip-train"]
@@ -50,6 +51,12 @@ main:
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-portals"])}
                     - mlArgs: ${list.concat(mlArgs, ["--skip-portals"])}
+          - checkSkipUrlCheck:
+              switch:
+                - condition: ${skipUrlCheck}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-url-check"])}
+                    - mlArgs: ${list.concat(mlArgs, ["--skip-url-check"])}
           - checkTaskCount:
               switch:
                 - condition: ${explicitTaskCount != null}
