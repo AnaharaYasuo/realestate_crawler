@@ -110,35 +110,60 @@ monitorJobExecution:
         assign:
           - startTime: ${sys.now()}
           - sleepInterval: 30
+          - consecutiveGetErrors: 0
 
     - checkStatusLoop:
         try:
-          call: googleapis.run.v2.projects.locations.jobs.executions.get
-          args:
-            name: ${executionName}
-          result: execDetails
+          steps:
+            - getExecution:
+                call: googleapis.run.v2.projects.locations.jobs.executions.get
+                args:
+                  name: ${executionName}
+                result: execDetails
+            - resetGetErrors:
+                assign:
+                  - consecutiveGetErrors: 0
         except:
           as: getErr
           steps:
             - logGetError:
                 assign:
                   - ignoredGetErr: ${getErr}
+                  - consecutiveGetErrors: ${consecutiveGetErrors + 1}
+            - checkGetErrorThreshold:
+                switch:
+                  - condition: ${consecutiveGetErrors >= 3}
+                    raise:
+                      error: "JobExecutionNotFound"
+                      message: '${"Job execution disappeared or failed to fetch after 3 consecutive attempts: " + string(executionName) + " (last error: " + string(getErr) + ")"}'
             - waitBeforeRetryGet:
                 call: sys.sleep
                 args:
                   seconds: 10
             - retryCheckStatus:
                 try:
-                  call: googleapis.run.v2.projects.locations.jobs.executions.get
-                  args:
-                    name: ${executionName}
-                  result: execDetails
+                  steps:
+                    - retryGetExecution:
+                        call: googleapis.run.v2.projects.locations.jobs.executions.get
+                        args:
+                          name: ${executionName}
+                        result: execDetails
+                    - resetGetErrorsOnRetry:
+                        assign:
+                          - consecutiveGetErrors: 0
                 except:
                   as: retryErr
                   steps:
                     - logRetryError:
                         assign:
                           - ignoredRetryErr: ${retryErr}
+                          - consecutiveGetErrors: ${consecutiveGetErrors + 1}
+                    - checkGetErrorThresholdOnRetry:
+                        switch:
+                          - condition: ${consecutiveGetErrors >= 3}
+                            raise:
+                              error: "JobExecutionNotFound"
+                              message: '${"Job execution disappeared or failed to fetch after 3 consecutive attempts: " + string(executionName) + " (last error: " + string(retryErr) + ")"}'
                     - checkTimeoutOnRetryErr:
                         switch:
                           - condition: ${(sys.now() - startTime) > timeoutSec}
