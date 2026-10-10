@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
 import asyncio
-from decimal import Decimal
 import logging
 import re
 from typing import Optional
@@ -16,6 +14,7 @@ from package.models.kenbiya import (
 )
 from package.parser.baseParser import (
     ParserBase,
+    ListItem,
     InvestmentParserBase,
     MansionParserBase,
     KodateParserBase,
@@ -108,6 +107,20 @@ class KenbiyaParserBase(ParserBase):
         if last_status == 429:
             raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
         raise LoadPropertyPageException(f"Exceeded max retries for {url}")
+
+    BASE_URL = "https://www.kenbiya.com"
+
+    async def parsePropertyListPage(self, response: BeautifulSoup):
+        detail_links = set()
+        for a in response.find_all("a", href=re.compile(r'/pp\d+/.*?/re_\w+/')):
+            href = a.get("href")
+            if not href:
+                continue
+            full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
+            if full_url not in detail_links:
+                detail_links.add(full_url)
+                price = self._extract_card_price(a)
+                yield ListItem(url=full_url, price=price)
 
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):

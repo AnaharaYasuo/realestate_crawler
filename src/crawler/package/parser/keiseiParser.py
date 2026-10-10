@@ -6,7 +6,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.keisei import KeiseiMansion, KeiseiKodate, KeiseiTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -88,7 +88,8 @@ class KeiseiParser(ParserBase):
                 if normalized not in detail_links:
                     detail_links.add(normalized)
                     logging.debug(f"[Keisei] Match detail link: {normalized}")
-                    yield normalized
+                    price = self._extract_card_price(a)
+                    yield ListItem(url=normalized, price=price)
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
