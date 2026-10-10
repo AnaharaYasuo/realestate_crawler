@@ -31,6 +31,10 @@
 * **FR-006: Cloud Workflows における子ジョブ消失・取得エラー時の高速失敗 (Fast-Fail on Missing Execution)**
   - Cloud Workflows (`daily_pipeline.yaml`, `recrawl_anomalies_pipeline.yaml`) の `monitorJobExecution` において、対象 Cloud Run Job Execution が削除・消失・404 Not Found または連続取得失敗した場合、タイムアウト（9〜11時間）まで無限リトライせず、上限試行回数（3回）を超えた時点で直ちに `JobExecutionNotFound` エラーを発生させて Fast-Fail すること。
   - これにより親ワークフローのゾンビ化を根絶し、`except` ブロックで ProxySQL 等のリソース停止が遅滞なく実行されること。
+* **FR-007: 死活検証（URL verification）のワークフローパラメータ化とデフォルトスキップ (Configurable URL Verification)**
+  - Cloud Workflows (`daily_pipeline.yaml`) において、死活検証（URL verification / 約24分所要）の実施要否をワークフロー実行時パラメータ（`skipUrlCheck` / デフォルト `true`、または `enableUrlCheck` / デフォルト `false`）で制御可能とすること。
+  - デフォルトおよび Cloud Scheduler による日次定期スケジュール実行では死活検証を実施しない（スキップする）設定とし、通常パイプライン実行時間を短縮すること。明示的に実行指定された場合のみ死活検証を有効化すること。
+  - `run_pipeline.py` および `run_ml_pipeline.py` に `--skip-url-check` オプションを安全に伝搬すること。
 
 ## 4. 非機能要件 (Non-Functional Requirements)
 * **NFR-001: 既存クローリングアラートおよび個別通知チャネルの保全**
@@ -47,3 +51,4 @@
 * [ ] 【基準5】Cloud Workflows (`daily_pipeline.yaml`) において、クローラージョブが一部または全体で失敗しても後続のML・価格推定ジョブが確実に実行され、ProxySQLが正しくクリーンアップされること。
 * [ ] 【基準6】Cloud Workflows (`daily_pipeline.yaml`, `recrawl_anomalies_pipeline.yaml`) において、監視対象 Execution が消失（404）または連続取得失敗した場合に `JobExecutionNotFound` で Fast-Fail して ProxySQL が停止されること。
 * [ ] 【基準7】ユニットテストおよび統合テストで上記動作が検証され、100% 成功すること。
+* [ ] 【基準8】死活検証がワークフローパラメータで実施制御可能であり、デフォルトおよび Cloud Scheduler 日次実行でスキップ（非実施）されること。

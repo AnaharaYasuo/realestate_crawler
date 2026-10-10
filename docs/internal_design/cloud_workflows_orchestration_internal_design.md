@@ -61,6 +61,12 @@ main:
   - `consecutiveGetErrors < 3` の場合: 10秒待機後に再試行
 - `JobExecutionNotFound` は親の `tryPipeline` の `except: as: pipelineError` で捕捉され、`stopProxySQLOnError` を確実に通過してリソース解放を保証。
 
+### 1.2 死活検証（URL verification）のパラメータ制御とデフォルトスキップ
+- `daily_pipeline.yaml` の引数に `skipUrlCheck`（デフォルト `true`）を追加。
+- ワークフロー呼び出し側（引数未指定時および Cloud Scheduler 日次実行）ではデフォルトで `skipUrlCheck: true` となり、Crawler Job および ML Pipeline Job に `--skip-url-check` を自動付与。
+- 手動実行時（`{"skipUrlCheck": false}` または `{"enableUrlCheck": true}`）のみ `--skip-url-check` の付与をスキップし、Step 2（`validate_data.py`）で約24分の全件URL死活確認を実行。
+- `run_pipeline.py`（Crawler Job）に `--skip-url-check` CLI 引数を追加し、単一タスク/Coordinator 実行時の `_run_post_crawl_pipeline` 経由で `validate_data.py` へオプションを伝搬。
+
 ## 2. クローラー内ハング監視（無進捗検知）の実装
 
 ### 監視ループロジック（`run_all_crawlers.py`）
