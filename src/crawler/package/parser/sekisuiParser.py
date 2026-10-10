@@ -99,6 +99,7 @@ class SekisuiParser(ParserBase):
         return ""
 
     async def parseRootPage(self, response):
+        from package.api.differential import ListItem
         detail_links = set()
         # /detail/C20010050622/ のようなID形式にマッチする href を正規表現で抽出
         for a in response.find_all("a", href=re.compile(r'/detail/[A-Za-z0-9]+/')):
@@ -110,7 +111,15 @@ class SekisuiParser(ParserBase):
                 normalized = f"{self.BASE_URL}{parsed.path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    yield normalized
+                    # 親要素やカード要素から価格を抽出
+                    price_val = None
+                    card = a.find_parent(class_=re.compile(r'item|box|card|cassette|list', re.I)) or a.parent
+                    if card:
+                        p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+                        if p_elem:
+                            text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                            price_val = converter.parse_price(text)
+                    yield ListItem(url=normalized, price=price_val)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

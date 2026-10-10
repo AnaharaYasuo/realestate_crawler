@@ -82,6 +82,7 @@ class TotateParser(ParserBase):
         return f"{self.BASE_URL}{path}"
 
     async def parseRootPage(self, response: BeautifulSoup):
+        from package.api.differential import ListItem
         detail_links = set()
         # 物件詳細リンクは /mansion/NFD1C4021/ や /mansion/DMHF95604/ など英数字ID
         selectors = (
@@ -96,7 +97,14 @@ class TotateParser(ParserBase):
             normalized = self._normalize_totate_detail_url(href)
             if normalized and normalized not in detail_links:
                 detail_links.add(normalized)
-                yield normalized
+                price_val = None
+                card = a.find_parent(class_=re.compile(r'item|box|card', re.I)) or a.parent
+                if card:
+                    p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+                    if p_elem:
+                        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                        price_val = converter.parse_price(text)
+                yield ListItem(url=normalized, price=price_val)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         for btn in response.find_all(class_=re.compile(r'btn|button|map', re.I)):

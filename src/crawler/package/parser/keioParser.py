@@ -139,6 +139,7 @@ class KeioParser(ParserBase):
         return self._build_page_url(target_page, href)
 
     async def parseRootPage(self, response: BeautifulSoup):
+        from package.api.differential import ListItem
         detail_links = set()
         
         # 物件種別から実際の検索結果パスを解決
@@ -155,7 +156,14 @@ class KeioParser(ParserBase):
                     if normalized not in detail_links:
                         detail_links.add(normalized)
                         logging.debug(f"[Keio] Match detail link: {normalized}")
-                        yield normalized
+                        price_val = None
+                        card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
+                        if card:
+                            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+                            if p_elem:
+                                text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                                price_val = converter.parse_price(text)
+                        yield ListItem(url=normalized, price=price_val)
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = super()._get_specs(response)

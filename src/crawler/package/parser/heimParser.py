@@ -58,6 +58,7 @@ class HeimParser(ParserBase):
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
+        from package.api.differential import ListItem
         detail_links = set()
         base_domain = "https://www.tokyo816.jp"
 
@@ -77,7 +78,14 @@ class HeimParser(ParserBase):
                 # Defer property hubs without plan_detail — smoke expands them.
                 detail_links.add(normalized)
                 logging.debug(f"[Heim] Match detail link: {normalized}")
-                yield normalized
+                price_val = None
+                card = a.find_parent(class_=re.compile(r'item|box|card|cassette|plan', re.I)) or a.parent
+                if card:
+                    p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+                    if p_elem:
+                        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                        price_val = converter.parse_price(text)
+                yield ListItem(url=normalized, price=price_val)
 
 
 

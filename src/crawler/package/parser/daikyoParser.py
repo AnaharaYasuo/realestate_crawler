@@ -115,15 +115,40 @@ class DaikyoParser(ParserBase):
             path += '/'
         return f"{self.BASE_URL}{path}"
 
+    MAX_PREF_PAGES = 30
+
     def _extract_detail_links(self, soup: BeautifulSoup, detail_links: set):
-        for a in soup.select('a[href*="detail"]'):
-            href = a.get("href")
-            if href:
-                normalized = self._normalize_detail_url(href)
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    logging.debug(f"[Daikyo] Match detail link: {normalized}")
-                    yield normalized
+        from package.api.differential import ListItem
+        # 物件カード要素からURLと価格をペアで取得
+        items_found = False
+        for card in soup.select('.result-list__item, .cassette, .object-item, article, tr'):
+            a = card.select_one('a[href*="detail"]')
+            if not a or not a.get("href"):
+                continue
+            normalized = self._normalize_detail_url(a.get("href"))
+            if normalized in detail_links:
+                continue
+            detail_links.add(normalized)
+            items_found = True
+
+            price_val = None
+            price_el = card.select_one('.price, .result-list__price, span[class*="price"], td.price, .priceText')
+            if price_el:
+                price_val = converter.parse_price(price_el.get_text(strip=True))
+
+            logging.debug(f"[Daikyo] Match detail link: {normalized}, price: {price_val}")
+            yield ListItem(url=normalized, price=price_val)
+
+        # フォールバック: カードセレクタにヒットしなかった場合は任意のdetailリンクから抽出
+        if not items_found:
+            for a in soup.select('a[href*="detail"]'):
+                href = a.get("href")
+                if href:
+                    normalized = self._normalize_detail_url(href)
+                    if normalized not in detail_links:
+                        detail_links.add(normalized)
+                        logging.debug(f"[Daikyo] Fallback detail link: {normalized}")
+                        yield ListItem(url=normalized, price=None)
 
     def _extract_pref_urls(self, response: BeautifulSoup) -> set:
         slug_map = {"kodate": "house", "tochi": "land"}
@@ -143,8 +168,10 @@ class DaikyoParser(ParserBase):
         if session is None:
             own_session = aiohttp.ClientSession()
         s = session or own_session
+        page_count = 0
         try:
-            while curr_p_url:
+            while curr_p_url and page_count < self.MAX_PREF_PAGES:
+                page_count += 1
                 try:
                     p_html = await self._getContent(s, curr_p_url)
                     if not p_html:
@@ -174,9 +201,25 @@ class DaikyoParser(ParserBase):
         # 全国トップページ等の場合、各都道府県別URL (/buy/{type}/pXX/) を取得して展開
         pref_urls = self._extract_pref_urls(response)
         if pref_urls:
-            for p_url in sorted(pref_urls):
-                async for link in self._crawl_pref_url(p_url, detail_links):
-                    yield link
+            # 都道府県別一覧を並行取得（最大6並行）
+            import asyncio
+            sem = asyncio.Semaphore(6)
+            async with aiohttp.ClientSession() as session:
+                async def _fetch_single_pref(url):
+                    results = []
+                    async with sem:
+                        async for item in self._crawl_pref_url(url, detail_links, session=session):
+                            results.append(item)
+                    return results
+
+                tasks = [_fetch_single_pref(u) for u in sorted(pref_urls)]
+                gathered = await asyncio.gather(*tasks, return_exceptions=True)
+                for res in gathered:
+                    if isinstance(res, list):
+                        for item in res:
+                            yield item
+                    elif isinstance(res, Exception):
+                        logging.warning(f"[Daikyo] Error in pref parallel crawl: {res}")
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}

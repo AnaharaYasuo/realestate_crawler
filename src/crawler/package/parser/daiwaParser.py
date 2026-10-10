@@ -111,26 +111,28 @@ class DaiwaParser(ParserBase):
         return self._find_next_by_link_tags(page_links)
 
     async def parseRootPage(self, response: BeautifulSoup):
-
+        from package.api.differential import ListItem
         detail_links = set()
         target_mapping = {"kodate": "house|kodate", "tochi": "land|tochi"}
         target_type = target_mapping.get(self.property_type, self.property_type or "mansion")
         pattern = re.compile(rf'/buy/(?:{target_type})/[\w\d-]+')
         for a in response.find_all("a", href=pattern):
-
-
             href = a.get("href")
             if href:
                 full_url = self.getRootDestUrl(href)
                 parsed = urllib.parse.urlparse(full_url)
                 path = parsed.path
-                if not path.endswith('/'):
-                    # 末尾スラッシュなしが基本
-                    pass
                 normalized = f"{self.BASE_URL}{path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    yield normalized
+                    price_val = None
+                    card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
+                    if card:
+                        p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'\d+[,.\d]*\s*万円'))
+                        if p_elem:
+                            text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                            price_val = converter.parse_price(text)
+                    yield ListItem(url=normalized, price=price_val)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         for btn in response.find_all(class_=re.compile(r'btn|button|map', re.I)):
