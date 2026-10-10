@@ -98,19 +98,36 @@ class SekisuiParser(ParserBase):
                     return self.getRootDestUrl(href)
         return ""
 
+    def _extract_price_from_card(self, a):
+        card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
+        if not card:
+            return None
+        p_elem = card.find(class_=re.compile(r'price', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
+        if not p_elem:
+            return None
+        text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+        return converter.parse_price(text)
+
+    def _extract_sekisui_item(self, a, detail_links: set):
+        from package.api.differential import ListItem
+        href = a.get("href")
+        if not href:
+            return None
+        full_url = self.getRootDestUrl(href)
+        import urllib.parse
+        parsed = urllib.parse.urlparse(full_url)
+        normalized = f"{self.BASE_URL}{parsed.path}"
+        if normalized in detail_links:
+            return None
+        detail_links.add(normalized)
+        return ListItem(url=normalized, price=self._extract_price_from_card(a))
+
     async def parseRootPage(self, response):
         detail_links = set()
-        # /detail/C20010050622/ のようなID形式にマッチする href を正規表現で抽出
         for a in response.find_all("a", href=re.compile(r'/detail/[A-Za-z0-9]+/')):
-            href = a.get("href")
-            if href:
-                full_url = self.getRootDestUrl(href)
-                import urllib.parse
-                parsed = urllib.parse.urlparse(full_url)
-                normalized = f"{self.BASE_URL}{parsed.path}"
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    yield normalized
+            item = self._extract_sekisui_item(a, detail_links)
+            if item:
+                yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

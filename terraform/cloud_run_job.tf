@@ -62,10 +62,6 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           value = trimsuffix(var.crawler_timeout, "s")
         }
         env {
-          name  = "CLOUD_DETAIL_CONCURRENCY"
-          value = "5"
-        }
-        env {
           name  = "ML_NUM_THREADS"
           value = "-1"
         }

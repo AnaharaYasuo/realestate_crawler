@@ -1454,6 +1454,11 @@ _DEEP_SEED_BY_COMPANY: dict[str, dict[str, str]] = {
         "kodate": "https://www.livable.co.jp/kounyu/kodate/tokyo/a13101/",
         "tochi": "https://www.livable.co.jp/kounyu/tochi/tokyo/a13103/",
     },
+    "daikyo": {
+        "mansion": "https://www.daikyo-anabuki.co.jp/buy/mansion/p13/",
+        "kodate": "https://www.daikyo-anabuki.co.jp/buy/house/p13/",
+        "tochi": "https://www.daikyo-anabuki.co.jp/buy/land/p13/",
+    },
 }
 
 

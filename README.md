@@ -731,6 +731,9 @@ docs/
 - **[SMTRCクローリング安定化・全物件種別0件取得防止要件定義書](docs/requirements/smtrc_crawl_stability_requirements.md)**: SMTRC WAF 403 / 微小応答 Playwright ステルス自動フォールバックおよび 0 件取得防止要件 (Issue #827)
 - **[SMTRCクローリング安定化・全物件種別0件取得防止外部設計書](docs/external_design/smtrc_crawl_stability_external_design.md)**: SMTRC 各種別エンドポイントおよび WAF フォールバック外部仕様 (Issue #827)
 - **[SMTRCクローリング安定化・全物件種別0件取得防止内部設計書](docs/internal_design/smtrc_crawl_stability_internal_design.md)**: SmtrcParser Playwright ステルスパラメータおよびテスト検証仕様 (Issue #827)
+- **[クローリング高速化およびCloud Runコスト最適化要件定義書](docs/requirements/crawl_speed_and_cost_optimization_requirements.md)**: 一覧価格抽出・差分スキップ連動・都道府県巡回並行化・AdaptiveConcurrency全面採用・タスク分散再配分要件 (Issue #851)
+- **[クローリング高速化およびCloud Runコスト最適化外部設計書](docs/external_design/crawl_speed_and_cost_optimization_external_design.md)**: ListItem返却・都道府県Semaphore並行化・タスクアレイ再配置仕様 (Issue #851)
+- **[クローリング高速化およびCloud Runコスト最適化内部設計書](docs/internal_design/crawl_speed_and_cost_optimization_internal_design.md)**: パーサー実装・価格一致判定スキップ・Terraform変数適正化内部仕様 (Issue #851)
 
 
 ### 2. 開発を始める

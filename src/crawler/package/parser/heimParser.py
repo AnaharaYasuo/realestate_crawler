@@ -57,27 +57,42 @@ class HeimParser(ParserBase):
                 return self.getRootDestUrl(href)
         return ""
 
+    def _extract_heim_item(self, a, detail_links: set, base_domain: str):
+        from package.api.differential import ListItem
+        href = a.get("href")
+        if not href:
+            return None
+        # Prefer lot-level plan_detail pages (have 間取り/面積); property index is a hub.
+        if "/plan_detail/" not in href and "/bunjou/property/" not in href and "detail.php" not in href:
+            return None
+        full_url = urllib.parse.urljoin(base_domain, href)
+        parsed = urllib.parse.urlparse(full_url)
+        path = parsed.path.rstrip("/")
+        normalized = f"{parsed.scheme}://{parsed.netloc}{path}"
+        if parsed.query:
+            normalized = f"{normalized}?{parsed.query}"
+        if normalized in detail_links or normalized.endswith("/bunjou"):
+            return None
+        # Defer property hubs without plan_detail — smoke expands them.
+        detail_links.add(normalized)
+        logging.debug(f"[Heim] Match detail link: {normalized}")
+        price_val = None
+        card = a.find_parent(class_=re.compile(r'item|box|card|cassette|plan', re.I)) or a.parent
+        if card:
+            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
+            if p_elem:
+                text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
+                price_val = converter.parse_price(text)
+        return ListItem(url=normalized, price=price_val)
+
     async def parseRootPage(self, response: BeautifulSoup):
         detail_links = set()
         base_domain = "https://www.tokyo816.jp"
 
         for a in response.find_all("a"):
-            href = a.get("href")
-            if not href:
-                continue
-            # Prefer lot-level plan_detail pages (have 間取り/面積); property index is a hub.
-            if "/plan_detail/" in href or "/bunjou/property/" in href or "detail.php" in href:
-                full_url = urllib.parse.urljoin(base_domain, href)
-                parsed = urllib.parse.urlparse(full_url)
-                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-                if normalized.endswith("/"):
-                    normalized = normalized[:-1]
-                if normalized in detail_links or normalized.endswith("/bunjou"):
-                    continue
-                # Defer property hubs without plan_detail — smoke expands them.
-                detail_links.add(normalized)
-                logging.debug(f"[Heim] Match detail link: {normalized}")
-                yield normalized
+            item = self._extract_heim_item(a, detail_links, base_domain)
+            if item:
+                yield item
 
 
 
