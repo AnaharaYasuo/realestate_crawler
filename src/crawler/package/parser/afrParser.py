@@ -117,9 +117,17 @@ class AfrParser(ParserBase):
             "AfrParser: Extracted %s property numbers from search list.",
             len(detail_ids),
         )
+        from package.api.differential import ListItem
         next_page = self._afr_detail_next_page_path()
         for bno in detail_ids:
-            yield f"{self.BASE_URL}{next_page}?bno={bno}"
+            url = f"{self.BASE_URL}{next_page}?bno={bno}"
+            price_val = None
+            # スクリプトブロック内から価格表記 ('price': '4,580万円' または 'kakaku') を探索
+            price_m = re.search(rf"'number':\s*'{re.escape(bno)}'[^{{}}]*'(?:price|kakaku)':\s*'([^']+)'", html_str) or \
+                      re.search(rf"'(?:price|kakaku)':\s*'([^']+)'[^{{}}]*'number':\s*'{re.escape(bno)}'", html_str)
+            if price_m:
+                price_val = converter.parse_price(price_m.group(1))
+            yield ListItem(url=url, price=price_val)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
@@ -185,8 +193,7 @@ class AfrParser(ParserBase):
         access_str = specs.get("交通", "")
         if access_str:
             lines = [line.strip() for line in re.split(r'[\r\n]+', access_str) if line.strip()]
-            for line in lines:
-                traffic_lines.append(line)
+            traffic_lines.extend(lines)
         return traffic_lines
 
     def _parseImages(self, response: BeautifulSoup):

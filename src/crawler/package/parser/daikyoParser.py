@@ -115,15 +115,42 @@ class DaikyoParser(ParserBase):
             path += '/'
         return f"{self.BASE_URL}{path}"
 
+    MAX_PREF_PAGES = 30
+
+    def _extract_card_item(self, card, detail_links: set):
+        from package.api.differential import ListItem
+        a = card.select_one('a[href*="detail"]')
+        if not a or not a.get("href"):
+            return None
+        normalized = self._normalize_detail_url(a.get("href"))
+        if normalized in detail_links:
+            return None
+        detail_links.add(normalized)
+
+        price_val = None
+        price_el = card.select_one('.price, .result-list__price, span[class*="price"], td.price, .priceText')
+        if price_el:
+            price_val = converter.parse_price(price_el.get_text(strip=True))
+
+        logging.debug(f"[Daikyo] Match detail link: {normalized}, price: {price_val}")
+        return ListItem(url=normalized, price=price_val)
+
     def _extract_detail_links(self, soup: BeautifulSoup, detail_links: set):
+        from package.api.differential import ListItem
+        for card in soup.select('.result-list__item, .cassette, .object-item, article, tr'):
+            item = self._extract_card_item(card, detail_links)
+            if item:
+                yield item
+
         for a in soup.select('a[href*="detail"]'):
             href = a.get("href")
-            if href:
-                normalized = self._normalize_detail_url(href)
-                if normalized not in detail_links:
-                    detail_links.add(normalized)
-                    logging.debug(f"[Daikyo] Match detail link: {normalized}")
-                    yield normalized
+            if not href:
+                continue
+            normalized = self._normalize_detail_url(href)
+            if normalized not in detail_links:
+                detail_links.add(normalized)
+                logging.debug(f"[Daikyo] Additional detail link: {normalized}")
+                yield ListItem(url=normalized, price=None)
 
     def _extract_pref_urls(self, response: BeautifulSoup) -> set:
         slug_map = {"kodate": "house", "tochi": "land"}
@@ -136,6 +163,22 @@ class DaikyoParser(ParserBase):
                 pref_urls.add(self.getRootDestUrl(href))
         return pref_urls
 
+    async def _step_pref_page(self, s, curr_p_url: str, visited_p_urls: set, detail_links: set):
+        try:
+            p_html = await self._getContent(s, curr_p_url)
+            if not p_html:
+                return [], None
+            p_soup = BeautifulSoup(p_html, "html.parser")
+            links = list(self._extract_detail_links(p_soup, detail_links))
+            next_page = await self.parseNextPage(p_soup)
+            if next_page and next_page not in visited_p_urls:
+                visited_p_urls.add(next_page)
+                return links, next_page
+            return links, None
+        except Exception as pe:
+            logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
+            return [], None
+
     async def _crawl_pref_url(self, p_url: str, detail_links: set, session: Optional[aiohttp.ClientSession] = None):
         curr_p_url = p_url
         visited_p_urls = {curr_p_url}
@@ -143,24 +186,14 @@ class DaikyoParser(ParserBase):
         if session is None:
             own_session = aiohttp.ClientSession()
         s = session or own_session
+        page_count = 0
         try:
-            while curr_p_url:
-                try:
-                    p_html = await self._getContent(s, curr_p_url)
-                    if not p_html:
-                        break
-                    p_soup = BeautifulSoup(p_html, "html.parser")
-                    for link in self._extract_detail_links(p_soup, detail_links):
-                        yield link
-
-                    next_page = await self.parseNextPage(p_soup)
-                    if next_page and next_page not in visited_p_urls:
-                        visited_p_urls.add(next_page)
-                        curr_p_url = next_page
-                    else:
-                        break
-                except Exception as pe:
-                    logging.warning(f"[Daikyo] Failed to fetch pref {curr_p_url}: {pe}")
+            while curr_p_url and page_count < self.MAX_PREF_PAGES:
+                page_count += 1
+                links, curr_p_url = await self._step_pref_page(s, curr_p_url, visited_p_urls, detail_links)
+                for link in links:
+                    yield link
+                if not curr_p_url:
                     break
         finally:
             if own_session is not None and not own_session.closed:
@@ -174,9 +207,33 @@ class DaikyoParser(ParserBase):
         # 全国トップページ等の場合、各都道府県別URL (/buy/{type}/pXX/) を取得して展開
         pref_urls = self._extract_pref_urls(response)
         if pref_urls:
-            for p_url in sorted(pref_urls):
-                async for link in self._crawl_pref_url(p_url, detail_links):
-                    yield link
+            import asyncio
+            sem = asyncio.Semaphore(10)
+            queue = asyncio.Queue()
+
+            async with aiohttp.ClientSession() as session:
+                async def _worker(url):
+                    try:
+                        async with sem:
+                            async for item in self._crawl_pref_url(url, detail_links, session=session):
+                                await queue.put(item)
+                    except Exception as e:
+                        logging.warning(f"[Daikyo] Error in pref parallel crawl for {url}: {e}")
+
+                tasks = [asyncio.create_task(_worker(u)) for u in sorted(pref_urls)]
+
+                async def _waiter():
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    await queue.put(None)
+
+                waiter_task = asyncio.create_task(_waiter())
+
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break
+                    yield item
+                await waiter_task
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}

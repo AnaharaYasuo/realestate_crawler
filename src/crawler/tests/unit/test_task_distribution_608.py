@@ -19,12 +19,12 @@ def test_distribute_jobs_8_tasks_categorization():
     assert len(all_assigned) == len(CRAWL_JOBS)
     assert set(all_assigned) == set(CRAWL_JOBS)
 
-    # 2. Task 0: Major brokers mansion
+    # 2. Task 0: Major brokers mansion + daikyo mansion (Issue #851 rebalancing)
     major_5 = {"mitsui", "sumifu", "tokyu", "nomura", "misawa"}
-    assert set(task_jobs[0]) == {(c, "mansion") for c in major_5}
+    assert set(task_jobs[0]) == ({(c, "mansion") for c in major_5} | {("daikyo", "mansion")})
 
-    # 3. Task 1: Major brokers kodate
-    assert set(task_jobs[1]) == {(c, "kodate") for c in major_5}
+    # 3. Task 1: Major brokers kodate + daikyo kodate and tochi (Issue #851 rebalancing)
+    assert set(task_jobs[1]) == ({(c, "kodate") for c in major_5} | {("daikyo", "kodate"), ("daikyo", "tochi")})
 
     # 4. Task 2: Major brokers tochi
     assert set(task_jobs[2]) == {(c, "tochi") for c in major_5}

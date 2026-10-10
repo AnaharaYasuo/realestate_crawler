@@ -411,26 +411,44 @@ class AthomeParser(ParserBase):
             logging.warning(f"Error expanding list_link {curr_l_url}: {e}")
             return [], None
 
+    async def _step_sub_list_page(self, curr_l_url: str, base_domain: str, sem: asyncio.Semaphore, visited_l_urls: set):
+        async with sem:
+            links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
+        parsed_next = urllib.parse.urlparse(next_page or "")
+        next_valid = (
+            next_page
+            and parsed_next.scheme in ("http", "https")
+            and parsed_next.netloc in self.ATHOME_ALLOWED_HOSTS
+            and next_page not in visited_l_urls
+        )
+        if next_valid:
+            visited_l_urls.add(next_page)
+            return links, next_page
+        return links, None
+
     async def _expand_sub_list_pages(self, list_links, base_domain: str):
         visited_l_urls = set()
-        for l_url in list_links:
+        sem = asyncio.Semaphore(6)
+
+        async def _crawl_single_branch(l_url: str):
+            branch_results = []
             curr_l_url = l_url
             visited_l_urls.add(curr_l_url)
-            while curr_l_url:
-                links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
-                for normalized in links:
-                    yield normalized
-                parsed_next = urllib.parse.urlparse(next_page or "")
-                if (
-                    next_page
-                    and parsed_next.scheme in ("http", "https")
-                    and parsed_next.netloc in self.ATHOME_ALLOWED_HOSTS
-                    and next_page not in visited_l_urls
-                ):
-                    visited_l_urls.add(next_page)
-                    curr_l_url = next_page
-                else:
-                    break
+            page_count = 0
+            while curr_l_url and page_count < 30:
+                page_count += 1
+                links, curr_l_url = await self._step_sub_list_page(curr_l_url, base_domain, sem, visited_l_urls)
+                branch_results.extend(links)
+            return branch_results
+
+        tasks = [_crawl_single_branch(u) for u in list_links]
+        gathered = await asyncio.gather(*tasks, return_exceptions=True)
+        for res in gathered:
+            if isinstance(res, list):
+                for item in res:
+                    yield item
+            elif isinstance(res, Exception):
+                logging.warning(f"[Athome] Error in parallel list expansion: {res}")
 
     ATHOME_ALLOWED_HOSTS = ("www.athome.co.jp", "toushi-athome.jp", "athome.co.jp")
 
