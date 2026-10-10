@@ -7,7 +7,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.rearie import RearieMansion, RearieKodate, RearieTochi
-from package.parser.baseParser import KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
+from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -127,11 +127,20 @@ class RearieParser(ParserBase):
         for item in items:
             p_id = item.get("id")
             if p_id:
-                yield f"{self.BASE_API_URL}/api/v1/{detail_endpoint}/?id={p_id}&key={self.REPROS_KEY}"
+                raw_price = item.get("price")
+                price_val = None
+                if raw_price is not None:
+                    try:
+                        price_val = int(raw_price) * 10000
+                    except (ValueError, TypeError):
+                        price_val = None
+                detail_url = f"{self.BASE_API_URL}/api/v1/{detail_endpoint}/?id={p_id}&key={self.REPROS_KEY}"
+                yield ListItem(url=detail_url, price=price_val)
 
     async def parseRootPage(self, response: BeautifulSoup):
-        if hasattr(response, "_json_data"):
-            async for u in self.parseRootPageJson(response._json_data):
+        json_data = getattr(response, "_json_data", None)
+        if json_data is not None:
+            async for u in self.parseRootPageJson(json_data):
                 yield u
             return
 
@@ -146,15 +155,15 @@ class RearieParser(ParserBase):
         
         for a in response.find_all("a"):
             href = a.get("href")
-            if href:
-                if "detail.html" in href and "id=" in href and target_path in href:
-                    full_url = urllib.parse.urljoin(base_search_url, href)
-                    parsed = urllib.parse.urlparse(full_url)
-                    normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}"
-                    if normalized not in detail_links:
-                        detail_links.add(normalized)
-                        logging.debug(f"[Rearie] Match detail link: {normalized}")
-                        yield normalized
+            if href and "detail.html" in href and "id=" in href and target_path in href:
+                full_url = urllib.parse.urljoin(base_search_url, href)
+                parsed = urllib.parse.urlparse(full_url)
+                normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{parsed.query}"
+                if normalized not in detail_links:
+                    detail_links.add(normalized)
+                    logging.debug(f"[Rearie] Match detail link: {normalized}")
+                    price = self._extract_card_price(a)
+                    yield ListItem(url=normalized, price=price)
 
     def _parse_json_price(self, item, data: dict):
         price_num = data.get("price")

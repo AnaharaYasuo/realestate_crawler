@@ -15,6 +15,7 @@ from package.models.odakyu import (
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
+    ListItem,
     ListingEndedException,
     MansionParserBase,
     ParserBase,
@@ -113,7 +114,8 @@ class OdakyuParser(ParserBase):
             normalized = self._normalize_detail_url(href)
             if normalized and normalized not in detail_links:
                 detail_links.add(normalized)
-                yield normalized
+                price = self._extract_card_price(a)
+                yield ListItem(url=normalized, price=price)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         # 不要なマップ・ボタンなどを取り除く

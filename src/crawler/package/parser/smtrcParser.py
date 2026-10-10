@@ -8,6 +8,7 @@ from package.models.smtrc import SmtrcInvestment, SmtrcKodate, SmtrcMansion, Smt
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
+    ListItem,
     MansionParserBase,
     ParserBase,
     SkipPropertyException,
@@ -93,7 +94,8 @@ class SmtrcParser(ParserBase):
                     normalized = f"{self.BASE_URL}/detail/CompareDetails?propertyCode={code}&pageId=D010"
                     if normalized not in detail_links:
                         detail_links.add(normalized)
-                        yield normalized
+                        price = self._extract_card_price(a)
+                        yield ListItem(url=normalized, price=price)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

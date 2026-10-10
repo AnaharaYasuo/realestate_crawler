@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
+    ListItem,
     MansionParserBase,
     ParserBase,
     SkipPropertyException,
@@ -132,7 +133,8 @@ class SumirinParser(ParserBase):
                 normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    yield normalized
+                    price = self._extract_card_price(a)
+                    yield ListItem(url=normalized, price=price)
 
     def _find_outline_section(self, response: BeautifulSoup):
         for sec in response.find_all("section"):

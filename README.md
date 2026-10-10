@@ -734,6 +734,9 @@ docs/
 - **[クローリング高速化およびCloud Runコスト最適化要件定義書](docs/requirements/crawl_speed_and_cost_optimization_requirements.md)**: 一覧価格抽出・差分スキップ連動・都道府県巡回並行化・AdaptiveConcurrency全面採用・タスク分散再配分要件 (Issue #851)
 - **[クローリング高速化およびCloud Runコスト最適化外部設計書](docs/external_design/crawl_speed_and_cost_optimization_external_design.md)**: ListItem返却・都道府県Semaphore並行化・タスクアレイ再配置仕様 (Issue #851)
 - **[クローリング高速化およびCloud Runコスト最適化内部設計書](docs/internal_design/crawl_speed_and_cost_optimization_internal_design.md)**: パーサー実装・価格一致判定スキップ・Terraform変数適正化内部仕様 (Issue #851)
+- **[全サイト一覧並列化および価格一致スキップ最適化要件定義書](docs/requirements/all_parsers_speed_and_cost_optimization_requirements.md)**: 残り15サイトの一覧価格抽出・階層Semaphore並行化・差分スキップ全面展開要件 (Issue #854)
+- **[全サイト一覧並列化および価格一致スキップ最適化外部設計書](docs/external_design/all_parsers_speed_and_cost_optimization_external_design.md)**: 15サイトのListItem返却および階層並列ストリーミング外部仕様 (Issue #854)
+- **[全サイト一覧並列化および価格一致スキップ最適化内部設計書](docs/internal_design/all_parsers_speed_and_cost_optimization_internal_design.md)**: 15パーサーの詳細実装・Queue/Semaphore並行化内部仕様 (Issue #854)
 
 
 ### 2. 開発を始める

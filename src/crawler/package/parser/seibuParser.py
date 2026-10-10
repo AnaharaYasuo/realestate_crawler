@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from package.models.seibu import SeibuKodate, SeibuMansion, SeibuTochi
 from package.parser.baseParser import (
     KodateParserBase,
+    ListItem,
     MansionParserBase,
     ParserBase,
     TochiParserBase,
@@ -90,7 +91,8 @@ class SeibuParser(ParserBase):
                 if normalized not in detail_links:
                     detail_links.add(normalized)
                     logging.debug(f"[Seibu] Match detail link: {normalized}")
-                    yield normalized
+                    price = self._extract_card_price(a)
+                    yield ListItem(url=normalized, price=price)
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = self._specs_from_tables(response)
