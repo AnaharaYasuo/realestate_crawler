@@ -140,3 +140,36 @@ def test_workflows_tf_configuration():
 
     assert 'resource "google_workflows_workflow" "daily_pipeline_workflow"' in content
     assert 'resource "google_project_iam_member" "scheduler_workflows_invoker"' in content
+
+
+def test_workflows_monitor_job_execution_fast_fail():
+    """daily_pipeline.yaml および recrawl_anomalies_pipeline.yaml において、
+    子ジョブ消失時に monitorJobExecution が無限リトライせず JobExecutionNotFound で Fast-Fail すること.
+    """
+    import yaml
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+
+    for yaml_filename in ["daily_pipeline.yaml", "recrawl_anomalies_pipeline.yaml"]:
+        yaml_path = os.path.join(repo_root, "terraform", "workflows", yaml_filename)
+        assert os.path.exists(yaml_path), f"{yaml_filename} missing at {yaml_path}"
+
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        assert "monitorJobExecution" in data, f"{yaml_filename} must define monitorJobExecution subworkflow"
+        monitor_steps = data["monitorJobExecution"]["steps"]
+
+        # initTimer で consecutiveGetErrors が初期化されていること
+        init_timer_step = next(s["initTimer"] for s in monitor_steps if "initTimer" in s)
+        assigned_vars = init_timer_step["assign"]
+        has_error_counter = any("consecutiveGetErrors" in v for v in assigned_vars)
+        assert has_error_counter is True, f"{yaml_filename} initTimer must initialize consecutiveGetErrors"
+
+        # checkStatusLoop でエラー発生時にカウントアップし、閾値判定(>= 3)で JobExecutionNotFound を raise すること
+        check_loop_step = next(s["checkStatusLoop"] for s in monitor_steps if "checkStatusLoop" in s)
+        assert "except" in check_loop_step, f"{yaml_filename} checkStatusLoop must catch get errors"
+
+        # YAML文字列として JobExecutionNotFound の raise が存在することを検証
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            yaml_text = f.read()
+        assert "JobExecutionNotFound" in yaml_text, f"{yaml_filename} must raise JobExecutionNotFound on repeated failures"
