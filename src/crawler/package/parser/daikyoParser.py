@@ -207,25 +207,32 @@ class DaikyoParser(ParserBase):
         # 全国トップページ等の場合、各都道府県別URL (/buy/{type}/pXX/) を取得して展開
         pref_urls = self._extract_pref_urls(response)
         if pref_urls:
-            # 都道府県別一覧を並行取得（最大6並行）
             import asyncio
-            sem = asyncio.Semaphore(6)
-            async with aiohttp.ClientSession() as session:
-                async def _fetch_single_pref(url):
-                    results = []
-                    async with sem:
-                        async for item in self._crawl_pref_url(url, detail_links, session=session):
-                            results.append(item)
-                    return results
+            sem = asyncio.Semaphore(10)
+            queue = asyncio.Queue()
 
-                tasks = [_fetch_single_pref(u) for u in sorted(pref_urls)]
-                gathered = await asyncio.gather(*tasks, return_exceptions=True)
-                for res in gathered:
-                    if isinstance(res, list):
-                        for item in res:
-                            yield item
-                    elif isinstance(res, Exception):
-                        logging.warning(f"[Daikyo] Error in pref parallel crawl: {res}")
+            async with aiohttp.ClientSession() as session:
+                async def _worker(url):
+                    try:
+                        async with sem:
+                            async for item in self._crawl_pref_url(url, detail_links, session=session):
+                                await queue.put(item)
+                    except Exception as e:
+                        logging.warning(f"[Daikyo] Error in pref parallel crawl for {url}: {e}")
+
+                tasks = [asyncio.create_task(_worker(u)) for u in sorted(pref_urls)]
+
+                async def _waiter():
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    await queue.put(None)
+
+                asyncio.create_task(_waiter())
+
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break
+                    yield item
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = {}
