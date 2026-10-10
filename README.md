@@ -444,6 +444,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[slack_validation_delisted_requirements.md](docs/requirements/slack_validation_delisted_requirements.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携要件定義書 (Issue #665)
     *   **[slack_notification_channel_separation_requirements.md](docs/requirements/slack_notification_channel_separation_requirements.md)**: Slack通知チャンネル責務分離要件定義書 (Issue #688)
     *   **[codegraph_operational_integration_requirements.md](docs/requirements/codegraph_operational_integration_requirements.md)**: CodeGraphインデックス自動同期およびMCP運用の組み込み要件定義書 (Issue #744)
+    *   **[yield_and_validator_thresholds_requirements.md](docs/requirements/yield_and_validator_thresholds_requirements.md)**: 投資物件利回り補正およびバリデーション許容境界の是正要件定義書 (Issue #791)
     *   **[crawler_stability_and_count_requirements.md](docs/requirements/crawler_stability_and_count_requirements.md)**: クローラー巡回安定化・動的種別集計・WAF/タイムアウト耐性強化 要件定義書 (Issue #819, #820, #821, #822)
     *   **[task_array_fast_exit_requirements.md](docs/requirements/task_array_fast_exit_requirements.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 要件定義書 (Issue #823)
 
