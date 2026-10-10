@@ -54,6 +54,12 @@ def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
     default_parallel = 9
     default_playwright_parallel = 3
+    raw_parallel = os.getenv("CRAWLER_PARALLEL")
+    if raw_parallel and raw_parallel.isdigit():
+        default_parallel = int(raw_parallel)
+    raw_pw_parallel = os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
+    if raw_pw_parallel and raw_pw_parallel.isdigit():
+        default_playwright_parallel = int(raw_pw_parallel)
     parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")

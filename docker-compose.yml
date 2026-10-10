@@ -22,16 +22,20 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=db
-      - DB_NAME=real_estate
+      - DB_HOST=${DB_HOST:-db}
+      - DB_NAME=${DB_NAME:-real_estate}
       - DB_USER=${DB_USER:-sumifu}
       - DB_PASSWORD=${DB_PASSWORD:-mayumimayumi0413}
-      - DB_PORT=3306
-      - CRAWLER_LIMIT=0
-      - STORAGE_ENDPOINT=http://minio:9000
-      - STORAGE_ACCESS_KEY=minioadmin
-      - STORAGE_SECRET_KEY=minioadmin
-      - STORAGE_BUCKET=realestate-images
+      - DB_PORT=${DB_PORT:-3306}
+      - CRAWLER_LIMIT=${CRAWLER_LIMIT:-0}
+      - CRAWLER_PARALLEL=${CRAWLER_PARALLEL:-9}
+      - CRAWLER_PLAYWRIGHT_PARALLEL=${CRAWLER_PLAYWRIGHT_PARALLEL:-3}
+      - DETAIL_CONCURRENCY=${DETAIL_CONCURRENCY:-}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-minio}
+      - STORAGE_ENDPOINT=${STORAGE_ENDPOINT:-http://minio:9000}
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-realestate-images}
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -39,6 +43,9 @@ services:
       # - IS_CLOUD=true
     volumes:
       - .:/app
+      - ${HOME:-~}/.config/gcloud:/root/.config/gcloud:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
     restart: always
@@ -48,23 +55,30 @@ services:
     env_file:
       - .env
     environment:
-      - DB_HOST=db
-      - DB_NAME=real_estate
+      - DB_HOST=${DB_HOST:-db}
+      - DB_NAME=${DB_NAME:-real_estate}
       - DB_USER=${DB_USER:-sumifu}
       - DB_PASSWORD=${DB_PASSWORD:-mayumimayumi0413}
-      - DB_PORT=3306
+      - DB_PORT=${DB_PORT:-3306}
       - CRAWLER_LIMIT=${CRAWLER_LIMIT:-0}
+      - CRAWLER_PARALLEL=${CRAWLER_PARALLEL:-9}
+      - CRAWLER_PLAYWRIGHT_PARALLEL=${CRAWLER_PLAYWRIGHT_PARALLEL:-3}
+      - DETAIL_CONCURRENCY=${DETAIL_CONCURRENCY:-}
       - CRAWL_COOLDOWN_SEC=${CRAWL_COOLDOWN_SEC:-180}
       - CRAWL_TIMEOUT_SEC=${CRAWL_TIMEOUT_SEC:-0}
-      - STORAGE_ENDPOINT=http://minio:9000
-      - STORAGE_ACCESS_KEY=minioadmin
-      - STORAGE_SECRET_KEY=minioadmin
-      - STORAGE_BUCKET=realestate-images
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-minio}
+      - STORAGE_ENDPOINT=${STORAGE_ENDPOINT:-http://minio:9000}
+      - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-minioadmin}
+      - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-minioadmin}
+      - STORAGE_BUCKET=${STORAGE_BUCKET:-realestate-images}
     dns:
       - 8.8.8.8
       - 8.8.4.4
     volumes:
       - .:/app
+      - ${HOME:-~}/.config/gcloud:/root/.config/gcloud:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
       - app
