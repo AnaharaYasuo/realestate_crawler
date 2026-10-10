@@ -2,7 +2,6 @@
 """
 Issue #851: クローリング高速化およびCloud Runコスト最適化のユニットテスト
 """
-import pytest
 import os
 from unittest.mock import patch, MagicMock
 from bs4 import BeautifulSoup

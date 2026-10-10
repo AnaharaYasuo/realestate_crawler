@@ -7,6 +7,8 @@ from typing import Any
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 
 class ListItem(str):
     url: str
@@ -64,7 +66,7 @@ def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, 
     # 一覧で価格が取得できており、かつDBの価格と完全一致している場合は即座にスキップ (TTL内)
     if item.price is not None and db_price is not None:
         if item.price != db_price:
-            logging.info(f"[Differential Crawl] Price change detected for {item.url}: {db_price} -> {item.price}")
+            logger.info(f"[Differential Crawl] Price change detected for {item.url}: {db_price} -> {item.price}")
             return True
         # 価格が完全一致している場合: TTL期限切れでなければスキップ確定
         if not _is_ttl_expired(db_dt, now, ttl_days):
@@ -72,7 +74,7 @@ def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, 
 
     # 価格が取れない場合でも、TTL有効期間内であれば不要な再フェッチをスキップ
     if _is_ttl_expired(db_dt, now, ttl_days):
-        logging.debug(f"[Differential Crawl] TTL expired ({ttl_days}d) for {item.url}. Refreshing.")
+        logger.debug(f"[Differential Crawl] TTL expired ({ttl_days}d) for {item.url}. Refreshing.")
         return True
     return False
 

@@ -424,8 +424,7 @@ class AthomeParser(ParserBase):
                 page_count += 1
                 async with sem:
                     links, next_page = await self._crawl_single_list_page(curr_l_url, base_domain)
-                for normalized in links:
-                    branch_results.append(normalized)
+                branch_results.extend(links)
                 parsed_next = urllib.parse.urlparse(next_page or "")
                 if (
                     next_page
