@@ -1373,7 +1373,11 @@ class ParserBase(metaclass=ABCMeta):
         req_timeout = getattr(self, 'REQUEST_TIMEOUT_SEC', 15)
         for attempt in range(max_timeouts):
             try:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=req_timeout)) as response:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=req_timeout, connect=5, sock_read=10)
+                ) as response:
                     if response.status == 200:
                         self.consecutive_timeouts = 0
                         return await response.read()

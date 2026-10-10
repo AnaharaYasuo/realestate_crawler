@@ -61,8 +61,23 @@ ERR_NO_COMPUTE_CLIENT: str = (
     "Neither google-cloud-compute nor valid GCP credentials available"
 )
 DEFAULT_GRACE_PERIOD_SEC: float = 900.0
-# 最長ジョブ (クローラー crawler_timeout = 32400s) + 猶予 600s
-DEFAULT_HUNG_THRESHOLD_SEC: float = 33000.0
+# 最長ジョブ (クローラー crawler_timeout = 10800s) + 猶予 600s
+DEFAULT_HUNG_THRESHOLD_SEC: float = 11400.0
+
+# ジョブ別の実効タイムアウト + 猶予 (crawler: 10800+600, ml: 7200+600, migrate: 600+300)
+JOB_HUNG_THRESHOLD_MAP: dict[str, float] = {
+    "realestate-crawler-pipeline": 11400.0,
+    "realestate-ml-pipeline": 7800.0,
+    "realestate-migrate": 900.0,
+}
+
+
+def get_job_hung_threshold(job_name: str, fallback_threshold: float = DEFAULT_HUNG_THRESHOLD_SEC) -> float:
+    """Returns hung threshold seconds for a specific Cloud Run job prefix."""
+    for prefix, threshold in JOB_HUNG_THRESHOLD_MAP.items():
+        if job_name.startswith(prefix):
+            return threshold
+    return fallback_threshold
 
 
 @dataclass
@@ -791,7 +806,8 @@ def check_and_stop_proxysql_instance(
         hung_jobs = [
             j
             for j in active_jobs
-            if j.elapsed_sec is None or j.elapsed_sec > timeout_threshold_sec
+            if j.elapsed_sec is None
+            or j.elapsed_sec > get_job_hung_threshold(j.job_name, timeout_threshold_sec)
         ]
         if not hung_jobs:
             job_desc = ", ".join(
@@ -1032,7 +1048,8 @@ def check_and_stop_proxysql_mig(
         hung_jobs = [
             j
             for j in active_jobs
-            if j.elapsed_sec is None or j.elapsed_sec > timeout_threshold_sec
+            if j.elapsed_sec is None
+            or j.elapsed_sec > get_job_hung_threshold(j.job_name, timeout_threshold_sec)
         ]
         if not hung_jobs:
             # All active jobs are legitimately running within timeout

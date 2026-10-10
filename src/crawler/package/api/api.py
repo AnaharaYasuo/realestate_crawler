@@ -912,7 +912,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     pass
                 new_loop.close()
 
-        t = threading.Thread(target=run_in_new_loop)
+        max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
+        start_time = time.monotonic()
+        t = threading.Thread(target=run_in_new_loop, daemon=True)
         t.start()
         while t.is_alive():
             t.join(1.0)
@@ -921,6 +923,14 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 from django.db import close_old_connections
                 close_old_connections()
                 os._exit(0)
+            if time.monotonic() - start_time > max_timeout:
+                logger.error("Local execution timed out after %.1fs for %s", max_timeout, detail_url)
+                if connections is not None:
+                    try:
+                        connections.close_all()
+                    except Exception:
+                        pass
+                return detail_url, 504, "LocalTimeout"
 
         if child_errors:
             logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
@@ -1392,7 +1402,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         
         while retry_count <= max_retries:
             try:
-                async with session.get(url) as response:
+                async with session.get(
+                    url, timeout=aiohttp.ClientTimeout(total=15, connect=5, sock_read=10)
+                ) as response:
                     status_code = response.status
                     logging.info(f"Response status: {status_code} for URL: {url}")
                     if status_code != 200:
@@ -1427,7 +1439,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         "mitsui": 1.0,
         "smtrc": 1.0,
     }
-    _SITE_RATE_LOCKS: ClassVar[dict[str, asyncio.Lock]] = {}
+    _SITE_RATE_LOCKS: ClassVar[dict[str, threading.Lock]] = {}
     _SITE_LAST_START_TIMES: ClassVar[dict[str, float]] = {}
 
     async def _apply_download_delay_if_needed(self):
@@ -1440,15 +1452,23 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return
 
         if company not in self._SITE_RATE_LOCKS:
-            self._SITE_RATE_LOCKS[company] = asyncio.Lock()
+            with _dispatched_detail_lock:
+                if company not in self._SITE_RATE_LOCKS:
+                    self._SITE_RATE_LOCKS[company] = threading.Lock()
 
-        async with self._SITE_RATE_LOCKS[company]:
+        sleep_sec = 0.0
+        with self._SITE_RATE_LOCKS[company]:
             last_time = self._SITE_LAST_START_TIMES.get(company, 0.0)
             now = time.monotonic()
             elapsed = now - last_time
             if elapsed < delay:
-                await asyncio.sleep(delay - elapsed)
-            self._SITE_LAST_START_TIMES[company] = time.monotonic()
+                sleep_sec = delay - elapsed
+                self._SITE_LAST_START_TIMES[company] = now + sleep_sec
+            else:
+                self._SITE_LAST_START_TIMES[company] = now
+
+        if sleep_sec > 0.0:
+            await asyncio.sleep(sleep_sec)
 
     async def _fetch_detail_item(self):
         async def get_item():
