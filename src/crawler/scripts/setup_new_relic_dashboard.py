@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 New Relic Comprehensive Unified Dashboard Provisioner for Real Estate Crawler.
 Deletes legacy dashboards and provisions a complete full-stack observability dashboard
@@ -222,7 +221,7 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 6: Container Resources (Cloud Run cgroup)
+        # Row 6: Container Resources & Sizing Telemetry (Cloud Run cgroup)
         {
             "title": "Container Memory Usage % (Alert Threshold: 85%)",
             "layout": {"column": 1, "row": 16, "width": 6, "height": 3},
@@ -251,10 +250,39 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 7: GenAI / LLM & ML Inference
+        # Row 7: Container CPU & Instance Sizing Assessment
+        {
+            "title": "Container Cumulative CPU Time (Seconds)",
+            "layout": {"column": 1, "row": 19, "width": 6, "height": 3},
+            "configuration": {
+                "line": {
+                    "nrqlQueries": [
+                        {
+                            "accountId": account_id,
+                            "query": "SELECT max(cpuUsageSeconds) AS 'CPU Seconds' FROM ContainerSample FACET containerName SINCE 7 days ago TIMESERIES",
+                        }
+                    ]
+                }
+            },
+        },
+        {
+            "title": "Instance Sizing & Resource Utilization Summary (Last 7 Days)",
+            "layout": {"column": 7, "row": 19, "width": 6, "height": 3},
+            "configuration": {
+                "table": {
+                    "nrqlQueries": [
+                        {
+                            "accountId": account_id,
+                            "query": "SELECT max(memoryPercent) AS 'Max Mem %', average(memoryPercent) AS 'Avg Mem %', max(memoryUsageMb) AS 'Max Mem MB', average(memoryLimitMb) AS 'Limit MB', max(cpuUsageSeconds) AS 'Max CPU Sec' FROM ContainerSample FACET containerName SINCE 7 days ago",
+                        }
+                    ]
+                }
+            },
+        },
+        # Row 8: GenAI / LLM & ML Inference
         {
             "title": "Gemini LLM Token Consumption & Est. Cost (USD)",
-            "layout": {"column": 1, "row": 19, "width": 6, "height": 3},
+            "layout": {"column": 1, "row": 22, "width": 6, "height": 3},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
@@ -268,7 +296,7 @@ def build_dashboard_create_payload(
         },
         {
             "title": "ML Price Estimation & Bargain Property Counts",
-            "layout": {"column": 7, "row": 19, "width": 6, "height": 3},
+            "layout": {"column": 7, "row": 22, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
@@ -280,10 +308,10 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 8: Logs & Errors
+        # Row 9: Logs & Errors
         {
             "title": "Recent Application Error Logs",
-            "layout": {"column": 1, "row": 22, "width": 12, "height": 4},
+            "layout": {"column": 1, "row": 25, "width": 12, "height": 4},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
