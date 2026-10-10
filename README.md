@@ -728,6 +728,9 @@ docs/
 - **[適応型並列度＆DB過負荷制御要件定義書](docs/requirements/adaptive_concurrency_and_db_throttling_requirements.md)**: ジョブ並列度1.5倍化(9並列)・アクティブジョブ連動詳細並行度・DB過負荷自己適応型スロットリング要件 (Issue #795)
 - **[適応型並列度＆DB過負荷制御外部設計書](docs/external_design/adaptive_concurrency_and_db_throttling_external_design.md)**: CLIオプション(--parallel 9)・環境変数および動的ログ仕様 (Issue #795)
 - **[適応型並列度＆DB過負荷制御内部設計書](docs/internal_design/adaptive_concurrency_and_db_throttling_internal_design.md)**: AdaptiveConcurrencyController・_save_item_with_retryサーキットブレーカー詳細仕様 (Issue #795)
+- **[SMTRCクローリング安定化・全物件種別0件取得防止要件定義書](docs/requirements/smtrc_crawl_stability_requirements.md)**: SMTRC WAF 403 / 微小応答 Playwright ステルス自動フォールバックおよび 0 件取得防止要件 (Issue #827)
+- **[SMTRCクローリング安定化・全物件種別0件取得防止外部設計書](docs/external_design/smtrc_crawl_stability_external_design.md)**: SMTRC 各種別エンドポイントおよび WAF フォールバック外部仕様 (Issue #827)
+- **[SMTRCクローリング安定化・全物件種別0件取得防止内部設計書](docs/internal_design/smtrc_crawl_stability_internal_design.md)**: SmtrcParser Playwright ステルスパラメータおよびテスト検証仕様 (Issue #827)
 
 
 ### 2. 開発を始める
