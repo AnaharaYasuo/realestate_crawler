@@ -137,11 +137,9 @@ class DaikyoParser(ParserBase):
 
     def _extract_detail_links(self, soup: BeautifulSoup, detail_links: set):
         from package.api.differential import ListItem
-        items_found = False
         for card in soup.select('.result-list__item, .cassette, .object-item, article, tr'):
             item = self._extract_card_item(card, detail_links)
             if item:
-                items_found = True
                 yield item
 
         for a in soup.select('a[href*="detail"]'):
