@@ -52,6 +52,15 @@ main:
               message: '${"Crawler phase had errors: " + string(crawlerError)}'
 ```
 
+### 1.1 monitorJobExecution における子ジョブ消失検知（Fast-Fail）
+子ジョブ（Cloud Run Job Execution）が強制終了・手動キャンセル・リソース削除等により Cloud Run 上から消失（404 Not Found または API 取得エラー）した場合、従来の無限リトライループを排除し、有限試行（連続 3 回）で高速失敗させる：
+- `consecutiveGetErrors` カウンタ（初期値 0）
+- `executions.get` 成功時: `consecutiveGetErrors = 0` にリセット
+- `executions.get` 例外発生時: `consecutiveGetErrors = consecutiveGetErrors + 1`
+  - `consecutiveGetErrors >= 3` の場合: 直ちに `raise: {error: "JobExecutionNotFound", message: "Cloud Run Job execution vanished or failed to fetch after 3 attempts"}`
+  - `consecutiveGetErrors < 3` の場合: 10秒待機後に再試行
+- `JobExecutionNotFound` は親の `tryPipeline` の `except: as: pipelineError` で捕捉され、`stopProxySQLOnError` を確実に通過してリソース解放を保証。
+
 ## 2. クローラー内ハング監視（無進捗検知）の実装
 
 ### 監視ループロジック（`run_all_crawlers.py`）
@@ -68,5 +77,6 @@ main:
    - Workflows リソース定義の構文・タイムアウト値（5h / 7h）のアサーション。
 2. `test_crawler_hang_watchdog.py`:
    - 5分間沈黙した子プロセスが正しくハング判定され SIGKILL されることのモック検証。
-3. `test_workflows_finally_stop.py`:
+3. `test_workflows_finally_stop.py` / `test_workflows_orchestration_568.py`:
    - ワークフローの例外発生時にも必ず ProxySQL 停止ステップが通過することの構文的検証。
+   - `monitorJobExecution` に `JobExecutionNotFound` による連続エラー制限と Fast-Fail ロジックが存在することの検証。

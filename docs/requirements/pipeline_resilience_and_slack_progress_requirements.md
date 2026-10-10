@@ -28,6 +28,9 @@
 * **FR-005: Cloud Workflows におけるクローラー障害時のMLパイプライン自動継続 (Cloud Workflows Orchestration Resilience)**
   - Cloud Workflows (`daily_pipeline.yaml`) において、クローラージョブ（`crawlerJob`）の監視ステップで障害（`JobExecutionFailed` や `JobExecutionTimeout`）が発生した場合でも、即座に例外再送出（ProxySQL停止）せずエラーを記録・捕捉した上で、残余時間（`remainingMLTimeout`）が確保されている限り、後続のML・価格推定ジョブ（`mlPipelineJob`）を確実に実行すること。
   - MLパイプライン完了後にクローラーまたはMLジョブの失敗を評価し、いずれかで失敗があった場合は最終的にワークフロー全体としてエラー状態を報告すること。
+* **FR-006: Cloud Workflows における子ジョブ消失・取得エラー時の高速失敗 (Fast-Fail on Missing Execution)**
+  - Cloud Workflows (`daily_pipeline.yaml`, `recrawl_anomalies_pipeline.yaml`) の `monitorJobExecution` において、対象 Cloud Run Job Execution が削除・消失・404 Not Found または連続取得失敗した場合、タイムアウト（9〜11時間）まで無限リトライせず、上限試行回数（3回）を超えた時点で直ちに `JobExecutionNotFound` エラーを発生させて Fast-Fail すること。
+  - これにより親ワークフローのゾンビ化を根絶し、`except` ブロックで ProxySQL 等のリソース停止が遅滞なく実行されること。
 
 ## 4. 非機能要件 (Non-Functional Requirements)
 * **NFR-001: 既存クローリングアラートおよび個別通知チャネルの保全**
@@ -42,4 +45,5 @@
 * [ ] 【基準3】お宝物件配信（`send_recommendations.py`）の開始・候補抽出状況・完了サマリーがSlack（`property_alert`）に通知されること。
 * [ ] 【基準4】後続ステップ（ML再学習等）でエラーが発生した場合でも、隔離されて価格推定とお宝物件通知が継続実行されること。
 * [ ] 【基準5】Cloud Workflows (`daily_pipeline.yaml`) において、クローラージョブが一部または全体で失敗しても後続のML・価格推定ジョブが確実に実行され、ProxySQLが正しくクリーンアップされること。
-* [ ] 【基準6】ユニットテストおよび統合テストで上記動作が検証され、100% 成功すること。
+* [ ] 【基準6】Cloud Workflows (`daily_pipeline.yaml`, `recrawl_anomalies_pipeline.yaml`) において、監視対象 Execution が消失（404）または連続取得失敗した場合に `JobExecutionNotFound` で Fast-Fail して ProxySQL が停止されること。
+* [ ] 【基準7】ユニットテストおよび統合テストで上記動作が検証され、100% 成功すること。
