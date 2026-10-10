@@ -99,10 +99,10 @@ class SekisuiParser(ParserBase):
         return ""
 
     def _extract_price_from_card(self, a):
-        card = a.find_parent(class_=re.compile(r'item|box|card|cassette|list', re.I)) or a.parent
+        card = a.find_parent(class_=re.compile(r'item|box|card|cassette', re.I)) or a.parent
         if not card:
             return None
-        p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
+        p_elem = card.find(class_=re.compile(r'price', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
         if not p_elem:
             return None
         text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
