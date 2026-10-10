@@ -122,9 +122,8 @@ class MitsuiParser(ParserBase):
         return self.BASE_URL + link_url
 
     async def parsePropertyListPage(self, response):
-        
-        async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
-            yield dest_url
+        async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
+            yield item
 
     async def getPropertyListNextPageUrl(self, response):
         await asyncio.sleep(0)
@@ -1508,8 +1507,8 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser, InvestmentParserBa
         """
         すべての中身を取得（一棟アパートとしてフィルタリング済みのため）
         """
-        async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
-            yield dest_url
+        async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
+            yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

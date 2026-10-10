@@ -1,7 +1,7 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase
 from package.models.sumai1 import Sumai1Mansion, Sumai1Kodate, Sumai1Tochi, Sumai1Investment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -111,7 +111,8 @@ class Sumai1Parser(ParserBase):
                 normalized = f"{self.BASE_URL}{parsed.path}"
                 if normalized not in detail_links:
                     detail_links.add(normalized)
-                    yield normalized
+                    price = self._extract_card_price(a)
+                    yield ListItem(url=normalized, price=price)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

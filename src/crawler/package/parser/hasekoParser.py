@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from decimal import Decimal
 
 from package.parser.baseParser import (
+    ListItem,
     MansionParserBase,
     ListingEndedException
 )
@@ -21,8 +22,22 @@ def check_haseko_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 
 class HasekoMansionParser(MansionParserBase):
+    BASE_URL = "https://www.haseko-urbannet.co.jp"
+
     def getCharset(self):
         return "utf-8"
+
+    async def parsePropertyListPage(self, response: BeautifulSoup):
+        detail_links = set()
+        for a in response.find_all("a", href=re.compile(r'/detail/[a-zA-Z0-9_-]+')):
+            href = a.get("href")
+            if not href:
+                continue
+            full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
+            if full_url not in detail_links:
+                detail_links.add(full_url)
+                price = self._extract_card_price(a)
+                yield ListItem(url=full_url, price=price)
 
     def createEntity(self):
         return HasekoMansion()
