@@ -880,6 +880,26 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
+    def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
+        start_time = time.monotonic()
+        while thread.is_alive():
+            thread.join(1.0)
+            if os.path.exists("stop.flag"):
+                logger.info("stop.flag found, forcing exit...")
+                from django.db import close_old_connections
+                close_old_connections()
+                os._exit(0)
+            if time.monotonic() - start_time > max_timeout:
+                logger.error("Local execution timed out after %.1fs for %s", max_timeout, detail_url)
+                try:
+                    from django.db import close_old_connections, connections
+                    close_old_connections()
+                    connections.close_all()
+                except Exception as db_exc:  # noqa: BLE001
+                    logger.debug("Failed to close DB connections on timeout: %s", db_exc)
+                return detail_url, 504, "LocalTimeout"
+        return None
+
     def _handle_local_execution(self, api_url, detail_url):
         parsed = urlparse(api_url)
         path = parsed.path
@@ -913,25 +933,11 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 new_loop.close()
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
-        start_time = time.monotonic()
         t = threading.Thread(target=run_in_new_loop, daemon=True)
         t.start()
-        while t.is_alive():
-            t.join(1.0)
-            if os.path.exists("stop.flag"):
-                logger.info("stop.flag found, forcing exit...")
-                from django.db import close_old_connections
-                close_old_connections()
-                os._exit(0)
-            if time.monotonic() - start_time > max_timeout:
-                logger.error("Local execution timed out after %.1fs for %s", max_timeout, detail_url)
-                try:
-                    from django.db import close_old_connections, connections
-                    close_old_connections()
-                    connections.close_all()
-                except Exception as db_exc:  # noqa: BLE001
-                    logger.debug("Failed to close DB connections on timeout: %s", db_exc)
-                return detail_url, 504, "LocalTimeout"
+        timeout_res = self._wait_for_local_execution(t, max_timeout, detail_url)
+        if timeout_res is not None:
+            return timeout_res
 
         if child_errors:
             logger.error("Local execution failed for %s: %r", detail_url, child_errors[0])
