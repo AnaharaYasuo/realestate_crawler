@@ -254,9 +254,12 @@ class TohoKodateParser(TohoBaseParser, KodateParserBase):
         item.address = self._parseAddress(response, specs)
         item.traffic = self._parseTransport1(response, specs)
         item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tochiMensekiStr = specs.get("土地面積", "")
         item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
+        item.tatemonoMensekiStr = specs.get("建物面積", "")
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "")
         item.kouzou = self._parseKouzou(response, specs)
         return item
 

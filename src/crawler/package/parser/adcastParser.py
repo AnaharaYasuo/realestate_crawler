@@ -70,12 +70,20 @@ class AdCastBaseParser(ParserBase):
 
         specs = {}
         for tr in response.find_all("tr"):
-            th = tr.find("th")
-            td = tr.find("td")
-            if th and td:
+            ths = tr.find_all("th")
+            tds = tr.find_all("td")
+            for th, td in zip(ths, tds):
                 key = th.get_text(strip=True)
                 val = td.get_text(" ", strip=True)
                 specs[key] = val
+        for dl in response.find_all("dl"):
+            dt = dl.find("dt")
+            dd = dl.find("dd")
+            if dt and dd:
+                key = dt.get_text(strip=True)
+                val = dd.get_text(" ", strip=True)
+                if key not in specs:
+                    specs[key] = val
 
         response._cached_specs = specs
         return specs
@@ -184,9 +192,12 @@ class AdCastKodateParser(AdCastBaseParser, KodateParserBase):
         item.address = self._parseAddress(response, specs)
         item.traffic = self._parseTransport1(response, specs)
         item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tochiMensekiStr = specs.get("土地面積", "")
         item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
+        item.tatemonoMensekiStr = specs.get("建物面積", "")
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "")
         item.kouzou = self._parseKouzou(response, specs)
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
@@ -214,6 +225,7 @@ class AdCastTochiParser(AdCastBaseParser, TochiParserBase):
         item.address = self._parseAddress(response, specs)
         item.traffic = self._parseTransport1(response, specs)
         item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tochiMensekiStr = specs.get("土地面積", "")
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
