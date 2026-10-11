@@ -45,7 +45,9 @@ from package.api.mid_brokers import (
 mid_brokers_bp = Blueprint('mid_brokers', __name__)
 
 def _handle_detail(parser_async_cls):
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     parser_async_cls().main(url)
     return "finish", 200
@@ -91,7 +93,7 @@ hasekoMansionDetail = haseko_mansion_detail
 # --- AdCast Routes ---
 @mid_brokers_bp.route(API_KEY_ADCAST_KODATE_START, methods=['POST', 'GET'])
 def adcast_kodate_start():
-    return ParseAdCastKodateStartAsync().main("https://www.ad-cast.info/kodate/tokyo/")
+    return ParseAdCastKodateStartAsync().main("https://www.ad-cast.info/sch/list.php?kind=2")
 adcastKodateStart = adcast_kodate_start
 
 @mid_brokers_bp.route(API_KEY_ADCAST_KODATE_DETAIL, methods=['POST', 'GET'])
@@ -100,7 +102,7 @@ adcastKodateDetail = adcast_kodate_detail
 
 @mid_brokers_bp.route(API_KEY_ADCAST_TOCHI_START, methods=['POST', 'GET'])
 def adcast_tochi_start():
-    return ParseAdCastTochiStartAsync().main("https://www.ad-cast.info/tochi/tokyo/")
+    return ParseAdCastTochiStartAsync().main("https://www.ad-cast.info/sch/list.php?kind=1")
 adcastTochiStart = adcast_tochi_start
 
 @mid_brokers_bp.route(API_KEY_ADCAST_TOCHI_DETAIL, methods=['POST', 'GET'])

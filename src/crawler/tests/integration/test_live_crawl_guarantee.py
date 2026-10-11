@@ -52,7 +52,6 @@ def test_live_crawl_guarantee_for_job(job):
     ci_network_errors = (
         "WAF",
         "403",
-        "404",
         "429",
         "TimeoutError",
         "ConnectTimeout",

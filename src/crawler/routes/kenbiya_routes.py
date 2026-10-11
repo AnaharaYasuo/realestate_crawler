@@ -29,7 +29,9 @@ from package.api.kenbiya import (
 kenbiya_bp = Blueprint('kenbiya', __name__)
 
 def _handle_detail(parser_async_cls):
-    request_json = json.loads(request.get_json())
+    request_json = request.get_json()
+    if isinstance(request_json, str):
+        request_json = json.loads(request_json)
     url = request_json['url']
     parser_async_cls().main(url)
     return "finish", 200
