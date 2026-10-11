@@ -611,8 +611,13 @@ def main():
                             error_msg = "0 items scraped (Zero count failure)"
                             post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
                 else:
-                    error_type = "ProcessCrashFailure"
-                    post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
+                    if exit_code in (-9, 137):
+                        error_type = "WatchdogKillFailure"
+                        error_msg = "Process terminated via SIGKILL (likely by Watchdog due to lack of progress)"
+                        post_slack(f"❌ 【強制終了 (SIGKILL)】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} (Watchdogによる打ち切り) | 処理時間: {duration_job_str}")
+                    else:
+                        error_type = "ProcessCrashFailure"
+                        post_slack(f"❌ 【失敗】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | Exit Code: {exit_code} | 処理時間: {duration_job_str}")
 
                 if status != "success":
                     logging.error(f"[{idx}] Crawl job FAILED for {company} - {ptype}. Exit Code: {exit_code}, Scraped: {scraped_cnt} items, Error: {error_msg}")

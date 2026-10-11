@@ -317,12 +317,23 @@ def main(argv=None):
         return 0
 
     finally:
-        # Step 7: 終了フック (ProxySQL MIG を size=0 に停止してゾンビ課金を防止)
-        try:
-            logger.info("Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)...")
-            scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
-        except Exception:
-            logger.exception("Failed to scale in ProxySQL MIG in finally block")
+        # Step 7: 終了フック (ProxySQL MIG を size=0 に停止してゾンビ課金を防止, Issue #883)
+        max_stop_retries = 3
+        stopped = False
+        for stop_attempt in range(1, max_stop_retries + 1):
+            try:
+                logger.info(f"Executing teardown hook (attempt {stop_attempt}/{max_stop_retries}): stopping ProxySQL MIG (size: 1 -> 0)...")
+                stopped = scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
+                if stopped:
+                    logger.info("✔ [Teardown] ProxySQL MIG scaled to 0 successfully.")
+                    break
+                logger.warning(f"ProxySQL MIG scale to 0 returned False on attempt {stop_attempt}/{max_stop_retries}")
+            except Exception:
+                logger.exception(f"Failed to scale in ProxySQL MIG on attempt {stop_attempt}/{max_stop_retries}")
+            if stop_attempt < max_stop_retries:
+                time.sleep(3)
+        if not stopped and not args.dry_run and os.environ.get("IS_CLOUD"):
+            logger.error("⚠️ [CRITICAL] Failed to scale ProxySQL MIG to 0 after all attempts. Potential zombie billing!")
 
 
 if __name__ == "__main__":
