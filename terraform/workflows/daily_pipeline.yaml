@@ -13,7 +13,7 @@ main:
           - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
           - crawlerJob: ${default(map.get(args, "crawlerJob"), "realestate-crawler-pipeline-prod")}
           - mlPipelineJob: ${default(map.get(args, "mlPipelineJob"), "realestate-ml-pipeline-prod")}
-          - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 32400)}  # 9時間 (32,400s)
+          - rawCrawlTimeoutSec: ${default(map.get(args, "crawlTimeoutSec"), 10800)}  # 3時間 (10,800s)
           - crawlTimeoutSec: ${int(math.min(rawCrawlTimeoutSec, maxPipelineDurationSec - 3600))}
           - crawlerFailed: false
           - crawlerError: null
