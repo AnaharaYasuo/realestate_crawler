@@ -57,7 +57,7 @@ def _assign_8_task_index(c_lower: str, p_lower: str) -> int:
     if c_lower in MAJOR_5_COMPANIES:
         mapping = {"mansion": 0, "kodate": 1, "tochi": 2}
         return mapping.get(p_lower, 3)
-    if p_lower in ("invest_kodate", "invest_apartment", "investment"):
+    if p_lower in ("invest_kodate", "invest_apartment", "invest_building", "investment"):
         return 3
     # Issue #851: 大京の重い処理を過密なTask 4から比較的余裕のある大手枠(Task 0, 1)へ再分散
     if c_lower == "daikyo":

@@ -38,7 +38,8 @@ class AdCastBaseParser(ParserBase):
             full_url = href if href.startswith("http") else f"{self.BASE_URL}{href}"
             if full_url not in detail_links:
                 detail_links.add(full_url)
-                yield ListItem(url=full_url, price=None)
+                price = self._extract_card_price(a)
+                yield ListItem(url=full_url, price=price)
 
     def _find_next_by_text(self, response: BeautifulSoup) -> str:
         for a in response.find_all("a"):
