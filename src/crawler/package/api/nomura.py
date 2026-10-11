@@ -1,17 +1,48 @@
-import os
 import asyncio
-from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase, \
-    API_KEY_NOMURA_MANSION_START, API_KEY_NOMURA_MANSION_REGION, API_KEY_NOMURA_MANSION_AREA, API_KEY_NOMURA_MANSION_LIST, API_KEY_NOMURA_MANSION_DETAIL, \
-    API_KEY_NOMURA_MANSION_REGION_GCP, API_KEY_NOMURA_MANSION_AREA_GCP, API_KEY_NOMURA_MANSION_LIST_GCP, API_KEY_NOMURA_MANSION_DETAIL_GCP, \
-    API_KEY_NOMURA_KODATE_START, API_KEY_NOMURA_KODATE_REGION, API_KEY_NOMURA_KODATE_AREA, API_KEY_NOMURA_KODATE_LIST, API_KEY_NOMURA_KODATE_DETAIL, \
-    API_KEY_NOMURA_KODATE_REGION_GCP, API_KEY_NOMURA_KODATE_AREA_GCP, API_KEY_NOMURA_KODATE_LIST_GCP, API_KEY_NOMURA_KODATE_DETAIL_GCP, \
-    API_KEY_NOMURA_TOCHI_START, API_KEY_NOMURA_TOCHI_REGION, API_KEY_NOMURA_TOCHI_AREA, API_KEY_NOMURA_TOCHI_LIST, API_KEY_NOMURA_TOCHI_DETAIL, \
-    API_KEY_NOMURA_TOCHI_REGION_GCP, API_KEY_NOMURA_TOCHI_AREA_GCP, API_KEY_NOMURA_TOCHI_LIST_GCP, API_KEY_NOMURA_TOCHI_DETAIL_GCP
-    
-from package.parser.nomuraParser import NomuraMansionParser, NomuraKodateParser, NomuraTochiParser
+import os
+from typing import ClassVar
+
+from package.api.api import (
+    API_KEY_NOMURA_KODATE_AREA,
+    API_KEY_NOMURA_KODATE_AREA_GCP,
+    API_KEY_NOMURA_KODATE_DETAIL,
+    API_KEY_NOMURA_KODATE_DETAIL_GCP,
+    API_KEY_NOMURA_KODATE_LIST,
+    API_KEY_NOMURA_KODATE_LIST_GCP,
+    API_KEY_NOMURA_KODATE_REGION,
+    API_KEY_NOMURA_KODATE_REGION_GCP,
+    API_KEY_NOMURA_KODATE_START,
+    API_KEY_NOMURA_MANSION_AREA,
+    API_KEY_NOMURA_MANSION_AREA_GCP,
+    API_KEY_NOMURA_MANSION_DETAIL,
+    API_KEY_NOMURA_MANSION_DETAIL_GCP,
+    API_KEY_NOMURA_MANSION_LIST,
+    API_KEY_NOMURA_MANSION_LIST_GCP,
+    API_KEY_NOMURA_MANSION_REGION,
+    API_KEY_NOMURA_MANSION_REGION_GCP,
+    API_KEY_NOMURA_MANSION_START,
+    API_KEY_NOMURA_TOCHI_AREA,
+    API_KEY_NOMURA_TOCHI_AREA_GCP,
+    API_KEY_NOMURA_TOCHI_DETAIL,
+    API_KEY_NOMURA_TOCHI_DETAIL_GCP,
+    API_KEY_NOMURA_TOCHI_LIST,
+    API_KEY_NOMURA_TOCHI_LIST_GCP,
+    API_KEY_NOMURA_TOCHI_REGION,
+    API_KEY_NOMURA_TOCHI_REGION_GCP,
+    API_KEY_NOMURA_TOCHI_START,
+    ApiAsyncProcBase,
+    ParseDetailPageAsyncBase,
+    ParseMiddlePageAsyncBase,
+)
 from package.api.registry import ApiRegistry
+from package.parser.nomuraParser import (
+    NomuraKodateParser,
+    NomuraMansionParser,
+    NomuraTochiParser,
+)
 
 DEFAULT_PARARELL_LIMIT = 1
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARARELL_LIMIT = 3
 
 def _get_combined_parser(self):
@@ -63,8 +94,8 @@ class ParseNomuraMansionListFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraMansionParser("")
     def _getParserFunc(self): return _get_area_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_LIST_GCP
@@ -74,8 +105,8 @@ class ParseNomuraMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraMansionParser("")
     def _getParserFunc(self): return _get_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_AREA_GCP
@@ -83,7 +114,7 @@ class ParseNomuraMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraMansionStartAsync(ApiAsyncProcBase):
-    urlList = [
+    urlList: ClassVar[list[str]] = [
         "https://www.nomu.com/mansion/ensen_tokyo/2172/2172110/",
         "https://www.nomu.com/mansion/ensen_tokyo/2171/2171110/",
     ]
@@ -154,7 +185,7 @@ class ParseNomuraKodateRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraKodateStartAsync(ApiAsyncProcBase):
-    urlList = [
+    urlList: ClassVar[list[str]] = [
         "https://www.nomu.com/house/ensen_tokyo/",
         "https://www.nomu.com/house/ensen_kanagawa/",
         "https://www.nomu.com/house/ensen_saitama/",
@@ -227,7 +258,7 @@ class ParseNomuraTochiRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraTochiStartAsync(ApiAsyncProcBase):
-    urlList = [
+    urlList: ClassVar[list[str]] = [
         "https://www.nomu.com/land/ensen_tokyo/",
         "https://www.nomu.com/land/ensen_kanagawa/",
         "https://www.nomu.com/land/ensen_saitama/",

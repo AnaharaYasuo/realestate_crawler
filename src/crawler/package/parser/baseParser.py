@@ -582,13 +582,23 @@ class ParserBase(metaclass=ABCMeta):
 
     @classmethod
     def _is_sub_heading(cls, combined: str) -> bool:
-        return any(k in combined for k in ('title', 'heading', 'name')) and not any(k in combined for k in ('card', 'item', 'bukken', 'property'))
+        if any(k in combined for k in ('title', 'heading', 'name')):
+            return not any(k in combined for k in ('result', 'card', 'box', 'panel', 'row', 'entry'))
+        return False
 
     @classmethod
     def _get_combined_tag_info(cls, parent) -> str:
         classes = " ".join(parent.get('class', [])) if isinstance(parent.get('class'), list) else str(parent.get('class', ''))
         tag_id = str(parent.get('id', ''))
         return f"{classes} {tag_id}".lower()
+
+    @classmethod
+    def _has_valid_price_in_container(cls, container) -> bool:
+        for sel in cls._PRICE_SELECTORS:
+            el = container.select_one(sel)
+            if el and cls._parse_valid_price(el.get_text(separator=' ', strip=True)):
+                return True
+        return bool(cls._parse_valid_price(container.get_text(separator=' ', strip=True)))
 
     @classmethod
     def _find_card_container(cls, link):
@@ -603,7 +613,7 @@ class ParserBase(metaclass=ABCMeta):
                 continue
             if any(k in combined for k in cls._CARD_KEYWORDS):
                 first_candidate = first_candidate or parent
-                if any(parent.select_one(sel) for sel in cls._PRICE_SELECTORS):
+                if cls._has_valid_price_in_container(parent):
                     return parent
         return first_candidate or link.parent or link
 

@@ -1,12 +1,38 @@
 import os
 
-from package.api.api import API_KEY_MITSUI_MANSION_DETAIL_GCP, API_KEY_MITSUI_MANSION_DETAIL, API_KEY_MITSUI_MANSION_AREA_GCP, API_KEY_MITSUI_MANSION_AREA, API_KEY_MITSUI_MANSION_LIST_GCP, API_KEY_MITSUI_MANSION_LIST, API_KEY_MITSUI_MANSION_START
-from package.api.api import API_KEY_MITSUI_TOCHI_AREA, API_KEY_MITSUI_TOCHI_AREA_GCP, API_KEY_MITSUI_TOCHI_DETAIL, API_KEY_MITSUI_TOCHI_DETAIL_GCP, API_KEY_MITSUI_TOCHI_LIST, API_KEY_MITSUI_TOCHI_LIST_GCP, API_KEY_MITSUI_TOCHI_START
-from package.api.api import API_KEY_MITSUI_KODATE_AREA, API_KEY_MITSUI_KODATE_AREA_GCP, API_KEY_MITSUI_KODATE_DETAIL, API_KEY_MITSUI_KODATE_DETAIL_GCP, API_KEY_MITSUI_KODATE_LIST, API_KEY_MITSUI_KODATE_LIST_GCP, API_KEY_MITSUI_KODATE_START
-from package.api.api import ParseDetailPageAsyncBase,ParseMiddlePageAsyncBase
-from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiTochiParser, MitsuiKodateParser
+from package.api.api import (
+    API_KEY_MITSUI_KODATE_AREA,
+    API_KEY_MITSUI_KODATE_AREA_GCP,
+    API_KEY_MITSUI_KODATE_DETAIL,
+    API_KEY_MITSUI_KODATE_DETAIL_GCP,
+    API_KEY_MITSUI_KODATE_LIST,
+    API_KEY_MITSUI_KODATE_LIST_GCP,
+    API_KEY_MITSUI_KODATE_START,
+    API_KEY_MITSUI_MANSION_AREA,
+    API_KEY_MITSUI_MANSION_AREA_GCP,
+    API_KEY_MITSUI_MANSION_DETAIL,
+    API_KEY_MITSUI_MANSION_DETAIL_GCP,
+    API_KEY_MITSUI_MANSION_LIST,
+    API_KEY_MITSUI_MANSION_LIST_GCP,
+    API_KEY_MITSUI_MANSION_START,
+    API_KEY_MITSUI_TOCHI_AREA,
+    API_KEY_MITSUI_TOCHI_AREA_GCP,
+    API_KEY_MITSUI_TOCHI_DETAIL,
+    API_KEY_MITSUI_TOCHI_DETAIL_GCP,
+    API_KEY_MITSUI_TOCHI_LIST,
+    API_KEY_MITSUI_TOCHI_LIST_GCP,
+    API_KEY_MITSUI_TOCHI_START,
+    ParseDetailPageAsyncBase,
+    ParseMiddlePageAsyncBase,
+)
+from package.parser.mitsuiParser import (
+    MitsuiKodateParser,
+    MitsuiMansionParser,
+    MitsuiTochiParser,
+)
 
 DEFAULT_PARARELL_LIMIT = 1
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARARELL_LIMIT = 3
 
 class ParseMitsuiMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -66,10 +92,10 @@ class ParseMitsuiMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -88,10 +114,10 @@ class ParseMitsuiMansionStartAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

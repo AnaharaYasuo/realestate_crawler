@@ -1442,8 +1442,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         return "unknown"
 
     SITE_DOWNLOAD_DELAYS: ClassVar[dict[str, float]] = {
-        "nomura": 1.0,
-        "mitsui": 1.0,
+        "nomura": 0.5,
+        "mitsui": 0.5,
         "smtrc": 1.0,
     }
     _SITE_RATE_LOCK: ClassVar[threading.Lock] = threading.Lock()

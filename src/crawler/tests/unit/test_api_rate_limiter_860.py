@@ -68,6 +68,7 @@ async def test_apply_download_delay_multi_event_loop_concurrency():
         t = threading.Thread(target=run_in_thread, args=("mitsui",))
         threads.append(t)
 
+    delay = ParseDetailPageAsyncBase.SITE_DOWNLOAD_DELAYS.get("mitsui", 0.5)
     t_start = time.monotonic()
     for t in threads:
         t.start()
@@ -77,6 +78,7 @@ async def test_apply_download_delay_multi_event_loop_concurrency():
 
     # エラーが1件も発生していないこと（Lock is bound to a different event loop 等）
     assert len(errors) == 0, f"Errors occurred during multi-loop rate limiting: {errors}"
-    # レートリミット（1.0秒）により、4スレッド順次実行で最低3秒以上分散されていること
+    # レートリミットにより、4スレッド順次実行で最低3 * delay - 0.2 秒以上分散されていること
     total_elapsed = t_end - t_start
-    assert total_elapsed >= 2.5, f"Rate limiting delay not respected: total_elapsed={total_elapsed}"
+    min_expected = max(0.8, 3 * delay - 0.3)
+    assert total_elapsed >= min_expected, f"Rate limiting delay not respected: total_elapsed={total_elapsed}, min_expected={min_expected}"

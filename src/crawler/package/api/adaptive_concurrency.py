@@ -102,8 +102,8 @@ class AdaptiveConcurrencyController:
         return (cls._get_current_time() - last_time) < cls.DEFAULT_THROTTLE_SECONDS
 
     SITE_CONCURRENCY_CAPS: ClassVar[dict[str, int]] = {
-        "nomura": 2,
-        "mitsui": 2,
+        "nomura": 3,
+        "mitsui": 3,
         "smtrc": 2,
     }
 
