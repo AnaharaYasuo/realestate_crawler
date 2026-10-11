@@ -11,6 +11,7 @@ from package.parser.seibuParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # Mansion
 class ParseSeibuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -25,8 +26,8 @@ class ParseSeibuMansionStartAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self): return getattr(self.parser, 'parseRootPage')
     def _getNextPageParserFunc(self): return getattr(self.parser, 'parseNextPage')
     def _isBsMiddlePage(self): return True
-    def _getLocalPararellLimit(self): return 1
-    def _getCloudPararellLimit(self): return 1
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self): return API_KEY_SEIBU_MANSION_DETAIL
     def _getNextPageApiKey(self): return API_KEY_SEIBU_MANSION_START
@@ -44,8 +45,8 @@ class ParseSeibuKodateStartAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self): return getattr(self.parser, 'parseRootPage')
     def _getNextPageParserFunc(self): return getattr(self.parser, 'parseNextPage')
     def _isBsMiddlePage(self): return True
-    def _getLocalPararellLimit(self): return 1
-    def _getCloudPararellLimit(self): return 1
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self): return API_KEY_SEIBU_KODATE_DETAIL
     def _getNextPageApiKey(self): return API_KEY_SEIBU_KODATE_START
@@ -63,8 +64,8 @@ class ParseSeibuTochiStartAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self): return getattr(self.parser, 'parseRootPage')
     def _getNextPageParserFunc(self): return getattr(self.parser, 'parseNextPage')
     def _isBsMiddlePage(self): return True
-    def _getLocalPararellLimit(self): return 1
-    def _getCloudPararellLimit(self): return 1
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self): return API_KEY_SEIBU_TOCHI_DETAIL
     def _getNextPageApiKey(self): return API_KEY_SEIBU_TOCHI_START

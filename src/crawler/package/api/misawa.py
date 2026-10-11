@@ -9,7 +9,7 @@ from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMid
 from package.api.registry import ApiRegistry
 from package.api.misawa_investment import MisawaInvestmentConnectorMixin
 
-DEFAULT_PARARELL_LIMIT = 1
+DEFAULT_PARARELL_LIMIT = 3
 DETAIL_PARARELL_LIMIT = 3
 
 # ==========================================

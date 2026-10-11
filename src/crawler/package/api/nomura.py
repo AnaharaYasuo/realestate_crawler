@@ -165,8 +165,8 @@ class ParseNomuraKodateListFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraKodateParser("")
     def _getParserFunc(self): return _get_area_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_LIST_GCP
@@ -176,8 +176,8 @@ class ParseNomuraKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraKodateRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraKodateParser("")
     def _getParserFunc(self): return _get_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_AREA_GCP
@@ -238,8 +238,8 @@ class ParseNomuraTochiListFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraTochiParser("")
     def _getParserFunc(self): return _get_area_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_LIST_GCP
@@ -249,8 +249,8 @@ class ParseNomuraTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
 class ParseNomuraTochiRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraTochiParser("")
     def _getParserFunc(self): return _get_combined_parser(self)
-    def _getLocalPararellLimit(self): return DEFAULT_PARARELL_LIMIT
-    def _getCloudPararellLimit(self): return DEFAULT_PARARELL_LIMIT
+    def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
+    def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_AREA_GCP

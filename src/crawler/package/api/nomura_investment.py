@@ -1,17 +1,18 @@
-
 import os
 import asyncio
+from typing import ClassVar
 from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase, \
-    API_KEY_NOMURA_INVEST_KODATE_START, API_KEY_NOMURA_INVEST_KODATE_LIST, API_KEY_NOMURA_INVEST_KODATE_DETAIL, \
-    API_KEY_NOMURA_INVEST_KODATE_LIST_GCP, API_KEY_NOMURA_INVEST_KODATE_DETAIL_GCP, \
-    API_KEY_NOMURA_INVEST_APARTMENT_START, API_KEY_NOMURA_INVEST_APARTMENT_LIST, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL, \
-    API_KEY_NOMURA_INVEST_APARTMENT_LIST_GCP, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL_GCP
+    API_KEY_NOMURA_INVEST_KODATE_START, API_KEY_NOMURA_INVEST_KODATE_AREA, API_KEY_NOMURA_INVEST_KODATE_LIST, API_KEY_NOMURA_INVEST_KODATE_DETAIL, \
+    API_KEY_NOMURA_INVEST_KODATE_AREA_GCP, API_KEY_NOMURA_INVEST_KODATE_LIST_GCP, API_KEY_NOMURA_INVEST_KODATE_DETAIL_GCP, \
+    API_KEY_NOMURA_INVEST_APARTMENT_START, API_KEY_NOMURA_INVEST_APARTMENT_AREA, API_KEY_NOMURA_INVEST_APARTMENT_LIST, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL, \
+    API_KEY_NOMURA_INVEST_APARTMENT_AREA_GCP, API_KEY_NOMURA_INVEST_APARTMENT_LIST_GCP, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL_GCP
 
 from package.parser.nomuraParser import NomuraInvestmentKodateParser, NomuraInvestmentApartmentParser
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 1
 DEFAULT_PARARELL_LIMIT = DEFAULT_PARALLEL_LIMIT  # legacy alias (cloud path)
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARALLEL_LIMIT = 1
 
 # ==============================================================================
@@ -42,26 +43,41 @@ class ParseNomuraInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
         return True
     
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
 
+class ParseNomuraInvestAreaFuncAsyncBase(ParseMiddlePageAsyncBase):
+    def _getParserFunc(self):
+        return self.parser.parsePropertyListPage
+
+    def _getNextPageParserFunc(self):
+        return self.parser.parseNextPage
+
     def _isBsMiddlePage(self):
         return True
 
-class ParseNomuraInvestStartAsyncBase(ApiAsyncProcBase):
-    # Entry point URL parameter
-    urlList = ["https://www.nomu.com/pro/"]
-
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
+
+    def _getTimeOutSecond(self):
+        return 600
+
+class ParseNomuraInvestStartAsyncBase(ApiAsyncProcBase):
+    urlList: ClassVar[list[str]] = []
+
+    def _getLocalPararellLimit(self):
+        return MIDDLE_PARARELL_LIMIT
+
+    def _getCloudPararellLimit(self):
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -74,6 +90,7 @@ class ParseNomuraInvestStartAsyncBase(ApiAsyncProcBase):
         for _detail_url in self.urlList:
             task = asyncio.ensure_future(self._fetchWithEachSession(detail_url=_detail_url, api_url=self._getUrl() + self._getApiKey(), loop=self._getActiveEventLoop()))
             tasks.append(task)
+            await asyncio.sleep(0.05)
         responses = await asyncio.gather(*tasks)
         return responses
 
@@ -102,17 +119,42 @@ class ParseNomuraInvestKodateListFuncAsync(ParseNomuraInvestListFuncAsyncBase):
             return API_KEY_NOMURA_INVEST_KODATE_DETAIL_GCP
         return API_KEY_NOMURA_INVEST_KODATE_DETAIL
 
+class ParseNomuraInvestKodateAreaFuncAsync(ParseNomuraInvestAreaFuncAsyncBase):
+    def _generateParser(self):
+        return NomuraInvestmentKodateParser("")
+
+    def _getNextPageApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_NOMURA_INVEST_KODATE_LIST_GCP
+        return API_KEY_NOMURA_INVEST_KODATE_LIST
+
+    def _getApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_NOMURA_INVEST_KODATE_DETAIL_GCP
+        return API_KEY_NOMURA_INVEST_KODATE_DETAIL
+
 class ParseNomuraInvestKodateStartAsync(ParseNomuraInvestStartAsyncBase):
-    # Updated to specific category page
-    urlList = ["https://www.nomu.com/pro/house/"]
+    # エリア別シードURLを展開して並列探索
+    urlList: ClassVar[list[str]] = [
+        "https://www.nomu.com/pro/house/area/131/",  # 東京23区
+        "https://www.nomu.com/pro/house/area/132/",  # 東京市部
+        "https://www.nomu.com/pro/house/area/141/",  # 神奈川
+        "https://www.nomu.com/pro/house/area/111/",  # 埼玉
+        "https://www.nomu.com/pro/house/area/121/",  # 千葉
+        "https://www.nomu.com/pro/house/area/271/",  # 大阪
+        "https://www.nomu.com/pro/house/area/261/",  # 京都
+        "https://www.nomu.com/pro/house/area/281/",  # 兵庫
+        "https://www.nomu.com/pro/house/area/231/",  # 愛知
+        "https://www.nomu.com/pro/house/",           # 全体フォールバック
+    ]
 
     def _generateParser(self):
         return NomuraInvestmentKodateParser("")
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_NOMURA_INVEST_KODATE_LIST_GCP
-        return API_KEY_NOMURA_INVEST_KODATE_LIST
+            return API_KEY_NOMURA_INVEST_KODATE_AREA_GCP
+        return API_KEY_NOMURA_INVEST_KODATE_AREA
 
 # ==============================================================================
 #  APARTMENT (アパート)
@@ -136,10 +178,33 @@ class ParseNomuraInvestApartmentListFuncAsync(ParseNomuraInvestListFuncAsyncBase
             return API_KEY_NOMURA_INVEST_APARTMENT_DETAIL_GCP
         return API_KEY_NOMURA_INVEST_APARTMENT_DETAIL
 
+class ParseNomuraInvestApartmentAreaFuncAsync(ParseNomuraInvestAreaFuncAsyncBase):
+    def _generateParser(self):
+        return NomuraInvestmentApartmentParser("")
+
+    def _getNextPageApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_NOMURA_INVEST_APARTMENT_LIST_GCP
+        return API_KEY_NOMURA_INVEST_APARTMENT_LIST
+
+    def _getApiKey(self):
+        if os.getenv('IS_CLOUD', ''):
+            return API_KEY_NOMURA_INVEST_APARTMENT_DETAIL_GCP
+        return API_KEY_NOMURA_INVEST_APARTMENT_DETAIL
+
 class ParseNomuraInvestApartmentStartAsync(ParseNomuraInvestStartAsyncBase):
-    # アパート専用パスのみを取得
-    urlList = [
-        "https://www.nomu.com/pro/apart/"
+    # エリア別シードURLを展開して並列探索
+    urlList: ClassVar[list[str]] = [
+        "https://www.nomu.com/pro/apart/area/131/",  # 東京23区
+        "https://www.nomu.com/pro/apart/area/132/",  # 東京市部
+        "https://www.nomu.com/pro/apart/area/141/",  # 神奈川
+        "https://www.nomu.com/pro/apart/area/111/",  # 埼玉
+        "https://www.nomu.com/pro/apart/area/121/",  # 千葉
+        "https://www.nomu.com/pro/apart/area/271/",  # 大阪
+        "https://www.nomu.com/pro/apart/area/261/",  # 京都
+        "https://www.nomu.com/pro/apart/area/281/",  # 兵庫
+        "https://www.nomu.com/pro/apart/area/231/",  # 愛知
+        "https://www.nomu.com/pro/apart/",           # 全体フォールバック
     ]
 
     def _generateParser(self):
@@ -147,8 +212,8 @@ class ParseNomuraInvestApartmentStartAsync(ParseNomuraInvestStartAsyncBase):
 
     def _getApiKey(self):
         if os.getenv('IS_CLOUD', ''):
-            return API_KEY_NOMURA_INVEST_APARTMENT_LIST_GCP
-        return API_KEY_NOMURA_INVEST_APARTMENT_LIST
+            return API_KEY_NOMURA_INVEST_APARTMENT_AREA_GCP
+        return API_KEY_NOMURA_INVEST_APARTMENT_AREA
 
 # ==============================================================================
 #  REGISTRY
@@ -156,10 +221,12 @@ class ParseNomuraInvestApartmentStartAsync(ParseNomuraInvestStartAsyncBase):
 
 # Kodate
 ApiRegistry.register(API_KEY_NOMURA_INVEST_KODATE_START, ParseNomuraInvestKodateStartAsync)
+ApiRegistry.register(API_KEY_NOMURA_INVEST_KODATE_AREA, ParseNomuraInvestKodateAreaFuncAsync)
 ApiRegistry.register(API_KEY_NOMURA_INVEST_KODATE_LIST, ParseNomuraInvestKodateListFuncAsync)
 ApiRegistry.register(API_KEY_NOMURA_INVEST_KODATE_DETAIL, ParseNomuraInvestKodateDetailFuncAsync)
 
 # Apartment
 ApiRegistry.register(API_KEY_NOMURA_INVEST_APARTMENT_START, ParseNomuraInvestApartmentStartAsync)
+ApiRegistry.register(API_KEY_NOMURA_INVEST_APARTMENT_AREA, ParseNomuraInvestApartmentAreaFuncAsync)
 ApiRegistry.register(API_KEY_NOMURA_INVEST_APARTMENT_LIST, ParseNomuraInvestApartmentListFuncAsync)
 ApiRegistry.register(API_KEY_NOMURA_INVEST_APARTMENT_DETAIL, ParseNomuraInvestApartmentDetailFuncAsync)
