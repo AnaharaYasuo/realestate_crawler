@@ -41,6 +41,7 @@ from package.parser.sumifuParser import (
 )
 
 DEFAULT_PARARELL_LIMIT = 1
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARARELL_LIMIT = 3
 
 class ParseSumifuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -93,10 +94,10 @@ class ParseSumifuMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -116,10 +117,10 @@ class ParseSumifuMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
         return self.parser.parseRegionPage
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
