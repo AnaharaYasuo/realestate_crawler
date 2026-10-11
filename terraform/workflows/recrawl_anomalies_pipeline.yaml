@@ -12,7 +12,7 @@ main:
           - zone: ${default(map.get(args, "zone"), "asia-northeast1-a")}
           - proxysqlInstance: ${default(map.get(args, "proxysqlInstance"), "proxysql-instance-prod")}
           - recrawlJob: ${default(map.get(args, "recrawlJob"), "realestate-recrawl-anomalies-prod")}
-          - rawTimeoutSec: ${default(map.get(args, "timeoutSec"), 32400)}
+          - rawTimeoutSec: ${default(map.get(args, "timeoutSec"), 10800)}
           - recrawlTimeoutSec: ${int(math.min(rawTimeoutSec, maxPipelineDurationSec - 300))} # 停止用5分バッファを確保
           - concurrency: ${default(map.get(args, "concurrency"), null)}
           - limit: ${default(map.get(args, "limit"), null)}

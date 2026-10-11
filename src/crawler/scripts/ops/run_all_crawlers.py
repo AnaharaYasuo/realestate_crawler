@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 
 
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", "180"))
-timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "32400"))
+timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "10800"))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
@@ -823,7 +823,7 @@ def main():
                         start_new_session=True  # replaces preexec_fn=os.setsid; safe with threads (CPython docs)
                     )
                     now_ts = time.time()
-                    active_processes[idx] = (proc, company, ptype, now_ts, start_dt, now_ts)
+                    active_processes[idx] = (proc, company, ptype, now_ts, start_dt, now_ts, 0, now_ts)
                     AdaptiveConcurrencyController.set_active_jobs_count(len(active_processes))
                     post_slack(f"🚀 【開始】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)})")
                 except Exception as e:
