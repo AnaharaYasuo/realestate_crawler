@@ -908,8 +908,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     from django.db import close_old_connections, connections
                     close_old_connections()
                     connections.close_all()
-                except Exception:
-                    pass
+                except Exception as db_exc:  # noqa: BLE001
+                    logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
                 new_loop.close()
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
@@ -925,11 +925,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 os._exit(0)
             if time.monotonic() - start_time > max_timeout:
                 logger.error("Local execution timed out after %.1fs for %s", max_timeout, detail_url)
-                if connections is not None:
-                    try:
-                        connections.close_all()
-                    except Exception:
-                        pass
+                try:
+                    from django.db import close_old_connections, connections
+                    close_old_connections()
+                    connections.close_all()
+                except Exception as db_exc:  # noqa: BLE001
+                    logger.debug("Failed to close DB connections on timeout: %s", db_exc)
                 return detail_url, 504, "LocalTimeout"
 
         if child_errors:
