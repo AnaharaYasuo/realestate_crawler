@@ -39,6 +39,28 @@ class HasekoMansionParser(MansionParserBase):
                 price = self._extract_card_price(a)
                 yield ListItem(url=full_url, price=price)
 
+    def _find_next_by_text(self, response: BeautifulSoup) -> str:
+        for a in response.find_all("a"):
+            if a is None:
+                continue
+            text = a.get_text(strip=True)
+            if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr("href"):
+                href = str(a["href"])
+                return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        return ""
+
+    async def parseNextPage(self, response: BeautifulSoup):
+        next_tag = response.select_one('li.next a, a[rel="next"], a.next, .pager a.next')
+        if next_tag is not None:
+            href = next_tag.get("href")
+            if href:
+                return str(href) if str(href).startswith("http") else f"{self.BASE_URL}{href}"
+        return self._find_next_by_text(response)
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        async for item in self.parsePropertyListPage(response):
+            yield item
+
     def createEntity(self):
         return HasekoMansion()
 
