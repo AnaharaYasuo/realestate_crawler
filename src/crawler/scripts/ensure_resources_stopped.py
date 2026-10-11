@@ -73,7 +73,11 @@ JOB_HUNG_THRESHOLD_MAP: dict[str, float] = {
 
 
 def get_job_hung_threshold(job_name: str, fallback_threshold: float = DEFAULT_HUNG_THRESHOLD_SEC) -> float:
-    """Returns hung threshold seconds for a specific Cloud Run job prefix."""
+    """Returns hung threshold seconds for a specific Cloud Run job prefix.
+    If fallback_threshold is explicitly overridden (differs from default), prioritize it.
+    """
+    if fallback_threshold != DEFAULT_HUNG_THRESHOLD_SEC:
+        return fallback_threshold
     for prefix, threshold in JOB_HUNG_THRESHOLD_MAP.items():
         if job_name.startswith(prefix):
             return threshold
