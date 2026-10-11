@@ -95,6 +95,22 @@ CRAWL_JOBS = [
     ("mizuho", "investment"),
     ("odakyu", "investment"),
     ("sumirin", "investment"),
+    # 健美家 (投資・居住・土地)
+    ("kenbiya", "mansion"),
+    ("kenbiya", "kodate"),
+    ("kenbiya", "tochi"),
+    ("kenbiya", "invest_apartment"),
+    ("kenbiya", "invest_building"),
+    # 中堅仲介 (居住用)
+    ("ietan", "mansion"),
+    ("ietan", "kodate"),
+    ("ietan", "tochi"),
+    ("haseko", "mansion"),
+    ("adcast", "kodate"),
+    ("adcast", "tochi"),
+    ("toho", "mansion"),
+    ("toho", "kodate"),
+    ("toho", "tochi"),
 ]
 
 

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 from typing import Optional
+from urllib.parse import urljoin
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -121,6 +122,29 @@ class KenbiyaParserBase(ParserBase):
                 detail_links.add(full_url)
                 price = self._extract_card_price(a)
                 yield ListItem(url=full_url, price=price)
+
+    def _find_next_by_text(self, response: BeautifulSoup) -> str:
+        for a in response.find_all("a"):
+            if a is None:
+                continue
+            text = a.get_text(strip=True)
+            if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr("href"):
+                href = str(a["href"])
+                return urljoin(self.BASE_URL, href)
+        return ""
+
+    async def parseNextPage(self, response: BeautifulSoup):
+        # ページネーション: li.next a, a[rel="next"], または「次へ」リンク
+        next_tag = response.select_one('li.next a, a[rel="next"], a.next')
+        if next_tag is not None:
+            href = next_tag.get("href")
+            if href:
+                return urljoin(self.BASE_URL, str(href))
+        return self._find_next_by_text(response)
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        async for item in self.parsePropertyListPage(response):
+            yield item
 
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):

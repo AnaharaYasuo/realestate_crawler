@@ -277,6 +277,7 @@ def _start_func_names(company: str, ptype: str) -> list[str]:
         "tochi": "Tochi",
         "invest_kodate": "InvestKodate",
         "invest_apartment": "InvestApartment",
+        "invest_building": "InvestBuilding",
         "investment": "Investment",
     }[ptype]
     snake_token = {
@@ -285,6 +286,7 @@ def _start_func_names(company: str, ptype: str) -> list[str]:
         "tochi": "tochi",
         "invest_kodate": "invest_kodate",
         "invest_apartment": "invest_apartment",
+        "invest_building": "invest_building",
         "investment": "investment",
     }[ptype]
     return [
@@ -307,10 +309,12 @@ def _class_matches_ptype(class_name: str, company: str, ptype: str, type_token: 
         "tochi": "tochi" in lowered,
         "invest_kodate": "kodate" in lowered and "invest" in lowered,
         "invest_apartment": "apartment" in lowered,
+        "invest_building": "building" in lowered,
         "investment": (
             "investment" in lowered
             and "kodate" not in lowered
             and "apartment" not in lowered
+            and "building" not in lowered
         ),
     }
     if checks.get(ptype):
@@ -340,10 +344,13 @@ def _match_start_class(company: str, ptype: str) -> tuple[str | None, str | None
         "tochi": "tochi",
         "invest_kodate": "investkodate",
         "invest_apartment": "investapartment",
+        "invest_building": "investbuilding",
         "investment": "investment",
     }[ptype]
 
     modules: list[str] = []
+    if company in ("ietan", "haseko", "adcast", "toho"):
+        modules.append("mid_brokers")
     if ptype.startswith("invest") or ptype == "investment":
         modules.extend([f"{company}_investment", company])
     else:

@@ -646,6 +646,18 @@ API_KEY_TOHO_KODATE_DETAIL = '/api/toho/kodate/detail'
 API_KEY_TOHO_TOCHI_START = '/api/toho/tochi/start'
 API_KEY_TOHO_TOCHI_DETAIL = '/api/toho/tochi/detail'
 
+# Kenbiya (健美家)
+API_KEY_KENBIYA_MANSION_START = '/api/kenbiya/mansion/start'
+API_KEY_KENBIYA_MANSION_DETAIL = '/api/kenbiya/mansion/detail'
+API_KEY_KENBIYA_KODATE_START = '/api/kenbiya/kodate/start'
+API_KEY_KENBIYA_KODATE_DETAIL = '/api/kenbiya/kodate/detail'
+API_KEY_KENBIYA_TOCHI_START = '/api/kenbiya/tochi/start'
+API_KEY_KENBIYA_TOCHI_DETAIL = '/api/kenbiya/tochi/detail'
+API_KEY_KENBIYA_INVEST_APARTMENT_START = '/api/kenbiya/invest_apartment/start'
+API_KEY_KENBIYA_INVEST_APARTMENT_DETAIL = '/api/kenbiya/invest_apartment/detail'
+API_KEY_KENBIYA_INVEST_BUILDING_START = '/api/kenbiya/invest_building/start'
+API_KEY_KENBIYA_INVEST_BUILDING_DETAIL = '/api/kenbiya/invest_building/detail'
+
 
 # ------------------------------------------------------------------
 # 偏差値（T-score）ベースの上位1%お宝物件判定ヘルパー

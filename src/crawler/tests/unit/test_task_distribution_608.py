@@ -35,7 +35,7 @@ def test_distribute_jobs_8_tasks_categorization():
     assert "athome" not in task3_companies
     assert "homes" not in task3_companies
     for c, p in task_jobs[3]:
-        assert p in ("invest_kodate", "invest_apartment", "investment")
+        assert p in ("invest_kodate", "invest_apartment", "invest_building", "investment")
 
     # 6. Task 4: Trust residential + Mid/Small/Rail/House makers residential
     for c, p in task_jobs[4]:
