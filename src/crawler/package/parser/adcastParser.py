@@ -41,6 +41,23 @@ class AdCastBaseParser(ParserBase):
                 price = self._extract_card_price(a)
                 yield ListItem(url=full_url, price=price)
 
+    async def parseNextPage(self, response: BeautifulSoup):
+        next_tag = response.select_one('li.next a, a[rel="next"], a.next, .pager a.next')
+        if next_tag and next_tag.get("href"):
+            href = next_tag["href"]
+            return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        for a in response.find_all("a"):
+            text = a.get_text(strip=True)
+            if "次へ" in text or "次のページ" in text or ">" == text:
+                href = a.get("href")
+                if href:
+                    return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        return ""
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        async for item in self.parsePropertyListPage(response):
+            yield item
+
     def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:

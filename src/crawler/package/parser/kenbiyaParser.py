@@ -122,6 +122,24 @@ class KenbiyaParserBase(ParserBase):
                 price = self._extract_card_price(a)
                 yield ListItem(url=full_url, price=price)
 
+    async def parseNextPage(self, response: BeautifulSoup):
+        # ページネーション: li.next a, a[rel="next"], または「次へ」リンク
+        next_tag = response.select_one('li.next a, a[rel="next"], a.next')
+        if next_tag and next_tag.get("href"):
+            href = next_tag["href"]
+            return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        for a in response.find_all("a"):
+            text = a.get_text(strip=True)
+            if "次へ" in text or "次のページ" in text or ">" == text:
+                href = a.get("href")
+                if href:
+                    return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        return ""
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        async for item in self.parsePropertyListPage(response):
+            yield item
+
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):
             for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):

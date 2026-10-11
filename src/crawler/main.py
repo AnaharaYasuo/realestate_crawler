@@ -81,6 +81,26 @@ from routes.keikyu_routes import keikyuMansionStart, keikyuKodateStart, keikyuTo
 from routes.sotetsu_routes import sotetsuMansionStart, sotetsuKodateStart, sotetsuTochiStart, sotetsu_bp
 from routes.keisei_routes import keiseiMansionStart, keiseiKodateStart, keiseiTochiStart, keisei_bp
 from routes.daikyo_routes import daikyoMansionStart, daikyoKodateStart, daikyoTochiStart, daikyo_bp
+from routes.kenbiya_routes import (
+    kenbiya_bp,
+    kenbiyaInvestApartmentStart,
+    kenbiyaInvestBuildingStart,
+    kenbiyaKodateStart,
+    kenbiyaMansionStart,
+    kenbiyaTochiStart,
+)
+from routes.mid_brokers_routes import (
+    adcastKodateStart,
+    adcastTochiStart,
+    hasekoMansionStart,
+    ietanKodateStart,
+    ietanMansionStart,
+    ietanTochiStart,
+    mid_brokers_bp,
+    tohoKodateStart,
+    tohoMansionStart,
+    tohoTochiStart,
+)
 
 
 app = Flask(__name__)  # NOSONAR
@@ -115,7 +135,7 @@ app.register_blueprint(keikyu_bp)
 app.register_blueprint(sotetsu_bp)
 app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
-from routes.mid_brokers_routes import mid_brokers_bp
+app.register_blueprint(kenbiya_bp)
 app.register_blueprint(mid_brokers_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
@@ -325,6 +345,21 @@ def get_dispatch_map():
         ("daikyo", "mansion"): daikyoMansionStart,
         ("daikyo", "kodate"): daikyoKodateStart,
         ("daikyo", "tochi"): daikyoTochiStart,
+        ("kenbiya", "mansion"): kenbiyaMansionStart,
+        ("kenbiya", "kodate"): kenbiyaKodateStart,
+        ("kenbiya", "tochi"): kenbiyaTochiStart,
+        ("kenbiya", "invest_apartment"): kenbiyaInvestApartmentStart,
+        ("kenbiya", "invest_building"): kenbiyaInvestBuildingStart,
+        ("kenbiya", "investment"): kenbiyaInvestApartmentStart,
+        ("ietan", "mansion"): ietanMansionStart,
+        ("ietan", "kodate"): ietanKodateStart,
+        ("ietan", "tochi"): ietanTochiStart,
+        ("haseko", "mansion"): hasekoMansionStart,
+        ("adcast", "kodate"): adcastKodateStart,
+        ("adcast", "tochi"): adcastTochiStart,
+        ("toho", "mansion"): tohoMansionStart,
+        ("toho", "kodate"): tohoKodateStart,
+        ("toho", "tochi"): tohoTochiStart,
     }
 
 
