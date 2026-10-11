@@ -1,7 +1,7 @@
 import re
 import urllib.parse
 from decimal import Decimal
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
@@ -15,8 +15,8 @@ from package.models.odakyu import (
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
-    ListItem,
     ListingEndedException,
+    ListItem,
     MansionParserBase,
     ParserBase,
     SkipPropertyException,
@@ -80,17 +80,21 @@ class OdakyuParser(ParserBase):
                     return self.getRootDestUrl(href)
         return ""
 
-    def _normalize_detail_url(self, href: str) -> Optional[str]:
+    def _normalize_detail_url(self, href: str) -> str | None:
         if self.property_type == 'investment':
             # 投資一覧は /mansion/detail/ID/ 等を返す。/detail/ID/ へ潰すと 404 になる (Issue #317)
-            full_url = self.getRootDestUrl(href)
+            legacy_base = "https://www.odakyu-chukai.com"
+            if href.startswith("http"):
+                full_url = href
+            else:
+                full_url = legacy_base + ("/" if not href.startswith("/") else "") + href
             m = re.search(
                 r'/(?P<kind>mansion|house|kodate|land|tochi|invest)/detail/(?P<id>[A-Za-z0-9\-]+)',
                 full_url,
             )
             if not m:
                 return None
-            return f"{self.BASE_URL}/{m.group('kind')}/detail/{m.group('id')}/"
+            return f"{legacy_base}/{m.group('kind')}/detail/{m.group('id')}/"
         full_url = self.getRootDestUrl(href)
         path = urllib.parse.urlparse(full_url).path
         if not path.endswith('/'):
@@ -495,6 +499,25 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         "investment": ["price", "address", "grossYield", "annualRent"],
     }
 
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
+        title_el = (
+            response.select_one("h1.dF")
+            or response.select_one(".dF.aisC")
+            or response.select_one(".detailTitle h2")
+            or response.find("h1")
+        )
+        if title_el:
+            # Strip nested navigation button/link text if present
+            el_copy = BeautifulSoup(str(title_el), "html.parser").find()
+            if el_copy is not None:
+                for unwanted in el_copy.select("a, button, nav"):
+                    unwanted.decompose()
+                text = ParserBase._element_text(el_copy)
+                if text:
+                    return text
+            return ParserBase._element_text(title_el)
+        return ""
+
     def _parseRights(self, response, specs=None):
         return super()._parseRights(response, specs)
 
@@ -542,6 +565,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         return super()._parseTatemonoMenseki(response, specs)
 
     property_type = 'investment'
+    BASE_URL = 'https://ls1.odakyu-chukai.com'
     CB_SELECTOR = 'input[name="ids[]"]'
 
     def __init__(self, params=None):
@@ -567,8 +591,24 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         return any(k in text for k in ("利回", "オーナーチェンジ", "収益", "賃貸中"))
 
     async def parseRootPage(self, response: BeautifulSoup):
-        """Prefer invest list cards with yield; detail //detail/V* links are broken on-site."""
+        """Yield detail property URLs from ls1.odakyu-chukai.com or odakyu-chukai.com."""
         detail_links = set()
+        # 1. ls1.odakyu-chukai.com /properties/<id> pattern
+        for a in response.find_all("a", href=re.compile(r"/properties/\d+")):
+            href = a.get("href")
+            if not href:
+                continue
+            if not href.startswith("http"):
+                full_url = f"https://ls1.odakyu-chukai.com{href}"
+            else:
+                full_url = href
+            # Strip query params or hash if any
+            clean_url = full_url.split("?")[0].split("#")[0]
+            if clean_url not in detail_links:
+                detail_links.add(clean_url)
+                yield clean_url
+
+        # 2. Legacy fallback: odakyu-chukai.com invest list cards & typed links
         for url in self._iter_invest_list_focus_urls(response):
             if url not in detail_links:
                 detail_links.add(url)
@@ -586,7 +626,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
             vid = (cb.get("value") or "").strip()
             if not vid or not self._estate_block_has_yield(block):
                 continue
-            yield f"{self.BASE_URL}/invest/list/?focus={urllib.parse.quote(vid)}"
+            yield f"https://www.odakyu-chukai.com/invest/list/?focus={urllib.parse.quote(vid)}"
 
     def _iter_typed_detail_urls(self, response: BeautifulSoup):
         # Fallback: typed detail links (often residential mixed into invest list).
@@ -750,7 +790,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         return None
 
     def _apply_invest_yield_rent_from_specs(self, item, specs: dict) -> None:
-        gross_yield_str = specs.get("利回り", "") or specs.get("表面利回り", "")
+        gross_yield_str = specs.get("想定利回り", "") or specs.get("利回り", "") or specs.get("表面利回り", "")
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
         annual_rent_str = specs.get("想定年間収入", "") or specs.get("年間想定収入", "")
@@ -786,7 +826,12 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("延床面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物(専有)面積", "")
+            or specs.get("建物面積", "")
+            or specs.get("専有面積", "")
+            or specs.get("延床面積", "")
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
         item.kenpeiStr = specs.get("建ぺい率", "")

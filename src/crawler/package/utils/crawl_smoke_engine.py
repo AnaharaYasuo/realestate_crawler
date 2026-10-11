@@ -529,6 +529,7 @@ def _looks_like_detail(url: str) -> bool:
         "kubundetail",
         "detail_",
         "/property/",
+        "/properties/",
         "/buy/view/",
         "articleid=",
         "estate_id=",
@@ -1072,9 +1073,10 @@ async def _invoke_list_method(_parser, method, page, limit: int) -> list[Any]:
 
 
 def _classify_extracted_url(
-    url: str, _trust_as_detail: bool, details: list[str], middles: list[str]
+    url: Any, _trust_as_detail: bool, details: list[str], middles: list[str]
 ) -> None:
-
+    if hasattr(url, "url"):
+        url = getattr(url, "url")
     if not isinstance(url, str) or not url.startswith("http"):
         return
     if _looks_like_detail(url):
