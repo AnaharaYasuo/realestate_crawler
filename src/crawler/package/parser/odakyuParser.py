@@ -509,12 +509,13 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         if title_el:
             # Strip nested navigation button/link text if present
             el_copy = BeautifulSoup(str(title_el), "html.parser").find()
-            for unwanted in el_copy.select("a, button, nav"):
-                unwanted.decompose()
-            text = el_copy.get_text().strip()
-            if text:
-                return text
-            return title_el.get_text().strip()
+            if el_copy is not None:
+                for unwanted in el_copy.select("a, button, nav"):
+                    unwanted.decompose()
+                text = ParserBase._element_text(el_copy)
+                if text:
+                    return text
+            return ParserBase._element_text(title_el)
         return ""
 
     def _parseRights(self, response, specs=None):
