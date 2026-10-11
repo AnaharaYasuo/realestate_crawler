@@ -325,6 +325,8 @@ API_KEY_TOKYU_INVEST_APARTMENT_DETAIL_GCP = '/tokyu_investment_apartment_detail'
 # Nomura Investment Kodate (戸建て賃貸)
 API_KEY_NOMURA_INVEST_KODATE_START = '/api/nomura/investment/kodate/start'
 API_KEY_NOMURA_INVEST_KODATE_START_GCP = '/nomura_investment_kodate_start'
+API_KEY_NOMURA_INVEST_KODATE_AREA = '/api/nomura/investment/kodate/area'
+API_KEY_NOMURA_INVEST_KODATE_AREA_GCP = '/nomura_investment_kodate_area'
 API_KEY_NOMURA_INVEST_KODATE_LIST = '/api/nomura/investment/kodate/list'
 API_KEY_NOMURA_INVEST_KODATE_LIST_GCP = '/nomura_investment_kodate_list'
 API_KEY_NOMURA_INVEST_KODATE_DETAIL = '/api/nomura/investment/kodate/detail'
@@ -333,6 +335,8 @@ API_KEY_NOMURA_INVEST_KODATE_DETAIL_GCP = '/nomura_investment_kodate_detail'
 # Nomura Investment Apartment (アパート)
 API_KEY_NOMURA_INVEST_APARTMENT_START = '/api/nomura/investment/apartment/start'
 API_KEY_NOMURA_INVEST_APARTMENT_START_GCP = '/nomura_investment_apartment_start'
+API_KEY_NOMURA_INVEST_APARTMENT_AREA = '/api/nomura/investment/apartment/area'
+API_KEY_NOMURA_INVEST_APARTMENT_AREA_GCP = '/nomura_investment_apartment_area'
 API_KEY_NOMURA_INVEST_APARTMENT_LIST = '/api/nomura/investment/apartment/list'
 API_KEY_NOMURA_INVEST_APARTMENT_LIST_GCP = '/nomura_investment_apartment_list'
 API_KEY_NOMURA_INVEST_APARTMENT_DETAIL = '/api/nomura/investment/apartment/detail'
@@ -1094,6 +1098,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _getPararellLimit(self):
         pararell_limit = self._getLocalPararellLimit()
         company = self._resolve_target_company()
+
+        # 中間ページ（エリア・リスト探索）は静的設定並行度（MIDDLE_PARARELL_LIMIT等）を尊重
+        if not isinstance(self, ParseDetailPageAsyncBase):
+            return pararell_limit
 
         if os.getenv('IS_CLOUD', ''):
             custom_cloud_limit = os.getenv('CLOUD_DETAIL_CONCURRENCY')

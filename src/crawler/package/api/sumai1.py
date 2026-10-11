@@ -12,6 +12,7 @@ from package.parser.sumai1Parser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseSumai1MansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -44,10 +45,10 @@ class ParseSumai1MansionStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -90,10 +91,10 @@ class ParseSumai1KodateStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -136,10 +137,10 @@ class ParseSumai1TochiStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -182,10 +183,10 @@ class ParseSumai1InvestmentStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600

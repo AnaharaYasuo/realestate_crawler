@@ -1,12 +1,12 @@
 
 from flask import Blueprint, request
 from package.api.api import \
-    API_KEY_NOMURA_INVEST_KODATE_START, API_KEY_NOMURA_INVEST_KODATE_LIST, API_KEY_NOMURA_INVEST_KODATE_DETAIL, \
-    API_KEY_NOMURA_INVEST_APARTMENT_START, API_KEY_NOMURA_INVEST_APARTMENT_LIST, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL
+    API_KEY_NOMURA_INVEST_KODATE_START, API_KEY_NOMURA_INVEST_KODATE_AREA, API_KEY_NOMURA_INVEST_KODATE_LIST, API_KEY_NOMURA_INVEST_KODATE_DETAIL, \
+    API_KEY_NOMURA_INVEST_APARTMENT_START, API_KEY_NOMURA_INVEST_APARTMENT_AREA, API_KEY_NOMURA_INVEST_APARTMENT_LIST, API_KEY_NOMURA_INVEST_APARTMENT_DETAIL
 
 from package.api.nomura_investment import \
-    ParseNomuraInvestKodateStartAsync, ParseNomuraInvestKodateListFuncAsync, ParseNomuraInvestKodateDetailFuncAsync, \
-    ParseNomuraInvestApartmentStartAsync, ParseNomuraInvestApartmentListFuncAsync, ParseNomuraInvestApartmentDetailFuncAsync
+    ParseNomuraInvestKodateStartAsync, ParseNomuraInvestKodateAreaFuncAsync, ParseNomuraInvestKodateListFuncAsync, ParseNomuraInvestKodateDetailFuncAsync, \
+    ParseNomuraInvestApartmentStartAsync, ParseNomuraInvestApartmentAreaFuncAsync, ParseNomuraInvestApartmentListFuncAsync, ParseNomuraInvestApartmentDetailFuncAsync
 
 nomura_investment_bp = Blueprint('nomura_investment', __name__)
 
@@ -20,6 +20,14 @@ def nomura_invest_kodate_start():
     return "OK"
 
 nomuraInvestKodateStart = nomura_invest_kodate_start
+
+@nomura_investment_bp.route(API_KEY_NOMURA_INVEST_KODATE_AREA, methods=['POST', 'GET'])
+def nomura_invest_kodate_area():
+    url = request.json['url']
+    ParseNomuraInvestKodateAreaFuncAsync().main(url)
+    return "OK"
+
+nomuraInvestKodateArea = nomura_invest_kodate_area
 
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_KODATE_LIST, methods=['POST', 'GET'])
 def nomura_invest_kodate_list():
@@ -47,6 +55,14 @@ def nomura_invest_apartment_start():
     return "OK"
 
 nomuraInvestApartmentStart = nomura_invest_apartment_start
+
+@nomura_investment_bp.route(API_KEY_NOMURA_INVEST_APARTMENT_AREA, methods=['POST', 'GET'])
+def nomura_invest_apartment_area():
+    url = request.json['url']
+    ParseNomuraInvestApartmentAreaFuncAsync().main(url)
+    return "OK"
+
+nomuraInvestApartmentArea = nomura_invest_apartment_area
 
 @nomura_investment_bp.route(API_KEY_NOMURA_INVEST_APARTMENT_LIST, methods=['POST', 'GET'])
 def nomura_invest_apartment_list():

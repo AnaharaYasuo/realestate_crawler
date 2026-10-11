@@ -11,6 +11,7 @@ from package.parser.sumifuParser import SumifuInvestmentKodateParser, SumifuInve
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 2
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARALLEL_LIMIT = 5
 
 # ==============================================================================
@@ -38,13 +39,13 @@ class ParseSumifuInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
         return self.parser.parseNextPage
     
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _isBsMiddlePage(self):
         return True
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -54,10 +55,10 @@ class ParseSumifuInvestStartAsyncBase(ApiAsyncProcBase):
     urlList = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=111111111110&limit=1000"]
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
