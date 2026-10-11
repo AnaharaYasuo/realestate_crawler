@@ -125,9 +125,10 @@ class KenbiyaParserBase(ParserBase):
     async def parseNextPage(self, response: BeautifulSoup):
         # ページネーション: li.next a, a[rel="next"], または「次へ」リンク
         next_tag = response.select_one('li.next a, a[rel="next"], a.next')
-        if next_tag and next_tag.get("href"):
-            href = next_tag["href"]
-            return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+        if next_tag is not None:
+            href = next_tag.get("href")
+            if href:
+                return href if href.startswith("http") else f"{self.BASE_URL}{href}"
         for a in response.find_all("a"):
             text = a.get_text(strip=True)
             if "次へ" in text or "次のページ" in text or ">" == text:
