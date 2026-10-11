@@ -11,6 +11,7 @@ from package.parser.heimParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseHeimMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -43,10 +44,10 @@ class ParseHeimMansionStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -88,10 +89,10 @@ class ParseHeimKodateStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -133,10 +134,10 @@ class ParseHeimTochiStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600

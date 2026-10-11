@@ -10,6 +10,7 @@ from package.parser.mitsuiParser import MitsuiInvestmentKodateParser, MitsuiInve
 from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 1
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARALLEL_LIMIT = 1
 
 class ParseMitsuiInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
@@ -20,10 +21,10 @@ class ParseMitsuiInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
         return self.parser.getPropertyListNextPageUrl
     
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -33,10 +34,10 @@ class ParseMitsuiInvestAreaFuncAsyncBase(ParseMiddlePageAsyncBase):
         return self.parser.parseAreaPage
     
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -59,10 +60,10 @@ class ParseMitsuiInvestStartAsyncBase(ParseMiddlePageAsyncBase):
         return self.parser.parseRootPage
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

@@ -11,6 +11,7 @@ from package.parser.totateParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # Mansion
 class ParseTotateMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -35,9 +36,9 @@ class ParseTotateMansionStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
@@ -68,9 +69,9 @@ class ParseTotateKodateStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
@@ -101,9 +102,9 @@ class ParseTotateTochiStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):

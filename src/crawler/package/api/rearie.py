@@ -11,6 +11,7 @@ from package.parser.rearieParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseRearieMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -43,10 +44,10 @@ class ParseRearieMansionStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -88,10 +89,10 @@ class ParseRearieKodateStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -133,10 +134,10 @@ class ParseRearieTochiStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600

@@ -12,6 +12,7 @@ from package.parser.athomeParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseAthomeMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -44,10 +45,10 @@ class ParseAthomeMansionStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -89,10 +90,10 @@ class ParseAthomeKodateStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -134,10 +135,10 @@ class ParseAthomeInvestApartmentStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -180,10 +181,10 @@ class ParseAthomeTochiStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600

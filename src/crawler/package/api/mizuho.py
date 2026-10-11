@@ -15,6 +15,7 @@ from package.parser.mizuhoParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseMizuhoMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -47,10 +48,10 @@ class ParseMizuhoMansionStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -93,10 +94,10 @@ class ParseMizuhoKodateStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -139,10 +140,10 @@ class ParseMizuhoTochiStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600
@@ -185,10 +186,10 @@ class ParseMizuhoInvestmentStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 600

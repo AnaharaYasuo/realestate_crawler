@@ -12,6 +12,7 @@ from package.parser.smtrcParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # --- Mansion ---
 class ParseSmtrcMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -44,10 +45,10 @@ class ParseSmtrcMansionStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -90,10 +91,10 @@ class ParseSmtrcKodateStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -136,10 +137,10 @@ class ParseSmtrcTochiStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -182,10 +183,10 @@ class ParseSmtrcInvestmentStartAsync(ParseMiddlePageAsyncBase):
         return True
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
