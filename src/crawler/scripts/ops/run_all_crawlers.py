@@ -44,7 +44,7 @@ from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC, update_watchdog_progress
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs  # noqa: E402  — SSOT for production + tests
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES  # noqa: E402  — SSOT for production + tests
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -64,13 +64,13 @@ def parse_args():
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
     parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho) for cloud schedule runs.")
     parser.add_argument("--company", type=str, default=None, help="Target company name(s), comma-separated (e.g. sumifu,mitsui).")
     parser.add_argument("--property-type", "--type", dest="property_type", type=str, default=None, help="Target property type(s), comma-separated (e.g. mansion,kodate).")
     parser.add_argument("--sites", type=str, default=None, help="Target site tokens, comma-separated (e.g. sumifu:mansion,tokyu).")
     return parser.parse_args()
 
 # ポータルサイトおよび Playwright を使用する高メモリ負荷サイトのリスト
-PORTAL_COMPANIES = ["athome", "homes"]
 PLAYWRIGHT_COMPANIES = ["athome"]
 
 
@@ -464,7 +464,11 @@ def main():
     """
     args = parse_args()
     if args.dry_run:
-        target_jobs = [j for j in CRAWL_JOBS if not (args.skip_portals and j[0].lower() in PORTAL_COMPANIES)]
+        target_jobs = [
+            j for j in CRAWL_JOBS
+            if not (args.skip_portals and j[0].lower() in PORTAL_COMPANIES)
+            and not (args.skip_uncrawled and j[0].lower() in UNCRAWLED_COMPANIES)
+        ]
         logging.info(f"--- Dry Run Mode: List of Crawling Jobs ({len(target_jobs)} jobs) ---")
         for i, (company, ptype) in enumerate(target_jobs, 1):
             logging.info(f"{i:02d}. Company: {company}, Type: {ptype}")
@@ -493,9 +497,12 @@ def main():
     
     task_index, task_count = get_task_config()
     target_jobs = list(CRAWL_JOBS)
-    if args.skip_portals:
+    if getattr(args, "skip_portals", False):
         target_jobs = [j for j in target_jobs if j[0].lower() not in PORTAL_COMPANIES]
-        logging.info(f"Skipping portal sites ({', '.join(PORTAL_COMPANIES)}). Active jobs: {len(target_jobs)}/{len(CRAWL_JOBS)}")
+        logger.info(f"Skipping portal sites ({', '.join(PORTAL_COMPANIES)}). Active jobs: {len(target_jobs)}/{len(CRAWL_JOBS)}")
+    if getattr(args, "skip_uncrawled", False):
+        target_jobs = [j for j in target_jobs if j[0].lower() not in UNCRAWLED_COMPANIES]
+        logger.info(f"Skipping un-crawled/mid-tier broker sites ({', '.join(UNCRAWLED_COMPANIES)}). Active jobs: {len(target_jobs)}/{len(CRAWL_JOBS)}")
 
     company_arg = getattr(args, "company", None)
     prop_type_arg = getattr(args, "property_type", None)

@@ -107,14 +107,19 @@ def _build_slack_and_banner_messages(
     return finish_msg, banner
 
 
-def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None, skip_portals: bool = False) -> None:
+def run_bulk_evaluation(
+    force: bool = False,
+    limit_per_model: int | None = None,
+    skip_portals: bool = False,
+    skip_uncrawled: bool = False,
+) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
     batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s)...",
+        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -124,7 +129,7 @@ def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None,
     }
 
     model_getter = globals().get("get_all_property_models", get_all_property_models)
-    models = model_getter(skip_portals=skip_portals)
+    models = model_getter(skip_portals=skip_portals, skip_uncrawled=skip_uncrawled)
     slack_notifier = globals().get("notify_slack", notify_slack)
     single_evaluator = globals().get("evaluate_single_model", evaluate_single_model)
 
@@ -133,9 +138,15 @@ def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None,
         slack_notifier("⚠️ 【バルク価格推定エラー】 評価対象の物件モデルが0件でした。処理を中断します。")
         sys.exit(1)
 
+    skip_suffix = ""
+    if skip_portals:
+        skip_suffix += " [ポータル割愛]"
+    if skip_uncrawled:
+        skip_suffix += " [未巡回・中堅仲介割愛]"
+
     slack_notifier(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
-        f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{' [ポータル割愛]' if skip_portals else ''})..."
+        f"(並行スレッド: {concurrency}, 全 {len(models)} モデル{skip_suffix})..."
     )
 
     evaluated_count, skipped_count, passed_total, duplicate_total = 0, 0, 0, 0
