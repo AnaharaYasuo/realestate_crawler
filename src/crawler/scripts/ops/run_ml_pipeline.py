@@ -222,6 +222,7 @@ def run_command(cmd: list[str], desc: str):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Cloud Run ML Pipeline Job")
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
+    parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
     parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
@@ -293,7 +294,9 @@ def main(argv=None):
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if args.skip_portals:
             eval_cmd.append("--skip-portals")
-        run_command(eval_cmd, f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}")
+        if args.skip_uncrawled:
+            eval_cmd.append("--skip-uncrawled")
+        run_command(eval_cmd, f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}")
 
         # Step 5: お宝物件のスクリーニング & Slack通知
         run_command([

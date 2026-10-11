@@ -8,7 +8,7 @@ COMPANIES = [
     "mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1",
     "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome",
     "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie",
-    "heim", "sumirin", "keio",
+    "heim", "sumirin", "keio", "kenbiya", "ietan", "haseko", "adcast", "toho",
 ]
 
 DEFAULT_ENSEMBLE_WEIGHTS: dict[str, dict[str, float]] = {

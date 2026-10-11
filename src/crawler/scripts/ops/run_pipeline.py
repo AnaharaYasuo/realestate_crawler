@@ -30,7 +30,7 @@ from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 from package.utils.task_distribution import (
     distribute_jobs,
     get_execution_date,
@@ -488,6 +488,7 @@ def _run_crawler_step(
     task_count: int,
     ops_dir: str,
     skip_portals: bool,
+    skip_uncrawled: bool = False,
     company: str | None = None,
     property_type: str | None = None,
     sites: str | None = None,
@@ -495,6 +496,8 @@ def _run_crawler_step(
     crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
     if skip_portals:
         crawl_cmd.append("--skip-portals")
+    if skip_uncrawled:
+        crawl_cmd.append("--skip-uncrawled")
     if company:
         crawl_cmd.append(f"--company={company}")
     if property_type:
@@ -541,6 +544,7 @@ def _run_post_crawl_pipeline(
     maintenance_dir: str,
     debug_tools_dir: str,
     skip_portals: bool,
+    skip_uncrawled: bool = False,
     skip_train: bool = False,
     skip_url_check: bool = False,
 ) -> list[str]:
@@ -600,9 +604,11 @@ def _run_post_crawl_pipeline(
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if skip_portals:
             eval_cmd.append("--skip-portals")
+        if skip_uncrawled:
+            eval_cmd.append("--skip-uncrawled")
         run_command(
             eval_cmd,
-            f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}",
+            f"Step 4/6: Batch Estimation & Investment Evaluation{' [Skip Portals]' if skip_portals else ''}{' [Skip Uncrawled]' if skip_uncrawled else ''}",
         )
     except Exception as e:
         failed_steps.append("Step 4/6: Batch Estimation & Investment Evaluation")
@@ -646,6 +652,11 @@ def main():
         help="Skip large portal sites (homes, athome)",
     )
     parser.add_argument(
+        "--skip-uncrawled",
+        action="store_true",
+        help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho) for cloud schedule runs",
+    )
+    parser.add_argument(
         "--company",
         type=str,
         default=None,
@@ -684,8 +695,9 @@ def main():
     # 対象ジョブの事前判定: 自タスクに割り当てられるジョブが存在するか確認 (Issue #801)
     target_jobs = list(CRAWL_JOBS)
     if args.skip_portals:
-        portal_companies = {"athome", "homes"}
-        target_jobs = [j for j in target_jobs if j[0].lower() not in portal_companies]
+        target_jobs = [j for j in target_jobs if j[0].lower() not in PORTAL_COMPANIES]
+    if args.skip_uncrawled:
+        target_jobs = [j for j in target_jobs if j[0].lower() not in UNCRAWLED_COMPANIES]
     company_arg = getattr(args, "company", None)
     prop_type_arg = getattr(args, "property_type", None)
     sites_arg = getattr(args, "sites", None)
@@ -815,6 +827,7 @@ def main():
             task_count,
             ops_dir,
             args.skip_portals,
+            skip_uncrawled=args.skip_uncrawled,
             company=args.company,
             property_type=args.property_type,
             sites=args.sites,
@@ -833,6 +846,7 @@ def main():
             maintenance_dir,
             debug_tools_dir,
             args.skip_portals,
+            skip_uncrawled=args.skip_uncrawled,
             skip_train=args.skip_train,
             skip_url_check=args.skip_url_check,
         )
