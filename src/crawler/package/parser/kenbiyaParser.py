@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 from typing import Optional
+from urllib.parse import urljoin
 import aiohttp
 from bs4 import BeautifulSoup
 
@@ -129,7 +130,7 @@ class KenbiyaParserBase(ParserBase):
             text = a.get_text(strip=True)
             if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr("href"):
                 href = str(a["href"])
-                return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+                return urljoin(self.BASE_URL, href)
         return ""
 
     async def parseNextPage(self, response: BeautifulSoup):
@@ -138,7 +139,7 @@ class KenbiyaParserBase(ParserBase):
         if next_tag is not None:
             href = next_tag.get("href")
             if href:
-                return str(href) if str(href).startswith("http") else f"{self.BASE_URL}{href}"
+                return urljoin(self.BASE_URL, str(href))
         return self._find_next_by_text(response)
 
     async def parseRootPage(self, response: BeautifulSoup):
