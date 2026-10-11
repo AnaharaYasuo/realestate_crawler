@@ -36,15 +36,13 @@ from package.api.misawa_investment import (
 from package.api.mitsui import (
     ParseMitsuiMansionStartAsync,
     ParseMitsuiMansionAreaFuncAsync,
+    ParseMitsuiMansionDetailFuncAsync,
     ParseMitsuiTochiStartAsync,
     ParseMitsuiTochiAreaFuncAsync,
     ParseMitsuiKodateStartAsync,
     ParseMitsuiKodateAreaFuncAsync,
 )
 from package.api.mitsui_investment import (
-    ParseMitsuiInvestStartAsyncBase,
-    ParseMitsuiInvestAreaFuncAsyncBase,
-    ParseMitsuiInvestListFuncAsyncBase,
     ParseMitsuiInvestApartmentStartAsync,
     ParseMitsuiInvestApartmentAreaFuncAsync,
     ParseMitsuiInvestApartmentListFuncAsync,
@@ -97,7 +95,6 @@ from package.api.sumai1 import (
     ParseSumai1InvestmentStartAsync,
 )
 from package.api.sumifu import (
-    ParseSumifuMansionStartAsync,
     ParseSumifuMansionRegionFuncAsync,
     ParseSumifuMansionAreaFuncAsync,
     ParseSumifuTochiStartAsync,
@@ -108,8 +105,6 @@ from package.api.sumifu import (
     ParseSumifuKodateAreaFuncAsync,
 )
 from package.api.sumifu_investment import (
-    ParseSumifuInvestStartAsyncBase,
-    ParseSumifuInvestListFuncAsyncBase,
     ParseSumifuInvestApartmentStartAsync,
     ParseSumifuInvestApartmentListFuncAsync,
     ParseSumifuInvestKodateStartAsync,
@@ -130,8 +125,6 @@ from package.api.tokyu import (
     ParseTokyuKodateAreaFuncAsync,
 )
 from package.api.tokyu_investment import (
-    ParseTokyuInvestStartAsyncBase,
-    ParseTokyuInvestListFuncAsyncBase,
     ParseTokyuInvestApartmentStartAsync,
     ParseTokyuInvestApartmentListFuncAsync,
     ParseTokyuInvestKodateStartAsync,
@@ -311,7 +304,6 @@ class TestAllCrawlersMiddlePageParallel(unittest.TestCase):
         self.assertEqual(area_inst._getPararellLimit(), 3)
 
         # 詳細ページクラス（ParseDetailPageAsyncBase）はWAFキャップ（mitsui=3）が適用される
-        from package.api.mitsui import ParseMitsuiMansionDetailFuncAsync
         detail_inst = ParseMitsuiMansionDetailFuncAsync()
         self.assertIsInstance(detail_inst, ParseDetailPageAsyncBase)
         self.assertEqual(detail_inst._getPararellLimit(), 3)
