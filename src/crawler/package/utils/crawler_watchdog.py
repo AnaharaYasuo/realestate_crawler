@@ -46,3 +46,41 @@ def kill_hung_job_process(proc: Any) -> bool:
     except Exception:
         logger.exception("Failed to kill hung process group")
         return False
+
+
+def _update_single_job_progress(
+    job_info: tuple,
+    now: float,
+    count_fn: Any,
+    check_interval_sec: float,
+) -> tuple:
+    """単一ジョブのDB進捗を確認し、更新後のタプルを返す"""
+    proc, company, ptype, start_t, start_dt, *extra = job_info
+    last_act = extra[0] if extra else start_t
+    prev_db_cnt = extra[1] if len(extra) > 1 else 0
+    last_check_t = extra[2] if len(extra) > 2 else 0.0
+
+    if (now - last_check_t) < check_interval_sec:
+        return job_info
+
+    counts = count_fn(company, ptype, start_dt)
+    current_db_cnt = counts[2] if counts[0] is not None else None
+    if current_db_cnt is not None:
+        if current_db_cnt > prev_db_cnt:
+            last_act = now
+        return (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
+    return (proc, company, ptype, start_t, start_dt, last_act, prev_db_cnt, now)
+
+
+def update_watchdog_progress(
+    active_processes: dict[int, tuple],
+    now: float,
+    count_fn: Any,
+    check_interval_sec: float = 15.0,
+) -> None:
+    """進捗監視対象プロセスのDB件数増分を確認し、公平に last_act を更新する"""
+    for idx in tuple(active_processes.keys()):
+        if idx in active_processes:
+            active_processes[idx] = _update_single_job_progress(
+                active_processes[idx], now, count_fn, check_interval_sec
+            )

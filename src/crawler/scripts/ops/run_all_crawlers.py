@@ -1,5 +1,4 @@
-# ruff: noqa: E402, F401
-# -*- coding: utf-8 -*-
+# ruff: noqa: E402, F401, UP009, F811
 import os
 import sys
 import time
@@ -42,7 +41,7 @@ from package.utils.crawler_scheduler import select_next_job
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
-from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC
+from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC, update_watchdog_progress
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs  # noqa: E402  — SSOT for production + tests
@@ -91,15 +90,12 @@ log_dir = os.path.join(_crawler_dir, "logs")
 os.makedirs(log_dir, exist_ok=True)
 
 
-# 定義済みの全クロールジョブリスト
-from package.utils.crawl_jobs import CRAWL_JOBS  # noqa: E402  — SSOT for production + tests
-
 logger = logging.getLogger(__name__)
 
 
 
 
-cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", 180))
+cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", "180"))
 timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "10800"))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
@@ -662,27 +658,10 @@ def main():
                 AdaptiveConcurrencyController.set_active_jobs_count(len(active_processes))
                 continue
 
-        # 子プロセスの進捗監視（1ループあたり最大1ジョブのみDB件数増分を確認し、DB負荷を最小化）
+        # 子プロセスの進捗監視（15秒経過ジョブのDB件数増分を確認し、公平に last_act を更新）
         # HANG_THRESHOLD_SEC <= 0 の場合はハング検知が無効化されているため進捗カウント取得をスキップ
-        # extra: (last_act, current_db_cnt, last_check_t)
         if HANG_THRESHOLD_SEC > 0:
-            for idx in tuple(active_processes.keys()):
-                if idx not in active_processes:
-                    continue
-                proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
-                last_act = extra[0] if extra else start_t
-                prev_db_cnt = extra[1] if len(extra) > 1 else 0
-                last_check_t = extra[2] if len(extra) > 2 else 0.0
-                if (now - last_check_t) >= 15.0:
-                    counts = get_count_for_job(company, ptype, start_dt)
-                    current_db_cnt = counts[2] if counts[0] is not None else None
-                    if current_db_cnt is not None:
-                        if current_db_cnt > prev_db_cnt:
-                            last_act = now
-                        active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, max(current_db_cnt, prev_db_cnt), now)
-                    else:
-                        # クエリ失敗時は last_act を更新せず（ハング判定の即時誤検知を防ぐため以前の値を保持）、チェック時刻のみ更新
-                        active_processes[idx] = (proc, company, ptype, start_t, start_dt, last_act, prev_db_cnt, now)
+            update_watchdog_progress(active_processes, now, get_count_for_job)
 
         for idx in tuple(active_processes.keys()):
             if idx not in active_processes:

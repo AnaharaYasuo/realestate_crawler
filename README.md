@@ -740,10 +740,11 @@ docs/
 - **[ローカルDockerクローラーコスト削減要件定義書](docs/requirements/local_docker_crawler_cost_saving_requirements.md)**: Cloud Runコスト削減・IAP ProxySQLトンネル・GCS直接永続化・並列度制御要件 (Issue #857)
 - **[ローカルDockerクローラーコスト削減外部設計書](docs/external_design/local_docker_crawler_cost_saving_external_design.md)**: ローカルDocker・IAPトンネル・ProxySQL・GCS連携アーキテクチャ外部仕様 (Issue #857)
 - **[ローカルDockerクローラーコスト削減内部設計書](docs/internal_design/local_docker_crawler_cost_saving_internal_design.md)**: Terraform IAPファイアウォール・run_all_crawlers並列度制御・docker-compose環境変数内部仕様 (Issue #857)
+- **[マルチイベントループレートリミットおよびウォッチドッグ公平化要件定義書](docs/requirements/rate_limit_and_watchdog_fairness_requirements.md)**: マルチイベントループ下でのasyncio.Lock競合解消および親監視ループ公平化要件 (Issue #860)
+- **[マルチイベントループレートリミットおよびウォッチドッグ公平化内部設計書](docs/internal_design/rate_limit_and_watchdog_fairness_internal_design.md)**: threading.Lock予約方式レートリミッターおよびbreak除去公平化詳細仕様 (Issue #860)
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト要件定義書](docs/requirements/crawler_hang_timeout_prevention_requirements.md)**: レートリミットスレッドセーフ化・ローカル実行上限・Watchdog全件走査・3時間短縮・HTTPタイムアウト厳格化要件 (Issue #861)
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト基本設計書](docs/basic_design/crawler_hang_timeout_prevention_basic_design.md)**: レートリミッター・Watchdog・Cloud Run Job・Safety-Net・Workflows連動基本設計 (Issue #861)
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト内部設計書](docs/internal_design/crawler_hang_timeout_prevention_internal_design.md)**: threading.Lock/120sタイムアウト/8要素タプル監視/10800s同期内部仕様 (Issue #861)
-
 
 
 ### 2. 開発を始める

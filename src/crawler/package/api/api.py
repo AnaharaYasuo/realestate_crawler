@@ -1439,8 +1439,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         "mitsui": 1.0,
         "smtrc": 1.0,
     }
-    _SITE_RATE_LOCKS: ClassVar[dict[str, threading.Lock]] = {}
-    _SITE_LAST_START_TIMES: ClassVar[dict[str, float]] = {}
+    _SITE_RATE_LOCK: ClassVar[threading.Lock] = threading.Lock()
+    _SITE_NEXT_ALLOWED: ClassVar[dict[str, float]] = {}
 
     async def _apply_download_delay_if_needed(self):
         """WAF/レートリミット保護対象サイトの場合に並行リクエスト間で適切な間隔（レートリミット）を保証"""
@@ -1451,24 +1451,15 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if delay <= 0.0:
             return
 
-        if company not in self._SITE_RATE_LOCKS:
-            with _dispatched_detail_lock:
-                if company not in self._SITE_RATE_LOCKS:
-                    self._SITE_RATE_LOCKS[company] = threading.Lock()
-
-        sleep_sec = 0.0
-        with self._SITE_RATE_LOCKS[company]:
-            last_time = self._SITE_LAST_START_TIMES.get(company, 0.0)
+        with self._SITE_RATE_LOCK:
             now = time.monotonic()
-            elapsed = now - last_time
-            if elapsed < delay:
-                sleep_sec = delay - elapsed
-                self._SITE_LAST_START_TIMES[company] = now + sleep_sec
-            else:
-                self._SITE_LAST_START_TIMES[company] = now
+            next_allowed = self._SITE_NEXT_ALLOWED.get(company, now)
+            scheduled_time = max(now, next_allowed)
+            self._SITE_NEXT_ALLOWED[company] = scheduled_time + delay
+            wait_sec = scheduled_time - now
 
-        if sleep_sec > 0.0:
-            await asyncio.sleep(sleep_sec)
+        if wait_sec > 0:
+            await asyncio.sleep(wait_sec)
 
     async def _fetch_detail_item(self):
         async def get_item():
