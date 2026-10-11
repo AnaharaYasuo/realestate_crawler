@@ -8,16 +8,19 @@ from typing import Any
 
 from django.apps import apps
 from package.ml.constants import COMPANIES
+from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
 logger = logging.getLogger(__name__)
 
-PORTAL_COMPANIES = ["athome", "homes"]
 
-
-def get_all_property_models(skip_portals: bool = False) -> list[Any]:
+def get_all_property_models(skip_portals: bool = False, skip_uncrawled: bool = False) -> list[Any]:
     """登録されている全物件モデルを取得"""
     property_models = []
-    target_companies = [c for c in COMPANIES if not (skip_portals and c in PORTAL_COMPANIES)]
+    target_companies = [
+        c for c in COMPANIES
+        if not (skip_portals and c in PORTAL_COMPANIES)
+        and not (skip_uncrawled and c in UNCRAWLED_COMPANIES)
+    ]
     app_config = apps.get_app_config("package")
     for model in app_config.get_models():
         model_name = model.__name__.lower()

@@ -1,5 +1,8 @@
 """Shared crawl job definitions (Single Source of Truth for production + tests)."""
 
+PORTAL_COMPANIES = {"athome", "homes"}
+UNCRAWLED_COMPANIES = {"kenbiya", "ietan", "haseko", "adcast", "toho"}
+
 CRAWL_JOBS = [
     # 主要5社 (居住用)
     ("mitsui", "mansion"),
@@ -215,6 +218,8 @@ def filter_crawl_jobs(
     sites: str | None = None,
     company: str | None = None,
     property_type: str | None = None,
+    skip_portals: bool = False,
+    skip_uncrawled: bool = False,
 ) -> list[tuple[str, str]]:
     """
     Narrow CRAWL_JOBS for targeted live verification.
@@ -228,6 +233,11 @@ def filter_crawl_jobs(
     Empty filters return the full job list unchanged.
     """
     selected = list(jobs if jobs is not None else CRAWL_JOBS)
+    if skip_portals:
+        selected = [j for j in selected if j[0].lower() not in PORTAL_COMPANIES]
+    if skip_uncrawled:
+        selected = [j for j in selected if j[0].lower() not in UNCRAWLED_COMPANIES]
+
     sites_raw = (sites or "").strip()
     company_l = (company or "").strip().lower()
     type_l = (property_type or "").strip().lower()

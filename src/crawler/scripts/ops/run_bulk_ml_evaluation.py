@@ -34,7 +34,12 @@ __all__ = [
     "run_bulk_evaluation", "send_dev_report",
 ]
 
-def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None, skip_portals: bool = False) -> None:
+def run_bulk_evaluation(
+    force: bool = False,
+    limit_per_model: int | None = None,
+    skip_portals: bool = False,
+    skip_uncrawled: bool = False,
+) -> None:
     """CLI および外部呼び出し用のバルク評価実行（後方互換 monkeypatch 対応）"""
     import package.ml.evaluation.notifications as notif_mod
     import package.ml.evaluation.runner as runner_mod
@@ -43,7 +48,7 @@ def run_bulk_evaluation(force: bool = False, limit_per_model: int | None = None,
     runner_mod.evaluate_single_model = getattr(this_mod, "_evaluate_single_model", _evaluate_single_model)
     runner_mod.get_all_property_models = tgts_mod.get_all_property_models = getattr(this_mod, "get_all_property_models", get_all_property_models)
     notif_mod.send_dev_report = getattr(this_mod, "send_dev_report", send_dev_report)
-    _orig_run_bulk_evaluation(force=force, limit_per_model=limit_per_model, skip_portals=skip_portals)
+    _orig_run_bulk_evaluation(force=force, limit_per_model=limit_per_model, skip_portals=skip_portals, skip_uncrawled=skip_uncrawled)
 
 def main() -> None:
     """CLI エントリポイント"""
@@ -51,8 +56,9 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="Force re-evaluation of already evaluated properties")
     parser.add_argument("--limit", type=int, default=None, help="Limit properties per model for testing")
     parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes)")
+    parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     args = parser.parse_args()
-    run_bulk_evaluation(force=args.force, limit_per_model=args.limit, skip_portals=args.skip_portals)
+    run_bulk_evaluation(force=args.force, limit_per_model=args.limit, skip_portals=args.skip_portals, skip_uncrawled=args.skip_uncrawled)
 
 
 if __name__ == "__main__":

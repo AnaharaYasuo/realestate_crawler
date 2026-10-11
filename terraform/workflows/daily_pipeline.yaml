@@ -21,6 +21,7 @@ main:
           - propertyType: ${default(map.get(args, "propertyType"), default(map.get(args, "type"), null))}
           - sites: ${default(map.get(args, "sites"), null)}
           - skipPortals: ${default(map.get(args, "skipPortals"), true)}
+          - skipUncrawled: ${default(map.get(args, "skipUncrawled"), true)}
           - explicitTaskCount: ${default(map.get(args, "taskCount"), null)}
           - skipTrain: ${default(map.get(args, "skipTrain"), true)}
           - skipUrlCheck: ${default(map.get(args, "skipUrlCheck"), not default(map.get(args, "enableUrlCheck"), false))}
@@ -51,6 +52,12 @@ main:
                   assign:
                     - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-portals"])}
                     - mlArgs: ${list.concat(mlArgs, ["--skip-portals"])}
+          - checkSkipUncrawled:
+              switch:
+                - condition: ${skipUncrawled}
+                  assign:
+                    - crawlerArgs: ${list.concat(crawlerArgs, ["--skip-uncrawled"])}
+                    - mlArgs: ${list.concat(mlArgs, ["--skip-uncrawled"])}
           - checkSkipUrlCheck:
               switch:
                 - condition: ${skipUrlCheck}

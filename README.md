@@ -751,6 +751,9 @@ docs/
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト要件定義書](docs/requirements/crawler_hang_timeout_prevention_requirements.md)**: レートリミットスレッドセーフ化・ローカル実行上限・Watchdog全件走査・3時間短縮・HTTPタイムアウト厳格化要件 (Issue #861)
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト基本設計書](docs/basic_design/crawler_hang_timeout_prevention_basic_design.md)**: レートリミッター・Watchdog・Cloud Run Job・Safety-Net・Workflows連動基本設計 (Issue #861)
 - **[Task 0ハング防止・Watchdog即時検知・3時間タイムアウト内部設計書](docs/internal_design/crawler_hang_timeout_prevention_internal_design.md)**: threading.Lock/120sタイムアウト/8要素タプル監視/10800s同期内部仕様 (Issue #861)
+- **[未巡回サイトクラウドスケジュール除外要件定義書](docs/requirements/exclude_uncrawled_sites_cloud_schedule_requirements.md)**: 健美家・中堅仲介のクラウド定期実行除外・オプション制御要件 (Issue #880)
+- **[未巡回サイトクラウドスケジュール除外外部設計書](docs/external_design/exclude_uncrawled_sites_cloud_schedule_external_design.md)**: Cloud Scheduler / Workflows / CLI引数連携外部設計 (Issue #880)
+- **[未巡回サイトクラウドスケジュール除外内部設計書](docs/internal_design/exclude_uncrawled_sites_cloud_schedule_internal_design.md)**: filter_crawl_jobs / get_all_property_models / daily_pipeline.yaml 内部設計 (Issue #880)
 
 
 ### 2. 開発を始める
