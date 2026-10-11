@@ -76,3 +76,28 @@ def test_odakyu_investment_ls1_detail_page_parse():
     assert parsed.tochiMenseki == Decimal("105.19")
     assert parsed.kouzou == "木造"
     assert parsed.currentStatus == "賃貸中"
+
+
+def test_odakyu_investment_ls1_detail_h1_with_back_button():
+    """Verify h1 containing nested back button strips button text and extracts clean property name."""
+    html = """
+    <html><body>
+      <h1 class="dF aisC">
+        <a title="検索一覧へ戻る" href="javascript:void(0)">
+          <button class="btn-prev arrowBtn">
+            <span class="arrow"></span>戻る
+          </button>
+        </a>
+        高円寺南アパート
+      </h1>
+      <dl>
+        <dt>所在地</dt><dd>東京都杉並区高円寺南５丁目</dd>
+        <dt>価格</dt><dd>15,000万円</dd>
+        <dt>想定利回り</dt><dd>5.16%</dd>
+        <dt>建物構造</dt><dd>木造</dd>
+      </dl>
+    </body></html>
+    """
+    parser = OdakyuInvestmentParser()
+    soup = BeautifulSoup(html, "html.parser")
+    assert parser._parsePropertyName(soup) == "高円寺南アパート"

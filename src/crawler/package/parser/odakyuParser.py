@@ -499,6 +499,24 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         "investment": ["price", "address", "grossYield", "annualRent"],
     }
 
+    def _parsePropertyName(self, response: BeautifulSoup, _specs=None):
+        title_el = (
+            response.select_one("h1.dF")
+            or response.select_one(".dF.aisC")
+            or response.select_one(".detailTitle h2")
+            or response.find("h1")
+        )
+        if title_el:
+            # Strip nested navigation button/link text if present
+            el_copy = BeautifulSoup(str(title_el), "html.parser").find()
+            for unwanted in el_copy.select("a, button, nav"):
+                unwanted.decompose()
+            text = el_copy.get_text().strip()
+            if text:
+                return text
+            return title_el.get_text().strip()
+        return ""
+
     def _parseRights(self, response, specs=None):
         return super()._parseRights(response, specs)
 
