@@ -1,17 +1,26 @@
-# -*- coding: utf-8 -*-
-from flask import Blueprint, request
 import json
+
+from flask import Blueprint, request
+
 from package.api.api import (
-    API_KEY_ODAKYU_MANSION_START, API_KEY_ODAKYU_MANSION_DETAIL,
-    API_KEY_ODAKYU_KODATE_START, API_KEY_ODAKYU_KODATE_DETAIL,
-    API_KEY_ODAKYU_TOCHI_START, API_KEY_ODAKYU_TOCHI_DETAIL,
-    API_KEY_ODAKYU_INVESTMENT_START, API_KEY_ODAKYU_INVESTMENT_DETAIL
+    API_KEY_ODAKYU_INVESTMENT_DETAIL,
+    API_KEY_ODAKYU_INVESTMENT_START,
+    API_KEY_ODAKYU_KODATE_DETAIL,
+    API_KEY_ODAKYU_KODATE_START,
+    API_KEY_ODAKYU_MANSION_DETAIL,
+    API_KEY_ODAKYU_MANSION_START,
+    API_KEY_ODAKYU_TOCHI_DETAIL,
+    API_KEY_ODAKYU_TOCHI_START,
 )
 from package.api.odakyu import (
-    ParseOdakyuMansionStartAsync, ParseOdakyuMansionDetailFuncAsync,
-    ParseOdakyuKodateStartAsync, ParseOdakyuKodateDetailFuncAsync,
-    ParseOdakyuTochiStartAsync, ParseOdakyuTochiDetailFuncAsync,
-    ParseOdakyuInvestmentStartAsync, ParseOdakyuInvestmentDetailFuncAsync
+    ParseOdakyuInvestmentDetailFuncAsync,
+    ParseOdakyuInvestmentStartAsync,
+    ParseOdakyuKodateDetailFuncAsync,
+    ParseOdakyuKodateStartAsync,
+    ParseOdakyuMansionDetailFuncAsync,
+    ParseOdakyuMansionStartAsync,
+    ParseOdakyuTochiDetailFuncAsync,
+    ParseOdakyuTochiStartAsync,
 )
 
 odakyu_bp = Blueprint('odakyu', __name__)
@@ -69,7 +78,7 @@ odakyuTochiDetail = odakyu_tochi_detail
 
 @odakyu_bp.route(API_KEY_ODAKYU_INVESTMENT_START, methods=['POST', 'GET'])
 def odakyu_investment_start():
-    return ParseOdakyuInvestmentStartAsync().main("https://www.odakyu-chukai.com/invest/list/")
+    return ParseOdakyuInvestmentStartAsync().main("https://ls1.odakyu-chukai.com/properties")
 
 odakyuInvestmentStart = odakyu_investment_start
 
