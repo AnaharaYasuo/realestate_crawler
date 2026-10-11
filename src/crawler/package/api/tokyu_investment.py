@@ -12,6 +12,7 @@ from package.api.registry import ApiRegistry
 
 DEFAULT_PARALLEL_LIMIT = 1
 DEFAULT_PARARELL_LIMIT = DEFAULT_PARALLEL_LIMIT  # legacy alias (cloud path)
+MIDDLE_PARARELL_LIMIT = 3
 DETAIL_PARALLEL_LIMIT = 1
 
 # ==============================================================================
@@ -39,10 +40,10 @@ class ParseTokyuInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
         return self.parser.parseNextPage
     
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARALLEL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 360
@@ -54,10 +55,10 @@ class ParseTokyuInvestStartAsyncBase(ApiAsyncProcBase):
     urlList = ["https://www.livable.co.jp/fudosan-toushi/tatemono-bukken-all/"]
 
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

@@ -14,7 +14,7 @@ from package.api.api import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
-DEFAULT_PARARELL_LIMIT = 1
+DEFAULT_PARARELL_LIMIT = 3
 MISAWA_INVEST_START_URL = "https://realestate.misawa.co.jp/search/sale/list/?bukken_type[]=9"
 
 

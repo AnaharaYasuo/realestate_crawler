@@ -201,10 +201,10 @@ class ParseTokyuTochiStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -226,10 +226,10 @@ class ParseTokyuTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -306,10 +306,10 @@ class ParseTokyuKodateStartAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400
@@ -331,10 +331,10 @@ class ParseTokyuKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
         return False
 
     def _getLocalPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getCloudPararellLimit(self):
-        return DEFAULT_PARARELL_LIMIT
+        return MIDDLE_PARARELL_LIMIT
 
     def _getTimeOutSecond(self):
         return 2400

@@ -12,7 +12,7 @@ def test_nomura_invest_apartment_cloud_parallel_limit_resolves():
     os.environ["IS_CLOUD"] = "1"
     try:
         handler = mod.ParseNomuraInvestApartmentListFuncAsync()
-        assert handler._getCloudPararellLimit() == mod.DEFAULT_PARALLEL_LIMIT
+        assert handler._getCloudPararellLimit() == mod.MIDDLE_PARARELL_LIMIT
     finally:
         if had_is_cloud:
             os.environ["IS_CLOUD"] = previous_is_cloud
@@ -26,4 +26,4 @@ def test_tokyu_invest_cloud_parallel_limit_resolves():
     assert mod.DEFAULT_PARARELL_LIMIT == mod.DEFAULT_PARALLEL_LIMIT
     # unbound method on base class (avoids abstract __init__)
     limit = mod.ParseTokyuInvestListFuncAsyncBase._getCloudPararellLimit(None)
-    assert limit == mod.DEFAULT_PARALLEL_LIMIT
+    assert limit == mod.MIDDLE_PARARELL_LIMIT

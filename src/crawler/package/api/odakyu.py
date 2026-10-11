@@ -12,6 +12,7 @@ from package.parser.odakyuParser import (
 from package.api.registry import ApiRegistry
 
 DETAIL_PARARELL_LIMIT = 3
+MIDDLE_PARARELL_LIMIT = 3
 
 # Mansion
 class ParseOdakyuMansionDetailFuncAsync(ParseDetailPageAsyncBase):
@@ -36,9 +37,9 @@ class ParseOdakyuMansionStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
@@ -69,9 +70,9 @@ class ParseOdakyuKodateStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
@@ -102,9 +103,9 @@ class ParseOdakyuTochiStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
@@ -135,9 +136,9 @@ class ParseOdakyuInvestmentStartAsync(ParseMiddlePageAsyncBase):
     def _isBsMiddlePage(self):
         return True
     def _getLocalPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self):
-        return 1
+        return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self):
         return 600
     def _getApiKey(self):
