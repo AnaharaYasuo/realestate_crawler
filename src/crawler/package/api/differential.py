@@ -94,19 +94,24 @@ async def _batch_update_cached(model_class: Any, to_skip: list[str], now: Any) -
         logging.warning(f"[Differential Crawl] Failed to update updateDateTime for cached properties: {ue}")
 
 
+DIFFERENTIAL_CHUNK_SIZE: int = 200
+
+
 async def filter_differential_items(
     items: list[Any],
     model_class: Any,
     ttl_days: int = 30,
     force_full: bool = False,
     enabled: bool = True,
+    chunk_size: int = DIFFERENTIAL_CHUNK_SIZE,
 ) -> tuple[list[str], list[str]]:
     """
     Filter extracted items into:
     - to_fetch: URLs that must be fetched (new, price changed, expired TTL)
     - to_skip: URLs already in DB and unchanged (cached active)
     
-    For to_skip URLs, inputDateTime is batch-updated to mark them as actively confirmed.
+    Processes items in chunks (default 200) to stream updateDateTime updates to DB,
+    ensuring continuous progress is visible to crawler watchdogs.
     """
     if not items:
         return [], []
@@ -118,38 +123,53 @@ async def filter_differential_items(
     if not enabled or force_full or model_class is None:
         return all_urls, []
 
-    # Query DB for existing properties in batch
-    try:
-        def query_existing():
-            qs = model_class.objects.filter(pageUrl__in=all_urls).values(
-                "pageUrl", "price", "updateDateTime", "inputDateTime"
-            )
-            return {row["pageUrl"]: row for row in qs}
+    step = max(1, chunk_size)
+    all_to_fetch: list[str] = []
+    all_to_skip: list[str] = []
 
-        existing_map: dict[str, dict[str, Any]] = await sync_to_async(query_existing)()
-    except Exception as e:
-        logging.warning(f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl.")
-        return all_urls, []
-
-    now = timezone.now()
-    to_fetch: list[str] = []
-    to_skip: list[str] = []
-
-    for item in normalized_items:
-        if not item.url:
+    for i in range(0, len(normalized_items), step):
+        chunk_items = normalized_items[i:i + step]
+        chunk_urls = [item.url for item in chunk_items if item.url]
+        if not chunk_urls:
             continue
-        record = existing_map.get(item.url)
-        if _should_fetch_item(item, record, now, ttl_days):
-            to_fetch.append(item.url)
-        else:
-            to_skip.append(item.url)
 
-    await _batch_update_cached(model_class, to_skip, now)
+        try:
+            def query_existing():
+                qs = model_class.objects.filter(pageUrl__in=chunk_urls).values(
+                    "pageUrl", "price", "updateDateTime", "inputDateTime"
+                )
+                return {row["pageUrl"]: row for row in qs}
+
+            existing_map: dict[str, dict[str, Any]] = await sync_to_async(query_existing)()
+        except Exception as e:
+            logging.warning(f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl for chunk.")
+            all_to_fetch.extend(chunk_urls)
+            continue
+
+        now = timezone.now()
+        chunk_to_fetch: list[str] = []
+        chunk_to_skip: list[str] = []
+
+        for item in chunk_items:
+            if not item.url:
+                continue
+            record = existing_map.get(item.url)
+            if _should_fetch_item(item, record, now, ttl_days):
+                chunk_to_fetch.append(item.url)
+            else:
+                chunk_to_skip.append(item.url)
+
+        if chunk_to_skip:
+            await _batch_update_cached(model_class, chunk_to_skip, now)
+
+        all_to_fetch.extend(chunk_to_fetch)
+        all_to_skip.extend(chunk_to_skip)
 
     logging.info(
         f"[Differential Crawl] Total: {len(all_urls)} | "
-        f"Fetch: {len(to_fetch)} (New/Changed/Expired) | "
-        f"Skip: {len(to_skip)} (Cached Active)"
+        f"Fetch: {len(all_to_fetch)} (New/Changed/Expired) | "
+        f"Skip: {len(all_to_skip)} (Cached Active)"
     )
 
-    return to_fetch, to_skip
+    return all_to_fetch, all_to_skip
+

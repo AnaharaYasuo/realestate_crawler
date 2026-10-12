@@ -756,6 +756,8 @@ docs/
 - **[未巡回サイトクラウドスケジュール除外要件定義書](docs/requirements/exclude_uncrawled_sites_cloud_schedule_requirements.md)**: 健美家・中堅仲介のクラウド定期実行除外・オプション制御要件 (Issue #880)
 - **[未巡回サイトクラウドスケジュール除外外部設計書](docs/external_design/exclude_uncrawled_sites_cloud_schedule_external_design.md)**: Cloud Scheduler / Workflows / CLI引数連携外部設計 (Issue #880)
 - **[未巡回サイトクラウドスケジュール除外内部設計書](docs/internal_design/exclude_uncrawled_sites_cloud_schedule_internal_design.md)**: filter_crawl_jobs / get_all_property_models / daily_pipeline.yaml 内部設計 (Issue #880)
+- **[中間ページ差分更新ストリーミング要件定義書](docs/requirements/stream_differential_update_requirements.md)**: 200件チャンク更新・残余フラッシュ・Watchdogハング防止要件 (Issue #886)
+- **[中間ページ差分更新ストリーミング内部設計書](docs/internal_design/stream_differential_update_design.md)**: 200件分割ストリーミングバルク更新アーキテクチャ詳細設計 (Issue #886)
 
 
 ### 2. 開発を始める
