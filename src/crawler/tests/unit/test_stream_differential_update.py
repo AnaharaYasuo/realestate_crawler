@@ -52,3 +52,48 @@ async def test_filter_differential_items_batches_in_chunks_of_200():
         assert len(batch_update_calls[0]) == 200
         assert len(batch_update_calls[1]) == 200
         assert len(batch_update_calls[2]) == 150
+
+
+@pytest.mark.asyncio
+async def test_middle_page_streams_in_200_chunks():
+    from package.api.api import ParseMiddlePageAsyncBase
+
+    class DummyMiddlePage(ParseMiddlePageAsyncBase):
+        def _getLocalPararellLimit(self):
+            return 1
+        def _getCloudPararellLimit(self):
+            return 1
+        def _generateParser(self):
+            return None
+        def _getTimeOutSecond(self):
+            return 60
+        def _getApiKey(self):
+            return "detail"
+        def _getTreatPageArg(self):
+            return None
+        def _getParserFunc(self):
+            async def generator(_response):
+                for i in range(450):
+                    yield f"https://example.com/prop_{i}"
+            return generator
+
+    instance = DummyMiddlePage()
+    call_api_chunks = []
+
+    async def fake_call_api(chunk):
+        call_api_chunks.append(list(chunk))
+        return ["ok"] * len(chunk)
+
+    instance._callApi = fake_call_api
+    instance._fetch_middle_page_response = AsyncMock(return_value="<html></html>")
+    instance._extract_next_page_url = AsyncMock(return_value="")
+
+    results = await instance._run("https://example.com/middle")
+
+    assert len(results) == 450
+    # 450 items streamed in chunks: 200, 200, 50
+    assert len(call_api_chunks) == 3
+    assert len(call_api_chunks[0]) == 200
+    assert len(call_api_chunks[1]) == 200
+    assert len(call_api_chunks[2]) == 50
+

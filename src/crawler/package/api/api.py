@@ -1233,22 +1233,47 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
                     response = await self._fetch_middle_page_response(session, current_url)
                     try:
-                        detail_url_list = await self._extract_middle_page_details(response, current_url)
+                        parser_func = self._getParserFunc()
+                        chunk_buffer = []
+                        if parser_func:
+                            async for detail_url in parser_func(response):
+                                chunk_buffer.append(detail_url)
+                                if len(chunk_buffer) >= 200:
+                                    page_res = await self._callApi(chunk_buffer)
+                                    if isinstance(page_res, list):
+                                        all_results.extend(page_res)
+                                    elif page_res is not None:
+                                        all_results.append(page_res)
+                                    chunk_buffer = []
+
+                        # Flush remaining items in buffer (< 200)
+                        if chunk_buffer:
+                            page_res = await self._callApi(chunk_buffer)
+                            if isinstance(page_res, list):
+                                all_results.extend(page_res)
+                            elif page_res is not None:
+                                all_results.append(page_res)
+                            chunk_buffer = []
+
                         next_page_url = await self._extract_next_page_url(response, current_url)
+                    except Exception as e:
+                        logger.exception("Failed to parse middle page: %s", current_url)
+                        raw_html_content = str(response) if response is not None else None
+                        await self._save_error_html_by_url(
+                            current_url,
+                            self.__class__.__name__,
+                            f"Middle Page Parse Failure: {e!s}",
+                            raw_html=raw_html_content,
+                        )
+                        raise
                     finally:
                         del response
-
-                    if detail_url_list:
-                        page_results = await self._callApi(detail_url_list)
-                        if isinstance(page_results, list):
-                            all_results.extend(page_results)
-                        elif page_results is not None:
-                            all_results.append(page_results)
 
                     if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
                         current_url = next_page_url
                     else:
                         break
+
         finally:
             if _connector is not None:
                 await _connector.close()
