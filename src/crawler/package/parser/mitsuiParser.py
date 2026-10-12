@@ -1109,11 +1109,16 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         m_muki = re.search(r'([北東西南]+)', value)
         if m_muki: res['douroMuki'] = m_muki.group(0)
         
-        m_haba = re.search(r'(?:幅員[：:]?\s*|約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
-        if m_haba: res['douroHaba'] = m_haba.group(1)
-        
-        m_setsumen = re.search(r'(?:接面[：:]?\s*|約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
-        if m_setsumen: res['setsumen'] = m_setsumen.group(1)
+        haba_str = self._extract_number_before_unit(value, ('m', 'ｍ'))
+        if haba_str:
+            res['douroHaba'] = haba_str
+
+        # 接面がある場合は接面以降の数値を抽出
+        if '接面' in value:
+            after_setsumen = value.split('接面', 1)[1]
+            setsumen_str = self._extract_number_before_unit(after_setsumen, ('m', 'ｍ'))
+            if setsumen_str:
+                res['setsumen'] = setsumen_str
         
         # 道路区分
         for k in ["公道", "私道"]:
