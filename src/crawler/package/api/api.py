@@ -1167,6 +1167,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         pass
 
 
+LOG_FAILED_TO_PARSE_MIDDLE_PAGE = "Failed to parse middle page: %s"
+
+
 # urlを受け取って、そのページから更にドリルダウン先を呼び出す場合の基底クラス
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
@@ -1187,7 +1190,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
         except Exception as e:
-            logger.exception("Failed to parse middle page: %s", current_url)
+            logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
             raw_html_content = str(response) if response is not None else None
             await self._save_error_html_by_url(
                 current_url,
@@ -1215,6 +1218,41 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             )
             return ""
 
+    async def _flush_middle_page_chunk(self, chunk_buffer: list[Any], all_results: list[Any]) -> list[Any]:
+        if not chunk_buffer:
+            return []
+        page_res = await self._callApi(chunk_buffer)
+        if isinstance(page_res, list):
+            all_results.extend(page_res)
+        elif page_res is not None:
+            all_results.append(page_res)
+        return []
+
+    async def _process_middle_page_stream(self, response, current_url: str, all_results: list[Any]) -> str:
+        try:
+            parser_func = self._getParserFunc()
+            chunk_buffer = []
+            if parser_func:
+                async for detail_url in parser_func(response):
+                    chunk_buffer.append(detail_url)
+                    if len(chunk_buffer) >= 200:
+                        chunk_buffer = await self._flush_middle_page_chunk(chunk_buffer, all_results)
+
+            if chunk_buffer:
+                await self._flush_middle_page_chunk(chunk_buffer, all_results)
+
+            return await self._extract_next_page_url(response, current_url)
+        except Exception as e:
+            logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
+            raw_html_content = str(response) if response is not None else None
+            await self._save_error_html_by_url(
+                current_url,
+                self.__class__.__name__,
+                f"Middle Page Parse Failure: {e!s}",
+                raw_html=raw_html_content,
+            )
+            raise
+
     async def _run(self, _url):
         """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)"""
         _loop = self._getActiveEventLoop()
@@ -1233,39 +1271,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
                     response = await self._fetch_middle_page_response(session, current_url)
                     try:
-                        parser_func = self._getParserFunc()
-                        chunk_buffer = []
-                        if parser_func:
-                            async for detail_url in parser_func(response):
-                                chunk_buffer.append(detail_url)
-                                if len(chunk_buffer) >= 200:
-                                    page_res = await self._callApi(chunk_buffer)
-                                    if isinstance(page_res, list):
-                                        all_results.extend(page_res)
-                                    elif page_res is not None:
-                                        all_results.append(page_res)
-                                    chunk_buffer = []
-
-                        # Flush remaining items in buffer (< 200)
-                        if chunk_buffer:
-                            page_res = await self._callApi(chunk_buffer)
-                            if isinstance(page_res, list):
-                                all_results.extend(page_res)
-                            elif page_res is not None:
-                                all_results.append(page_res)
-                            chunk_buffer = []
-
-                        next_page_url = await self._extract_next_page_url(response, current_url)
-                    except Exception as e:
-                        logger.exception("Failed to parse middle page: %s", current_url)
-                        raw_html_content = str(response) if response is not None else None
-                        await self._save_error_html_by_url(
-                            current_url,
-                            self.__class__.__name__,
-                            f"Middle Page Parse Failure: {e!s}",
-                            raw_html=raw_html_content,
-                        )
-                        raise
+                        next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
                     finally:
                         del response
 
@@ -1279,6 +1285,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 await _connector.close()
 
         return all_results
+
 
     async def _treatPage(self, _session, *arg):
         try:
@@ -1297,7 +1304,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
         except Exception as e:
-            logger.error("Failed to parse middle page: %s", self.url)
+            logger.error(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, self.url)
             raw_html_content = str(response) if response is not None else None
             await self._save_error_html_by_url(
                 self.url,
