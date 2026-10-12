@@ -1,5 +1,6 @@
 import asyncio
 import aiohttp
+import gc
 import os
 import json
 import ssl
@@ -1226,6 +1227,8 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             all_results.extend(page_res)
         elif page_res is not None:
             all_results.append(page_res)
+        del page_res
+        gc.collect()
         return []
 
     async def _process_middle_page_stream(self, response, current_url: str, all_results: list[Any]) -> str:
@@ -1274,6 +1277,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                         next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
                     finally:
                         del response
+                        gc.collect()
 
                     if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
                         current_url = next_page_url
@@ -1453,6 +1457,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     await session.close()
                 if _connector is not None:
                     await _connector.close()
+                if item is not None and hasattr(item, "_soup"):
+                    try:
+                        delattr(item, "_soup")
+                    except Exception:
+                        pass
+                gc.collect()
         return item
 
     async def _getContent(self, session, url):
