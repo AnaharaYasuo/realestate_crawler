@@ -174,8 +174,8 @@ class AfrParser(ParserBase):
         if title_tag is not None:
             title_raw = title_tag.get_text()
             if title_raw and title_raw.strip():
-                # ヘーベルハウス等の定型サフィックス除去
-                t_text = re.sub(r'[\s|｜].*$', '', title_raw.strip()).strip()
+                # 「 | 旭化成」などの定型サフィックスを除去
+                t_text = re.sub(r'\s*[|｜].*$', '', title_raw.strip()).strip()
                 if t_text:
                     return t_text
         return "旭化成ヘーベルハウス物件"

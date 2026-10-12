@@ -47,8 +47,8 @@ def test_mitsui_kodate_madori_and_traffic():
 
     assert item.madori == "4LDK"
     assert "桜新町" in item.traffic
-    assert item.douroHaba > 0
-    assert item.setsumen > 0
+    assert float(item.douroHaba) > 0
+    assert float(item.setsumen) > 0
 
     is_valid, reasons = PropertyDataValidator.validate_property(item, "kodate")
     assert is_valid is True, f"Validation failed: {reasons}"
