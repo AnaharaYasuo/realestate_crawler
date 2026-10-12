@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from django.apps import apps
+from django.db import close_old_connections
 from package.ml.constants import COMPANIES
 from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
@@ -65,9 +66,12 @@ def iter_unprocessed_chunks(
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
 
     全件 list 化を行わず、同時にメモリ保持する物件数を chunk_size 以下に抑制する。
+    また、各チャンク走査前に close_old_connections() を実行して DB アイドルタイムアウト
+    (OperationalError 2006: MySQL server has gone away) を防止する (Issue #883)。
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
+    close_old_connections()
     current_chunk: list[Any] = []
     chunk_skipped = 0
     yielded_total = 0
@@ -81,8 +85,10 @@ def iter_unprocessed_chunks(
             yielded_total += len(current_chunk)
             current_chunk = []
             chunk_skipped = 0
+            close_old_connections()
             if limit is not None and yielded_total >= limit:
                 return
 
     if current_chunk:
         yield current_chunk, chunk_skipped
+        close_old_connections()

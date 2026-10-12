@@ -650,6 +650,7 @@ docs/
 
 ### 1. システムの理解を深める
 - **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（差分クロール FR-004-DIFF、価格改定履歴 FR-005-HIST、重複データ移行 FR-005-MIGRATE、バルク推論）
+- **[Bulk ML イテレータ接続維持・クローラーFast-Fail要件定義書](docs/requirements/bulk_ml_connection_and_crawler_fast_fail_requirements.md)**: DB アイドル切断防止・ProxySQL停止確実化・Fast-Fail仕様 (Issue #883)
 - **[物件詳細URL価格推定API要件定義書](docs/requirements/predict_by_url_requirements.md)**: URL指定推定API、3段階キャッシュ、SSRF防御、クローリング候補収集要件
 - **[GCPインフラ要件定義書](docs/requirements/gcp_infrastructure_requirements.md)**: クラウド移行要件・非機能要件
 - **[基本設計書](docs/basic_design/basic_design_master.md)**: 差分クロールパターン、価格履歴パターン、移行・重複排除アーキテクチャ、Fire-and-Forgetパターン
@@ -657,6 +658,7 @@ docs/
 - **[OpenAPI 3.0 仕様書](docs/api/openapi.yaml)**: Swagger / OpenAPI インターフェース定義
 - **[GCPアーキテクチャ基本設計書](docs/basic_design/gcp_architecture_design.md)**: Cloud Run Jobs / Cloud SQL / GCS サーバーレス構成
 - **[内部設計書](docs/internal_design/detailed_design_master.md)**: 差分クロール・価格履歴シーケンス図、データベーススキーマ、Dual Storageパターン
+- **[Bulk ML イテレータ接続維持・クローラーFast-Fail内部設計書](docs/internal_design/bulk_ml_connection_and_crawler_fast_fail_design.md)**: チャンク別DB接続リフレッシュ・teardownリトライ設計 (Issue #883)
 - **[物件詳細URL価格推定API内部設計書](docs/internal_design/predict_by_url_internal_design.md)**: Singleflight、URLルーター、候補モデルスキーマ、SSRF防御
 - **[データベース定義書](docs/internal_design/database_schema.md)**: 各社物件テーブル、PropertyPriceHistory（価格改定履歴）定義、updateDateTimeフィールド
 - **[GCP並列分散実行内部設計書](docs/internal_design/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
