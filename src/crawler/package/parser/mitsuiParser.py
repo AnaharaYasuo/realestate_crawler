@@ -174,6 +174,7 @@ class MitsuiParser(ParserBase):
         traffic_lines = self._parseTrafficLines(response)
         item.railwayCount = len(traffic_lines)
         traffic_str = "  ".join(traffic_lines)
+        item.traffic = traffic_str
         self._populateTraffic(item, traffic_str)
 
         return item
@@ -232,18 +233,21 @@ class MitsuiParser(ParserBase):
 
     def _parseTrafficLines(self, response, _specs=None):
         res = self._getValueByLabel(response, "最寄り駅") or self._getValueByLabel(response, "交通")
-        if not res: return []
-        
         lines = []
-        for p in res.find_all("p"):
-            text_parts = list(p.stripped_strings)
-            if text_parts:
-                lines.append(" ".join(text_parts))
-            
-        if not lines:
-            text_parts = list(res.stripped_strings)
-            if text_parts:
-                lines = [" ".join(text_parts)]
+        if res:
+            for p in res.find_all("p"):
+                text_parts = list(p.stripped_strings)
+                if text_parts:
+                    lines.append(" ".join(text_parts))
+            if not lines:
+                text_parts = list(res.stripped_strings)
+                if text_parts:
+                    lines = [" ".join(text_parts)]
+        else:
+            specs = _specs if _specs is not None else self._get_specs(response)
+            traffic_val = specs.get("交通", "") or specs.get("最寄り駅", "") or specs.get("沿線・駅", "")
+            if traffic_val:
+                lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
 
         filtered_lines = []
         for l in lines:
@@ -514,8 +518,23 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
 
     def _parseKaisuStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        val = target_specs.get("所在階") or target_specs.get("所在階 / 階建") or target_specs.get("階数") or target_specs.get("階数 / 階建", "")
-        return val
+        val = (
+            target_specs.get("所在階")
+            or target_specs.get("所在階 / 階建")
+            or target_specs.get("階数")
+            or target_specs.get("階数 / 階建")
+            or target_specs.get("所在階/階数")
+            or target_specs.get("所在階/階建", "")
+        )
+        if not val and hasattr(self, "_getValueByLabel"):
+            label_tag = (
+                self._getValueByLabel(response, "所在階")
+                or self._getValueByLabel(response, "所在階 / 階建")
+                or self._getValueByLabel(response, "階数")
+            )
+            if label_tag:
+                val = label_tag.get_text(strip=True) if hasattr(label_tag, "get_text") else str(label_tag)
+        return val or ""
 
     def _parseKaisu(self, response, _specs=None):
         val = self._parseKaisuStr(response)
@@ -947,6 +966,8 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
 
+        item.madori = self.get_madori(response) or self._parseMadori(response)
+
         item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
         item.tatemonoMenseki = self._parseTatemonoMenseki(response)
         
@@ -1086,10 +1107,10 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         m_muki = re.search(r'([北東西南]+)', value)
         if m_muki: res['douroMuki'] = m_muki.group(0)
         
-        m_haba = re.search(r'幅員\s*([\d\.]+)\s*m', value)
+        m_haba = re.search(r'(?:幅員[：:]?\s*)?(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
         if m_haba: res['douroHaba'] = m_haba.group(1)
         
-        m_setsumen = re.search(r'接面\s*([\d\.]+)\s*m', value)
+        m_setsumen = re.search(r'(?:接面[：:]?\s*)?(?:約\s*)?(\d+(?:\.\d+)?)\s*[mｍ]', value)
         if m_setsumen: res['setsumen'] = m_setsumen.group(1)
         
         # 道路区分

@@ -680,7 +680,8 @@ def main():
                 continue
             proc, company, ptype, start_t, start_dt, *extra = active_processes[idx]
             last_act = extra[0] if extra else start_t
-            if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC):
+            prev_db_cnt = extra[1] if len(extra) > 1 else 0
+            if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC, prev_db_cnt=prev_db_cnt, start_time=start_t):
                 # 沈黙監視 (ハング検知)
                 logger.error(
                     f"[{idx}] Crawl job silent/hung for {company} - {ptype} "
