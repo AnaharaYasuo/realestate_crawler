@@ -174,10 +174,10 @@ class AfrParser(ParserBase):
         if title_tag is not None:
             title_raw = title_tag.get_text()
             if title_raw and title_raw.strip():
-                # 「 | 旭化成」などの定型サフィックスを除去
-                t_text = re.sub(r'\s*[|｜].*$', '', title_raw.strip()).strip()
-                if t_text:
-                    return t_text
+                # 「 | 旭化成」などの定型サフィックスを除去（パイプで単純分割して先頭を取得）
+                cleaned = title_raw.strip().split('|')[0].split('｜')[0].strip()
+                if cleaned:
+                    return cleaned
         return "旭化成ヘーベルハウス物件"
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
