@@ -769,6 +769,9 @@ docs/
 - **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧要件定義書](docs/requirements/comprehensive_restoration_and_db_protection_requirements_909.md)**: 本番DB物理保護ガード・マイグレーション完全整合・欠損データ全件復旧・ML評価コネクション修復要件 (Issue #909)
 - **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧外部設計書](docs/external_design/comprehensive_restoration_and_db_protection_external_design_909.md)**: db_safetyガード・0062/0063マイグレーション分離・交通データ復旧外部設計 (Issue #909)
 - **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧内部設計書](docs/internal_design/comprehensive_restoration_and_db_protection_internal_design_909.md)**: assert_production_db_safety・PKベースチャンク取得・モデル整合内部仕様 (Issue #909)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧要件定義書](docs/requirements/all_models_traffic_restoration_requirements_913.md)**: 全サイト全モデル網羅・多経路交通合成・包括的欠損復旧要件 (Issue #913)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧外部設計書](docs/external_design/all_models_traffic_restoration_external_design_913.md)**: 動的モデル検出・Route1〜5合成仕様・CLIインターフェース外部設計 (Issue #913)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧内部設計書](docs/internal_design/all_models_traffic_restoration_internal_design_913.md)**: get_all_target_property_models・synthesize_traffic_str・バルク復旧内部仕様 (Issue #913)
 
 
 ### 2. 開発を始める
