@@ -772,6 +772,9 @@ docs/
 - **[全サイト全モデル欠損データ（traffic等）包括的復旧要件定義書](docs/requirements/all_models_traffic_restoration_requirements_913.md)**: 全サイト全モデル網羅・多経路交通合成・包括的欠損復旧要件 (Issue #913)
 - **[全サイト全モデル欠損データ（traffic等）包括的復旧外部設計書](docs/external_design/all_models_traffic_restoration_external_design_913.md)**: 動的モデル検出・Route1〜5合成仕様・CLIインターフェース外部設計 (Issue #913)
 - **[全サイト全モデル欠損データ（traffic等）包括的復旧内部設計書](docs/internal_design/all_models_traffic_restoration_internal_design_913.md)**: get_all_target_property_models・synthesize_traffic_str・バルク復旧内部仕様 (Issue #913)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用要件定義書](docs/requirements/proxysql_stop_guard_and_db_timeout_requirements.md)**: 共有インフラ停止ガード・他Cloud Run実行検知・全Django DB接続read_timeout強制要件 (Issue #916)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用基本設計書](docs/basic_design/proxysql_stop_guard_and_db_timeout_basic_design.md)**: has_active_other_cloud_run_executions・_can_stop_shared_proxysql・bound_mysql_timeouts基本設計 (Issue #916)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用内部設計書](docs/internal_design/proxysql_stop_guard_and_db_timeout_internal_design.md)**: run_v2/REST APIジョブ照会・自実行除外・OPTIONS read_timeout 120s強制適用内部仕様 (Issue #916)
 
 
 ### 2. 開発を始める
