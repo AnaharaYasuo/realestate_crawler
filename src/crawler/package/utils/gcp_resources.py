@@ -827,10 +827,7 @@ def _get_cloud_run_candidate_jobs(job_prefixes: tuple[str, ...]) -> list[str]:
     candidates = set()
     for p in job_prefixes:
         clean_p = p.rstrip("-")
-        candidates.add(clean_p)
-        candidates.add(f"{clean_p}-{env_suffix}")
-        candidates.add(f"{clean_p}-prod")
-        candidates.add(f"{clean_p}-stg")
+        candidates.update({clean_p, f"{clean_p}-{env_suffix}", f"{clean_p}-prod", f"{clean_p}-stg"})
     return sorted(candidates)
 
 
