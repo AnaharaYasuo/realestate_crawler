@@ -1,14 +1,15 @@
+import logging
 import os
 import sys
-import logging
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import realestateSettings
+
 realestateSettings.configure()
 
-from django.db import connection, transaction
-from package.models.mitsui import MitsuiKodate, MitsuiMansion, MitsuiTochi
+from django.db import transaction
 from package.models.daikyo import DaikyoKodate, DaikyoMansion, DaikyoTochi
+from package.models.mitsui import MitsuiKodate, MitsuiMansion, MitsuiTochi
 from package.models.sumirin import SumirinKodate, SumirinMansion, SumirinTochi
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
 
