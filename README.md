@@ -763,6 +763,9 @@ docs/
 - **[マシン余剰リソースに応じた動的並列度調整要件定義書](docs/requirements/resource_aware_concurrency_895.md)**: マシン空きメモリ検知・安全並列度自動調整・WSL2メモリ枯渇防止要件 (Issue #895)
 - **[マシン余剰リソースに応じた動的並列度調整外部設計書](docs/external_design/resource_aware_concurrency_external_design_895.md)**: get_resource_aware_concurrency インターフェース・環境変数およびログ仕様 (Issue #895)
 - **[マシン余剰リソースに応じた動的並列度調整内部設計書](docs/internal_design/resource_aware_concurrency_internal_design_895.md)**: cgroup/meminfoメモリ検知・段階的並列度算出・テスト検証詳細設計 (Issue #895)
+- **[ProxySQL中断判定におけるトラフィック閾値チェック要件定義書](docs/requirements/safetynet_traffic_check_requirements_901.md)**: アクティブクエリ通信検知・ヘルスチェック除外・8時間連続稼働上限・Safety-Net誤停止防止要件 (Issue #901)
+- **[ProxySQL中断判定におけるトラフィック閾値チェック外部設計書](docs/external_design/safetynet_traffic_check_external_design_901.md)**: Cloud Monitoring 受信バイト数メトリクス・判定フロー・Slackアラート外部仕様 (Issue #901)
+- **[ProxySQL中断判定におけるトラフィック閾値チェック内部設計書](docs/internal_design/safetynet_traffic_check_internal_design_901.md)**: _get_instance_network_received_bytes・閾値1MB・max_uptime詳細仕様 (Issue #901)
 
 
 ### 2. 開発を始める

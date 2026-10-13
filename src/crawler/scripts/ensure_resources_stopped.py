@@ -44,6 +44,11 @@ except ImportError:
     run_v2 = None
 
 try:
+    from google.cloud import monitoring_v3
+except ImportError:
+    monitoring_v3 = None
+
+try:
     import google.auth
     import google.auth.transport.requests
 except ImportError:
@@ -63,6 +68,12 @@ ERR_NO_COMPUTE_CLIENT: str = (
 DEFAULT_GRACE_PERIOD_SEC: float = 900.0
 # 最長ジョブ (クローラー crawler_timeout = 10800s) + 猶予 600s
 DEFAULT_HUNG_THRESHOLD_SEC: float = 11400.0
+# トラフィック監視ウィンドウ (10分)
+DEFAULT_TRAFFIC_WINDOW_SEC: float = 600.0
+# トラフィック判定閾値 (1MB = 1,048,576 バイト: ヘルスチェックの数十KBはアイドル判定)
+DEFAULT_TRAFFIC_THRESHOLD_BYTES: int = 1_048_576
+# 最大連続稼働時間 (8時間: ハング時のゾンビ課金保護上限)
+DEFAULT_MAX_UPTIME_SEC: float = 28_800.0
 
 # ジョブ別の実効タイムアウト + 猶予 (crawler: 10800+600, ml: 7200+600, migrate: 600+300)
 JOB_HUNG_THRESHOLD_MAP: dict[str, float] = {
@@ -721,6 +732,108 @@ def _stop_instance(project_id: str, zone: str, instance_name: str) -> str:
         return str(e)
 
 
+def _get_instance_network_received_bytes(
+    project_id: str,
+    zone: str,
+    instance_name: str,
+    window_sec: float = DEFAULT_TRAFFIC_WINDOW_SEC,
+) -> tuple[int | None, str]:
+    """Retrieve total received bytes count for a GCE instance over the past window_sec via Cloud Monitoring."""
+    now = datetime.now(timezone.utc)
+    start_time = now.timestamp() - window_sec
+    last_err = ""
+
+    if monitoring_v3 is not None and hasattr(monitoring_v3, "MetricServiceClient"):
+        try:
+            client = monitoring_v3.MetricServiceClient()
+            project_name = f"projects/{project_id}"
+            interval = monitoring_v3.TimeInterval(
+                {
+                    "end_time": {"seconds": int(now.timestamp())},
+                    "start_time": {"seconds": int(start_time)},
+                }
+            )
+            # Query with filter matching instance_name
+            filter_query = (
+                'metric.type = "compute.googleapis.com/instance/network/received_bytes_count" '
+                f'AND metric.labels.instance_name = "{instance_name}"'
+            )
+            results = client.list_time_series(
+                request={
+                    "name": project_name,
+                    "filter": filter_query,
+                    "interval": interval,
+                    "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+                },
+                timeout=10.0,
+            )
+            total_bytes = 0
+            series_found = False
+            for series in results:
+                series_found = True
+                for point in series.points:
+                    total_bytes += point.value.int64_value
+            if series_found:
+                return total_bytes, ""
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)
+            logger.debug(f"Failed to query Cloud Monitoring via client library: {e}")
+
+    token = _get_gcp_access_token()
+    if not token:
+        return None, last_err or ERR_NO_COMPUTE_CLIENT
+
+    try:
+        url = f"https://monitoring.googleapis.com/v3/projects/{project_id}/timeSeries"
+        end_rfc = now.isoformat()
+        start_rfc = datetime.fromtimestamp(start_time, tz=timezone.utc).isoformat()
+        params = {
+            "filter": (
+                'metric.type = "compute.googleapis.com/instance/network/received_bytes_count" '
+                f'AND metric.labels.instance_name = "{instance_name}"'
+            ),
+            "interval.startTime": start_rfc,
+            "interval.endTime": end_rfc,
+            "view": "FULL",
+        }
+        total_bytes = 0
+        series_found = False
+        next_page_token = None
+        seen_page_tokens = set()
+        while True:
+            curr_params = dict(params)
+            if next_page_token:
+                if next_page_token in seen_page_tokens:
+                    err_msg = f"Repeated nextPageToken {next_page_token} in timeSeries query"
+                    logger.warning(err_msg)
+                    return None, err_msg
+                seen_page_tokens.add(next_page_token)
+                curr_params["pageToken"] = next_page_token
+            resp = requests.get(
+                url,
+                params=curr_params,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None, f"HTTP {resp.status_code}: {resp.text}"
+            data = resp.json()
+            time_series = data.get("timeSeries", [])
+            for ts in time_series:
+                series_found = True
+                for pt in ts.get("points", []):
+                    val = pt.get("value", {}).get("int64Value", 0)
+                    total_bytes += int(val)
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break
+        if not series_found:
+            return None, f"No network received bytes time series found for instance '{instance_name}'"
+        return total_bytes, ""
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
+
+
 def check_and_stop_proxysql_instance(
     project_id: str,
     zone: str,
@@ -732,15 +845,21 @@ def check_and_stop_proxysql_instance(
     ),
     grace_period_sec: float = DEFAULT_GRACE_PERIOD_SEC,
     timeout_threshold_sec: float = DEFAULT_HUNG_THRESHOLD_SEC,
+    max_uptime_sec: float = DEFAULT_MAX_UPTIME_SEC,
+    traffic_threshold_bytes: int = DEFAULT_TRAFFIC_THRESHOLD_BYTES,
+    traffic_window_sec: float = DEFAULT_TRAFFIC_WINDOW_SEC,
     dry_run: bool = False,
 ) -> ResourceInspectionResult:
     """
     Checks if single ProxySQL instance is RUNNING.
     - If status in ('TERMINATED', 'STOPPED', 'STOPPING'): returns safely stopped.
     - If launched within grace_period_sec: skips stop (startup grace).
+    - If uptime > max_uptime_sec: forces stop regardless of traffic to prevent indefinite zombie cost.
     - If Cloud Run Jobs (crawler, ML, migrate) are actively RUNNING within timeout_threshold_sec: skips stop.
     - If Cloud Run Jobs exceeded timeout_threshold_sec (hung): cancels executions and stops instance (Dual Kill).
-    - If no active Cloud Run Jobs (orphaned): stops instance immediately.
+    - If no active Cloud Run Jobs, checks recent network traffic:
+        - If received bytes >= traffic_threshold_bytes: skips stop (active local/external queries).
+        - If received bytes < traffic_threshold_bytes (idle / health checks only): stops instance.
     """
     status, err, uptime = _get_instance_info(project_id, zone, instance_name)
     if err:
@@ -762,7 +881,7 @@ def check_and_stop_proxysql_instance(
             skipped_reason="stopped",
         )
 
-    # 1. Grace Period check
+    # 1. Grace Period & Max Uptime check
     if uptime is None:
         logger.info(
             f"ProxySQL instance '{instance_name}' uptime could not be determined. "
@@ -804,6 +923,30 @@ def check_and_stop_proxysql_instance(
             leaked_size=1,
             details=exec_err,
             skipped_reason="api_error",
+        )
+
+    # Max uptime check: hard kill if instance has been running beyond max_uptime_sec and no legitimate jobs running
+    if uptime > max_uptime_sec and not active_jobs:
+        warning_msg = (
+            f":warning: *【ゾンビ課金アラート】ProxySQL連続稼働時間上限超過検知*\n"
+            f"・プロジェクト: `{project_id}`\n"
+            f"・ゾーン: `{zone}`\n"
+            f"・稼働時間: {int(uptime)}s (上限: {int(max_uptime_sec)}s)\n"
+            f"・処置: {'[DRY-RUN] 停止スキップ' if dry_run else '自動強制停止を実行しました。'}"
+        )
+        logger.warning(warning_msg)
+        send_slack_alert(warning_msg)
+        if dry_run:
+            return ResourceInspectionResult(
+                was_leaked=True, forced_stop=False, leaked_size=1, skipped_reason="max_uptime_exceeded"
+            )
+        stop_err = _stop_instance(project_id, zone, instance_name)
+        return ResourceInspectionResult(
+            was_leaked=True,
+            forced_stop=not stop_err,
+            leaked_size=1,
+            skipped_reason="max_uptime_exceeded",
+            details=stop_err,
         )
 
     if active_jobs:
@@ -903,7 +1046,41 @@ def check_and_stop_proxysql_instance(
             details=stop_err or ("; ".join(cancel_errors)),
         )
 
-    # 3. No active jobs (orphaned ProxySQL instance)
+    # 3. No active Cloud Run jobs: Check active network traffic before stopping
+    traffic_bytes, traffic_err = _get_instance_network_received_bytes(
+        project_id, zone, instance_name, window_sec=traffic_window_sec
+    )
+    if traffic_bytes is None:
+        logger.warning(
+            f"Could not determine traffic for ProxySQL instance '{instance_name}': {traffic_err}. "
+            "Deferring stop to prevent terminating active instance."
+        )
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=1,
+            skipped_reason="traffic_unknown",
+            details=traffic_err,
+        )
+
+    if traffic_bytes >= traffic_threshold_bytes:
+        traffic_mb = traffic_bytes / (1024 * 1024)
+        info_msg = (
+            f":information_source: *【Safety-Net】アクティブな外部クエリ通信を検知したためProxySQLの起動を継続しました*\n"
+            f"・プロジェクト: `{project_id}`\n"
+            f"・ProxySQL: `{instance_name}` (RUNNING)\n"
+            f"・直近{int(traffic_window_sec/60)}分間受信量: {traffic_mb:.2f} MB (閾値: {traffic_threshold_bytes/(1024*1024):.1f} MB)"
+        )
+        logger.info(info_msg)
+        send_slack_alert(info_msg)
+        return ResourceInspectionResult(
+            was_leaked=False,
+            forced_stop=False,
+            leaked_size=1,
+            skipped_reason="active_traffic",
+        )
+
+    # 4. No active jobs and traffic below threshold (orphaned ProxySQL instance)
     warning_msg = (
         f":warning: *【ゾンビ課金アラート】ProxySQL停止漏れ検知*\n"
         f"・プロジェクト: `{project_id}`\n"
