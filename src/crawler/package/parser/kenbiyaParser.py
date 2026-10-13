@@ -186,7 +186,7 @@ class KenbiyaParserBase(ParserBase):
             for pattern in [f"({link_word})", f"（{link_word}）", link_word]:
                 clean = clean.replace(pattern, "").strip()
         # 2. 説明文そのものである場合は空文字を返す（スペック値ではない）
-        if clean.endswith("を表示。") or clean.endswith("を表示") or clean.endswith("マークを表示"):
+        if clean.endswith(("を表示。", "を表示", "マークを表示")):
             return ""
         return clean
 
