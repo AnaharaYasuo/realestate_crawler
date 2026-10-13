@@ -30,6 +30,8 @@ WHITESPACE_REGEX = re.compile("\\s+")
 _BLANK_SPEC_VALUES = frozenset({"", "-", "－", "―", "—"})
 KEY_SHAKUCHIKEN_SHURUI = "借地権種類"
 MSG_LISTING_ENDED_PREFIX = "Listing ended for URL:"
+HEADER_PRICE_STRINGS = frozenset({"価格", "販売価格", "物件価格", "価格（非課税）", "価格(非課税)"})
+HEADER_ADDRESS_STRINGS = frozenset({"所在地", "住所", "物件所在地"})
 
 
 def _is_filled_spec_value(val) -> bool:
@@ -813,8 +815,18 @@ class ParserBase(metaclass=ABCMeta):
     def _scrape_to_dict(self, response: BeautifulSoup) -> dict:
         return self._get_specs(response)
 
+    def _assert_not_header_row(self, item: Any) -> None:
+        """物件データがテーブルヘッダー行や説明文行でないかを検証し、該当した場合は SkipPropertyException を送出"""
+        price_str = (getattr(item, "priceStr", "") or "").strip()
+        address = (getattr(item, "address", "") or "").strip()
+        if price_str in HEADER_PRICE_STRINGS or address in HEADER_ADDRESS_STRINGS:
+            raise SkipPropertyException(
+                f"Header row detected and skipped: priceStr={price_str!r}, address={address!r}"
+            )
+
     def _parsePropertyDetailPage(self, item, _response: BeautifulSoup):
         """Default base detail page parse returning the item entity."""
+        self._assert_not_header_row(item)
         return item
 
     _TOKEN_INQUIRY = TOKEN_INQUIRY

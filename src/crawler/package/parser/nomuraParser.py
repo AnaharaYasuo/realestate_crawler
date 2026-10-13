@@ -760,7 +760,21 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         target_specs = specs or self._get_specs(response)
-        return target_specs.get("間取り", "") or target_specs.get("間取", "") or super()._parseMadori(response, target_specs)
+        madori = (
+            target_specs.get("間取り", "")
+            or target_specs.get("間取", "")
+            or super()._parseMadori(response, target_specs)
+        )
+        if madori:
+            return madori
+        # スペック表に間取りがない場合のスマートフォールバック (Issue #917)
+        if response is not None:
+            name = self._parsePropertyName(response) or ""
+            biko = self._parseBiko(response) or ""
+            match = re.search(r'([1-9][0-9]?[SLKDKslkdk]+(?:\+[0-9]?[SLKDKslkdk]+)*)', f"{name} {biko}")
+            if match:
+                return match.group(1).upper()
+        return ""
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
