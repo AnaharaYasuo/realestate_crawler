@@ -759,6 +759,9 @@ docs/
 - **[未巡回サイトクラウドスケジュール除外内部設計書](docs/internal_design/exclude_uncrawled_sites_cloud_schedule_internal_design.md)**: filter_crawl_jobs / get_all_property_models / daily_pipeline.yaml 内部設計 (Issue #880)
 - **[中間ページ差分更新ストリーミング要件定義書](docs/requirements/stream_differential_update_requirements.md)**: 200件チャンク更新・残余フラッシュ・Watchdogハング防止要件 (Issue #886)
 - **[中間ページ差分更新ストリーミング内部設計書](docs/internal_design/stream_differential_update_design.md)**: 200件分割ストリーミングバルク更新アーキテクチャ詳細設計 (Issue #886)
+- **[マシン余剰リソースに応じた動的並列度調整要件定義書](docs/requirements/resource_aware_concurrency_895.md)**: マシン空きメモリ検知・安全並列度自動調整・WSL2メモリ枯渇防止要件 (Issue #895)
+- **[マシン余剰リソースに応じた動的並列度調整外部設計書](docs/external_design/resource_aware_concurrency_external_design_895.md)**: get_resource_aware_concurrency インターフェース・環境変数およびログ仕様 (Issue #895)
+- **[マシン余剰リソースに応じた動的並列度調整内部設計書](docs/internal_design/resource_aware_concurrency_internal_design_895.md)**: cgroup/meminfoメモリ検知・段階的並列度算出・テスト検証詳細設計 (Issue #895)
 
 
 ### 2. 開発を始める
