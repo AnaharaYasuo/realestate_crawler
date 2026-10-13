@@ -1488,16 +1488,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     aiohttp.client_exceptions.ServerDisconnectedError) as e:
                 retry_count += 1
                 if retry_count > max_retries:
-                    logging.exception("Max retries (%s) exceeded for %s", max_retries, url)
+                    logger.exception("Max retries (%s) exceeded for %s", max_retries, url)
                     raise
                 
                 # Exponential backoff: 2s, 4s, 8s
                 wait_time = 2 ** retry_count
-                logging.warning(f"Connection error for {url}, retry {retry_count}/{max_retries} after {wait_time}s")
-                logging.warning(f"Exception type: {type(e).__name__}, Details: {e!s}")
+                logger.warning("Connection error for %s, retry %s/%s after %ss", url, retry_count, max_retries, wait_time)
+                logger.warning("Exception type: %s, Details: %s", type(e).__name__, e)
                 await asyncio.sleep(wait_time)
             except Exception as e:
-                logging.exception("Unexpected error getting content from %s: %s", url, e)
+                logger.exception("Unexpected error getting content from %s", url)
                 raise
 
     @staticmethod
@@ -1977,8 +1977,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     extract_images_from_soup, clean_images, check_api_budget_cap,
                     analyze_property_images_with_gemini, predict_second_stage, PropertyImage
                 )
-        except Exception as ex:
-            logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
+        except Exception:
+            logger.exception("ML/Image screening error for %s", item.pageUrl)
 
     async def _handle_saved_property(self, item):
         try:
