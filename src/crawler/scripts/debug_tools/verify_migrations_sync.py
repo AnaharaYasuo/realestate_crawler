@@ -4,10 +4,12 @@ import sys
 # Worktree 内の src/crawler を参照
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 import realestateSettings
+
 realestateSettings.configure()
 
-from django.core.management import call_command
 from io import StringIO
+
+from django.core.management import call_command
 
 out = StringIO()
 err = StringIO()
