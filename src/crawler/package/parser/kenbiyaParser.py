@@ -181,14 +181,12 @@ class KenbiyaParserBase(ParserBase):
         if not text:
             return ""
         clean = text.strip()
-        # 1. ヘルプリンク「情報の見方を表示」「見方を表示」などの付加テキストを除去
-        clean = re.sub(
-            r"[\(（]?\s*(?:情報の見方を表示|見方を表示|マークを表示)\s*[\)）]?",
-            "",
-            clean,
-        ).strip()
-        # 2. それでも「〜を表示。」「〜を表示」など説明文そのものである場合は空文字を返す（スペック値ではない）
-        if re.search(r"(?:を表示[。]?|マークを表示)$", clean):
+        # 1. ヘルプリンク付加テキスト（情報の見方を表示 等）を除去
+        for link_word in ["情報の見方を表示", "見方を表示", "マークを表示"]:
+            for pattern in [f"({link_word})", f"（{link_word}）", link_word]:
+                clean = clean.replace(pattern, "").strip()
+        # 2. 説明文そのものである場合は空文字を返す（スペック値ではない）
+        if clean.endswith("を表示。") or clean.endswith("を表示") or clean.endswith("マークを表示"):
             return ""
         return clean
 
