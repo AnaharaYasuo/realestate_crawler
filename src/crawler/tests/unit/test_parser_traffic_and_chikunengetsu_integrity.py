@@ -71,3 +71,25 @@ def test_kenbiya_parser_filters_out_help_explanation_text():
     assert specs.get("交通") == "JR総武線 錦糸町駅 徒歩5分"
     assert specs.get("築年月") == "1998年3月"
     assert specs.get("価格") == "5,000万円"
+
+
+def test_kenbiya_parser_cleans_help_links_while_retaining_valid_values():
+    """スペック値に付加されたヘルプリンク（情報の見方を表示 等）のみが除去され値本体が保持されること"""
+    html_content = """
+    <html>
+      <body>
+        <table class="property-detail">
+          <tr><th>所在地</th><td>東京都世田谷区桜新町1丁目 (情報の見方を表示)</td></tr>
+          <tr><th>交通</th><td>東急田園都市線 桜新町駅 徒歩7分 (見方を表示)</td></tr>
+          <tr><th>築年月</th><td>2005年8月 (マークを表示)</td></tr>
+        </table>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html_content, "html.parser")
+    parser = KenbiyaInvestmentApartmentParser()
+    specs = parser._get_specs(soup)
+
+    assert specs.get("所在地") == "東京都世田谷区桜新町1丁目"
+    assert specs.get("交通") == "東急田園都市線 桜新町駅 徒歩7分"
+    assert specs.get("築年月") == "2005年8月"

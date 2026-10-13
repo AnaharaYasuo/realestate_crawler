@@ -176,12 +176,21 @@ class KenbiyaParserBase(ParserBase):
             yield item
 
     @staticmethod
-    def _is_help_text(text: str) -> bool:
-        """項目の見方・用語解説などのヘルプ説明文かどうかを判定"""
+    def _clean_spec_value(text: str) -> str:
+        """項目の見方・用語解説などのヘルプ文を除去または除外してスペック値を返す"""
         if not text:
-            return False
+            return ""
         clean = text.strip()
-        return "を表示" in clean or "マークを表示" in clean
+        # 1. ヘルプリンク「情報の見方を表示」「見方を表示」などの付加テキストを除去
+        clean = re.sub(
+            r"[\(（]?\s*(?:情報の見方を表示|見方を表示|マークを表示)\s*[\)）]?",
+            "",
+            clean,
+        ).strip()
+        # 2. それでも「〜を表示。」「〜を表示」など説明文そのものである場合は空文字を返す（スペック値ではない）
+        if re.search(r"(?:を表示[。]?|マークを表示)$", clean):
+            return ""
+        return clean
 
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):
@@ -194,8 +203,9 @@ class KenbiyaParserBase(ParserBase):
             for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
                 key = dt.get_text(strip=True)
                 val = dd.get_text(" ", strip=True)
-                if key and val and not self._is_help_text(val):
-                    specs[key] = val
+                cleaned_val = self._clean_spec_value(val)
+                if key and cleaned_val:
+                    specs[key] = cleaned_val
 
     def _parse_tr_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for tr in response.find_all("tr"):
@@ -211,8 +221,9 @@ class KenbiyaParserBase(ParserBase):
             if th and td:
                 key = th.get_text(strip=True)
                 val = td.get_text(" ", strip=True)
-                if key and val and not self._is_help_text(val):
-                    specs[key] = val
+                cleaned_val = self._clean_spec_value(val)
+                if key and cleaned_val:
+                    specs[key] = cleaned_val
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """dl > dt / dd または table から key-value スペック辞書を構築"""

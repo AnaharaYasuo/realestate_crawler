@@ -44,6 +44,7 @@ def restore_chikunengetsu_from_existing_fields(
 
     logger.info(f"Target chikunengetsu models count: {len(target_models)}")
 
+    failed_tables = []
     for model in target_models:
         table = model._meta.db_table
         needed_fields = [model._meta.pk.name, "chikunengetsu", "chikunengetsuStr"]
@@ -68,35 +69,52 @@ def restore_chikunengetsu_from_existing_fields(
                 continue
 
             updated = 0
-            batch = []
-            update_fields = set()
+            batch_clean = []
+            batch_date = []
             for item in qs.iterator(chunk_size=1000):
                 c_str = str(getattr(item, "chikunengetsuStr", "") or "").strip()
                 if "を表示" in c_str or c_str in ("築年月", "不詳", "-"):
                     item.chikunengetsuStr = "" if c_str != "不詳" else "不詳"
                     item.chikunengetsu = None
-                    batch.append(item)
-                    update_fields.add("chikunengetsuStr")
+                    batch_clean.append(item)
+                    if len(batch_clean) >= 500:
+                        with transaction.atomic():
+                            model.objects.bulk_update(
+                                batch_clean, ["chikunengetsuStr", "chikunengetsu"]
+                            )
+                        updated += len(batch_clean)
+                        batch_clean = []
                 else:
                     parsed_date = parse_chikunengetsu(c_str)
                     if parsed_date:
                         item.chikunengetsu = parsed_date
-                        batch.append(item)
-                        update_fields.add("chikunengetsu")
-                if len(batch) >= 500:
-                    fields_to_update = list(update_fields) or ["chikunengetsu"]
-                    with transaction.atomic():
-                        model.objects.bulk_update(batch, fields_to_update)
-                    updated += len(batch)
-                    batch = []
-            if batch:
-                fields_to_update = list(update_fields) or ["chikunengetsu"]
+                        batch_date.append(item)
+                        if len(batch_date) >= 500:
+                            with transaction.atomic():
+                                model.objects.bulk_update(
+                                    batch_date, ["chikunengetsu"]
+                                )
+                            updated += len(batch_date)
+                            batch_date = []
+            if batch_clean:
                 with transaction.atomic():
-                    model.objects.bulk_update(batch, fields_to_update)
-                updated += len(batch)
+                    model.objects.bulk_update(
+                        batch_clean, ["chikunengetsuStr", "chikunengetsu"]
+                    )
+                updated += len(batch_clean)
+            if batch_date:
+                with transaction.atomic():
+                    model.objects.bulk_update(batch_date, ["chikunengetsu"])
+                updated += len(batch_date)
             logger.info(f"[{table}] Successfully processed/restored {updated} records.")
         except Exception as e:
             logger.exception(f"[{table}] Error restoring chikunengetsu data: {e}")
+            failed_tables.append((table, str(e)))
+
+    if failed_tables:
+        raise RuntimeError(
+            f"Chikunengetsu restoration encountered errors on {len(failed_tables)} tables: {failed_tables}"
+        )
 
     return results
 

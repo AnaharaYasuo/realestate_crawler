@@ -88,6 +88,7 @@ def restore_traffic_from_existing_fields(
 
     logger.info(f"Target property models count: {len(target_models)}")
 
+    failed_tables = []
     for model in target_models:
         table = model._meta.db_table
         field_names = {f.name for f in model._meta.fields}
@@ -97,7 +98,7 @@ def restore_traffic_from_existing_fields(
             traffic__isnull=True
         )
 
-        # 交通系フィールド（station1〜5 または railway1〜5）が存在するレコード
+        # 交通系フィールド（station1〜5, railway1〜5, busStation1〜5）が存在するレコード
         q_has_station = Q()
         for i in range(1, 6):
             if f"station{i}" in field_names:
@@ -108,6 +109,10 @@ def restore_traffic_from_existing_fields(
                 q_has_station |= ~Q(
                     **{f"railway{i}__in": ["", "-", "None", "nan"]}
                 ) & Q(**{f"railway{i}__isnull": False})
+            if f"busStation{i}" in field_names:
+                q_has_station |= ~Q(
+                    **{f"busStation{i}__in": ["", "-", "None", "nan"]}
+                ) & Q(**{f"busStation{i}__isnull": False})
 
         needed_fields = [model._meta.pk.name, "traffic"]
         for i in range(1, 6):
@@ -159,6 +164,12 @@ def restore_traffic_from_existing_fields(
             logger.info(f"[{table}] Successfully restored {updated} records.")
         except Exception as e:
             logger.exception(f"[{table}] Error restoring traffic data: {e}")
+            failed_tables.append((table, str(e)))
+
+    if failed_tables:
+        raise RuntimeError(
+            f"Traffic restoration encountered errors on {len(failed_tables)} tables: {failed_tables}"
+        )
 
     return results
 
