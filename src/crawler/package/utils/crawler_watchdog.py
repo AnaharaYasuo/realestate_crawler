@@ -16,17 +16,24 @@ def _parse_hang_threshold() -> float:
         return 0.0
 
 HANG_THRESHOLD_SEC: float = _parse_hang_threshold()
+INITIAL_DISCOVERY_GRACE_SEC: float = float(os.getenv("CRAWLER_INITIAL_GRACE_SEC", "1800.0").strip())
 
 
 def check_job_hung(
     last_activity_time: float,
     current_time: float | None = None,
     threshold_sec: float = HANG_THRESHOLD_SEC,
+    prev_db_cnt: int = 0,
+    start_time: float | None = None,
 ) -> bool:
     """Check if job has been silent (no heartbeat/progress) for longer than threshold."""
     if threshold_sec <= 0:
         return False
     now = current_time if current_time is not None else time.time()
+    # 起動直後の初回一覧取得フェーズ (DB件数がまだ0件) では探索猶予を設ける
+    if prev_db_cnt == 0 and start_time is not None:
+        effective_threshold = max(threshold_sec, INITIAL_DISCOVERY_GRACE_SEC)
+        return (now - start_time) > effective_threshold
     return (now - last_activity_time) > threshold_sec
 
 

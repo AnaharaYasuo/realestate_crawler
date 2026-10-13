@@ -519,7 +519,10 @@ class ParserBase(metaclass=ABCMeta):
             return True
         if href.startswith(('javascript:', 'mailto:', 'tel:')):
             return True
-        skip_tokens = (TOKEN_INQUIRY, TOKEN_CONTACT, '/shiritai/', '/360/', '/benefit/', '/baikyaku/')
+        skip_tokens = (
+            TOKEN_INQUIRY, TOKEN_CONTACT, '/shiritai/', '/360/', '/benefit/', '/baikyaku/',
+            '/support/', '/mikata/', '/guide/', '/manual/', '/column/',
+        )
         return any(tok in href for tok in skip_tokens)
 
     @staticmethod
