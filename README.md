@@ -766,6 +766,9 @@ docs/
 - **[ProxySQL中断判定におけるトラフィック閾値チェック要件定義書](docs/requirements/safetynet_traffic_check_requirements_901.md)**: アクティブクエリ通信検知・ヘルスチェック除外・8時間連続稼働上限・Safety-Net誤停止防止要件 (Issue #901)
 - **[ProxySQL中断判定におけるトラフィック閾値チェック外部設計書](docs/external_design/safetynet_traffic_check_external_design_901.md)**: Cloud Monitoring 受信バイト数メトリクス・判定フロー・Slackアラート外部仕様 (Issue #901)
 - **[ProxySQL中断判定におけるトラフィック閾値チェック内部設計書](docs/internal_design/safetynet_traffic_check_internal_design_901.md)**: _get_instance_network_received_bytes・閾値1MB・max_uptime詳細仕様 (Issue #901)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧要件定義書](docs/requirements/comprehensive_restoration_and_db_protection_requirements_909.md)**: 本番DB物理保護ガード・マイグレーション完全整合・欠損データ全件復旧・ML評価コネクション修復要件 (Issue #909)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧外部設計書](docs/external_design/comprehensive_restoration_and_db_protection_external_design_909.md)**: db_safetyガード・0062/0063マイグレーション分離・交通データ復旧外部設計 (Issue #909)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧内部設計書](docs/internal_design/comprehensive_restoration_and_db_protection_internal_design_909.md)**: assert_production_db_safety・PKベースチャンク取得・モデル整合内部仕様 (Issue #909)
 
 
 ### 2. 開発を始める

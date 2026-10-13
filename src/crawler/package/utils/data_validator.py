@@ -62,10 +62,17 @@ class PropertyDataValidator:
 
     @staticmethod
     def _check_madori_and_age(item: Any, reasons: list[str]) -> None:
-        """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査"""
-        if _blank(getattr(item, "madori", None)):
+        """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査（モデル未定義時はスキップ）"""
+        has_madori_field = True
+        has_age_field = True
+        if hasattr(item, "_meta") and hasattr(item._meta, "get_fields"):
+            field_names = {f.name for f in item._meta.get_fields()}
+            has_madori_field = "madori" in field_names
+            has_age_field = "chikunengetsu" in field_names or "chikunengetsuStr" in field_names
+
+        if has_madori_field and _blank(getattr(item, "madori", None)):
             reasons.append(ERR_MISSING_MADORI)
-        if _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
+        if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
             reasons.append(ERR_MISSING_AGE)
 
     @classmethod
