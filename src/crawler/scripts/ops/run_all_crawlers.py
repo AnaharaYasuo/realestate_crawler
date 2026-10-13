@@ -515,6 +515,9 @@ def main():
     args = parse_args()
     _, _, resource_reason = get_resource_aware_concurrency()
     logger.info(f"🧠 [Resource Awareness] Concurrency config: parallel={args.parallel}, playwright_parallel={args.playwright_parallel} ({resource_reason})")
+    if not args.dry_run and args.parallel <= 0:
+        logger.error(f"❌ [Resource Limit Fast-Fail] Cannot start crawling because parallel concurrency is {args.parallel} ({resource_reason}). Aborting.")
+        sys.exit(1)
     if args.dry_run:
         target_jobs = [
             j for j in CRAWL_JOBS
