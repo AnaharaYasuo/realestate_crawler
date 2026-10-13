@@ -506,6 +506,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 内部設計書](docs/internal_design/task_array_fast_exit_internal_design.md)** - 先行完了タスクの全体集約スキップ・即時exit(0)および最終完了タスクへのレポート委譲 (Issue #823)
 - **[マンション系クローラー中間ページ並行化・WAF適正緩和および野村差分抽出修復 内部設計書](docs/internal_design/mansion_crawler_speedup_and_differential_fix_internal_design.md)** - 中間ページセマフォ制御、サイト別WAFキャップ/ディレイ緩和、カード価格抽出判定強化 (Issue #867)
 - **[全対象サイト中間ページ並行化・階層化 内部設計書](docs/internal_design/crawler_hierarchy_and_parallel_expansion_internal_design.md)** - 全対象サイトの中間ページ多階層化・並行探索化（MIDDLE_PARARELL_LIMIT=3）および動的並行度判定の適正化 (Issue #870)
+- **[クローラーDB監視DNS堅牢化 & ML再学習インポート修復 内部設計書](docs/internal_design/crawler_db_dns_and_ml_train_internal_design.md)** - DB接続先IP解決固定によるFast-Fail誤発動防止およびsetup_env連携によるML再学習インポート修復 (Issue #892)
 
 
 

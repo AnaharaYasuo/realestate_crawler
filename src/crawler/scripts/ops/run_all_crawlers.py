@@ -163,7 +163,16 @@ def resolve_db_endpoint():
     if host == "localhost" or host.startswith("/"):
         logger.warning(f"DB 接続先 {host} は UNIX ソケット接続のため TCP 疎通監視を無効化します")
         return None
-    return host, port
+
+    # Docker/環境高負荷時における Docker Embedded DNS (127.0.0.11) の一時的名前解決失敗
+    # ([Errno -3] Temporary failure in name resolution) による Fast-Fail 誤発動を防止するため
+    # 初回にホスト名を IP アドレスへ解決・キャッシュして TCP 疎通監視に用いる (Issue #892)
+    try:
+        resolved_ip = socket.gethostbyname(host)
+        return resolved_ip, port
+    except Exception as e:
+        logger.warning(f"DB ホスト {host} の IP アドレス解決に失敗したためホスト名で継続します: {e}")
+        return host, port
 
 
 def bound_db_connect_timeout():
