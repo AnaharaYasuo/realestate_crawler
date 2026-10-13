@@ -1064,7 +1064,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
 
     def _parseSetsudou(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("接道状況", "")
+        return target_specs.get("接道状況", "") or target_specs.get("道路状況", "") or super()._parseSetsudou(response, target_specs)
 
     def _parseDouroHaba(self, response, _specs=None):
         return self._parseSetudouDetails(response)['douroHaba']
