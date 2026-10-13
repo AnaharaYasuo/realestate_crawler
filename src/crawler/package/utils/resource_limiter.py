@@ -7,49 +7,52 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def detect_available_memory_mb() -> int | None:
-    """
-    Detect available or limit memory in MB for the current container / host environment.
-    Checks cgroup v2/v1 memory limits and OS memory info.
-    Returns memory in MB, or None if undetermined.
-    """
-    # 1. Check cgroup memory limits (container / WSL2)
-    for limit_file in [
+def _read_cgroup_limit_mb() -> int | None:
+    """Read memory limit in MB from cgroup v2 or v1."""
+    limit_files = (
         "/sys/fs/cgroup/memory.max",
         "/sys/fs/cgroup/memory/memory.limit_in_bytes",
-    ]:
-        if os.path.exists(limit_file):
-            try:
-                with open(limit_file, "r", encoding="utf-8") as f:
-                    val = f.read().strip()
-                if val and val != "max":
-                    limit_bytes = int(val)
-                    # Ignore ridiculously high values indicating no limit (e.g. 2^63-1)
-                    if 0 < limit_bytes < (1024**4):
-                        return int(limit_bytes / (1024 * 1024))
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"Failed reading {limit_file}: {e}")
-
-    # 2. Check /proc/meminfo (MemAvailable or MemTotal)
-    if os.path.exists("/proc/meminfo"):
+    )
+    for limit_file in limit_files:
+        if not os.path.exists(limit_file):
+            continue
         try:
-            mem_info = {}
-            with open("/proc/meminfo", "r", encoding="utf-8") as f:
-                for line in f:
-                    parts = line.split(":")
-                    if len(parts) == 2:
-                        key = parts[0].strip()
-                        val_str = parts[1].strip().split()[0]
-                        if val_str.isdigit():
-                            mem_info[key] = int(val_str)
-            if "MemAvailable" in mem_info:
-                return int(mem_info["MemAvailable"] / 1024)
-            if "MemTotal" in mem_info:
-                return int(mem_info["MemTotal"] / 1024)
+            with open(limit_file, "r", encoding="utf-8") as f:
+                val = f.read().strip()
+            if val and val != "max":
+                limit_bytes = int(val)
+                if 0 < limit_bytes < (1024**4):
+                    return int(limit_bytes / (1024 * 1024))
         except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed reading /proc/meminfo: {e}")
+            logger.debug(f"Failed reading {limit_file}: {e}")
+    return None
 
-    # 3. Check os.sysconf (POSIX)
+
+def _read_proc_meminfo_mb() -> int | None:
+    """Read available or total memory in MB from /proc/meminfo."""
+    if not os.path.exists("/proc/meminfo"):
+        return None
+    try:
+        mem_info = {}
+        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    key = parts[0].strip()
+                    val = parts[1].strip().split()[0]
+                    if val.isdigit():
+                        mem_info[key] = int(val)
+        if "MemAvailable" in mem_info:
+            return int(mem_info["MemAvailable"] / 1024)
+        if "MemTotal" in mem_info:
+            return int(mem_info["MemTotal"] / 1024)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed reading /proc/meminfo: {e}")
+    return None
+
+
+def _read_sysconf_mb() -> int | None:
+    """Read total physical memory in MB from os.sysconf."""
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
@@ -57,8 +60,24 @@ def detect_available_memory_mb() -> int | None:
             return int((pages * page_size) / (1024 * 1024))
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Failed reading os.sysconf: {e}")
-
     return None
+
+
+def detect_available_memory_mb() -> int | None:
+    """
+    Detect available or limit memory in MB for the current container / host environment.
+    Checks cgroup v2/v1 memory limits, /proc/meminfo, and os.sysconf.
+    Returns memory in MB, or None if undetermined.
+    """
+    cgroup_mb = _read_cgroup_limit_mb()
+    if cgroup_mb is not None:
+        return cgroup_mb
+
+    proc_mb = _read_proc_meminfo_mb()
+    if proc_mb is not None:
+        return proc_mb
+
+    return _read_sysconf_mb()
 
 
 def get_resource_aware_concurrency(
