@@ -1356,7 +1356,7 @@ class ParserBase(metaclass=ABCMeta):
             parser_to_use.validate_required_fields(item)
         except SkipPropertyException:
             raise
-        except (LoadPropertyPageException, TimeoutError):
+        except (LoadPropertyPageException, TimeoutError, ServerDownException):
             logging.exception(f'Failure loading page: {url}')
             raise
         except Exception as e:
@@ -1396,11 +1396,11 @@ class ParserBase(metaclass=ABCMeta):
                         return await response.read()
                     self._validate_http_status(response.status, url)
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
-                self.consecutive_timeouts = cur_timeouts
-                if cur_timeouts >= max_timeouts:
-                    raise ServerDownException(f'Target server is down or timing out repeatedly ({cur_timeouts} times)') from e
                 if attempt == max_timeouts - 1:
+                    cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
+                    self.consecutive_timeouts = cur_timeouts
+                    if cur_timeouts >= max_timeouts:
+                        raise ServerDownException(f'Target server is down or timing out repeatedly ({cur_timeouts} times)') from e
                     raise LoadPropertyPageException(f'Timeout after {attempt + 1} attempts for URL: {url}') from e
                 await asyncio.sleep(1 * (attempt + 1))
         return b''

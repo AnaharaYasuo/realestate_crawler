@@ -24,11 +24,11 @@ class MitsuiModel(PropertyBaseModel, TransportationMixin):
 class MitsuiMansion(MitsuiModel):
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
-    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
 
     balconyMensekiStr = models.TextField(blank=True)
     saikouKadobeya = models.TextField(blank=True)
@@ -36,13 +36,13 @@ class MitsuiMansion(MitsuiModel):
     kadobeya = models.TextField(blank=True)
     soukosuStr = models.TextField(blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
-    kanriKeitaiKaisya = models.TextField(blank=True)
-    kanriKeitai = models.TextField(blank=True)
-    kanriKaisya = models.TextField(blank=True)
-    kanrihiStr = models.TextField(blank=True)
-    kanrihi = models.IntegerField(null=True)
-    syuzenTsumitateStr = models.TextField(blank=True)
-    syuzenTsumitate = models.IntegerField(null=True)
+    kanriKeitaiKaisya = models.TextField(default="", blank=True)
+    kanriKeitai = models.TextField(default="", blank=True)
+    kanriKaisya = models.TextField(default="", blank=True)
+    kanrihiStr = models.TextField(default="", blank=True)
+    kanrihi = models.IntegerField(null=True, blank=True)
+    syuzenTsumitateStr = models.TextField(default="", blank=True)
+    syuzenTsumitate = models.IntegerField(null=True, blank=True)
     tyusyajo = models.TextField(blank=True)
     #追加項目
     kouzou  = models.TextField(blank=True)
@@ -50,11 +50,11 @@ class MitsuiMansion(MitsuiModel):
     bunjoKaisya  = models.TextField(blank=True)
     sekouKaisya  = models.TextField(blank=True)
 
-    floorType_kai = models.IntegerField(null=True)
-    floorType_chijo = models.IntegerField(null=True)
-    floorType_chika = models.IntegerField(null=True)
+    floorType_kai = models.IntegerField(null=True, blank=True)
+    floorType_chijo = models.IntegerField(null=True, blank=True)
+    floorType_chika = models.IntegerField(null=True, blank=True)
     floorType_kouzou = models.TextField(blank=True)
-    kyutaishin = models.IntegerField(null=True)
+    kyutaishin = models.IntegerField(null=True, blank=True)
     balconyMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
     senyouNiwaMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
     roofBarukoniMenseki = models.DecimalField(max_digits=10,decimal_places=3, null=True, blank=True)
@@ -177,29 +177,29 @@ class MitsuiInvestmentApartment(MitsuiModel):
     monthlyRent = models.IntegerField() # Strict
     currentStatus = models.TextField() # Strict
     
-    # Common specs
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField() # Strict
-    soukosuStr = models.TextField(default="")
-    soukosu = models.IntegerField(null=True)
-    kaisuStr = models.TextField(default="")
+    kouzou = models.TextField(blank=True, default="")
+    chikunengetsuStr = models.TextField(blank=True, default="")
+    chikunengetsu = models.DateField(null=True, blank=True)
+    soukosuStr = models.TextField(default="", blank=True)
+    soukosu = models.IntegerField(null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
     
     # Areas (Optional for Apartment - mansion properties don't display these fields)
-    tochiMensekiStr = models.TextField(default="")
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True)
-    tatemonoMensekiStr = models.TextField(default="")
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True)
+    tochiMensekiStr = models.TextField(default="", blank=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     
     # Land Details
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
-    kenpeiStr = models.TextField(default="")
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
-    yousekiStr = models.TextField(default="")
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    kenpeiStr = models.TextField(default="", blank=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    yousekiStr = models.TextField(default="", blank=True)
 
-    setsudou = models.TextField(default="")
-    chimoku = models.TextField(default="")
-    youtoChiiki = models.TextField(default="")
-    tochikenri = models.TextField(default="")
+    setsudou = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
+    tochikenri = models.TextField(default="", blank=True)
     
 
 
