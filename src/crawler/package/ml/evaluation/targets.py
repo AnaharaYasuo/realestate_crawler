@@ -56,6 +56,31 @@ def iter_active_items(
         skipped_count = 0
 
 
+def _iter_target_items(
+    model: Any,
+    existing_eval_map: dict[str, Any],
+    force: bool,
+    fetch_batch_size: int = 2000,
+) -> Iterator[tuple[Any | None, int]]:
+    """PKベースで未処理対象物件を1件ずつ取得し、(item, skipped_count) を yield する (S3776 分散)"""
+    last_pk = 0
+    while True:
+        close_old_connections()
+        batch_items = list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
+        if not batch_items:
+            break
+
+        for item in batch_items:
+            last_pk = item.pk
+            page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
+            if not page_url:
+                continue
+            if _should_skip_item(existing_eval_map.get(page_url), force):
+                yield None, 1
+                continue
+            yield item, 0
+
+
 def iter_unprocessed_chunks(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -72,37 +97,24 @@ def iter_unprocessed_chunks(
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
-    last_pk = 0
-    fetch_batch_size = 2000
     current_chunk: list[Any] = []
     chunk_skipped = 0
     yielded_total = 0
 
-    while True:
-        close_old_connections()
-        batch_items = list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
-        if not batch_items:
-            break
+    for item, skipped in _iter_target_items(model, existing_eval_map, force):
+        chunk_skipped += skipped
+        if item is None:
+            continue
 
-        for item in batch_items:
-            last_pk = item.pk
-            page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
-            if not page_url:
-                continue
-            existing_eval = existing_eval_map.get(page_url)
-            if _should_skip_item(existing_eval, force):
-                chunk_skipped += 1
-                continue
-
-            current_chunk.append(item)
-            target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
-            if len(current_chunk) >= target_size:
-                yield current_chunk, chunk_skipped
-                yielded_total += len(current_chunk)
-                current_chunk = []
-                chunk_skipped = 0
-                if limit is not None and yielded_total >= limit:
-                    return
+        current_chunk.append(item)
+        target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
+        if len(current_chunk) >= target_size:
+            yield current_chunk, chunk_skipped
+            yielded_total += len(current_chunk)
+            current_chunk = []
+            chunk_skipped = 0
+            if limit is not None and yielded_total >= limit:
+                return
 
     if current_chunk:
         yield current_chunk, chunk_skipped
