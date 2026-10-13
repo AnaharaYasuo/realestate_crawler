@@ -12,6 +12,7 @@ from package.models.daikyo import DaikyoKodate, DaikyoMansion, DaikyoTochi
 from package.models.mitsui import MitsuiKodate, MitsuiMansion, MitsuiTochi
 from package.models.sumirin import SumirinKodate, SumirinMansion, SumirinTochi
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
+from package.utils.db_safety import assert_production_db_safety
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,6 +52,9 @@ def synthesize_traffic_str(item) -> str:
 
 def restore_traffic_from_existing_fields(dry_run: bool = True) -> dict[str, int]:
     """すでに駅情報が存在するが traffic カラムが空のレコードを安全に復旧"""
+    if not dry_run:
+        assert_production_db_safety("restore_traffic")
+
     results = {}
     for model in TARGET_MODELS:
         table = model._meta.db_table

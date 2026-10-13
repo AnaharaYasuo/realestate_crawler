@@ -37,6 +37,10 @@ class TestComprehensiveRestorationAndDbProtection909:
         with pytest.raises(ProductionDatabaseModificationBlocked):
             assert_production_db_safety(command_name="makemigrations")
 
+        # restore_traffic 実行時
+        with pytest.raises(ProductionDatabaseModificationBlocked):
+            assert_production_db_safety(command_name="restore_traffic")
+
     def test_production_db_safety_allows_when_ci_deployment(self, monkeypatch):
         """CI/CDのデプロイパイプライン (IS_PRODUCTION_DEPLOYMENT=true) では許可されること"""
         from django.conf import settings
@@ -53,17 +57,20 @@ class TestComprehensiveRestorationAndDbProtection909:
 
         # 例外が発生せず正常終了すること
         assert_production_db_safety(command_name="migrate")
+        assert_production_db_safety(command_name="restore_traffic")
 
     def test_production_db_safety_allows_read_commands(self, monkeypatch):
-        """読み取り系やテスト系コマンドはローカルでもブロックされないこと"""
+        """読み取り系やローカルホスト接続時はブロックされないこと"""
         monkeypatch.setenv("DB_HOST", "host.docker.internal")
-        monkeypatch.setenv("DB_PORT", "3307")
-        monkeypatch.setenv("DB_NAME", "real_estate")
         monkeypatch.delenv("IS_PRODUCTION_DEPLOYMENT", raising=False)
 
         # showmigrations や runserver は許可
         assert_production_db_safety(command_name="showmigrations")
         assert_production_db_safety(command_name="test")
+
+        # ローカルDB接続時は書き込み系コマンドも許可
+        monkeypatch.setenv("DB_HOST", "localhost")
+        assert_production_db_safety(command_name="migrate")
 
     def test_data_validator_skips_missing_madori_age_for_models_without_fields(self):
         """モデル定義に madori / chikunengetsu が存在しないモデルでは欠損エラーにならないこと"""
