@@ -29,9 +29,19 @@
   - `propertyName`, `pageUrl`, `inputDate` は保持。
   - `bulk_update` で一括 UPDATE。
 
-### 2.3 `restore_nomura_kodate_records(dry_run: bool = True) -> int`
+### 2.3 `restore_nomura_kodate_records(dry_run: bool = True, recrawl_detail: bool = False, limit: int | None = None) -> dict[str, int]`
 - **処理ロジック**:
-  - `NomuraKodate.objects.filter(madori='')` をイテレート。
-  - `re.search(r'([1-9][0-9]?[SLKDKslkdk]+(?:\+[0-9]?[SLKDKslkdk]+)*)', f"{item.propertyName} {item.biko}")`
-  - 一致した場合、`item.madori = match.group(1).upper()`。
-  - `bulk_update(batch, ['madori'])` で一括 UPDATE。
+  - `recrawl_detail=True` の場合: `recrawl_anomalies_async(model_name="NomuraKodate", field_empty="madori", limit=limit)` を呼び出し、直接詳細URLを開いてパース・更新または公開終了をDBへ保存。
+  - `recrawl_detail=False` の場合: `NomuraKodate.objects.filter(madori='')` をイテレートし、物件名・備考から正規表現で間取りを補完 UPDATE。
+
+### 2.4 `ParseDetailPageAsyncBase._handle_skipped_property` (直接巡回・公開終了保存)
+- **処理ロジック**:
+  - 詳細ページ取得時に `ListingEndedException` または `SkipPropertyException` を検知した際、`_handle_skipped_property()` が起動。
+  - `PropertyEvaluation` レコードの存在確認（正規化URLおよび `UrlMatcher` 含む）。
+  - **既存レコードが存在する場合**: `is_published=False`, `delisted_at=now_utc` に更新して保存。
+  - **既存レコードが存在しない場合**: 対象パーサー/URLから会社名・種別を特定し、モデルテーブルの `pageUrl` と突合して `property_id` をリンクした上で、`PropertyEvaluation` レコードを新規作成して `is_published=False, delisted_at=now_utc` を確実に永続化。
+
+### 2.5 `recrawl_anomalies.py` 汎用直接巡回拡張
+- `TargetPropertyRef(property_url, property_id)`: 任意URLをタスク分割可能にする軽量参照型。
+- `fetch_assigned_targets(urls=..., model_name=..., field_empty=...)`: URL直接指定またはモデル空カラム指定に対応。
+- `_recrawl_single_url()`: `AnomalyDetailRunner` で直接詳細URLを開き、成否・公開終了を判定。

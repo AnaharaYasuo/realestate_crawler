@@ -23,6 +23,11 @@
    - パターン: `r'([1-9][0-9]?[SLKDKslkdk]+(?:\+[0-9]?[SLKDKslkdk]+)*)'`
    - 更新先: `madori`（大文字正規化）
 
+4. **対象物件URL直接詳細巡回・公開終了保存仕様 (Direct Detail Recrawl & Delist Persistence)**:
+   - 目的: 対象物件のURLが既知である場合、一覧探索をバイパスして直接詳細ページを開く。
+   - 公開中時: パーサーにより最新スペック（間取り等）をパースし、DBモデルレコードを更新し、`PropertyEvaluation.is_published=True` を担保。
+   - 公開終了時（HTTP 404/410/掲載終了メッセージ）: `PropertyEvaluation` レコードの既存有無を問わず、`is_published=False`, `delisted_at=<検知日時>`, `property_id=<紐付けID>` を確実にDB保存。
+
 ## 3. バッチ CLI インターフェース仕様
 ```bash
 # ドライラン（件数調査のみ、DB変更なし）
@@ -35,4 +40,11 @@ python src/crawler/scripts/maintenance/update_and_restore_garbage_records.py --e
 python src/crawler/scripts/maintenance/update_and_restore_garbage_records.py --execute --target mitsui
 python src/crawler/scripts/maintenance/update_and_restore_garbage_records.py --execute --target kenbiya
 python src/crawler/scripts/maintenance/update_and_restore_garbage_records.py --execute --target nomura
+
+# 直接詳細ページ巡回による最新化および公開終了反映（野村等）
+python src/crawler/scripts/maintenance/update_and_restore_garbage_records.py --execute --target nomura --recrawl-detail --limit 50
+
+# 汎用直接詳細再巡回（URL直接指定 または モデル・空フィールド指定）
+python src/crawler/scripts/maintenance/recrawl_anomalies.py --urls "https://www.nomu.com/house/id/XXX/"
+python src/crawler/scripts/maintenance/recrawl_anomalies.py --model NomuraKodate --field-empty madori --limit 100
 ```

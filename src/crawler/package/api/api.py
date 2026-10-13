@@ -1,45 +1,48 @@
 import asyncio
-import aiohttp
+import datetime
 import gc
-import os
 import json
+import logging
+import os
+import re
 import ssl
 import threading
 import time
-import traceback
-from urllib.parse import urlparse
-from abc import ABCMeta, abstractmethod
-from typing import Any, ClassVar, Dict, Optional, Tuple  # noqa: UP035
-from pathlib import Path
-import re
 import uuid
+from abc import ABCMeta, abstractmethod
+from builtins import Exception
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, ClassVar
+from urllib.parse import urlparse
+
+import aiohttp
 import requests
-from package.api.registry import ApiRegistry
-from package.utils.storage import get_storage_manager
-from package.ml.investment_evaluator import evaluate_investment_property
-
-from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
-    ReadPropertyNameException, SkipPropertyException, ListingEndedException
-
-import datetime
+from asgiref.sync import sync_to_async
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, OperationalError, close_old_connections
-from builtins import Exception
-import logging
+
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+from package.api.differential import ListItem, filter_differential_items
+from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
+from package.api.registry import ApiRegistry
+from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
+from package.parser.baseParser import (
+    LoadPropertyPageException,
+    ParserBase,
+    ReadPropertyNameException,
+    SkipPropertyException,
+)
+from package.utils.converter import parse_chidai
+from package.utils.data_validator import tag_property_integrity
+from package.utils.failure_reporter import FailureReporter
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.report import CrawlerReporter
+from package.utils.storage import get_storage_manager
+from package.utils.url_matcher import UrlMatcher
 
 logger = logging.getLogger(__name__)
-from decimal import Decimal
-from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
-from package.utils.report import CrawlerReporter
-from asgiref.sync import sync_to_async
-from package.api.differential import filter_differential_items, ListItem
-from package.models.evaluation import PropertyPriceHistory, PropertyEvaluation
-from package.utils.url_matcher import UrlMatcher
-from package.utils.property_type_detector import PropertyTypeDetector
-from package.utils.converter import parse_chidai
-from package.utils.failure_reporter import FailureReporter
-from package.utils.data_validator import tag_property_integrity
-from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -50,6 +53,7 @@ BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
 _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
+MIDDLE_PAGE_PARSE_FAILURE_PREFIX = "Middle Page Parse Failure:"
 
 _crawl_run_state = threading.local()
 _dispatched_detail_lock = threading.Lock()
@@ -107,7 +111,7 @@ def _request_sent_trace_config() -> aiohttp.TraceConfig:
     return trace_config
 
 
-def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
+def _extract_company_and_ptype(model_name: str) -> tuple[str, str]:
     """Derive company / property_type from entity or Parse* class names."""
     name = model_name or ""
     for prefix in _MODEL_NAME_PREFIXES:
@@ -675,7 +679,8 @@ def get_score_statistics(is_investment: bool) -> tuple[float, float, int]:
     Returns:
         (mean, stddev, count)
     """
-    from django.db.models import Avg, StdDev, Count
+    from django.db.models import Avg, Count, StdDev
+
     from package.models.evaluation import PropertyEvaluation
 
     if is_investment:
@@ -789,7 +794,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
     }
-    _loop: Optional[asyncio.AbstractEventLoop] = None
+    _loop: asyncio.AbstractEventLoop | None = None
     middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
     _semaphore: DynamicSemaphore | None = None
     _semaphore_limit: int | None = None
@@ -885,14 +890,14 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         finally:
             self.semaphore.release()
 
-    async def _apply_middlewares_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def _apply_middlewares_request(self, request_context: dict[str, Any]) -> Any | None:
         for mw in self.middlewares:
             result = await mw.process_request(request_context)
             if result is not None:
                 return result
         return None
 
-    async def _apply_middlewares_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _apply_middlewares_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         for mw in reversed(self.middlewares):
             response_context = await mw.process_response(response_context)
         return response_context
@@ -1061,7 +1066,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def main(self, url):
         self.url = url
-        loop: Optional[asyncio.AbstractEventLoop] = None
+        loop: asyncio.AbstractEventLoop | None = None
         run_result = None
         owns_run = _enter_crawl_run()
         try:
@@ -1196,7 +1201,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(
                 current_url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content,
             )
             raise
@@ -1251,7 +1256,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(
                 current_url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content,
             )
             raise
@@ -1299,7 +1304,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                  response = await self.parser.getResponse(_session, self.url, self.parser.getCharset())
         except Exception as e:
             logging.error(f"Failed to fetch middle page: {self.url}")
-            await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Fetch Failure: {str(e)}")
+            await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Fetch Failure: {e!s}")
             raise e
 
         detail_url_list = []
@@ -1313,7 +1318,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(
                 self.url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content
             )
             raise e
@@ -1489,7 +1494,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 # Exponential backoff: 2s, 4s, 8s
                 wait_time = 2 ** retry_count
                 logging.warning(f"Connection error for {url}, retry {retry_count}/{max_retries} after {wait_time}s")
-                logging.warning(f"Exception type: {type(e).__name__}, Details: {str(e)}")
+                logging.warning(f"Exception type: {type(e).__name__}, Details: {e!s}")
                 await asyncio.sleep(wait_time)
             except Exception as e:
                 logging.exception("Unexpected error getting content from %s: %s", url, e)
@@ -1569,7 +1574,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
-                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {str(e)}")
+                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {e!s}")
                 return None, False
         except SkipPropertyException as e:
             logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
@@ -1920,10 +1925,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _perform_inline_ml_evaluation(self, item):
         try:
+            from django.utils import timezone
+
             from package.ml.predict import predict_first_stage, predict_second_stage
             from package.models.evaluation import PropertyEvaluation, PropertyImage
-            from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
-            from django.utils import timezone
+            from package.utils.image_handler import (
+                analyze_property_images_with_gemini,
+                check_api_budget_cap,
+                clean_images,
+                extract_images_from_soup,
+            )
 
             company = self._detect_company_name(item)
             property_type = PropertyTypeDetector.detect_from_object(item)
@@ -1989,15 +2000,52 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
         try:
             def update_delisted():
-                eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
+                normalized_url = UrlMatcher.normalize(self.url)
+                eval_rec = (
+                    PropertyEvaluation.objects.filter(property_url=self.url).first()
+                    or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
+                    or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", self.url)
+                )
+                now_utc = datetime.datetime.now(datetime.timezone.utc)
                 if eval_rec:
                     eval_rec.is_published = False
-                    eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
+                    eval_rec.delisted_at = now_utc
                     # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
                     eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
                     eval_rec.needs_recrawl = False
                     eval_rec.save()
-                    logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
+                    logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)
+                else:
+                    company = self._resolve_target_company() or "unknown"
+                    property_type = (
+                        getattr(self.parser, "property_type", None)
+                        or PropertyTypeDetector.detect_from_url(self.url)
+                        or "unknown"
+                    )
+                    prop_id = None
+                    try:
+                        if hasattr(self, "parser") and self.parser:
+                            entity = self.parser.createEntity()
+                            entity_cls = entity.__class__
+                            matched = UrlMatcher.find_match_in_queryset(
+                                entity_cls.objects, "pageUrl", self.url
+                            )
+                            if matched:
+                                prop_id = getattr(matched, "id", None)
+                    except Exception as match_err:  # noqa: BLE001
+                        logger.debug("Could not link prop_id for delisted property %s: %s", self.url, match_err)
+
+                    PropertyEvaluation.objects.create(
+                        property_url=self.url,
+                        company=company,
+                        property_type=property_type,
+                        property_id=prop_id,
+                        is_published=False,
+                        delisted_at=now_utc,
+                        needs_recrawl=False,
+                        analysis_status="skipped_by_budget",
+                    )
+                    logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
             await sync_to_async(update_delisted)()
         except OperationalError as le_err:
             if AdaptiveConcurrencyController.is_db_overload_error(le_err):

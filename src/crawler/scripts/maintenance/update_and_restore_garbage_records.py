@@ -4,6 +4,7 @@
 本番DBへのローカル直接更新は assert_production_db_safety により確実に遮断されます。
 """
 import argparse
+import asyncio
 import logging
 import re
 import sys
@@ -15,6 +16,7 @@ from django.db.models import Q
 from package.models.mitsui import MitsuiMansion, MitsuiTochi
 from package.models.nomura import NomuraKodate
 from package.utils.db_safety import assert_production_db_safety
+from scripts.maintenance.recrawl_anomalies import recrawl_anomalies_async
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +99,7 @@ MITSUI_LABEL_CLEAR_FIELDS = {
     "sekouKaisya": {"施工会社"},
 }
 
-MADORI_REGEX = re.compile(r"([1-9][0-9]?[SLKDKslkdk]+(?:\+[0-9]?[SLKDKslkdk]+)*)")
+MADORI_REGEX = re.compile(r"([1-9]\d{0,1}[SLDKR]+(?:\+[1-9]?[SLDKR]+)?)", re.IGNORECASE)
 
 
 def extract_kenbiya_address_from_url(url: str) -> tuple[str, str, str]:
@@ -256,11 +258,31 @@ def restore_mitsui_records(dry_run: bool = True, batch_size: int = 500) -> dict[
     return results
 
 
-def restore_nomura_kodate_records(dry_run: bool = True, batch_size: int = 500) -> dict[str, int]:
-    """野村戸建ての間取り未取得レコードを物件名・備考から抽出して UPDATE"""
+def restore_nomura_kodate_records(
+    dry_run: bool = True, batch_size: int = 500, recrawl_detail: bool = False, limit: int | None = None
+) -> dict[str, int]:
+    """野村戸建ての間取り未取得レコードを直接詳細巡回または物件名・備考から復旧"""
     qs = NomuraKodate.objects.filter(madori="")
     total_count = qs.count()
     results = {"NomuraKodate_missing_madori": total_count}
+
+    if recrawl_detail:
+        # ユーザー要求: 対象物件のURLがわかるため直接詳細ページを開き、公開終了なら公開終了としてDB保存
+        logger.info(
+            f"[RECRAWL-DETAIL] NomuraKodate: {total_count} 件のURLへ直接アクセスしてパースまたは公開終了反映 (DryRun={dry_run}, limit={limit})"
+        )
+        total_targets, stats = asyncio.run(
+            recrawl_anomalies_async(
+                model_name="NomuraKodate",
+                field_empty="madori",
+                limit=limit,
+                dry_run=dry_run,
+            )
+        )
+        results["NomuraKodate_recrawl_targets"] = total_targets
+        for k, v in stats.items():
+            results[f"NomuraKodate_recrawl_{k}"] = v
+        return results
 
     if dry_run:
         extractable = 0
@@ -296,7 +318,11 @@ def restore_nomura_kodate_records(dry_run: bool = True, batch_size: int = 500) -
 
 
 def update_and_restore_records(
-    dry_run: bool = True, target: str = "all", batch_size: int = 500
+    dry_run: bool = True,
+    target: str = "all",
+    batch_size: int = 500,
+    recrawl_detail: bool = False,
+    limit: int | None = None,
 ) -> dict[str, int]:
     """全対象モデルのレコードを削除せず UPDATE により復旧・正常化"""
     if not dry_run:
@@ -308,7 +334,11 @@ def update_and_restore_records(
     if target in ("all", "mitsui"):
         summary.update(restore_mitsui_records(dry_run=dry_run, batch_size=batch_size))
     if target in ("all", "nomura"):
-        summary.update(restore_nomura_kodate_records(dry_run=dry_run, batch_size=batch_size))
+        summary.update(
+            restore_nomura_kodate_records(
+                dry_run=dry_run, batch_size=batch_size, recrawl_detail=recrawl_detail, limit=limit
+            )
+        )
 
     return summary
 
@@ -334,16 +364,31 @@ def main():
         default=500,
         help="更新時のチャンクサイズ (デフォルト: 500)",
     )
+    parser.add_argument(
+        "--recrawl-detail",
+        action="store_true",
+        help="直接詳細ページを開いて最新化および公開終了反映を行う",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="直接詳細巡回の対象件数上限",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     mode_str = "実UPDATE実行モード (--execute)" if args.execute else "ドライラン (確認のみ)"
-    logger.info(f"=== UPDATE復旧バッチ開始: {mode_str}, target={args.target} ===")
+    logger.info(f"=== UPDATE復旧バッチ開始: {mode_str}, target={args.target}, recrawl_detail={args.recrawl_detail} ===")
 
     try:
         results = update_and_restore_records(
-            dry_run=not args.execute, target=args.target, batch_size=args.batch_size
+            dry_run=not args.execute,
+            target=args.target,
+            batch_size=args.batch_size,
+            recrawl_detail=args.recrawl_detail,
+            limit=args.limit,
         )
     except Exception:
         logger.exception("UPDATE復旧失敗")
