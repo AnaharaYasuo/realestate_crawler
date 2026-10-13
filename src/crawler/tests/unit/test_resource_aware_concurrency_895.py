@@ -12,6 +12,16 @@ from scripts.ops.run_all_crawlers import parse_args
 class TestResourceAwareConcurrency895(unittest.TestCase):
     """Test dynamic concurrency calculation based on available machine/container memory."""
 
+    @patch("package.utils.resource_limiter.detect_available_memory_mb", return_value=300)
+    def test_critical_memory_concurrency(self, mock_mem):
+        """利用可能メモリ < 512MB 時は parallel=0, playwright_parallel=0 に設定されること"""
+        with patch.dict(os.environ, {}, clear=True):
+            p, pw, reason = get_resource_aware_concurrency()
+            self.assertEqual(p, 0)
+            self.assertEqual(pw, 0)
+            self.assertIn("300MB", reason)
+            self.assertIn("CriticalMemory", reason)
+
     @patch("package.utils.resource_limiter.detect_available_memory_mb", return_value=3500)
     def test_low_memory_concurrency(self, mock_mem):
         """利用可能メモリ <= 4GB 時は parallel=3, playwright_parallel=1 に安全調整されること"""

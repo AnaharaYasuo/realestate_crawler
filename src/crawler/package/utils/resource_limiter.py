@@ -30,9 +30,10 @@ def _read_cgroup_limit_mb() -> int | None:
     for limit_file, usage_file in limit_usage_pairs:
         limit_bytes = _read_int_from_file(limit_file)
         if limit_bytes is not None and 0 < limit_bytes < (1024**4):
-            usage_bytes = _read_int_from_file(usage_file) or 0
-            avail_bytes = max(0, limit_bytes - usage_bytes)
-            return int(avail_bytes / (1024 * 1024))
+            usage_bytes = _read_int_from_file(usage_file)
+            if usage_bytes is not None:
+                avail_bytes = max(0, limit_bytes - usage_bytes)
+                return int(avail_bytes / (1024 * 1024))
     return None
 
 
@@ -112,7 +113,11 @@ def get_resource_aware_concurrency(
 
     # Determine safe defaults from resource limits
     if avail_mb is not None:
-        if avail_mb <= 4096:
+        if avail_mb < 512:
+            safe_p = 0
+            safe_pw = 0
+            tier = "CriticalMemory (<512MB)"
+        elif avail_mb <= 4096:
             safe_p = 3
             safe_pw = 1
             tier = "LowMemory (<=4GB)"
