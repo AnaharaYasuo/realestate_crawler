@@ -6,6 +6,22 @@
 """
 
 
+import os
+import sys
+
+_cur = os.path.abspath(__file__)
+while True:
+    _parent = os.path.dirname(_cur)
+    if _parent == _cur:
+        break
+    if os.path.exists(os.path.join(_parent, "setup_env.py")):
+        if _parent not in sys.path:
+            sys.path.insert(0, _parent)
+        import setup_env  # noqa: F401
+
+        break
+    _cur = _parent
+
 import joblib
 from package.ml.training.cleaning import clean_training_data
 from package.ml.training.dummy_data import generate_dummy_data
