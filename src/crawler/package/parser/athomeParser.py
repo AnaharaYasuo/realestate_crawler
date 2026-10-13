@@ -563,7 +563,13 @@ class AthomeParser(ParserBase):
         
         # 4. 共通情報
         item.kouzou = self._parseKouzou(response, specs)
-        item.chikunengetsuStr = specs.get("築年月", "")
+        item.chikunengetsuStr = (
+            specs.get("築年月", "")
+            or specs.get("完成時期", "")
+            or specs.get("建築年月", "")
+            or specs.get("建築時期", "")
+            or specs.get("完成時期（築年月）", "")
+        )
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
             
@@ -805,6 +811,8 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
             raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
+
+        item.madori = self._parseMadori(response, specs) or self.get_madori(response)
 
         item.tochiMensekiStr = specs.get("土地面積", "")
         if item.tochiMensekiStr:

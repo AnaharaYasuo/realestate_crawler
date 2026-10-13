@@ -166,9 +166,19 @@ class AfrParser(ParserBase):
                 return text
         # 見つからない場合はH1またはtitleから
         h1 = response.find("h1")
-        if h1:
-            return h1.get_text().strip()
-        return ""
+        if h1 is not None:
+            h1_text = h1.get_text()
+            if h1_text and h1_text.strip():
+                return h1_text.strip()
+        title_tag = response.find("title")
+        if title_tag is not None:
+            title_raw = title_tag.get_text()
+            if title_raw and title_raw.strip():
+                # 「 | 旭化成」などの定型サフィックスを除去（パイプで単純分割して先頭を取得）
+                cleaned = title_raw.strip().split('|')[0].split('｜')[0].strip()
+                if cleaned:
+                    return cleaned
+        return "旭化成ヘーベルハウス物件"
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
