@@ -128,6 +128,8 @@ class TestComprehensiveRestorationAndDbProtection909:
         class MockModel:
             objects = MockQuerySet(items)
 
+        monkeypatch.setattr("package.ml.evaluation.targets._is_real_django_model", lambda m: True)
+
         # chunk_size=10 で分割走査
         chunks = list(iter_unprocessed_chunks(MockModel, existing_eval_map={}, chunk_size=10))
         assert len(chunks) == 3

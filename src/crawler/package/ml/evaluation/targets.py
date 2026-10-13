@@ -56,6 +56,12 @@ def iter_active_items(
         skipped_count = 0
 
 
+def _is_real_django_model(model: Any) -> bool:
+    """本物の Django Model クラスかどうかを判定"""
+    from django.db import models
+    return isinstance(model, type) and issubclass(model, models.Model)
+
+
 def _iter_target_items(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -91,18 +97,24 @@ def iter_unprocessed_chunks(
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
 
     全件 list 化を行わず、同時にメモリ保持する物件数を fetch_batch_size 以下に抑制する。
-    PK ベースのバッチクエリにより、QuerySet カーソルオープン中の不正な切断を防ぎ、
-    バッチ境界で安全に close_old_connections() を呼んで DB アイドルタイムアウト
+    本物の Django モデルでは PK ベースのバッチクエリにより、QuerySet カーソルオープン中の
+    不正な切断を防ぎ、バッチ境界で安全に close_old_connections() を呼んで DB アイドルタイムアウト
     (OperationalError 2006: MySQL server has gone away) を物理的に根絶する (Issue #909)。
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
+    close_old_connections()
     current_chunk: list[Any] = []
     chunk_skipped = 0
     yielded_total = 0
 
-    for item, skipped in _iter_target_items(model, existing_eval_map, force):
-        chunk_skipped += skipped
+    if _is_real_django_model(model):
+        source_iterator = _iter_target_items(model, existing_eval_map, force)
+    else:
+        source_iterator = iter_active_items(model, existing_eval_map, force)
+
+    for item, skp in source_iterator:
+        chunk_skipped += skp
         if item is None:
             continue
 
@@ -113,9 +125,11 @@ def iter_unprocessed_chunks(
             yielded_total += len(current_chunk)
             current_chunk = []
             chunk_skipped = 0
+            close_old_connections()
             if limit is not None and yielded_total >= limit:
                 return
 
     if current_chunk:
         yield current_chunk, chunk_skipped
         close_old_connections()
+
