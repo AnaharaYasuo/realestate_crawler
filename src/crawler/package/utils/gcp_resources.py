@@ -811,3 +811,151 @@ def wait_for_proxysql_health(
         f"ProxySQL connection wait timed out ({timeout_sec}s). Proceeding with caution."
     )
     return False
+
+
+def _is_cloud_environment() -> bool:
+    return bool(
+        os.getenv("IS_CLOUD")
+        or os.getenv("K_SERVICE")
+        or os.getenv("CLOUD_RUN_JOB")
+        or os.getenv("GOOGLE_CLOUD_PROJECT")
+    )
+
+
+def _get_cloud_run_candidate_jobs(job_prefixes: tuple[str, ...]) -> list[str]:
+    env_suffix = os.getenv("ENVIRONMENT", "prod")
+    candidates = set()
+    for p in job_prefixes:
+        clean_p = p.rstrip("-")
+        candidates.update({clean_p, f"{clean_p}-{env_suffix}", f"{clean_p}-prod", f"{clean_p}-stg"})
+    return sorted(candidates)
+
+
+def _is_other_execution(ex_name: str, curr_exec: str) -> bool:
+    if not curr_exec or not ex_name:
+        return True
+    short_ex = ex_name.rstrip("/").split("/")[-1]
+    return ex_name != curr_exec and short_ex != curr_exec
+
+
+def _is_active_run_v2_execution(ex, curr_exec: str) -> bool:
+    ex_name = getattr(ex, "name", "")
+    if not _is_other_execution(ex_name, curr_exec):
+        return False
+    is_completed = bool(getattr(ex, "completion_time", None))
+    is_cancelled = bool(getattr(ex, "cancelled", False))
+    return not is_completed and not is_cancelled
+
+
+def _check_run_v2_executions(project: str, reg: str, candidates: list[str], curr_exec: str) -> bool | None:
+    try:
+        from google.api_core import exceptions as google_exceptions
+        from google.cloud import run_v2
+
+        client = run_v2.ExecutionsClient()
+        for job_name in candidates:
+            parent = f"projects/{project}/locations/{reg}/jobs/{job_name}"
+            try:
+                for ex in client.list_executions(parent=parent, timeout=5.0, retry=None):
+                    if _is_active_run_v2_execution(ex, curr_exec):
+                        short_ex = getattr(ex, "name", "").rstrip("/").split("/")[-1]
+                        logger.info(
+                            f"[Teardown Guard] Active other Cloud Run execution found via run_v2: {short_ex} for {job_name}"
+                        )
+                        return True
+            except google_exceptions.NotFound:
+                logger.debug(f"run_v2 job {job_name} not found (treated as no active executions).")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"run_v2 check for job {job_name} failed: {e}")
+                return None
+        return False
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"run_v2 executions check skipped/failed: {e}")
+        return None
+
+
+def _is_active_rest_execution(ex: dict, curr_exec: str) -> bool:
+    ex_name = ex.get("name", "")
+    if not _is_other_execution(ex_name, curr_exec):
+        return False
+    if bool(ex.get("cancelled")) or bool(ex.get("completionTime")):
+        return False
+    for cond in ex.get("conditions", []):
+        if cond.get("type") == "Completed" and cond.get("status") in ("True", "False"):
+            return False
+    return True
+
+
+def _check_rest_job_executions(url: str, headers: dict, job_name: str, curr_exec: str) -> bool | None:
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 404:
+            return False
+        if resp.status_code != 200:
+            logger.warning(
+                f"Failed to query Cloud Run executions for {job_name} (HTTP {resp.status_code}): {resp.text}"
+            )
+            return None
+        for ex in resp.json().get("executions", []):
+            if _is_active_rest_execution(ex, curr_exec):
+                short_ex = ex.get("name", "").rstrip("/").split("/")[-1]
+                logger.info(
+                    f"[Teardown Guard] Active other Cloud Run execution found via REST: {short_ex} for {job_name}"
+                )
+                return True
+        return False
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Error querying Cloud Run executions for {job_name}: {e}")
+        return None
+
+
+def _check_rest_executions(
+    project: str, reg: str, candidates: list[str], curr_exec: str, token: str | None = None
+) -> bool:
+    auth_token = token or get_gcp_access_token()
+    if not auth_token:
+        logger.warning(
+            "No GCP access token available to check active Cloud Run executions. Assuming other executions may be active."
+        )
+        return True
+
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    for job_name in candidates:
+        url = f"https://run.googleapis.com/v2/projects/{project}/locations/{reg}/jobs/{job_name}/executions"
+        result = _check_rest_job_executions(url, headers, job_name, curr_exec)
+        if result is True or result is None:
+            return True
+    return False
+
+
+def has_active_other_cloud_run_executions(
+    project_id: str | None = None,
+    region: str | None = None,
+    current_execution_id: str | None = None,
+    job_prefixes: tuple[str, ...] = ("realestate-crawler-pipeline", "realestate-ml-pipeline"),
+    get_token_callback: Callable[[], str | None] | None = None,
+) -> bool:
+    """自実行以外の Cloud Run ジョブが実行中 (未完了) かどうかを判定する。
+
+    実行中の別ジョブが存在する場合や、API 照会失敗時は安全側に倒して True (停止不可) を返す。
+    """
+    if not _is_cloud_environment():
+        return False
+
+    # Unit test guard: when executing under pytest without real GCP credentials or callback,
+    # assume no other executions to avoid blocking teardown and slow metadata server retries.
+    if os.getenv("PYTEST_CURRENT_TEST") and get_token_callback is None and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        return False
+
+    project = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "sumifu")
+    reg = region or os.getenv("GCP_REGION", "asia-northeast1")
+    curr_exec = (current_execution_id or os.getenv("CLOUD_RUN_EXECUTION", "")).strip()
+    candidates = _get_cloud_run_candidate_jobs(job_prefixes)
+
+    v2_result = _check_run_v2_executions(project, reg, candidates, curr_exec)
+    if v2_result is not None:
+        return v2_result
+
+    token = get_token_callback() if get_token_callback is not None else None
+    return _check_rest_executions(project, reg, candidates, curr_exec, token=token)
+

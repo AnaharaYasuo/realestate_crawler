@@ -1006,6 +1006,7 @@ def test_proxysql_instance_dry_run_does_not_stop(mock_slack):
     with (
         patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 1200.0)),
         patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._get_instance_network_received_bytes", return_value=(0, "")),
         patch(f"{_MODULE_PATH}._stop_instance") as mock_stop,
     ):
         result = check_and_stop_proxysql_instance(
@@ -1027,6 +1028,7 @@ def test_proxysql_instance_orphaned_stopped(mock_slack):
     with (
         patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 1200.0)),
         patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._get_instance_network_received_bytes", return_value=(0, "")),
         patch(f"{_MODULE_PATH}._stop_instance", return_value="") as mock_stop,
     ):
         result = check_and_stop_proxysql_instance(
@@ -1149,6 +1151,7 @@ def test_instance_default_grace_period_stops_after_15_minutes(mock_slack):
     with (
         patch(f"{_MODULE_PATH}._get_instance_info", return_value=("RUNNING", "", 901.0)),
         patch(f"{_MODULE_PATH}._get_active_cloud_run_executions", return_value=([], "")),
+        patch(f"{_MODULE_PATH}._get_instance_network_received_bytes", return_value=(0, "")),
         patch(f"{_MODULE_PATH}._stop_instance", return_value="") as mock_stop,
     ):
         result = check_and_stop_proxysql_instance(
