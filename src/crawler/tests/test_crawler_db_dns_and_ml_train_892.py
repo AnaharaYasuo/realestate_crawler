@@ -1,7 +1,6 @@
 """
 Tests for Issue #892: Crawler DB DNS Robustness and ML Train Import
 """
-import socket
 from unittest.mock import patch, MagicMock
 
 from scripts.ops.run_all_crawlers import resolve_db_endpoint, DbLivenessMonitor
@@ -19,7 +18,7 @@ def test_resolve_db_endpoint_returns_host_and_port(monkeypatch):
 def test_db_liveness_monitor_resolves_and_caches_ip():
     """DbLivenessMonitor should resolve target IP initially with timeout and use it."""
     mock_connector = MagicMock()
-    with patch("socket.gethostbyname", return_value="172.18.0.2") as mock_dns:
+    with patch("socket.gethostbyname", return_value="172.18.0.2"):
         monitor = DbLivenessMonitor("db", 3306, connector=mock_connector)
         assert monitor.target_ip == "172.18.0.2"
         assert not monitor.is_lost()
