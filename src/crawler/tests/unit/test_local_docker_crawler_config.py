@@ -13,10 +13,11 @@ class TestLocalDockerCrawlerConfig(unittest.TestCase):
 
     def test_parse_args_defaults_without_env(self):
         with patch.dict(os.environ, {}, clear=True):
-            with patch("sys.argv", ["run_all_crawlers.py"]):
-                args = parse_args()
-                self.assertEqual(args.parallel, 9)
-                self.assertEqual(args.playwright_parallel, 3)
+            with patch("package.utils.resource_limiter.detect_available_memory_mb", return_value=16000):
+                with patch("sys.argv", ["run_all_crawlers.py"]):
+                    args = parse_args()
+                    self.assertEqual(args.parallel, 9)
+                    self.assertEqual(args.playwright_parallel, 3)
 
     def test_parse_args_env_overrides_defaults(self):
         env_vars = {

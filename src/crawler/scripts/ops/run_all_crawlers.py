@@ -45,6 +45,7 @@ from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES  # noqa: E402  — SSOT for production + tests
+from package.utils.resource_limiter import get_resource_aware_concurrency
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -53,12 +54,10 @@ def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
     default_parallel = 9
     default_playwright_parallel = 3
-    raw_parallel = os.getenv("CRAWLER_PARALLEL")
-    if raw_parallel and raw_parallel.isdigit():
-        default_parallel = int(raw_parallel)
-    raw_pw_parallel = os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
-    if raw_pw_parallel and raw_pw_parallel.isdigit():
-        default_playwright_parallel = int(raw_pw_parallel)
+    default_parallel, default_playwright_parallel, _ = get_resource_aware_concurrency(
+        default_parallel=default_parallel,
+        default_playwright_parallel=default_playwright_parallel,
+    )
     parser = argparse.ArgumentParser(description="Run all crawler jobs in parallel or sequentially.")
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
@@ -519,6 +518,11 @@ def main():
     Executed runs post Slack and database status and write a dated JSON report.
     """
     args = parse_args()
+    _, _, resource_reason = get_resource_aware_concurrency()
+    logger.info(f"🧠 [Resource Awareness] Concurrency config: parallel={args.parallel}, playwright_parallel={args.playwright_parallel} ({resource_reason})")
+    if not args.dry_run and args.parallel <= 0:
+        logger.error(f"❌ [Resource Limit Fast-Fail] Cannot start crawling because parallel concurrency is {args.parallel} ({resource_reason}). Aborting.")
+        sys.exit(1)
     if args.dry_run:
         target_jobs = [
             j for j in CRAWL_JOBS
