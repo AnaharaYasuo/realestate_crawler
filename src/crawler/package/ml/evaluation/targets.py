@@ -65,29 +65,44 @@ def iter_unprocessed_chunks(
 ) -> Iterator[tuple[list[Any], int]]:
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
 
-    全件 list 化を行わず、同時にメモリ保持する物件数を chunk_size 以下に抑制する。
-    また、各チャンク走査前に close_old_connections() を実行して DB アイドルタイムアウト
-    (OperationalError 2006: MySQL server has gone away) を防止する (Issue #883)。
+    全件 list 化を行わず、同時にメモリ保持する物件数を fetch_batch_size 以下に抑制する。
+    PK ベースのバッチクエリにより、QuerySet カーソルオープン中の不正な切断を防ぎ、
+    バッチ境界で安全に close_old_connections() を呼んで DB アイドルタイムアウト
+    (OperationalError 2006: MySQL server has gone away) を物理的に根絶する (Issue #909)。
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
-    close_old_connections()
+    last_pk = 0
+    fetch_batch_size = 2000
     current_chunk: list[Any] = []
     chunk_skipped = 0
     yielded_total = 0
 
-    for item, skp in iter_active_items(model, existing_eval_map, force):
-        chunk_skipped += skp
-        current_chunk.append(item)
-        target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
-        if len(current_chunk) >= target_size:
-            yield current_chunk, chunk_skipped
-            yielded_total += len(current_chunk)
-            current_chunk = []
-            chunk_skipped = 0
-            close_old_connections()
-            if limit is not None and yielded_total >= limit:
-                return
+    while True:
+        close_old_connections()
+        batch_items = list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
+        if not batch_items:
+            break
+
+        for item in batch_items:
+            last_pk = item.pk
+            page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
+            if not page_url:
+                continue
+            existing_eval = existing_eval_map.get(page_url)
+            if _should_skip_item(existing_eval, force):
+                chunk_skipped += 1
+                continue
+
+            current_chunk.append(item)
+            target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
+            if len(current_chunk) >= target_size:
+                yield current_chunk, chunk_skipped
+                yielded_total += len(current_chunk)
+                current_chunk = []
+                chunk_skipped = 0
+                if limit is not None and yielded_total >= limit:
+                    return
 
     if current_chunk:
         yield current_chunk, chunk_skipped

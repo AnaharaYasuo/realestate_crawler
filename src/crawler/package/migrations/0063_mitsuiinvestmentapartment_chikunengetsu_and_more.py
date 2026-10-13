@@ -1,0 +1,246 @@
+
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ('package', '0062_adcastkodate_adcasttochi_hasekomansion_ietankodate_and_more'),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name='mitsuiinvestmentapartment',
+            name='chikunengetsu',
+            field=models.DateField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='chikunengetsuStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='chimoku',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='kaisuStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='kenpei',
+            field=models.DecimalField(blank=True, decimal_places=3, max_digits=10, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='kenpeiStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='kouzou',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='setsudou',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='soukosu',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='soukosuStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='tatemonoMenseki',
+            field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='tatemonoMensekiStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='tochiMenseki',
+            field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='tochiMensekiStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='tochikenri',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='youseki',
+            field=models.DecimalField(blank=True, decimal_places=3, max_digits=10, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='yousekiStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuiinvestmentapartment',
+            name='youtoChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='chikunengetsu',
+            field=models.DateField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='floorType_chijo',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='floorType_chika',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='floorType_kai',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kanriKaisya',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kanriKeitai',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kanriKeitaiKaisya',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kanrihi',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kanrihiStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='kyutaishin',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='senyuMenseki',
+            field=models.DecimalField(blank=True, decimal_places=3, max_digits=10, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='syuzenTsumitate',
+            field=models.IntegerField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='mitsuimansion',
+            name='syuzenTsumitateStr',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='boukaChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='chiikiChiku',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='chikunengetsu',
+            field=models.DateField(blank=True, null=True),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='kokudoHou',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='kuiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='saikenchiku',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='sonotaChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifukodate',
+            name='youtoChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='boukaChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='chiikiChiku',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='kenchikuJoken',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='kokudoHou',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='kuiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='saikenchiku',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='sonotaChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+        migrations.AlterField(
+            model_name='sumifutochi',
+            name='youtoChiiki',
+            field=models.TextField(blank=True, default=''),
+        ),
+    ]
