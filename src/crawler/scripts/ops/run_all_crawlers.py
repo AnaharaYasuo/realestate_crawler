@@ -106,6 +106,18 @@ DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
 active_processes = {}
 
 
+def _resolve_host_with_timeout(host: str, timeout_sec: float = 3.0) -> str:
+    """有限タイムアウト (既定 3.0 秒) でホスト名を IP アドレスに解決する (Issue #892)"""
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(socket.gethostbyname, host)
+        try:
+            return future.result(timeout=timeout_sec)
+        except Exception:
+            return host
+
+
 class DbLivenessMonitor:
     """ProxySQL / DB への TCP 疎通を定期監視し、連続失敗回数で応答喪失を判定する"""
 
@@ -120,6 +132,7 @@ class DbLivenessMonitor:
         clock=time.monotonic,
     ):
         self.host = host
+        self.target_ip = _resolve_host_with_timeout(host, timeout_sec=2.0)
         self.port = int(port)
         self.interval_sec = interval_sec
         self.max_failures = max(1, int(max_failures))
@@ -141,17 +154,28 @@ class DbLivenessMonitor:
         # 認証付きクエリで判定すると、ProxySQL がバックエンド接続上限で要求をキュー待ちさせた際の
         # 正常な混雑を応答喪失と誤判定して全クロールを停止し得るため、TCP 疎通で判定する
         try:
-            with self._connector((self.host, self.port), timeout=self.timeout_sec):
+            with self._connector((self.target_ip, self.port), timeout=self.timeout_sec):
                 pass
+            self.consecutive_failures = 0
         except OSError as e:
+            # IP変更に備えてホスト名から再解決を試みる
+            if self.target_ip != self.host:
+                new_ip = _resolve_host_with_timeout(self.host, timeout_sec=1.5)
+                if new_ip != self.target_ip and new_ip != self.host:
+                    try:
+                        with self._connector((new_ip, self.port), timeout=self.timeout_sec):
+                            self.target_ip = new_ip
+                            self.consecutive_failures = 0
+                            return
+                    except OSError:
+                        self.target_ip = new_ip
+
             self.consecutive_failures += 1
             self.last_error = str(e)
             logger.warning(
-                f"DB/ProxySQL 疎通失敗 {self.host}:{self.port} "
+                f"DB/ProxySQL 疎通失敗 {self.host} ({self.target_ip}):{self.port} "
                 f"({self.consecutive_failures}/{self.max_failures}): {e}"
             )
-            return
-        self.consecutive_failures = 0
 
 
 def resolve_db_endpoint():
@@ -163,16 +187,7 @@ def resolve_db_endpoint():
     if host == "localhost" or host.startswith("/"):
         logger.warning(f"DB 接続先 {host} は UNIX ソケット接続のため TCP 疎通監視を無効化します")
         return None
-
-    # Docker/環境高負荷時における Docker Embedded DNS (127.0.0.11) の一時的名前解決失敗
-    # ([Errno -3] Temporary failure in name resolution) による Fast-Fail 誤発動を防止するため
-    # 初回にホスト名を IP アドレスへ解決・キャッシュして TCP 疎通監視に用いる (Issue #892)
-    try:
-        resolved_ip = socket.gethostbyname(host)
-        return resolved_ip, port
-    except Exception as e:
-        logger.warning(f"DB ホスト {host} の IP アドレス解決に失敗したためホスト名で継続します: {e}")
-        return host, port
+    return host, port
 
 
 def bound_db_connect_timeout():
