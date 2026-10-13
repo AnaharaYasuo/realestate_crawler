@@ -106,6 +106,38 @@ DB_LIVENESS_ABORT_SAVE_TIMEOUT_SEC = 10.0
 active_processes = {}
 
 
+_dns_executor = None
+
+
+def _get_dns_executor():
+    global _dns_executor
+    if _dns_executor is None:
+        import concurrent.futures
+
+        _dns_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="dns_resolver")
+    return _dns_executor
+
+
+def _resolve_host_ips_with_timeout(host: str, timeout_sec: float = 3.0) -> list[str]:
+    """有限タイムアウトでホスト名の IP アドレス一覧を取得する。未解決時は空リストを返す (Issue #892)"""
+    try:
+        # すでに IP アドレス表記の場合はそのまま返却
+        socket.inet_aton(host)
+        return [host]
+    except OSError:
+        pass
+
+    executor = _get_dns_executor()
+    future = executor.submit(lambda h: [addr[4][0] for addr in socket.getaddrinfo(h, None, socket.AF_INET)], host)
+    try:
+        ips = future.result(timeout=timeout_sec)
+        # 重複を除去して保持
+        seen = set()
+        return [ip for ip in ips if not (ip in seen or seen.add(ip))]
+    except Exception:
+        return []
+
+
 class DbLivenessMonitor:
     """ProxySQL / DB への TCP 疎通を定期監視し、連続失敗回数で応答喪失を判定する"""
 
@@ -120,6 +152,7 @@ class DbLivenessMonitor:
         clock=time.monotonic,
     ):
         self.host = host
+        self.target_ips = _resolve_host_ips_with_timeout(host, timeout_sec=2.0)
         self.port = int(port)
         self.interval_sec = interval_sec
         self.max_failures = max(1, int(max_failures))
@@ -138,20 +171,43 @@ class DbLivenessMonitor:
         return self.consecutive_failures >= self.max_failures
 
     def _probe(self) -> None:
-        # 認証付きクエリで判定すると、ProxySQL がバックエンド接続上限で要求をキュー待ちさせた際の
-        # 正常な混雑を応答喪失と誤判定して全クロールを停止し得るため、TCP 疎通で判定する
-        try:
-            with self._connector((self.host, self.port), timeout=self.timeout_sec):
-                pass
-        except OSError as e:
-            self.consecutive_failures += 1
-            self.last_error = str(e)
-            logger.warning(
-                f"DB/ProxySQL 疎通失敗 {self.host}:{self.port} "
-                f"({self.consecutive_failures}/{self.max_failures}): {e}"
-            )
-            return
-        self.consecutive_failures = 0
+        # IP が未解決の場合はまず再解決を試みる
+        if not self.target_ips:
+            self.target_ips = _resolve_host_ips_with_timeout(self.host, timeout_sec=2.0)
+
+        # 解決済み IP 候補を順に試行
+        for ip in list(self.target_ips):
+            try:
+                with self._connector((ip, self.port), timeout=self.timeout_sec):
+                    pass
+                # 成功した IP を先頭に優先保持
+                if self.target_ips[0] != ip:
+                    self.target_ips.remove(ip)
+                    self.target_ips.insert(0, ip)
+                self.consecutive_failures = 0
+                return
+            except OSError as e:
+                self.last_error = str(e)
+
+        # 全解決済み候補が失敗した場合は、ホスト名再解決を試行して新規 IP があれば再試行
+        new_ips = _resolve_host_ips_with_timeout(self.host, timeout_sec=1.5)
+        for ip in new_ips:
+            if ip not in self.target_ips:
+                try:
+                    with self._connector((ip, self.port), timeout=self.timeout_sec):
+                        pass
+                    self.target_ips = [ip] + [x for x in new_ips if x != ip]
+                    self.consecutive_failures = 0
+                    return
+                except OSError as e:
+                    self.last_error = str(e)
+
+        self.consecutive_failures += 1
+        err_msg = self.last_error or "No resolved IP available or connection failed"
+        logger.warning(
+            f"DB/ProxySQL 疎通失敗 {self.host} (IPs: {self.target_ips}):{self.port} "
+            f"({self.consecutive_failures}/{self.max_failures}): {err_msg}"
+        )
 
 
 def resolve_db_endpoint():
