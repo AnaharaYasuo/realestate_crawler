@@ -8,7 +8,7 @@ mansion:
   address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
   
   # List page selectors
-  next_page: "#searchCondition ul.pagination li:last-child a"
+  next_page: "a.pagination-button--next"
   property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
@@ -26,7 +26,7 @@ kodate:
   title: "h1.heading-1"
   price: "div.article-header__price .price, span.price__number"
   address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
-  next_page: "#searchCondition ul.pagination li:last-child a"
+  next_page: "a.pagination-button--next"
   property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
@@ -43,7 +43,7 @@ tochi:
   title: "h1.heading-1"
   price: "div.article-header__price .price, span.price__number"
   address: "div#bukkenDetailBlock div.itemInfo dl.address dd, input#hdn_map_address"
-  next_page: "#searchCondition ul.pagination li:last-child a"
+  next_page: "a.pagination-button--next"
   property_links: "a.sr-card__name, a[href*='/detail_']"
   
   root_xpath: ""
