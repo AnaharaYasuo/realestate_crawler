@@ -7,6 +7,20 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _read_int_from_file(file_path: str) -> int | None:
+    """Read single integer from file if exists, else None."""
+    if not os.path.exists(file_path):
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            val = f.read().strip()
+        if val and val != "max" and val.isdigit():
+            return int(val)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Failed reading {file_path}: {e}")
+    return None
+
+
 def _read_cgroup_limit_mb() -> int | None:
     """Read remaining available memory in MB under cgroup limits (limit - current usage)."""
     limit_usage_pairs = (
@@ -14,25 +28,11 @@ def _read_cgroup_limit_mb() -> int | None:
         ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
     )
     for limit_file, usage_file in limit_usage_pairs:
-        if not os.path.exists(limit_file):
-            continue
-        try:
-            with open(limit_file, "r", encoding="utf-8") as f:
-                val = f.read().strip()
-            if val and val != "max":
-                limit_bytes = int(val)
-                if 0 < limit_bytes < (1024**4):
-                    usage_bytes = 0
-                    if os.path.exists(usage_file):
-                        try:
-                            with open(usage_file, "r", encoding="utf-8") as uf:
-                                usage_bytes = int(uf.read().strip())
-                        except Exception:  # noqa: BLE001
-                            usage_bytes = 0
-                    avail_bytes = max(0, limit_bytes - usage_bytes)
-                    return int(avail_bytes / (1024 * 1024))
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed reading {limit_file}: {e}")
+        limit_bytes = _read_int_from_file(limit_file)
+        if limit_bytes is not None and 0 < limit_bytes < (1024**4):
+            usage_bytes = _read_int_from_file(usage_file) or 0
+            avail_bytes = max(0, limit_bytes - usage_bytes)
+            return int(avail_bytes / (1024 * 1024))
     return None
 
 
