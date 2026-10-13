@@ -849,10 +849,10 @@ def _is_active_run_v2_execution(ex, curr_exec: str) -> bool:
 
 def _check_run_v2_executions(project: str, reg: str, candidates: list[str], curr_exec: str) -> bool | None:
     try:
+        from google.api_core import exceptions as google_exceptions
         from google.cloud import run_v2
 
         client = run_v2.ExecutionsClient()
-        any_success = False
         for job_name in candidates:
             parent = f"projects/{project}/locations/{reg}/jobs/{job_name}"
             try:
@@ -863,10 +863,12 @@ def _check_run_v2_executions(project: str, reg: str, candidates: list[str], curr
                             f"[Teardown Guard] Active other Cloud Run execution found via run_v2: {short_ex} for {job_name}"
                         )
                         return True
-                any_success = True
+            except google_exceptions.NotFound:
+                logger.debug(f"run_v2 job {job_name} not found (treated as no active executions).")
             except Exception as e:  # noqa: BLE001
-                logger.debug(f"run_v2 check for job {job_name} skipped/failed: {e}")
-        return False if any_success else None
+                logger.debug(f"run_v2 check for job {job_name} failed: {e}")
+                return None
+        return False
     except Exception as e:  # noqa: BLE001
         logger.debug(f"run_v2 executions check skipped/failed: {e}")
         return None
