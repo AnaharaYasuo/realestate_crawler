@@ -1,6 +1,7 @@
 """
 Tests for Issue #892: Crawler DB DNS Robustness and ML Train Import
 """
+import socket
 from unittest.mock import patch, MagicMock
 
 from scripts.ops.run_all_crawlers import resolve_db_endpoint, DbLivenessMonitor
@@ -16,11 +17,11 @@ def test_resolve_db_endpoint_returns_host_and_port(monkeypatch):
 
 
 def test_db_liveness_monitor_resolves_and_caches_ip():
-    """DbLivenessMonitor should resolve target IP initially with timeout and use it."""
+    """DbLivenessMonitor should resolve target IPs initially with timeout and use it."""
     mock_connector = MagicMock()
-    with patch("socket.gethostbyname", return_value="172.18.0.2"):
+    with patch("socket.getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.18.0.2", 0))]):
         monitor = DbLivenessMonitor("db", 3306, connector=mock_connector)
-        assert monitor.target_ip == "172.18.0.2"
+        assert monitor.target_ips == ["172.18.0.2"]
         assert not monitor.is_lost()
         mock_connector.assert_called_once_with(("172.18.0.2", 3306), timeout=3.0)
 
@@ -35,12 +36,14 @@ def test_db_liveness_monitor_re_resolves_ip_on_failure():
             raise OSError("Connection refused")
         return MagicMock()
 
-    with patch("socket.gethostbyname", side_effect=["172.18.0.2", "172.18.0.3"]):
+    ret1 = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.18.0.2", 0))]
+    ret2 = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("172.18.0.3", 0))]
+    with patch("socket.getaddrinfo", side_effect=[ret1, ret2]):
         monitor = DbLivenessMonitor("db", 3306, connector=mock_conn)
-        assert monitor.target_ip == "172.18.0.2"
+        assert monitor.target_ips == ["172.18.0.2"]
         # First probe triggers failure on old IP, then successfully re-resolves and connects to new IP
         monitor._probe()
-        assert monitor.target_ip == "172.18.0.3"
+        assert monitor.target_ips[0] == "172.18.0.3"
         assert monitor.consecutive_failures == 0
 
 
