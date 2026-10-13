@@ -35,7 +35,7 @@ STRUCTURE_FLOOR = "建物構造/階数"
 STRUCTURE_TEXT = "建物構造"
 KENPEI_YOUSEKI_SLASH = "建ぺい/容積率"
 KENPEI_YOUSEKI_FULL = "建ぺい率/容積率"
-SOUKOSU_REGEX = r'総戸数(\d+)戸'
+SOUKOSU_REGEX = r"総戸数(\d+)戸"
 RATE_LIMITED_KENBIYA_PREFIX = "Rate limited (429) on Kenbiya: "
 
 
@@ -44,6 +44,7 @@ class KenbiyaParserBase(ParserBase):
     健美家 (Kenbiya) 全種別共通基底パーサー
     共通HTTP通信、429対策ヘッダー、dl > dt / dd パースロジックを集約
     """
+
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
@@ -53,25 +54,39 @@ class KenbiyaParserBase(ParserBase):
 
     @classmethod
     def _get_next_user_agent(cls) -> str:
-        ua = KenbiyaParserBase.USER_AGENTS[KenbiyaParserBase._ua_counter % len(KenbiyaParserBase.USER_AGENTS)]
+        ua = KenbiyaParserBase.USER_AGENTS[
+            KenbiyaParserBase._ua_counter % len(KenbiyaParserBase.USER_AGENTS)
+        ]
         KenbiyaParserBase._ua_counter += 1
         return ua
 
     def getCharset(self):
         return "utf-8"
 
-    async def _handle_response(self, response: aiohttp.ClientResponse, url: str, attempt: int, max_timeouts: int) -> Optional[bytes]:
+    async def _handle_response(
+        self,
+        response: aiohttp.ClientResponse,
+        url: str,
+        attempt: int,
+        max_timeouts: int,
+    ) -> Optional[bytes]:
         status = response.status
         if status == 200:
             self.consecutive_timeouts = 0
             return await response.read()
         if status in (404, 410):
-            raise ListingEndedException(f"Property page returned HTTP status {status}: {url}")
+            raise ListingEndedException(
+                f"Property page returned HTTP status {status}: {url}"
+            )
         if status in (500, 502, 503, 504):
-            raise ServerBusyException(f"Property page returned HTTP status {status}: {url}")
+            raise ServerBusyException(
+                f"Property page returned HTTP status {status}: {url}"
+            )
         if status == 429:
             backoff = min(30, 2 ** (attempt + 1))
-            logging.warning(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}. Backing off {backoff}s")
+            logging.warning(
+                f"{RATE_LIMITED_KENBIYA_PREFIX}{url}. Backing off {backoff}s"
+            )
             if attempt == max_timeouts - 1:
                 raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
             await asyncio.sleep(backoff)
@@ -80,30 +95,42 @@ class KenbiyaParserBase(ParserBase):
 
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
         }
-        max_timeouts = getattr(self, 'MAX_CONSECUTIVE_TIMEOUTS', 3)
+        max_timeouts = getattr(self, "MAX_CONSECUTIVE_TIMEOUTS", 3)
         last_status = None
         for attempt in range(max_timeouts):
-            headers['User-Agent'] = self._get_next_user_agent()
+            headers["User-Agent"] = self._get_next_user_agent()
             try:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                async with session.get(
+                    url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+                ) as response:
                     last_status = response.status
-                    content = await self._handle_response(response, url, attempt, max_timeouts)
+                    content = await self._handle_response(
+                        response, url, attempt, max_timeouts
+                    )
                     if content is not None:
                         return content
-            except (RateLimitedException, ListingEndedException, ServerBusyException, LoadPropertyPageException, ServerDownException):
+            except (
+                RateLimitedException,
+                ListingEndedException,
+                ServerBusyException,
+                LoadPropertyPageException,
+                ServerDownException,
+            ):
                 raise
             except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                self.consecutive_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
+                self.consecutive_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                 if self.consecutive_timeouts >= max_timeouts:
-                    raise ServerDownException(f"Kenbiya server unresponsive after {self.consecutive_timeouts} consecutive timeouts: {e}")
+                    raise ServerDownException(
+                        f"Kenbiya server unresponsive after {self.consecutive_timeouts} consecutive timeouts: {e}"
+                    )
                 await asyncio.sleep(1)
         if last_status == 429:
             raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
@@ -113,7 +140,7 @@ class KenbiyaParserBase(ParserBase):
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         detail_links = set()
-        for a in response.find_all("a", href=re.compile(r'/pp\d+/.*?/re_\w+/')):
+        for a in response.find_all("a", href=re.compile(r"/pp\d+/.*?/re_\w+/")):
             href = a.get("href")
             if not href:
                 continue
@@ -128,7 +155,9 @@ class KenbiyaParserBase(ParserBase):
             if a is None:
                 continue
             text = a.get_text(strip=True)
-            if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr("href"):
+            if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr(
+                "href"
+            ):
                 href = str(a["href"])
                 return urljoin(self.BASE_URL, href)
         return ""
@@ -146,22 +175,53 @@ class KenbiyaParserBase(ParserBase):
         async for item in self.parsePropertyListPage(response):
             yield item
 
+    @staticmethod
+    def _clean_spec_value(text: str) -> str:
+        """項目の見方・用語解説などのヘルプ文を除去または除外してスペック値を返す"""
+        if not text:
+            return ""
+        clean = text.strip()
+        # 1. ヘルプリンク付加テキスト（情報の見方を表示 等）を除去
+        for link_word in ["情報の見方を表示", "見方を表示", "マークを表示"]:
+            for pattern in [f"({link_word})", f"（{link_word}）", link_word]:
+                clean = clean.replace(pattern, "").strip()
+        # 2. 説明文そのものである場合は空文字を返す（スペック値ではない）
+        if clean.endswith(("を表示。", "を表示", "マークを表示")):
+            return ""
+        return clean
+
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):
+            parent_classes = " ".join(dl.get("class", []) or [])
+            if any(
+                k in parent_classes
+                for k in ["guide", "help", "glossary", "explanation"]
+            ):
+                continue
             for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
                 key = dt.get_text(strip=True)
                 val = dd.get_text(" ", strip=True)
-                if key and val:
-                    specs[key] = val
+                cleaned_val = self._clean_spec_value(val)
+                if key and cleaned_val:
+                    specs[key] = cleaned_val
 
     def _parse_tr_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for tr in response.find_all("tr"):
+            parent = tr.find_parent("table")
+            if parent:
+                parent_classes = " ".join(parent.get("class", []) or [])
+                if any(
+                    k in parent_classes
+                    for k in ["guide", "help", "glossary", "explanation"]
+                ):
+                    continue
             th, td = tr.find("th"), tr.find("td")
             if th and td:
                 key = th.get_text(strip=True)
                 val = td.get_text(" ", strip=True)
-                if key and val:
-                    specs[key] = val
+                cleaned_val = self._clean_spec_value(val)
+                if key and cleaned_val:
+                    specs[key] = cleaned_val
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """dl > dt / dd または table から key-value スペック辞書を構築"""
@@ -196,7 +256,11 @@ class KenbiyaParserBase(ParserBase):
             title = response.find("title")
             if title:
                 title_text = title.get_text(strip=True)
-                name = title_text.split("｜")[0].strip() if "｜" in title_text else title_text
+                name = (
+                    title_text.split("｜")[0].strip()
+                    if "｜" in title_text
+                    else title_text
+                )
         return name
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None):
@@ -235,14 +299,22 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseGrossYield(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = specs.get("満室時利回り", "") or specs.get("表面利回り", "") or specs.get("利回り", "")
+        raw = (
+            specs.get("満室時利回り", "")
+            or specs.get("表面利回り", "")
+            or specs.get("利回り", "")
+        )
         for noise in ["利回りの詳細を問い合わせる", INFO_GUIDE]:
             raw = raw.replace(noise, "").strip()
         return converter.parse_ratio(raw)
 
     def _parseAnnualRent(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        rent_str = specs.get("満室時年収/月収", "") or specs.get("満室時年収", "") or specs.get("想定年収", "")
+        rent_str = (
+            specs.get("満室時年収/月収", "")
+            or specs.get("満室時年収", "")
+            or specs.get("想定年収", "")
+        )
         if "/" in rent_str:
             annual_part = rent_str.split("/")[0].strip()
         else:
@@ -271,7 +343,11 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        kouzou = specs.get(STRUCTURE_FLOOR, "") or specs.get(STRUCTURE_TEXT, "") or specs.get("構造", "")
+        kouzou = (
+            specs.get(STRUCTURE_FLOOR, "")
+            or specs.get(STRUCTURE_TEXT, "")
+            or specs.get("構造", "")
+        )
         if "総戸数" in kouzou:
             kouzou = kouzou.split("総戸数")[0]
         return kouzou.strip()
@@ -288,7 +364,11 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseKenpei(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "") or specs.get("建ぺい率", "")
+        raw = (
+            specs.get(KENPEI_YOUSEKI_SLASH, "")
+            or specs.get(KENPEI_YOUSEKI_FULL, "")
+            or specs.get("建ぺい率", "")
+        )
         if "/" in raw:
             parts = raw.split("/")
             return converter.parse_ratio(parts[0])
@@ -296,7 +376,11 @@ class KenbiyaParserBase(ParserBase):
 
     def _parseYouseki(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        raw = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "") or specs.get("容積率", "")
+        raw = (
+            specs.get(KENPEI_YOUSEKI_SLASH, "")
+            or specs.get(KENPEI_YOUSEKI_FULL, "")
+            or specs.get("容積率", "")
+        )
         if "/" in raw:
             parts = raw.split("/")
             return converter.parse_ratio(parts[1])
@@ -304,7 +388,10 @@ class KenbiyaParserBase(ParserBase):
 
     def _parse_traffic(self, item, traffic_text: str):
         """健美家の交通情報テキストから沿線・駅・徒歩分数を抽出"""
-        matches = re.finditer(r'([^\s]+?(?:線|ライン|ライナー|鉄道|メトロ))\s+([^\s]+?駅)\s*(?:徒歩)?(\d+)分?', traffic_text)
+        matches = re.finditer(
+            r"([^\s]+?(?:線|ライン|ライナー|鉄道|メトロ))\s+([^\s]+?駅)\s*(?:徒歩)?(\d+)分?",
+            traffic_text,
+        )
         idx = 1
         for m in matches:
             railway = m.group(1).strip()
@@ -373,7 +460,9 @@ class KenbiyaParserBase(ParserBase):
 
         item.kenpei = self._parseKenpei(response, specs)
         item.youseki = self._parseYouseki(response, specs)
-        kenpei_youseki = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(KENPEI_YOUSEKI_FULL, "")
+        kenpei_youseki = specs.get(KENPEI_YOUSEKI_SLASH, "") or specs.get(
+            KENPEI_YOUSEKI_FULL, ""
+        )
         if "/" in kenpei_youseki:
             parts = kenpei_youseki.split("/")
             item.kenpeiStr = parts[0].strip()
@@ -386,7 +475,8 @@ class KenbiyaInvestmentApartmentParser(KenbiyaParserBase, InvestmentParserBase):
     """
     健美家 (Kenbiya) 投資用一棟アパート向けパーサー (/pp2/)
     """
-    property_type = 'investmentapartment'
+
+    property_type = "investmentapartment"
 
     def createEntity(self) -> KenbiyaInvestmentApartment:
         return KenbiyaInvestmentApartment()
@@ -402,7 +492,8 @@ class KenbiyaInvestmentBuildingParser(KenbiyaParserBase, InvestmentParserBase):
     """
     健美家 (Kenbiya) 投資用一棟マンション・ビル向けパーサー (/pp3/, /pp4/)
     """
-    property_type = 'investmentbuilding'
+
+    property_type = "investmentbuilding"
 
     def createEntity(self) -> KenbiyaInvestmentBuilding:
         return KenbiyaInvestmentBuilding()
@@ -418,7 +509,8 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
     """
     健美家 (Kenbiya) 区分マンション向けパーサー (/pp1/)
     """
-    property_type = 'mansion'
+
+    property_type = "mansion"
 
     def createEntity(self) -> KenbiyaMansion:
         return KenbiyaMansion()
@@ -430,7 +522,10 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
             return ""
         for token in val.split():
             clean_tok = "".join(c for c in token if c.isalnum())
-            if clean_tok in ("ワンルーム", "1R") or any(clean_tok.endswith(suffix) for suffix in ("R", "K", "DK", "LDK", "SLDK", "SK")):
+            if clean_tok in ("ワンルーム", "1R") or any(
+                clean_tok.endswith(suffix)
+                for suffix in ("R", "K", "DK", "LDK", "SLDK", "SK")
+            ):
                 return clean_tok
         return val.split()[0]
 
@@ -452,7 +547,11 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("所在階", "")
+        val = (
+            specs.get(STRUCTURE_FLOOR, "")
+            or specs.get("階数", "")
+            or specs.get("所在階", "")
+        )
         if "/" in val:
             val = val.split("/")[0]
         digits = "".join(c for c in val if c.isdigit())
@@ -460,7 +559,11 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseTotalFloor(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get(STRUCTURE_FLOOR, "") or specs.get("階数", "") or specs.get("総階数", "")
+        val = (
+            specs.get(STRUCTURE_FLOOR, "")
+            or specs.get("階数", "")
+            or specs.get("総階数", "")
+        )
         if "/" in val:
             part = val.split("/")[1].split("階")[0]
             digits = "".join(c for c in part if c.isdigit())
@@ -481,11 +584,15 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseDirection(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        val = specs.get("間取り", "") or specs.get("向き", "") or specs.get("主要採光面", "")
-        m = re.search(r'(南東|南西|北東|北西|東|西|南|北)向き', val)
+        val = (
+            specs.get("間取り", "")
+            or specs.get("向き", "")
+            or specs.get("主要採光面", "")
+        )
+        m = re.search(r"(南東|南西|北東|北西|東|西|南|北)向き", val)
         if m:
             return m.group(1)
-        m2 = re.search(r'(南東|南西|北東|北西|東|西|南|北)', val)
+        m2 = re.search(r"(南東|南西|北東|北西|東|西|南|北)", val)
         return m2.group(1) if m2 else ""
 
     def _parseManagementFee(self, response: BeautifulSoup, specs=None):
@@ -500,7 +607,11 @@ class KenbiyaMansionParser(KenbiyaParserBase, MansionParserBase):
 
     def _parseReserveFund(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("管理費/修繕積立", "") or specs.get("修繕積立金", "") or specs.get("修繕積立", "")
+        val = (
+            specs.get("管理費/修繕積立", "")
+            or specs.get("修繕積立金", "")
+            or specs.get("修繕積立", "")
+        )
         if "/" in val:
             part = val.split("/")[1].strip()
             return converter.parse_yen(part)
@@ -545,7 +656,8 @@ class KenbiyaKodateParser(KenbiyaParserBase, KodateParserBase):
     """
     健美家 (Kenbiya) 戸建賃貸向けパーサー (/pp8/)
     """
-    property_type = 'kodate'
+
+    property_type = "kodate"
 
     def createEntity(self) -> KenbiyaKodate:
         return KenbiyaKodate()
@@ -578,7 +690,8 @@ class KenbiyaTochiParser(KenbiyaParserBase, TochiParserBase):
     """
     健美家 (Kenbiya) 投資用土地・事業用土地向けパーサー (/pp5/)
     """
-    property_type = 'tochi'
+
+    property_type = "tochi"
 
     def createEntity(self) -> KenbiyaTochi:
         return KenbiyaTochi()

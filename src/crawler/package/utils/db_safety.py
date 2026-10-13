@@ -15,6 +15,7 @@ BLOCKED_COMMANDS = {
     "flush",
     "dbshell",
     "restore_traffic",
+    "restore_chikunengetsu",
     "bulk_update",
 }
 
