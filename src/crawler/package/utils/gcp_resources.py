@@ -847,26 +847,29 @@ def _is_active_run_v2_execution(ex, curr_exec: str) -> bool:
     return not is_completed and not is_cancelled
 
 
-def _check_run_v2_executions(project: str, reg: str, candidates: list[str], curr_exec: str) -> bool:
+def _check_run_v2_executions(project: str, reg: str, candidates: list[str], curr_exec: str) -> bool | None:
     try:
         from google.cloud import run_v2
 
         client = run_v2.ExecutionsClient()
+        any_success = False
         for job_name in candidates:
             parent = f"projects/{project}/locations/{reg}/jobs/{job_name}"
             try:
-                for ex in client.list_executions(parent=parent):
+                for ex in client.list_executions(parent=parent, timeout=5.0, retry=None):
                     if _is_active_run_v2_execution(ex, curr_exec):
                         short_ex = getattr(ex, "name", "").rstrip("/").split("/")[-1]
                         logger.info(
                             f"[Teardown Guard] Active other Cloud Run execution found via run_v2: {short_ex} for {job_name}"
                         )
                         return True
+                any_success = True
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"run_v2 check for job {job_name} skipped/failed: {e}")
+        return False if any_success else None
     except Exception as e:  # noqa: BLE001
         logger.debug(f"run_v2 executions check skipped/failed: {e}")
-    return False
+        return None
 
 
 def _is_active_rest_execution(ex: dict, curr_exec: str) -> bool:
@@ -947,8 +950,9 @@ def has_active_other_cloud_run_executions(
     curr_exec = (current_execution_id or os.getenv("CLOUD_RUN_EXECUTION", "")).strip()
     candidates = _get_cloud_run_candidate_jobs(job_prefixes)
 
-    if _check_run_v2_executions(project, reg, candidates, curr_exec):
-        return True
+    v2_result = _check_run_v2_executions(project, reg, candidates, curr_exec)
+    if v2_result is not None:
+        return v2_result
 
     token = get_token_callback() if get_token_callback is not None else None
     return _check_rest_executions(project, reg, candidates, curr_exec, token=token)
