@@ -1356,7 +1356,7 @@ class ParserBase(metaclass=ABCMeta):
             parser_to_use.validate_required_fields(item)
         except SkipPropertyException:
             raise
-        except (LoadPropertyPageException, TimeoutError):
+        except (LoadPropertyPageException, TimeoutError, ServerDownException):
             logging.exception(f'Failure loading page: {url}')
             raise
         except Exception as e:
