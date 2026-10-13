@@ -1996,57 +1996,60 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return
         await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
 
+    def _find_existing_evaluation(self):
+        normalized_url = UrlMatcher.normalize(self.url)
+        return (
+            PropertyEvaluation.objects.filter(property_url=self.url).first()
+            or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
+            or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", self.url)
+        )
+
+    def _resolve_delisted_prop_id(self) -> int | None:
+        if not (hasattr(self, "parser") and self.parser):
+            return None
+        try:
+            entity = self.parser.createEntity()
+            matched = UrlMatcher.find_match_in_queryset(entity.__class__.objects, "pageUrl", self.url)
+            return getattr(matched, "id", None) if matched else None
+        except Exception as match_err:  # noqa: BLE001
+            logger.debug("Could not link prop_id for delisted property %s: %s", self.url, match_err)
+            return None
+
+    def _sync_persist_delisted(self):
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        eval_rec = self._find_existing_evaluation()
+        if eval_rec:
+            eval_rec.is_published = False
+            eval_rec.delisted_at = now_utc
+            eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+            eval_rec.needs_recrawl = False
+            eval_rec.save()
+            logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)
+            return
+
+        company = self._resolve_target_company() or "unknown"
+        property_type = (
+            getattr(self.parser, "property_type", None)
+            or PropertyTypeDetector.detect_from_url(self.url)
+            or "unknown"
+        )
+        prop_id = self._resolve_delisted_prop_id()
+        PropertyEvaluation.objects.create(
+            property_url=self.url,
+            company=company,
+            property_type=property_type,
+            property_id=prop_id,
+            is_published=False,
+            delisted_at=now_utc,
+            needs_recrawl=False,
+            analysis_status="skipped_by_budget",
+        )
+        logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
+
     async def _handle_skipped_property(self):
         logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
         try:
-            def update_delisted():
-                normalized_url = UrlMatcher.normalize(self.url)
-                eval_rec = (
-                    PropertyEvaluation.objects.filter(property_url=self.url).first()
-                    or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
-                    or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", self.url)
-                )
-                now_utc = datetime.datetime.now(datetime.timezone.utc)
-                if eval_rec:
-                    eval_rec.is_published = False
-                    eval_rec.delisted_at = now_utc
-                    # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
-                    eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
-                    eval_rec.needs_recrawl = False
-                    eval_rec.save()
-                    logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)
-                else:
-                    company = self._resolve_target_company() or "unknown"
-                    property_type = (
-                        getattr(self.parser, "property_type", None)
-                        or PropertyTypeDetector.detect_from_url(self.url)
-                        or "unknown"
-                    )
-                    prop_id = None
-                    try:
-                        if hasattr(self, "parser") and self.parser:
-                            entity = self.parser.createEntity()
-                            entity_cls = entity.__class__
-                            matched = UrlMatcher.find_match_in_queryset(
-                                entity_cls.objects, "pageUrl", self.url
-                            )
-                            if matched:
-                                prop_id = getattr(matched, "id", None)
-                    except Exception as match_err:  # noqa: BLE001
-                        logger.debug("Could not link prop_id for delisted property %s: %s", self.url, match_err)
-
-                    PropertyEvaluation.objects.create(
-                        property_url=self.url,
-                        company=company,
-                        property_type=property_type,
-                        property_id=prop_id,
-                        is_published=False,
-                        delisted_at=now_utc,
-                        needs_recrawl=False,
-                        analysis_status="skipped_by_budget",
-                    )
-                    logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
-            await sync_to_async(update_delisted)()
+            await sync_to_async(self._sync_persist_delisted)()
         except OperationalError as le_err:
             if AdaptiveConcurrencyController.is_db_overload_error(le_err):
                 AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")

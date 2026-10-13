@@ -771,7 +771,7 @@ class NomuraKodateParser(NomuraParser, KodateParserBase):
         if response is not None:
             name = self._parsePropertyName(response) or ""
             biko = self._parseBiko(response) or ""
-            match = re.search(r"([1-9]\d{0,1}[SLDKR]+(?:\+[1-9]?[SLDKR]+)?)", f"{name} {biko}", re.IGNORECASE)
+            match = re.search(r"([1-9]\d?[SLDKR]+(?:\+[1-9]?[SLDKR]+)?)", f"{name} {biko}", re.IGNORECASE)
             if match:
                 return match.group(1).upper()
         return ""
