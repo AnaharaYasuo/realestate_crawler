@@ -40,6 +40,7 @@ from package.utils.task_distribution import (
 )
 from package.utils.gcp_resources import (
     check_cloud_sql_status,
+    has_active_other_cloud_run_executions,
     patch_proxysql_autoscaler,
     scale_proxysql_mig,
     wait_for_proxysql_health,
@@ -207,7 +208,15 @@ def _bind_parent_db_timeouts() -> None:
 
 
 def _can_stop_shared_proxysql() -> bool:
-    """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    """他タスク・他Cloud Run実行が全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    if os.environ.get("IS_CLOUD") and has_active_other_cloud_run_executions(
+        current_execution_id=get_execution_id()
+    ):
+        logger.warning(
+            "⚠️ [Teardown Guard] 他の Cloud Run 実行が稼働中のため共有 ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+
     if _task_count <= 1:
         return True
     if _task_index is None:
