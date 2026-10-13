@@ -8,12 +8,12 @@ logger = logging.getLogger(__name__)
 
 
 def _read_cgroup_limit_mb() -> int | None:
-    """Read memory limit in MB from cgroup v2 or v1."""
-    limit_files = (
-        "/sys/fs/cgroup/memory.max",
-        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    """Read remaining available memory in MB under cgroup limits (limit - current usage)."""
+    limit_usage_pairs = (
+        ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+        ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.usage_in_bytes"),
     )
-    for limit_file in limit_files:
+    for limit_file, usage_file in limit_usage_pairs:
         if not os.path.exists(limit_file):
             continue
         try:
@@ -22,7 +22,15 @@ def _read_cgroup_limit_mb() -> int | None:
             if val and val != "max":
                 limit_bytes = int(val)
                 if 0 < limit_bytes < (1024**4):
-                    return int(limit_bytes / (1024 * 1024))
+                    usage_bytes = 0
+                    if os.path.exists(usage_file):
+                        try:
+                            with open(usage_file, "r", encoding="utf-8") as uf:
+                                usage_bytes = int(uf.read().strip())
+                        except Exception:  # noqa: BLE001
+                            usage_bytes = 0
+                    avail_bytes = max(0, limit_bytes - usage_bytes)
+                    return int(avail_bytes / (1024 * 1024))
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Failed reading {limit_file}: {e}")
     return None
@@ -65,19 +73,24 @@ def _read_sysconf_mb() -> int | None:
 
 def detect_available_memory_mb() -> int | None:
     """
-    Detect available or limit memory in MB for the current container / host environment.
-    Checks cgroup v2/v1 memory limits, /proc/meminfo, and os.sysconf.
-    Returns memory in MB, or None if undetermined.
+    Detect available memory in MB for the current container / host environment.
+    Takes the minimum of cgroup remaining memory and host available memory.
     """
+    candidates = []
     cgroup_mb = _read_cgroup_limit_mb()
     if cgroup_mb is not None:
-        return cgroup_mb
+        candidates.append(cgroup_mb)
 
     proc_mb = _read_proc_meminfo_mb()
     if proc_mb is not None:
-        return proc_mb
+        candidates.append(proc_mb)
 
-    return _read_sysconf_mb()
+    if not candidates:
+        sysconf_mb = _read_sysconf_mb()
+        if sysconf_mb is not None:
+            candidates.append(sysconf_mb)
+
+    return min(candidates) if candidates else None
 
 
 def get_resource_aware_concurrency(
