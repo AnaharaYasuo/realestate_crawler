@@ -390,13 +390,15 @@ def scan_anomalies_and_generate_instructions():
                 reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
             elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
                 reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
-        elif (
+
+        if (
             hasattr(prop, "maguchi")
             and prop.maguchi == 0
             and prop.setsudou
             and any(k in str(prop.setsudou) for k in ["間口", "接面"])
         ):
-            reason = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            maguchi_warn = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            reason = f"{reason}; {maguchi_warn}" if reason else maguchi_warn
 
 
         if reason:
