@@ -29,7 +29,7 @@ realestateSettings.configure()
 
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
-from package.utils.slack import send_slack_message, send_dev_report
+from package.utils.slack import send_dev_report
 
 try:
     from google import genai

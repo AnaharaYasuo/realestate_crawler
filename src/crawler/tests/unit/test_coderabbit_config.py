@@ -30,7 +30,7 @@ def _load_coderabbit_config():
     repo_root = get_repo_root()
     config_path = os.path.join(repo_root, ".coderabbit.yaml")
     assert os.path.exists(config_path), f".coderabbit.yaml が存在しません: {config_path}"
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
     assert isinstance(config, dict), ".coderabbit.yaml の内容が辞書形式ではありません"
     return config

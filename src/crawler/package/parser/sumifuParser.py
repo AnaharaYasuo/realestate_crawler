@@ -483,16 +483,24 @@ class SumifuParser(ParserBase):
 
     def _parseKaisuRaw(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("階数", target_specs.get("所在階", target_specs.get("所在階構造", "")))
+        return (
+            target_specs.get("階数")
+            or target_specs.get("所在階")
+            or target_specs.get("所在階構造")
+            or target_specs.get("所在階 / 階建")
+            or target_specs.get("所在階/階建")
+            or target_specs.get("所在階・階数")
+            or ""
+        )
 
     def _parseKaisuStr(self, response, _specs=None):
-        val = self._parseKaisuRaw(response)
+        val = self._parseKaisuRaw(response, specs=_specs)
         if val and "・" in val:
             return val.split("・")[0].strip()
         return val or ""
 
     def _parseKaisu(self, response, _specs=None):
-        k_str = self._parseKaisuStr(response)
+        k_str = self._parseKaisuStr(response, _specs=_specs)
         if k_str:
              m = DIGIT_REGEX.search(k_str)
              if m: return int(m.group(1))
@@ -501,7 +509,15 @@ class SumifuParser(ParserBase):
     def _parseTrafficLines(self, response, _specs=None):
         transport_key = self.selectors.get('transport_key', "交通")
         transport_td = self._getValueFromTable(response, transport_key)
-        if not transport_td: return []
+        if not transport_td:
+            specs = _specs if _specs is not None else self._get_specs(response)
+            traffic_val = (
+                specs.get(transport_key, "")
+                or specs.get("交通", "")
+                or specs.get("最寄り駅", "")
+                or specs.get("沿線・駅", "")
+            )
+            return [line.strip() for line in traffic_val.split("\n") if line.strip()]
         if hasattr(transport_td, 'select'):
             for br in transport_td.select("br"): br.replace_with("\n")
             full_text = transport_td.get_text().strip()
@@ -1242,7 +1258,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         # Override to handle Sumifu Mansion specifics if base is insufficient
         # But let's check base implementation again.
         # It splits on "・". Sumifu often uses "／" or "建て".
-        val = self._parseKaisuRaw(response)
+        val = self._parseKaisuRaw(response, specs=_specs)
         if not val: return ""
         
         # Clean up common patterns

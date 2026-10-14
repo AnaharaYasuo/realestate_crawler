@@ -1,12 +1,9 @@
 """Check GCP Pub/Sub budget alert notification permissions and diagnostic parsing."""
 
-import json
-import os
-import sys
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
-def parse_pubsub_permission_incident(payload: Dict[str, Any]) -> Tuple[bool, str]:
+def parse_pubsub_permission_incident(payload: dict[str, Any]) -> tuple[bool, str]:
     """Parse GCP Cloud Monitoring incident payload and determine if it's Pub/Sub PERMISSION_DENIED.
 
     Args:

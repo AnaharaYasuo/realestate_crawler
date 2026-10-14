@@ -4,12 +4,12 @@ Cloud Run Jobs タスクアレイ Coordinator バリア同期ユーティリテ�
 """
 import time
 import logging
-from typing import List, Tuple, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def check_all_tasks_completed(records: List[Any], task_count: int) -> Tuple[bool, List[int]]:
+def check_all_tasks_completed(records: list[Any], task_count: int) -> tuple[bool, list[int]]:
     """
     全タスクが完了（COMPLETED または FAILED）しているかを判定。
     戻り値: (all_completed, failed_task_indices)
@@ -39,7 +39,7 @@ def wait_for_all_tasks(
     timeout_sec: int = 1800,
     interval_sec: int = 15,
     execution_id: str | None = None,
-) -> Tuple[bool, List[int]]:
+) -> tuple[bool, list[int]]:
     """
     Task 0 が他全タスクの完了を DB ポーリングで待機するバリア関数。
     execution_id 指定時 (空文字を含む) は同一実行 ID の行のみを対象とし、同日の別実行の行を除外する。

@@ -47,7 +47,7 @@ def sync_land_prices_from_mlit(pref_code="13", year_quarter="20241", json_path=N
         if json_path:
             clean_path = safe_path(json_path)
             logging.info(f"Loading real estate trade data from local JSON file: {clean_path}...")
-            with open(clean_path, 'r', encoding='utf-8') as f:
+            with open(clean_path, encoding='utf-8') as f:
                 data = json.load(f)
                 trade_list = data.get("data", [])
         else:

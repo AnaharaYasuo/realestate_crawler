@@ -144,7 +144,7 @@ class MizuhoParser(ParserBase):
             return []
         logging.info(f"Mizuho: Loading start URLs from temporary file: {links_file}")
         try:
-            with open(links_file, "r", encoding="utf-8") as f:
+            with open(links_file, encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip()]
         except Exception as e:
             logging.exception(f"Mizuho: Failed to read temporary URLs file: {e}")

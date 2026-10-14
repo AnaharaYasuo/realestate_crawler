@@ -133,7 +133,7 @@ def sync_municipalities(csv_path=None):
     if not data and os.path.exists(csv_path):
         clean_csv = safe_path(csv_path)
         logging.info(f"Loading e-Stat municipal potential data from local CSV: {clean_csv}...")
-        with open(clean_csv, 'r', encoding='utf-8') as f:
+        with open(clean_csv, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 pop_growth = Decimal(row.get("population_growth_rate", "0.0").strip())

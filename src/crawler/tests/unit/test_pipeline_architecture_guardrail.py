@@ -12,7 +12,7 @@ CRAWLER_SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".
 def test_scheduler_triggers_pipeline_with_startup_guardrail():
     """Verify scheduler targets Workflows daily orchestration and direct crawler :run is eliminated."""
     scheduler_tf = os.path.join(TERRAFORM_DIR, "scheduler.tf")
-    with open(scheduler_tf, "r", encoding="utf-8") as f:
+    with open(scheduler_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert "google_cloud_scheduler_job" in content
@@ -25,7 +25,7 @@ def test_scheduler_triggers_pipeline_with_startup_guardrail():
 def test_run_pipeline_contains_startup_and_health_check():
     """Verify run_pipeline.py explicitly imports and invokes scale_proxysql_mig and wait_for_proxysql_health."""
     pipeline_py = os.path.join(CRAWLER_SCRIPTS_DIR, "ops", "run_pipeline.py")
-    with open(pipeline_py, "r", encoding="utf-8") as f:
+    with open(pipeline_py, encoding="utf-8") as f:
         content = f.read()
 
     # Imports check
@@ -60,7 +60,7 @@ def test_run_pipeline_contains_startup_and_health_check():
 def test_run_pipeline_finally_teardown_enforced():
     """Verify run_pipeline.py enforces safety teardown in finally block."""
     pipeline_py = os.path.join(CRAWLER_SCRIPTS_DIR, "ops", "run_pipeline.py")
-    with open(pipeline_py, "r", encoding="utf-8") as f:
+    with open(pipeline_py, encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     # Find main function and check Try statement has finally executing _execute_safety_teardown
@@ -80,7 +80,7 @@ def test_run_pipeline_finally_teardown_enforced():
 def test_wait_for_db_fail_fast_socket_guardrail():
     """Verify wait_for_db.py contains socket.create_connection to avoid 1-hour TCP SYN hangs."""
     wait_db_py = os.path.join(CRAWLER_SCRIPTS_DIR, "debug_tools", "wait_for_db.py")
-    with open(wait_db_py, "r", encoding="utf-8") as f:
+    with open(wait_db_py, encoding="utf-8") as f:
         content = f.read()
 
     assert "socket.create_connection" in content, "wait_for_db.py must use socket.create_connection for fail-fast check"

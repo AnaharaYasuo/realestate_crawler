@@ -17,7 +17,7 @@ def _load_review_gate_script() -> str:
     while curr and curr != os.path.dirname(curr):
         wf_path = os.path.join(curr, ".github", "workflows", "review-gate.yml")
         if os.path.exists(wf_path):
-            with open(wf_path, "r", encoding="utf-8") as fp:
+            with open(wf_path, encoding="utf-8") as fp:
                 data = yaml.safe_load(fp)
             # Find github-script step
             for job in data.get("jobs", {}).values():

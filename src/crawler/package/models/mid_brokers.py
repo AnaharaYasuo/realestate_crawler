@@ -1,5 +1,5 @@
-from django.db import models
-from .base import MansionBaseModel, KodateBaseModel, TochiBaseModel
+from .base import KodateBaseModel, MansionBaseModel, TochiBaseModel
+
 
 # --- Ietan (大成有楽不動産販売) ---
 class IetanMansion(MansionBaseModel):

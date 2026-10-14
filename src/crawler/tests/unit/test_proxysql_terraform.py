@@ -21,7 +21,7 @@ def test_proxysql_resources_defined():
     if not os.path.exists(proxysql_tf):
         pytest.fail("proxysql.tf does not exist yet.")
 
-    with open(proxysql_tf, "r", encoding="utf-8") as f:
+    with open(proxysql_tf, encoding="utf-8") as f:
         content = f.read()
 
     # 1. サービスアカウント
@@ -52,7 +52,7 @@ def test_proxysql_outputs_defined():
     outputs_tf = os.path.join(TERRAFORM_DIR, "outputs.tf")
     assert os.path.exists(outputs_tf), "outputs.tf must exist."
 
-    with open(outputs_tf, "r", encoding="utf-8") as f:
+    with open(outputs_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'output "proxysql_ilb_ip"' in content, \
@@ -64,7 +64,7 @@ def test_proxysql_variables_defined():
     variables_tf = os.path.join(TERRAFORM_DIR, "variables.tf")
     assert os.path.exists(variables_tf), "variables.tf must exist."
 
-    with open(variables_tf, "r", encoding="utf-8") as f:
+    with open(variables_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'variable "proxysql_backend_max_connections"' in content or 'variable "proxysql_max_connections"' in content, \
@@ -82,7 +82,7 @@ def test_cloud_run_connects_to_proxysql():
     api_tf = os.path.join(TERRAFORM_DIR, "cloud_run_api_service.tf")
 
     # 1. Crawler Pipeline Job
-    with open(job_tf, "r", encoding="utf-8") as f:
+    with open(job_tf, encoding="utf-8") as f:
         job_content = f.read()
 
     assert (
@@ -93,7 +93,7 @@ def test_cloud_run_connects_to_proxysql():
         "Crawler Job DB_PORT must be 6033 (ProxySQL traffic port)."
 
     # 2. Slack Agent Service
-    with open(service_tf, "r", encoding="utf-8") as f:
+    with open(service_tf, encoding="utf-8") as f:
         service_content = f.read()
 
     assert (
@@ -104,7 +104,7 @@ def test_cloud_run_connects_to_proxysql():
         "Slack Service DB_PORT must be 6033."
 
     # 3. Valuation API Service (Direct to Cloud SQL per #366 for on-demand cost optimization)
-    with open(api_tf, "r", encoding="utf-8") as f:
+    with open(api_tf, encoding="utf-8") as f:
         api_content = f.read()
 
     assert "google_sql_database_instance.mysql_instance.private_ip_address" in api_content, \
@@ -116,7 +116,7 @@ def test_cloud_run_connects_to_proxysql():
 def test_proxysql_user_authentication():
     """ProxySQL がバックエンド認証用のパスワードを保持していることを検証"""
     proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
-    with open(proxysql_tf, "r", encoding="utf-8") as f:
+    with open(proxysql_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'password="${random_password.db_password.result}"' in content or 'password = "${random_password.db_password.result}"' in content, \
@@ -126,7 +126,7 @@ def test_proxysql_user_authentication():
 def test_app_connection_pool_unrestricted():
     """ProxySQL がプーリング・多重化を一元管理するため、アプリ側プールを廃止し CONN_MAX_AGE=0 に設定されていることを検証"""
     settings_py = os.path.join(os.path.dirname(TERRAFORM_DIR), "src", "crawler", "realestateSettings.py")
-    with open(settings_py, "r", encoding="utf-8") as f:
+    with open(settings_py, encoding="utf-8") as f:
         content = f.read()
 
     assert "dj_db_conn_pool" not in content, \
@@ -141,13 +141,13 @@ def test_proxysql_monitor_user_configured():
     database_tf = os.path.join(TERRAFORM_DIR, "database.tf")
     secrets_tf = os.path.join(TERRAFORM_DIR, "secrets.tf")
 
-    with open(proxysql_tf, "r", encoding="utf-8") as f:
+    with open(proxysql_tf, encoding="utf-8") as f:
         proxysql_content = f.read()
 
-    with open(database_tf, "r", encoding="utf-8") as f:
+    with open(database_tf, encoding="utf-8") as f:
         db_content = f.read()
 
-    with open(secrets_tf, "r", encoding="utf-8") as f:
+    with open(secrets_tf, encoding="utf-8") as f:
         secrets_content = f.read()
 
     # 1. database.tf に monitor ユーザーとパスワードが定義されていること
@@ -179,10 +179,10 @@ def test_proxysql_admin_credentials_not_default():
     proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
     secrets_tf = os.path.join(TERRAFORM_DIR, "secrets.tf")
 
-    with open(proxysql_tf, "r", encoding="utf-8") as f:
+    with open(proxysql_tf, encoding="utf-8") as f:
         proxysql_content = f.read()
 
-    with open(secrets_tf, "r", encoding="utf-8") as f:
+    with open(secrets_tf, encoding="utf-8") as f:
         secrets_content = f.read()
 
     # デフォルトの静的 admin:admin が排除されていること
@@ -196,7 +196,7 @@ def test_proxysql_admin_credentials_not_default():
 
 def _read_proxysql_startup_script() -> str:
     proxysql_tf = os.path.join(TERRAFORM_DIR, "proxysql.tf")
-    with open(proxysql_tf, "r", encoding="utf-8") as f:
+    with open(proxysql_tf, encoding="utf-8") as f:
         content = f.read()
     match = re.search(r"metadata_startup_script\s*=\s*<<-EOF\n(.*?)\n\s*EOF\n", content, re.DOTALL)
     assert match, "proxysql.tf must define metadata_startup_script as a <<-EOF heredoc."
@@ -501,7 +501,7 @@ def test_proxysql_startup_script_has_no_unescaped_shell_interpolation():
 def test_proxysql_zombie_running_alert_filter():
     """ProxySQL 稼働監視・エラー監視アラートポリシーが alerting.tf に定義されていることを検証"""
     alerting_tf = os.path.join(TERRAFORM_DIR, "alerting.tf")
-    with open(alerting_tf, "r", encoding="utf-8") as f:
+    with open(alerting_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert (

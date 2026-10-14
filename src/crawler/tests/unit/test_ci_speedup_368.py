@@ -31,7 +31,7 @@ def test_dockerfile_playwright_layer_cached_before_src_copy():
     dockerfile_path = os.path.join(repo_root, "Dockerfile")
     assert os.path.exists(dockerfile_path), f"Dockerfile が存在しません: {dockerfile_path}"
 
-    with open(dockerfile_path, "r", encoding="utf-8") as f:
+    with open(dockerfile_path, encoding="utf-8") as f:
         content = f.read()
 
     lines = content.splitlines()
@@ -66,7 +66,7 @@ def test_review_gate_triggers_on_parser_tests_and_sonar():
     gate_path = os.path.join(repo_root, ".github/workflows/review-gate.yml")
     assert os.path.exists(gate_path), f"review-gate.yml が存在しません: {gate_path}"
 
-    with open(gate_path, "r", encoding="utf-8") as f:
+    with open(gate_path, encoding="utf-8") as f:
         wf = yaml.safe_load(f)
 
     # on は YAML パーサーによっては True キーとしてロードされる場合がある
@@ -92,7 +92,7 @@ def test_test_yml_skips_db_for_unit_and_mutation():
     test_yml_path = os.path.join(repo_root, ".github/workflows/test.yml")
     assert os.path.exists(test_yml_path), f"test.yml が存在しません: {test_yml_path}"
 
-    with open(test_yml_path, "r", encoding="utf-8") as f:
+    with open(test_yml_path, encoding="utf-8") as f:
         wf = yaml.safe_load(f)
 
     jobs = wf.get("jobs", {})
@@ -125,7 +125,7 @@ def test_taskfile_has_ci_precheck():
     taskfile_path = os.path.join(repo_root, "Taskfile.yml")
     assert os.path.exists(taskfile_path), f"Taskfile.yml が存在しません: {taskfile_path}"
 
-    with open(taskfile_path, "r", encoding="utf-8") as f:
+    with open(taskfile_path, encoding="utf-8") as f:
         taskfile = yaml.safe_load(f)
 
     tasks = taskfile.get("tasks", {})

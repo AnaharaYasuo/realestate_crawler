@@ -48,7 +48,7 @@ def collect_failures_for_site(
         if fname.endswith(".json"):
             fpath = os.path.join(failures_dir, fname)
             try:
-                with open(fpath, "r", encoding="utf-8") as f:
+                with open(fpath, encoding="utf-8") as f:
                     data = json.load(f)
                     collected.append(data)
             except Exception as e:  # noqa: BLE001
@@ -57,7 +57,7 @@ def collect_failures_for_site(
         elif fname.endswith(".html"):
             fpath = os.path.join(failures_dir, fname)
             try:
-                with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                with open(fpath, encoding="utf-8", errors="ignore") as f:
                     raw_html = f.read()
                 cleaned = sanitize_html_for_llm(raw_html, max_length=20000)
                 collected.append({

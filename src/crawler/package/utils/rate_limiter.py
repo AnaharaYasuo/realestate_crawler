@@ -2,7 +2,6 @@
 import time
 import threading
 import collections
-from typing import Tuple, Dict, List
 
 
 class SlidingWindowRateLimiter:
@@ -12,10 +11,10 @@ class SlidingWindowRateLimiter:
     def __init__(self, limit_per_minute: int = 60, burst_per_second: int = 5):
         self.limit_per_minute = limit_per_minute
         self.burst_per_second = burst_per_second
-        self._requests: Dict[str, List[float]] = collections.defaultdict(list)
+        self._requests: dict[str, list[float]] = collections.defaultdict(list)
         self._lock = threading.Lock()
 
-    def is_allowed(self, identifier: str) -> Tuple[bool, int]:
+    def is_allowed(self, identifier: str) -> tuple[bool, int]:
         """
         リクエスト可否判定
         Returns:
@@ -52,11 +51,11 @@ class LockoutManager:
     def __init__(self, lockout_seconds: int = 900, strike_threshold: int = 3):
         self.lockout_seconds = lockout_seconds
         self.strike_threshold = strike_threshold
-        self._strikes: Dict[str, List[float]] = collections.defaultdict(list)  # { ip: [timestamp, ...] }
-        self._banned: Dict[str, float] = {}  # { ip: unban_timestamp }
+        self._strikes: dict[str, list[float]] = collections.defaultdict(list)  # { ip: [timestamp, ...] }
+        self._banned: dict[str, float] = {}  # { ip: unban_timestamp }
         self._lock = threading.Lock()
 
-    def is_locked_out(self, ip: str) -> Tuple[bool, int]:
+    def is_locked_out(self, ip: str) -> tuple[bool, int]:
         """
         IPがロックアウト中か確認
         Returns:
@@ -75,7 +74,7 @@ class LockoutManager:
                     self._strikes.pop(ip, None)
             return False, 0
 
-    def record_strike(self, ip: str, instant_ban: bool = False) -> Tuple[bool, int]:
+    def record_strike(self, ip: str, instant_ban: bool = False) -> tuple[bool, int]:
         """
         違反ストライクを記録し、条件到達時にBAN
         Returns:

@@ -2,7 +2,7 @@
 import re
 import unicodedata
 import logging
-from typing import Tuple, Dict, Any, Optional
+from typing import Any
 
 from package.models.building_master import BuildingMaster
 
@@ -82,7 +82,7 @@ def normalize_building_address(raw_address: str) -> str:
     return addr[:30].replace(" ", "")
 
 
-def classify_developer_tier(name: Optional[str]) -> str:
+def classify_developer_tier(name: str | None) -> str:
     """デベロッパーの格付け"""
     if not name:
         return "unknown"
@@ -92,7 +92,7 @@ def classify_developer_tier(name: Optional[str]) -> str:
     return "standard"
 
 
-def classify_contractor_tier(name: Optional[str]) -> str:
+def classify_contractor_tier(name: str | None) -> str:
     """ゼネコンの格付け"""
     if not name:
         return "unknown"
@@ -114,7 +114,7 @@ class BuildingResolver:
         raw_name: str,
         norm_addr: str,
         raw_addr: str,
-        prop_data: Dict[str, Any],
+        prop_data: dict[str, Any],
         dev_brand: Any,
         dev_tier: Any,
         contractor: Any,
@@ -149,7 +149,7 @@ class BuildingResolver:
     def _enrich_master(
         self,
         bm: BuildingMaster,
-        prop_data: Dict[str, Any],
+        prop_data: dict[str, Any],
         dev_brand: Any,
         contractor: Any,
     ) -> None:
@@ -181,7 +181,7 @@ class BuildingResolver:
             bm.save()
             logging.info(f"BuildingResolver: Enriched existing BuildingMaster [{bm.normalized_name}]")
 
-    def resolve_and_update(self, prop_data: Dict[str, Any]) -> Tuple[BuildingMaster, bool]:
+    def resolve_and_update(self, prop_data: dict[str, Any]) -> tuple[BuildingMaster, bool]:
         """
         物件データから建物マスタを検索または新規登録し、(BuildingMaster, created) を返す。
         既に登録済みの場合は、既存マスタに欠損している情報があれば最新データで補完する。

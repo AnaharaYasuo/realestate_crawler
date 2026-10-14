@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import List, Dict, Tuple, Any, Optional, Set
+from typing import Any
 
 DEFAULT_MAX_COMPLEXITY = 15
 MAX_REGEX_LENGTH = 500
@@ -40,7 +40,7 @@ class CognitiveComplexityVisitor(ast.NodeVisitor):
         """Initialize complexity score and nesting tracking state."""
         self.complexity = 0
         self.nesting_level = 0
-        self.increments: List[Tuple[int, str, int]] = []
+        self.increments: list[tuple[int, str, int]] = []
 
     def _add_increment(self, node: ast.AST, desc: str, nesting_cost: bool = True):
         """Add complexity increment with optional nesting penalty."""
@@ -49,7 +49,7 @@ class CognitiveComplexityVisitor(ast.NodeVisitor):
         lineno = getattr(node, "lineno", 0)
         self.increments.append((lineno, desc, points))
 
-    def _visit_block(self, body: List[ast.stmt]):
+    def _visit_block(self, body: list[ast.stmt]):
         """Visit a nested block of statements with incremented nesting level."""
         self.nesting_level += 1
         for stmt in body:
@@ -112,14 +112,12 @@ class CognitiveComplexityVisitor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         """Stop traversing into nested function definitions so each function is scored independently."""
-        pass
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         """Stop traversing into nested async function definitions so each function is scored independently."""
-        pass
 
 
-def calculate_cognitive_complexity(func_node: ast.AST) -> Tuple[int, List[Tuple[int, str, int]]]:
+def calculate_cognitive_complexity(func_node: ast.AST) -> tuple[int, list[tuple[int, str, int]]]:
     """Calculate cognitive complexity for a FunctionDef or AsyncFunctionDef node."""
     visitor = CognitiveComplexityVisitor()
     for stmt in getattr(func_node, "body", []):
@@ -127,7 +125,7 @@ def calculate_cognitive_complexity(func_node: ast.AST) -> Tuple[int, List[Tuple[
     return visitor.complexity, visitor.increments
 
 
-def _extract_regex_pattern_from_call(node: ast.Call) -> Optional[str]:
+def _extract_regex_pattern_from_call(node: ast.Call) -> str | None:
     """Extract string pattern literal from a re.* call or imported regex function call."""
     func = node.func
     func_name = getattr(func, "attr", None) or getattr(func, "id", None)
@@ -156,7 +154,7 @@ def _extract_regex_pattern_from_call(node: ast.Call) -> Optional[str]:
     return None
 
 
-def _check_pattern_risk(regex_str: str) -> Optional[str]:
+def _check_pattern_risk(regex_str: str) -> str | None:
     """Check if regex string triggers any ReDoS risk rule with input length guards."""
     if len(regex_str) > MAX_REGEX_LENGTH:
         return f"Pattern length ({len(regex_str)}) exceeds maximum safe length ({MAX_REGEX_LENGTH})"
@@ -180,7 +178,7 @@ def _check_pattern_risk(regex_str: str) -> Optional[str]:
     return None
 
 
-def detect_regex_redos_risks(source_code: str, filename: str = "") -> List[Dict[str, Any]]:
+def detect_regex_redos_risks(source_code: str, filename: str = "") -> list[dict[str, Any]]:
     """Scan source code AST for regex calls and check for backtracking/ReDoS patterns (S8786)."""
     issues = []
     try:
@@ -209,7 +207,7 @@ def detect_regex_redos_risks(source_code: str, filename: str = "") -> List[Dict[
     return issues
 
 
-def scan_source_code(source_code: str, filename: str = "", max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> List[Dict[str, Any]]:
+def scan_source_code(source_code: str, filename: str = "", max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> list[dict[str, Any]]:
     """Analyze Python source code for S3776 and S8786 violations."""
     issues = []
     try:
@@ -248,7 +246,7 @@ def scan_source_code(source_code: str, filename: str = "", max_complexity: int =
     return issues
 
 
-def _collect_docstring_nodes(tree: ast.AST) -> Set[int]:
+def _collect_docstring_nodes(tree: ast.AST) -> set[int]:
     """Collect line numbers of docstrings in AST to exclude from duplicate literal checks."""
     doc_lines = set()
     for node in ast.walk(tree):
@@ -263,7 +261,7 @@ def _collect_docstring_nodes(tree: ast.AST) -> Set[int]:
     return doc_lines
 
 
-def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
+def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> list[dict[str, Any]]:
     """Scan for S7508: sorted(list(...))."""
     issues = []
     for node in ast.walk(tree):
@@ -286,7 +284,7 @@ def _check_s7508_redundant_calls(tree: ast.AST, filename: str) -> List[Dict[str,
     return issues
 
 
-def _extract_chained_string_methods(node: ast.BoolOp) -> List[str]:
+def _extract_chained_string_methods(node: ast.BoolOp) -> list[str]:
     """Extract string method names from chained Or boolean expression."""
     if not isinstance(node.op, ast.Or):
         return []
@@ -297,7 +295,7 @@ def _extract_chained_string_methods(node: ast.BoolOp) -> List[str]:
     return funcs
 
 
-def _check_s8513_chained_startswith(tree: ast.AST, filename: str) -> List[Dict[str, Any]]:
+def _check_s8513_chained_startswith(tree: ast.AST, filename: str) -> list[dict[str, Any]]:
     """Scan for S8513: chained startswith or endswith with or operator."""
     issues = []
     for node in ast.walk(tree):
@@ -323,12 +321,12 @@ def _is_s1192_candidate(val: str) -> bool:
     return " " in val or "\n" in val or any(ord(ch) > 0x3000 for ch in val)
 
 
-def _check_s1192_duplicated_literals(tree: ast.AST, filename: str, doc_lines: Set[int]) -> List[Dict[str, Any]]:
+def _check_s1192_duplicated_literals(tree: ast.AST, filename: str, doc_lines: set[int]) -> list[dict[str, Any]]:
     """Scan for S1192: duplicated human-readable string literals >= 3 times."""
     if is_excluded_file(filename):
         return []
 
-    str_counts: Dict[str, List[int]] = {}
+    str_counts: dict[str, list[int]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             lineno = getattr(node, "lineno", 0)
@@ -351,7 +349,7 @@ def _check_s1192_duplicated_literals(tree: ast.AST, filename: str, doc_lines: Se
     return issues
 
 
-def detect_sonar_code_smells(tree: ast.AST, filename: str = "") -> List[Dict[str, Any]]:
+def detect_sonar_code_smells(tree: ast.AST, filename: str = "") -> list[dict[str, Any]]:
     """Detect SonarCloud S1192 (duplicated literals), S7508 (redundant calls), S8513 (chained startswith)."""
     doc_lines = _collect_docstring_nodes(tree)
     issues = _check_s7508_redundant_calls(tree, filename)
@@ -369,7 +367,7 @@ def is_excluded_file(filepath: str) -> bool:
     return False
 
 
-def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> List[Dict[str, Any]]:
+def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> list[dict[str, Any]]:
     """Scan a single Python file for Sonar issues."""
     if not filepath or "\0" in filepath:
         return []
@@ -387,7 +385,7 @@ def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> Li
         if not os.path.isfile(canonical) or is_excluded_file(canonical) or not canonical.endswith(".py"):
             return []
 
-        with open(canonical, "r", encoding="utf-8") as f:
+        with open(canonical, encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
         return [{
@@ -401,7 +399,7 @@ def scan_file(filepath: str, max_complexity: int = DEFAULT_MAX_COMPLEXITY) -> Li
     return scan_source_code(content, filename=filepath, max_complexity=max_complexity)
 
 
-def _run_git_cmd(args: List[str]) -> Tuple[bool, List[str], str]:
+def _run_git_cmd(args: list[str]) -> tuple[bool, list[str], str]:
     """Execute git command and return (success, stdout_lines, stderr)."""
     try:
         res = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
@@ -410,7 +408,7 @@ def _run_git_cmd(args: List[str]) -> Tuple[bool, List[str], str]:
         return (False, [], str(e))
 
 
-def _get_py_files_from_cmd(args: List[str]) -> Set[str]:
+def _get_py_files_from_cmd(args: list[str]) -> set[str]:
     """Execute git command and return matching python files."""
     success, lines, _ = _run_git_cmd(args)
     if not success:
@@ -418,7 +416,7 @@ def _get_py_files_from_cmd(args: List[str]) -> Set[str]:
     return {line.strip() for line in lines if line.strip().endswith(".py")}
 
 
-def _get_branch_diff_files() -> Set[str]:
+def _get_branch_diff_files() -> set[str]:
     """Get modified python files against origin/master or master."""
     files = _get_py_files_from_cmd(["git", "diff", "--name-only", "--ignore-space-at-eol", "origin/master...HEAD"])
     if not files:
@@ -426,7 +424,7 @@ def _get_branch_diff_files() -> Set[str]:
     return files
 
 
-def get_git_diff_files() -> List[str]:
+def get_git_diff_files() -> list[str]:
     """Get modified/added Python files by combining branch diff, staged, and working tree changes."""
     files = _get_branch_diff_files()
     files.update(_get_py_files_from_cmd(["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"]))
@@ -438,7 +436,7 @@ def get_git_diff_files() -> List[str]:
     return sorted(files)
 
 
-def _determine_files_to_scan(args: argparse.Namespace) -> List[str]:
+def _determine_files_to_scan(args: argparse.Namespace) -> list[str]:
     """Resolve target files based on CLI arguments."""
     if args.file:
         return [args.file]
@@ -452,7 +450,7 @@ def _determine_files_to_scan(args: argparse.Namespace) -> List[str]:
     return get_git_diff_files()
 
 
-def _print_sonar_report(all_issues: List[Dict[str, Any]], scanned_count: int) -> int:
+def _print_sonar_report(all_issues: list[dict[str, Any]], scanned_count: int) -> int:
     """Print scan results summary and return exit code."""
     print(f"Scanned {scanned_count} file(s).")
     if not all_issues:

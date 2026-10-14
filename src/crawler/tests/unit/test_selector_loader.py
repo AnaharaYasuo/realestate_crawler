@@ -68,7 +68,7 @@ class TestSelectorLoader:
         assert len(yaml_files) >= 20, f"Expected at least 20 yaml selector files, found {len(yaml_files)}"
 
         for yf in yaml_files:
-            with open(yf, 'r', encoding='utf-8') as f:
+            with open(yf, encoding='utf-8') as f:
                 data = yaml.safe_load(f)
                 assert isinstance(data, dict), f"{yf.name} should contain a YAML mapping"
                 assert len(data) > 0, f"{yf.name} should not be empty"

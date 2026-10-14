@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from typing import Optional, Any
 import logging
-from yarl import URL
+from typing import Any
+
 from django.db.models import Q
+from yarl import URL
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ class UrlMatcher:
         )
 
     @classmethod
-    def _match_in_candidates(cls, candidates: Any, field_name: str, url: str) -> Optional[Any]:
+    def _match_in_candidates(cls, candidates: Any, field_name: str, url: str) -> Any | None:
         for item in candidates:
             item_url = getattr(item, field_name, None)
             if isinstance(item_url, str) and cls.is_same_url(item_url, url):
@@ -131,7 +132,7 @@ class UrlMatcher:
         return None
 
     @classmethod
-    def find_match_in_queryset(cls, queryset: Any, field_name: str, url: str) -> Optional[Any]:
+    def find_match_in_queryset(cls, queryset: Any, field_name: str, url: str) -> Any | None:
         """
         QuerySet/Manager から正規化後に一致するレコードを1件抽出。
         build_db_filter の候補を is_same_url で再検証し、誤一致を防ぐ。

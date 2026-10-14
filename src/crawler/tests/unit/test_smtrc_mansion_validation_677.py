@@ -2,12 +2,10 @@
 """
 Issue #677 回帰テスト: SmtrcMansion バリデーションおよび floorType / kyutaishin パース検証
 """
-import datetime
 from decimal import Decimal
 from bs4 import BeautifulSoup
-import pytest
 
-from package.models.smtrc import SmtrcMansion, SmtrcKodate, SmtrcTochi, SmtrcInvestment
+from package.models.smtrc import SmtrcMansion
 from package.parser.smtrcParser import SmtrcMansionParser
 
 

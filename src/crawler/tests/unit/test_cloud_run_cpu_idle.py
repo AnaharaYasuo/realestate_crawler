@@ -51,7 +51,7 @@ def test_realestate_api_service_cpu_idle_configured():
     tf_path = os.path.join(repo_root, "terraform", "cloud_run_api_service.tf")
     assert os.path.exists(tf_path), f"cloud_run_api_service.tf が存在しません: {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     resources_block = _extract_resources_block(content)
@@ -65,7 +65,7 @@ def test_realestate_slack_agent_service_cpu_idle_configured():
     tf_path = os.path.join(repo_root, "terraform", "cloud_run_service.tf")
     assert os.path.exists(tf_path), f"cloud_run_service.tf が存在しません: {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     resources_block = _extract_resources_block(content)
@@ -79,7 +79,7 @@ def test_realestate_crawler_worker_service_cpu_idle_configured():
     tf_path = os.path.join(repo_root, "terraform", "cloud_run_crawler_service.tf")
     assert os.path.exists(tf_path), f"cloud_run_crawler_service.tf が存在しません: {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     resources_block = _extract_resources_block(content)

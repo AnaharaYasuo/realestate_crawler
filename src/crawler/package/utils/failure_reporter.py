@@ -214,7 +214,7 @@ class FailureReporter:
                 continue
             require_date = not name_dates
             try:
-                with open(lpath, "r", encoding="utf-8", errors="ignore") as f:
+                with open(lpath, encoding="utf-8", errors="ignore") as f:
                     error_logs.extend(
                         cls._parse_log_lines(f, "log_file", str(lpath), iso_date, require_date)
                     )
@@ -282,7 +282,7 @@ class FailureReporter:
             if job_key in seen_keys:
                 continue
             try:
-                with open(local_file, "r", encoding="utf-8") as f:
+                with open(local_file, encoding="utf-8") as f:
                     data = json.load(f)
                     failures.append(data)
             except Exception as fe:  # noqa: BLE001

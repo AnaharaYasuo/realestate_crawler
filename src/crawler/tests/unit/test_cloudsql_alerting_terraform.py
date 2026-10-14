@@ -18,7 +18,7 @@ def test_logging_api_enabled_in_main_tf():
     main_tf = os.path.join(TERRAFORM_DIR, "main.tf")
     assert os.path.exists(main_tf), "main.tf must exist."
 
-    with open(main_tf, "r", encoding="utf-8") as f:
+    with open(main_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert '"logging.googleapis.com"' in content, \
@@ -31,7 +31,7 @@ def test_mysql_access_denied_metric_and_alert_defined():
     if not os.path.exists(alerting_tf):
         pytest.fail("alerting.tf does not exist yet.")
 
-    with open(alerting_tf, "r", encoding="utf-8") as f:
+    with open(alerting_tf, encoding="utf-8") as f:
         content = f.read()
 
     # 1. ログベースメトリクス
@@ -57,7 +57,7 @@ def test_mysql_error_log_metric_and_alert_defined():
     if not os.path.exists(alerting_tf):
         pytest.fail("alerting.tf does not exist yet.")
 
-    with open(alerting_tf, "r", encoding="utf-8") as f:
+    with open(alerting_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_logging_metric" "mysql_error_log_metric"' in content, \
@@ -72,7 +72,7 @@ def test_mysql_too_many_connections_metric_and_alert_defined():
     if not os.path.exists(alerting_tf):
         pytest.fail("alerting.tf does not exist yet.")
 
-    with open(alerting_tf, "r", encoding="utf-8") as f:
+    with open(alerting_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_logging_metric" "mysql_too_many_connections_metric"' in content, \
@@ -89,7 +89,7 @@ def test_proxysql_unhealthy_alert_defined():
     if not os.path.exists(alerting_tf):
         pytest.fail("alerting.tf does not exist yet.")
 
-    with open(alerting_tf, "r", encoding="utf-8") as f:
+    with open(alerting_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_monitoring_alert_policy" "proxysql_unhealthy_alert"' in content, \

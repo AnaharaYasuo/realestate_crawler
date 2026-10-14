@@ -85,13 +85,13 @@ def test_apply_and_revert_mutant_file_safety():
         target_mutant = mutants[0]
         # 変異適用
         backup_content = engine.apply_mutant(target_mutant)
-        with open(temp_path, 'r', encoding='utf-8') as f:
+        with open(temp_path, encoding='utf-8') as f:
             mutated_code = f.read()
         assert mutated_code != SAMPLE_SOURCE_CODE
 
         # ロールバック
         engine.revert_mutant(target_mutant, backup_content)
-        with open(temp_path, 'r', encoding='utf-8') as f:
+        with open(temp_path, encoding='utf-8') as f:
             reverted_code = f.read()
         assert reverted_code == SAMPLE_SOURCE_CODE
     finally:

@@ -314,7 +314,7 @@ def validate_data(
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         report_path = os.path.join(project_root, "logs", f"error_report_{today_str}.json")
         if os.path.exists(report_path):
-            with open(report_path, "r", encoding="utf-8") as f:
+            with open(report_path, encoding="utf-8") as f:
                 rep = json.load(f)
                 html_errors_list = rep.get("recent_details", [])
     except Exception:

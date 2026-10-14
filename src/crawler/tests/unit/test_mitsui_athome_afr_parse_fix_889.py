@@ -1,9 +1,8 @@
-import pytest
 from bs4 import BeautifulSoup
 from package.parser.baseParser import ParserBase
 from package.parser.mitsuiParser import MitsuiKodateParser, MitsuiMansionParser
-from package.parser.athomeParser import AthomeKodateParser, AthomeParser
-from package.parser.afrParser import AfrKodateParser, AfrParser
+from package.parser.athomeParser import AthomeKodateParser
+from package.parser.afrParser import AfrKodateParser
 from package.utils.data_validator import PropertyDataValidator
 
 
