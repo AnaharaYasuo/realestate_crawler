@@ -812,22 +812,7 @@ def main():
             "Step 0.4/6: Database Readiness Pre-flight Check",
         )
 
-        # Step 0.5: Database Schema Migration
-        if is_coordinator:
-            run_command(
-                [
-                    sys.executable,
-                    os.path.join(crawler_dir, "manage.py"),
-                    "migrate",
-                    "--noinput",
-                ],
-                "Step 0.5/6: Database Schema Migration (Coordinator)",
-            )
-        else:
-            logger.info(
-                "⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)..."
-            )
-            time.sleep(10)
+        # Schema migration is CI/CD-only (deploy-production.yml, Issue #932); crawler never migrates.
 
         should_continue, crawler_ok = _run_crawler_step(
             is_task_array,
