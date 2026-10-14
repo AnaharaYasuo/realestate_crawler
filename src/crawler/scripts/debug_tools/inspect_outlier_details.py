@@ -1,3 +1,4 @@
+import setup_env
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 

@@ -1,3 +1,4 @@
+import setup_env
 from django.apps import apps
 from package.ml.predict import bulk_predict_first_stage
 

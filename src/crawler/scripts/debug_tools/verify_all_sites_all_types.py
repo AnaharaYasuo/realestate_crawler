@@ -5,10 +5,12 @@
 """
 
 import sys
+import os
 import time
 import importlib
 
 sys.path.insert(0, '/app/src/crawler')
+import setup_env
 from bs4 import BeautifulSoup
 
 

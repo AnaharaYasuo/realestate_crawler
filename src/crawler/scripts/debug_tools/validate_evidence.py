@@ -1,7 +1,9 @@
+import setup_env
 import numpy as np
 import pandas as pd
 from scipy import stats
 from scripts.debug_tools.analyze_prediction_distribution import analyze
+from package.models.evaluation import PropertyEvaluation
 from django.apps import apps
 
 print("=== 1. FULL POPULATION DATA EXTRACTION ===")

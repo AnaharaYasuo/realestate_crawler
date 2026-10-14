@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import pytest
 import numpy as np
+import pandas as pd
 from unittest.mock import patch, MagicMock
 
 from package.ml.features import FEATURE_SETS, build_features
 from package.ml.predict import (
     bulk_predict_first_stage,
+    predict_first_stage_local,
     _apply_smearing_and_ensemble
 )
 

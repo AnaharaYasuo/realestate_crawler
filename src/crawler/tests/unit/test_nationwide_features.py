@@ -1,3 +1,4 @@
+import pytest
 from package.ml.features import (
     build_features_batch,
     _get_nationwide_base_land_price,

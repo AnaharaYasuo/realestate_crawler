@@ -1,6 +1,7 @@
 import ast
 import tempfile
 import os
+import pytest
 try:
     from scripts.debug_tools.check_local_sonar import (
         calculate_cognitive_complexity,

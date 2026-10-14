@@ -13,6 +13,7 @@ try:
 except Exception:
     pass
 
+from package.models.building_master import BuildingMaster
 from package.utils.building_resolver import BuildingResolver, normalize_building_name, normalize_building_address
 
 
