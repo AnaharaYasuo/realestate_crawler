@@ -775,6 +775,9 @@ docs/
 - **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用要件定義書](docs/requirements/proxysql_stop_guard_and_db_timeout_requirements.md)**: 共有インフラ停止ガード・他Cloud Run実行検知・全Django DB接続read_timeout強制要件 (Issue #916)
 - **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用基本設計書](docs/basic_design/proxysql_stop_guard_and_db_timeout_basic_design.md)**: has_active_other_cloud_run_executions・_can_stop_shared_proxysql・bound_mysql_timeouts基本設計 (Issue #916)
 - **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用内部設計書](docs/internal_design/proxysql_stop_guard_and_db_timeout_internal_design.md)**: run_v2/REST APIジョブ照会・自実行除外・OPTIONS read_timeout 120s強制適用内部仕様 (Issue #916)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復要件定義書](docs/requirements/cleanup_header_and_garbage_data_requirements_917.md)**: ヘッダー行誤登録防止・UPDATE正常化・野村間取りフォールバック要件 (Issue #917)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復外部設計書](docs/external_design/cleanup_header_and_garbage_data_external_design_917.md)**: パーサーガード・間取りフォールバック正規表現・UPDATEバッチCLI仕様 (Issue #917)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復内部設計書](docs/internal_design/cleanup_header_and_garbage_data_internal_design_917.md)**: _assert_not_header_row・update_and_restore_garbage_records内部仕様 (Issue #917)
 
 
 ### 2. 開発を始める

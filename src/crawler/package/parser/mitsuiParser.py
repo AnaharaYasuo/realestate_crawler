@@ -177,6 +177,9 @@ class MitsuiParser(ParserBase):
         item.traffic = traffic_str
         self._populateTraffic(item, traffic_str)
 
+        # ヘッダー行誤登録防止ガード (Issue #917)
+        self._assert_not_header_row(item)
+
         return item
 
     def _parseChikunengetsuStr(self, response, _specs=None):
