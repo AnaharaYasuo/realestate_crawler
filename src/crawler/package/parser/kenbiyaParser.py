@@ -190,37 +190,43 @@ class KenbiyaParserBase(ParserBase):
             return ""
         return clean
 
+    @staticmethod
+    def _is_excluded_spec_container(elem) -> bool:
+        """用語解説・ガイド領域（box_outline, guide, help, glossary 等）配下かを判定"""
+        for parent in elem.parents:
+            if not parent or not hasattr(parent, "get"):
+                continue
+            p_classes = " ".join(parent.get("class", []) or [])
+            p_id = parent.get("id", "") or ""
+            if any(
+                k in p_classes
+                for k in ["guide", "help", "glossary", "explanation", "box_outline"]
+            ) or "guide" in p_id:
+                return True
+        return False
+
     def _parse_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for dl in response.find_all("dl"):
-            parent_classes = " ".join(dl.get("class", []) or [])
-            if any(
-                k in parent_classes
-                for k in ["guide", "help", "glossary", "explanation"]
-            ):
+            if self._is_excluded_spec_container(dl):
                 continue
             for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
                 key = dt.get_text(strip=True)
                 val = dd.get_text(" ", strip=True)
                 cleaned_val = self._clean_spec_value(val)
-                if key and cleaned_val:
+                if key and cleaned_val and key not in specs:
                     specs[key] = cleaned_val
 
     def _parse_tr_specs(self, response: BeautifulSoup, specs: dict) -> None:
         for tr in response.find_all("tr"):
             parent = tr.find_parent("table")
-            if parent:
-                parent_classes = " ".join(parent.get("class", []) or [])
-                if any(
-                    k in parent_classes
-                    for k in ["guide", "help", "glossary", "explanation"]
-                ):
-                    continue
+            if parent and self._is_excluded_spec_container(parent):
+                continue
             th, td = tr.find("th"), tr.find("td")
             if th and td:
                 key = th.get_text(strip=True)
                 val = td.get_text(" ", strip=True)
                 cleaned_val = self._clean_spec_value(val)
-                if key and cleaned_val:
+                if key and cleaned_val and key not in specs:
                     specs[key] = cleaned_val
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
@@ -228,6 +234,11 @@ class KenbiyaParserBase(ParserBase):
         specs = {}
         if not response:
             return specs
+        # 正規スペック領域 (div.property) があれば優先して走査
+        property_container = response.select_one("div.property")
+        if property_container:
+            self._parse_dl_specs(property_container, specs)
+            self._parse_tr_specs(property_container, specs)
         self._parse_dl_specs(response, specs)
         self._parse_tr_specs(response, specs)
         return specs
