@@ -93,8 +93,14 @@ def test_market_master_helpers():
     assert found
 
 
-def test_artifacts_saving_and_roundtrip():
+def test_artifacts_saving_and_roundtrip(monkeypatch):
     import joblib
+
+    def _mock_storage_disabled():
+        raise RuntimeError("Storage disabled")
+
+    monkeypatch.setattr("package.ml.training.artifacts.get_storage_manager", _mock_storage_disabled)
+
 
     with tempfile.TemporaryDirectory() as tmpdir:
         expected_weights = {"mansion": {"lgb": 0.5, "rf": 0.5}}
@@ -123,6 +129,7 @@ def test_artifacts_saving_and_roundtrip():
         # upload_models_to_storage: GCS 未設定時は 0 件
         count = upload_models_to_storage(tmpdir)
         assert count == 0
+
 
 
 def test_train_property_type_rejects_fallback_in_prod(monkeypatch):

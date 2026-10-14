@@ -129,13 +129,21 @@ class PropertyDataValidator:
         tatemono = getattr(item, "tatemonoMenseki", None)
         tochi = getattr(item, "tochiMenseki", None)
 
+        valid_area = None
         for candidate in (senyu, tatemono, tochi):
             if candidate is not None:
                 try:
-                    area = float(candidate)
-                    break
+                    val = float(candidate)
+                    if area == 0.0:
+                        area = val
+                    if val > 5.0:
+                        valid_area = val
+                        break
                 except (ValueError, TypeError):
                     continue
+
+        if valid_area is not None:
+            area = valid_area
 
         if area <= 5.0:
             reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
@@ -151,8 +159,9 @@ class PropertyDataValidator:
             min_unit = 10.0 if cls._is_low_price_allowed(item, ptype) else 1000.0
             if unit_price < min_unit:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: {min_unit:.0f}円/㎡未満)")
-            elif unit_price > 15000000.0:
-                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
+            elif unit_price > 50000000.0:
+                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 5000万円/㎡超)")
+
 
     @staticmethod
     def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:

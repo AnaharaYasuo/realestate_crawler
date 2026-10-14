@@ -78,3 +78,12 @@ class PropertyDataValidator:
 ### 3.3 `src/crawler/scripts/ops/send_recommendations.py`
 1. 配信完了サマリーを `send_dev_report` に変更。
 2. 推薦対象抽出クエリで `is_published=True` かつ `needs_recrawl=False` を保証。
+
+### 3.4 単価上限引上げ・面積候補フォールバック・残留不整合レコード同期 (Issue #922)
+1. `PropertyDataValidator._validate_unit_price`:
+   - 平米単価上限を `15,000,000円/㎡` から `50,000,000円/㎡` へ引き上げ。都心超高額物件（虎ノ門等）の正常物件誤検知を解消。
+2. `PropertyDataValidator._extract_and_validate_area`:
+   - 専有面積、建物面積、土地面積の候補走査時、先頭候補が `<=5.0` の場合でも直ちに終了せず、後続に `>5.0` の候補（例: 一棟アパートで建物面積1㎡・土地面積91.77㎡）があれば有効な数値を優先採用。全候補が `<=5.0` の場合のみ面積異常とする。
+3. `resolve_50_residual_issues.py` および Auto-Heal 連携:
+   - 現行バリデータで合格する物件の `needs_parser_fix` を `False` に解除し、`data_quality_issue` をクリアして `auto_heal_parsers.py` スキャンの正常化（異常0件）を達成。
+
