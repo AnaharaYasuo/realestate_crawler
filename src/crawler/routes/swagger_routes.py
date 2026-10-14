@@ -62,7 +62,7 @@ def openapi_yaml():
         logging.error(f"OpenAPI YAML not found at: {yaml_path}")
         return Response("OpenAPI specification file not found", status=404, mimetype='text/plain')
 
-    with open(yaml_path, encoding='utf-8') as f:
+    with open(yaml_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
     return Response(content, mimetype='text/yaml')
