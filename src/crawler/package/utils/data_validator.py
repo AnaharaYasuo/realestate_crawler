@@ -123,27 +123,28 @@ class PropertyDataValidator:
         return price_val
 
     @staticmethod
-    def _extract_and_validate_area(item: Any, ptype: str, reasons: list[str]) -> float:
+    def _parse_candidate_float(val: Any) -> float | None:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         area = 0.0
-        senyu = getattr(item, "senyuMenseki", None)
-        tatemono = getattr(item, "tatemonoMenseki", None)
-        tochi = getattr(item, "tochiMenseki", None)
-
-        valid_area = None
-        for candidate in (senyu, tatemono, tochi):
-            if candidate is not None:
-                try:
-                    val = float(candidate)
-                    if area == 0.0:
-                        area = val
-                    if val > 5.0:
-                        valid_area = val
-                        break
-                except (ValueError, TypeError):
-                    continue
-
-        if valid_area is not None:
-            area = valid_area
+        candidates = [
+            cls._parse_candidate_float(getattr(item, attr, None))
+            for attr in ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+        ]
+        parsed = [c for c in candidates if c is not None]
+        if parsed:
+            area = parsed[0]
+            for val in parsed:
+                if val > 5.0:
+                    area = val
+                    break
 
         if area <= 5.0:
             reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
