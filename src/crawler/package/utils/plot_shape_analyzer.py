@@ -9,7 +9,7 @@ NumPy, SciPy, PIL を用いた完全ローカル・低コスト幾何解析。
 """
 import math
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy.ndimage import distance_transform_edt
@@ -50,14 +50,14 @@ class PlotShapeMetrics:
     flagpole_body_area: float = 0.0
     acute_angle_count: int = 0
     reflex_angle_count: int = 0
-    interior_angles: Optional[List[float]] = None
+    interior_angles: Optional[list[float]] = None
     shape_grade: str = "A"
     shape_grade_num: int = 5
     shape_score_100: float = 100.0
 
 
 
-def calculate_polygon_area(vertices: List[Tuple[float, float]]) -> float:
+def calculate_polygon_area(vertices: list[tuple[float, float]]) -> float:
     """Shoelace formulaによる多角形面積の計算"""
     n = len(vertices)
     if n < 3:
@@ -67,7 +67,7 @@ def calculate_polygon_area(vertices: List[Tuple[float, float]]) -> float:
     return 0.5 * abs(sum(x[i] * y[(i + 1) % n] - x[(i + 1) % n] * y[i] for i in range(n)))
 
 
-def calculate_perimeter(vertices: List[Tuple[float, float]]) -> float:
+def calculate_perimeter(vertices: list[tuple[float, float]]) -> float:
     """多角形の周囲長を計算"""
     n = len(vertices)
     if n < 2:
@@ -80,7 +80,7 @@ def calculate_perimeter(vertices: List[Tuple[float, float]]) -> float:
     return perimeter
 
 
-def calculate_obb(vertices: List[Tuple[float, float]]) -> Tuple[float, float, float]:
+def calculate_obb(vertices: list[tuple[float, float]]) -> tuple[float, float, float]:
     """
     最小外接矩形 (Oriented Bounding Box) の面積、幅、高さを計算
     返り値: (obb_area, width, height)
@@ -124,7 +124,7 @@ def calculate_obb(vertices: List[Tuple[float, float]]) -> Tuple[float, float, fl
     return min_area, best_w, best_h
 
 
-def calculate_solidity(vertices: List[Tuple[float, float]], plot_area: float) -> float:
+def calculate_solidity(vertices: list[tuple[float, float]], plot_area: float) -> float:
     """
     凸包充足率 (Solidity) = 敷地実面積 / 凸包 (Convex Hull) 面積
     """
@@ -142,7 +142,7 @@ def calculate_solidity(vertices: List[Tuple[float, float]], plot_area: float) ->
         return 1.0
 
 
-def _largest_rectangle_in_histogram(heights: np.ndarray) -> Tuple[int, int, int]:
+def _largest_rectangle_in_histogram(heights: np.ndarray) -> tuple[int, int, int]:
     """
     ヒストグラム内の最大長方形探索 (O(W) スタック解法)
     返り値: (max_area, width, height)
@@ -175,10 +175,10 @@ def _largest_rectangle_in_histogram(heights: np.ndarray) -> Tuple[int, int, int]
 
 
 def calculate_max_inscribed_rectangle(
-    vertices: List[Tuple[float, float]],
+    vertices: list[tuple[float, float]],
     plot_area: float,
     grid_res: int = 150
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     多角形内の最大内接矩形 (Maximum Inscribed Rectangle: MIR) の面積、短辺、長辺を算出。
     ラスタライズ＋回転探索＋ヒストグラム最大長方形法 (O(H*W))。
@@ -305,9 +305,9 @@ def calculate_nta_depth_discount(depth_ratio: float) -> float:
 
 
 def calculate_yoshino_assumed_plot(
-    vertices: List[Tuple[float, float]],
+    vertices: list[tuple[float, float]],
     plot_area: float
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     吉野金次式（想定整形地）の面積、かげ地割合、補正率を算出。
     返り値: (yoshino_area, yoshino_shadow_ratio, yoshino_coefficient)
@@ -327,8 +327,8 @@ def calculate_yoshino_assumed_plot(
 
 
 def calculate_interior_angles(
-    vertices: List[Tuple[float, float]]
-) -> Tuple[List[float], int, int]:
+    vertices: list[tuple[float, float]]
+) -> tuple[list[float], int, int]:
     """
     多角形の各頂点の内角（度数法）、鋭角頂点数（<60度）、凹角頂点数（>180度）を算出。
     返り値: (angles, acute_count, reflex_count)
@@ -377,7 +377,7 @@ def calculate_interior_angles(
     return angles, acute_count, reflex_count
 
 
-def _find_best_obb_alignment(pts: np.ndarray, vertices: List[Tuple[float, float]]) -> np.ndarray:
+def _find_best_obb_alignment(pts: np.ndarray, vertices: list[tuple[float, float]]) -> np.ndarray:
     n = len(vertices)
     angles = [0.0]
     for i in range(n):
@@ -401,7 +401,7 @@ def _find_best_obb_alignment(pts: np.ndarray, vertices: List[Tuple[float, float]
     return best_pts
 
 
-def _eval_passage_segment(valid: np.ndarray, total_len: float, plot_area: float) -> Tuple[bool, float, float]:
+def _eval_passage_segment(valid: np.ndarray, total_len: float, plot_area: float) -> tuple[bool, float, float]:
     max_w = float(np.max(valid))
     narrow_thresh = min(4.0, max_w * 0.55)
     is_narrow = valid <= narrow_thresh
@@ -446,7 +446,7 @@ def _calc_bottleneck_width(row_widths: np.ndarray, col_widths: np.ndarray, is_fl
 
 
 def calculate_mic_and_bottleneck(
-    vertices: List[Tuple[float, float]],
+    vertices: list[tuple[float, float]],
     plot_area: float,
     grid_res: int = 150
 ) -> dict:
@@ -535,7 +535,7 @@ def _compute_penalties_and_score(
     flagpole_passage_ratio: float,
     bottleneck_width: float,
     nta_composite: float,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     shadow_penalty = shadow_area_ratio * 0.35
     solidity_penalty = (1.0 - solidity) * 0.25
     aspect_penalty = 0.0
@@ -567,7 +567,7 @@ def _determine_shape_type_and_grade(
     vertex_count: int,
     acute_count: int,
     shape_penalty_score: float,
-) -> Tuple[str, str, int, float]:
+) -> tuple[str, str, int, float]:
     if is_unagi:
         shape_type = "slender"
     elif is_flagpole or (shadow_area_ratio > 0.30 and mir_effective_ratio < 0.95):
@@ -599,7 +599,7 @@ def _estimate_frontage_and_depth(
     flagpole_passage_width: float,
     obb_w: float,
     obb_h: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """接道間口および奥行の推定"""
     if is_flagpole and flagpole_passage_width > 0:
         est_frontage = flagpole_passage_width
@@ -614,9 +614,9 @@ def _estimate_frontage_and_depth(
 
 
 def _calculate_mir_and_unagi(
-    vertices: List[Tuple[float, float]],
+    vertices: list[tuple[float, float]],
     plot_area: float
-) -> Tuple[float, float, float, bool]:
+) -> tuple[float, float, float, bool]:
     """最大内接矩形 (MIR) & 縦横比（うなぎの寝床判定）"""
     mir_area, mir_short, mir_long = calculate_max_inscribed_rectangle(vertices, plot_area)
     mir_effective_ratio = min(1.0, mir_area / plot_area) if plot_area > 0.0 else 1.0
@@ -625,7 +625,7 @@ def _calculate_mir_and_unagi(
     return mir_area, mir_effective_ratio, mir_aspect_ratio, is_unagi
 
 
-def analyze_plot_shape(vertices: List[Tuple[float, float]]) -> PlotShapeMetrics:
+def analyze_plot_shape(vertices: list[tuple[float, float]]) -> PlotShapeMetrics:
     """
     敷地ポリゴンの幾何指標および不動産鑑定ペナルティスコアを一括算出。
     不動産鑑定基準（吉野金次式想定整形地）、国税庁通達補正率（附表2・3・4）、

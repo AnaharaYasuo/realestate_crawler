@@ -6,7 +6,6 @@ MLモデルの学習 ➔ 全件バルク再評価 ➔ 予測誤差・残差分�
 import os
 import sys
 import time
-import json
 import logging
 import subprocess
 import shutil

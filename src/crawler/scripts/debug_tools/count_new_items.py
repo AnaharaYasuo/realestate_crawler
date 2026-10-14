@@ -9,7 +9,6 @@ while True:
     if os.path.exists(os.path.join(_parent, "setup_env.py")):
         if _parent not in sys.path:
             sys.path.insert(0, _parent)
-        import setup_env
         break
     _cur = _parent
 from django.apps import apps

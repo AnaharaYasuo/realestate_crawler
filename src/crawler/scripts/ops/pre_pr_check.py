@@ -345,7 +345,7 @@ class PrePRChecker:
         for f in py_files:
             full_path = os.path.join(self.repo_root, f)
             try:
-                with open(full_path, "r", encoding="utf-8") as fp:
+                with open(full_path, encoding="utf-8") as fp:
                     ast.parse(fp.read(), filename=f)
             except SyntaxError as e:
                 errors.append(f"構文エラー ({f}:{e.lineno}): {e.msg}")
@@ -381,7 +381,7 @@ class PrePRChecker:
     def _is_func_in_diff(self, func_line: int, full_path: str, changed_lines: set[int]) -> bool:
         """Check if AST function starting at func_line overlaps with changed_lines."""
         try:
-            with open(full_path, "r", encoding="utf-8") as fp:
+            with open(full_path, encoding="utf-8") as fp:
                 tree = ast.parse(fp.read(), filename=full_path)
             for node in ast.walk(tree):
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == func_line:

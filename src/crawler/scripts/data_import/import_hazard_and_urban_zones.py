@@ -106,7 +106,7 @@ def import_hazard_map(csv_path=None):
     count = 0
 
     if csv_path and os.path.exists(csv_path):
-        with open(csv_path, mode="r", encoding="utf-8-sig") as f:
+        with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 pref = row.get("prefecture", "").strip()
@@ -149,7 +149,7 @@ def import_urban_planning_zones(csv_path=None):
     count = 0
 
     if csv_path and os.path.exists(csv_path):
-        with open(csv_path, mode="r", encoding="utf-8-sig") as f:
+        with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 z_name = row.get("zone_name", "").strip()

@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, Any
 
 from package.utils.converter import parse_chidai
 from package.utils.newrelic_helper import record_llm_event
@@ -44,7 +44,7 @@ class BuildingMasterAttributes:
     garbage_disposal_24h: Optional[bool] = None
     management_type: Optional[str] = None
     manager_working_style: Optional[str] = None
-    shared_facilities: List[str] = field(default_factory=list)
+    shared_facilities: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -62,7 +62,7 @@ class UnitSpecAttributes:
     has_water_purifier: Optional[bool] = None
     renovation_status: str = "未実施"
     renovation_year_month: Optional[str] = None
-    renovation_details: List[str] = field(default_factory=list)
+    renovation_details: list[str] = field(default_factory=list)
     piping_replaced: Optional[bool] = None
     private_garden_area_m2: Optional[float] = None
     roof_balcony_area_m2: Optional[float] = None
@@ -229,7 +229,7 @@ class SingleUnifiedPropertyExtractor:
         http_options = types.HttpOptions(timeout=30000) if types else None
         return genai.Client(api_key=api_key, http_options=http_options)
 
-    def extract(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
+    def extract(self, prop_data: dict[str, Any]) -> UnifiedPropertyAttributes:
         """
         1件の物件データから全観点を1回のリクエストで一括抽出。
         画像リストが同梱されている場合も、画像群とプロンプトをまとめて1回で呼出。
@@ -337,7 +337,7 @@ class SingleUnifiedPropertyExtractor:
             return parse_chidai(rent_match.group(1))
         return None
 
-    def _rule_based_fallback(self, prop_data: Dict[str, Any]) -> UnifiedPropertyAttributes:
+    def _rule_based_fallback(self, prop_data: dict[str, Any]) -> UnifiedPropertyAttributes:
         """API未設定・失敗時のルールベース高速抽出"""
         all_text = " ".join([
             prop_data.get("title", ""),

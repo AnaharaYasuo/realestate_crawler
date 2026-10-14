@@ -8,7 +8,7 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 class MutationType(str, Enum):
@@ -37,7 +37,7 @@ class MutationResult:
     killed_mutants: int
     survived_mutants: int
     errored_mutants: int = 0
-    survived_details: List[Dict[str, Any]] = field(default_factory=list)
+    survived_details: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def mutation_score(self) -> float:
@@ -70,9 +70,9 @@ class ASTMutationEngine:
         ast.Or: ast.And,
     }
 
-    def generate_mutants_from_file(self, file_path: str, max_mutants: Optional[int] = None) -> List[Mutant]:
+    def generate_mutants_from_file(self, file_path: str, max_mutants: Optional[int] = None) -> list[Mutant]:
         """ファイルからASTをパースして変異体を生成"""
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             content = f.read()
         tree = ast.parse(content, filename=file_path)
         mutants = self.generate_mutants_from_tree(tree, file_path, max_mutants=max_mutants)
@@ -85,9 +85,9 @@ class ASTMutationEngine:
         tree: ast.AST,
         file_path: str,
         max_mutants: Optional[int] = None,
-    ) -> List[Mutant]:
+    ) -> list[Mutant]:
         """AST構文木から変異体リストを抽出・生成"""
-        mutants: List[Mutant] = []
+        mutants: list[Mutant] = []
 
         # 1. 比較演算子変異
         for node in ast.walk(tree):
@@ -195,7 +195,7 @@ class ASTMutationEngine:
 
     def apply_mutant(self, mutant: Mutant) -> str:
         """ファイルに変異コードを適用し、ロールバック用バックアップ文字列を返却"""
-        with open(mutant.file_path, "r", encoding="utf-8") as f:
+        with open(mutant.file_path, encoding="utf-8") as f:
             backup_content = f.read()
 
         if mutant.mutated_code is not None:

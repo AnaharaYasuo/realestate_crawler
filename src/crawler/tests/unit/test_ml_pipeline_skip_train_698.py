@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
-import sys
-from unittest.mock import MagicMock, patch
-import pytest
+from unittest.mock import MagicMock
 
 from scripts.ops import run_ml_pipeline
 from package.ml import predict

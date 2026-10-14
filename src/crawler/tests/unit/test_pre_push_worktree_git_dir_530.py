@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _run_pre_pr_check_function() -> str:
-    with open(HOOK_PATH, "r", encoding="utf-8") as f:
+    with open(HOOK_PATH, encoding="utf-8") as f:
         content = f.read()
     match = re.search(r"^run_pre_pr_check\(\) \{\n[\s\S]*?^\}\n", content, re.MULTILINE)
     assert match is not None, "run_pre_pr_check() not found in pre-push"

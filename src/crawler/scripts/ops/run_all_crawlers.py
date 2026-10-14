@@ -407,7 +407,7 @@ def clean_zombies():
         if pid == my_pid:
             continue
         try:
-            with open(os.path.join(proc_dir, name, 'cmdline'), 'r') as f:
+            with open(os.path.join(proc_dir, name, 'cmdline')) as f:
                 cmdline = f.read().replace('\x00', ' ')
             if 'main.py' in cmdline and '--company=' in cmdline:
                 logging.info(f"残留プロセスを検知: PID {pid} ({cmdline.strip()})")

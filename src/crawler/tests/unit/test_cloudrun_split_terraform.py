@@ -11,7 +11,7 @@ def test_terraform_dispatcher_and_ml_jobs_defined():
     job_file = os.path.join(TERRAFORM_DIR, "cloud_run_job.tf")
     assert os.path.exists(job_file), f"{job_file} must exist"
 
-    with open(job_file, "r", encoding="utf-8") as f:
+    with open(job_file, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_cloud_run_v2_job" "crawler_dispatcher_job"' in content, \
@@ -25,7 +25,7 @@ def test_terraform_crawler_worker_service_defined():
     worker_file = os.path.join(TERRAFORM_DIR, "cloud_run_crawler_service.tf")
     assert os.path.exists(worker_file), f"{worker_file} must exist"
 
-    with open(worker_file, "r", encoding="utf-8") as f:
+    with open(worker_file, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_cloud_run_v2_service" "crawler_worker_service"' in content, \
@@ -45,7 +45,7 @@ def test_terraform_cloud_nat_decommissioned():
     network_file = os.path.join(TERRAFORM_DIR, "network.tf")
     assert os.path.exists(network_file), f"{network_file} must exist"
 
-    with open(network_file, "r", encoding="utf-8") as f:
+    with open(network_file, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_compute_router_nat"' not in content, \

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import asyncio
 import logging
-from typing import Optional, Any, Dict
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,14 +9,12 @@ class CrawlerMiddleware(ABC):
     """ミドルウェアの基底クラス"""
     
     @abstractmethod
-    async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
         """リクエスト前処理。None以外を返すと処理を中断しその値を返却します。"""
-        pass
     
     @abstractmethod
-    async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         """レスポンス後処理"""
-        pass
 
 class RateLimitMiddleware(CrawlerMiddleware):
     """レート制限ミドルウェア"""
@@ -24,13 +22,13 @@ class RateLimitMiddleware(CrawlerMiddleware):
     def __init__(self, delay: float = 1.0):
         self.delay = delay
     
-    async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
         """リクエスト送信前に指定秒数ウェイトします。"""
         logger.debug(f"RateLimitMiddleware: sleeping {self.delay}s for {request_context.get('url')}")
         await asyncio.sleep(self.delay)
         return None
     
-    async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         """レスポンスコンテキストをそのまま返却します。"""
         return response_context
 
@@ -41,11 +39,11 @@ class RetryMiddleware(CrawlerMiddleware):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
     
-    async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
         """リクエスト送信前の前処理を行います。"""
         return None
     
-    async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         """5xxサーバーエラー時にリトライ判定を行います。"""
         status = response_context.get('status')
         if status and status >= 500:
@@ -74,7 +72,7 @@ class LoggingMiddleware(CrawlerMiddleware):
             return cleaned[:max_len]
         return cleaned
 
-    async def process_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
         """リクエスト送信内容をINFOログに出力します。"""
         method = request_context.get('method')
         url = request_context.get('url')
@@ -88,7 +86,7 @@ class LoggingMiddleware(CrawlerMiddleware):
         logger.info(f"Middleware Request: {method} {url} | Payload: {payload}")
         return None
     
-    async def process_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         """レスポンスステータスに応じて適切な重大度 (2xx/3xx: INFO, 4xx: WARNING, 5xx: ERROR) でログ出力します。"""
         status = response_context.get('status')
         url = response_context.get('url')

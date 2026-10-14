@@ -2,7 +2,7 @@
 import re
 import importlib
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Any
 
 from package.utils.property_type_detector import PropertyTypeDetector
 
@@ -810,7 +810,7 @@ class UrlRouter:
     ]
 
     @classmethod
-    def _find_best_route(cls, matched_routes: List[Dict[str, Any]], target_ptype: str) -> Optional[Dict[str, Any]]:
+    def _find_best_route(cls, matched_routes: list[dict[str, Any]], target_ptype: str) -> Optional[dict[str, Any]]:
         for route in matched_routes:
             if route["property_type"] == target_ptype:
                 return route
@@ -826,9 +826,9 @@ class UrlRouter:
         url: str,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        specs: Optional[dict[str, Any]] = None,
         property_type: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """
         URLから対象サイト・物件種別・パーサークラス情報を特定
         オプションで property_type, title, html_text, specs を渡すことで動的な物件種別判別にも対応
@@ -869,7 +869,7 @@ class UrlRouter:
         url: str,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        specs: Optional[dict[str, Any]] = None,
         property_type: Optional[str] = None
     ) -> Optional[Any]:
         """

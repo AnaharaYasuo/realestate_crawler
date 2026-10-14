@@ -7,10 +7,10 @@
 - 大手仲介5社 (三井, 住友, 東急, 野村, ミサワ): 2本 (居住用+投資用のバランス消化)
 - 中小・電鉄・ハウスメーカー (積水, 大和, 旭化成, 小田急等 17社): 1本 (同一会社内完全直列)
 """
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # 会社別の最大同時実行プロセス数
-COMPANY_CONCURRENCY_LIMITS: Dict[str, int] = {
+COMPANY_CONCURRENCY_LIMITS: dict[str, int] = {
     # 超大規模ポータル (HTTP)
     "homes": 5,
     # 超大規模ポータル (Playwright)
@@ -33,12 +33,12 @@ def get_company_concurrency_limit(company: str) -> int:
 
 
 def select_next_job(
-    job_queue: List[Tuple[str, str]],
-    active_company_counts: Dict[str, int],
+    job_queue: list[tuple[str, str]],
+    active_company_counts: dict[str, int],
     max_playwright_parallel: Optional[int] = None,
     current_playwright_count: int = 0,
-    playwright_companies: Optional[List[str]] = None,
-) -> Optional[Tuple[int, Tuple[str, str]]]:
+    playwright_companies: Optional[list[str]] = None,
+) -> Optional[tuple[int, tuple[str, str]]]:
     """
     キューの中から、会社別並行度上限およびPlaywright上限に空きのある次のジョブを選択して
     (キュー内のインデックス, (company, ptype)) を返す。

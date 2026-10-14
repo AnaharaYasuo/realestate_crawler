@@ -1,4 +1,3 @@
-from django.db import models
 from .base import MansionBaseModel, KodateBaseModel, TochiBaseModel
 
 # --- Ietan (大成有楽不動産販売) ---

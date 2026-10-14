@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import urllib.parse
 import importlib
-from typing import Optional, Any, Tuple
+from typing import Optional, Any
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 
@@ -750,7 +750,7 @@ def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
     return {}
 
 
-def _resolve_cached_meta(eval_record, route: Optional[dict]) -> Tuple[str, str]:
+def _resolve_cached_meta(eval_record, route: Optional[dict]) -> tuple[str, str]:
     site_name = getattr(eval_record, "company", "unknown")
     if hasattr(site_name, "_mock_name") or type(site_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
         site_name = route["site"] if route else "unknown"
@@ -868,7 +868,7 @@ def _save_live_scraped_item(target_item: Any, clean_url: str) -> None:
         logging.warning(f"Failed to upsert property item to DB for {clean_url}: {e}")
 
 
-async def _fetch_live_property_item(route: dict, url: str) -> Tuple[Any, Optional[Tuple[dict, int]]]:
+async def _fetch_live_property_item(route: dict, url: str) -> tuple[Any, Optional[tuple[dict, int]]]:
     clean_url = UrlMatcher.normalize(url)
     try:
         parser_mod = importlib.import_module(route["parser_module"])

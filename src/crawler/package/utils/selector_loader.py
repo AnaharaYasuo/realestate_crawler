@@ -8,7 +8,7 @@ modifying code.
 
 import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class SelectorLoader:
         price_el = response.select_one(selectors['price'])
     """
     
-    _cache: Dict[str, Dict[str, Any]] = {}
+    _cache: dict[str, dict[str, Any]] = {}
     _config_dir: Optional[Path] = None
     
     @classmethod
@@ -89,7 +89,7 @@ class SelectorLoader:
         return cls._config_dir
     
     @classmethod
-    def load(cls, company: str, property_type: str) -> Dict[str, Any]:
+    def load(cls, company: str, property_type: str) -> dict[str, Any]:
         """
         Load selectors for a specific company and property type.
         
@@ -122,7 +122,7 @@ class SelectorLoader:
             )
         
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(config_path, encoding='utf-8') as f:
                 config = yaml.safe_load(f)
         except yaml.YAMLError as e:
             logger.exception(f"Failed to parse YAML file {config_path}: {e}")
@@ -148,7 +148,7 @@ class SelectorLoader:
         logger.info("Selector cache cleared")
     
     @classmethod
-    def reload(cls, company: str, property_type: str) -> Dict[str, Any]:
+    def reload(cls, company: str, property_type: str) -> dict[str, Any]:
         """
         Reload selectors for a specific company and property type.
         

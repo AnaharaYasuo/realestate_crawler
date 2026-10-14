@@ -4,7 +4,7 @@ import re
 import time
 import urllib.parse
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 try:
     from package.utils.newrelic_helper import record_llm_event as _record_llm_event
@@ -69,7 +69,7 @@ class PropertyTypeDetector:
 
 
 
-    _ai_cache: Dict[str, str] = {}
+    _ai_cache: dict[str, str] = {}
 
     _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き", "土地・建物", "土地建物")
 
@@ -180,7 +180,7 @@ class PropertyTypeDetector:
         )
 
     @classmethod
-    def _has_yield_signal_specs(cls, specs: Dict[str, Any]) -> bool:
+    def _has_yield_signal_specs(cls, specs: dict[str, Any]) -> bool:
         """スペック辞書内に利回り表記やgrossYieldが存在するか判定（空欄・宣伝文の混入は除外）"""
         for k, v in specs.items():
             v_str = str(v).strip() if v is not None else ""
@@ -265,7 +265,7 @@ class PropertyTypeDetector:
         return None
 
     @classmethod
-    def _detect_from_specs(cls, specs: Dict[str, Any]) -> Optional[str]:
+    def _detect_from_specs(cls, specs: dict[str, Any]) -> Optional[str]:
         """スペック表の特定キーおよび値全体から種別判定"""
         type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
         for k in type_keys:
@@ -316,7 +316,7 @@ class PropertyTypeDetector:
         url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        specs: Optional[dict[str, Any]] = None,
     ) -> Optional[str]:
         specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype == "apartment":
@@ -351,7 +351,7 @@ class PropertyTypeDetector:
         url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        specs: Optional[dict[str, Any]] = None,
         default: Optional[str] = None,
         use_ai: bool = False
     ) -> Optional[str]:
@@ -376,7 +376,7 @@ class PropertyTypeDetector:
         url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None
+        specs: Optional[dict[str, Any]] = None
     ) -> str:
         """キャッシュキーの導出（SonarCloud S3358 三項演算子のネスト解消）"""
         if url and url.strip():
@@ -463,7 +463,7 @@ class PropertyTypeDetector:
         url: Optional[str] = None,
         title: Optional[str] = None,
         html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
+        specs: Optional[dict[str, Any]] = None,
         default: str = "mansion"
     ) -> str:
         """

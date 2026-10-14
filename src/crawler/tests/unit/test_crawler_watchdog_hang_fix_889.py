@@ -1,4 +1,3 @@
-import pytest
 from package.utils import crawler_watchdog
 
 

@@ -38,7 +38,7 @@ def _read_all_tf() -> str:
     contents = []
     for name in sorted(os.listdir(TERRAFORM_DIR)):
         if name.endswith(".tf"):
-            with open(os.path.join(TERRAFORM_DIR, name), "r", encoding="utf-8") as f:
+            with open(os.path.join(TERRAFORM_DIR, name), encoding="utf-8") as f:
                 contents.append(_strip_hcl_comments(f.read()))
     return "\n".join(contents)
 

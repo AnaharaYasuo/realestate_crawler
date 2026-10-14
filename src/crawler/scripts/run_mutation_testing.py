@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _crawler_root not in sys.path:
@@ -31,7 +31,7 @@ DEFAULT_DETECTOR_FILE = "property_type_detector.py"
 DEFAULT_DETECTOR_TEST_FILE = f"test_{DEFAULT_DETECTOR_FILE}"
 
 
-def run_level1_data_mutation(crawler_root: str) -> Dict[str, Any]:
+def run_level1_data_mutation(crawler_root: str) -> dict[str, Any]:
     """Level 1: 全モデル・フィールド分類網羅とデータ破損注入テストの実行"""
     logger.info("=== [Level 1: Data Mutation Testing] Starting ===")
     test_file = os.path.join(crawler_root, "tests", "unit", "test_parser_field_validation.py")
@@ -77,7 +77,7 @@ def _evaluate_single_mutant(
     crawler_root: str,
     idx: int,
     total: int,
-) -> tuple[bool, Optional[Dict[str, Any]]]:
+) -> tuple[bool, Optional[dict[str, Any]]]:
     try:
         is_killed = engine.run_mutation_test(
             mutant=mutant,
@@ -120,7 +120,7 @@ def run_level2_code_mutation(
     killed = 0
     survived = 0
     errored = 0
-    survived_details: List[Dict[str, Any]] = []
+    survived_details: list[dict[str, Any]] = []
     test_cmd = f'"{sys.executable}" -m pytest "{test_abs}" -q'
 
     for idx, mutant in enumerate(mutants, 1):
@@ -143,7 +143,7 @@ def run_level2_code_mutation(
     )
 
 
-def _get_git_changed_files(crawler_root: str) -> List[str]:
+def _get_git_changed_files(crawler_root: str) -> list[str]:
     diff_cmds = [
         ["git", "diff", "--ignore-space-at-eol", "origin/master...HEAD", "--name-only"],
         ["git", "diff", "--ignore-space-at-eol", "master...HEAD", "--name-only"],
@@ -178,7 +178,7 @@ def _resolve_unit_abs_path(crawler_root: str, path: str) -> str:
     return os.path.abspath(cand1)
 
 
-def _find_matched_source(crawler_root: str, test_base: str, source_files: List[str]) -> Optional[str]:
+def _find_matched_source(crawler_root: str, test_base: str, source_files: list[str]) -> Optional[str]:
     for sf in source_files:
         if os.path.basename(sf) == test_base:
             return _resolve_unit_abs_path(crawler_root, sf)
@@ -194,13 +194,13 @@ def _find_matched_source(crawler_root: str, test_base: str, source_files: List[s
     return None
 
 
-def find_pr_changed_units(crawler_root: str) -> List[Dict[str, str]]:
+def find_pr_changed_units(crawler_root: str) -> list[dict[str, str]]:
     """PRで追加・変更されたファイルから、変異対象ファイルと対応するテストファイルのペアを自動検出"""
     changed_files = _get_git_changed_files(crawler_root)
     exclude_tests = {"test_parser_field_validation.py", "test_mutation_engine.py"}
     exclude_targets = {"mutation_engine.py"}
 
-    pairs: List[Dict[str, str]] = []
+    pairs: list[dict[str, str]] = []
     test_files = [f for f in changed_files if "tests/unit/test_" in f and os.path.basename(f) not in exclude_tests]
     source_files = [f for f in changed_files if "package/" in f and "tests/" not in f and os.path.basename(f) not in exclude_targets]
 
@@ -225,7 +225,7 @@ def find_pr_changed_units(crawler_root: str) -> List[Dict[str, str]]:
 def _run_pr_code_mutations(
     crawler_root: str,
     args: argparse.Namespace,
-    report_data: Dict[str, Any],
+    report_data: dict[str, Any],
 ) -> bool:
     pr_pairs = find_pr_changed_units(crawler_root)
     logger.info("PR Mode detected %d unit test / target pairs: %s", len(pr_pairs), pr_pairs)
@@ -277,7 +277,7 @@ def _run_pr_code_mutations(
     return pr_passed
 
 
-def _print_mutation_summary(report_data: Dict[str, Any], all_passed: bool):
+def _print_mutation_summary(report_data: dict[str, Any], all_passed: bool):
     print("\n=======================================================")
     print("           MUTATION TESTING SUMMARY REPORT             ")
     print("=======================================================")
@@ -306,7 +306,7 @@ def _print_mutation_summary(report_data: Dict[str, Any], all_passed: bool):
     print("=======================================================\n")
 
 
-def _save_mutation_report(crawler_root: str, report_arg: Optional[str], report_data: Dict[str, Any]):
+def _save_mutation_report(crawler_root: str, report_arg: Optional[str], report_data: dict[str, Any]):
     report_filename = os.path.basename(report_arg) if report_arg else "mutation_report.json"
     if not report_filename.endswith(".json"):
         report_filename = f"{report_filename}.json"
@@ -334,7 +334,7 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     crawler_root = os.path.dirname(script_dir)
 
-    report_data: Dict[str, Any] = {
+    report_data: dict[str, Any] = {
         "mode": "pr-mode" if args.pr_mode else args.mode,
         "results": {},
         "summary": {},

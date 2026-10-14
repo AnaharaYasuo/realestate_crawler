@@ -131,7 +131,7 @@ def record_failed_message(channel: str, error: str, message: str):
         data = []
         if os.path.exists(file_path):
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     data = json.load(f)
             except Exception:
                 pass

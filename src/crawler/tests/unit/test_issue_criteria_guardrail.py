@@ -1,4 +1,3 @@
-import pytest
 try:
     from scripts.debug_tools.check_issue_criteria import (
         extract_issue_number,

@@ -14,7 +14,7 @@ def test_artifact_registry_cleanup_policy_defined():
     tf_file = os.path.join(TERRAFORM_DIR, "artifact_registry.tf")
     assert os.path.exists(tf_file), f"{tf_file} must exist"
 
-    with open(tf_file, "r", encoding="utf-8") as f:
+    with open(tf_file, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_artifact_registry_repository" "crawler_repo"' in content
@@ -39,7 +39,7 @@ def test_deploy_production_prune_step_defined():
     """deploy-production.yml に最新3世代超過イメージを自動削除するプルーニングステップが定義されていることを検証"""
     assert os.path.exists(WORKFLOW_FILE), f"{WORKFLOW_FILE} must exist"
 
-    with open(WORKFLOW_FILE, "r", encoding="utf-8") as f:
+    with open(WORKFLOW_FILE, encoding="utf-8") as f:
         content = f.read()
 
     assert "Prune old images (Keep latest 3 versions)" in content

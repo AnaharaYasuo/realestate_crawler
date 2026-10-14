@@ -12,7 +12,7 @@ def test_daily_pipeline_yaml_skip_portals_configuration():
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     main_steps = data["main"]["steps"]
@@ -51,7 +51,7 @@ def test_scheduler_tf_passes_skip_portals():
     scheduler_path = os.path.join(repo_root, "terraform", "scheduler.tf")
     assert os.path.exists(scheduler_path), f"scheduler.tf missing at {scheduler_path}"
 
-    with open(scheduler_path, "r", encoding="utf-8") as f:
+    with open(scheduler_path, encoding="utf-8") as f:
         content = f.read()
 
     assert "skipPortals" in content

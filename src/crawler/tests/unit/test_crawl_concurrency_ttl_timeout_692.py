@@ -2,10 +2,9 @@
 """
 Issue #692: クローラー詳細取得の非同期並行化、差分TTL 30日化、およびタイムアウト5時間枠延長のテスト
 """
-import os
 import inspect
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
 from package.api import api as api_module

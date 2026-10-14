@@ -23,7 +23,7 @@ def test_realestate_settings_source_code_enforces_bound_mysql_timeouts():
     import realestateSettings
 
     settings_file = os.path.abspath(realestateSettings.__file__)
-    with open(settings_file, "r", encoding="utf-8") as f:
+    with open(settings_file, encoding="utf-8") as f:
         content = f.read()
 
     assert "bound_mysql_timeouts" in content, (

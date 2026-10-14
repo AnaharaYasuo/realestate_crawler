@@ -9,7 +9,7 @@ import pytest
 from package.models.evaluation import HazardMapPotential, UrbanPlanningZonePotential, LandPricePotential
 from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
 from scripts.sync_all_potentials import run_all_syncs
-from package.ml.features import build_features, _load_all_potential_caches_once
+from package.ml.features import build_features
 
 
 

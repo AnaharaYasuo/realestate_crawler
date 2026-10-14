@@ -1,6 +1,3 @@
-import setup_env
-import os
-import pandas as pd
 from scripts.debug_tools.analyze_prediction_distribution import analyze
 
 df = analyze()

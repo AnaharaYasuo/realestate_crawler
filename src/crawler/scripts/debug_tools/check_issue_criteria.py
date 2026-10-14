@@ -16,7 +16,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Optional, Any
 
 
 
@@ -53,7 +53,7 @@ def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int
     return None
 
 
-def parse_acceptance_criteria(body: str) -> Tuple[List[str], List[str]]:
+def parse_acceptance_criteria(body: str) -> tuple[list[str], list[str]]:
     """
     Parse markdown task list checkboxes from issue body.
 
@@ -85,7 +85,7 @@ def parse_acceptance_criteria(body: str) -> Tuple[List[str], List[str]]:
     return checked, unchecked
 
 
-def _get_current_git_info() -> Tuple[str, str]:
+def _get_current_git_info() -> tuple[str, str]:
     """Retrieve current git branch name and latest commit message."""
     branch = ""
     commit_msg = ""
@@ -118,7 +118,7 @@ def _get_current_git_info() -> Tuple[str, str]:
     return branch, commit_msg
 
 
-def _fetch_issue_via_api(issue_num: int) -> Optional[Dict[str, Any]]:
+def _fetch_issue_via_api(issue_num: int) -> Optional[dict[str, Any]]:
     """Fetch issue metadata directly via GitHub REST API as fallback."""
     url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/issues/{issue_num}"
     headers = {"User-Agent": "realestate-crawler-gate"}
@@ -141,7 +141,7 @@ def _fetch_issue_via_api(issue_num: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-def fetch_issue_data(issue_num: int) -> Optional[Dict[str, Any]]:
+def fetch_issue_data(issue_num: int) -> Optional[dict[str, Any]]:
     """Fetch issue metadata from GitHub using gh CLI with API fallback."""
     clean_num = str(issue_num).strip()
     if not clean_num.isdigit() or not re.match(r"^[1-9]\d*$", clean_num):
@@ -163,7 +163,7 @@ def fetch_issue_data(issue_num: int) -> Optional[Dict[str, Any]]:
     return _fetch_issue_via_api(int(clean_num))
 
 
-def validate_issue_acceptance_criteria(issue_data: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+def validate_issue_acceptance_criteria(issue_data: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     """
     Validate that the issue contains acceptance criteria and all are checked.
 
@@ -199,7 +199,7 @@ def validate_issue_acceptance_criteria(issue_data: Dict[str, Any]) -> Tuple[bool
     return True, msg, details
 
 
-def _print_report(is_valid: bool, msg: str, details: Dict[str, Any], quiet: bool = False) -> None:
+def _print_report(is_valid: bool, msg: str, details: dict[str, Any], quiet: bool = False) -> None:
     """Print structured console report for acceptance criteria validation."""
     if quiet:
         return

@@ -247,12 +247,23 @@ class MitsuiParser(ParserBase):
         return lines
 
     def _parseTrafficLines(self, response, _specs=None):
-        res = self._getValueByLabel(response, "最寄り駅") or self._getValueByLabel(response, "交通")
-        if res:
-            lines = self._extract_traffic_from_soup(res)
-        else:
+        lines = []
+        for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
+            res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
+            if res:
+                extracted = self._extract_traffic_from_soup(res)
+                if extracted:
+                    lines = extracted
+                    break
+
+        if not lines:
             specs = _specs if _specs is not None else self._get_specs(response)
-            traffic_val = specs.get("交通", "") or specs.get("最寄り駅", "") or specs.get("沿線・駅", "")
+            traffic_val = (
+                specs.get("交通", "")
+                or specs.get("最寄り駅", "")
+                or specs.get("沿線・駅", "")
+                or specs.get("アクセス", "")
+            )
             lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
 
         return [
@@ -526,23 +537,32 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         val = (
             target_specs.get("所在階")
             or target_specs.get("所在階 / 階建")
+            or target_specs.get("所在階/階建")
+            or target_specs.get("所在階・階建")
             or target_specs.get("階数")
             or target_specs.get("階数 / 階建")
             or target_specs.get("所在階/階数")
-            or target_specs.get("所在階/階建", "")
+            or target_specs.get("所在階・階数")
+            or target_specs.get("階", "")
         )
         if not val and hasattr(self, "_getValueByLabel"):
             label_tag = (
                 self._getValueByLabel(response, "所在階")
                 or self._getValueByLabel(response, "所在階 / 階建")
+                or self._getValueByLabel(response, "所在階/階建")
+                or self._getValueByLabel(response, "所在階・階建")
                 or self._getValueByLabel(response, "階数")
+                or self._getValueByLabel(response, "階数 / 階建")
+                or self._getValueByLabel(response, "所在階/階数")
+                or self._getValueByLabel(response, "所在階・階数")
+                or self._getValueByLabel(response, "階")
             )
             if label_tag:
                 val = label_tag.get_text(strip=True) if hasattr(label_tag, "get_text") else str(label_tag)
         return val or ""
 
     def _parseKaisu(self, response, _specs=None):
-        val = self._parseKaisuStr(response)
+        val = self._parseKaisuStr(response, specs=_specs)
         if val:
             try:
                 m = re.search(REGEX_DIGITS, val)

@@ -23,7 +23,7 @@ def parse_meta_file(meta_path):
     if not os.path.exists(meta_path):
         return info
     try:
-        with open(meta_path, "r", encoding="utf-8") as f:
+        with open(meta_path, encoding="utf-8") as f:
             for line in f:
                 if line.startswith("URL:"):
                     info["url"] = line.split("URL:", 1)[1].strip()

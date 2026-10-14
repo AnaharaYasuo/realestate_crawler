@@ -4,7 +4,6 @@
 """
 import urllib.request
 import re
-import json
 from bs4 import BeautifulSoup
 
 HEADERS = {
