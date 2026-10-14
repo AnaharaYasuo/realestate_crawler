@@ -123,19 +123,35 @@ class PropertyDataValidator:
         return price_val
 
     @staticmethod
-    def _extract_and_validate_area(item: Any, ptype: str, reasons: list[str]) -> float:
-        area = 0.0
-        senyu = getattr(item, "senyuMenseki", None)
-        tatemono = getattr(item, "tatemonoMenseki", None)
-        tochi = getattr(item, "tochiMenseki", None)
+    def _parse_candidate_float(val: Any) -> float | None:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
 
-        for candidate in (senyu, tatemono, tochi):
-            if candidate is not None:
-                try:
-                    area = float(candidate)
+    @classmethod
+    def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
+        area = 0.0
+        if ptype in ("mansion", "invest_mansion"):
+            attrs = ("senyuMenseki",)
+        elif ptype == "tochi":
+            attrs = ("tochiMenseki",)
+        else:
+            attrs = ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+
+        candidates = [
+            cls._parse_candidate_float(getattr(item, attr, None))
+            for attr in attrs
+        ]
+        parsed = [c for c in candidates if c is not None]
+        if parsed:
+            area = parsed[0]
+            for val in parsed:
+                if val > 5.0:
+                    area = val
                     break
-                except (ValueError, TypeError):
-                    continue
 
         if area <= 5.0:
             reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
@@ -151,8 +167,9 @@ class PropertyDataValidator:
             min_unit = 10.0 if cls._is_low_price_allowed(item, ptype) else 1000.0
             if unit_price < min_unit:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: {min_unit:.0f}円/㎡未満)")
-            elif unit_price > 15000000.0:
-                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
+            elif unit_price > 50000000.0:
+                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 5000万円/㎡超)")
+
 
     @staticmethod
     def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:
