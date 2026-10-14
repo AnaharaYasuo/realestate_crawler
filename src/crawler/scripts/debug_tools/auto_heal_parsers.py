@@ -77,6 +77,7 @@ from package.models.tokyu import (
     TokyuMansion,
     TokyuTochi,
 )
+from package.utils.data_validator import PropertyDataValidator
 from package.utils.slack import send_dev_report
 
 try:
@@ -372,7 +373,16 @@ def scan_anomalies_and_generate_instructions():
         except model.DoesNotExist:
             continue
 
-        reason = ev.data_quality_issue or ""
+        # 現行バリデータで再検証: すでに合格するレコードは自動的に不整合フラグを解消 (Issue #922)
+        is_valid, current_reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
+        if is_valid:
+            if ev.needs_parser_fix or ev.data_quality_issue:
+                ev.needs_parser_fix = False
+                ev.data_quality_issue = ""
+                ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
+            continue
+
+        reason = "; ".join(current_reasons) if current_reasons else (ev.data_quality_issue or "")
         if not reason:
             if prop.price and prop.price < 1000000:
                 reason = f"価格異常極小: {prop.priceStr} ({prop.price}円)"
@@ -380,13 +390,16 @@ def scan_anomalies_and_generate_instructions():
                 reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
             elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
                 reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
-        elif (
+
+        if (
             hasattr(prop, "maguchi")
             and prop.maguchi == 0
             and prop.setsudou
             and any(k in str(prop.setsudou) for k in ["間口", "接面"])
         ):
-            reason = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            maguchi_warn = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            reason = f"{reason}; {maguchi_warn}" if reason else maguchi_warn
+
 
         if reason:
             target = {
