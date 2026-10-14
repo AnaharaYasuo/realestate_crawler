@@ -134,9 +134,16 @@ class PropertyDataValidator:
     @classmethod
     def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         area = 0.0
+        if ptype in ("mansion", "invest_mansion"):
+            attrs = ("senyuMenseki",)
+        elif ptype == "tochi":
+            attrs = ("tochiMenseki",)
+        else:
+            attrs = ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+
         candidates = [
             cls._parse_candidate_float(getattr(item, attr, None))
-            for attr in ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+            for attr in attrs
         ]
         parsed = [c for c in candidates if c is not None]
         if parsed:

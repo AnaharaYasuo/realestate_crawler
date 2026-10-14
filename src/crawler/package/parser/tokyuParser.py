@@ -1541,6 +1541,15 @@ class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase
 class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
     property_type = 'invest_kodate'
 
+    def _parse_nextjs_property_item(self, item):
+        labels = item.get('labelList') or []
+        for lbl in labels:
+            if isinstance(lbl, dict) and lbl.get('iconName') == '物件種別':
+                txt = lbl.get('listText') or lbl.get('detailText') or ''
+                if not any(kw in txt for kw in ['戸建', '戸建て']):
+                    return None
+        return super()._parse_nextjs_property_item(item)
+
     def _parseTochiMenseki(self, response, specs=None):
         return super()._parseTochiMenseki(response, specs)
 

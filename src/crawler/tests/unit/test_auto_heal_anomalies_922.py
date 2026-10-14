@@ -169,3 +169,18 @@ def test_scan_anomalies_resolves_valid_property_evaluations():
     assert "間口パース漏れ警告" in recorded_targets[0]["reason"]
 
 
+def test_mansion_area_does_not_fallback_to_land_area():
+    """マンションでは専有面積が5㎡以下の場合、土地面積が存在してもフォールバックせず面積異常となること"""
+    item = SimpleNamespace(
+        propertyName="テストマンション",
+        address="東京都港区",
+        traffic="神谷町駅 徒歩3分",
+        price=50000000,
+        senyuMenseki=1.0,  # 異常値
+        tochiMenseki=100.0,
+    )
+    ok, reasons = PropertyDataValidator.validate_property(item, "mansion")
+    assert not ok
+    assert any("5㎡以下" in r for r in reasons)
+
+
