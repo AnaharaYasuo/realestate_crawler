@@ -449,6 +449,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[task_array_fast_exit_requirements.md](docs/requirements/task_array_fast_exit_requirements.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 要件定義書 (Issue #823)
     *   **[mansion_crawler_speedup_and_differential_fix_requirements.md](docs/requirements/mansion_crawler_speedup_and_differential_fix_requirements.md)**: マンション系クローラー中間ページ並行化・WAF適正緩和および野村差分抽出修復 要件定義書 (Issue #867)
     *   **[crawler_hierarchy_and_parallel_expansion_requirements.md](docs/requirements/crawler_hierarchy_and_parallel_expansion_requirements.md)**: 全対象サイト中間ページ並行化・階層化 要件定義書 (Issue #870)
+    *   **[kenbiya_parser_spec_overwrite_requirements_926.md](docs/requirements/kenbiya_parser_spec_overwrite_requirements_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 要件定義書 (Issue #926)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -472,6 +473,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[task_array_fast_exit_external_design.md](docs/external_design/task_array_fast_exit_external_design.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 外部設計書 (Issue #823)
 *   **[mansion_crawler_speedup_and_differential_fix_external_design.md](docs/external_design/mansion_crawler_speedup_and_differential_fix_external_design.md)**: マンション系クローラー中間ページ並行化・WAF適正緩和および野村差分抽出修復 外部設計書 (Issue #867)
 *   **[crawler_hierarchy_and_parallel_expansion_external_design.md](docs/external_design/crawler_hierarchy_and_parallel_expansion_external_design.md)**: 全対象サイト中間ページ並行化・階層化 外部設計書 (Issue #870)
+*   **[kenbiya_parser_spec_overwrite_external_design_926.md](docs/external_design/kenbiya_parser_spec_overwrite_external_design_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 外部設計書 (Issue #926)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -508,6 +510,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[全対象サイト中間ページ並行化・階層化 内部設計書](docs/internal_design/crawler_hierarchy_and_parallel_expansion_internal_design.md)** - 全対象サイトの中間ページ多階層化・並行探索化（MIDDLE_PARARELL_LIMIT=3）および動的並行度判定の適正化 (Issue #870)
 - **[クローラーDB監視DNS堅牢化 & ML再学習インポート修復 内部設計書](docs/internal_design/crawler_db_dns_and_ml_train_internal_design.md)** - DB接続先IP解決固定によるFast-Fail誤発動防止およびsetup_env連携によるML再学習インポート修復 (Issue #892)
 - **[継続実行時のパース・モデル不整合解消及びサーキットブレイカー誤爆防止 内部設計書](docs/internal_design/pipeline_resilience_and_model_fields_internal_design_898.md)** - リトライ試行内タイムアウトと連続タイムアウト判定の分離、および各社モデルの任意項目空文字・null許容化 (Issue #898)
+- **[健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 内部設計書](docs/internal_design/kenbiya_parser_spec_overwrite_internal_design_926.md)** - 親要素判定によるガイド除外、div.property正規スペック優先走査、および同一キー上書き防止 (Issue #926)
 
 
 

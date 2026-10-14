@@ -259,6 +259,49 @@ async def test_kenbiya_user_agent_rotation_across_subclasses():
     assert recorded_uas[0] != recorded_uas[1]
 
 
+def test_kenbiya_specs_not_overwritten_by_glossary():
+    import datetime
+    from bs4 import BeautifulSoup
+    from package.parser.kenbiyaParser import KenbiyaInvestmentApartmentParser
+    from package.models.kenbiya import KenbiyaInvestmentApartment
+
+    html = """
+    <html>
+      <body>
+        <div class="property">
+          <dl>
+            <dt>物件名</dt><dd>サンマイト谷原</dd>
+            <dt>価格</dt><dd>2,900万円</dd>
+            <dt>築年月</dt><dd>1991年7月（築35年）</dd>
+            <dt>建物構造/階数</dt><dd>木造2階建</dd>
+          </dl>
+        </div>
+        <div class="box_outline">
+          <dl>
+            <dt>築年月</dt><dd>建物が完成した年月を表示。新築の場合は新築マークを表示。</dd>
+            <dt>建物構造/階数</dt><dd>建物の主となる構造、階建、総戸数を表示。区分所有物件は該当する階まで。</dd>
+          </dl>
+        </div>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parser = KenbiyaInvestmentApartmentParser()
+    specs = parser._get_specs(soup)
+
+    # 1. specs["築年月"] が用語解説で上書きされていないこと
+    assert "築年月" in specs
+    assert "建物が完成した年月" not in specs["築年月"]
+    assert "1991年7月" in specs["築年月"]
+
+    # 2. モデルの chikunengetsu が 1991-07-01 にパースされること
+    item = KenbiyaInvestmentApartment()
+    item.pageUrl = "https://www.kenbiya.com/pp2/s/saitama/kasukabe-shi/re_4723873c7j/"
+    item = parser._parsePropertyDetailPage(item, soup)
+    assert item.chikunengetsu == datetime.date(1991, 7, 1)
+
+
+
 
 
 
