@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from typing import Any
 import logging
-from yarl import URL
+from typing import Any
+
 from django.db.models import Q
+from yarl import URL
 
 logger = logging.getLogger(__name__)
 

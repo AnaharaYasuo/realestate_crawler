@@ -8,7 +8,7 @@ modifying code.
 
 import yaml
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class SelectorLoader:
         price_el = response.select_one(selectors['price'])
     """
     
-    _cache: dict[str, dict[str, Any]] = {}
+    _cache: ClassVar[dict[str, dict[str, Any]]] = {}
     _config_dir: Path | None = None
     
     @classmethod
