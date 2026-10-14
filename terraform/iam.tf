@@ -40,6 +40,13 @@ resource "google_project_iam_member" "crawler_runner_compute_admin" {
   member  = "serviceAccount:${google_service_account.crawler_runner.email}"
 }
 
+# Grant Monitoring Viewer (safety-net reads instance network traffic via Cloud Monitoring list_time_series)
+resource "google_project_iam_member" "crawler_runner_monitoring_viewer" {
+  project = var.project_id
+  role    = "roles/monitoring.viewer"
+  member  = "serviceAccount:${google_service_account.crawler_runner.email}"
+}
+
 # Grant Cloud Run Developer & Viewer to crawler_runner (Workflows orchestrates Cloud Run Jobs with overrides)
 resource "google_cloud_run_v2_job_iam_member" "crawler_runner_crawler_executor" {
   project  = var.project_id
