@@ -156,7 +156,8 @@ def main(argv=None):
     # 2. ProxySQL 疎通待機
     wait_for_proxysql_health(timeout_sec=60)
 
-    # 3. Cloud Tasks へ全タスク投入 (スキーマ変更は CI/CD 専用: Issue #932)
+    # 3. Cloud Tasks へ全タスク投入 (スキーマ変更は CI/CD 専用: Issue #932。
+    #    deploy-production.yml は migrate ジョブ成功後にのみ本ジョブのイメージを更新する)
     enqueue_crawl_tasks(skip_portals=args.skip_portals, dry_run=args.dry_run)
 
     logger.info("=== [DISPATCHER SUCCESS] All tasks dispatched. Exiting immediately (CPU cost ¥0). ===")

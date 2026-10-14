@@ -813,6 +813,7 @@ def main():
         )
 
         # Schema migration is CI/CD-only (deploy-production.yml, Issue #932); crawler never migrates.
+        # deploy-production.yml updates this job image only after the migrate job succeeds.
 
         should_continue, crawler_ok = _run_crawler_step(
             is_task_array,

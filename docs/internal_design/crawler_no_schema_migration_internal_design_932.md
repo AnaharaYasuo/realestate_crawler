@@ -8,3 +8,8 @@
 
 ## 影響範囲
 `manage.py migrate` の呼び出し元は `deploy-production.yml`（Cloud Run Job `realestate-migrate-prod`）と `terraform/cloud_run_job.tf` の `db_migrate_job` のみとなる。
+
+## 起動順序の保証（スキーマ更新完了が前提）
+- deploy-production.yml は Run Database Migrations on Cloud SQL ステップ（gcloud run jobs execute realestate-migrate-prod --wait）が成功した後に、はじめて ealestate-crawler-pipeline-prod / ealestate-crawler-dispatcher-prod 等のジョブイメージを更新する。--wait により失敗時はステップが失敗し後続のイメージ更新は実行されない。
+- よって新コード（スキーマ前提のクローラー/ディスパッチャー）は、マイグレーション成功後にしか配備されない。クローラー側でスキーマ更新を待機・実行する必要はない。
+- ローカル本番実行は、デプロイ済みスキーマ（production マージ後）を前提とする。
