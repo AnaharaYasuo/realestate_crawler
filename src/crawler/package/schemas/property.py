@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 from decimal import Decimal
 from datetime import date
 
@@ -10,7 +9,7 @@ class PropertyDataSchema(BaseModel):
     priceStr: str
     price: int = Field(ge=0)
     address: str
-    traffic: Optional[str] = None
+    traffic: str | None = None
 
     @field_validator('price')
     @classmethod
@@ -21,16 +20,16 @@ class PropertyDataSchema(BaseModel):
 
 class MansionDataSchema(PropertyDataSchema):
     """マンション物件のスキーマ"""
-    senyuMensekiStr: Optional[str] = None
-    senyuMenseki: Optional[Decimal] = Field(None, ge=0)
-    chikunengetsuStr: Optional[str] = None
-    chikunengetsu: Optional[date] = None
-    kanrihiStr: Optional[str] = None
-    kanrihi: Optional[int] = Field(None, ge=0)
-    syuzenTsumitateStr: Optional[str] = None
-    syuzenTsumitate: Optional[int] = Field(None, ge=0)
-    madori: Optional[str] = None
-    floorType: Optional[str] = None
+    senyuMensekiStr: str | None = None
+    senyuMenseki: Decimal | None = Field(None, ge=0)
+    chikunengetsuStr: str | None = None
+    chikunengetsu: date | None = None
+    kanrihiStr: str | None = None
+    kanrihi: int | None = Field(None, ge=0)
+    syuzenTsumitateStr: str | None = None
+    syuzenTsumitate: int | None = Field(None, ge=0)
+    madori: str | None = None
+    floorType: str | None = None
 
     @field_validator('senyuMenseki')
     @classmethod
@@ -43,19 +42,19 @@ class MansionDataSchema(PropertyDataSchema):
 
 class KodateDataSchema(PropertyDataSchema):
     """戸建て物件のスキーマ"""
-    tochiMensekiStr: Optional[str] = None
-    tochiMenseki: Optional[Decimal] = Field(None, ge=0)
-    tatemonoMensekiStr: Optional[str] = None
-    tatemonoMenseki: Optional[Decimal] = Field(None, ge=0)
-    chikunengetsuStr: Optional[str] = None
-    chikunengetsu: Optional[date] = None
-    madori: Optional[str] = None
-    kouzou: Optional[str] = None
+    tochiMensekiStr: str | None = None
+    tochiMenseki: Decimal | None = Field(None, ge=0)
+    tatemonoMensekiStr: str | None = None
+    tatemonoMenseki: Decimal | None = Field(None, ge=0)
+    chikunengetsuStr: str | None = None
+    chikunengetsu: date | None = None
+    madori: str | None = None
+    kouzou: str | None = None
 
 class TochiDataSchema(PropertyDataSchema):
     """土地物件のスキーマ"""
-    tochiMensekiStr: Optional[str] = None
-    tochiMenseki: Optional[Decimal] = Field(None, ge=0)
-    youto: Optional[str] = None
-    kenpeiritsu: Optional[str] = None
-    yousekritsu: Optional[str] = None
+    tochiMensekiStr: str | None = None
+    tochiMenseki: Decimal | None = Field(None, ge=0)
+    youto: str | None = None
+    kenpeiritsu: str | None = None
+    yousekritsu: str | None = None

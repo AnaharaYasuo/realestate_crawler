@@ -8,7 +8,7 @@ import copy
 from dataclasses import dataclass, field
 from enum import Enum
 import subprocess
-from typing import Any, Optional
+from typing import Any
 
 
 class MutationType(str, Enum):
@@ -26,8 +26,8 @@ class Mutant:
     original_source: str
     mutated_source: str
     ast_node_str: str
-    mutated_code: Optional[str] = None
-    original_file_content: Optional[str] = None
+    mutated_code: str | None = None
+    original_file_content: str | None = None
 
 
 @dataclass
@@ -70,7 +70,7 @@ class ASTMutationEngine:
         ast.Or: ast.And,
     }
 
-    def generate_mutants_from_file(self, file_path: str, max_mutants: Optional[int] = None) -> list[Mutant]:
+    def generate_mutants_from_file(self, file_path: str, max_mutants: int | None = None) -> list[Mutant]:
         """ファイルからASTをパースして変異体を生成"""
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
@@ -84,7 +84,7 @@ class ASTMutationEngine:
         self,
         tree: ast.AST,
         file_path: str,
-        max_mutants: Optional[int] = None,
+        max_mutants: int | None = None,
     ) -> list[Mutant]:
         """AST構文木から変異体リストを抽出・生成"""
         mutants: list[Mutant] = []
@@ -178,7 +178,7 @@ class ASTMutationEngine:
 
         return mutants
 
-    def _find_matching_node(self, tree: ast.AST, target_node: ast.AST) -> Optional[ast.AST]:
+    def _find_matching_node(self, tree: ast.AST, target_node: ast.AST) -> ast.AST | None:
         """ディープコピー後のAST構文木から元のノードに対応するノードを行番号と位置で特定"""
         target_line = getattr(target_node, "lineno", None)
         target_col = getattr(target_node, "col_offset", None)
@@ -214,7 +214,7 @@ class ASTMutationEngine:
         self,
         mutant: Mutant,
         test_command: str,
-        cwd: Optional[str] = None,
+        cwd: str | None = None,
         timeout: int = 30
     ) -> bool:
         """Apply a mutant and report whether the test command detects it.

@@ -9,7 +9,6 @@ NumPy, SciPy, PIL を用いた完全ローカル・低コスト幾何解析。
 """
 import math
 from dataclasses import dataclass
-from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw
 from scipy.ndimage import distance_transform_edt
@@ -50,7 +49,7 @@ class PlotShapeMetrics:
     flagpole_body_area: float = 0.0
     acute_angle_count: int = 0
     reflex_angle_count: int = 0
-    interior_angles: Optional[list[float]] = None
+    interior_angles: list[float] | None = None
     shape_grade: str = "A"
     shape_grade_num: int = 5
     shape_score_100: float = 100.0

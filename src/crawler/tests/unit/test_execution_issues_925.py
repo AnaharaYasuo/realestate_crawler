@@ -5,7 +5,6 @@ Execution issues resolution, auto_heal path fix, parser fallback resilience, and
 """
 import os
 from bs4 import BeautifulSoup
-import pytest
 
 from package.parser.mitsuiParser import MitsuiMansionParser
 from package.parser.sumifuParser import SumifuMansionParser

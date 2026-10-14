@@ -16,11 +16,11 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from typing import Optional, Any
+from typing import Any
 
 
 
-def extract_issue_number(branch_name: str, commit_msg: str = "") -> Optional[int]:
+def extract_issue_number(branch_name: str, commit_msg: str = "") -> int | None:
     """
     Extract GitHub issue number from branch name or commit message.
 
@@ -118,7 +118,7 @@ def _get_current_git_info() -> tuple[str, str]:
     return branch, commit_msg
 
 
-def _fetch_issue_via_api(issue_num: int) -> Optional[dict[str, Any]]:
+def _fetch_issue_via_api(issue_num: int) -> dict[str, Any] | None:
     """Fetch issue metadata directly via GitHub REST API as fallback."""
     url = f"https://api.github.com/repos/AnaharaYasuo/realestate_crawler/issues/{issue_num}"
     headers = {"User-Agent": "realestate-crawler-gate"}
@@ -141,7 +141,7 @@ def _fetch_issue_via_api(issue_num: int) -> Optional[dict[str, Any]]:
         return None
 
 
-def fetch_issue_data(issue_num: int) -> Optional[dict[str, Any]]:
+def fetch_issue_data(issue_num: int) -> dict[str, Any] | None:
     """Fetch issue metadata from GitHub using gh CLI with API fallback."""
     clean_num = str(issue_num).strip()
     if not clean_num.isdigit() or not re.match(r"^[1-9]\d*$", clean_num):

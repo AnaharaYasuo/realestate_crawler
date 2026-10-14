@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import asyncio
 import logging
-from typing import Optional, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +9,7 @@ class CrawlerMiddleware(ABC):
     """ミドルウェアの基底クラス"""
     
     @abstractmethod
-    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Any | None:
         """リクエスト前処理。None以外を返すと処理を中断しその値を返却します。"""
     
     @abstractmethod
@@ -22,7 +22,7 @@ class RateLimitMiddleware(CrawlerMiddleware):
     def __init__(self, delay: float = 1.0):
         self.delay = delay
     
-    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Any | None:
         """リクエスト送信前に指定秒数ウェイトします。"""
         logger.debug(f"RateLimitMiddleware: sleeping {self.delay}s for {request_context.get('url')}")
         await asyncio.sleep(self.delay)
@@ -39,7 +39,7 @@ class RetryMiddleware(CrawlerMiddleware):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
     
-    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Any | None:
         """リクエスト送信前の前処理を行います。"""
         return None
     
@@ -72,7 +72,7 @@ class LoggingMiddleware(CrawlerMiddleware):
             return cleaned[:max_len]
         return cleaned
 
-    async def process_request(self, request_context: dict[str, Any]) -> Optional[Any]:
+    async def process_request(self, request_context: dict[str, Any]) -> Any | None:
         """リクエスト送信内容をINFOログに出力します。"""
         method = request_context.get('method')
         url = request_context.get('url')

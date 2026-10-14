@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Any
+from typing import Any
 
 from package.utils.converter import parse_chidai
 from package.utils.newrelic_helper import record_llm_event
@@ -24,86 +24,86 @@ except ImportError:
 
 @dataclass
 class PropertyOverview:
-    price_man_yen: Optional[int] = None
+    price_man_yen: int | None = None
     property_type: str = "mansion"
-    transaction_type: Optional[str] = None
-    occupancy_status: Optional[str] = None
+    transaction_type: str | None = None
+    occupancy_status: str | None = None
 
 
 @dataclass
 class BuildingMasterAttributes:
-    developer_brand: Optional[str] = None
+    developer_brand: str | None = None
     developer_tier: str = "unknown"
-    contractor_name: Optional[str] = None
+    contractor_name: str | None = None
     contractor_tier: str = "unknown"
-    structure_type: Optional[str] = None
-    earthquake_resistance: Optional[str] = None
-    total_units: Optional[int] = None
-    elevator_available: Optional[bool] = None
-    hallway_type: Optional[str] = None
-    garbage_disposal_24h: Optional[bool] = None
-    management_type: Optional[str] = None
-    manager_working_style: Optional[str] = None
+    structure_type: str | None = None
+    earthquake_resistance: str | None = None
+    total_units: int | None = None
+    elevator_available: bool | None = None
+    hallway_type: str | None = None
+    garbage_disposal_24h: bool | None = None
+    management_type: str | None = None
+    manager_working_style: str | None = None
     shared_facilities: list[str] = field(default_factory=list)
 
 
 @dataclass
 class UnitSpecAttributes:
-    floor_number: Optional[int] = None
-    total_floors: Optional[int] = None
-    is_top_floor: Optional[bool] = None
-    is_basement: Optional[bool] = None
-    is_corner_unit: Optional[bool] = None
-    main_orientation: Optional[str] = None
-    has_disposer: Optional[bool] = None
-    has_dishwasher: Optional[bool] = None
-    has_floor_heating: Optional[bool] = None
-    has_bath_dryer: Optional[bool] = None
-    has_water_purifier: Optional[bool] = None
+    floor_number: int | None = None
+    total_floors: int | None = None
+    is_top_floor: bool | None = None
+    is_basement: bool | None = None
+    is_corner_unit: bool | None = None
+    main_orientation: str | None = None
+    has_disposer: bool | None = None
+    has_dishwasher: bool | None = None
+    has_floor_heating: bool | None = None
+    has_bath_dryer: bool | None = None
+    has_water_purifier: bool | None = None
     renovation_status: str = "未実施"
-    renovation_year_month: Optional[str] = None
+    renovation_year_month: str | None = None
     renovation_details: list[str] = field(default_factory=list)
-    piping_replaced: Optional[bool] = None
-    private_garden_area_m2: Optional[float] = None
-    roof_balcony_area_m2: Optional[float] = None
+    piping_replaced: bool | None = None
+    private_garden_area_m2: float | None = None
+    roof_balcony_area_m2: float | None = None
     special_notes_psychological_defect: bool = False
 
 
 @dataclass
 class LandKodateAttributes:
-    effective_land_area_m2: Optional[float] = None
-    road_frontage_width_m: Optional[float] = None
-    road_frontage_orientation: Optional[str] = None
-    road_type: Optional[str] = None
-    road_contact_type: Optional[str] = None
-    setback_required_area_m2: Optional[float] = None
-    private_road_burden_area_m2: Optional[float] = None
-    effective_floor_area_ratio_percent: Optional[float] = None
-    building_condition: Optional[str] = None
-    land_delivery_condition: Optional[str] = None
-    house_builder_type: Optional[str] = None
+    effective_land_area_m2: float | None = None
+    road_frontage_width_m: float | None = None
+    road_frontage_orientation: str | None = None
+    road_type: str | None = None
+    road_contact_type: str | None = None
+    setback_required_area_m2: float | None = None
+    private_road_burden_area_m2: float | None = None
+    effective_floor_area_ratio_percent: float | None = None
+    building_condition: str | None = None
+    land_delivery_condition: str | None = None
+    house_builder_type: str | None = None
 
 
 @dataclass
 class RightsEconomicAttributes:
     land_rights_type: str = "所有権"
-    ground_rent_monthly_yen: Optional[int] = None
-    lease_expiry_year_month: Optional[str] = None
-    management_fee_monthly_yen: Optional[int] = None
-    repair_reserve_fund_monthly_yen: Optional[int] = None
-    other_monthly_expenses_yen: Optional[int] = None
-    other_expenses_breakdown: Optional[str] = None
+    ground_rent_monthly_yen: int | None = None
+    lease_expiry_year_month: str | None = None
+    management_fee_monthly_yen: int | None = None
+    repair_reserve_fund_monthly_yen: int | None = None
+    other_monthly_expenses_yen: int | None = None
+    other_expenses_breakdown: str | None = None
 
 
 @dataclass
 class VisualAttributes:
-    layout_outframe_score: Optional[float] = 3.5
-    layout_efficiency_score: Optional[float] = 3.5
-    has_service_room: Optional[bool] = False
-    exterior_luxury_score: Optional[float] = 3.5
-    exterior_deterioration_risk: Optional[bool] = False
-    interior_grade_score: Optional[float] = 3.5
-    is_fully_renovated_appearance: Optional[bool] = False
+    layout_outframe_score: float | None = 3.5
+    layout_efficiency_score: float | None = 3.5
+    has_service_room: bool | None = False
+    exterior_luxury_score: float | None = 3.5
+    exterior_deterioration_risk: bool | None = False
+    interior_grade_score: float | None = 3.5
+    is_fully_renovated_appearance: bool | None = False
     view_blockage_severity: str = "none"
     view_scenic_premium: bool = False
     retaining_wall_risk: bool = False

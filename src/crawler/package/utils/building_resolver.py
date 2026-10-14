@@ -2,7 +2,7 @@
 import re
 import unicodedata
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from package.models.building_master import BuildingMaster
 
@@ -82,7 +82,7 @@ def normalize_building_address(raw_address: str) -> str:
     return addr[:30].replace(" ", "")
 
 
-def classify_developer_tier(name: Optional[str]) -> str:
+def classify_developer_tier(name: str | None) -> str:
     """デベロッパーの格付け"""
     if not name:
         return "unknown"
@@ -92,7 +92,7 @@ def classify_developer_tier(name: Optional[str]) -> str:
     return "standard"
 
 
-def classify_contractor_tier(name: Optional[str]) -> str:
+def classify_contractor_tier(name: str | None) -> str:
     """ゼネコンの格付け"""
     if not name:
         return "unknown"

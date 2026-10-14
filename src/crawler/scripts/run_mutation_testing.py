@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Any, Optional
+from typing import Any
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _crawler_root not in sys.path:
@@ -55,7 +55,7 @@ def run_level1_data_mutation(crawler_root: str) -> dict[str, Any]:
     }
 
 
-def _resolve_paths(crawler_root: str, target_file: Optional[str], test_file: Optional[str]) -> tuple[str, str]:
+def _resolve_paths(crawler_root: str, target_file: str | None, test_file: str | None) -> tuple[str, str]:
     if not target_file:
         target_file = os.path.join(crawler_root, "package", "utils", DEFAULT_DETECTOR_FILE)
     if not test_file:
@@ -77,7 +77,7 @@ def _evaluate_single_mutant(
     crawler_root: str,
     idx: int,
     total: int,
-) -> tuple[bool, Optional[dict[str, Any]]]:
+) -> tuple[bool, dict[str, Any] | None]:
     try:
         is_killed = engine.run_mutation_test(
             mutant=mutant,
@@ -103,8 +103,8 @@ def _evaluate_single_mutant(
 
 def run_level2_code_mutation(
     crawler_root: str,
-    target_file: Optional[str] = None,
-    test_file: Optional[str] = None,
+    target_file: str | None = None,
+    test_file: str | None = None,
     max_mutants: int = 15,
 ) -> MutationResult:
     """Level 2: コアユニットのASTコード変異テストの実行"""
@@ -178,7 +178,7 @@ def _resolve_unit_abs_path(crawler_root: str, path: str) -> str:
     return os.path.abspath(cand1)
 
 
-def _find_matched_source(crawler_root: str, test_base: str, source_files: list[str]) -> Optional[str]:
+def _find_matched_source(crawler_root: str, test_base: str, source_files: list[str]) -> str | None:
     for sf in source_files:
         if os.path.basename(sf) == test_base:
             return _resolve_unit_abs_path(crawler_root, sf)
@@ -306,7 +306,7 @@ def _print_mutation_summary(report_data: dict[str, Any], all_passed: bool):
     print("=======================================================\n")
 
 
-def _save_mutation_report(crawler_root: str, report_arg: Optional[str], report_data: dict[str, Any]):
+def _save_mutation_report(crawler_root: str, report_arg: str | None, report_data: dict[str, Any]):
     report_filename = os.path.basename(report_arg) if report_arg else "mutation_report.json"
     if not report_filename.endswith(".json"):
         report_filename = f"{report_filename}.json"

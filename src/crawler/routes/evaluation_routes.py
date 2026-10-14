@@ -6,7 +6,7 @@ import asyncio
 import aiohttp
 import urllib.parse
 import importlib
-from typing import Optional, Any
+from typing import Any
 from flask import Blueprint, request, jsonify
 from django.db import connections, reset_queries
 
@@ -729,12 +729,12 @@ async def _execute_predict_by_url(
     force_refresh: bool,
     interior_score: float,
     layout_score: float,
-    property_type_hint: Optional[str] = None
+    property_type_hint: str | None = None
 ):
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)
     """
-def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
+def _fetch_cached_property_info(url: str, route: dict | None) -> dict:
     if not route:
         return {}
     try:
@@ -750,7 +750,7 @@ def _fetch_cached_property_info(url: str, route: Optional[dict]) -> dict:
     return {}
 
 
-def _resolve_cached_meta(eval_record, route: Optional[dict]) -> tuple[str, str]:
+def _resolve_cached_meta(eval_record, route: dict | None) -> tuple[str, str]:
     site_name = getattr(eval_record, "company", "unknown")
     if hasattr(site_name, "_mock_name") or type(site_name).__name__ in ("MagicMock", "AsyncMock", "Mock"):
         site_name = route["site"] if route else "unknown"
@@ -761,7 +761,7 @@ def _resolve_cached_meta(eval_record, route: Optional[dict]) -> tuple[str, str]:
     return str(site_name), str(ptype_name)
 
 
-def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: Optional[str]):
+def _lookup_cached_evaluation(url: str, force_refresh: bool, property_type_hint: str | None):
     if force_refresh:
         return None
     try:
@@ -868,7 +868,7 @@ def _save_live_scraped_item(target_item: Any, clean_url: str) -> None:
         logging.warning(f"Failed to upsert property item to DB for {clean_url}: {e}")
 
 
-async def _fetch_live_property_item(route: dict, url: str) -> tuple[Any, Optional[tuple[dict, int]]]:
+async def _fetch_live_property_item(route: dict, url: str) -> tuple[Any, tuple[dict, int] | None]:
     clean_url = UrlMatcher.normalize(url)
     try:
         parser_mod = importlib.import_module(route["parser_module"])
@@ -959,7 +959,7 @@ async def _execute_predict_by_url(
     force_refresh: bool,
     interior_score: float,
     layout_score: float,
-    property_type_hint: Optional[str] = None
+    property_type_hint: str | None = None
 ):
     """
     URL指定価格推定の非同期実行コアロジック (Singleflightで保護)

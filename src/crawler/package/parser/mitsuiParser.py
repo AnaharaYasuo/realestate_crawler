@@ -532,34 +532,31 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     def get_floor(self, response: BeautifulSoup) -> int:
         return self._parseKaisu(response)
 
+    _KAISU_CANDIDATE_LABELS = (
+        "所在階",
+        "所在階 / 階建",
+        "所在階/階建",
+        "所在階・階建",
+        "階数",
+        "階数 / 階建",
+        "所在階/階数",
+        "所在階・階数",
+        "階",
+    )
+
     def _parseKaisuStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        val = (
-            target_specs.get("所在階")
-            or target_specs.get("所在階 / 階建")
-            or target_specs.get("所在階/階建")
-            or target_specs.get("所在階・階建")
-            or target_specs.get("階数")
-            or target_specs.get("階数 / 階建")
-            or target_specs.get("所在階/階数")
-            or target_specs.get("所在階・階数")
-            or target_specs.get("階", "")
-        )
-        if not val and hasattr(self, "_getValueByLabel"):
-            label_tag = (
-                self._getValueByLabel(response, "所在階")
-                or self._getValueByLabel(response, "所在階 / 階建")
-                or self._getValueByLabel(response, "所在階/階建")
-                or self._getValueByLabel(response, "所在階・階建")
-                or self._getValueByLabel(response, "階数")
-                or self._getValueByLabel(response, "階数 / 階建")
-                or self._getValueByLabel(response, "所在階/階数")
-                or self._getValueByLabel(response, "所在階・階数")
-                or self._getValueByLabel(response, "階")
-            )
-            if label_tag:
-                val = label_tag.get_text(strip=True) if hasattr(label_tag, "get_text") else str(label_tag)
-        return val or ""
+        for label in self._KAISU_CANDIDATE_LABELS:
+            val = target_specs.get(label)
+            if val:
+                return val
+
+        if hasattr(self, "_getValueByLabel"):
+            for label in self._KAISU_CANDIDATE_LABELS:
+                tag = self._getValueByLabel(response, label)
+                if tag:
+                    return tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
+        return ""
 
     def _parseKaisu(self, response, _specs=None):
         val = self._parseKaisuStr(response, specs=_specs)

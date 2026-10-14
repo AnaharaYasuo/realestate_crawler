@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Any, Optional
+from typing import Any
 
 DEFAULT_MAX_COMPLEXITY = 15
 MAX_REGEX_LENGTH = 500
@@ -125,7 +125,7 @@ def calculate_cognitive_complexity(func_node: ast.AST) -> tuple[int, list[tuple[
     return visitor.complexity, visitor.increments
 
 
-def _extract_regex_pattern_from_call(node: ast.Call) -> Optional[str]:
+def _extract_regex_pattern_from_call(node: ast.Call) -> str | None:
     """Extract string pattern literal from a re.* call or imported regex function call."""
     func = node.func
     func_name = getattr(func, "attr", None) or getattr(func, "id", None)
@@ -154,7 +154,7 @@ def _extract_regex_pattern_from_call(node: ast.Call) -> Optional[str]:
     return None
 
 
-def _check_pattern_risk(regex_str: str) -> Optional[str]:
+def _check_pattern_risk(regex_str: str) -> str | None:
     """Check if regex string triggers any ReDoS risk rule with input length guards."""
     if len(regex_str) > MAX_REGEX_LENGTH:
         return f"Pattern length ({len(regex_str)}) exceeds maximum safe length ({MAX_REGEX_LENGTH})"

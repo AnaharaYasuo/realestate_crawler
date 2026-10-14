@@ -8,7 +8,7 @@ modifying code.
 
 import yaml
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class SelectorLoader:
     """
     
     _cache: dict[str, dict[str, Any]] = {}
-    _config_dir: Optional[Path] = None
+    _config_dir: Path | None = None
     
     @classmethod
     def set_config_dir(cls, config_dir: Path):

@@ -4,7 +4,7 @@ import re
 import time
 import urllib.parse
 import logging
-from typing import Optional, Any
+from typing import Any
 
 try:
     from package.utils.newrelic_helper import record_llm_event as _record_llm_event
@@ -129,7 +129,7 @@ class PropertyTypeDetector:
         return False
 
     @classmethod
-    def _has_yield_signal(cls, text: Optional[str]) -> bool:
+    def _has_yield_signal(cls, text: str | None) -> bool:
         """テキスト内に利回り表記や投資用シグナルが存在するか判定（Yield Guard）
 
         投資ポータルの共通ナビに「利回り」が含まれるだけの場合は投資確定にしない。
@@ -226,14 +226,14 @@ class PropertyTypeDetector:
         return predicted_type
 
     @classmethod
-    def _first_keyword_hit(cls, text: str, keywords) -> Optional[str]:
+    def _first_keyword_hit(cls, text: str, keywords) -> str | None:
         for kw in keywords:
             if kw in text:
                 return kw
         return None
 
     @classmethod
-    def _match_keywords(cls, text: str) -> Optional[str]:
+    def _match_keywords(cls, text: str) -> str | None:
         """テキストからキーワードマッチにより種別を特定。
 
         売地等の土地シグナルがあり数値利回りが無い場合は tochi を優先
@@ -265,7 +265,7 @@ class PropertyTypeDetector:
         return None
 
     @classmethod
-    def _detect_from_specs(cls, specs: dict[str, Any]) -> Optional[str]:
+    def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
         """スペック表の特定キーおよび値全体から種別判定"""
         type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
         for k in type_keys:
@@ -285,7 +285,7 @@ class PropertyTypeDetector:
 
 
     @classmethod
-    def _detect_from_url(cls, url: str) -> Optional[str]:
+    def _detect_from_url(cls, url: str) -> str | None:
         """URLのパス・クエリ・サブドメインから種別判定"""
         parsed = urllib.parse.urlparse(url)
         path_and_query = (parsed.path + "?" + parsed.query).lower()
@@ -313,11 +313,11 @@ class PropertyTypeDetector:
     @classmethod
     def _detect_rule_based(
         cls,
-        url: Optional[str] = None,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[dict[str, Any]] = None,
-    ) -> Optional[str]:
+        url: str | None = None,
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+    ) -> str | None:
         specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype == "apartment":
             if title and cls._first_keyword_hit(title, cls.KODATE_KEYWORDS):
@@ -348,13 +348,13 @@ class PropertyTypeDetector:
     @classmethod
     def detect(
         cls,
-        url: Optional[str] = None,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[dict[str, Any]] = None,
-        default: Optional[str] = None,
+        url: str | None = None,
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        default: str | None = None,
         use_ai: bool = False
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         優先順位:
         数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
@@ -373,10 +373,10 @@ class PropertyTypeDetector:
 
     @staticmethod
     def _compute_cache_key(
-        url: Optional[str] = None,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[dict[str, Any]] = None
+        url: str | None = None,
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None
     ) -> str:
         """キャッシュキーの導出（SonarCloud S3358 三項演算子のネスト解消）"""
         if url and url.strip():
@@ -390,7 +390,7 @@ class PropertyTypeDetector:
         model: str,
         duration_ms: float,
         resp: Any = None,
-        error: Optional[Exception] = None,
+        error: Exception | None = None,
     ) -> None:
         """SonarCloud S3776: テレメトリ記録処理を分離して認知複雑度を15以下に抑制"""
         if not _record_llm_event:
@@ -460,10 +460,10 @@ class PropertyTypeDetector:
     @classmethod
     def detect_with_ai(
         cls,
-        url: Optional[str] = None,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[dict[str, Any]] = None,
+        url: str | None = None,
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
         default: str = "mansion"
     ) -> str:
         """
@@ -501,7 +501,7 @@ class PropertyTypeDetector:
         return cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks)
 
     @classmethod
-    def _detect_from_type_str(cls, type_str: str) -> Optional[str]:
+    def _detect_from_type_str(cls, type_str: str) -> str | None:
         """propertyType や クラス名の文字列から種別を判定"""
         lower_str = (type_str or "").lower()
         if "mansion" in lower_str:
@@ -620,7 +620,7 @@ class PropertyTypeDetector:
 
 
     @classmethod
-    def is_investment(cls, ptype: Optional[str]) -> bool:
+    def is_investment(cls, ptype: str | None) -> bool:
         """
         物件種別文字列が投資用（apartment / investment / invest）であるかを一元判定。
         Detector/Routerの標準種別 'apartment' およびパーサー種別 'investment' の両方に対応。
