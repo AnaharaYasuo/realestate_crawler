@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
+import logging
 import os
 import re
 import time
 import urllib.parse
-import logging
-from typing import Any
+from typing import Any, ClassVar
 
 try:
     from package.utils.newrelic_helper import record_llm_event as _record_llm_event
@@ -69,7 +69,7 @@ class PropertyTypeDetector:
 
 
 
-    _ai_cache: dict[str, str] = {}
+    _ai_cache: ClassVar[dict[str, str]] = {}
 
     _TOCHI_EXCLUDED_TERMS = ("土地権利", "土地面積", "土地代", "土地付き", "土地・建物", "土地建物")
 
