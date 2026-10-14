@@ -21,7 +21,7 @@ def test_iam_secret_accessor_includes_new_relic_license_key():
     iam_path = os.path.join(TERRAFORM_DIR, "iam.tf")
     assert os.path.exists(iam_path), f"File not found: {iam_path}"
 
-    with open(iam_path, "r", encoding="utf-8") as f:
+    with open(iam_path, encoding="utf-8") as f:
         content = f.read()
 
     match = re.search(

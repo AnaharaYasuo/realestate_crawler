@@ -20,7 +20,7 @@ TERRAFORM_DIR = os.path.abspath(
 def test_scheduler_tf_has_hourly_safety_net():
     """Verify terraform/scheduler.tf schedules safety net hourly (0 * * * *) 24/7 (Issue #664)."""
     scheduler_tf = os.path.join(TERRAFORM_DIR, "scheduler.tf")
-    with open(scheduler_tf, "r", encoding="utf-8") as f:
+    with open(scheduler_tf, encoding="utf-8") as f:
         content = f.read()
 
     assert "crawler_safety_net_trigger" in content
@@ -31,7 +31,7 @@ def test_scheduler_tf_has_hourly_safety_net():
 def test_run_pipeline_registers_signal_and_atexit_handlers():
     """Verify run_pipeline.py registers SIGTERM/SIGINT and atexit handlers."""
     pipeline_py = os.path.join(CRAWLER_SCRIPTS_DIR, "ops", "run_pipeline.py")
-    with open(pipeline_py, "r", encoding="utf-8") as f:
+    with open(pipeline_py, encoding="utf-8") as f:
         content = f.read()
 
     assert "signal.signal(signal.SIGTERM" in content, "run_pipeline.py must register SIGTERM handler"

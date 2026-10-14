@@ -30,7 +30,7 @@ def read_mock_html(filename):
         path = os.path.join(base_dir, 'docs', 'requirements', 'site_samples', filename)
 
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         return f.read()
 
 def test_mansion():

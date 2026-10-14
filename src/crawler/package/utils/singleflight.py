@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import logging
-from typing import Any, Callable, Dict
+from typing import Any
+from collections.abc import Callable
 
 
 class SingleflightGroup:
@@ -10,7 +11,7 @@ class SingleflightGroup:
     重複実行を防止して先行処理の結果を後続処理へ共有する機構
     """
     def __init__(self):
-        self._calls: Dict[str, asyncio.Future] = {}
+        self._calls: dict[str, asyncio.Future] = {}
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def do(self, key: str, fn: Callable, *args, **kwargs) -> Any:

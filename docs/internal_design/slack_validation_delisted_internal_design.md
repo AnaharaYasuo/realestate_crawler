@@ -87,3 +87,12 @@ class PropertyDataValidator:
 3. `resolve_50_residual_issues.py` および Auto-Heal 連携:
    - 現行バリデータで合格する物件の `needs_parser_fix` を `False` に解除し、`data_quality_issue` をクリアして `auto_heal_parsers.py` スキャンの正常化（異常0件）を達成。
 
+### 3.5 実行時検知問題の包括的改修・Auto-Healパス解決・コード品質改善 (Issue #925)
+1. `src/crawler/scripts/debug_tools/auto_heal_parsers.py` リポジトリルートパス解決:
+   - `os.path.dirname` の過小解決（`src/` に解決されて `src/Temp/` に出力される不具合）を改修。
+   - `repo_root` を動的探索または親ディレクトリ4階層上に正しく解決し、プロジェクト共通ルート直下の `Temp/auto_heal_instruction.json` に出力することを保証。
+2. パーサー欠損値リカバリ・フォールバック強化:
+   - `mitsuiParser.py` 等で交通情報（`traffic`）や所在階（`kaisu`）の取得において、HTMLテーブル構造の揺らぎや後続テーブル要素をフォールバック探索し、空文字でのDB格納を防止。
+3. コードベース静的品質改善 (100+ Issues Resolution):
+   - Ruff による型アノテーション近代化 (`UP006`, `UP035`: `typing.List` / `typing.Dict` -> 組み込み `list` / `dict`)、不要構文クリーンアップ (`PIE790`: 不要な `pass` 削除)、冗長な型判定の簡素化 (`SIM101`: 複数 `isinstance` のタプル化) を実行し、100件以上の潜在的コード品質課題を一括解消。
+

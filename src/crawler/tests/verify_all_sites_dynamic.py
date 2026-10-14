@@ -13,7 +13,7 @@
 import sys
 import os
 import time
-from typing import Tuple, Any
+from typing import Any
 
 # Ensure Django / project configuration is initialized
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
@@ -36,9 +36,8 @@ TARGETS = [
 
 class PerformanceAssertionError(AssertionError):
     """Raised when pure processing time exceeds the allowed threshold."""
-    pass
 
-def measure_and_assert_pure_parse_time(parser, html_content: bytes, url: str, max_limit_ms: float) -> Tuple[Any, float]:
+def measure_and_assert_pure_parse_time(parser, html_content: bytes, url: str, max_limit_ms: float) -> tuple[Any, float]:
     """
     Measures ONLY CPU/DOM parsing time (excluding network response time)
     and asserts that it is within the engine-specific threshold.

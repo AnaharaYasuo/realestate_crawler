@@ -20,7 +20,7 @@ DOCS_DIR = os.path.abspath(os.path.normpath(os.environ.get('DOCS_DIR', '/app/Tem
 def read_mock(filename):
     path = os.path.abspath(os.path.join(DOCS_DIR, 'requirements/site_samples', os.path.basename(filename)))
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         return f.read()
 
 def test_mansion():

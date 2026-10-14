@@ -35,7 +35,7 @@ def test_security_scan_workflow_exists_and_valid():
 
     assert os.path.exists(workflow_path), f"security-scan.yml が存在しません: {workflow_path}"
 
-    with open(workflow_path, "r", encoding="utf-8") as f:
+    with open(workflow_path, encoding="utf-8") as f:
         content = f.read()
         workflow = yaml.safe_load(content)
 
@@ -120,7 +120,7 @@ def test_prowler_gcp_workflow_exists_and_valid():
 
     assert os.path.exists(prowler_path), f"prowler-gcp-audit.yml が存在しません: {prowler_path}"
 
-    with open(prowler_path, "r", encoding="utf-8") as f:
+    with open(prowler_path, encoding="utf-8") as f:
         workflow = yaml.safe_load(f)
 
     assert isinstance(workflow, dict), "prowler-gcp-audit.yml の内容が辞書形式ではありません"
@@ -143,7 +143,7 @@ def test_snyk_workflow_is_disabled():
     if not os.path.exists(snyk_path):
         return
 
-    with open(snyk_path, "r", encoding="utf-8") as f:
+    with open(snyk_path, encoding="utf-8") as f:
         content = f.read()
 
     for line in content.splitlines():
@@ -162,7 +162,7 @@ def test_dependabot_config_exists_and_valid():
 
     assert os.path.exists(dependabot_path), f"dependabot.yml が存在しません: {dependabot_path}"
 
-    with open(dependabot_path, "r", encoding="utf-8") as f:
+    with open(dependabot_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     assert isinstance(config, dict), "dependabot.yml の内容が辞書形式ではありません"
@@ -183,7 +183,7 @@ def test_codeql_workflow_exists_and_valid():
 
     assert os.path.exists(codeql_path), f"codeql.yml が存在しません: {codeql_path}"
 
-    with open(codeql_path, "r", encoding="utf-8") as f:
+    with open(codeql_path, encoding="utf-8") as f:
         workflow = yaml.safe_load(f)
 
     assert isinstance(workflow, dict), "codeql.yml の内容が辞書形式ではありません"
@@ -206,7 +206,7 @@ def test_sonar_qualitygate_wait_configured():
 
     assert os.path.exists(sonar_path), f"sonar.yml が存在しません: {sonar_path}"
 
-    with open(sonar_path, "r", encoding="utf-8") as f:
+    with open(sonar_path, encoding="utf-8") as f:
         content = f.read()
 
     assert "-Dsonar.qualitygate.wait=true" in content, "sonar.yml に -Dsonar.qualitygate.wait=true が指定されている必要があります"

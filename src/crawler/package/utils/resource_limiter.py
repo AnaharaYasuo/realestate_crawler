@@ -12,7 +12,7 @@ def _read_int_from_file(file_path: str) -> int | None:
     if not os.path.exists(file_path):
         return None
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             val = f.read().strip()
         if val and val != "max" and val.isdigit():
             return int(val)
@@ -43,7 +43,7 @@ def _read_proc_meminfo_mb() -> int | None:
         return None
     try:
         mem_info = {}
-        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+        with open("/proc/meminfo", encoding="utf-8") as f:
             for line in f:
                 parts = line.split(":")
                 if len(parts) == 2:

@@ -11,7 +11,7 @@ STRUCTURES_DIR = os.path.join(DOCS_DIR, "requirements/site_structures")
 def parse_schema_coverage():
     """Checks if all sites and types are listed in database_schema.md"""
     print("\n[1] Checking Schema Completeness...")
-    with open(SCHEMA_FILE, "r", encoding="utf-8") as f:
+    with open(SCHEMA_FILE, encoding="utf-8") as f:
         content = f.read()
     
     # Simple check for headers
@@ -87,10 +87,10 @@ def verify_selectors_against_samples():
             
         print(f"--- Verifying {struct_file} -> {sample_file} ---")
         
-        with open(struct_path, "r", encoding="utf-8") as f:
+        with open(struct_path, encoding="utf-8") as f:
             struct_content = f.read()
             
-        with open(sample_path, "r", encoding="utf-8") as f:
+        with open(sample_path, encoding="utf-8") as f:
             soup = BeautifulSoup(f, "html.parser")
             
         # Extract potential selectors (simple backtick extraction for now)

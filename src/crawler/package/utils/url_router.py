@@ -2,7 +2,7 @@
 import re
 import importlib
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from package.utils.property_type_detector import PropertyTypeDetector
 
@@ -810,7 +810,7 @@ class UrlRouter:
     ]
 
     @classmethod
-    def _find_best_route(cls, matched_routes: List[Dict[str, Any]], target_ptype: str) -> Optional[Dict[str, Any]]:
+    def _find_best_route(cls, matched_routes: list[dict[str, Any]], target_ptype: str) -> dict[str, Any] | None:
         for route in matched_routes:
             if route["property_type"] == target_ptype:
                 return route
@@ -824,11 +824,11 @@ class UrlRouter:
     def resolve(
         cls,
         url: str,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
-        property_type: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        property_type: str | None = None
+    ) -> dict[str, Any] | None:
         """
         URLから対象サイト・物件種別・パーサークラス情報を特定
         オプションで property_type, title, html_text, specs を渡すことで動的な物件種別判別にも対応
@@ -867,11 +867,11 @@ class UrlRouter:
     def create_parser(
         cls,
         url: str,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
-        property_type: Optional[str] = None
-    ) -> Optional[Any]:
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        property_type: str | None = None
+    ) -> Any | None:
         """
         URLおよび動的判定情報（title, html_text, specs, property_type）から
         適切なパーサーを解決し、インスタンス化して返却

@@ -168,7 +168,7 @@ def test_ensure_resources_stopped_mig_404_falls_back_to_instance_without_alert(
 def test_terraform_and_workflows_config():
     """Verify terraform and deploy-production.yml contain PROXYSQL_INSTANCE_NAME and PROXYSQL_ZONE separately."""
     job_tf = os.path.join(TERRAFORM_DIR, "cloud_run_job.tf")
-    with open(job_tf, "r", encoding="utf-8") as f:
+    with open(job_tf, encoding="utf-8") as f:
         job_content = f.read()
 
     # Split into job blocks to independently verify crawler_pipeline_job and resource_safety_net_job
@@ -194,7 +194,7 @@ def test_terraform_and_workflows_config():
     )
 
     deploy_yml = os.path.join(WORKFLOWS_DIR, "deploy-production.yml")
-    with open(deploy_yml, "r", encoding="utf-8") as f:
+    with open(deploy_yml, encoding="utf-8") as f:
         deploy_content = f.read()
 
     assert "--instance-name=proxysql-instance-prod" in deploy_content, (

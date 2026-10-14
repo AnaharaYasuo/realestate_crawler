@@ -25,8 +25,7 @@ from scripts.data_import.import_mlit_stations import import_mlit_stations, gener
 from scripts.data_import.import_mlit_land_prices import import_land_prices, generate_sample_land_price_csv
 from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
 from package.models.evaluation import (
-    MunicipalPotential, StationPotential, LandPricePotential,
-    HazardMapPotential, UrbanPlanningZonePotential
+    MunicipalPotential, StationPotential, LandPricePotential
 )
 
 logger = logging.getLogger(__name__)

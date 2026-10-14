@@ -79,7 +79,7 @@ class TestGcsFailureTelemetry466:
         # Check local fallback file exists
         fallback_file = tmp_path / "runs" / "20260926" / "failures" / "mitsui_kodate.json"
         assert fallback_file.exists()
-        with open(fallback_file, "r", encoding="utf-8") as f:
+        with open(fallback_file, encoding="utf-8") as f:
             data = json.load(f)
             assert data["company"] == "mitsui"
 

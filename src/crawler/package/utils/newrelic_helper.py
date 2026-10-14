@@ -194,9 +194,9 @@ def _read_cgroup_memory() -> tuple[int, int]:
     ]:
         if os.path.exists(usage_file) and os.path.exists(limit_file):
             try:
-                with open(usage_file, "r") as f:
+                with open(usage_file) as f:
                     usage_bytes = int(f.read().strip())
-                with open(limit_file, "r") as f:
+                with open(limit_file) as f:
                     limit_val = f.read().strip()
                 return usage_bytes, (0 if limit_val == "max" else int(limit_val))
             except Exception:
@@ -208,7 +208,7 @@ def _read_cgroup_cpu() -> int:
     """Read CPU usage usec from cgroup v2 (cpu.stat) or v1 (cpuacct.usage)."""
     if os.path.exists("/sys/fs/cgroup/cpu.stat"):
         try:
-            with open("/sys/fs/cgroup/cpu.stat", "r") as f:
+            with open("/sys/fs/cgroup/cpu.stat") as f:
                 for line in f:
                     if line.startswith("usage_usec"):
                         return int(line.split()[1])
@@ -216,7 +216,7 @@ def _read_cgroup_cpu() -> int:
             pass
     elif os.path.exists("/sys/fs/cgroup/cpu/cpuacct.usage"):
         try:
-            with open("/sys/fs/cgroup/cpu/cpuacct.usage", "r") as f:
+            with open("/sys/fs/cgroup/cpu/cpuacct.usage") as f:
                 return int(int(f.read().strip()) / 1000)
         except Exception:
             pass

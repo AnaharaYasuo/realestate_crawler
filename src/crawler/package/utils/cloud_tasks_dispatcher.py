@@ -2,12 +2,12 @@
 """Cloud Tasks クロールジョブディスパッチャー."""
 import json
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def build_task_payload(company: str, property_type: str, execution_date: str) -> Dict[str, Any]:
+def build_task_payload(company: str, property_type: str, execution_date: str) -> dict[str, Any]:
     """Cloud Tasks 用の HTTP リクエストペイロードを構築"""
     return {
         "company": company.lower(),
@@ -17,9 +17,9 @@ def build_task_payload(company: str, property_type: str, execution_date: str) ->
 
 
 def generate_crawl_tasks(
-    jobs: List[Tuple[str, str]],
+    jobs: list[tuple[str, str]],
     execution_date: str
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """ジョブリストからタスクペイロード一覧を生成"""
     return [
         build_task_payload(company, ptype, execution_date)
@@ -31,7 +31,7 @@ def dispatch_task_to_cloud_tasks(
     client: Any,
     queue_path: str,
     target_url: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
     service_account_email: str
 ) -> str:
     """単一タスクを Cloud Tasks キューにエンキュー"""

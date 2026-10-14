@@ -112,7 +112,7 @@ def test_daily_pipeline_yaml_selective_crawl_and_task_count():
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     main_steps = data["main"]["steps"]

@@ -6,7 +6,7 @@ files = [f for f in os.listdir(parser_dir) if f.endswith(".py") and f != "__init
 results = []
 for file in sorted(files):
     path = os.path.join(parser_dir, file)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         content = f.read()
     
     # Check if file has assignments or references to kenpei, youseki, railwayWalkMinute1Str / railwayWalkMinute1

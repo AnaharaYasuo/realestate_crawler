@@ -371,7 +371,7 @@ BORDER_LINE = "============================================================="
 def _check_failed_slack_notifications(failed_slack_file: str) -> None:
     if not os.path.exists(failed_slack_file):
         return
-    with open(failed_slack_file, "r", encoding="utf-8") as f:
+    with open(failed_slack_file, encoding="utf-8") as f:
         failed_msgs = json.load(f)
     if failed_msgs:
         logger.critical(

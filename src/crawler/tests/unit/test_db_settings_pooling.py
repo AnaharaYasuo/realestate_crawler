@@ -7,7 +7,7 @@ def test_db_settings_bans_dj_db_conn_pool():
     import realestateSettings
 
     settings_file = os.path.abspath(realestateSettings.__file__)
-    with open(settings_file, "r", encoding="utf-8") as f:
+    with open(settings_file, encoding="utf-8") as f:
         content = f.read()
 
     assert "dj_db_conn_pool" not in content, "dj_db_conn_pool must be completely removed from realestateSettings.py"

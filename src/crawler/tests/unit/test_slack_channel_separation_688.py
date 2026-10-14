@@ -8,8 +8,7 @@
 4. send_recommendations.py の種別不明時フォールバック先が dev-agent であること
 5. slack.py の get_alert_channel の未知種別フォールバック先が dev-agent であること
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import datetime
 
 from package.utils.slack import get_alert_channel

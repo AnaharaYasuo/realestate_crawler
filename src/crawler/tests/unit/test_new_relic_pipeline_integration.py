@@ -8,7 +8,7 @@ def test_terraform_cloud_run_job_has_new_relic_config():
     tf_path = os.path.join(root_dir, "terraform", "cloud_run_job.tf")
     assert os.path.exists(tf_path), f"File not found: {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     # Find crawler_pipeline_job block
@@ -51,7 +51,7 @@ def test_terraform_log_sink_has_cloud_run_job_filter():
     tf_path = os.path.join(root_dir, "terraform", "new_relic_gcp_integration.tf")
     assert os.path.exists(tf_path), f"File not found: {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     sink_block = _extract_tf_resource(content, "google_logging_project_sink", "new_relic_log_sink")
@@ -78,9 +78,9 @@ def test_terraform_github_actions_has_logging_config_writer():
     assert os.path.exists(iam_path), f"File not found: {iam_path}"
     assert os.path.exists(vars_path), f"File not found: {vars_path}"
 
-    with open(iam_path, "r", encoding="utf-8") as f:
+    with open(iam_path, encoding="utf-8") as f:
         iam = f.read()
-    with open(vars_path, "r", encoding="utf-8") as f:
+    with open(vars_path, encoding="utf-8") as f:
         variables = f.read()
 
     logging_block = _extract_tf_resource(iam, "google_project_iam_member", "github_actions_logging_config_writer")
@@ -99,7 +99,7 @@ def test_run_pipeline_initializes_new_relic():
     script_path = os.path.join(root_dir, "src", "crawler", "scripts", "ops", "run_pipeline.py")
     assert os.path.exists(script_path), f"File not found: {script_path}"
 
-    with open(script_path, "r", encoding="utf-8") as f:
+    with open(script_path, encoding="utf-8") as f:
         content = f.read()
 
     import ast
@@ -125,7 +125,7 @@ def test_run_all_crawlers_initializes_new_relic_and_records_metrics():
     script_path = os.path.join(root_dir, "src", "crawler", "scripts", "ops", "run_all_crawlers.py")
     assert os.path.exists(script_path), f"File not found: {script_path}"
 
-    with open(script_path, "r", encoding="utf-8") as f:
+    with open(script_path, encoding="utf-8") as f:
         content = f.read()
 
     import ast

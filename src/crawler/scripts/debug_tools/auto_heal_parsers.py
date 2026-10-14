@@ -194,12 +194,25 @@ def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 50) -
     return sorted_groups[:max_targets]
 
 
+def get_project_root() -> str:
+    """リポジトリルート（/app またはホストのプロジェクトルート）を動的に探索・解決する"""
+    cur = os.path.abspath(__file__)
+    while True:
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        if (os.path.exists(os.path.join(parent, "src")) and os.path.exists(os.path.join(parent, "docs"))) or os.path.exists(os.path.join(parent, ".git")):
+            return parent
+        cur = parent
+    curr = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(curr))))
+
+
 _CB_STATE_FILE = "gemini_circuit_breaker.json"
 
 
 def _get_cb_state_path() -> str:
-    curr = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(os.path.dirname(curr)))
+    root = get_project_root()
     return os.path.join(root, "Temp", _CB_STATE_FILE)
 
 
@@ -208,7 +221,7 @@ def _load_cb_state() -> tuple[int, datetime | None]:
     if not os.path.exists(path):
         return 0, None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
             count = data.get("consecutive_timeouts", 0)
             cd_str = data.get("cooldown_until")
@@ -417,7 +430,7 @@ def scan_anomalies_and_generate_instructions():
                 heal_targets.append(target)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+    project_root = get_project_root()
     temp_dir = os.path.join(project_root, "Temp")
 
     if not heal_targets:
