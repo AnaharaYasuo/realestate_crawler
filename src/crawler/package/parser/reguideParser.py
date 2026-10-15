@@ -17,10 +17,24 @@ class ReguideInvestmentParser(InvestmentParser):
         super().__init__()
         self.selectors = SelectorLoader.load("reguide", self.property_type)
 
+    @staticmethod
+    def _is_current_page_li(li) -> bool:
+        return not li.find("a") and bool(re.match(r"^\[\d+\]$", li.get_text(strip=True)))
+
+    @staticmethod
+    def _extract_page_link_href(li) -> str:
+        a_tag = li.find("a")
+        if not a_tag or not a_tag.get("href"):
+            return ""
+        href = a_tag["href"]
+        if "pager[p]=" in href and re.match(r"^\[\d+\]$", a_tag.get_text(strip=True)):
+            return href
+        return ""
+
     async def parseNextPage(self, response: BeautifulSoup) -> str:
         """
         一覧ページから次ページの絶対URLを抽出する。
-        ul.pager 内の現在ページ [N] の直後にあるリンク、または次ページ番号リンクを取得。
+        ul.pager 内の現在ページ [N] の直後にあるリンクを取得。
         """
         pager_ul = response.select_one("ul.pager")
         if not pager_ul:
@@ -28,17 +42,13 @@ class ReguideInvestmentParser(InvestmentParser):
 
         lis = pager_ul.find_all("li")
         for i, li in enumerate(lis):
-            text = li.get_text(strip=True)
-            # 現在ページはリンクを持たず [N] というテキストになっている
-            if not li.find("a") and re.match(r"^\[\d+\]$", text):
-                if i + 1 < len(lis):
-                    next_a = lis[i + 1].find("a")
-                    if next_a and next_a.get("href"):
-                        href = next_a["href"]
-                        # 最後/最初へのジャンプではなくページ番号リンクであることを確認
-                        if "pager[p]=" in href and re.match(r"^\[\d+\]$", next_a.get_text(strip=True)):
-                            return urllib.parse.urljoin(self.BASE_URL, href)
-                break
+            if not self._is_current_page_li(li):
+                continue
+            if i + 1 < len(lis):
+                href = self._extract_page_link_href(lis[i + 1])
+                if href:
+                    return urllib.parse.urljoin(self.BASE_URL, href)
+            break
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
