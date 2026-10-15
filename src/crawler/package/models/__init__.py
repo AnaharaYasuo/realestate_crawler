@@ -28,3 +28,4 @@ from .candidate import *
 from .kenbiya import *
 from .building_master import *
 from .mid_brokers import *
+from .reguide import *

@@ -663,6 +663,10 @@ API_KEY_KENBIYA_INVEST_APARTMENT_DETAIL = '/api/kenbiya/invest_apartment/detail'
 API_KEY_KENBIYA_INVEST_BUILDING_START = '/api/kenbiya/invest_building/start'
 API_KEY_KENBIYA_INVEST_BUILDING_DETAIL = '/api/kenbiya/invest_building/detail'
 
+# RE-Guide (リガイド)
+API_KEY_REGUIDE_INVESTMENT_START = '/api/reguide/investment/start'
+API_KEY_REGUIDE_INVESTMENT_DETAIL = '/api/reguide/investment/detail'
+
 
 # ------------------------------------------------------------------
 # 偏差値（T-score）ベースの上位1%お宝物件判定ヘルパー

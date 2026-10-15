@@ -1,6 +1,10 @@
+from decimal import Decimal
 import re
 import urllib.parse
 from bs4 import BeautifulSoup
+from package.api.differential import ListItem
+from package.models.reguide import ReguideInvestment
+from package.parser.baseParser import SkipPropertyException
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
@@ -16,11 +20,93 @@ class ReguideInvestmentParser(InvestmentParser):
         super().__init__()
         self.selectors = SelectorLoader.load("reguide", self.property_type)
 
+    @staticmethod
+    def _is_current_page_li(li) -> bool:
+        return not li.find("a") and bool(re.match(r"^\[\d+\]$", li.get_text(strip=True)))
+
+    @staticmethod
+    def _extract_page_link_href(li) -> str:
+        a_tag = li.find("a")
+        if not a_tag or not a_tag.get("href"):
+            return ""
+        href = a_tag["href"]
+        decoded_href = urllib.parse.unquote(href)
+        if "pager[p]=" in decoded_href and re.match(r"^\[\d+\]$", a_tag.get_text(strip=True)):
+            return href
+        return ""
+
+    def _is_valid_reguide_url(self, url: str) -> bool:
+        parsed = urllib.parse.urlparse(url)
+        return (
+            parsed.scheme in ("http", "https")
+            and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+        )
+
+    async def parseNextPage(self, response: BeautifulSoup) -> str:
+        """
+        一覧ページから次ページの絶対URLを抽出する。
+        ul.pager 内の現在ページ [N] の直後にあるリンクを取得。
+        """
+        pager_ul = response.select_one("ul.pager")
+        if not pager_ul:
+            return ""
+
+        lis = pager_ul.find_all("li")
+        for i, li in enumerate(lis):
+            if not self._is_current_page_li(li):
+                continue
+            if i + 1 < len(lis):
+                href = self._extract_page_link_href(lis[i + 1])
+                if href:
+                    base_url = getattr(response, "url", None) or f"{self.BASE_URL}/investment/list/"
+                    candidate_url = urllib.parse.urljoin(base_url, href)
+                    if self._is_valid_reguide_url(candidate_url):
+                        return candidate_url
+            break
+        return ""
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        """
+        一覧ページのSoupから詳細ページのListItemを順次yieldする。
+        """
+        html_content = str(response)
+        for url in self.extract_detail_urls(html_content):
+            yield ListItem(url=url)
+
     def createEntity(self):
         """
         Entity factory for RE-Guide investment property.
         """
-        return super().createEntity()
+        return ReguideInvestment()
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        price = self._parsePrice(response, specs)
+        if price is None:
+            raise SkipPropertyException("Price is missing, skipping property")
+        item.propertyName = self._parsePropertyName(response, specs)
+        item.price = price
+        item.priceStr = self._parsePriceStr(response, specs)
+        item.address = self._parseAddress(response, specs)
+        item.traffic = self._parseTransport1(response, specs)
+        item.grossYield = self._parseGrossYield(response, specs)
+        item.annualRent = self._parseAnnualRent(response, specs)
+        item.monthlyRent = self._parseMonthlyRent(response, specs)
+        item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "")
+        item.kouzou = self._parseKouzou(response, specs)
+        item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
+        item.tatemonoMensekiStr = specs.get("建物面積", "")
+        item.genkyo = self._parseGenkyo(response, specs)
+        item.currentStatus = self._parseCurrentStatus(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.chimoku = self._parseChimoku(response, specs)
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
+        return item
 
     def getCharset(self):
         return "euc-jp"
@@ -102,8 +188,8 @@ class ReguideInvestmentParser(InvestmentParser):
         match = re.search(r"([\d\.]+)", yield_str)
         if match:
             try:
-                return float(match.group(1))
-            except ValueError:
+                return Decimal(match.group(1)).quantize(Decimal("0.01"))
+            except Exception:
                 return None
         return None
 
