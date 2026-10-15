@@ -101,6 +101,7 @@ from routes.mid_brokers_routes import (
     tohoMansionStart,
     tohoTochiStart,
 )
+from routes.reguide_routes import reguide_bp, reguideInvestmentStart
 
 
 app = Flask(__name__)  # NOSONAR
@@ -137,6 +138,7 @@ app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
 app.register_blueprint(kenbiya_bp)
 app.register_blueprint(mid_brokers_bp)
+app.register_blueprint(reguide_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
 
@@ -360,6 +362,7 @@ def get_dispatch_map():
         ("toho", "mansion"): tohoMansionStart,
         ("toho", "kodate"): tohoKodateStart,
         ("toho", "tochi"): tohoTochiStart,
+        ("reguide", "investment"): reguideInvestmentStart,
     }
 
 

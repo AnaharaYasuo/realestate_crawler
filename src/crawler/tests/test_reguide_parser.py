@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from decimal import Decimal
 import os
 import pytest
 from bs4 import BeautifulSoup
@@ -51,7 +52,7 @@ def test_reguide_investment_parser_extract_specs(sample_soup):
     # 表面利回り & 満室想定年間収入
     yield_val = parser._parseGrossYield(sample_soup, specs)
     annual_rent = parser._parseAnnualRent(sample_soup, specs)
-    assert yield_val == 8.61
+    assert yield_val == Decimal("8.61")
     assert annual_rent == 636000
 
     # 所在地
@@ -141,4 +142,19 @@ async def test_reguide_investment_parser_parse_root_page():
     assert len(items) == 2
     assert items[0].url == "https://re-guide.jp/investment/421139/"
     assert items[1].url == "https://re-guide.jp/investment/421140/"
+
+
+def test_reguide_investment_parser_create_entity_and_detail_mapping(sample_soup):
+    parser = ReguideInvestmentParser()
+    entity = parser.createEntity()
+    assert entity is not None
+    assert entity._meta.db_table == "reguide_investment"
+
+    item = parser._parsePropertyDetailPage(entity, sample_soup)
+    assert item.propertyName == "サンパレス井草"
+    assert item.price == 7380000
+    assert item.grossYield == Decimal("8.61")
+    assert item.annualRent == 636000
+    assert item.address == "東京都杉並区井草2-1-2"
+    assert item.kouzou == "RC造"
 

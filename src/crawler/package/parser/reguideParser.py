@@ -1,7 +1,9 @@
+from decimal import Decimal
 import re
 import urllib.parse
 from bs4 import BeautifulSoup
 from package.api.differential import ListItem
+from package.models.reguide import ReguideInvestment
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
@@ -27,9 +29,17 @@ class ReguideInvestmentParser(InvestmentParser):
         if not a_tag or not a_tag.get("href"):
             return ""
         href = a_tag["href"]
-        if "pager[p]=" in href and re.match(r"^\[\d+\]$", a_tag.get_text(strip=True)):
+        decoded_href = urllib.parse.unquote(href)
+        if "pager[p]=" in decoded_href and re.match(r"^\[\d+\]$", a_tag.get_text(strip=True)):
             return href
         return ""
+
+    def _is_valid_reguide_url(self, url: str) -> bool:
+        parsed = urllib.parse.urlparse(url)
+        return (
+            parsed.scheme in ("http", "https")
+            and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+        )
 
     async def parseNextPage(self, response: BeautifulSoup) -> str:
         """
@@ -47,7 +57,10 @@ class ReguideInvestmentParser(InvestmentParser):
             if i + 1 < len(lis):
                 href = self._extract_page_link_href(lis[i + 1])
                 if href:
-                    return urllib.parse.urljoin(self.BASE_URL, href)
+                    base_url = getattr(response, "url", None) or self.BASE_URL
+                    candidate_url = urllib.parse.urljoin(base_url, href)
+                    if self._is_valid_reguide_url(candidate_url):
+                        return candidate_url
             break
         return ""
 
@@ -63,7 +76,33 @@ class ReguideInvestmentParser(InvestmentParser):
         """
         Entity factory for RE-Guide investment property.
         """
-        return super().createEntity()
+        return ReguideInvestment()
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        specs = self._get_specs(response)
+        item.propertyName = self._parsePropertyName(response, specs)
+        item.price = self._parsePrice(response, specs)
+        item.priceStr = self._parsePriceStr(response, specs)
+        item.address = self._parseAddress(response, specs)
+        item.traffic = self._parseTransport1(response, specs)
+        item.grossYield = self._parseGrossYield(response, specs)
+        item.annualRent = self._parseAnnualRent(response, specs)
+        item.monthlyRent = self._parseMonthlyRent(response, specs)
+        item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "")
+        item.kouzou = self._parseKouzou(response, specs)
+        item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
+        item.tatemonoMensekiStr = specs.get("建物面積", "")
+        item.genkyo = self._parseGenkyo(response, specs)
+        item.currentStatus = self._parseCurrentStatus(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.chimoku = self._parseChimoku(response, specs)
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
+        return item
 
     def getCharset(self):
         return "euc-jp"
@@ -145,8 +184,8 @@ class ReguideInvestmentParser(InvestmentParser):
         match = re.search(r"([\d\.]+)", yield_str)
         if match:
             try:
-                return float(match.group(1))
-            except ValueError:
+                return Decimal(match.group(1)).quantize(Decimal("0.01"))
+            except Exception:
                 return None
         return None
 
