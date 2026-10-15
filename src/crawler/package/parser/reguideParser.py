@@ -116,7 +116,7 @@ class ReguideInvestmentParser(InvestmentParser):
             val = converter._extract_man_yen_part(rent_str.replace(" ", "").split("万"))
             if val is not None:
                 return val
-        return self._parse_price(rent_str)
+        return converter.parse_price(rent_str)
 
     def _parseMonthlyRent(self, response: BeautifulSoup, specs=None):
         target_specs = specs or self._get_specs(response)
@@ -191,7 +191,7 @@ class ReguideInvestmentParser(InvestmentParser):
             parsed = urllib.parse.urlparse(abs_url)
             if (
                 parsed.scheme in ("http", "https")
-                and parsed.netloc.endswith("re-guide.jp")
+                and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
                 and re.match(r"^/investment/\d+/?", parsed.path)
             ):
                 urls.add(abs_url)
