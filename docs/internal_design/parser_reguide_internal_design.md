@@ -27,3 +27,12 @@
 - メソッド: `extract_detail_urls(html_content: str) -> list[str]`
 - コンテナ: `ul#result_list > li`
 - リンク: `a[href^="/investment/"]` から `/investment/\d+/` を抽出・完全URL化
+
+## 4. ページング・全件巡回設計
+- `parseRootPage(response: BeautifulSoup)`:
+  - 一覧ページの物件リンクから `ListItem(url=...)` を非同期ジェネレート。
+- `parseNextPage(response: BeautifulSoup) -> str`:
+  - ページャー: `ul.pager`
+  - 現在ページ `li`（`[N]`、リンクなし）の直後の `li > a` の `href` を抽出し、次ページ絶対URL（`pager[p]=N+1`）を返す。
+  - 次ページが存在しない場合（最終ページ `pager[p]=86`）は空文字 `""` を返却してクローリング終了。
+

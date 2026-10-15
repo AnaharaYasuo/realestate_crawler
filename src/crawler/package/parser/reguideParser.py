@@ -1,6 +1,7 @@
 import re
 import urllib.parse
 from bs4 import BeautifulSoup
+from package.api.differential import ListItem
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
@@ -15,6 +16,38 @@ class ReguideInvestmentParser(InvestmentParser):
     def __init__(self, params=None):
         super().__init__()
         self.selectors = SelectorLoader.load("reguide", self.property_type)
+
+    async def parseNextPage(self, response: BeautifulSoup) -> str:
+        """
+        一覧ページから次ページの絶対URLを抽出する。
+        ul.pager 内の現在ページ [N] の直後にあるリンク、または次ページ番号リンクを取得。
+        """
+        pager_ul = response.select_one("ul.pager")
+        if not pager_ul:
+            return ""
+
+        lis = pager_ul.find_all("li")
+        for i, li in enumerate(lis):
+            text = li.get_text(strip=True)
+            # 現在ページはリンクを持たず [N] というテキストになっている
+            if not li.find("a") and re.match(r"^\[\d+\]$", text):
+                if i + 1 < len(lis):
+                    next_a = lis[i + 1].find("a")
+                    if next_a and next_a.get("href"):
+                        href = next_a["href"]
+                        # 最後/最初へのジャンプではなくページ番号リンクであることを確認
+                        if "pager[p]=" in href and re.match(r"^\[\d+\]$", next_a.get_text(strip=True)):
+                            return urllib.parse.urljoin(self.BASE_URL, href)
+                break
+        return ""
+
+    async def parseRootPage(self, response: BeautifulSoup):
+        """
+        一覧ページのSoupから詳細ページのListItemを順次yieldする。
+        """
+        html_content = str(response)
+        for url in self.extract_detail_urls(html_content):
+            yield ListItem(url=url)
 
     def createEntity(self):
         """

@@ -79,3 +79,66 @@ def test_reguide_investment_parser_extract_detail_urls():
     assert len(urls) == 2
     assert "https://re-guide.jp/investment/421139/" in urls
     assert "https://re-guide.jp/investment/421140/" in urls
+
+
+@pytest.mark.asyncio
+async def test_reguide_investment_parser_parse_next_page():
+    parser = ReguideInvestmentParser()
+    # 1. Page 1 -> next is Page 2
+    html_p1 = """
+    <ul class="pager">
+        <li><a href="/investment/list/?pager[p]=1">最初</a></li>
+        <li>[1]</li>
+        <li><a href="/investment/list/?pager[p]=2">[2]</a></li>
+        <li><a href="/investment/list/?pager[p]=3">[3]</a></li>
+        <li><a href="/investment/list/?pager[p]=86">最後</a></li>
+    </ul>
+    """
+    soup1 = BeautifulSoup(html_p1, "html.parser")
+    next_url1 = await parser.parseNextPage(soup1)
+    assert next_url1 == "https://re-guide.jp/investment/list/?pager[p]=2"
+
+    # 2. Page 2 -> next is Page 3
+    html_p2 = """
+    <ul class="pager">
+        <li><a href="/investment/list/?pager[p]=1">最初</a></li>
+        <li><a href="/investment/list/?pager[p]=1">[1]</a></li>
+        <li>[2]</li>
+        <li><a href="/investment/list/?pager[p]=3">[3]</a></li>
+        <li><a href="/investment/list/?pager[p]=86">最後</a></li>
+    </ul>
+    """
+    soup2 = BeautifulSoup(html_p2, "html.parser")
+    next_url2 = await parser.parseNextPage(soup2)
+    assert next_url2 == "https://re-guide.jp/investment/list/?pager[p]=3"
+
+    # 3. Last Page 86 -> No next page
+    html_last = """
+    <ul class="pager">
+        <li><a href="/investment/list/?pager[p]=1">最初</a></li>
+        <li><a href="/investment/list/?pager[p]=85">[85]</a></li>
+        <li>[86]</li>
+    </ul>
+    """
+    soup_last = BeautifulSoup(html_last, "html.parser")
+    next_url_last = await parser.parseNextPage(soup_last)
+    assert next_url_last == ""
+
+
+@pytest.mark.asyncio
+async def test_reguide_investment_parser_parse_root_page():
+    parser = ReguideInvestmentParser()
+    sample_list_html = """
+    <ul id="result_list">
+        <li><a href="/investment/421139/">物件1</a></li>
+        <li><a href="/investment/421140/">物件2</a></li>
+    </ul>
+    """
+    soup = BeautifulSoup(sample_list_html, "html.parser")
+    items = []
+    async for item in parser.parseRootPage(soup):
+        items.append(item)
+    assert len(items) == 2
+    assert items[0].url == "https://re-guide.jp/investment/421139/"
+    assert items[1].url == "https://re-guide.jp/investment/421140/"
+
