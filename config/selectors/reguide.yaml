@@ -1,0 +1,35 @@
+# RE-Guide Selectors Configuration
+investment:
+  title: "h1"
+  price: ".price"
+  table:
+    header: "th"
+    value: "td"
+  field_mappings:
+    物件名: propertyName
+    価格: priceStr
+    価格(税込): priceStr
+    満室想定年間収入: annualRent
+    想定表面利回り: grossYield
+    利回り: grossYield
+    満室想定表面利回り: grossYield
+    所在地: address
+    交通: transport1
+    専有面積: senyuMensekiStr
+    建物面積: tatemonoMensekiStr
+    土地面積: tochiMensekiStr
+    間取り: madori
+    築年月: chikunengetsuStr
+    構造: kouzou
+    建物構造: kouzou
+    所在階: kaisuStr
+    階数: kaisuStr
+    現況: genkyo
+    総戸数: soukosuStr
+    土地権利: tochikenri
+    権利: tochikenri
+    管理費: kanrihiStr
+    修繕積立金: syuzenTsumitateStr
+    取引態様: torihiki
+    引渡時期: hikiwatashi
+    引渡し: hikiwatashi

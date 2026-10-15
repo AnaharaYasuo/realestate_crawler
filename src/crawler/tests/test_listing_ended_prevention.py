@@ -142,3 +142,27 @@ def test_rearie_layout_table_brand_only_raises_listing_ended():
     parser = RearieMansionParser()
     with pytest.raises(ListingEndedException):
         parser._parsePropertyDetailPage(RearieMansion(), soup)
+
+
+def test_stepon_non_property_url_rejection():
+    """住友不動産ステップの建物調査等の非物件URLが即時スキップされること (Issue #943)"""
+    from package.parser.baseParser import SkipPropertyException
+    with pytest.raises(SkipPropertyException):
+        DummyParser._reject_non_property_url("https://www.stepon.co.jp/step_buildingsurvey/")
+    with pytest.raises(SkipPropertyException):
+        DummyParser._reject_non_property_url("https://www.stepon.co.jp/step_buildingsurvey/detail")
+
+
+def test_sumifu_parser_none_safe_parsing():
+    """スペック表が存在しない・欠損したHTMLでもSumifuParserがNoneType例外を起こさないこと (Issue #943)"""
+    from package.parser.sumifuParser import SumifuMansionParser
+    from package.models.sumifu import SumifuMansion
+    parser = SumifuMansionParser()
+    item = SumifuMansion()
+    html = "<html><head><title>テスト案内</title></head><body><p>コンテンツなし</p></body></html>"
+    soup = BeautifulSoup(html, "html.parser")
+    # 例外を送出せずパースが完了すること
+    res_item = parser._parsePropertyDetailPage(item, soup)
+    assert res_item.price is None
+    assert res_item.propertyName == ""
+
