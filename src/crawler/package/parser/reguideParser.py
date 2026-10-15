@@ -53,13 +53,18 @@ class ReguideInvestmentParser(InvestmentParser):
         return specs
 
     def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
+        target_specs = specs or self._get_specs(response)
+        if target_specs.get("物件名"):
+            return target_specs["物件名"]
         h1 = response.find("h1")
         if h1 is not None:
+            # Remove badge tags like <span id="new_icon">
+            for span in h1.find_all(["span", "img"]):
+                span.decompose()
             text = h1.get_text(strip=True)
             if text:
                 return text
-        target_specs = specs or self._get_specs(response)
-        return target_specs.get("物件名", "") or super()._parsePropertyName(response, specs)
+        return super()._parsePropertyName(response, specs)
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         price_str = self._parsePriceStr(response, specs)
@@ -107,11 +112,15 @@ class ReguideInvestmentParser(InvestmentParser):
         rent_str = target_specs.get("満室想定年間収入", "") or target_specs.get("年間予定賃料収入", "")
         if not rent_str:
             return None
-        return converter.parse_price(rent_str)
+        if "万" in rent_str and "円" in rent_str:
+            val = converter._extract_man_yen_part(rent_str.replace(" ", "").split("万"))
+            if val is not None:
+                return val
+        return self._parse_price(rent_str)
 
     def _parseMonthlyRent(self, response: BeautifulSoup, specs=None):
         target_specs = specs or self._get_specs(response)
-        rent_str = target_specs.get("管理費", "")
+        rent_str = target_specs.get("月額賃料", "") or target_specs.get("月額予定賃料", "") or target_specs.get("賃料", "")
         if not rent_str:
             return None
         return converter.parse_price(rent_str)
@@ -136,10 +145,7 @@ class ReguideInvestmentParser(InvestmentParser):
 
     def _parseTatemonoMenseki(self, response: BeautifulSoup, specs=None):
         target_specs = specs or self._get_specs(response)
-        tatemono_str = (
-            target_specs.get("建物面積", "")
-            or target_specs.get("専有面積", "")
-        )
+        tatemono_str = target_specs.get("建物面積", "")
         if not tatemono_str:
             return None
         return converter.parse_menseki(tatemono_str)
@@ -174,13 +180,19 @@ class ReguideInvestmentParser(InvestmentParser):
     def extract_detail_urls(self, html_content: str) -> list[str]:
         """
         一覧ページのHTMLから詳細ページの絶対URL一覧を抽出する。
+        同一ドメイン (re-guide.jp) のみ許可。
         """
         soup = BeautifulSoup(html_content, "html.parser")
         urls = set()
         container = soup.select_one("ul#result_list") or soup
         for a_tag in container.find_all("a", href=True):
             href = a_tag["href"]
-            if re.search(r"^/investment/\d+/?", href) or re.search(r"^https?://[^/]+/investment/\d+/?", href):
-                abs_url = urllib.parse.urljoin(self.BASE_URL, href)
+            abs_url = urllib.parse.urljoin(self.BASE_URL, href)
+            parsed = urllib.parse.urlparse(abs_url)
+            if (
+                parsed.scheme in ("http", "https")
+                and parsed.netloc.endswith("re-guide.jp")
+                and re.match(r"^/investment/\d+/?", parsed.path)
+            ):
                 urls.add(abs_url)
         return sorted(urls)

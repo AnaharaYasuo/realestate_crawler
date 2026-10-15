@@ -45,22 +45,22 @@ def test_reguide_investment_parser_extract_specs(sample_soup):
     # 価格
     price = parser._parsePrice(sample_soup, specs)
     price_str = parser._parsePriceStr(sample_soup, specs)
-    assert price is not None and price > 0
-    assert "万" in price_str or "円" in price_str
+    assert price == 7380000
+    assert price_str == "738万円"
 
     # 表面利回り & 満室想定年間収入
     yield_val = parser._parseGrossYield(sample_soup, specs)
     annual_rent = parser._parseAnnualRent(sample_soup, specs)
-    assert yield_val is not None
-    assert annual_rent is not None
+    assert yield_val == 8.61
+    assert annual_rent == 636000
 
     # 所在地
     address = parser._parseAddress(sample_soup, specs)
-    assert address is not None and len(address) > 0
+    assert address == "東京都杉並区井草2-1-2"
 
     # 物件名
     name = parser._parsePropertyName(sample_soup, specs)
-    assert name is not None and len(name) > 0
+    assert name == "サンパレス井草"
 
 
 def test_reguide_investment_parser_extract_detail_urls():
