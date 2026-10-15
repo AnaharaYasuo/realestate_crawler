@@ -25,6 +25,22 @@ class ReguideInvestmentParser(InvestmentParser):
     def getCharset(self):
         return "euc-jp"
 
+    @staticmethod
+    def _extract_row_specs(tr, specs: dict) -> None:
+        ths = tr.find_all("th")
+        tds = tr.find_all("td")
+        if len(ths) == len(tds) and len(ths) > 0:
+            for th, td in zip(ths, tds):
+                key = th.get_text(strip=True)
+                val = td.get_text(" ", strip=True)
+                if key and val and key not in specs:
+                    specs[key] = val
+        elif len(ths) == 1 and len(tds) >= 1:
+            key = ths[0].get_text(strip=True)
+            val = tds[0].get_text(" ", strip=True)
+            if key and val and key not in specs:
+                specs[key] = val
+
     def _get_specs(self, response: BeautifulSoup) -> dict:
         """
         詳細ページのスペックテーブル (th / td) を辞書化する。
@@ -33,19 +49,7 @@ class ReguideInvestmentParser(InvestmentParser):
         specs = {}
         for table in response.find_all("table"):
             for tr in table.find_all("tr"):
-                ths = tr.find_all("th")
-                tds = tr.find_all("td")
-                if len(ths) == len(tds) and len(ths) > 0:
-                    for th, td in zip(ths, tds):
-                        key = th.get_text(strip=True)
-                        val = td.get_text(" ", strip=True)
-                        if key and val and key not in specs:
-                            specs[key] = val
-                elif len(ths) == 1 and len(tds) >= 1:
-                    key = ths[0].get_text(strip=True)
-                    val = tds[0].get_text(" ", strip=True)
-                    if key and val and key not in specs:
-                        specs[key] = val
+                self._extract_row_specs(tr, specs)
         return specs
 
     def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
