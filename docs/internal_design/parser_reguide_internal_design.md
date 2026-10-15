@@ -27,3 +27,29 @@
 - メソッド: `extract_detail_urls(html_content: str) -> list[str]`
 - コンテナ: `ul#result_list > li`
 - リンク: `a[href^="/investment/"]` から `/investment/\d+/` を抽出・完全URL化
+
+## 4. ページング・全件巡回設計
+- `parseRootPage(response: BeautifulSoup)`:
+  - 一覧ページの物件リンクから `ListItem(url=...)` を非同期ジェネレート。
+- `parseNextPage(response: BeautifulSoup) -> str`:
+  - ページャー: `ul.pager`
+  - 現在ページ `li`（`[N]`、リンクなし）の直後の `li > a` の `href` を抽出し、次ページ絶対URL（`pager[p]=N+1`）を返す。
+  - 次ページが存在しない場合（最終ページ）は空文字 `""` を返却してクローリング終了。
+
+## 5. DBモデル設計
+`src/crawler/package/models/reguide.py`
+
+- `ReguideInvestment(models.Model)`:
+  - テーブル名: `reguide_investment`
+  - `OdakyuInvestment` 等に準拠した投資物件共通スキーマ。
+  - 項目: `property_name`, `price`, `price_str`, `gross_yield` (Decimal(5,2)), `annual_rent`, `address`, `prefecture`, `city`, `traffic`, `chikunengetsu`, `kouzou`, `tatemono_menseki`, `tochi_menseki`, `url` (unique) 等。
+
+## 6. API・ルート設計
+- `src/crawler/package/api/reguide.py`:
+  - `ParseReguideInvestmentStartAsync`: 開始URL（`https://re-guide.jp/investment/`）からの巡回。
+  - `ParseReguideInvestmentDetailFuncAsync`: 各物件詳細ページのパース・DB保存。
+- `src/crawler/routes/reguide_routes.py`:
+  - `/api/reguide/investment/start`: 開始エンドポイント。
+  - `src/crawler/main.py` の `get_dispatch_map` に `("reguide", "investment")` として登録。
+
+
