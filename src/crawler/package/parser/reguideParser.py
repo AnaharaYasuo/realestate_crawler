@@ -54,8 +54,10 @@ class ReguideInvestmentParser(InvestmentParser):
 
     def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
         h1 = response.find("h1")
-        if h1 and h1.get_text(strip=True):
-            return h1.get_text(strip=True)
+        if h1 is not None:
+            text = h1.get_text(strip=True)
+            if text:
+                return text
         target_specs = specs or self._get_specs(response)
         return target_specs.get("物件名", "") or super()._parsePropertyName(response, specs)
 
