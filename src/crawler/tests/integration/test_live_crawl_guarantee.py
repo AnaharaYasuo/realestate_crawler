@@ -91,6 +91,7 @@ def test_live_crawl_guarantee_for_job(job):
         "tokyu_invest_kodate",
         "sumai1_kodate",
         "sumai1_investment",
+        "nomura_invest_kodate",
     ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(
