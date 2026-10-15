@@ -158,3 +158,14 @@ def test_reguide_investment_parser_create_entity_and_detail_mapping(sample_soup)
     assert item.address == "東京都杉並区井草2-1-2"
     assert item.kouzou == "RC造"
 
+
+def test_reguide_investment_parser_missing_price_skips():
+    from package.parser.baseParser import SkipPropertyException
+
+    parser = ReguideInvestmentParser()
+    entity = parser.createEntity()
+    empty_soup = BeautifulSoup("<html><body><table></table></body></html>", "html.parser")
+    with pytest.raises(SkipPropertyException):
+        parser._parsePropertyDetailPage(entity, empty_soup)
+
+

@@ -4,6 +4,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from package.api.differential import ListItem
 from package.models.reguide import ReguideInvestment
+from package.parser.baseParser import SkipPropertyException
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
@@ -80,8 +81,11 @@ class ReguideInvestmentParser(InvestmentParser):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         specs = self._get_specs(response)
+        price = self._parsePrice(response, specs)
+        if price is None:
+            raise SkipPropertyException("Price is missing, skipping property")
         item.propertyName = self._parsePropertyName(response, specs)
-        item.price = self._parsePrice(response, specs)
+        item.price = price
         item.priceStr = self._parsePriceStr(response, specs)
         item.address = self._parseAddress(response, specs)
         item.traffic = self._parseTransport1(response, specs)
