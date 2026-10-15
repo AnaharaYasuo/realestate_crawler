@@ -2,8 +2,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from package.models.evaluation import PropertyEvaluation
-
 # Error messages (Sonar S1192 constant reuse)
 ERR_MISSING_SENYU = "必須項目欠損 (専有面積が未抽出)"
 ERR_MISSING_FLOOR = "必須項目欠損 (所在階が未抽出)"
@@ -70,14 +68,16 @@ class PropertyDataValidator:
             has_madori_field = "madori" in field_names
             has_age_field = "chikunengetsu" in field_names or "chikunengetsuStr" in field_names
 
-        if has_madori_field and _blank(getattr(item, "madori", None)):
-            reasons.append(ERR_MISSING_MADORI)
+        if has_madori_field:
+            madori_val = getattr(item, "madori", None)
+            if _blank(madori_val) and str(madori_val or "").strip() not in ("-", "―", "ー", "未定", "相談"):
+                reasons.append(ERR_MISSING_MADORI)
         if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
             reasons.append(ERR_MISSING_AGE)
 
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
-        """山林・原野・雑種地・農地・持分売買・投資区分など低価格（10万〜100万円未満）が正常なケース"""
+        """山林・原野・雑種地・農地・持分売買・投資区分・ヘルスケア・リゾート等低価格（10万〜100万円未満）が正常なケース"""
         chimoku = str(getattr(item, "chimoku", "") or "")
         valid_chimoku = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
         if any(target in chimoku for target in valid_chimoku):
@@ -86,7 +86,11 @@ class PropertyDataValidator:
         name = str(getattr(item, "propertyName", "") or "")
         biko = str(getattr(item, "biko", "") or "")
         full_text = f"{name} {biko}"
-        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ", "古家", "空き家", "空家"]
+        specific_keywords = [
+            "山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ",
+            "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
+            "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
+        ]
         if any(kw in full_text for kw in specific_keywords):
             return True
 
@@ -132,6 +136,19 @@ class PropertyDataValidator:
             return None
 
     @classmethod
+    def _is_invest_area_exempt(cls, item: Any, ptype: str) -> bool:
+        if cls._is_low_price_allowed(item, ptype):
+            return True
+        if not ("invest" in ptype or "apartment" in ptype):
+            return False
+
+        for attr in ("yieldRate", "grossYield", "rent", "monthlyRent", "annualRent"):
+            val = cls._parse_candidate_float(getattr(item, attr, None))
+            if val is not None and val > 0:
+                return True
+        return False
+
+    @classmethod
     def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         area = 0.0
         if ptype in ("mansion", "invest_mansion"):
@@ -154,7 +171,8 @@ class PropertyDataValidator:
                     break
 
         if area <= 5.0:
-            reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
+            if not cls._is_invest_area_exempt(item, ptype):
+                reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
         elif area > 10000.0 and ptype in ["mansion", "kodate", "invest_kodate"]:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
         return area
@@ -306,6 +324,8 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
     保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True (オートヒール対象)、
     OKなら解消する。単件保存・バッチ保存・validate_data.py から共通利用。
     """
+    from package.models.evaluation import PropertyEvaluation
+
     is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
     issue = "; ".join(reasons)
     eval_rec, _ = PropertyEvaluation.objects.get_or_create(

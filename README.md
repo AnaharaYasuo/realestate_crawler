@@ -511,6 +511,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[クローラーDB監視DNS堅牢化 & ML再学習インポート修復 内部設計書](docs/internal_design/crawler_db_dns_and_ml_train_internal_design.md)** - DB接続先IP解決固定によるFast-Fail誤発動防止およびsetup_env連携によるML再学習インポート修復 (Issue #892)
 - **[継続実行時のパース・モデル不整合解消及びサーキットブレイカー誤爆防止 内部設計書](docs/internal_design/pipeline_resilience_and_model_fields_internal_design_898.md)** - リトライ試行内タイムアウトと連続タイムアウト判定の分離、および各社モデルの任意項目空文字・null許容化 (Issue #898)
 - **[健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 内部設計書](docs/internal_design/kenbiya_parser_spec_overwrite_internal_design_926.md)** - 親要素判定によるガイド除外、div.property正規スペック優先走査、および同一キー上書き防止 (Issue #926)
+- **[クローラー自動修復・バリデーション境界是正 内部設計書](docs/internal_design/auto_heal_parsers_and_validator_fixes_internal_design_940.md)** - 東急戸建て間取りspecs伝播・投資物件面積免除・間取りハイフン許容および低廉キーワード拡充 (Issue #940)
 
 
 

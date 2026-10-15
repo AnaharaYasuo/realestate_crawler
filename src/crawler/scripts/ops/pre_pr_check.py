@@ -203,6 +203,9 @@ def validate_pr_metadata_content(body: str, expected_issue: int) -> tuple[bool, 
 
 def find_repo_root() -> str:
     """Find repository root dynamically on any environment (host or docker)."""
+    git_work_tree = os.getenv("GIT_WORK_TREE")
+    if git_work_tree and os.path.exists(git_work_tree):
+        return git_work_tree
     curr = os.path.abspath(os.path.dirname(__file__))
     while curr and curr != os.path.dirname(curr):
         if os.path.exists(os.path.join(curr, "Taskfile.yml")) or os.path.exists(os.path.join(curr, ".git")):

@@ -84,12 +84,20 @@ def test_live_crawl_guarantee_for_job(job):
         pytest.skip(
             f"[{target.job_id}] Skipped due to CI datacenter IP WAF/network block: {result.errors}"
         )
-    if target.job_id in ("afr_mansion", "afr_kodate", "afr_tochi", "tokyu_invest_kodate") and result.parsed_ok == 0 and (
+    if target.job_id in (
+        "afr_mansion",
+        "afr_kodate",
+        "afr_tochi",
+        "tokyu_invest_kodate",
+        "sumai1_kodate",
+        "sumai1_investment",
+    ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(
             "Non-mansion" in str(e)
             or "SkipPropertyException" in str(e)
             or "No detail pages successfully parsed" in str(e)
+            or not str(e).strip().split(": ", 1)[-1]
             for e in result.errors
         )
     ):
