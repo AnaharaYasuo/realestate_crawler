@@ -82,4 +82,7 @@ CHALLENGE_TITLE_KEYWORDS: tuple[str, ...] = (
 
 * `athomeParser.py`: `_parsePropertyDetailPage` 内で独自に実施していた `ListingEndedException` の事前チェックを維持しつつ、共通判定と重複しても安全に動作することを保証。
 * `tokyuParser.py`: `check_tokyu_listing_ended` は互換性のため維持し、基底クラス側でも包括検知。さらにタイトルが「購入・売却・賃貸 物件情報」を含む場合、または価格が存在せず「売り出し中の物件を見る」等の案内を含むカタログ・売出終了ページ、ならびに投資物件で詳細表が存在せず地域一覧（「投資物件・収益物件（建物）」等）へリダイレクトされたページを検知して `ListingEndedException` を送出 (Issue #764, #769, #782)。
+* `baseParser.py` (`_reject_non_property_url`): 住友不動産ステップ等の非物件URL（`/step_buildingsurvey/` 等）を `skip_parts` に追加し、早期に `SkipPropertyException` を送出してスキップ (Issue #943)。
+* `sumifuParser.py`: `_getValueFromTable` や各種項目抽出メソッドにおいて、対象要素やスペック辞書の参照値が `None` の場合に `.replace()` や文字列関数を無条件実行せず安全にデフォルト値を返すようガードを追加 (Issue #943)。
+
 

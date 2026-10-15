@@ -1753,6 +1753,7 @@ class ParserBase(metaclass=ABCMeta):
             TOKEN_CONTACT,
             "/benefit/",
             "/baikyaku/",
+            "/step_buildingsurvey/",
         )
         if any(p in u_lower for p in skip_parts):
             logging.debug(f"Fast-skipping non-property/rental URL: {url}")
