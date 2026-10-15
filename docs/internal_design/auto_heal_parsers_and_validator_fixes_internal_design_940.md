@@ -26,5 +26,7 @@
   item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
   item.tochiMensekiStr = self._parseTochiMensekiStr(response, specs)
   item.tochiMenseki = self._parseTochiMenseki(response, specs)
-  ...
-  ```
+### 1.3 `src/crawler/package/parser/mitsuiParser.py`
+- `MitsuiParser._parseTrafficLines`:
+  - 従来の `_getValueByLabel` および `_get_specs` に加え、三井新UIのCSSセレクター（`.property-traffic`, `.traffic-detail`, `.access-detail` 等）およびテーブル要素全走査フォールバックを追加。
+

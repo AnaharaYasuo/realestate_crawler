@@ -12,7 +12,9 @@
 * **スコープ**:
   - `src/crawler/package/utils/data_validator.py`
   - `src/crawler/package/parser/tokyuParser.py`
+  - `src/crawler/package/parser/mitsuiParser.py`
   - `src/crawler/tests/unit/test_yield_and_validator_thresholds.py`
+  - `src/crawler/tests/unit/test_mitsui_parser.py`
   - ドキュメント階層の同期
 
 ## 3. 要件一覧
@@ -21,3 +23,5 @@
 * **REQ-940-03**: `PropertyDataValidator._is_low_price_allowed` の対象キーワードに「ヘルス・ケア」「ヘルスケア」「リゾート」「その他用地」「倉庫用地」「別荘地」「分譲地」「再建築不可」「借地権」を追加し、正常な低価格物件の誤検知を防止すること。
 * **REQ-940-04**: `TokyuKodateParser._parsePropertyDetailPage` において、`specs = self._scrape_specs(response)` を取得し、各抽出メソッド（`_parseMadori`, `_parseTatemonoMensekiStr` 等）へ `specs` を渡してパース漏れを根絶すること。
 * **REQ-940-05**: `PropertyDataValidator` の単体テストにおいて、DjangoのAppRegistry未初期化エラーを防止するため、`PropertyEvaluation` モデルのインポートを遅延インポートとすること。
+* **REQ-940-06**: `MitsuiParser._parseTrafficLines` において、三井のリハウス新UIレイアウト（`.property-traffic` 等）やラベル走査フォールバックを追加し、交通情報が確実に抽出されること。
+
