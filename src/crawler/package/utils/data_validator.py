@@ -136,6 +136,19 @@ class PropertyDataValidator:
             return None
 
     @classmethod
+    def _is_invest_area_exempt(cls, item: Any, ptype: str) -> bool:
+        if cls._is_low_price_allowed(item, ptype):
+            return True
+        if not ("invest" in ptype or "apartment" in ptype):
+            return False
+
+        for attr in ("yieldRate", "grossYield", "rent", "monthlyRent", "annualRent"):
+            val = cls._parse_candidate_float(getattr(item, attr, None))
+            if val is not None and val > 0:
+                return True
+        return False
+
+    @classmethod
     def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         area = 0.0
         if ptype in ("mansion", "invest_mansion"):
@@ -158,23 +171,7 @@ class PropertyDataValidator:
                     break
 
         if area <= 5.0:
-            # 投資物件で利回り・賃料が存在する場合、または山林・持分等の一括・特殊物件は面積欠損・未記載を許容
-            is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
-            raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
-            has_yield_or_rent = False
-            if raw_yield is not None:
-                try:
-                    has_yield_or_rent = float(raw_yield) > 0
-                except (ValueError, TypeError):
-                    pass
-            rent = getattr(item, "rent", None) or getattr(item, "monthlyRent", None) or getattr(item, "annualRent", None)
-            if rent is not None:
-                try:
-                    has_yield_or_rent = has_yield_or_rent or float(rent) > 0
-                except (ValueError, TypeError):
-                    pass
-
-            if not (is_invest and (has_yield_or_rent or cls._is_low_price_allowed(item, ptype))):
+            if not cls._is_invest_area_exempt(item, ptype):
                 reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
         elif area > 10000.0 and ptype in ["mansion", "kodate", "invest_kodate"]:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
