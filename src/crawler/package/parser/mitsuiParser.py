@@ -246,25 +246,59 @@ class MitsuiParser(ParserBase):
                 lines = [" ".join(text_parts)]
         return lines
 
+    def _extract_traffic_from_selectors(self, response) -> list[str]:
+        if not response:
+            return []
+        selectors = (
+            ".traffic-detail", ".access-detail", ".property-traffic",
+            ".detail-traffic", ".c-traffic", "div[class*='traffic']", "div[class*='access']",
+            ".p-detail-traffic", "section[class*='access']", "section[class*='traffic']"
+        )
+        for sel in selectors:
+            el = response.select_one(sel)
+            if not el:
+                continue
+            lines = [s.strip() for s in el.stripped_strings if s.strip()]
+            if lines:
+                return lines
+        return []
+
+    def _extract_traffic_from_th_dt(self, response) -> list[str]:
+        if not response:
+            return []
+        labels = ("交通", "最寄り駅", "沿線", "アクセス")
+        for tag in response.find_all(["th", "dt"]):
+            t_lbl = tag.get_text(strip=True)
+            if not any(lbl in t_lbl for lbl in labels):
+                continue
+            parent = tag.parent
+            val_el = parent.find(["td", "dd"]) if parent else None
+            if not val_el:
+                continue
+            extracted = self._extract_traffic_from_soup(val_el)
+            if extracted:
+                return extracted
+        return []
+
     def _parseTrafficLines(self, response, _specs=None):
-        lines = []
         for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
             res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
             if res:
                 extracted = self._extract_traffic_from_soup(res)
                 if extracted:
-                    lines = extracted
-                    break
+                    return extracted
+
+        specs = _specs if _specs is not None else self._get_specs(response)
+        traffic_val = (
+            specs.get("交通", "")
+            or specs.get("最寄り駅", "")
+            or specs.get("沿線・駅", "")
+            or specs.get("アクセス", "")
+        )
+        lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
 
         if not lines:
-            specs = _specs if _specs is not None else self._get_specs(response)
-            traffic_val = (
-                specs.get("交通", "")
-                or specs.get("最寄り駅", "")
-                or specs.get("沿線・駅", "")
-                or specs.get("アクセス", "")
-            )
-            lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
+            lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
 
         return [
             line for line in lines
