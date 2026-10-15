@@ -57,7 +57,7 @@ class ReguideInvestmentParser(InvestmentParser):
             if i + 1 < len(lis):
                 href = self._extract_page_link_href(lis[i + 1])
                 if href:
-                    base_url = getattr(response, "url", None) or self.BASE_URL
+                    base_url = getattr(response, "url", None) or f"{self.BASE_URL}/investment/list/"
                     candidate_url = urllib.parse.urljoin(base_url, href)
                     if self._is_valid_reguide_url(candidate_url):
                         return candidate_url
