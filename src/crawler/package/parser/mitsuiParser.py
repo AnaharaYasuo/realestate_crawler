@@ -266,6 +266,33 @@ class MitsuiParser(ParserBase):
             )
             lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
 
+        # Modern Rehouse layout fallback: scan dedicated traffic / access containers
+        if not lines and response:
+            for sel in [
+                ".traffic-detail", ".access-detail", ".property-traffic",
+                ".detail-traffic", ".c-traffic", "div[class*='traffic']", "div[class*='access']",
+                ".p-detail-traffic", "section[class*='access']", "section[class*='traffic']"
+            ]:
+                el = response.select_one(sel)
+                if el:
+                    t_lines = [s.strip() for s in el.stripped_strings if s.strip()]
+                    if t_lines:
+                        lines = t_lines
+                        break
+
+        # Fallback: scan any th/dt containing 交通 or 最寄 inside response
+        if not lines and response:
+            for tag in response.find_all(["th", "dt"]):
+                t_lbl = tag.get_text(strip=True)
+                if any(lbl in t_lbl for lbl in ["交通", "最寄り駅", "沿線", "アクセス"]):
+                    parent = tag.parent
+                    val_el = parent.find(["td", "dd"]) if parent else None
+                    if val_el:
+                        extracted = self._extract_traffic_from_soup(val_el)
+                        if extracted:
+                            lines = extracted
+                            break
+
         return [
             line for line in lines
             if line and not ("@context" in line or "schema" in line.lower() or "{" in line)
