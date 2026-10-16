@@ -446,7 +446,7 @@ async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, 
                     data = await resp.json()
                     if not data.get("ok"):
                         logger.warning(f"Slack API conversations.list returned error: {data.get('error')}")
-                        break
+                        return []
                     channels.extend(data.get("channels", []))
                     cursor = data.get("response_metadata", {}).get("next_cursor")
                     if not cursor:
@@ -459,15 +459,17 @@ async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, 
                 hist_url = "https://slack.com/api/conversations.history"
                 try:
                     async with session.get(hist_url, headers=headers, params={"channel": ch["id"], "limit": limit}) as hresp:
-                        if hresp.status == 200:
-                            hdata = await hresp.json()
-                            if hdata.get("ok"):
-                                for m in hdata.get("messages", []):
-                                    all_msgs.append((ch_name, m))
-                            else:
-                                logger.debug(f"conversations.history error for {ch_name}: {hdata.get('error')}")
+                        if hresp.status != 200:
+                            logger.warning(f"conversations.history HTTP {hresp.status} for {ch_name}")
+                            continue
+                        hdata = await hresp.json()
+                        if not hdata.get("ok"):
+                            logger.warning(f"conversations.history error for {ch_name}: {hdata.get('error')}")
+                            continue
+                        for m in hdata.get("messages", []):
+                            all_msgs.append((ch_name, m))
                 except Exception as ch_err:  # noqa: BLE001
-                    logger.debug(f"History fetch error for channel {ch_name}: {ch_err}")
+                    logger.warning(f"History fetch error for channel {ch_name}: {ch_err}")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to fetch Slack messages for auto-healing: {e}")
     return all_msgs
