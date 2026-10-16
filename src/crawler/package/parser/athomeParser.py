@@ -59,7 +59,7 @@ _ATHOME_CONTENT_READY_JS = """() => {
     const hrefs = Array.from(document.querySelectorAll('a[href]'))
         .map(a => a.getAttribute('href') || '');
     const hasDetail = hrefs.some(h =>
-        /\\/(mansion|kodate|tochi|buy_other)\\/\\d{6,}/.test(h)
+        /\\/(mansion|kodate|tochi|buy_other)\\/.*?\\d{6,}/.test(h)
         || h.includes('bkdetail')
     );
     const hasPriceTable = text.includes('価格')
@@ -371,12 +371,12 @@ class AthomeParser(ParserBase):
             return True
         ptype = getattr(self, "property_type", "")
         type_patterns = {
-            "kodate": r'/(kodate|buy/kodate)/\d{6,}/?',
-            "mansion": r'/(mansion|buy/mansion)/\d{6,}/?',
-            "tochi": r'/(tochi|buy/tochi)/\d{6,}/?',
-            "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/\d{6,}/?',
+            "kodate": r'/(kodate|buy/kodate)/(?:chuko/[^/]+/[^/]+/)?\d{6,}/?',
+            "mansion": r'/(mansion|buy/mansion)/(?:chuko/[^/]+/[^/]+/)?\d{6,}/?',
+            "tochi": r'/(tochi|buy/tochi)/(?:[^/]+/[^/]+/)?\d{6,}/?',
+            "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/.*?(\d{6,})/?',
         }
-        pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?')
+        pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/.*?(\d{6,})/?')
         return bool(re.search(pattern, path))
 
     def _extract_detail_links_from_soup(self, soup: BeautifulSoup, base_domain: str):

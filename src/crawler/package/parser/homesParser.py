@@ -181,7 +181,15 @@ class HomesParser(ParserBase):
         detail_links = set()
         yield_links = []
         other_links = []
-        for a in response.select("a[href*='/bukkendetail/']"):
+        detail_selectors = (
+            "a[href*='/bukkendetail/'], "
+            "a[href*='/mansion/b-'], "
+            "a[href*='/kodate/b-'], "
+            "a[href*='/tochi/b-'], "
+            "a[href*='/bldg/'], "
+            "a[href*='/chuko/']"
+        )
+        for a in response.select(detail_selectors):
             href = a.get("href")
             if not href:
                 continue
