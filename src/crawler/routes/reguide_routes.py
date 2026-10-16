@@ -14,15 +14,15 @@ from package.api.reguide import (
 
 reguide_bp = Blueprint('reguide', __name__)
 
-REGUIDE_INVESTMENT_ROOT_URL = "https://re-guide.jp/investment/list/"
-REGUIDE_DETAIL_URL_PATTERN = re.compile(r"^https://re-guide\.jp/investment/\d+/?$")
+REGUIDE_INVESTMENT_ROOT_URL = "https://www.re-guide.jp/investment/list/"
+REGUIDE_DETAIL_URL_PATTERN = re.compile(r"^https://(?:www\.)?re-guide\.jp/investment/\d+/?$")
 
 
 def _is_valid_reguide_detail_url(url: str) -> bool:
     if not isinstance(url, str):
         return False
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme != "https" or parsed.netloc != "re-guide.jp":
+    if parsed.scheme != "https" or parsed.netloc not in ("re-guide.jp", "www.re-guide.jp"):
         return False
     return bool(REGUIDE_DETAIL_URL_PATTERN.match(url))
 

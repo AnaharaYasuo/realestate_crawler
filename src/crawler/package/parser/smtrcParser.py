@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 import re
@@ -9,8 +10,10 @@ from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
     ListItem,
+    LoadPropertyPageException,
     MansionParserBase,
     ParserBase,
+    ServerDownException,
     SkipPropertyException,
     TochiParserBase,
 )
@@ -219,11 +222,16 @@ class SmtrcParser(ParserBase):
                 raise RuntimeError(f"smtrc Playwright fetch failed: content size too small ({len(retried_content)} bytes) for {url}")
             return retried_content
         except Exception as e:
-            if "403" in str(e) or "Forbidden" in str(e):
-                logger.warning("smtrc WAF 403 detected for %s, falling back to Playwright stealth...", url)
+            err_str = str(e).lower()
+            is_waf_or_timeout = any(
+                kw in err_str
+                for kw in ["403", "forbidden", "timeout", "server down", "timed out", "clienterror"]
+            ) or isinstance(e, (asyncio.TimeoutError, ServerDownException, LoadPropertyPageException))
+            if is_waf_or_timeout:
+                logger.warning("smtrc connection/WAF error (%s) detected for %s, falling back to Playwright stealth...", e, url)
                 fb_content = await self._smtrc_fetch_with_playwright(url)
                 if len(fb_content) < 1000:
-                    raise RuntimeError(f"smtrc Playwright fetch failed on WAF fallback: content size too small ({len(fb_content)} bytes) for {url}")
+                    raise RuntimeError(f"smtrc Playwright fetch failed on fallback: content size too small ({len(fb_content)} bytes) for {url}")
                 return fb_content
             raise
 
