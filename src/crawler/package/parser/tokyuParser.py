@@ -21,6 +21,7 @@ from package.parser.baseParser import (
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils import logging_config  # noqa: F401
+from package.utils.job_metrics import mark_empty_result
 from package.utils.selector_loader import SelectorLoader
 from package.api.differential import ListItem
 
@@ -1550,6 +1551,15 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
                 if not any(kw in txt for kw in ['戸建', '戸建て']):
                     return None
         return super()._parse_nextjs_property_item(item)
+
+    async def parsePropertyListPage(self, response):
+        found_any = False
+        async for item in super().parsePropertyListPage(response):
+            found_any = True
+            yield item
+        if not found_any:
+            logger.info("TokyuInvestmentKodate: 0 active listings found on site, marking valid empty result.")
+            mark_empty_result()
 
     def _parseTochiMenseki(self, response, specs=None):
         return super()._parseTochiMenseki(response, specs)

@@ -56,14 +56,15 @@ def test_export_and_read_job_metrics(tmp_path: Path):
 
         counts = read_job_metrics(test_comp, test_ptype, run_date=test_date)
         assert counts is not None
-        assert counts == (42, 7, 49)
+        assert counts == (42, 7, 49, False)
 
 
 def test_resolve_job_counts_prefers_metrics_file():
-    with patch("scripts.ops.run_all_crawlers.read_job_metrics", return_value=(10, 2, 12)) as mock_read:
+    with patch("scripts.ops.run_all_crawlers.read_job_metrics", return_value=(10, 2, 12, False)) as mock_read:
         with patch("scripts.ops.run_all_crawlers.get_count_for_job") as mock_db:
-            detail, skip, tot, from_file = resolve_job_counts("rearie", "kodate", None)
+            detail, skip, tot, is_empty, from_file = resolve_job_counts("rearie", "kodate", None)
             assert from_file is True
+            assert is_empty is False
             assert (detail, skip, tot) == (10, 2, 12)
             mock_read.assert_called_once()
             mock_db.assert_not_called()  # DB COUNT query must be bypassed!
@@ -72,8 +73,9 @@ def test_resolve_job_counts_prefers_metrics_file():
 def test_resolve_job_counts_fallback_to_db_when_no_file():
     with patch("scripts.ops.run_all_crawlers.read_job_metrics", return_value=None):
         with patch("scripts.ops.run_all_crawlers.get_count_for_job", return_value=(5, 1, 6)) as mock_db:
-            detail, skip, tot, from_file = resolve_job_counts("rearie", "kodate", datetime.datetime.now(datetime.timezone.utc))
+            detail, skip, tot, is_empty, from_file = resolve_job_counts("rearie", "kodate", datetime.datetime.now(datetime.timezone.utc))
             assert from_file is False
+            assert is_empty is False
             assert (detail, skip, tot) == (5, 1, 6)
             mock_db.assert_called_once()
 
@@ -81,8 +83,9 @@ def test_resolve_job_counts_fallback_to_db_when_no_file():
 def test_resolve_job_counts_fallback_when_db_returns_none():
     with patch("scripts.ops.run_all_crawlers.read_job_metrics", return_value=None):
         with patch("scripts.ops.run_all_crawlers.get_count_for_job", return_value=(None, None, None)):
-            detail, skip, tot, from_file = resolve_job_counts("rearie", "kodate", datetime.datetime.now(datetime.timezone.utc))
+            detail, skip, tot, is_empty, from_file = resolve_job_counts("rearie", "kodate", datetime.datetime.now(datetime.timezone.utc))
             assert from_file is False
+            assert is_empty is False
             assert (detail, skip, tot) == (0, 0, 0)
 
 
