@@ -434,23 +434,40 @@ async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, 
         timeout = aiohttp.ClientTimeout(total=10.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             list_url = "https://slack.com/api/conversations.list"
-            params = {"types": "public_channel,private_channel", "limit": 100}
-            async with session.get(list_url, headers=headers, params=params) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                channels = data.get("channels", [])
+            cursor = None
+            channels = []
+            while True:
+                params = {"types": "public_channel,private_channel", "limit": 100}
+                if cursor:
+                    params["cursor"] = cursor
+                async with session.get(list_url, headers=headers, params=params) as resp:
+                    if resp.status != 200:
+                        return []
+                    data = await resp.json()
+                    if not data.get("ok"):
+                        logger.warning(f"Slack API conversations.list returned error: {data.get('error')}")
+                        break
+                    channels.extend(data.get("channels", []))
+                    cursor = data.get("response_metadata", {}).get("next_cursor")
+                    if not cursor:
+                        break
 
             for ch in channels:
                 ch_name = ch.get("name", "")
                 if not (ch_name.startswith("alerts-") or ch_name in ["dev-agent", "property_alert", "alerts-crawling"]):
                     continue
                 hist_url = "https://slack.com/api/conversations.history"
-                async with session.get(hist_url, headers=headers, params={"channel": ch["id"], "limit": limit}) as hresp:
-                    if hresp.status == 200:
-                        hdata = await hresp.json()
-                        for m in hdata.get("messages", []):
-                            all_msgs.append((ch_name, m))
+                try:
+                    async with session.get(hist_url, headers=headers, params={"channel": ch["id"], "limit": limit}) as hresp:
+                        if hresp.status == 200:
+                            hdata = await hresp.json()
+                            if hdata.get("ok"):
+                                for m in hdata.get("messages", []):
+                                    all_msgs.append((ch_name, m))
+                            else:
+                                logger.debug(f"conversations.history error for {ch_name}: {hdata.get('error')}")
+                except Exception as ch_err:  # noqa: BLE001
+                    logger.debug(f"History fetch error for channel {ch_name}: {ch_err}")
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to fetch Slack messages for auto-healing: {e}")
     return all_msgs

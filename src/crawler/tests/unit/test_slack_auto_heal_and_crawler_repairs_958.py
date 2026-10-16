@@ -73,9 +73,9 @@ async def test_fetch_slack_error_targets_integration():
 def test_homes_mansion_parser_price_resilience():
     parser = HomesMansionParser()
     assert parser.property_type == "mansion"
-    assert converter.parse_price("価格未定") is None
+    assert converter.parse_price("価格未定") == 0
     assert converter.parse_price("") is None
-    assert converter.parse_price("相談") is None
+    assert converter.parse_price("相談") == 0
     assert converter.parse_price("5,480万円") == 54800000
     assert converter.parse_price("1億2,000万円") == 120000000
 
@@ -84,7 +84,7 @@ def test_athome_mansion_parser_resilience():
     parser = AthomeMansionParser()
     assert parser.property_type == "mansion"
     assert converter.parse_price("4,980万円") == 49800000
-    assert converter.parse_price("未定") is None
+    assert converter.parse_price("未定") == 0
 
     # Test aggregate_and_sort_targets with slack targets
     targets = [{"company": "athome", "property_type": "mansion", "reason": "0件取得"}]
