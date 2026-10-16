@@ -28,8 +28,10 @@ import realestateSettings
 realestateSettings.configure()
 
 from django.apps import apps
+from django.db import close_old_connections, connections
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_dev_report
+from package.utils.db_timeouts import bound_mysql_timeouts
 
 try:
     from google import genai
@@ -325,6 +327,9 @@ def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = 
     """
     価格推定の最新精度診断を一括実行し、レポートを出力する。
     """
+    close_old_connections()
+    connections.close_all()
+    bound_mysql_timeouts()
     logger.info(f"Starting daily prediction diagnostics (limit={limit}, dry_run={dry_run})...")
 
     # 1. 評価済みレコードの収集

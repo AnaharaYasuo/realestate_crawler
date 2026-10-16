@@ -18,12 +18,13 @@ while True:
         break
     _cur = _parent
 
-from django.db import models, transaction
+from django.db import models, transaction, close_old_connections, connections
 from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
+from package.utils.db_timeouts import bound_mysql_timeouts
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -259,6 +260,9 @@ def _fetch_recommendation_candidates():
     return candidates
 
 def send_recommendations():
+    close_old_connections()
+    connections.close_all()
+    bound_mysql_timeouts()
     metrics = BatchMetrics(job_name="Slack Recommendation")
     logger.info("Scanning for new hot recommendation properties to send via Slack...")
     _notify_status("🔍 【お宝物件スクリーニング開始】 未通知の割安物件・高利回り優良物件の抽出を開始します...")
