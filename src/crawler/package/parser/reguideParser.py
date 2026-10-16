@@ -14,7 +14,7 @@ DIGIT_REGEX = re.compile(r"(\d+)")
 
 class ReguideInvestmentParser(InvestmentParser):
     property_type = "investment"
-    BASE_URL = "https://re-guide.jp"
+    BASE_URL = "https://www.re-guide.jp"
 
     def __init__(self, params=None):
         super().__init__()

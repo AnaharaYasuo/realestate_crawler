@@ -488,27 +488,27 @@ def resolve_job_counts(
     ptype: str,
     start_dt: datetime.datetime | None,
     today_str: str | None = None,
-) -> tuple[int, int, int, bool]:
+) -> tuple[int, int, int, bool, bool]:
     """
-    ジョブの処理件数を回収する (Issue #952)。
+    ジョブの処理件数を回収する (Issue #952, #959)。
     1. 子プロセスが出力したメトリクス JSON からの直接回収を優先試行 (DB クエリゼロ)。
     2. JSON が見つからない場合のみ DB COUNT(*) へフォールバック。
     Returns:
-        (detail_cnt, skipped_cnt, total_cnt, is_from_metrics_file)
+        (detail_cnt, skipped_cnt, total_cnt, is_empty_result, is_from_metrics_file)
     """
     file_counts = read_job_metrics(company, ptype, run_date=today_str)
     if file_counts is not None:
-        detail, skip, tot = file_counts
+        detail, skip, tot, is_empty = file_counts
         logger.info(
-            "Direct metrics collected for %s - %s: detail=%d, skipped=%d, total=%d (DB query bypassed)",
-            company, ptype, detail, skip, tot,
+            "Direct metrics collected for %s - %s: detail=%d, skipped=%d, total=%d, is_empty_result=%s (DB query bypassed)",
+            company, ptype, detail, skip, tot, is_empty,
         )
-        return detail, skip, tot, True
+        return detail, skip, tot, is_empty, True
 
     db_counts = get_count_for_job(company, ptype, start_dt)
     if db_counts[0] is None:
-        return 0, 0, 0, False
-    return db_counts[0], db_counts[1], db_counts[2], False
+        return 0, 0, 0, False, False
+    return db_counts[0], db_counts[1], db_counts[2], False, False
 
 
 def format_job_success_message(
@@ -672,7 +672,7 @@ def main():
                 detail_cnt = 0
                 skipped_cnt = 0
                 if exit_code == 0:
-                    detail_cnt, skipped_cnt, scraped_cnt, from_file = resolve_job_counts(company, ptype, start_dt, today_str)
+                    detail_cnt, skipped_cnt, scraped_cnt, is_empty_result, from_file = resolve_job_counts(company, ptype, start_dt, today_str)
                     if scraped_cnt > 0:
                         error_type = ""
                         post_slack(
@@ -686,6 +686,18 @@ def main():
                                 total_cnt=scraped_cnt,
                                 duration_job_str=duration_job_str,
                             )
+                        )
+                    elif from_file and is_empty_result:
+                        status = "success"
+                        error_type = ""
+                        error_msg = ""
+                        logger.info(
+                            "[%d] %s - %s reported valid empty result (0 active listings on site). Treating as success.",
+                            idx, company, ptype,
+                        )
+                        post_slack(
+                            f"✅ 【成功 (掲載0件)】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | "
+                            f"掲載件数: 0 件 (有効な空結果) | 処理時間: {duration_job_str}"
                         )
                     elif from_file:
                         # 子プロセス正常終了でメトリクスファイルから0件の場合

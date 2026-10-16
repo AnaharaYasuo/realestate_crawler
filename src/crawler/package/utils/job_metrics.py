@@ -18,14 +18,29 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _detail_count: int = 0
 _skipped_count: int = 0
+_is_empty_result: bool = False
 
 
 def reset_metrics() -> None:
     """Reset process-local metrics counters."""
-    global _detail_count, _skipped_count
+    global _detail_count, _skipped_count, _is_empty_result
     with _lock:
         _detail_count = 0
         _skipped_count = 0
+        _is_empty_result = False
+
+
+def mark_empty_result() -> None:
+    """Mark current job run as a valid empty result (0 active listings on site)."""
+    global _is_empty_result
+    with _lock:
+        _is_empty_result = True
+
+
+def is_empty_result_marked() -> bool:
+    """Check if empty result is marked."""
+    with _lock:
+        return _is_empty_result
 
 
 def record_detail_processed(n: int = 1) -> None:
@@ -68,6 +83,7 @@ def export_job_metrics(
     detail_cnt: int | None = None,
     skipped_cnt: int | None = None,
     run_date: str | None = None,
+    is_empty_result: bool | None = None,
 ) -> Path | None:
     """
     Export crawler metrics to JSON file atomically.
@@ -76,6 +92,7 @@ def export_job_metrics(
     cur_detail, cur_skip = get_current_metrics()
     final_detail = cur_detail if detail_cnt is None else detail_cnt
     final_skip = cur_skip if skipped_cnt is None else skipped_cnt
+    final_empty = is_empty_result if is_empty_result is not None else is_empty_result_marked()
 
     metrics_path = get_metrics_file_path(company, property_type, run_date)
     data: dict[str, Any] = {
@@ -84,6 +101,7 @@ def export_job_metrics(
         "detail_cnt": final_detail,
         "skipped_cnt": final_skip,
         "total_cnt": final_detail + final_skip,
+        "is_empty_result": bool(final_empty),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
@@ -93,8 +111,8 @@ def export_job_metrics(
             json.dump(data, f, ensure_ascii=False, indent=2)
         tmp_path.replace(metrics_path)
         logger.info(
-            "Saved job metrics for %s - %s: detail=%d, skipped=%d to %s",
-            company, property_type, final_detail, final_skip, metrics_path,
+            "Saved job metrics for %s - %s: detail=%d, skipped=%d, is_empty_result=%s to %s",
+            company, property_type, final_detail, final_skip, final_empty, metrics_path,
         )
         return metrics_path
     except Exception as e:  # noqa: BLE001
@@ -114,10 +132,10 @@ def read_job_metrics(
     company: str,
     property_type: str,
     run_date: str | None = None,
-) -> tuple[int, int, int] | None:
+) -> tuple[int, int, int, bool] | None:
     """
     Read job metrics from JSON file if available.
-    Returns: (detail_cnt, skipped_cnt, total_cnt) or None if file not found / invalid.
+    Returns: (detail_cnt, skipped_cnt, total_cnt, is_empty_result) or None if file not found / invalid.
     """
     metrics_path = get_metrics_file_path(company, property_type, run_date)
     if not metrics_path.exists():
@@ -129,7 +147,8 @@ def read_job_metrics(
         detail = int(data.get("detail_cnt", 0))
         skipped = int(data.get("skipped_cnt", 0))
         total = int(data.get("total_cnt", detail + skipped))
-        return detail, skipped, total
+        is_empty = bool(data.get("is_empty_result", False))
+        return detail, skipped, total, is_empty
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "Failed to read job metrics from %s: %s",

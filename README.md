@@ -793,6 +793,9 @@ docs/
 - **[全体パイプラインへのリガイド組み込み要件定義書](docs/requirements/reguide_pipeline_integration_requirements.md)**: CRAWL_JOBS / ML パイプライン（COMPANIES）へのリガイド組み込み要件 (Issue #953)
 - **[全体パイプラインへのリガイド組み込み外部設計書](docs/external_design/reguide_pipeline_integration_external_design.md)**: パイプライン連携・CLI引数・モデルマッピング外部仕様 (Issue #953)
 - **[全体パイプラインへのリガイド組み込み内部設計書](docs/internal_design/reguide_pipeline_integration_internal_design.md)**: CRAWL_JOBS / COMPANIES / crawl_job_catalog / data_loader 内部仕様 (Issue #953)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復要件定義書](docs/requirements/crawler_failures_recovery_requirements_959.md)**: RE-Guide正規URL・SMTRC Playwrightフォールバック・正常空結果・タイムアウト制御要件 (Issue #959)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復外部設計書](docs/external_design/crawler_failures_recovery_external_design_959.md)**: wwwドメイン・Playwrightフォールバック・Empty Resultメトリクス・Slack通知外部設計 (Issue #959)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復内部設計書](docs/internal_design/crawler_failures_recovery_internal_design_959.md)**: 各パーサーおよびrun_all_crawlers内部詳細仕様 (Issue #959)
 
 
 ### 2. 開発を始める
