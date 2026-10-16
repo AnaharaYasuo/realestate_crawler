@@ -1,5 +1,4 @@
 """Unit tests verifying RE-Guide integration into CRAWL_JOBS and ML pipeline (Issue #953)."""
-import pytest
 from package.ml.constants import COMPANIES
 from package.utils.crawl_job_catalog import build_catalog
 from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs
