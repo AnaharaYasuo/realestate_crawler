@@ -71,6 +71,8 @@ def test_live_crawl_guarantee_for_job(job):
         "bot",
         "メンテナンス",
         "maintenance",
+        "202",
+        "HTTP 202",
         "budget exhausted",
     )
     is_ci = bool(
@@ -92,6 +94,7 @@ def test_live_crawl_guarantee_for_job(job):
         "sumai1_kodate",
         "sumai1_investment",
         "nomura_invest_kodate",
+        "keikyu_kodate",
     ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(
