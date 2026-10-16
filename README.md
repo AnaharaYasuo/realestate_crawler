@@ -790,6 +790,9 @@ docs/
 - **[クローラー子プロセス処理件数直接回収・DB負荷根絶要件定義書](docs/requirements/crawler_metrics_direct_collection_requirements_952.md)**: 親プロセスCOUNT(*)撤廃・子プロセス直接メトリクス回収・ステップ間DB切断回復・マイグレ完全整合要件 (Issue #952)
 - **[クローラー子プロセス処理件数直接回収・DB負荷根絶外部設計書](docs/external_design/crawler_metrics_direct_collection_external_design_952.md)**: JSONメトリクス形式・フォールバック・非失敗ハンドリング外部設計 (Issue #952)
 - **[クローラー子プロセス処理件数直接回収・DB負荷根絶内部設計書](docs/internal_design/crawler_metrics_direct_collection_internal_design_952.md)**: export_job_metrics/read_job_metrics/close_all内部仕様 (Issue #952)
+- **[全体パイプラインへのリガイド組み込み要件定義書](docs/requirements/reguide_pipeline_integration_requirements.md)**: CRAWL_JOBS / ML パイプライン（COMPANIES）へのリガイド組み込み要件 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み外部設計書](docs/external_design/reguide_pipeline_integration_external_design.md)**: パイプライン連携・CLI引数・モデルマッピング外部仕様 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み内部設計書](docs/internal_design/reguide_pipeline_integration_internal_design.md)**: CRAWL_JOBS / COMPANIES / crawl_job_catalog / data_loader 内部仕様 (Issue #953)
 
 
 ### 2. 開発を始める

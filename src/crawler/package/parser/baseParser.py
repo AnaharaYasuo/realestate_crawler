@@ -1796,6 +1796,8 @@ class ParserBase(metaclass=ABCMeta):
         "お探しのページが見つかりません",
         "物件が見つかりません",
         "存在しないか、掲載が終了",
+        "会員様のみに公開",
+        "会員限定",
     )
 
     LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (

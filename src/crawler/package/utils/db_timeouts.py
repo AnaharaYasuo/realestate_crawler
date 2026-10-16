@@ -4,8 +4,15 @@ DB_CONNECT_TIMEOUT_SEC = 10
 DB_QUERY_TIMEOUT_SEC = 120
 
 
-def bound_mysql_timeouts(settings_dict) -> None:
+def bound_mysql_timeouts(settings_dict=None) -> None:
     """MySQL の接続設定 OPTIONS に接続・読み書きタイムアウトを設定する (明示設定がある場合はそれを優先)"""
+    if settings_dict is None:
+        try:
+            from django.conf import settings
+            if settings.configured and "default" in getattr(settings, "DATABASES", {}):
+                settings_dict = settings.DATABASES["default"]
+        except Exception:
+            return
     if not settings_dict or not str(settings_dict.get("ENGINE", "")).endswith("mysql"):
         return
     options = settings_dict.get("OPTIONS")
