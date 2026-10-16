@@ -1,12 +1,12 @@
 mansion:
   title: "#detailTitleArea h2 em"
   price: "td:contains('価格')"
-  root_xpath: "//a[contains(@href, '/buy/mansion/')]/@href"
+  root_xpath: "//a[contains(@href, '/buy/mansion/') or contains(@href, '/mansion/')]/@href"
   
 kodate:
   title: "#detailTitleArea h2 em"
   price: "td:contains('価格')"
-  root_xpath: "//a[contains(@href, '/buy/kodate/')]/@href"
+  root_xpath: "//a[contains(@href, '/buy/kodate/') or contains(@href, '/kodate/')]/@href"
 
 investmentapartment:
   title: "#detailTitleArea h2 em"
@@ -16,4 +16,5 @@ investmentapartment:
 tochi:
   title: "#detailTitleArea h2 em"
   price: "td:contains('価格')"
+  root_xpath: "//a[contains(@href, '/buy/tochi/') or contains(@href, '/tochi/')]/@href"
 
