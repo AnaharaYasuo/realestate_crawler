@@ -33,6 +33,7 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
+from package.utils.job_metrics import export_job_metrics
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -433,6 +434,10 @@ def execute_crawl_task(
     elapsed = int(time.time() - start_t)
     scraped_count = _count_scraped_items(company, prop_type, start_dt)
     _update_task_record(task_rec, success)
+    try:
+        export_job_metrics(company, prop_type, detail_cnt=scraped_count)
+    except Exception as me:
+        logging.warning("Failed to export metrics in execute_crawl_task: %s", me)
 
     return success, scraped_count, elapsed
 
@@ -556,6 +561,10 @@ if __name__ == "__main__":
                 except Exception as fre:  # noqa: BLE001
                     logger.warning(f"Failed to record failure telemetry: {fre}")
                 sys.exit(1)
+            try:
+                export_job_metrics(company, prop_type)
+            except Exception as me:
+                logger.warning(f"Failed to export job metrics on completion: {me}")
             logger.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:
