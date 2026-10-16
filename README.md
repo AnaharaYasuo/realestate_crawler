@@ -787,6 +787,9 @@ docs/
 - **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復内部設計書](docs/internal_design/cleanup_header_and_garbage_data_internal_design_917.md)**: _assert_not_header_row・update_and_restore_garbage_records内部仕様 (Issue #917)
 - **[RE-Guide収益物件サイト構造要件定義書](docs/requirements/site_structures/site_structure_reguide_investment.md)**: RE-Guide収益物件のURL体系、一覧・詳細ページ構造およびフィールドマッピング要件 (Issue #945)
 - **[RE-Guide収益物件パーサー内部設計書](docs/internal_design/parser_reguide_internal_design.md)**: ReguideInvestmentParserクラス設計・セレクター・EUC-JP対応・TDD仕様 (Issue #945)
+- **[全体パイプラインへのリガイド組み込み要件定義書](docs/requirements/reguide_pipeline_integration_requirements.md)**: CRAWL_JOBS / ML パイプライン（COMPANIES）へのリガイド組み込み要件 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み外部設計書](docs/external_design/reguide_pipeline_integration_external_design.md)**: パイプライン連携・CLI引数・モデルマッピング外部仕様 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み内部設計書](docs/internal_design/reguide_pipeline_integration_internal_design.md)**: CRAWL_JOBS / COMPANIES / crawl_job_catalog / data_loader 内部仕様 (Issue #953)
 
 
 ### 2. 開発を始める
