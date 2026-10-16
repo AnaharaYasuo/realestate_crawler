@@ -356,6 +356,120 @@ def notify_auto_heal_request(
         logger.warning(f"Failed to send auto-heal Slack notification: {e}")
 
 
+def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = "") -> list[dict]:
+    """
+    Slackメッセージ本文から、0件取得警告、パース例外、低件数異常を抽出し、自己修復ターゲット辞書のリストを生成する。
+    """
+    if not text:
+        return []
+
+    targets = []
+    import re
+
+    # 1. 0件取得警告
+    if "0件取得検知" in text or ("取得件数: 0" in text and "クローリング" in text):
+        site_match = re.search(r"対象サイト:\s*([a-zA-Z0-9_]+)", text)
+        type_match = re.search(r"種別:\s*([a-zA-Z0-9_]+)", text)
+        site = site_match.group(1).lower() if site_match else "unknown"
+        ptype = type_match.group(1).lower() if type_match else "unknown"
+        if site != "unknown":
+            targets.append({
+                "company": site,
+                "property_type": ptype,
+                "reason": f"0件取得検知 (#{channel_name})",
+                "url": f"https://www.{site}.co.jp/" if "." not in site else f"https://{site}/",
+                "detected_at": ts,
+                "source": "slack"
+            })
+
+    # 2. パース例外 / データ異常検知
+    if "パース例外" in text or "データ異常検知" in text:
+        site_match = re.search(r"サイト:\s*([a-zA-Z0-9_]+)", text)
+        type_match = re.search(r"種別:\s*([a-zA-Z0-9_]+)", text)
+        err_match = re.search(r"エラー:\s*(.+)", text)
+        url_match = re.search(r"URL:\s*(https?://[^\s]+)", text)
+        site = site_match.group(1).lower() if site_match else "unknown"
+        ptype = type_match.group(1).lower() if type_match else "unknown"
+        err = err_match.group(1).strip() if err_match else "パース例外"
+        url = url_match.group(1).strip() if url_match else ""
+        if site != "unknown":
+            targets.append({
+                "company": site,
+                "property_type": ptype,
+                "reason": f"パース例外: {err}",
+                "url": url or f"https://www.{site}.co.jp/",
+                "detected_at": ts,
+                "source": "slack"
+            })
+
+    # 3. 低件数サマリー
+    major_sites = ["athome", "homes", "mitsui", "sumifu", "tokyu", "nomura"]
+    for s in major_sites:
+        pat = rf"(?:•|\*|-)?\s*{s}\s*[:：]\s*(\d+)\s*件"
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            cnt = int(m.group(1))
+            if cnt < 5:
+                targets.append({
+                    "company": s,
+                    "property_type": "mansion",
+                    "reason": f"大規模サイト極小件数異常: {cnt}件取得 (#{channel_name})",
+                    "url": f"https://www.{s}.co.jp/",
+                    "detected_at": ts,
+                    "source": "slack"
+                })
+
+    return targets
+
+
+async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, dict]]:
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    if not token or os.getenv("BLOCK_OUTBOUND_SLACK") or os.getenv("PYTEST_CURRENT_TEST"):
+        return []
+
+    import aiohttp
+    headers = {"Authorization": f"Bearer {token}"}
+    all_msgs = []
+    try:
+        timeout = aiohttp.ClientTimeout(total=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            list_url = "https://slack.com/api/conversations.list"
+            params = {"types": "public_channel,private_channel", "limit": 100}
+            async with session.get(list_url, headers=headers, params=params) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                channels = data.get("channels", [])
+
+            for ch in channels:
+                ch_name = ch.get("name", "")
+                if not (ch_name.startswith("alerts-") or ch_name in ["dev-agent", "property_alert", "alerts-crawling"]):
+                    continue
+                hist_url = "https://slack.com/api/conversations.history"
+                async with session.get(hist_url, headers=headers, params={"channel": ch["id"], "limit": limit}) as hresp:
+                    if hresp.status == 200:
+                        hdata = await hresp.json()
+                        for m in hdata.get("messages", []):
+                            all_msgs.append((ch_name, m))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to fetch Slack messages for auto-healing: {e}")
+    return all_msgs
+
+
+async def fetch_slack_error_targets(limit: int = 100) -> list[dict]:
+    """
+    Slackチャンネルからエラーメッセージおよび低件数異常を抽出し、ターゲットリストを返却する。
+    """
+    msgs = await fetch_all_slack_channel_messages(limit=limit)
+    targets = []
+    for ch_name, m in msgs:
+        text = m.get("text", "")
+        ts = m.get("ts", "")
+        parsed = parse_slack_message_to_targets(text, channel_name=ch_name, ts=ts)
+        targets.extend(parsed)
+    return targets
+
+
 def scan_anomalies_and_generate_instructions():
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
@@ -367,6 +481,16 @@ def scan_anomalies_and_generate_instructions():
     )
 
     heal_targets = []
+
+    # Slackエラー・0件警告・極小件数異常の自動取得 (Issue #958)
+    try:
+        slack_targets = asyncio.run(fetch_slack_error_targets(limit=100))
+        for st in slack_targets:
+            if st not in heal_targets:
+                heal_targets.append(st)
+        logger.info(f"Loaded {len(slack_targets)} error targets from Slack telemetry.")
+    except Exception as se:  # noqa: BLE001
+        logger.warning(f"Could not load Slack error targets: {se}")
 
     three_days_ago = timezone.now() - timedelta(days=3)
     # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665)
