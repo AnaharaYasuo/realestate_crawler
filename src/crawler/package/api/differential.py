@@ -133,6 +133,11 @@ async def _process_differential_chunk(
 
     if chunk_to_skip:
         await _batch_update_cached(model_class, chunk_to_skip, now)
+        try:
+            from package.utils.job_metrics import record_item_skipped
+            record_item_skipped(len(chunk_to_skip))
+        except Exception:
+            pass
 
     return chunk_to_fetch, chunk_to_skip
 

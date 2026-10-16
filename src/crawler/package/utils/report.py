@@ -33,6 +33,11 @@ class CrawlerReporter:
     @classmethod
     def success(cls, url, model):
         cls.log_result(url, "SUCCESS", model)
+        try:
+            from package.utils.job_metrics import record_detail_processed
+            record_detail_processed(1)
+        except Exception:
+            pass
 
     @classmethod
     def failure(cls, url, model, error):
