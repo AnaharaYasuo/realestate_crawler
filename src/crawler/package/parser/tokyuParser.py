@@ -159,8 +159,10 @@ class TokyuParser(ParserBase):
         logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
-                m_curr = re.search(r'[?&](?:page|p)=(\d+)', current_url) if current_url else None
-                current_page = int(m_curr.group(1)) if m_curr else (1 if current_url else 0)
+                current_page = 0
+                if current_url:
+                    m_curr = re.search(r'[?&](?:page|p)=(\d+)', current_url)
+                    current_page = int(m_curr.group(1)) if m_curr else 1
                 next_el = self._find_next_link(response, current_page=current_page)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
