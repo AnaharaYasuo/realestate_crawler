@@ -997,8 +997,18 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
         if self._is_non_property_href(full_url):
             return None
-        raw_price = item.get('price') or item.get('salesPrice')
-        price = converter.parse_price(str(raw_price)) if raw_price else None
+        price_model = item.get('priceModel')
+        if isinstance(price_model, dict) and price_model.get('price') is not None:
+            price = int(price_model['price'])
+        else:
+            raw_price = item.get('price') or item.get('salesPrice')
+            if isinstance(raw_price, (int, float)):
+                # If already an integer in yen (>= 100,000), use directly without man-to-yen multiplication
+                price = int(raw_price) if raw_price >= 100000 else int(raw_price * 10000)
+            elif raw_price:
+                price = converter.parse_price(str(raw_price))
+            else:
+                price = None
         return ListItem(url=full_url, price=price)
 
     def _extract_nextjs_urls(self, response):
@@ -1543,13 +1553,46 @@ class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase
 class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
     property_type = 'invest_kodate'
 
+    EXCLUDED_LABELS = {
+        'ホテル', '旅館', '車庫・立体駐車場', '車庫', '立体駐車場',
+        '店舗', '事務所', '倉庫', '工場', '寮・社宅', '医療施設',
+        'マンション一棟売', 'アパート一棟売', 'ビル一棟', 'リゾートマンション・別荘'
+    }
+
     def _parse_nextjs_property_item(self, item):
         labels = item.get('labelList') or []
+        all_label_parts = set()
         for lbl in labels:
-            if isinstance(lbl, dict) and lbl.get('iconName') == '物件種別':
+            if isinstance(lbl, dict):
                 txt = lbl.get('listText') or lbl.get('detailText') or ''
-                if not any(kw in txt for kw in ['戸建', '戸建て']):
+                for part in txt.split('/'):
+                    all_label_parts.add(part.strip())
+
+        # 1. 明示的な戸建て表記がある場合は許可、それ以外は「その他(土地・建物)」を対象とする
+        has_direct_kodate = any('戸建' in part or '戸建て' in part for part in all_label_parts)
+        has_other_label = 'その他(土地・建物)' in all_label_parts
+
+        if not has_direct_kodate and not has_other_label:
+            return None
+
+        # 2. 除外ラベルの検証（ホテル、ビル、アパート一棟、店舗等）
+        if any(exc in all_label_parts for exc in self.EXCLUDED_LABELS):
+            return None
+
+        # 3. スペック詳細判定（戸数・階数）
+        property_detail = item.get('propertyDetail') or []
+        for det_str in property_detail:
+            # 戸数判定（2戸以上はアパート等のため除外）
+            if '戸' in det_str:
+                m_unit = re.search(r'(\d+)戸', det_str)
+                if m_unit and int(m_unit.group(1)) > 1:
                     return None
+            # 階数判定（地上4階建以上は中高層ビルのため除外）
+            if '階建' in det_str:
+                m_floor = re.search(r'地上(\d+)階建', det_str)
+                if m_floor and int(m_floor.group(1)) > 3:
+                    return None
+
         return super()._parse_nextjs_property_item(item)
 
     async def parsePropertyListPage(self, response):
@@ -1602,7 +1645,7 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         title_text = response.title.get_text() if response.title else ""
         h1_text = (response.find("h1") or "").get_text() if response.find("h1") else ""
         combined_text = f"{title_text} {h1_text} {item.propertyName or ''}"
-        if any(kw in combined_text for kw in ["マンション", "区分", "一室"]):
+        if any(kw in combined_text for kw in ["マンション", "区分", "一室", "ビル", "ホテル", "旅館", "店舗", "事務所", "立体駐車場"]):
             raise SkipPropertyException(f"Tokyu investment kodate parser skipping non-kodate unit: {item.propertyName}")
 
         item = super()._parsePropertyDetailPage(item, response)
