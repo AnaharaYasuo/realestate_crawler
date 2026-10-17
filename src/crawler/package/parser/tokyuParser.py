@@ -1559,40 +1559,38 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         'マンション一棟売', 'アパート一棟売', 'ビル一棟', 'リゾートマンション・別荘'
     }
 
-    def _parse_nextjs_property_item(self, item):
+    def _has_valid_kodate_label(self, item: dict) -> bool:
         labels = item.get('labelList') or []
-        all_label_parts = set()
-        for lbl in labels:
-            if isinstance(lbl, dict):
-                txt = lbl.get('listText') or lbl.get('detailText') or ''
-                for part in txt.split('/'):
-                    all_label_parts.add(part.strip())
-
-        # 1. 明示的な戸建て表記がある場合は許可、それ以外は「その他(土地・建物)」を対象とする
+        all_label_parts = {
+            part.strip()
+            for lbl in labels
+            if isinstance(lbl, dict)
+            for part in (lbl.get('listText') or lbl.get('detailText') or '').split('/')
+        }
         has_direct_kodate = any('戸建' in part or '戸建て' in part for part in all_label_parts)
         has_other_label = 'その他(土地・建物)' in all_label_parts
-
         if not has_direct_kodate and not has_other_label:
-            return None
+            return False
+        return not any(exc in all_label_parts for exc in self.EXCLUDED_LABELS)
 
-        # 2. 除外ラベルの検証（ホテル、ビル、アパート一棟、店舗等）
-        if any(exc in all_label_parts for exc in self.EXCLUDED_LABELS):
-            return None
-
-        # 3. スペック詳細判定（戸数・階数）
+    def _is_multi_unit_or_high_floor(self, item: dict) -> bool:
         property_detail = item.get('propertyDetail') or []
         for det_str in property_detail:
-            # 戸数判定（2戸以上はアパート等のため除外）
             if '戸' in det_str:
-                m_unit = re.search(r'(\d+)戸', det_str)
+                m_unit = re.search(r'([1-9]\d*)戸', det_str)
                 if m_unit and int(m_unit.group(1)) > 1:
-                    return None
-            # 階数判定（地上4階建以上は中高層ビルのため除外）
+                    return True
             if '階建' in det_str:
-                m_floor = re.search(r'地上(\d+)階建', det_str)
+                m_floor = re.search(r'地上([1-9]\d*)階建', det_str)
                 if m_floor and int(m_floor.group(1)) > 3:
-                    return None
+                    return True
+        return False
 
+    def _parse_nextjs_property_item(self, item):
+        if not self._has_valid_kodate_label(item):
+            return None
+        if self._is_multi_unit_or_high_floor(item):
+            return None
         return super()._parse_nextjs_property_item(item)
 
     async def parsePropertyListPage(self, response):
