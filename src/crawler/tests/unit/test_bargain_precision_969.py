@@ -1,4 +1,3 @@
-import pytest
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.ml.features.parsers import calculate_area_and_setback
 from package.ml.features.builder import build_features
@@ -43,7 +42,7 @@ def test_mansion_features_tochi_area_is_zero():
         "kouzou": "SRC造",
         "chikunengetsu": "1991-09-01",
     }
-    area, tatemono_area, tochi_area, setback_ratio = calculate_area_and_setback(prop, "mansion")
+    _area, _tatemono_area, tochi_area, _setback_ratio = calculate_area_and_setback(prop, "mansion")
     assert tochi_area == 0.0, f"Expected tochi_area to be 0.0 for mansion, but got {tochi_area}"
 
     feat = build_features(prop, "mansion")

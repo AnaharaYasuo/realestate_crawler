@@ -3,8 +3,10 @@ import sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import realestateSettings
+
 realestateSettings.configure()
 from django.db import connection
+
 
 def run_cleansing():
     with connection.cursor() as cur:
