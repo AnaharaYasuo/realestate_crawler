@@ -55,7 +55,7 @@ def run_cleansing(dry_run: bool = False):
 
             if target_count > 0:
                 if dry_run:
-                    logger.info("[DRY RUN] Would insert records into homes_mansion, update property_evaluation, and delete from homes_investment_apartment.", target_count)
+                    logger.info("[DRY RUN] Would insert %d records into homes_mansion, update property_evaluation, and delete from homes_investment_apartment.", target_count)
                 else:
                     # 1. 新規追加が必要な URL（homes_mansion に未登録の pageUrl）を判定し、代表 1 行を特定
                     cur.execute(
