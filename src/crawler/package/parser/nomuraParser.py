@@ -2,6 +2,7 @@ import re
 import urllib.parse
 from abc import abstractmethod
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from bs4 import BeautifulSoup
 
@@ -323,28 +324,72 @@ class NomuraParser(InvestmentParser):
                 yield ListItem(url=href, price=price)
 
     @staticmethod
-    def _is_valid_next_link(txt: str, href: str) -> bool:
+    def _is_valid_next_link(txt: str, href: str, has_next_class: bool = False, current_page: int = 1) -> bool:
         if not href or href.startswith(('#', JAVASCRIPT_PREFIX, '//')):
             return False
-        return '次へ' in txt or '次 の' in txt or 'pager_page=' in href
+        # Do not match page 1 / "最初" as next link
+        if '最初' in txt:
+            return False
+        m_page = re.search(r'[?&]pager_page=(\d+)', href)
+        if m_page and int(m_page.group(1)) <= max(1, current_page):
+            return False
+        if has_next_class:
+            return True
+        if '次へ' in txt or '次 の' in txt or '次>' in txt or '>' in txt or 'next' in txt.lower():
+            return True
+        if m_page and int(m_page.group(1)) > max(1, current_page):
+            return not any(k in txt for k in ['前', '<', '最初'])
+        return False
 
-    def _find_fallback_next_link(self, response):
+    def _find_fallback_next_link(self, response, current_page: int = 1):
         if hasattr(response, 'find_all'):
-            return next((a for a in response.find_all('a') if self._is_valid_next_link(a.get_text(strip=True), a.get('href', ''))), None)
+            return next((a for a in response.find_all('a') if self._is_valid_next_link(a.get_text(strip=True), a.get('href', ''), current_page=current_page)), None)
         if hasattr(response, 'xpath'):
-            links = response.xpath("//a[contains(., '次へ') or contains(@href, 'pager_page=')]")
-            return next((link for link in links if self._is_valid_next_link(link.text or '', link.get('href', ''))), None)
+            links = response.xpath("//a[contains(., '次へ') or contains(., '次')]")
+            return next((link for link in links if self._is_valid_next_link(link.text or '', link.get('href', ''), current_page=current_page)), None)
         return None
 
-    async def parseNextPage(self, response: BeautifulSoup, current_url: str = NOMU_BASE_URL):
-        next_selector = self.selectors.get('next_page', "a.next")
-        if hasattr(response, 'select'):
-            next_link = response.select_one(next_selector) or self._find_fallback_next_link(response)
-        else:
-            xpath = self.selectors.get('next_page_xpath', "//a[contains(@class, 'next')]")
-            links = response.xpath(xpath)
-            next_link = links[0] if links else self._find_fallback_next_link(response)
+    @staticmethod
+    def _extract_element_classes(el: Any) -> list:
+        raw_classes = el.get('class', [])
+        classes = [raw_classes] if isinstance(raw_classes, str) else list(raw_classes or [])
+        parent = getattr(el, 'parent', None) or (el.getparent() if hasattr(el, 'getparent') else None)
+        parent_classes = parent.get('class', []) if parent and hasattr(parent, 'get') else []
+        if isinstance(parent_classes, str):
+            parent_classes = [parent_classes]
+        return classes + list(parent_classes or [])
 
+    @staticmethod
+    def _extract_element_text(el: Any) -> str:
+        if hasattr(el, 'get_text'):
+            return el.get_text(strip=True)
+        if hasattr(el, 'text_content'):
+            return el.text_content().strip()
+        return getattr(el, 'text', '') or ''
+
+    def _find_next_from_elements(self, elements, current_page: int = 1) -> Any:
+        for el in elements:
+            combined_classes = self._extract_element_classes(el)
+            has_next = any('next' in str(c).lower() for c in combined_classes)
+            text = self._extract_element_text(el)
+            href = el.get('href', '')
+            if self._is_valid_next_link(text, href, has_next_class=has_next, current_page=current_page):
+                return el
+        return None
+
+    def _extract_next_link_element(self, response: BeautifulSoup, current_page: int = 1) -> Any:
+        if hasattr(response, 'select'):
+            selector = self.selectors.get('next_page', "li.skin_next a, a.next, a.item_link_inner")
+            next_link = self._find_next_from_elements(response.select(selector), current_page=current_page)
+        else:
+            xpath = self.selectors.get('next_page_xpath', "//li[contains(@class, 'skin_next')]//a | //a[contains(@class, 'next')]")
+            next_link = self._find_next_from_elements(response.xpath(xpath), current_page=current_page)
+        return next_link or self._find_fallback_next_link(response, current_page=current_page)
+
+    async def parseNextPage(self, response: BeautifulSoup, current_url: str = NOMU_BASE_URL):
+        m_curr = re.search(r'[?&]pager_page=(\d+)', current_url) if current_url else None
+        current_page = int(m_curr.group(1)) if m_curr else 1
+        next_link = self._extract_next_link_element(response, current_page=current_page)
         if not next_link:
             return ""
 
