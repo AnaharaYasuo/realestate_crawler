@@ -621,6 +621,17 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         item.chimoku = self._get_table_text(response, "td.prg-landCategoryTableItem", ["地目"])
         item.tochikenri = self._get_table_text(response, "td.prg-rightTableItem", ["土地権利", "権利"])
 
+        # Issue #969: 専有面積または所在階が存在する区分マンションの場合、propertyTypeをMansionに設定し敷地全体面積を排除
+        has_senyu = bool(self._find_by_table_header(response, ["専有面積", "壁芯面積"]))
+        kaisu_tag = self._find_by_table_header(response, ["所在階", "階数"])
+        has_kaisu = bool(kaisu_tag and "階" in kaisu_tag.get_text())
+        if has_senyu or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
+            item.propertyType = "Mansion"
+            setattr(item, "senyuMenseki", item.tatemonoMenseki)
+            setattr(item, "senyuMensekiStr", item.tatemonoMensekiStr)
+            item.tochiMenseki = None
+            item.tochiMensekiStr = ""
+
         return item
 
 

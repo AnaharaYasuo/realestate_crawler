@@ -81,4 +81,24 @@
 - **`_apply_invest_card_field`**:
   - `dt_text` に「交通」が含まれる場合のハンドリングを追加。
 
+## 5. 割安物件検出精度向上・種別誤判定根絶・区分マンション土地面積除外内部設計（Issue #969）
+
+### 5.1 `PropertyTypeDetector` 改修
+- **Yield Guardの区分保護**:
+  - `_has_yield_signal` または `_has_yield_in_object` が真であっても、以下のいずれかを満たす場合は `apartment` ではなく `mansion` を返却：
+    1. `senyuMenseki` が存在かつ有効数値
+    2. `kaisuStr` / `floor` に階数表記（〇階/〇階建等）が存在
+    3. タイトルまたはスペックに「区分」「一室」「号室」が含まれる
+- **商業ビル・一棟ビルの戸建フォールバック防止**:
+  - `_detect_from_area_fields` および `_match_keywords`:
+    - タイトルやスペックに「ビル」「一棟ビル」「店舗」「事務所」を含む場合、土地＋建物面積があっても `kodate` にフォールバックさせず、`apartment`（投資/一棟）を返却。
+
+### 5.2 区分マンションの土地面積除外 (`src/crawler/package/ml/features/`)
+- `parsers.py` の `calculate_area_and_setback`:
+  - `if property_type == 'mansion': tochi_area = 0.0`
+  - 区分所有物件の敷地全体面積が `tochi_area` に代入されて積算価格・原価法評価がインフレするのを物理的に遮断。
+
+### 5.3 クレンジング要フラグ保持物件の学習除外 (`src/crawler/package/ml/training/train.py` 等)
+- データ取得時に `filter(price__gt=0).exclude(needs_recrawl=True).exclude(needs_parser_fix=True)` を適用。
+
 

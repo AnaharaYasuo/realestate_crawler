@@ -552,6 +552,9 @@ def calculate_area_and_setback(property_obj: Any, property_type: str) -> tuple[f
     if property_type == 'mansion' and area > 500.0:
         area = 70.0
 
+    if property_type == 'mansion':
+        tochi_area = 0.0
+
     setback_area_temp = _extract_setback_from_text(property_obj)
     if setback_area_temp <= 0.0:
         setback_area_temp = _calculate_desk_setback(property_obj)

@@ -515,8 +515,32 @@ class PropertyTypeDetector:
         return None
 
     @classmethod
+    def _is_unit_mansion_indicator(cls, property_obj: Any) -> bool:
+        """区分マンションの判定指標（専有面積、所在階、区分・一室表記）があるか"""
+        if cls._get_field(property_obj, "senyuMenseki") is not None:
+            return True
+        for f in ("専有面積", "壁芯面積", "所在階", "階数"):
+            if cls._get_field(property_obj, f) is not None:
+                return True
+        kaisu = str(cls._get_field(property_obj, "kaisuStr") or cls._get_field(property_obj, "floor") or "")
+        if kaisu and ("階" in kaisu):
+            return True
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        return any(k in name for k in ("区分", "一室", "号室"))
+
+    @classmethod
+    def _is_commercial_building_indicator(cls, property_obj: Any) -> bool:
+        """商業ビル・一棟売りビルの判定指標があるか"""
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        remarks = str(cls._get_field(property_obj, "remarks") or cls._get_field(property_obj, "備考") or "")
+        combined = f"{name} {remarks}"
+        return any(k in combined for k in ("一棟ビル", "一棟売りビル", "売ビル", "商業ビル", "オフィスビル", "一棟貸し", "空ビル"))
+
+    @classmethod
     def _detect_from_area_fields(cls, property_obj: Any) -> str:
         """面積フィールド等の属性によるフォールバック種別推定"""
+        if cls._is_commercial_building_indicator(property_obj):
+            return "apartment"
         if cls._get_field(property_obj, "senyuMenseki") is not None:
             return "mansion"
         if cls._get_field(property_obj, "tatemonoMenseki") is not None:
@@ -534,21 +558,32 @@ class PropertyTypeDetector:
         if property_obj is None:
             return "mansion"
 
-        # 0. Yield Guard (最優先: grossYield > 0 または 物件名・備考の利回り表記)
-        if cls._has_yield_in_object(property_obj):
+        # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
+        if cls._is_unit_mansion_indicator(property_obj):
+            return "mansion"
+
+        # 1. 商業ビル・一棟売りビル保護: 戸建へフォールバックさせず apartment
+        if cls._is_commercial_building_indicator(property_obj):
             return "apartment"
 
-        # 1. 物理矛盾ガード: 土地面積0 + RC構造等は mansion
+        # 2. Yield Guard (最優先: grossYield > 0 または 物件名・備考の利回り表記)
+        if cls._has_yield_in_object(property_obj):
+            prop_name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+            if any(k in prop_name for k in ("戸建", "一戸建て", "一戸建", "テラスハウス", "貸家")):
+                return "invest_kodate"
+            return "apartment"
+
+        # 3. 物理矛盾ガード: 土地面積0 + RC構造等は mansion
         if cls._is_rc_zero_land(property_obj):
             return "mansion"
 
-        # 2. propertyType / クラス名による明示判定
+        # 4. propertyType / クラス名による明示判定
         explicit_type = str(cls._get_field(property_obj, "propertyType") or property_obj.__class__.__name__)
         ptype = cls._detect_from_type_str(explicit_type)
         if ptype:
             return ptype
 
-        # 3. スペック項目によるフォールバック推定
+        # 5. スペック項目によるフォールバック推定
         return cls._detect_from_area_fields(property_obj)
 
     @classmethod
