@@ -361,7 +361,9 @@ class PropertyTypeDetector:
         本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
         # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
-        if specs and cls._is_unit_mansion_indicator(specs):
+        # ただしタイトルに明確な一棟アパート・一棟マンション等のキーワードが含まれる場合はスキップ
+        title_has_apartment_kw = bool(title and any(k in title for k in cls.APARTMENT_KEYWORDS))
+        if not title_has_apartment_kw and specs and cls._is_unit_mansion_indicator(specs):
             return "mansion"
 
         detected = cls._detect_rule_based(url=url, title=title, html_text=html_text, specs=specs)
@@ -521,14 +523,31 @@ class PropertyTypeDetector:
     @classmethod
     def _is_unit_mansion_indicator(cls, property_obj: Any) -> bool:
         """区分マンションの判定指標（専有面積、所在階、区分・一室表記）があるか"""
-        if cls._get_field(property_obj, "senyuMenseki") is not None:
-            return True
-        for f in ("専有面積", "壁芯面積", "所在階", "階数"):
-            if cls._get_field(property_obj, f) is not None:
+        senyu = cls._get_field(property_obj, "senyuMenseki")
+        try:
+            if senyu is not None and float(re.sub(r"[^\d.]", "", str(senyu))) > 0:
                 return True
-        kaisu = str(cls._get_field(property_obj, "kaisuStr") or cls._get_field(property_obj, "floor") or "")
-        if kaisu and ("階" in kaisu):
+        except (ValueError, TypeError):
+            pass
+
+        for f in ("専有面積", "壁芯面積"):
+            val = cls._get_field(property_obj, f)
+            if val:
+                try:
+                    if float(re.sub(r"[^\d.]", "", str(val))) > 0:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+
+        # 所在階の判定（「階建」「階数」などの建物全体階数表記は除外）
+        shozai = str(cls._get_field(property_obj, "所在階") or cls._get_field(property_obj, "floor") or "")
+        if shozai and ("階" in shozai) and ("階建" not in shozai) and ("階数" not in shozai):
             return True
+
+        kaisu = str(cls._get_field(property_obj, "kaisuStr") or "")
+        if kaisu and ("階" in kaisu) and ("階建" not in kaisu) and ("階数" not in kaisu):
+            return True
+
         name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
         return any(k in name for k in ("区分", "一室", "号室"))
 

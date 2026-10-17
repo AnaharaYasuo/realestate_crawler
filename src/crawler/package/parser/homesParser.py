@@ -623,8 +623,9 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
 
         # Issue #969: 専有面積または所在階が存在する区分マンションの場合、propertyTypeをMansionに設定し敷地全体面積を排除
         has_senyu = bool(self._find_by_table_header(response, ["専有面積", "壁芯面積"]))
-        kaisu_tag = self._find_by_table_header(response, ["所在階", "階数"])
-        has_kaisu = bool(kaisu_tag and "階" in kaisu_tag.get_text())
+        kaisu_tag = self._find_by_table_header(response, ["所在階"])
+        kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
+        has_kaisu = bool(kaisu_text and "階" in kaisu_text and "階建" not in kaisu_text)
         if has_senyu or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
             item.propertyType = "Mansion"
             setattr(item, "senyuMenseki", item.tatemonoMenseki)
