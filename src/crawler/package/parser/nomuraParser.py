@@ -347,22 +347,29 @@ class NomuraParser(InvestmentParser):
             return next((link for link in links if self._is_valid_next_link(link.text or '', link.get('href', ''))), None)
         return None
 
+    @staticmethod
+    def _extract_element_classes(el: Any) -> list:
+        raw_classes = el.get('class', [])
+        classes = [raw_classes] if isinstance(raw_classes, str) else list(raw_classes or [])
+        parent = getattr(el, 'parent', None) or (el.getparent() if hasattr(el, 'getparent') else None)
+        parent_classes = parent.get('class', []) if parent and hasattr(parent, 'get') else []
+        if isinstance(parent_classes, str):
+            parent_classes = [parent_classes]
+        return classes + list(parent_classes or [])
+
+    @staticmethod
+    def _extract_element_text(el: Any) -> str:
+        if hasattr(el, 'get_text'):
+            return el.get_text(strip=True)
+        if hasattr(el, 'text_content'):
+            return el.text_content().strip()
+        return getattr(el, 'text', '') or ''
+
     def _find_next_from_elements(self, elements) -> Any:
         for el in elements:
-            raw_classes = el.get('class', [])
-            classes = [raw_classes] if isinstance(raw_classes, str) else list(raw_classes or [])
-            parent = getattr(el, 'parent', None) or (el.getparent() if hasattr(el, 'getparent') else None)
-            parent_classes = parent.get('class', []) if parent and hasattr(parent, 'get') else []
-            if isinstance(parent_classes, str):
-                parent_classes = [parent_classes]
-            combined_classes = classes + list(parent_classes or [])
+            combined_classes = self._extract_element_classes(el)
             has_next = any('next' in str(c).lower() for c in combined_classes)
-            if hasattr(el, 'get_text'):
-                text = el.get_text(strip=True)
-            elif hasattr(el, 'text_content'):
-                text = el.text_content().strip()
-            else:
-                text = getattr(el, 'text', '') or ''
+            text = self._extract_element_text(el)
             href = el.get('href', '')
             if self._is_valid_next_link(text, href, has_next_class=has_next):
                 return el
