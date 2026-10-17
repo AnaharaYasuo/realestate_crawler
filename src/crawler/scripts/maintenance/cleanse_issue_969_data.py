@@ -165,32 +165,31 @@ def run_cleansing(dry_run: bool = False):
                     logger.info("Deleted %d old records from homes_investment_apartment.", cur.rowcount)
             else:
                 logger.info("No records to relocate.")
+            # 4. 価格0以下の破綻データに対する needs_recrawl フラグ設定（住友等）
+            for table, ptype in [('sumifu_mansion', 'mansion'), ('sumifu_kodate', 'kodate'), ('sumifu_tochi', 'tochi')]:
+                if dry_run:
+                    cur.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        FROM property_evaluation pe
+                        JOIN {table} s ON pe.property_id = s.id AND pe.company = 'sumifu' AND pe.property_type = '{ptype}'
+                        WHERE s.price <= 0;
+                        """
+                    )
+                    cnt = cur.fetchone()[0]
+                    logger.info("[DRY RUN] Would mark %s 0 price records as needs_recrawl: %d", table, cnt)
+                else:
+                    cur.execute(
+                        f"""
+                        UPDATE property_evaluation pe
+                        JOIN {table} s ON pe.property_id = s.id AND pe.company = 'sumifu' AND pe.property_type = '{ptype}'
+                        SET pe.needs_recrawl = 1, pe.data_quality_issue = 'invalid_price_zero'
+                        WHERE s.price <= 0;
+                        """
+                    )
+                    logger.info("Marked %s 0 price records as needs_recrawl: %d", table, cur.rowcount)
 
-        # 4. 価格0以下の破綻データに対する needs_recrawl フラグ設定（住友等）
-        for table, ptype in [('sumifu_mansion', 'mansion'), ('sumifu_kodate', 'kodate'), ('sumifu_tochi', 'tochi')]:
-            if dry_run:
-                cur.execute(
-                    f"""
-                    SELECT COUNT(*)
-                    FROM property_evaluation pe
-                    JOIN {table} s ON pe.property_id = s.id AND pe.company = 'sumifu' AND pe.property_type = '{ptype}'
-                    WHERE s.price <= 0;
-                    """
-                )
-                cnt = cur.fetchone()[0]
-                logger.info("[DRY RUN] Would mark %s 0 price records as needs_recrawl: %d", table, cnt)
-            else:
-                cur.execute(
-                    f"""
-                    UPDATE property_evaluation pe
-                    JOIN {table} s ON pe.property_id = s.id AND pe.company = 'sumifu' AND pe.property_type = '{ptype}'
-                    SET pe.needs_recrawl = 1, pe.data_quality_issue = 'invalid_price_zero'
-                    WHERE s.price <= 0;
-                    """
-                )
-                logger.info("Marked %s 0 price records as needs_recrawl: %d", table, cur.rowcount)
-
-    logger.info("Cleansing and migration completed successfully.")
+        logger.info("Cleansing and migration completed successfully.")
 
 
 if __name__ == "__main__":
