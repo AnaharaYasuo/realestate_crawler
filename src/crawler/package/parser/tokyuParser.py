@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+import urllib.parse
 
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
@@ -125,18 +126,48 @@ class TokyuParser(ParserBase):
         async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             yield dest_url
 
-    async def getPropertyListNextPageUrl(self, response):
+    @staticmethod
+    def _is_valid_tokyu_svg_next(a, current_page: int) -> bool:
+        href = a.get('href', '')
+        if not (('page=' in href or 'p=' in href) and a.find('svg')):
+            return False
+        classes = ' '.join(a.get('class', [])).lower()
+        rel = a.get('rel', '')
+        rel_str = ' '.join(rel) if isinstance(rel, list) else str(rel)
+        if 'prev' in classes or 'prev' in rel_str.lower() or 'back' in classes:
+            return False
+        m_p = re.search(r'[?&](?:page|p)=(\d+)', href)
+        if not m_p:
+            return False
+        target_page = int(m_p.group(1))
+        return target_page > max(1, current_page)
+
+    def _find_next_link(self, response, current_page: int = 1):
+        next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
+        next_el = response.select_one(next_css)
+        if next_el:
+            return next_el
+        next_el = response.find('a', string=re.compile("次へ|次"))
+        if next_el:
+            return next_el
+        if current_page > 0 and hasattr(response, 'find_all'):
+            return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a, current_page)), None)
+        return None
+
+    async def getPropertyListNextPageUrl(self, response, current_url: str = ""):
         await asyncio.sleep(0)
         logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
-                next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
-                next_el = response.select_one(next_css)
-                if not next_el:
-                    next_el = response.find('a', string=re.compile("次へ|次"))
+                current_page = 0
+                if current_url:
+                    m_curr = re.search(r'[?&](?:page|p)=(\d+)', current_url)
+                    current_page = int(m_curr.group(1)) if m_curr else 1
+                next_el = self._find_next_link(response, current_page=current_page)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
-                    return href if href.startswith('http') else self.BASE_URL + href
+                    base = current_url or self.BASE_URL
+                    return urllib.parse.urljoin(base, href)
         except Exception as e:
             logger.warning("getPropertyListNextPageUrl exception: %s", e)
         return ""
@@ -1561,17 +1592,21 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _has_valid_kodate_label(self, item: dict) -> bool:
         labels = item.get('labelList') or []
-        all_label_parts = {
-            part.strip()
-            for lbl in labels
-            if isinstance(lbl, dict)
-            for part in (lbl.get('listText') or lbl.get('detailText') or '').split('/')
-        }
+        all_label_parts = set()
+        for lbl in labels:
+            if isinstance(lbl, dict):
+                for field in ('listText', 'detailText'):
+                    val = lbl.get(field)
+                    if val:
+                        all_label_parts.update(part.strip() for part in val.split('/'))
         has_direct_kodate = any('戸建' in part or '戸建て' in part for part in all_label_parts)
         has_other_label = 'その他(土地・建物)' in all_label_parts
         if not has_direct_kodate and not has_other_label:
             return False
-        return not any(exc in all_label_parts for exc in self.EXCLUDED_LABELS)
+        return not any(
+            any(exc in part for exc in self.EXCLUDED_LABELS)
+            for part in all_label_parts
+        )
 
     def _is_multi_unit_or_high_floor(self, item: dict) -> bool:
         property_detail = item.get('propertyDetail') or []
@@ -1581,7 +1616,7 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
                 if m_unit and int(m_unit.group(1)) > 1:
                     return True
             if '階建' in det_str:
-                m_floor = re.search(r'地上([1-9]\d*)階建', det_str)
+                m_floor = re.search(r'(?:地上)?([1-9]\d*)階建', det_str)
                 if m_floor and int(m_floor.group(1)) > 3:
                     return True
         return False
