@@ -19,7 +19,7 @@ def run_cleansing(dry_run: bool = False):
 
     with transaction.atomic():
         with connection.cursor() as cur:
-            # 一時テーブルを用いて対象IDを一度だけ確定し、一貫性を保証
+            # 一時テーブルを用いて対象IDを一度だけ確定し、一貫性を保証（同一pageUrlの重複を排除）
             cur.execute(
                 """
                 CREATE TEMPORARY TABLE IF NOT EXISTS tmp_misclassified_homes_invest (
@@ -33,7 +33,7 @@ def run_cleansing(dry_run: bool = False):
             cur.execute(
                 """
                 INSERT INTO tmp_misclassified_homes_invest (id, pageUrl)
-                SELECT id, pageUrl
+                SELECT MAX(id) AS id, pageUrl
                 FROM homes_investment_apartment
                 WHERE propertyType = 'Mansion'
                    OR tatemonoMensekiStr LIKE '%専有%'
@@ -46,6 +46,7 @@ def run_cleansing(dry_run: bool = False):
                        AND kaisuStr LIKE '%階%'
                        AND (tatemonoMenseki IS NULL OR tatemonoMenseki < 150.0)
                    )
+                GROUP BY pageUrl
                 FOR UPDATE;
                 """
             )
@@ -58,6 +59,26 @@ def run_cleansing(dry_run: bool = False):
                     logger.info("[DRY RUN] Would insert %d records into homes_mansion, update property_evaluation, and delete from homes_investment_apartment.", target_count)
                 else:
                     # 1. homes_mansion へ未登録のものを INSERT 移送
+                    # まず今回新規に INSERT する対象を記録する一時テーブルを作成
+                    cur.execute(
+                        """
+                        CREATE TEMPORARY TABLE IF NOT EXISTS tmp_to_insert_homes_mansion (
+                            id INT PRIMARY KEY,
+                            pageUrl VARCHAR(500)
+                        );
+                        """
+                    )
+                    cur.execute("TRUNCATE TABLE tmp_to_insert_homes_mansion;")
+                    cur.execute(
+                        """
+                        INSERT INTO tmp_to_insert_homes_mansion (id, pageUrl)
+                        SELECT t.id, t.pageUrl
+                        FROM tmp_misclassified_homes_invest t
+                        LEFT JOIN homes_mansion m ON t.pageUrl = m.pageUrl
+                        WHERE m.id IS NULL;
+                        """
+                    )
+
                     insert_query = """
                     INSERT INTO homes_mansion (
                         propertyName, pageUrl, inputDate, inputDateTime, updateDateTime, priceStr, price,
@@ -113,19 +134,17 @@ def run_cleansing(dry_run: bool = False):
                         '' AS tyusyajo,
                         COALESCE(h.kouzou, '') AS kouzou
                     FROM homes_investment_apartment h
-                    JOIN tmp_misclassified_homes_invest t ON h.id = t.id
-                    LEFT JOIN homes_mansion m ON h.pageUrl = m.pageUrl
-                    WHERE m.id IS NULL;
+                    JOIN tmp_to_insert_homes_mansion ins ON h.id = ins.id;
                     """
                     cur.execute(insert_query)
                     logger.info("Inserted %d records into homes_mansion.", cur.rowcount)
 
-                    # 1b. chikunengetsuStr から chikunengetsu 日付型への補正
+                    # 1b. chikunengetsuStr から chikunengetsu 日付型への補正（今回INSERTしたレコードを対象）
                     cur.execute(
                         """
                         SELECT m.id, m.chikunengetsuStr
                         FROM homes_mansion m
-                        JOIN tmp_misclassified_homes_invest t ON m.pageUrl = t.pageUrl
+                        JOIN tmp_to_insert_homes_mansion ins ON m.pageUrl = ins.pageUrl
                         WHERE m.chikunengetsu IS NULL AND m.chikunengetsuStr != '';
                         """
                     )
@@ -138,10 +157,10 @@ def run_cleansing(dry_run: bool = False):
                             updated_dates += 1
                     logger.info("Updated chikunengetsu date for %d/%d migrated homes_mansion records.", updated_dates, len(rows))
 
-                    # 2. property_evaluation の紐付け更新
+                    # 2. property_evaluation の紐付け更新（今回移送対象の tmp_to_insert_homes_mansion のみ対象）
                     update_pe_query = """
                     UPDATE property_evaluation pe
-                    JOIN tmp_misclassified_homes_invest t ON pe.property_url = t.pageUrl AND pe.company = 'homes'
+                    JOIN tmp_to_insert_homes_mansion ins ON pe.property_url = ins.pageUrl AND pe.company = 'homes'
                     JOIN homes_mansion m ON pe.property_url = m.pageUrl
                     SET pe.property_id = m.id,
                         pe.property_type = 'mansion',
@@ -154,12 +173,12 @@ def run_cleansing(dry_run: bool = False):
                     cur.execute(update_pe_query)
                     logger.info("Updated %d property_evaluation records to point to homes_mansion with needs_recrawl=1.", cur.rowcount)
 
-                    # 3. homes_investment_apartment から旧レコードを削除（homes_mansionに移送済みのものに限定）
+                    # 3. homes_investment_apartment から旧レコードを削除（今回INSERT成功が確認されたレコードに限定）
                     delete_query = """
                     DELETE h
                     FROM homes_investment_apartment h
-                    JOIN tmp_misclassified_homes_invest t ON h.id = t.id
-                    JOIN homes_mansion m ON h.pageUrl = m.pageUrl;
+                    JOIN tmp_to_insert_homes_mansion ins ON h.id = ins.id
+                    JOIN homes_mansion m ON ins.pageUrl = m.pageUrl;
                     """
                     cur.execute(delete_query)
                     logger.info("Deleted %d old records from homes_investment_apartment.", cur.rowcount)
