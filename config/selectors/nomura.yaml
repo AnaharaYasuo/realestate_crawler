@@ -21,7 +21,7 @@ investment:
   nobeyuka_menseki_key: "延床面積"
   
   address: "所在地"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
   table:
     selector: "table.c_table_spec"
@@ -53,7 +53,7 @@ invest_apartment:
   nobeyuka_menseki_key: "延床面積"
   
   address: "所在地"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
   table:
     selector: "table.c_table_spec"
@@ -85,7 +85,7 @@ invest_kodate:
   nobeyuka_menseki_key: "延床面積"
   
   address: "所在地"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   property_links: ".item_title a, a[href*='/pro/detail/'], a[href*='/pro/bukken_local_id/']"
   table:
     selector: "table.c_table_spec"
@@ -100,7 +100,7 @@ invest_kodate:
 mansion:
   title: "h1"
   property_links: "a[href*='/mansion/id/']"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
   
@@ -132,7 +132,7 @@ kodate:
   title: "h1"
   property_links: "a[href*='/house/id/']"
   region_links: ".list-railway a"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
   
@@ -160,7 +160,7 @@ tochi:
   title: "h1"
   property_links: "a[href*='/land/id/']"
   region_links: ".list-railway a"
-  next_page: "a.next"
+  next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
   
