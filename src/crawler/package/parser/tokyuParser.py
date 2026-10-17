@@ -125,6 +125,19 @@ class TokyuParser(ParserBase):
         async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             yield dest_url
 
+    @staticmethod
+    def _is_valid_tokyu_svg_next(a) -> bool:
+        href = a.get('href', '')
+        if not (('page=' in href or 'p=' in href) and a.find('svg')):
+            return False
+        classes = ' '.join(a.get('class', [])).lower()
+        rel = a.get('rel', '')
+        rel_str = ' '.join(rel) if isinstance(rel, list) else str(rel)
+        if 'prev' in classes or 'prev' in rel_str.lower() or 'back' in classes:
+            return False
+        m_p = re.search(r'[?&](?:page|p)=(\d+)', href)
+        return not bool(m_p and int(m_p.group(1)) <= 1)
+
     def _find_next_link(self, response):
         next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
         next_el = response.select_one(next_css)
@@ -134,15 +147,7 @@ class TokyuParser(ParserBase):
         if next_el:
             return next_el
         if hasattr(response, 'find_all'):
-            for a in response.find_all('a', href=True):
-                href = a.get('href', '')
-                if ('page=' in href or 'p=' in href) and a.find('svg'):
-                    classes = ' '.join(a.get('class', [])).lower()
-                    rel = a.get('rel', '')
-                    rel_str = ' '.join(rel) if isinstance(rel, list) else str(rel)
-                    if 'prev' in classes or 'prev' in rel_str.lower():
-                        continue
-                    return a
+            return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a)), None)
         return None
 
     async def getPropertyListNextPageUrl(self, response):
@@ -1589,7 +1594,10 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         has_other_label = 'その他(土地・建物)' in all_label_parts
         if not has_direct_kodate and not has_other_label:
             return False
-        return not any(exc in all_label_parts for exc in self.EXCLUDED_LABELS)
+        return not any(
+            any(exc in part for exc in self.EXCLUDED_LABELS)
+            for part in all_label_parts
+        )
 
     def _is_multi_unit_or_high_floor(self, item: dict) -> bool:
         property_detail = item.get('propertyDetail') or []
@@ -1599,7 +1607,7 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
                 if m_unit and int(m_unit.group(1)) > 1:
                     return True
             if '階建' in det_str:
-                m_floor = re.search(r'地上([1-9]\d*)階建', det_str)
+                m_floor = re.search(r'(?:地上)?([1-9]\d*)階建', det_str)
                 if m_floor and int(m_floor.group(1)) > 3:
                     return True
         return False
