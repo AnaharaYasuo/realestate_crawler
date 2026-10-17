@@ -144,8 +144,8 @@ class ParseTokyuInvestKodateListFuncAsync(ParseTokyuInvestListFuncAsyncBase):
         return API_KEY_TOKYU_INVEST_KODATE_DETAIL
 
 class ParseTokyuInvestKodateStartAsync(ParseTokyuInvestStartAsyncBase):
-    # Verified URL pattern for Kodate/Houses
-    urlList = ["https://www.livable.co.jp/fudosan-toushi/tatemono-bukken-all/conditions-use=kodate/"] 
+    # Verified URL pattern for other buildings containing Kodate/Houses (Issue #965)
+    urlList = ["https://www.livable.co.jp/fudosan-toushi/tatemono-bukken-all/conditions-use=other/"] 
 
     def _generateParser(self):
         return TokyuInvestmentKodateParser("")
