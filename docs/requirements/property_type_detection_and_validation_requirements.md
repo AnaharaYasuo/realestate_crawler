@@ -63,5 +63,10 @@
   - `property_type == 'mansion'` の場合、ML特徴量生成（`calculate_area_and_setback`, `appraisal.py`）において `tochi_area = 0.0` 固定とし、敷地全体の土地面積が区分1室の積算価格・原価法評価に混入して数十億円規模の価格インフレ（理論価格崩壊）を引き起こす現象を根絶する。
 - **REQ-969-04: クレンジング要フラグ保持物件および価格異常データのML学習完全除外**
   - ML学習データセット構築時（`train.py` 等）、クレンジングが必要なフラグ（`needs_recrawl=True`, `needs_parser_fix=True` 等）が立っている物件や価格0以下の破綻データを確実に `exclude()` し、異常データによるモデル汚染を防止する。
+- **REQ-969-05: 誤判定テーブル格納物件の正しいテーブルへの移送・クレンジング・旧レコード物理削除**
+  - 投資アパートテーブル（`homes_investment_apartment` 等）に誤って格納された区分マンションデータについて、正しい種別テーブル（`homes_mansion` 等）へ属性マッピングを行って新規格納（移送）する。
+  - 移送先レコードに対して `PropertyEvaluation` の紐付け（`property_id`）を更新し、`property_type = 'mansion'`、`needs_recrawl = True`、`data_quality_issue = 'migrated_misclassified_unit_mansion'` のフラグを付与して再クローリング対象として管理する。
+  - 新テーブルへの移送および評価レコードの紐付け完了後、旧テーブルの不整合レコードを物理削除（`DELETE`）して二重保持および種別誤認を解消する。
+  - パーサー実行時の動的切り替えにおいて、投資アパート用パーサー（`HomesInvestmentApartmentParser`）の `property_type` を `apartment` とし、動的種別判定で `mansion` と判定された場合は自動的に `HomesMansionParser`（`HomesMansion` テーブル）へルーティングして格納する。
 
 

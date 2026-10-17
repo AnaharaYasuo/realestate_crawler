@@ -101,4 +101,14 @@
 ### 5.3 クレンジング要フラグ保持物件の学習除外 (`src/crawler/package/ml/training/train.py` 等)
 - データ取得時に `filter(price__gt=0).exclude(needs_recrawl=True).exclude(needs_parser_fix=True)` を適用。
 
+### 5.4 誤判定テーブル格納物件の移送・クレンジング・物理削除 (`src/crawler/scripts/maintenance/cleanse_issue_969_data.py`)
+- **HomesInvestmentApartmentParser.property_type の正規化**:
+  - `property_type = 'apartment'` に設定し、`UrlRouter` と連動して動的種別判定 `mansion` 時に `HomesMansionParser`（`HomesMansion` テーブル）へ自動ルーティングする。
+- **本番DBデータ移送スクリプト**:
+  1. `homes_investment_apartment` 内の区分判定レコード（`tatemonoMensekiStr LIKE '%専有%'` または所在階あり）を特定。
+  2. `homes_mansion` テーブルへ未登録のURLを対象に、属性（`propertyName`, `price`, `address`, `traffic`, `senyuMenseki`, 交通情報等）を正確にマッピングして INSERT。
+  3. `property_evaluation` の `property_id` を新設 `homes_mansion.id` に更新し、`property_type = 'mansion'`、`needs_recrawl = 1`、`data_quality_issue = 'migrated_misclassified_unit_mansion'`、予測価格（`first_stage_predicted_price`, `second_stage_predicted_price`）を NULL にリセット。
+  4. 移送完了後、旧テーブル `homes_investment_apartment` から旧レコードを `DELETE`。
+
+
 

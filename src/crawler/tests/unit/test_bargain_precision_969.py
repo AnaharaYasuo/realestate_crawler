@@ -1,6 +1,9 @@
-from package.utils.property_type_detector import PropertyTypeDetector
-from package.ml.features.parsers import calculate_area_and_setback
 from package.ml.features.builder import build_features
+from package.ml.features.parsers import calculate_area_and_setback
+from package.models.homes import HomesMansion
+from package.parser.homesParser import HomesMansionParser
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.url_router import UrlRouter
 
 def test_property_type_detector_distinguishes_unit_investment_mansion():
     """区分投資マンション（利回り表記＋専有面積または所在階）が apartment ではなく mansion と判定されること"""
@@ -50,3 +53,19 @@ def test_mansion_features_tochi_area_is_zero():
     # 原価法計算で土地代（1848平米分）が混入していないこと
     # 山口県宇部市の公示地価ベースで559坪なら数千万円〜数億円になるが、mansionなら建物＋区分持分のみで数百万円程度に抑まる
     assert feat["cost_approach_value"] < 10000.0, f"cost_approach_value should be reasonable for unit mansion, got {feat['cost_approach_value']}"
+
+
+def test_homes_invest_unit_mansion_routes_to_mansion_parser():
+    """投資用Homes URLで区分マンションと判定された場合、UrlRouterがHomesMansionParserを解決してHomesMansionに格納されること"""
+    url = "https://toushi.homes.co.jp/bukkendetail/12345/"
+    specs = {
+        "物件名": "ベルエール宇部文京町",
+        "表面利回り": "19.82%",
+        "専有面積": "73.85㎡",
+        "土地面積": "1848.35㎡",
+    }
+    parser = UrlRouter.create_parser(url=url, specs=specs)
+    assert isinstance(parser, HomesMansionParser), f"Expected HomesMansionParser, got {parser}"
+    entity = parser.createEntity()
+    assert isinstance(entity, HomesMansion), f"Expected HomesMansion entity, got {type(entity)}"
+

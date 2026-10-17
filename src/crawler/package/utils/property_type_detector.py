@@ -360,6 +360,10 @@ class PropertyTypeDetector:
         数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
         本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
+        # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
+        if specs and cls._is_unit_mansion_indicator(specs):
+            return "mansion"
+
         detected = cls._detect_rule_based(url=url, title=title, html_text=html_text, specs=specs)
         if detected:
             return detected

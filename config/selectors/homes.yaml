@@ -8,6 +8,11 @@ kodate:
   price: "td.prg-priceTableItem"
   root_xpath: "//a[contains(@href, '/chuko/kodate/')]/@href"
 
+apartment:
+  title: "td.prg-nameTableItem"
+  price: "td.prg-priceTableItem"
+  root_xpath: "//a[contains(@href, '/toushi/')]/@href"
+
 investmentapartment:
   title: "td.prg-nameTableItem"
   price: "td.prg-priceTableItem"

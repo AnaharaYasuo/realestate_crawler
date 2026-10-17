@@ -565,7 +565,7 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
     def _parseTatemonoMenseki(self, response, specs=None):
         return super()._parseTatemonoMenseki(response, specs)
 
-    property_type = 'investmentapartment'
+    property_type = 'apartment'
 
     def createEntity(self):
         return HomesInvestmentApartment()
