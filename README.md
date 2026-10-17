@@ -451,6 +451,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[crawler_hierarchy_and_parallel_expansion_requirements.md](docs/requirements/crawler_hierarchy_and_parallel_expansion_requirements.md)**: 全対象サイト中間ページ並行化・階層化 要件定義書 (Issue #870)
     *   **[kenbiya_parser_spec_overwrite_requirements_926.md](docs/requirements/kenbiya_parser_spec_overwrite_requirements_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 要件定義書 (Issue #926)
     *   **[slack_auto_heal_and_crawler_repairs_requirements_958.md](docs/requirements/slack_auto_heal_and_crawler_repairs_requirements_958.md)**: Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 要件定義書 (Issue #958)
+    *   **[tokyu_invest_kodate_other_requirements_965.md](docs/requirements/tokyu_invest_kodate_other_requirements_965.md)**: 東急リバブル投資用戸建て conditions-use=other からの判別抽出 要件定義書 (Issue #965)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
@@ -476,6 +477,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[crawler_hierarchy_and_parallel_expansion_external_design.md](docs/external_design/crawler_hierarchy_and_parallel_expansion_external_design.md)**: 全対象サイト中間ページ並行化・階層化 外部設計書 (Issue #870)
 *   **[kenbiya_parser_spec_overwrite_external_design_926.md](docs/external_design/kenbiya_parser_spec_overwrite_external_design_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 外部設計書 (Issue #926)
 *   **[slack_auto_heal_and_crawler_repairs_external_design_958.md](docs/external_design/slack_auto_heal_and_crawler_repairs_external_design_958.md)**: Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 外部設計書 (Issue #958)
+*   **[tokyu_invest_kodate_other_external_design_965.md](docs/external_design/tokyu_invest_kodate_other_external_design_965.md)**: 東急リバブル投資用戸建て conditions-use=other からの判別抽出 外部設計書 (Issue #965)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -515,6 +517,7 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 内部設計書](docs/internal_design/kenbiya_parser_spec_overwrite_internal_design_926.md)** - 親要素判定によるガイド除外、div.property正規スペック優先走査、および同一キー上書き防止 (Issue #926)
 - **[クローラー自動修復・バリデーション境界是正 内部設計書](docs/internal_design/auto_heal_parsers_and_validator_fixes_internal_design_940.md)** - 東急戸建て間取りspecs伝播・投資物件面積免除・間取りハイフン許容および低廉キーワード拡充 (Issue #940)
 - **[Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 内部設計書](docs/internal_design/slack_auto_heal_and_crawler_repairs_internal_design_958.md)** - Slackエラー自動読取、指示書統合、athome一覧セレクターおよびhomes価格パース修復 (Issue #958)
+- **[東急リバブル投資用戸建て conditions-use=other からの判別抽出 内部設計書](docs/internal_design/tokyu_invest_kodate_other_internal_design_965.md)** - conditions-use=other開始URL、除外ラベル/多戸数/高層フィルタリング、および詳細ページ二次ガード (Issue #965)
 
 
 
