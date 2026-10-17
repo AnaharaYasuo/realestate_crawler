@@ -46,6 +46,9 @@ class PropertyTypeDetector:
     KW_MANSION = "マンション"
     KW_TERRACE_HOUSE = "テラスハウス"
 
+    KW_PROPERTY_TYPE_LABEL = "物件タイプ"
+    SPECS_PROPERTY_TYPE_KEYS = ("物件種別", "種別", "建物種別", "種目", KW_PROPERTY_TYPE_LABEL)
+
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
     APARTMENT_KEYWORDS = [
         KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
@@ -267,8 +270,7 @@ class PropertyTypeDetector:
     @classmethod
     def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
         """スペック表の特定キーおよび値全体から種別判定"""
-        type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
-        for k in type_keys:
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             if k in specs:
                 val_str = str(specs[k]).strip()
                 if val_str == "土地":
@@ -552,7 +554,7 @@ class PropertyTypeDetector:
         """明示的な一棟アパート・戸建・土地の指定があるか確認（区分判定の上書きを防止）"""
         name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
         explicit_type = str(cls._get_field(property_obj, "propertyType") or "")
-        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             explicit_type += " " + str(cls._get_field(property_obj, k) or "")
 
         combined = f"{name} {explicit_type}"
@@ -639,7 +641,7 @@ class PropertyTypeDetector:
     def _detect_invest_from_specs(cls, specs: dict[str, Any] | None) -> str | None:
         if not specs or not isinstance(specs, dict):
             return None
-        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             v = str(specs.get(k) or "")
             if any(x in v for x in ("ビル", "店舗", "事務所")):
                 return "Building"
