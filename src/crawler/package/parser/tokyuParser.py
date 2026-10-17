@@ -137,6 +137,11 @@ class TokyuParser(ParserBase):
             for a in response.find_all('a', href=True):
                 href = a.get('href', '')
                 if ('page=' in href or 'p=' in href) and a.find('svg'):
+                    classes = ' '.join(a.get('class', [])).lower()
+                    rel = a.get('rel', '')
+                    rel_str = ' '.join(rel) if isinstance(rel, list) else str(rel)
+                    if 'prev' in classes or 'prev' in rel_str.lower():
+                        continue
                     return a
         return None
 
@@ -1573,12 +1578,13 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _has_valid_kodate_label(self, item: dict) -> bool:
         labels = item.get('labelList') or []
-        all_label_parts = {
-            part.strip()
-            for lbl in labels
-            if isinstance(lbl, dict)
-            for part in (lbl.get('listText') or lbl.get('detailText') or '').split('/')
-        }
+        all_label_parts = set()
+        for lbl in labels:
+            if isinstance(lbl, dict):
+                for field in ('listText', 'detailText'):
+                    val = lbl.get(field)
+                    if val:
+                        all_label_parts.update(part.strip() for part in val.split('/'))
         has_direct_kodate = any('戸建' in part or '戸建て' in part for part in all_label_parts)
         has_other_label = 'その他(土地・建物)' in all_label_parts
         if not has_direct_kodate and not has_other_label:

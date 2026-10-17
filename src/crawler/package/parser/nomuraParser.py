@@ -328,7 +328,10 @@ class NomuraParser(InvestmentParser):
         if not href or href.startswith(('#', JAVASCRIPT_PREFIX, '//')):
             return False
         # Do not match page 1 / "最初" as next link
-        if '最初' in txt or 'pager_page=1' in href or 'pager_page=0' in href:
+        if '最初' in txt:
+            return False
+        m_page = re.search(r'[?&]pager_page=(\d+)', href)
+        if m_page and int(m_page.group(1)) <= 1:
             return False
         if has_next_class:
             return True
@@ -348,7 +351,12 @@ class NomuraParser(InvestmentParser):
         for el in elements:
             raw_classes = el.get('class', [])
             classes = [raw_classes] if isinstance(raw_classes, str) else list(raw_classes or [])
-            has_next = any('next' in str(c).lower() for c in classes)
+            parent = getattr(el, 'parent', None)
+            parent_classes = parent.get('class', []) if parent and hasattr(parent, 'get') else []
+            if isinstance(parent_classes, str):
+                parent_classes = [parent_classes]
+            combined_classes = classes + list(parent_classes or [])
+            has_next = any('next' in str(c).lower() for c in combined_classes)
             text = el.get_text(strip=True) if hasattr(el, 'get_text') else getattr(el, 'text', '') or ''
             href = el.get('href', '')
             if self._is_valid_next_link(text, href, has_next_class=has_next):
