@@ -8,6 +8,7 @@ import realestateSettings
 
 realestateSettings.configure()
 from django.db import connection, transaction
+from package.utils import converter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -16,37 +17,46 @@ logger = logging.getLogger(__name__)
 def run_cleansing(dry_run: bool = False):
     logger.info("Starting relocation and cleansing of misclassified properties (dry_run=%s)...", dry_run)
 
-    with connection.cursor() as cur:
-        # 一時テーブルを用いて対象IDを一度だけ確定し、一貫性を保証
-        cur.execute(
-            """
-            CREATE TEMPORARY TABLE IF NOT EXISTS tmp_misclassified_homes_invest (
-                id INT PRIMARY KEY,
-                pageUrl VARCHAR(500)
-            );
-            """
-        )
-        cur.execute("TRUNCATE TABLE tmp_misclassified_homes_invest;")
+    with transaction.atomic():
+        with connection.cursor() as cur:
+            # 一時テーブルを用いて対象IDを一度だけ確定し、一貫性を保証
+            cur.execute(
+                """
+                CREATE TEMPORARY TABLE IF NOT EXISTS tmp_misclassified_homes_invest (
+                    id INT PRIMARY KEY,
+                    pageUrl VARCHAR(500)
+                );
+                """
+            )
+            cur.execute("TRUNCATE TABLE tmp_misclassified_homes_invest;")
 
-        cur.execute(
-            """
-            INSERT INTO tmp_misclassified_homes_invest (id, pageUrl)
-            SELECT id, pageUrl
-            FROM homes_investment_apartment
-            WHERE propertyType = 'Mansion'
-               OR tatemonoMensekiStr LIKE '%専有%'
-               OR tatemonoMensekiStr LIKE '%バルコニー%';
-            """
-        )
-        cur.execute("SELECT COUNT(*) FROM tmp_misclassified_homes_invest;")
-        target_count = cur.fetchone()[0]
-        logger.info("Found %d misclassified records in temporary table.", target_count)
+            cur.execute(
+                """
+                INSERT INTO tmp_misclassified_homes_invest (id, pageUrl)
+                SELECT id, pageUrl
+                FROM homes_investment_apartment
+                WHERE propertyType = 'Mansion'
+                   OR tatemonoMensekiStr LIKE '%専有%'
+                   OR tatemonoMensekiStr LIKE '%バルコニー%'
+                   OR propertyName LIKE '%区分%'
+                   OR (
+                       kaisuStr != ''
+                       AND kaisuStr NOT LIKE '%階建%'
+                       AND kaisuStr NOT LIKE '%階数%'
+                       AND kaisuStr LIKE '%階%'
+                       AND (tatemonoMenseki IS NULL OR tatemonoMenseki < 150.0)
+                   )
+                FOR UPDATE;
+                """
+            )
+            cur.execute("SELECT COUNT(*) FROM tmp_misclassified_homes_invest;")
+            target_count = cur.fetchone()[0]
+            logger.info("Found %d misclassified records in temporary table.", target_count)
 
-        if target_count > 0:
-            if dry_run:
-                logger.info("[DRY RUN] Would insert %d records into homes_mansion, update property_evaluation, and delete from homes_investment_apartment.", target_count)
-            else:
-                with transaction.atomic():
+            if target_count > 0:
+                if dry_run:
+                    logger.info("[DRY RUN] Would insert %d records into homes_mansion, update property_evaluation, and delete from homes_investment_apartment.", target_count)
+                else:
                     # 1. homes_mansion へ未登録のものを INSERT 移送
                     insert_query = """
                     INSERT INTO homes_mansion (
@@ -110,6 +120,24 @@ def run_cleansing(dry_run: bool = False):
                     cur.execute(insert_query)
                     logger.info("Inserted %d records into homes_mansion.", cur.rowcount)
 
+                    # 1b. chikunengetsuStr から chikunengetsu 日付型への補正
+                    cur.execute(
+                        """
+                        SELECT m.id, m.chikunengetsuStr
+                        FROM homes_mansion m
+                        JOIN tmp_misclassified_homes_invest t ON m.pageUrl = t.pageUrl
+                        WHERE m.chikunengetsu IS NULL AND m.chikunengetsuStr != '';
+                        """
+                    )
+                    rows = cur.fetchall()
+                    updated_dates = 0
+                    for m_id, c_str in rows:
+                        dt = converter.parse_chikunengetsu(c_str)
+                        if dt:
+                            cur.execute("UPDATE homes_mansion SET chikunengetsu = %s WHERE id = %s;", [dt, m_id])
+                            updated_dates += 1
+                    logger.info("Updated chikunengetsu date for %d/%d migrated homes_mansion records.", updated_dates, len(rows))
+
                     # 2. property_evaluation の紐付け更新
                     update_pe_query = """
                     UPDATE property_evaluation pe
@@ -126,16 +154,17 @@ def run_cleansing(dry_run: bool = False):
                     cur.execute(update_pe_query)
                     logger.info("Updated %d property_evaluation records to point to homes_mansion with needs_recrawl=1.", cur.rowcount)
 
-                    # 3. homes_investment_apartment から旧レコードを削除
+                    # 3. homes_investment_apartment から旧レコードを削除（homes_mansionに移送済みのものに限定）
                     delete_query = """
                     DELETE h
                     FROM homes_investment_apartment h
-                    JOIN tmp_misclassified_homes_invest t ON h.id = t.id;
+                    JOIN tmp_misclassified_homes_invest t ON h.id = t.id
+                    JOIN homes_mansion m ON h.pageUrl = m.pageUrl;
                     """
                     cur.execute(delete_query)
                     logger.info("Deleted %d old records from homes_investment_apartment.", cur.rowcount)
-        else:
-            logger.info("No records to relocate.")
+            else:
+                logger.info("No records to relocate.")
 
         # 4. 価格0以下の破綻データに対する needs_recrawl フラグ設定（住友等）
         for table, ptype in [('sumifu_mansion', 'mansion'), ('sumifu_kodate', 'kodate'), ('sumifu_tochi', 'tochi')]:

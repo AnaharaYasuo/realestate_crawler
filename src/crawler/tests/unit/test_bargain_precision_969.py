@@ -83,3 +83,16 @@ def test_explicit_apartment_specs_with_floor_not_misclassified():
     assert detected == "apartment", f"Expected apartment but got {detected}"
 
 
+def test_ground_floor_with_yield_classified_as_apartment():
+    """『地上3階』等の全体階数表記かつ専有面積がない利回り物件は apartment と判定されること"""
+    specs = {
+        "物件名": "ハイツ宇部",
+        "kaisuStr": "地上3階",
+        "grossYield": 12.5,
+        "tatemonoMenseki": 200.0,
+    }
+    detected = PropertyTypeDetector.detect_from_object(specs)
+    assert detected == "apartment", f"Expected apartment but got {detected}"
+
+
+
