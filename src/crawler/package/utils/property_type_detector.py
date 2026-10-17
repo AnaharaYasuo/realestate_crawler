@@ -520,32 +520,33 @@ class PropertyTypeDetector:
             return "tochi"
         return None
 
+    @staticmethod
+    def _is_positive_area_value(val: Any) -> bool:
+        if val is None:
+            return False
+        try:
+            cleaned = re.sub(r"[^\d.]", "", str(val))
+            return bool(cleaned and float(cleaned) > 0)
+        except (ValueError, TypeError):
+            return False
+
+    @classmethod
+    def _is_unit_floor_indicator(cls, property_obj: Any) -> bool:
+        """所在階の判定（「階建」「階数」などの建物全体階数表記は除外）"""
+        for f in ("所在階", "floor", "kaisuStr"):
+            val = str(cls._get_field(property_obj, f) or "")
+            if val and "階" in val and "階建" not in val and "階数" not in val:
+                return True
+        return False
+
     @classmethod
     def _is_unit_mansion_indicator(cls, property_obj: Any) -> bool:
         """区分マンションの判定指標（専有面積、所在階、区分・一室表記）があるか"""
-        senyu = cls._get_field(property_obj, "senyuMenseki")
-        try:
-            if senyu is not None and float(re.sub(r"[^\d.]", "", str(senyu))) > 0:
+        for f in ("senyuMenseki", "専有面積", "壁芯面積"):
+            if cls._is_positive_area_value(cls._get_field(property_obj, f)):
                 return True
-        except (ValueError, TypeError):
-            pass
 
-        for f in ("専有面積", "壁芯面積"):
-            val = cls._get_field(property_obj, f)
-            if val:
-                try:
-                    if float(re.sub(r"[^\d.]", "", str(val))) > 0:
-                        return True
-                except (ValueError, TypeError):
-                    pass
-
-        # 所在階の判定（「階建」「階数」などの建物全体階数表記は除外）
-        shozai = str(cls._get_field(property_obj, "所在階") or cls._get_field(property_obj, "floor") or "")
-        if shozai and ("階" in shozai) and ("階建" not in shozai) and ("階数" not in shozai):
-            return True
-
-        kaisu = str(cls._get_field(property_obj, "kaisuStr") or "")
-        if kaisu and ("階" in kaisu) and ("階建" not in kaisu) and ("階数" not in kaisu):
+        if cls._is_unit_floor_indicator(property_obj):
             return True
 
         name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
