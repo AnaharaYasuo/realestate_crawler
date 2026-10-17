@@ -133,14 +133,14 @@ class SumifuParser(ParserBase):
              next_link = response.find('a', string=re.compile("次へ"))
 
         if not next_link:
-            return None
+            return ""
             
         href = next_link.get("href", "")
         if not href or href == "#" or href.startswith(JAVASCRIPT_PREFIX):
-            return None
+            return ""
         next_page_url = urllib.parse.urljoin(self.BASE_URL, href)
         if JAVASCRIPT_PREFIX in next_page_url or VOID_0 in next_page_url:
-            return None
+            return ""
         logging.trace("getPropertyListNextPageUrl next_page_url:" + next_page_url)
         return next_page_url
 
