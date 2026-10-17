@@ -244,7 +244,17 @@ class MitsuiParser(ParserBase):
             text_parts = list(res.stripped_strings)
             if text_parts:
                 lines = [" ".join(text_parts)]
-        return lines
+
+        # If lines contain joined transit info without newlines (e.g. 六本木駅徒歩9分広尾駅徒歩13分)
+        split_lines = []
+        for line in lines:
+            if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
+                sub = re.split(r'(?<=(?:徒歩|停歩|バス)\s*\d{1,3}\s*分)(?=[^\d\s]+(?:線|駅|バス))', line)
+                if len(sub) > 1:
+                    split_lines.extend([s.strip() for s in sub if s.strip()])
+                    continue
+            split_lines.append(line)
+        return split_lines
 
     def _extract_traffic_from_selectors(self, response) -> list[str]:
         if not response:
@@ -296,6 +306,10 @@ class MitsuiParser(ParserBase):
             or specs.get("アクセス", "")
         )
         lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
+        if len(lines) == 1 and re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', lines[0]):
+            sub_lines = re.split(r'(?<=(?:徒歩|停歩|バス)\d{1,3}分)(?=[^\d\s]+(?:線|駅|バス))', lines[0])
+            if len(sub_lines) > 1:
+                lines = [sl.strip() for sl in sub_lines if sl.strip()]
 
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
@@ -1527,6 +1541,9 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
                 yield filtered_url
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "") or ""
+        if "/buy/mansion/" in page_url:
+            raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item
