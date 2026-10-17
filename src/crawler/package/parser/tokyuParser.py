@@ -150,7 +150,7 @@ class TokyuParser(ParserBase):
             return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a)), None)
         return None
 
-    async def getPropertyListNextPageUrl(self, response):
+    async def getPropertyListNextPageUrl(self, response, current_url: str = ""):
         await asyncio.sleep(0)
         logger.trace("getPropertyListNextPageUrl")
         try:
@@ -158,7 +158,8 @@ class TokyuParser(ParserBase):
                 next_el = self._find_next_link(response)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
-                    return href if href.startswith('http') else self.BASE_URL + href
+                    base = current_url or self.BASE_URL
+                    return urllib.parse.urljoin(base, href)
         except Exception as e:
             logger.warning("getPropertyListNextPageUrl exception: %s", e)
         return ""

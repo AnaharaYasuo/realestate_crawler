@@ -351,13 +351,18 @@ class NomuraParser(InvestmentParser):
         for el in elements:
             raw_classes = el.get('class', [])
             classes = [raw_classes] if isinstance(raw_classes, str) else list(raw_classes or [])
-            parent = getattr(el, 'parent', None)
+            parent = getattr(el, 'parent', None) or (el.getparent() if hasattr(el, 'getparent') else None)
             parent_classes = parent.get('class', []) if parent and hasattr(parent, 'get') else []
             if isinstance(parent_classes, str):
                 parent_classes = [parent_classes]
             combined_classes = classes + list(parent_classes or [])
             has_next = any('next' in str(c).lower() for c in combined_classes)
-            text = el.get_text(strip=True) if hasattr(el, 'get_text') else getattr(el, 'text', '') or ''
+            if hasattr(el, 'get_text'):
+                text = el.get_text(strip=True)
+            elif hasattr(el, 'text_content'):
+                text = el.text_content().strip()
+            else:
+                text = getattr(el, 'text', '') or ''
             href = el.get('href', '')
             if self._is_valid_next_link(text, href, has_next_class=has_next):
                 return el
