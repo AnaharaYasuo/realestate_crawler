@@ -35,10 +35,10 @@ def get_evaluation_and_duplicate_caches() -> tuple[dict[str, tuple[float, float]
         .values_list("property_url", flat=True)
     )
 
-    # Issue #773: 不整合フラグ (needs_parser_fix=True) またはデータ品質異常 (data_quality_issue != "") の物件を学習から除外
+    # Issue #773, #969: 不整合フラグ (needs_parser_fix=True, needs_recrawl=True) またはデータ品質異常 (data_quality_issue != "") の物件を学習から除外
     invalid_urls = set(
         PropertyEvaluation.objects.filter(
-            Q(needs_parser_fix=True) | ~Q(data_quality_issue="")
+            Q(needs_parser_fix=True) | Q(needs_recrawl=True) | ~Q(data_quality_issue="")
         ).values_list("property_url", flat=True)
     )
     excluded_urls = duplicate_urls | invalid_urls

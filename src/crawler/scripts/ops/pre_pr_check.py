@@ -244,7 +244,7 @@ class PrePRChecker:
     def is_all_passed(self) -> bool:
         return all(r.passed for r in self.results)
 
-    def _run_cmd(self, cmd: list[str], cwd: str | None = None, timeout: float | None = None) -> tuple[int, str, str]:
+    def _run_cmd(self, cmd: list[str], cwd: str | None = None, timeout: float | None = 15.0) -> tuple[int, str, str]:
         """Execute a local shell command safely with optional timeout."""
         try:
             p = subprocess.run(
@@ -288,15 +288,19 @@ class PrePRChecker:
                 if f.strip():
                     files.add(f.strip().replace("\\", "/"))
 
-        for cmd in [
-            ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
-            ["git", "diff", "--name-only", "--ignore-space-at-eol"],
-            ["git", "ls-files", "--others", "--exclude-standard"],
-        ]:
-            _, stdout, _ = self._run_cmd(cmd)
-            for f in stdout.splitlines():
-                if f.strip():
-                    files.add(f.strip().replace("\\", "/"))
+        if not self.target_sha:
+            for cmd in [
+                ["git", "diff", "--name-only", "--cached", "--ignore-space-at-eol"],
+                ["git", "diff", "--name-only", "--ignore-space-at-eol"],
+                ["git", "ls-files", "--others", "--exclude-standard"],
+            ]:
+                rc, stdout, stderr = self._run_cmd(cmd)
+                if rc != 0:
+                    errors.append(f"変更ファイル取得コマンド失敗 (rc={rc}): {' '.join(cmd)}\n{stderr}")
+                else:
+                    for f in stdout.splitlines():
+                        if f.strip():
+                            files.add(f.strip().replace("\\", "/"))
         return sorted(files), errors
 
     def stage1_git_and_branch(self) -> StageResult:
@@ -460,7 +464,7 @@ class PrePRChecker:
             return [], ["変更Pythonファイルなし — Ruffスキップ"]
         check_args = ["check", "--fix", "--output-format=json"] if self.fix_mode else ["check", "--output-format=json"]
         cmd = ruff_base + check_args + target_args
-        rc, ruff_out, ruff_err = self._run_cmd(cmd)
+        rc, ruff_out, ruff_err = self._run_cmd(cmd, timeout=120.0)
         if ruff_out:
             errors.extend(self._filter_ruff_errors(ruff_out))
         elif rc != 0 and ruff_err:
@@ -668,7 +672,7 @@ class PrePRChecker:
         else:
             test_cmd = ["docker", "compose", "exec", "-T", "app", "pytest", "-n", "auto", "src/crawler/tests/unit/"]
 
-        code, out, err = self._run_cmd(test_cmd)
+        code, out, err = self._run_cmd(test_cmd, timeout=600.0)
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             failed_lines = [line_text for line_text in lines if "FAILED" in line_text or "ERROR" in line_text]
@@ -683,7 +687,7 @@ class PrePRChecker:
             return StageResult(6, STAGE_MUTATION, True, details="--skip-mutation によりスキップ", duration_sec=0.0)
 
         mut_cmd = self._build_python_command(["src/crawler/scripts/run_mutation_testing.py", "--pr-mode", "--threshold=80"])
-        code, out, err = self._run_cmd(mut_cmd)
+        code, out, err = self._run_cmd(mut_cmd, timeout=1200.0)
         if code != 0:
             lines = (out + "\n" + err).splitlines()
             err_summary = [line_text for line_text in lines if "FAIL" in line_text or "SCORE" in line_text or "SURVIVED" in line_text][-10:]
@@ -700,7 +704,7 @@ class PrePRChecker:
             details.append("Checkov 未インストール (CIで実行)")
             return errors, details
 
-        rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform"])
+        rc, cout, cerr = self._run_cmd(["checkov", "-d", "terraform/", "--framework", "terraform"], timeout=180.0)
         if rc != 0:
             errors.append(f"Checkov Terraform IaC 検査で違反が検出されました:\n{cout or cerr}")
         else:
@@ -711,12 +715,12 @@ class PrePRChecker:
         """Run Semgrep Python SAST scanner if installed."""
         errors = []
         details = []
-        code, _, _ = self._run_cmd(["semgrep", "--version"])
+        code, _, _ = self._run_cmd(["semgrep", "--version"], timeout=10.0)
         if code != 0:
             details.append("Pythonセキュリティ検査合格 (SonarCloud/S8786)")
             return errors, details
 
-        rc, sout, serr = self._run_cmd(["semgrep", "--config", "p/ci", "--error"])
+        rc, sout, serr = self._run_cmd(["semgrep", "--config", "p/ci", "--error"], timeout=180.0)
         if rc != 0:
             errors.append(f"Semgrep SAST 検査で違反が検出されました:\n{sout or serr}")
         else:
