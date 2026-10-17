@@ -1331,7 +1331,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             parser_next_func = self._getNextPageParserFunc()
             if parser_next_func is not None:
                 next_page_url = await parser_next_func(response)
-                if len(next_page_url) > 0:
+                if next_page_url and len(next_page_url) > 0:
                     await self._fetchNextPage(next_page_url)
 
         return detail_url_list
