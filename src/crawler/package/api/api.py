@@ -1216,7 +1216,10 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         if parser_next_func is None:
             return ""
         try:
-            return await parser_next_func(response)
+            try:
+                return await parser_next_func(response, current_url=current_url)
+            except TypeError:
+                return await parser_next_func(response)
         except Exception as npe:
             logger.warning("Failed to extract next page URL from %s (stopping pagination safely): %s", current_url, npe)
             raw_html_content = str(response) if response is not None else None

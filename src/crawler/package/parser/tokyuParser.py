@@ -127,7 +127,7 @@ class TokyuParser(ParserBase):
             yield dest_url
 
     @staticmethod
-    def _is_valid_tokyu_svg_next(a) -> bool:
+    def _is_valid_tokyu_svg_next(a, current_page: int) -> bool:
         href = a.get('href', '')
         if not (('page=' in href or 'p=' in href) and a.find('svg')):
             return False
@@ -137,9 +137,12 @@ class TokyuParser(ParserBase):
         if 'prev' in classes or 'prev' in rel_str.lower() or 'back' in classes:
             return False
         m_p = re.search(r'[?&](?:page|p)=(\d+)', href)
-        return not bool(m_p and int(m_p.group(1)) <= 1)
+        if not m_p:
+            return False
+        target_page = int(m_p.group(1))
+        return target_page > max(1, current_page)
 
-    def _find_next_link(self, response):
+    def _find_next_link(self, response, current_page: int = 1):
         next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
         next_el = response.select_one(next_css)
         if next_el:
@@ -147,8 +150,8 @@ class TokyuParser(ParserBase):
         next_el = response.find('a', string=re.compile("次へ|次"))
         if next_el:
             return next_el
-        if hasattr(response, 'find_all'):
-            return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a)), None)
+        if current_page > 0 and hasattr(response, 'find_all'):
+            return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a, current_page)), None)
         return None
 
     async def getPropertyListNextPageUrl(self, response, current_url: str = ""):
@@ -156,7 +159,9 @@ class TokyuParser(ParserBase):
         logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
-                next_el = self._find_next_link(response)
+                m_curr = re.search(r'[?&](?:page|p)=(\d+)', current_url) if current_url else None
+                current_page = int(m_curr.group(1)) if m_curr else (1 if current_url else 0)
+                next_el = self._find_next_link(response, current_page=current_page)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
                     base = current_url or self.BASE_URL
