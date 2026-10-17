@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sys
+import urllib.parse
 
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
