@@ -69,3 +69,17 @@ def test_homes_invest_unit_mansion_routes_to_mansion_parser():
     entity = parser.createEntity()
     assert isinstance(entity, HomesMansion), f"Expected HomesMansion entity, got {type(entity)}"
 
+
+def test_explicit_apartment_specs_with_floor_not_misclassified():
+    """specsに『物件種別: 一棟アパート』や一棟名があり、所在階や階数が含まれていても apartment と判定されること"""
+    specs = {
+        "物件名": "サニーハイツ 1棟",
+        "物件種別": "一棟アパート",
+        "所在階": "1階",
+        "表面利回り": "10.5%",
+        "tatemonoMenseki": 150.0,
+    }
+    detected = PropertyTypeDetector.detect_from_object(specs)
+    assert detected == "apartment", f"Expected apartment but got {detected}"
+
+

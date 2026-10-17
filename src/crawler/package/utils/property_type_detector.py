@@ -502,9 +502,17 @@ class PropertyTypeDetector:
         except (ValueError, TypeError):
             pass
 
-        prop_name = str(cls._get_field(property_obj, "propertyName") or "")
-        remarks = str(cls._get_field(property_obj, "remarks") or "")
-        return cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks)
+        prop_name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        remarks = str(cls._get_field(property_obj, "remarks") or cls._get_field(property_obj, "備考") or "")
+        if cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks):
+            return True
+
+        if isinstance(property_obj, dict):
+            return cls._has_yield_signal_specs(property_obj)
+        specs = cls._get_field(property_obj, "specs")
+        if isinstance(specs, dict):
+            return cls._has_yield_signal_specs(specs)
+        return False
 
     @classmethod
     def _detect_from_type_str(cls, type_str: str) -> str | None:
@@ -540,8 +548,25 @@ class PropertyTypeDetector:
         return False
 
     @classmethod
+    def _has_explicit_non_mansion_indicator(cls, property_obj: Any) -> bool:
+        """明示的な一棟アパート・戸建・土地の指定があるか確認（区分判定の上書きを防止）"""
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        explicit_type = str(cls._get_field(property_obj, "propertyType") or "")
+        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+            explicit_type += " " + str(cls._get_field(property_obj, k) or "")
+
+        combined = f"{name} {explicit_type}"
+        has_apartment = any(kw in combined for kw in cls.APARTMENT_KEYWORDS) or "アパート" in combined
+        has_kodate = any(kw in combined for kw in cls.KODATE_KEYWORDS)
+        has_tochi = any(kw in combined for kw in cls.TOCHI_KEYWORDS) or "売地" in combined
+        return has_apartment or has_kodate or has_tochi
+
+    @classmethod
     def _is_unit_mansion_indicator(cls, property_obj: Any) -> bool:
         """区分マンションの判定指標（専有面積、所在階、区分・一室表記）があるか"""
+        if cls._has_explicit_non_mansion_indicator(property_obj):
+            return False
+
         for f in ("senyuMenseki", "専有面積", "壁芯面積"):
             if cls._is_positive_area_value(cls._get_field(property_obj, f)):
                 return True
