@@ -125,22 +125,27 @@ class TokyuParser(ParserBase):
         async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             yield dest_url
 
+    def _find_next_link(self, response):
+        next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
+        next_el = response.select_one(next_css)
+        if next_el:
+            return next_el
+        next_el = response.find('a', string=re.compile("次へ|次"))
+        if next_el:
+            return next_el
+        if hasattr(response, 'find_all'):
+            for a in response.find_all('a', href=True):
+                href = a.get('href', '')
+                if ('page=' in href or 'p=' in href) and a.find('svg'):
+                    return a
+        return None
+
     async def getPropertyListNextPageUrl(self, response):
         await asyncio.sleep(0)
         logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
-                next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
-                next_el = response.select_one(next_css)
-                if not next_el:
-                    next_el = response.find('a', string=re.compile("次へ|次"))
-                if not next_el and hasattr(response, 'find_all'):
-                    # 新仕様 (Next.js/React SVG矢印アイコン付きページネーション aタグ)
-                    for a in response.find_all('a', href=True):
-                        href = a.get('href', '')
-                        if ('page=' in href or 'p=' in href) and a.find('svg'):
-                            next_el = a
-                            break
+                next_el = self._find_next_link(response)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
                     return href if href.startswith('http') else self.BASE_URL + href
