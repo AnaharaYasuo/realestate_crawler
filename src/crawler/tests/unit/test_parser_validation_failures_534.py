@@ -102,7 +102,8 @@ class TestSectionalUnitSwitchGuard534:
             SUMIFU_UNIT_URL, "投資用区分", _soup("表面利回り 7.5%"), specs, item
         )
 
-        assert isinstance(used_parser, SumifuInvestmentApartmentParser)
+        # Under Issue #969, sectional unit with senyu_area is classified as mansion, not investment apartment
+        assert isinstance(used_parser, SumifuMansionParser)
         assert used_item is not item
 
     def test_guard_is_opt_in_for_sumifu_mansion_only(self):

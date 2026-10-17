@@ -313,12 +313,19 @@ def test_yield_guard_in_detect_from_object():
     }
     assert PropertyTypeDetector.detect_from_object(data) == "apartment"
 
-    # オーナーチェンジ等のテキストを含む場合も apartment
+    # 専有面積を持つ区分物件はオーナーチェンジ等のテキストがあっても区分マンション保護(Issue #969)
     data2 = {
         "propertyName": "高級分譲マンション（オーナーチェンジ）",
         "senyuMenseki": 30.0,
     }
-    assert PropertyTypeDetector.detect_from_object(data2) == "apartment"
+    assert PropertyTypeDetector.detect_from_object(data2) == "mansion"
+
+    # 建物面積等の一棟物件でオーナーチェンジの場合は apartment
+    data3 = {
+        "propertyName": "高級アパート（オーナーチェンジ）",
+        "tatemonoMenseki": 150.0,
+    }
+    assert PropertyTypeDetector.detect_from_object(data3) == "apartment"
 
 
 def test_detect_with_ai_fallback_and_sanitizer(monkeypatch):
@@ -504,5 +511,21 @@ def test_property_type_detector_helpers_and_guards():
     assert PropertyTypeDetector.is_investment("kodate") is False
     assert PropertyTypeDetector.is_investment("mansion") is False
     assert PropertyTypeDetector.is_investment(None) is False
+
+    # 8. _is_isolated_tochi mutants kill (line 86-94)
+    assert PropertyTypeDetector._is_isolated_tochi("") is False
+    assert PropertyTypeDetector._is_isolated_tochi(None) is False
+    assert PropertyTypeDetector._is_isolated_tochi("土地権利所有権 土地面積100m2") is False
+    assert PropertyTypeDetector._is_isolated_tochi("土地権利 土地") is True
+
+    # 9. _spec_entry_has_yield mutants kill (line 186-190)
+    assert PropertyTypeDetector._spec_entry_has_yield("その他", "") is False
+    assert PropertyTypeDetector._spec_entry_has_yield("想定年収", "500万円") is True
+    assert PropertyTypeDetector._spec_entry_has_yield("備考", "オーナーチェンジ物件") is True
+
+    # 10. _has_numeric_yield separators and boundary
+    assert PropertyTypeDetector._has_numeric_yield("表面利回り: 5.5%") is True
+    assert PropertyTypeDetector._has_numeric_yield("表面利回り") is False
+    assert PropertyTypeDetector._has_numeric_yield("想定年収 なし") is False
 
 

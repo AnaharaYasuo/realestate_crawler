@@ -43,13 +43,22 @@ class PropertyTypeDetector:
     KW_ITTO_APARTMENT = "一棟アパート"
     KW_ITTO_URI_MANSION = "一棟売りマンション"
     KW_ITTO_MANSION = "一棟マンション"
+    KW_ITTO_URI_BUILDING = "一棟売りビル"
     KW_MANSION = "マンション"
     KW_TERRACE_HOUSE = "テラスハウス"
+
+    KW_PROPERTY_TYPE_LABEL = "物件タイプ"
+    SPECS_PROPERTY_TYPE_KEYS = ("物件種別", "種別", "建物種別", "種目", KW_PROPERTY_TYPE_LABEL)
+
+    ITTO_KEYWORDS = (
+        KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
+        KW_ITTO_URI_BUILDING, "一棟ビル", "一棟売り", "一棟",
+    )
 
     # 種別ごとの判定キーワード（複合語の優先順位を保つため順序に留意）
     APARTMENT_KEYWORDS = [
         KW_ITTO_URI_APARTMENT, KW_ITTO_APARTMENT, KW_ITTO_URI_MANSION, KW_ITTO_MANSION,
-        "一棟売りビル", "一棟ビル", "収益アパート", "投資用アパート",
+        KW_ITTO_URI_BUILDING, "一棟ビル", "収益アパート", "投資用アパート",
         "収益物件", "一棟売り", "一棟"
     ]
 
@@ -267,8 +276,7 @@ class PropertyTypeDetector:
     @classmethod
     def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
         """スペック表の特定キーおよび値全体から種別判定"""
-        type_keys = ["物件種別", "種別", "建物種別", "物件タイプ", "種目"]
-        for k in type_keys:
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             if k in specs:
                 val_str = str(specs[k]).strip()
                 if val_str == "土地":
@@ -360,6 +368,18 @@ class PropertyTypeDetector:
         数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
         本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
+        # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
+        # ただしタイトルに一棟アパート・戸建・土地等の明確な他種別キーワードが含まれる場合はスキップ
+        title_has_itto_kw = bool(title and (any(k in title for k in cls.ITTO_KEYWORDS) or "アパート" in title))
+        title_has_non_mansion = bool(title and (
+            title_has_itto_kw or
+            any(k in title for k in cls.KODATE_KEYWORDS) or
+            any(k in title for k in cls.TOCHI_KEYWORDS) or
+            "売地" in title
+        ))
+        if not title_has_non_mansion and specs and cls._is_unit_mansion_indicator(specs):
+            return "mansion"
+
         detected = cls._detect_rule_based(url=url, title=title, html_text=html_text, specs=specs)
         if detected:
             return detected
@@ -487,6 +507,17 @@ class PropertyTypeDetector:
         return final_res
 
     @classmethod
+    def _check_specs_yield(cls, property_obj: Any) -> bool:
+        """辞書またはオブジェクトのspecsから利回りシグナルを抽出"""
+        if isinstance(property_obj, dict):
+            if cls._has_yield_signal_specs(property_obj):
+                return True
+            inner_specs = property_obj.get("specs")
+            return isinstance(inner_specs, dict) and cls._has_yield_signal_specs(inner_specs)
+        specs = cls._get_field(property_obj, "specs")
+        return isinstance(specs, dict) and cls._has_yield_signal_specs(specs)
+
+    @classmethod
     def _has_yield_in_object(cls, property_obj: Any) -> bool:
         """オブジェクト内の利回り表記またはgrossYield存在チェック"""
         gross_yield = cls._get_field(property_obj, "grossYield")
@@ -496,9 +527,12 @@ class PropertyTypeDetector:
         except (ValueError, TypeError):
             pass
 
-        prop_name = str(cls._get_field(property_obj, "propertyName") or "")
-        remarks = str(cls._get_field(property_obj, "remarks") or "")
-        return cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks)
+        prop_name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        remarks = str(cls._get_field(property_obj, "remarks") or cls._get_field(property_obj, "備考") or "")
+        if cls._has_yield_signal(prop_name) or cls._has_yield_signal(remarks):
+            return True
+
+        return cls._check_specs_yield(property_obj)
 
     @classmethod
     def _detect_from_type_str(cls, type_str: str) -> str | None:
@@ -514,9 +548,76 @@ class PropertyTypeDetector:
             return "tochi"
         return None
 
+    @staticmethod
+    def _is_positive_area_value(val: Any) -> bool:
+        if val is None:
+            return False
+        try:
+            cleaned = re.sub(r"[^\d.]", "", str(val))
+            return bool(cleaned and float(cleaned) > 0)
+        except (ValueError, TypeError):
+            return False
+
+    @classmethod
+    def _is_unit_floor_indicator(cls, property_obj: Any) -> bool:
+        """所在階の判定（「階建」「階数」「地上○階」などの建物全体階数表記は除外）"""
+        for f in ("所在階", "floor", "kaisuStr"):
+            val = str(cls._get_field(property_obj, f) or "").strip()
+            if not val or "階" not in val:
+                continue
+            if any(x in val for x in ("階建", "階数", "地上", "地下", "全体")):
+                continue
+            return True
+        return False
+
+    @classmethod
+    def _has_explicit_non_mansion_indicator(cls, property_obj: Any) -> bool:
+        """明示的な一棟アパート・戸建・土地の指定があるか確認（区分判定の上書きを防止）"""
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        explicit_type = str(cls._get_field(property_obj, "propertyType") or "")
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
+            explicit_type += " " + str(cls._get_field(property_obj, k) or "")
+
+        # 英語/日本語の明示的種別判定（Apartment, Kodate, Tochi 等）
+        detected_explicit = cls._detect_from_type_str(explicit_type)
+        if detected_explicit in ("apartment", "kodate", "tochi"):
+            return True
+
+        combined = f"{name} {explicit_type}"
+        has_apartment = any(kw in combined for kw in cls.ITTO_KEYWORDS) or "アパート" in combined
+        has_kodate = any(kw in combined for kw in cls.KODATE_KEYWORDS)
+        has_tochi = any(kw in combined for kw in cls.TOCHI_KEYWORDS) or "売地" in combined
+        return has_apartment or has_kodate or has_tochi
+
+    @classmethod
+    def _is_unit_mansion_indicator(cls, property_obj: Any) -> bool:
+        """区分マンションの判定指標（専有面積、所在階、区分・一室表記）があるか"""
+        if cls._has_explicit_non_mansion_indicator(property_obj):
+            return False
+
+        for f in ("senyuMenseki", "専有面積", "壁芯面積"):
+            if cls._is_positive_area_value(cls._get_field(property_obj, f)):
+                return True
+
+        if cls._is_unit_floor_indicator(property_obj):
+            return True
+
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        return any(k in name for k in ("区分", "一室", "号室"))
+
+    @classmethod
+    def _is_commercial_building_indicator(cls, property_obj: Any) -> bool:
+        """商業ビル・一棟売りビルの判定指標があるか"""
+        name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+        remarks = str(cls._get_field(property_obj, "remarks") or cls._get_field(property_obj, "備考") or "")
+        combined = f"{name} {remarks}"
+        return any(k in combined for k in ("一棟ビル", cls.KW_ITTO_URI_BUILDING, "売ビル", "商業ビル", "オフィスビル", "一棟貸し", "空ビル"))
+
     @classmethod
     def _detect_from_area_fields(cls, property_obj: Any) -> str:
         """面積フィールド等の属性によるフォールバック種別推定"""
+        if cls._is_commercial_building_indicator(property_obj):
+            return "apartment"
         if cls._get_field(property_obj, "senyuMenseki") is not None:
             return "mansion"
         if cls._get_field(property_obj, "tatemonoMenseki") is not None:
@@ -534,28 +635,39 @@ class PropertyTypeDetector:
         if property_obj is None:
             return "mansion"
 
-        # 0. Yield Guard (最優先: grossYield > 0 または 物件名・備考の利回り表記)
-        if cls._has_yield_in_object(property_obj):
+        # 0. 商業ビル・一棟売りビル保護: 専有面積があってもオフィスビル・売ビルは apartment
+        if cls._is_commercial_building_indicator(property_obj):
             return "apartment"
 
-        # 1. 物理矛盾ガード: 土地面積0 + RC構造等は mansion
+        # 1. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
+        if cls._is_unit_mansion_indicator(property_obj):
+            return "mansion"
+
+        # 2. Yield Guard (最優先: grossYield > 0 または 物件名・備考の利回り表記)
+        if cls._has_yield_in_object(property_obj):
+            prop_name = str(cls._get_field(property_obj, "propertyName") or cls._get_field(property_obj, "物件名") or "")
+            if any(k in prop_name for k in ("戸建", "一戸建て", "一戸建", "テラスハウス", "貸家")):
+                return "invest_kodate"
+            return "apartment"
+
+        # 3. 物理矛盾ガード: 土地面積0 + RC構造等は mansion
         if cls._is_rc_zero_land(property_obj):
             return "mansion"
 
-        # 2. propertyType / クラス名による明示判定
+        # 4. propertyType / クラス名による明示判定
         explicit_type = str(cls._get_field(property_obj, "propertyType") or property_obj.__class__.__name__)
         ptype = cls._detect_from_type_str(explicit_type)
         if ptype:
             return ptype
 
-        # 3. スペック項目によるフォールバック推定
+        # 5. スペック項目によるフォールバック推定
         return cls._detect_from_area_fields(property_obj)
 
     @classmethod
     def _detect_invest_from_specs(cls, specs: dict[str, Any] | None) -> str | None:
         if not specs or not isinstance(specs, dict):
             return None
-        for k in ("物件種別", "種別", "建物種別", "種目", "物件タイプ"):
+        for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             v = str(specs.get(k) or "")
             if any(x in v for x in ("ビル", "店舗", "事務所")):
                 return "Building"
