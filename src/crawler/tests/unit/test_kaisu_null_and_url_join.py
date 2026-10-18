@@ -31,11 +31,11 @@ def test_sumifu_dest_url_double_scheme_guard():
 
     # Area URL relative
     rel_area = "/mansion/tokai/aichi/"
-    assert parser.getAreaDestUrl(rel_area) == "https://www.stepon.co.jp/mansion/tokai/aichi/?limit=1000&mode=2"
+    assert parser.getAreaDestUrl(rel_area) == "https://www.stepon.co.jp/mansion/tokai/aichi/"
 
     # Area URL absolute
     abs_area = "https://www.stepon.co.jp/mansion/tokai/aichi/"
-    assert parser.getAreaDestUrl(abs_area) == "https://www.stepon.co.jp/mansion/tokai/aichi/?limit=1000&mode=2"
+    assert parser.getAreaDestUrl(abs_area) == "https://www.stepon.co.jp/mansion/tokai/aichi/"
 
 
 @pytest.mark.asyncio

@@ -60,6 +60,17 @@ _dispatched_detail_lock = threading.Lock()
 _RETRYABLE_DISPATCH_STATUSES = frozenset({408, 429})
 
 
+def _get_default_dispatch_queue_size() -> int:
+    try:
+        val = int(os.getenv("CRAWLER_DISPATCH_QUEUE_SIZE", "5000"))
+        return val if val > 0 else 5000
+    except (ValueError, TypeError):
+        return 5000
+
+
+DEFAULT_DISPATCH_QUEUE_SIZE = _get_default_dispatch_queue_size()
+
+
 def _current_dispatch_keys() -> set[tuple[str, str]] | None:
     return getattr(_crawl_run_state, "keys", None)
 
@@ -1268,39 +1279,104 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             )
             raise
 
+    async def _detail_worker(self, queue: asyncio.Queue, all_results: list[Any]):
+        """キューから詳細URLを取り出し、クラス並行度(semaphore)で順次実行するワーカー"""
+        loop = self._getActiveEventLoop()
+        api_url = self._getApiUrl()
+        while True:
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
+                break
+            try:
+                keys = _current_dispatch_keys()
+                if keys is None:
+                    keys = set()
+                detail_url = self._detailItemUrl(item)
+                if not _claim_detail_dispatch(keys, api_url, detail_url):
+                    continue
+                result = await self._fetchDetailOnce(keys, detail_url, api_url, loop)
+                if isinstance(result, list):
+                    all_results.extend(result)
+                elif result is not None:
+                    all_results.append(result)
+            except asyncio.CancelledError:
+                queue.task_done()
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Error processing detail in worker for %s: %s", getattr(item, "url", item), e)
+                fail_url = self._detailItemUrl(item)
+                all_results.append((fail_url, 500, f"WorkerError: {e!s}"))
+            finally:
+                queue.task_done()
+
+    async def _crawl_pages(self, session: aiohttp.ClientSession, start_url: str, all_results: list[Any]):
+        current_url = start_url
+        visited_urls = set()
+        while current_url and current_url not in visited_urls:
+            visited_urls.add(current_url)
+            self.url = current_url
+
+            response = await self._fetch_middle_page_response(session, current_url)
+            try:
+                next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
+            finally:
+                del response
+                gc.collect()
+
+            if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
+                current_url = next_page_url
+            else:
+                break
+
     async def _run(self, _url):
-        """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)"""
+        """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)
+        詳細パースは非同期キュー (上限 DEFAULT_DISPATCH_QUEUE_SIZE) 経由でワーカープールが非同期処理する。
+        """
         _loop = self._getActiveEventLoop()
         _timeout: aiohttp.ClientTimeout = self._generateTimeout()
         _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
 
-        current_url = _url
         all_results = []
-        visited_urls = set()
+        api_key = self._getApiKey() or ""
+        is_detail_dispatch = "detail" in api_key.lower()
+
+        if is_detail_dispatch:
+            queue_size = DEFAULT_DISPATCH_QUEUE_SIZE
+            self._detail_queue = asyncio.Queue(maxsize=queue_size)
+            worker_count = max(1, self._getPararellLimit())
+            workers = [
+                asyncio.create_task(self._detail_worker(self._detail_queue, all_results))
+                for _ in range(worker_count)
+            ]
+        else:
+            self._detail_queue = None
+            workers = []
 
         try:
             async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
-                while current_url and current_url not in visited_urls:
-                    visited_urls.add(current_url)
-                    self.url = current_url
+                await self._crawl_pages(session, _url, all_results)
 
-                    response = await self._fetch_middle_page_response(session, current_url)
-                    try:
-                        next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
-                    finally:
-                        del response
-                        gc.collect()
-
-                    if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
-                        current_url = next_page_url
-                    else:
-                        break
+            if self._detail_queue is not None:
+                await self._detail_queue.join()
+                for _ in workers:
+                    await self._detail_queue.put(None)
+                await asyncio.gather(*workers, return_exceptions=True)
 
         finally:
+            if self._detail_queue is not None:
+                self._detail_queue = None
+            for w in workers:
+                if not w.done():
+                    w.cancel()
+            if workers:
+                await asyncio.gather(*workers, return_exceptions=True)
             if _connector is not None:
                 await _connector.close()
 
         return all_results
+
+
 
 
     async def _treatPage(self, _session, *arg):
@@ -1398,6 +1474,12 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 enabled=enabled,
             )
 
+        queue = getattr(self, "_detail_queue", None)
+        if is_detail_dispatch and queue is not None:
+            for detail_item in to_fetch:
+                await queue.put(detail_item)
+            return []
+
         tasks = []
         loop = self._getActiveEventLoop()
         api_url = self._getApiUrl()
@@ -1432,6 +1514,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     @abstractmethod
     def _getParserFunc(self) -> Any:
+
         pass
 
     def _getNextPageParserFunc(self):
@@ -2001,7 +2084,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception:
             logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
             return
-        await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+        await asyncio.to_thread(CrawlerReporter.success, self.url, item.__class__.__name__)
 
     def _find_existing_evaluation(self):
         normalized_url = UrlMatcher.normalize(self.url)
@@ -2072,7 +2155,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         elif is_skipped:
             await self._handle_skipped_property()
         else:
-            await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
         return item
 
