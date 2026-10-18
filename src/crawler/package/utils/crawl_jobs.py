@@ -1,7 +1,16 @@
 """Shared crawl job definitions (Single Source of Truth for production + tests)."""
+import os
 
 PORTAL_COMPANIES = {"athome", "homes"}
 UNCRAWLED_COMPANIES = {"kenbiya", "ietan", "haseko", "adcast", "toho"}
+
+
+def is_cloud_environment() -> bool:
+    """Cloud Run / Cloud Workflows 等のクラウド実行環境であるかを判定 (Issue #985)"""
+    return (
+        os.getenv("IS_CLOUD", "").lower() in ("true", "1")
+        or os.getenv("CRAWL_SKIP_PORTALS", "").lower() in ("true", "1")
+    )
 
 CRAWL_JOBS = [
     # 主要5社 (居住用)
@@ -219,7 +228,7 @@ def filter_crawl_jobs(
     sites: str | None = None,
     company: str | None = None,
     property_type: str | None = None,
-    skip_portals: bool = False,
+    skip_portals: bool | None = None,
     skip_uncrawled: bool = False,
 ) -> list[tuple[str, str]]:
     """
@@ -234,7 +243,8 @@ def filter_crawl_jobs(
     Empty filters return the full job list unchanged.
     """
     selected = list(jobs if jobs is not None else CRAWL_JOBS)
-    if skip_portals:
+    actual_skip_portals = is_cloud_environment() if skip_portals is None else skip_portals
+    if actual_skip_portals:
         selected = [j for j in selected if j[0].lower() not in PORTAL_COMPANIES]
     if skip_uncrawled:
         selected = [j for j in selected if j[0].lower() not in UNCRAWLED_COMPANIES]
