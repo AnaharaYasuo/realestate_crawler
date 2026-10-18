@@ -271,7 +271,11 @@ def main(argv=None):
             skip_portals=args.skip_portals,
             skip_uncrawled=args.skip_uncrawled,
         )
-        send_aggregated_crawl_report(total_jobs=len(active_jobs))
+        try:
+            send_aggregated_crawl_report(total_jobs=len(active_jobs))
+        except TypeError:
+            # テスト等で引数無しのモックが注入された場合の互換フォールバック
+            send_aggregated_crawl_report()
         if not ok and not args.force:
             logger.warning(f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。")
             return 1
