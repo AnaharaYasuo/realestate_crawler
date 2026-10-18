@@ -502,16 +502,18 @@ def _run_crawler_step(
     task_index: int | None,
     task_count: int,
     ops_dir: str,
-    skip_portals: bool,
+    skip_portals: bool | None = None,
     skip_uncrawled: bool = False,
     company: str | None = None,
     property_type: str | None = None,
     sites: str | None = None,
 ) -> tuple[bool, bool]:
     crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
-    if skip_portals:
+    if skip_portals is True:
         crawl_cmd.append("--skip-portals")
-    else:
+    elif skip_portals is False:
+        # 明示的に False が指定された場合のみ転送
+        # (親が引数未指定=Noneの場合はデフォルトに委ね、既存テスト呼び出しを壊さない)
         crawl_cmd.append("--no-skip-portals")
     if skip_uncrawled:
         crawl_cmd.append("--skip-uncrawled")
