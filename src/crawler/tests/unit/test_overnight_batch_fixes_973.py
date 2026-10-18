@@ -4,7 +4,6 @@ from decimal import Decimal
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiInvestmentKodateParser
 from package.parser.athomeParser import AthomeTochiParser
 from package.parser.baseParser import ParserBase, SkipPropertyException
-from package.utils.data_validator import PropertyDataValidator
 
 def test_daikyo_column_url_is_rejected():
     """大京穴吹のコラム/記事URL (/sumai/detail/1030/) が非物件URLとしてスキップされること"""
