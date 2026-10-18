@@ -98,9 +98,7 @@ class SumifuParser(ParserBase):
         return ''
 
     def getAreaDestUrl(self, link_url):
-        if not link_url:
-            return ""
-        return urllib.parse.urljoin(self.BASE_URL, link_url)
+        return self.getRegionDestUrl(link_url)
 
     async def parseAreaPage(self, response):       
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
