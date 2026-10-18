@@ -7,6 +7,14 @@ description: コンテナ起動確認から全件クローリング、MLモデ�
 
 コンテナ動作確認からクローリング、ML学習・推論、リコメンド配信、自動復旧（Auto-Healing）までを全自動化する一貫ワークフローです。
 
+## 上位ポリシー
+- [環境制御およびヘッドレス運用ポリシー](../../policies/environment_control_policy.md)
+- [クローラーおよびパーサー設計ポリシー](../../policies/crawler_and_parser_policy.md)
+
+## 下位ランブック
+- [ローカル本番パイプライン実行手順](../../../docs/runbooks/local_production_pipeline.md)
+- [Docker デーモン制御手順](../../../docs/runbooks/docker_daemon_management.md)
+
 ---
 
 ## ワークフロー手順

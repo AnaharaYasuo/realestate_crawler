@@ -807,6 +807,9 @@ docs/
 - **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復内部設計書](docs/internal_design/crawler_failures_recovery_internal_design_959.md)**: 各パーサーおよびrun_all_crawlers内部詳細仕様 (Issue #959)
 - **[夜間バッチ実行エラー（三井・大京・アットホーム・リガイド）一括修復要件定義書](docs/requirements/overnight_batch_fixes_973_requirements.md)**: 三井交通分割・大京コラム除外・アットホーム土地面積・リガイドDBテーブル整備要件 (Issue #973)
 - **[夜間バッチ実行エラー（三井・大京・アットホーム・リガイド）一括修復内部設計書](docs/internal_design/overnight_batch_fixes_973_internal_design.md)**: 各パーサーおよびDBマイグレーション・TDD回帰テスト内部仕様 (Issue #973)
+- **[ドキュメント体系ピラミッド・憲法](.agents/AGENTS.md)**: 最上位プリンシプルと体系ナビゲーション (Issue #976)
+- **[Docker デーモン制御ランブック](docs/runbooks/docker_daemon_management.md)**: ヘッドレス運用およびデーモン起動具象手順 (Issue #976)
+- **[ローカル本番パイプライン実行ランブック](docs/runbooks/local_production_pipeline.md)**: IAPトンネルおよびローカル本番実行具象手順 (Issue #976)
 
 
 ### 2. 開発を始める
@@ -815,6 +818,7 @@ docs/
 - **[Taskコマンド完全リファレンス](docs/implementation/task_commands.md)**: Taskコマンド一覧および仕様
 - **[SonarCloud事前検証・コーディング規約ガイド](docs/implementation/sonar_guardrail_guide.md)**: SonarLint設定、S3776/S8786対策、ローカルガードレール運用
 - **[Terraformデプロイガイド](terraform/README.md)**: GCPインフラ一括プロビジョニング手順
+- **[領域別ポリシー一覧](.agents/policies/)**: 環境制御、品質検証、ブランチ運用、クローラー設計各規範
 
 
 
