@@ -256,17 +256,17 @@ graph TD
 - 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
   - 対象は自タスクの行（`execution_date` は起動時に固定した実行日 `get_execution_date()`、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
 
-### 6.8.2 物件種別・サイト規模別タスクアレイ分散内部設計 (Issue #608)
+### 6.8.2 物件種別・サイト規模別タスクアレイ分散内部設計 (Issue #608, #851, #980)
 - **`package.utils.task_distribution.distribute_jobs` の刷新**:
-  - `task_count == 8` の場合、単純 Modulo（`i % 8`）を廃止し、以下の決定論的マッピングでジョブを分配する：
-    - **Task 0 (大手仲介マンション)**: `mitsui:mansion`, `sumifu:mansion`, `tokyu:mansion`, `nomura:mansion`, `misawa:mansion`
-    - **Task 1 (大手仲介戸建)**: `mitsui:kodate`, `sumifu:kodate`, `tokyu:kodate`, `nomura:kodate`, `misawa:kodate`
-    - **Task 2 (大手仲介土地)**: `mitsui:tochi`, `sumifu:tochi`, `tokyu:tochi`, `nomura:tochi`, `misawa:tochi`
-    - **Task 3 (大手・信託投資用)**: 大手5社の `invest_kodate` / `invest_apartment`、信託3社（`smtrc`, `sumai1`, `mizuho`）の `investment`
-    - **Task 4 (中小・信託居住用全件)**: 信託3社居住用（mansion/kodate/tochi）＋ 電鉄・ハウスメーカー系17社の全種別
-    - **Task 5 (Homes全種別)**: `homes:mansion`, `homes:kodate`, `homes:tochi`, `homes:invest_apartment`
-    - **Task 6 (Athomeマンション)**: `athome:mansion`（単独集中実行）
-    - **Task 7 (Athomeその他)**: `athome:kodate`, `athome:tochi`, `athome:invest_apartment`
+  - `task_count == 8` の場合、単純 Modulo（`i % 8`）を廃止し、以下の決定論的マッピングでジョブを分配する（Issue #980 平準化）：
+    - **Task 0 (大手仲介マンション + 大京マンション)**: `mitsui:mansion`, `sumifu:mansion`, `tokyu:mansion`, `nomura:mansion`, `misawa:mansion`, `daikyo:mansion` (6 jobs)
+    - **Task 1 (大手仲介戸建 + 大京戸建/土地)**: `mitsui:kodate`, `sumifu:kodate`, `tokyu:kodate`, `nomura:kodate`, `misawa:kodate`, `daikyo:kodate`, `daikyo:tochi` (7 jobs)
+    - **Task 2 (大手仲介土地 + 信託3社居住用)**: 大手5社土地 5件 ＋ 信託3社（`smtrc`, `sumai1`, `mizuho`）居住用全種別 9件 (14 jobs)
+    - **Task 3 (投資用・事業用全般)**: 大手5社の `invest_kodate` / `invest_apartment`、信託3社（`smtrc`, `sumai1`, `mizuho`）＋ `odakyu` ＋ `sumirin` ＋ `reguide` ＋ `kenbiya` の投資用 (18 jobs)
+    - **Task 4 (電鉄・ハウスメーカー系 戸建・土地)**: 電鉄・ハウスメーカー系13社の `kodate` および `tochi` (26 jobs)
+    - **Task 5 (Homes全種別)**: `homes:mansion`, `homes:kodate`, `homes:tochi`, `homes:invest_apartment` (4 jobs)
+    - **Task 6 (Athomeマンション + 中堅仲介全種別)**: `athome:mansion` ＋ 中堅仲介5社（`kenbiya`, `ietan`, `haseko`, `adcast`, `toho`）居住用・土地 (13 jobs)
+    - **Task 7 (Athomeその他 + 電鉄・ハウスメーカー系マンション)**: `athome:kodate`, `athome:tochi`, `athome:invest_apartment` ＋ 電鉄・ハウスメーカー系13社の `mansion` (16 jobs)
   - `task_count != 8` または `task_index is None` の場合は、互換性維持のため Modulo 分割または全件返却にフォールバックする。
 - **会社別並行度上限（`crawler_scheduler.py`）の緩和**:
   - 大手仲介各社（`mitsui`, `sumifu`, `tokyu`, `nomura`, `misawa`）の `COMPANY_CONCURRENCY_LIMITS` を `2` から `5` に引き上げ、同一タスク内で全種別が一斉に起動できるようにする。

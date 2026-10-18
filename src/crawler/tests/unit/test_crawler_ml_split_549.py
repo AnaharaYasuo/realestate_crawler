@@ -335,7 +335,7 @@ def ml_main(monkeypatch):
     monkeypatch.setattr(run_ml_pipeline, "start_on_demand_resources", lambda dry_run=False: calls.append("startup"))
     monkeypatch.setattr(run_ml_pipeline, "run_command", lambda cmd, desc: calls.append(os.path.basename(cmd[1])))
     monkeypatch.setattr(run_ml_pipeline, "verify_barrier_completion", lambda: calls.append("barrier") or (False, ["3"]))
-    monkeypatch.setattr(run_ml_pipeline, "send_aggregated_crawl_report", lambda: calls.append("report"))
+    monkeypatch.setattr(run_ml_pipeline, "send_aggregated_crawl_report", lambda *a, **kw: calls.append("report"))
     monkeypatch.setattr(run_ml_pipeline, "scale_proxysql_mig", lambda target_size, dry_run: calls.append(f"scale:{target_size}"))
     return calls
 
@@ -429,13 +429,13 @@ def test_aggregated_report_not_sent_without_identifiable_execution(monkeypatch, 
 
 def test_aggregated_report_orders_tasks_by_index(monkeypatch):
     rows = [_task(1, []), _task(0, [])]
-    aggregate = MagicMock(return_value={"slack_message": "msg", "total_jobs": 89, "executed_jobs": 0, "success_jobs": 0, "failed_jobs": 0})
+    aggregate = MagicMock(return_value={"slack_message": "msg", "total_jobs": 104, "executed_jobs": 0, "success_jobs": 0, "failed_jobs": 0})
     monkeypatch.setattr(run_ml_pipeline, "_latest_execution_tasks", MagicMock(return_value=rows))
     monkeypatch.setattr(run_ml_pipeline, "aggregate_task_array_reports", aggregate)
     monkeypatch.setattr(run_ml_pipeline, "send_dev_report", AsyncMock(return_value=True))
     run_ml_pipeline.send_aggregated_crawl_report(TARGET_DATE)
     assert [r.task_index for r in aggregate.call_args.args[0]] == [0, 1]
-    assert aggregate.call_args.kwargs == {"total_jobs": 89}
+    assert aggregate.call_args.kwargs == {"total_jobs": len(run_ml_pipeline.CRAWL_JOBS)}
 
 
 def test_aggregated_report_failure_does_not_raise(monkeypatch):

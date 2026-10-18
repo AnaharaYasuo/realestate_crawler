@@ -47,35 +47,51 @@ def pin_execution_date() -> datetime.date:
 
 MAJOR_5_COMPANIES = {"mitsui", "sumifu", "tokyu", "nomura", "misawa"}
 PORTAL_COMPANIES = {"athome", "homes"}
+TRUST_3_COMPANIES = {"smtrc", "sumai1", "mizuho"}
+UNCRAWLED_COMPANIES = {"kenbiya", "ietan", "haseko", "adcast", "toho"}
 
 
 def _assign_8_task_index(c_lower: str, p_lower: str) -> int:
+    # 1. ポータルサイト
     if c_lower == "homes":
         return 5
     if c_lower == "athome":
         return 6 if p_lower == "mansion" else 7
+    # 2. 投資用・事業用全般
+    if p_lower in ("invest_kodate", "invest_apartment", "invest_building", "investment"):
+        return 3
+    # 3. 大手5社 居住用
     if c_lower in MAJOR_5_COMPANIES:
         mapping = {"mansion": 0, "kodate": 1, "tochi": 2}
         return mapping.get(p_lower, 3)
-    if p_lower in ("invest_kodate", "invest_apartment", "invest_building", "investment"):
-        return 3
-    # Issue #851: 大京の重い処理を過密なTask 4から比較的余裕のある大手枠(Task 0, 1)へ再分散
+    # 4. 大京 (mansion -> Task 0, kodate/tochi -> Task 1)
     if c_lower == "daikyo":
         return 0 if p_lower == "mansion" else 1
+    # 5. 信託3社 居住用 -> Task 2 (大手tochi枠に合流)
+    if c_lower in TRUST_3_COMPANIES:
+        return 2
+    # 6. 中堅仲介 居住用・土地 -> Task 6 (athome mansion枠に合流)
+    if c_lower in UNCRAWLED_COMPANIES:
+        return 6
+    # 7. 電鉄・ハウスメーカー系 居住用 (sekisui, afr, daiwa, totate, odakyu, sumirin, heim, rearie, keio, seibu, keikyu, sotetsu, keisei)
+    #    mansion -> Task 7 (athomeその他枠に合流)
+    #    kodate / tochi -> Task 4
+    if p_lower == "mansion":
+        return 7
     return 4
 
 
 def _distribute_8_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tuple[str, str]]:
     """
-    8タスク専用の決定論的マッピング (Issue #608 仕様):
-    - Task 0: 大手仲介5社 mansion
-    - Task 1: 大手仲介5社 kodate
-    - Task 2: 大手仲介5社 tochi
-    - Task 3: 大手仲介5社 + 信託3社 + odakyu/sumirin の投資用
-    - Task 4: 信託3社居住用 + 電鉄・ハウスメーカー系17社居住用
-    - Task 5: homes 全種別
-    - Task 6: athome mansion
-    - Task 7: athome その他種別
+    8タスク専用の決定論的マッピング (Issue #608, #851, #980 仕様):
+    - Task 0: 大手仲介5社 mansion + daikyo mansion (6 jobs)
+    - Task 1: 大手仲介5社 kodate + daikyo kodate / tochi (7 jobs)
+    - Task 2: 大手仲介5社 tochi + 信託3社居住用 (14 jobs)
+    - Task 3: 投資用・事業用全般 (18 jobs)
+    - Task 4: 電鉄・ハウスメーカー系居住用 kodate & tochi (26 jobs)
+    - Task 5: homes 全種別 (4 jobs)
+    - Task 6: athome mansion + 中堅仲介全種別 (13 jobs)
+    - Task 7: athome その他 + 電鉄・ハウスメーカー系 mansion (16 jobs)
     """
     task_map: dict[int, list[tuple[str, str]]] = {i: [] for i in range(8)}
 
