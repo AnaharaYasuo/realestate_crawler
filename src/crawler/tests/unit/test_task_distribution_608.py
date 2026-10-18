@@ -26,22 +26,24 @@ def test_distribute_jobs_8_tasks_categorization():
     # 3. Task 1: Major brokers kodate + daikyo kodate and tochi (Issue #851 rebalancing)
     assert set(task_jobs[1]) == ({(c, "kodate") for c in major_5} | {("daikyo", "kodate"), ("daikyo", "tochi")})
 
-    # 4. Task 2: Major brokers tochi
-    assert set(task_jobs[2]) == {(c, "tochi") for c in major_5}
+    # 4. Task 2: Major brokers tochi + Trust 3 residential (Issue #980 rebalancing)
+    trust_3 = {"smtrc", "sumai1", "mizuho"}
+    expected_task_2 = {(c, "tochi") for c in major_5} | {(c, p) for c in trust_3 for p in ("mansion", "kodate", "tochi")}
+    assert set(task_jobs[2]) == expected_task_2
 
-    # 5. Task 3: Major and Trust bank investment
-    # Major 5 invest_kodate / invest_apartment + smtrc/sumai1/mizuho/odakyu/sumirin investment
+    # 5. Task 3: Investment properties
     task3_companies = {c for c, _ in task_jobs[3]}
     assert "athome" not in task3_companies
     assert "homes" not in task3_companies
     for c, p in task_jobs[3]:
         assert p in ("invest_kodate", "invest_apartment", "invest_building", "investment")
 
-    # 6. Task 4: Trust residential + Mid/Small/Rail/House makers residential
+    # 6. Task 4: Rail and House makers kodate and tochi (Issue #980 rebalancing)
     for c, p in task_jobs[4]:
         assert c not in major_5
+        assert c not in trust_3
         assert c not in ("athome", "homes")
-        assert p in ("mansion", "kodate", "tochi")
+        assert p in ("kodate", "tochi")
 
     # 7. Task 5: Homes all types
     assert set(task_jobs[5]) == {
@@ -51,15 +53,19 @@ def test_distribute_jobs_8_tasks_categorization():
         ("homes", "invest_apartment"),
     }
 
-    # 8. Task 6: Athome mansion only
-    assert set(task_jobs[6]) == {("athome", "mansion")}
+    # 8. Task 6: Athome mansion + Mid/Small brokers (Issue #980 rebalancing)
+    assert ("athome", "mansion") in task_jobs[6]
+    for c, p in task_jobs[6]:
+        if c == "athome":
+            assert p == "mansion"
+        else:
+            assert c in {"kenbiya", "ietan", "haseko", "adcast", "toho"}
 
-    # 9. Task 7: Athome other types
-    assert set(task_jobs[7]) == {
-        ("athome", "kodate"),
-        ("athome", "tochi"),
-        ("athome", "invest_apartment"),
-    }
+    # 9. Task 7: Athome other types + Rail/House makers mansion (Issue #980 rebalancing)
+    assert {("athome", "kodate"), ("athome", "tochi"), ("athome", "invest_apartment")}.issubset(set(task_jobs[7]))
+    for c, p in task_jobs[7]:
+        if c != "athome":
+            assert p == "mansion"
 
 
 def test_distribute_jobs_fallback_when_not_8():

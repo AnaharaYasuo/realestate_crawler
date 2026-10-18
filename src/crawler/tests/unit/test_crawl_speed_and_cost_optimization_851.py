@@ -45,22 +45,25 @@ def test_task_distribution_daikyo_rebalancing():
     assert _assign_8_task_index("daikyo", "kodate") == 1
     assert _assign_8_task_index("daikyo", "tochi") == 1
     
-    # Task 4 に大京が含まれないこと
+    # Task 4 に大京が含まれず、sekisui kodate が含まれること（sekisui mansion は Task 7）
     jobs = [
         ("daikyo", "mansion"),
         ("daikyo", "kodate"),
         ("daikyo", "tochi"),
         ("sekisui", "mansion"),
+        ("sekisui", "kodate"),
     ]
     t0 = distribute_jobs(jobs, task_index=0, task_count=8)
     t1 = distribute_jobs(jobs, task_index=1, task_count=8)
     t4 = distribute_jobs(jobs, task_index=4, task_count=8)
+    t7 = distribute_jobs(jobs, task_index=7, task_count=8)
     
     assert ("daikyo", "mansion") in t0
     assert ("daikyo", "kodate") in t1
     assert ("daikyo", "tochi") in t1
     assert ("daikyo", "mansion") not in t4
-    assert ("sekisui", "mansion") in t4
+    assert ("sekisui", "kodate") in t4
+    assert ("sekisui", "mansion") in t7
 
 
 def test_adaptive_concurrency_higher_default():
