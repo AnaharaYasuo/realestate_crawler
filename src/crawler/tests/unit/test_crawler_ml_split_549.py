@@ -191,7 +191,8 @@ def test_task_array_task_exits_after_own_crawl(task_index):
         assert _run_step(True, task_index == 0, task_index, 8) == (False, True)
     mock_cmd.assert_called_once()
     cmd, desc = mock_cmd.call_args.args[:2]
-    assert cmd == [sys.executable, os.path.join("/tmp/ops", "run_all_crawlers.py")]
+    assert cmd[0] == sys.executable
+    assert cmd[1] == os.path.join("/tmp/ops", "run_all_crawlers.py")
     assert f"[Task {task_index}/8]" in desc
 
 

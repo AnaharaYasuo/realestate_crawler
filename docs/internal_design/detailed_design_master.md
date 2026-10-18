@@ -844,5 +844,17 @@ graph TD
   - `runMLAndEstimation`:
     - `skipPortals == true` の場合、ML Pipeline ジョブの引数に `"--skip-portals"` を渡す。
 
+## 6.34 Cloud定期実行ポータル完全除外および件数規模順優先処理内部設計 (Issue #985)
+- **Cloud実行環境判定およびポータルスキップ自動解決 (`package/utils/crawl_jobs.py`)**:
+  - `is_cloud_environment()` ヘルパー関数を提供（`IS_CLOUD=true` または `CRAWL_SKIP_PORTALS=true` を検知）。
+  - `run_pipeline.py`, `run_all_crawlers.py`, `run_ml_pipeline.py`, `run_bulk_ml_evaluation.py` の CLI オプションにおいて、`skip_portals` のデフォルト値を `is_cloud_environment()` で解決。`--no-skip-portals` で明示的に無効化可能。
+  - ローカル実行環境（`IS_CLOUD` 未定義）ではデフォルト `skip_portals=False` を維持し、ローカル本番実行での104ジョブ全件巡回を保証。
+- **件数規模順優先ソート (Longest-Job-First) (`package/utils/crawler_scheduler.py`)**:
+  - `calculate_job_priority(company, property_type)`: サイトの取扱物件規模（Tier 1〜5）および種別重み（mansion > kodate > tochi > invest）に基づく整数スコアを算出。
+  - `sort_jobs_by_priority(jobs)`: 各端末（ローカルまたは各タスクコンテナ）に割り当てられたジョブキューをスコア降順にソート。
+  - `run_all_crawlers.py` のキュー初期化時に `job_queue = sort_jobs_by_priority(list(target_jobs))` を適用し、件数の多いサイトから優先して並行ワーカーに投入。
+- **集約レポート整合性 (`pipeline_coordinator.py`, `run_ml_pipeline.py`)**:
+  - Cloud定期実行時（5タスクまたは8タスク）に、集約レポートの母数がポータル除外後の実効ジョブ数と完全合致し、未実行誤警報を排除。
+
 
 
