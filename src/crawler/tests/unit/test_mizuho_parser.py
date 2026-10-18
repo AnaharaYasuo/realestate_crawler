@@ -310,3 +310,16 @@ def test_parse_mizuho_sitemap_locs_and_infer_kind():
     assert infer_mizuho_sitemap_kind("kodate") == "house"
     assert infer_mizuho_sitemap_kind("investors/search") == "investment"
 
+
+@pytest.mark.asyncio
+async def test_get_mizuho_links_unlimited_when_limit_is_none():
+    """limit=Noneの場合にsitemap全件取得（limit=None）で呼び出されることを検証 (Issue #994)。"""
+    with patch(
+        "package.utils.mizuho_bypass.get_mizuho_links_from_sitemap",
+        new_callable=AsyncMock,
+        return_value=["url1", "url2"],
+    ) as mock_sm:
+        links = await get_mizuho_links("https://www.mizuho-re.co.jp/buy/mansion/")
+        assert links == ["url1", "url2"]
+        mock_sm.assert_awaited_once_with("mansion", limit=None)
+
