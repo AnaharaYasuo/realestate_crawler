@@ -34,7 +34,7 @@ while True:
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, is_cloud_environment
 from package.utils.pipeline_coordinator import aggregate_task_array_reports
 from package.utils.slack import send_crawling_summary_alert, send_dev_report
 from package.utils.gcp_resources import (
@@ -226,7 +226,20 @@ def run_command(cmd: list[str], desc: str):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Cloud Run ML Pipeline Job")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
+    is_cloud = is_cloud_environment()
+    parser.add_argument(
+        "--skip-portals",
+        dest="skip_portals",
+        action="store_true",
+        default=is_cloud,
+        help="Skip large portal sites (homes, athome)",
+    )
+    parser.add_argument(
+        "--no-skip-portals",
+        dest="skip_portals",
+        action="store_false",
+        help="Do not skip portal sites even on Cloud environment",
+    )
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
