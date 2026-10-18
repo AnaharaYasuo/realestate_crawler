@@ -1559,6 +1559,14 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         page_url = getattr(item, "pageUrl", "") or ""
         if "/buy/mansion/" in page_url:
+            specs = self._get_specs(response)
+            shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
+            if "マンション" in shumoku or "アパート" in shumoku or "ビル" in shumoku:
+                parser = MitsuiInvestmentApartmentParser()
+                parser._is_delegating = True
+                new_item = parser.createEntity()
+                new_item.pageUrl = page_url
+                return parser._parsePropertyDetailPage(new_item, response)
             raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
