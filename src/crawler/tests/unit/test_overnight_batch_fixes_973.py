@@ -1,9 +1,7 @@
 import pytest
 from bs4 import BeautifulSoup
 from decimal import Decimal
-from unittest.mock import MagicMock
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiInvestmentKodateParser
-from package.parser.daikyoParser import DaikyoMansionParser
 from package.parser.athomeParser import AthomeTochiParser
 from package.parser.baseParser import ParserBase, SkipPropertyException
 from package.utils.data_validator import PropertyDataValidator

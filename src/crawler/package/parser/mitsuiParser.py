@@ -296,6 +296,18 @@ class MitsuiParser(ParserBase):
                 return extracted
         return []
 
+    def _split_single_transit_line(self, line: str) -> list[str]:
+        if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
+            norm = re.sub(
+                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
+                r'\1\n',
+                line
+            )
+            parts = [sl.strip() for sl in norm.split('\n') if sl.strip()]
+            if len(parts) > 1:
+                return parts
+        return [line]
+
     def _parseTrafficLines(self, response, _specs=None):
         for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
             res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
@@ -312,15 +324,8 @@ class MitsuiParser(ParserBase):
             or specs.get("アクセス", "")
         )
         lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
-        if len(lines) == 1 and re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', lines[0]):
-            norm = re.sub(
-                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
-                r'\1\n',
-                lines[0]
-            )
-            sub_lines = [sl.strip() for sl in norm.split('\n') if sl.strip()]
-            if len(sub_lines) > 1:
-                lines = sub_lines
+        if len(lines) == 1:
+            lines = self._split_single_transit_line(lines[0])
 
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
