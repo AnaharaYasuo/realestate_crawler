@@ -2040,7 +2040,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             or PropertyTypeDetector.detect_from_url(self.url)
             or "unknown"
         )
-        prop_id = self._resolve_delisted_prop_id()
+        prop_id = self._resolve_delisted_prop_id() or 0
         PropertyEvaluation.objects.create(
             property_url=self.url,
             company=company,

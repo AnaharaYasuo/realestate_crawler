@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import re
+import time
 from typing import Optional
 from urllib.parse import urljoin
 import aiohttp
@@ -93,6 +95,22 @@ class KenbiyaParserBase(ParserBase):
             return None
         raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
 
+    _request_lock = asyncio.Lock()
+    _last_request_time: float = 0.0
+
+    @classmethod
+    async def _throttle_before_request(cls) -> None:
+        """Cloud環境または設定時にリクエスト送信間隔を全パーサー共通の共有ロックで担保"""
+        if not (os.getenv("K_SERVICE") or os.getenv("CLOUD_RUN_JOB") or os.getenv("KENBIYA_THROTTLE", "false").lower() in ("true", "1")):
+            return
+        min_interval = 2.0
+        async with KenbiyaParserBase._request_lock:
+            now = time.monotonic()
+            elapsed = now - KenbiyaParserBase._last_request_time
+            if elapsed < min_interval:
+                await asyncio.sleep(min_interval - elapsed)
+            KenbiyaParserBase._last_request_time = time.monotonic()
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -107,6 +125,7 @@ class KenbiyaParserBase(ParserBase):
         last_status = None
         for attempt in range(max_timeouts):
             headers["User-Agent"] = self._get_next_user_agent()
+            await self._throttle_before_request()
             try:
                 async with session.get(
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
@@ -115,8 +134,8 @@ class KenbiyaParserBase(ParserBase):
                     content = await self._handle_response(
                         response, url, attempt, max_timeouts
                     )
-                    if content is not None:
-                        return content
+                if content is not None:
+                    return content
             except (
                 RateLimitedException,
                 ListingEndedException,
@@ -244,14 +263,29 @@ class KenbiyaParserBase(ParserBase):
         return specs
 
     # 共通パースメソッド群
+    def _extract_fallback_price_raw(self, response: BeautifulSoup) -> str:
+        if not response:
+            return ""
+        # 対象物件の詳細領域 (div.property, #property_detail 等) を特定して探索
+        container = response.select_one("div.property, #property_detail, .property-header, .property_detail")
+        if not container:
+            return ""
+        price_el = container.select_one(".price, .mod-price, span.price, .property_price, em.price")
+        return price_el.get_text(strip=True) if price_el else ""
+
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
         raw = specs.get("価格", "")
+        if not raw and response:
+            raw = self._extract_fallback_price_raw(response)
         return converter.parse_price(raw)
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("価格", "")
+        raw = specs.get("価格", "")
+        if not raw and response:
+            raw = self._extract_fallback_price_raw(response)
+        return raw
 
     def _parseAddress(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
