@@ -102,6 +102,29 @@ def _distribute_8_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tu
     return task_map[task_index]
 
 
+BIG_3_COMPANIES = ["mitsui", "sumifu", "tokyu"]
+
+
+def _distribute_3_tasks(jobs: list[tuple[str, str]], task_index: int) -> list[tuple[str, str]]:
+    """
+    3タスク専用の決定論的マッピング (Issue #985 仕様):
+    三大仲介（三井・住友・東急）を各インスタンスの専任主担当とし、
+    全種別を先頭で並列実行。空いたスロットに残りのジョブを均等投入する。
+    - Task 0: 三井不動産リアルティ全種別 (5 jobs) + その他ジョブ (modulo 0)
+    - Task 1: 住友不動産販売全種別 (5 jobs) + その他ジョブ (modulo 1)
+    - Task 2: 東急リバブル全種別 (5 jobs) + その他ジョブ (modulo 2)
+    """
+    host_company = BIG_3_COMPANIES[task_index]
+    host_jobs = [j for j in jobs if j[0].lower() == host_company]
+    # 自タスクの主担当はマンションを先頭にソート
+    host_jobs_sorted = sorted(host_jobs, key=lambda j: 1 if j[1].lower() == "mansion" else 0, reverse=True)
+
+    other_jobs = [j for j in jobs if j[0].lower() not in BIG_3_COMPANIES]
+    assigned_others = [j for i, j in enumerate(other_jobs) if i % 3 == task_index]
+
+    return host_jobs_sorted + assigned_others
+
+
 def distribute_jobs(
     jobs: list[tuple[str, str]],
     task_index: int | None = None,
@@ -109,7 +132,8 @@ def distribute_jobs(
 ) -> list[tuple[str, str]]:
     """
     全ジョブリストをタスクインデックスに応じて分割して返す。
-    task_count == 8 の場合は Issue #608 の決定論的マッピングを適用。
+    task_count == 3 の場合は三大仲介（三井・住友・東急）専任マッピングを適用 (Issue #985)。
+    task_count == 8 の場合は決定論的マッピングを適用 (Issue #608, #980)。
     それ以外の task_count の場合は従来の Modulo 分割を適用。
     task_count <= 1 または task_index is None の場合は全ジョブを返す。
     """
@@ -118,6 +142,9 @@ def distribute_jobs(
     
     if task_index < 0 or task_index >= task_count:
         raise ValueError(f"task_index ({task_index}) out of range for task_count ({task_count})")
+
+    if task_count == 3:
+        return _distribute_3_tasks(jobs, task_index)
 
     if task_count == 8:
         return _distribute_8_tasks(jobs, task_index)

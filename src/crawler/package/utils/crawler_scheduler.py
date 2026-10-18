@@ -82,27 +82,33 @@ MAJOR_BROKER_COMPANIES: set[str] = {
 }
 
 
-def calculate_job_priority(company: str, property_type: str) -> tuple[int, int]:
+def calculate_job_priority(
+    company: str, property_type: str, host_company: str | None = None
+) -> tuple[int, int, int]:
     """
-    ユーザー指定の2軸優先度タプルを算出 (値が大きいほど優先):
-    軸1 (最優先): 大手仲介 (大手5社 + 信託3社 + 大京) -> 1, その他 -> 0
-    軸2 (第2優先): マンション (mansion) -> 1, その他種別 -> 0
+    ユーザー指定の優先度タプルを算出 (値が大きいほど優先):
+    軸0 (自タスク主担当大手): host_company と一致する会社 -> 1, その他 -> 0 (最優先で全種別起動)
+    軸1 (主要仲介大手): 大手仲介 (大手5社 + 信託3社 + 大京) -> 1, その他 -> 0
+    軸2 (マンション優先): マンション (mansion) -> 1, その他種別 -> 0
     """
     c_lower = company.lower()
     p_lower = property_type.lower()
 
+    is_host = 1 if host_company and c_lower == host_company.lower() else 0
     is_major_broker = 1 if c_lower in MAJOR_BROKER_COMPANIES else 0
     is_mansion = 1 if p_lower == "mansion" else 0
 
-    return (is_major_broker, is_mansion)
+    return (is_host, is_major_broker, is_mansion)
 
 
-def sort_jobs_by_priority(jobs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def sort_jobs_by_priority(
+    jobs: list[tuple[str, str]], host_company: str | None = None
+) -> list[tuple[str, str]]:
     """
-    各端末で「大手仲介優先 ➔ マンション優先」の2軸で順次処理できるようソート (Issue #985)
-    1. 大手仲介 × マンション
-    2. 大手仲介 × その他種別
-    3. その他仲介 × マンション
-    4. その他仲介 × その他種別
+    各端末で「自タスク主担当大手 ➔ 主要仲介 ➔ マンション優先」で順次処理できるようソート (Issue #985)
+    1. 自タスク主担当大手の全種別（マンション優先で開始直後に全種別並列実行）
+    2. 空いたスロットに投入される他社ジョブ（大手仲介優先 ➔ マンション優先）
     """
-    return sorted(jobs, key=lambda j: calculate_job_priority(j[0], j[1]), reverse=True)
+    return sorted(
+        jobs, key=lambda j: calculate_job_priority(j[0], j[1], host_company=host_company), reverse=True
+    )

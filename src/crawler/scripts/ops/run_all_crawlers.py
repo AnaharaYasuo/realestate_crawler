@@ -36,7 +36,13 @@ from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_dev_report, send_slack_message
-from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
+from package.utils.task_distribution import (
+    BIG_3_COMPANIES,
+    get_task_config,
+    distribute_jobs,
+    get_execution_date,
+    get_execution_id,
+)
 from package.utils.crawler_scheduler import select_next_job, sort_jobs_by_priority
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
@@ -646,8 +652,11 @@ def main():
         post_slack(f"🚀 【クローリング開始】 一括巡回処理を開始します。(全 {len(target_jobs)} ジョブ{' [ポータル割愛]' if args.skip_portals else ''})")
     
     results = []
-    # 各端末で件数の多い大規模サイトから優先して先行処理 (Issue #985: Longest-Job-First)
-    job_queue = sort_jobs_by_priority(list(target_jobs))
+    # 各端末で件数の多い大規模サイトから優先して先行処理 (Issue #985: Longest-Job-First / 主担当大手先行)
+    host_company = None
+    if task_count == 3 and task_index is not None and 0 <= task_index < len(BIG_3_COMPANIES):
+        host_company = BIG_3_COMPANIES[task_index]
+    job_queue = sort_jobs_by_priority(list(target_jobs), host_company=host_company)
     next_job_index = 1
     
     global active_processes

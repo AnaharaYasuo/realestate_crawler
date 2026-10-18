@@ -4,14 +4,9 @@ Issue #985: Cloud定期実行におけるポータルサイト（homes, athome�
 件数規模順優先処理（Longest-Job-First）の検証ユニットテスト
 """
 import os
-import sys
-import argparse
 from unittest.mock import patch
 
-import pytest
-
 from package.utils.crawl_jobs import (
-    CRAWL_JOBS,
     PORTAL_COMPANIES,
     UNCRAWLED_COMPANIES,
     filter_crawl_jobs,
@@ -71,54 +66,79 @@ def test_filter_crawl_jobs_with_cloud_env():
 
 
 def test_calculate_job_priority():
-    """大手仲介優先、その後マンション優先の2軸優先度タプル検証"""
-    p_mitsui_mansion = calculate_job_priority("mitsui", "mansion")
-    p_mitsui_kodate = calculate_job_priority("mitsui", "kodate")
-    p_smtrc_mansion = calculate_job_priority("smtrc", "mansion")
-    p_sekisui_mansion = calculate_job_priority("sekisui", "mansion")
-    p_sekisui_kodate = calculate_job_priority("sekisui", "kodate")
+    """主担当大手優先、主要仲介優先、その後マンション優先の3要素優先度タプル検証"""
+    p_mitsui_mansion = calculate_job_priority("mitsui", "mansion", host_company="mitsui")
+    p_mitsui_kodate = calculate_job_priority("mitsui", "kodate", host_company="mitsui")
+    p_sumifu_mansion = calculate_job_priority("sumifu", "mansion", host_company="mitsui")
+    p_smtrc_mansion = calculate_job_priority("smtrc", "mansion", host_company="mitsui")
+    p_sekisui_mansion = calculate_job_priority("sekisui", "mansion", host_company="mitsui")
+    p_sekisui_kodate = calculate_job_priority("sekisui", "kodate", host_company="mitsui")
 
-    # 1. 大手仲介 × マンション: (1, 1)
-    assert p_mitsui_mansion == (1, 1)
-    assert p_smtrc_mansion == (1, 1)
+    # 1. 主担当大手 × マンション: (1, 1, 1)
+    assert p_mitsui_mansion == (1, 1, 1)
+    # 2. 主担当大手 × その他種別: (1, 1, 0)
+    assert p_mitsui_kodate == (1, 1, 0)
+    # 3. 他大手 × マンション: (0, 1, 1)
+    assert p_sumifu_mansion == (0, 1, 1)
+    assert p_smtrc_mansion == (0, 1, 1)
+    # 4. その他仲介 × マンション: (0, 0, 1)
+    assert p_sekisui_mansion == (0, 0, 1)
+    # 5. その他仲介 × その他種別: (0, 0, 0)
+    assert p_sekisui_kodate == (0, 0, 0)
 
-    # 2. 大手仲介 × その他種別: (1, 0)
-    assert p_mitsui_kodate == (1, 0)
-
-    # 3. その他仲介 × マンション: (0, 1)
-    assert p_sekisui_mansion == (0, 1)
-
-    # 4. その他仲介 × その他種別: (0, 0)
-    assert p_sekisui_kodate == (0, 0)
-
-    # 優先順序: 大手×マンション > 大手×その他 > その他×マンション > その他×その他
-    assert p_mitsui_mansion > p_mitsui_kodate
-    assert p_mitsui_kodate > p_sekisui_mansion
+    # 優先順序: 主担当大手全種別 > 他主要大手×マンション > その他×マンション > その他×その他
+    assert p_mitsui_kodate > p_sumifu_mansion
+    assert p_sumifu_mansion > p_sekisui_mansion
     assert p_sekisui_mansion > p_sekisui_kodate
 
 
 def test_sort_jobs_by_priority():
-    """ジョブリストが「大手仲介優先 ➔ マンション優先」の順にソートされること"""
+    """ジョブリストが「主担当大手 ➔ 大手仲介優先 ➔ マンション優先」の順にソートされること"""
     sample_jobs = [
-        ("ietan", "tochi"),         # その他 × その他: (0, 0)
-        ("sekisui", "mansion"),     # その他 × マンション: (0, 1)
-        ("sumifu", "kodate"),       # 大手 × その他: (1, 0)
-        ("mitsui", "mansion"),      # 大手 × マンション: (1, 1)
+        ("ietan", "tochi"),         # その他 × その他
+        ("sekisui", "mansion"),     # その他 × マンション
+        ("sumifu", "mansion"),      # 他社主要 × マンション
+        ("mitsui", "kodate"),       # 主担当 × その他
+        ("mitsui", "mansion"),      # 主担当 × マンション
     ]
-    sorted_jobs = sort_jobs_by_priority(sample_jobs)
+    sorted_jobs = sort_jobs_by_priority(sample_jobs, host_company="mitsui")
     assert sorted_jobs == [
-        ("mitsui", "mansion"),      # (1, 1)
-        ("sumifu", "kodate"),       # (1, 0)
-        ("sekisui", "mansion"),     # (0, 1)
-        ("ietan", "tochi"),         # (0, 0)
+        ("mitsui", "mansion"),      # (1, 1, 1)
+        ("mitsui", "kodate"),       # (1, 1, 0)
+        ("sumifu", "mansion"),      # (0, 1, 1)
+        ("sekisui", "mansion"),     # (0, 0, 1)
+        ("ietan", "tochi"),         # (0, 0, 0)
     ]
+
+
+def test_distribute_3_tasks():
+    """三大仲介（三井・住友・東急）軸の3タスク決定論的分散検証"""
+    jobs = filter_crawl_jobs(skip_portals=True, skip_uncrawled=True)
+    assert len(jobs) == 82
+
+    t0_jobs = distribute_jobs(jobs, task_index=0, task_count=3)
+    t1_jobs = distribute_jobs(jobs, task_index=1, task_count=3)
+    t2_jobs = distribute_jobs(jobs, task_index=2, task_count=3)
+
+    # 合計件数が全ジョブと完全一致
+    assert len(t0_jobs) + len(t1_jobs) + len(t2_jobs) == 82
+    assert set(t0_jobs + t1_jobs + t2_jobs) == set(jobs)
+
+    # 各タスクに三井、住友、東急が専任で割り当てられていること
+    assert all(c == "mitsui" for c, _ in t0_jobs[:5])
+    assert all(c == "sumifu" for c, _ in t1_jobs[:5])
+    assert all(c == "tokyu" for c, _ in t2_jobs[:5])
+
+    # 三井、住友、東急のジョブが他タスクに混入していないこと
+    assert not any(c == "mitsui" for c, _ in t1_jobs)
+    assert not any(c == "mitsui" for c, _ in t2_jobs)
+    assert not any(c == "sumifu" for c, _ in t0_jobs)
+    assert not any(c == "tokyu" for c, _ in t0_jobs)
 
 
 def test_cli_skip_portals_default_in_cloud():
     """run_all_crawlers, run_pipeline, run_ml_pipeline の CLI デフォルト解決"""
     from scripts.ops.run_all_crawlers import parse_args as parse_all_args
-    from scripts.ops.run_pipeline import main as run_pipeline_main
-    from scripts.ops.run_ml_pipeline import main as run_ml_pipeline_main
 
     # 1. ローカル環境: 引数なし -> skip_portals is False
     with patch.dict(os.environ, {}, clear=True), patch("sys.argv", ["run_all_crawlers.py"]):
