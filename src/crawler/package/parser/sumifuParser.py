@@ -100,11 +100,7 @@ class SumifuParser(ParserBase):
     def getAreaDestUrl(self, link_url):
         if not link_url:
             return ""
-        full_url = urllib.parse.urljoin(self.BASE_URL, link_url)
-        sep = "&" if "?" in full_url else "?"
-        if "limit=1000" not in full_url:
-            full_url += f"{sep}limit=1000&mode=2"
-        return full_url
+        return urllib.parse.urljoin(self.BASE_URL, link_url)
 
     async def parseAreaPage(self, response):       
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
