@@ -810,6 +810,8 @@ docs/
 - **[ドキュメント体系ピラミッド・憲法](.agents/AGENTS.md)**: 最上位プリンシプルと体系ナビゲーション (Issue #976)
 - **[Docker デーモン制御ランブック](docs/runbooks/docker_daemon_management.md)**: ヘッドレス運用およびデーモン起動具象手順 (Issue #976)
 - **[ローカル本番パイプライン実行ランブック](docs/runbooks/local_production_pipeline.md)**: IAPトンネルおよびローカル本番実行具象手順 (Issue #976)
+- **[クローラータスク分散最適化および集約レポート母数是正 要件定義書](docs/requirements/task_distribution_and_aggregation_fix_requirements_980.md)**: 8タスク負荷平準化・母数動的化要件 (Issue #980)
+- **[クローラータスク分散最適化および集約レポート母数是正 内部設計書](docs/internal_design/task_distribution_and_aggregation_fix_internal_design_980.md)**: _assign_8_task_index再設計・aggregate_task_array_reports内部仕様 (Issue #980)
 
 
 ### 2. 開発を始める
