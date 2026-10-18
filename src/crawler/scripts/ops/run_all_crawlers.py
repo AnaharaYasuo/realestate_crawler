@@ -616,6 +616,7 @@ def main():
             sites=sites_arg,
             company=company_arg,
             property_type=prop_type_arg,
+            skip_portals=getattr(args, "skip_portals", False),
         )
         logger.info(f"🎯 [Target Filter] Filtered jobs to {len(target_jobs)} jobs based on company={company_arg}, property_type={prop_type_arg}, sites={sites_arg}")
 

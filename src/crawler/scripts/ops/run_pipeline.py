@@ -511,6 +511,8 @@ def _run_crawler_step(
     crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
     if skip_portals:
         crawl_cmd.append("--skip-portals")
+    else:
+        crawl_cmd.append("--no-skip-portals")
     if skip_uncrawled:
         crawl_cmd.append("--skip-uncrawled")
     if company:
@@ -619,6 +621,8 @@ def _run_post_crawl_pipeline(
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if skip_portals:
             eval_cmd.append("--skip-portals")
+        else:
+            eval_cmd.append("--no-skip-portals")
         if skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
         run_command(
@@ -731,6 +735,7 @@ def main():
             sites=sites_arg,
             company=company_arg,
             property_type=prop_type_arg,
+            skip_portals=getattr(args, "skip_portals", False),
         )
     if task_count > 1 and task_index is not None:
         target_jobs = distribute_jobs(target_jobs, task_index, task_count)
