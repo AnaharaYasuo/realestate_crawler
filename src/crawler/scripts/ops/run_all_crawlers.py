@@ -37,14 +37,20 @@ from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_dev_report, send_slack_message
 from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
-from package.utils.crawler_scheduler import select_next_job
+from package.utils.crawler_scheduler import select_next_job, sort_jobs_by_priority
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC, update_watchdog_progress
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES  # noqa: E402  — SSOT for production + tests
+from package.utils.crawl_jobs import (  # noqa: E402  — SSOT for production + tests
+    CRAWL_JOBS,
+    PORTAL_COMPANIES,
+    UNCRAWLED_COMPANIES,
+    filter_crawl_jobs,
+    is_cloud_environment,
+)
 from package.utils.resource_limiter import get_resource_aware_concurrency
 from package.utils.job_metrics import read_job_metrics
 
@@ -63,7 +69,9 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
     parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    is_cloud = is_cloud_environment()
+    parser.add_argument("--skip-portals", dest="skip_portals", action="store_true", default=is_cloud, help="Skip large portal sites (athome, homes) for fast execution.")
+    parser.add_argument("--no-skip-portals", dest="skip_portals", action="store_false", help="Do not skip portal sites even on Cloud environment.")
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho) for cloud schedule runs.")
     parser.add_argument("--company", type=str, default=None, help="Target company name(s), comma-separated (e.g. sumifu,mitsui).")
     parser.add_argument("--property-type", "--type", dest="property_type", type=str, default=None, help="Target property type(s), comma-separated (e.g. mansion,kodate).")
@@ -638,7 +646,8 @@ def main():
         post_slack(f"🚀 【クローリング開始】 一括巡回処理を開始します。(全 {len(target_jobs)} ジョブ{' [ポータル割愛]' if args.skip_portals else ''})")
     
     results = []
-    job_queue = list(target_jobs)
+    # 各端末で件数の多い大規模サイトから優先して先行処理 (Issue #985: Longest-Job-First)
+    job_queue = sort_jobs_by_priority(list(target_jobs))
     next_job_index = 1
     
     global active_processes

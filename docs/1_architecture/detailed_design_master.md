@@ -684,6 +684,7 @@ graph TD
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
 - [デプロイ時イメージ管理内部設計書](deploy_image_lifecycle_internal_design.md): deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
 - [MySQL認証プラグイン移行内部設計書](mysql_auth_plugin_migration_internal_design.md): caching_sha2_password 移行・Terraform差分仕様 (Issue #572)
+- [Cloud定期実行ポータル除外および件数順優先処理内部設計書](../internal_design/cloud_skip_portals_and_prioritized_crawl_internal_design_985.md): Cloudポータル除外・件数規模順優先処理仕様 (Issue #985)
 - [API構造ドキュメント (API Structure)](api_structure.md): エンドポイント構造と処理フロー
 - [SonarGuardrail運用ガイド](../implementation/sonar_guardrail_guide.md): VSCode設定およびコーディングパターン集
 

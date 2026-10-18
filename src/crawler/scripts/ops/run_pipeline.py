@@ -30,7 +30,13 @@ from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES
+from package.utils.crawl_jobs import (
+    CRAWL_JOBS,
+    PORTAL_COMPANIES,
+    UNCRAWLED_COMPANIES,
+    filter_crawl_jobs,
+    is_cloud_environment,
+)
 from package.utils.task_distribution import (
     distribute_jobs,
     get_execution_date,
@@ -655,10 +661,19 @@ def _run_post_crawl_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(description="Real Estate Pipeline")
+    is_cloud = is_cloud_environment()
     parser.add_argument(
         "--skip-portals",
+        dest="skip_portals",
         action="store_true",
+        default=is_cloud,
         help="Skip large portal sites (homes, athome)",
+    )
+    parser.add_argument(
+        "--no-skip-portals",
+        dest="skip_portals",
+        action="store_false",
+        help="Do not skip portal sites even on Cloud environment",
     )
     parser.add_argument(
         "--skip-uncrawled",

@@ -812,6 +812,8 @@ docs/
 - **[ローカル本番パイプライン実行ランブック](docs/runbooks/local_production_pipeline.md)**: IAPトンネルおよびローカル本番実行具象手順 (Issue #976)
 - **[クローラータスク分散最適化および集約レポート母数是正 要件定義書](docs/requirements/task_distribution_and_aggregation_fix_requirements_980.md)**: 8タスク負荷平準化・母数動的化要件 (Issue #980)
 - **[クローラータスク分散最適化および集約レポート母数是正 内部設計書](docs/internal_design/task_distribution_and_aggregation_fix_internal_design_980.md)**: _assign_8_task_index再設計・aggregate_task_array_reports内部仕様 (Issue #980)
+- **[Cloud定期実行ポータル除外および件数順優先処理 要件定義書](docs/requirements/cloud_skip_portals_and_prioritized_crawl_requirements_985.md)**: Cloudポータル除外・ローカル本番実行・件数規模順優先処理要件 (Issue #985)
+- **[Cloud定期実行ポータル除外および件数順優先処理 内部設計書](docs/internal_design/cloud_skip_portals_and_prioritized_crawl_internal_design_985.md)**: is_cloud_environment・sort_jobs_by_priority・キュー優先度制御内部仕様 (Issue #985)
 
 
 ### 2. 開発を始める

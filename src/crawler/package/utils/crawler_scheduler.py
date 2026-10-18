@@ -65,3 +65,44 @@ def select_next_job(
             return i, (company, ptype)
 
     return None
+
+
+# 優先度判定用の主要仲介グループ (Issue #985)
+# 最優先: 主要仲介大手 (mitsui, sumifu, tokyu, nomura, misawa) および 信託系 (smtrc, sumai1, mizuho), 大京 (daikyo)
+MAJOR_BROKER_COMPANIES: set[str] = {
+    "mitsui",
+    "sumifu",
+    "tokyu",
+    "nomura",
+    "misawa",
+    "smtrc",
+    "sumai1",
+    "mizuho",
+    "daikyo",
+}
+
+
+def calculate_job_priority(company: str, property_type: str) -> tuple[int, int]:
+    """
+    ユーザー指定の2軸優先度タプルを算出 (値が大きいほど優先):
+    軸1 (最優先): 大手仲介 (大手5社 + 信託3社 + 大京) -> 1, その他 -> 0
+    軸2 (第2優先): マンション (mansion) -> 1, その他種別 -> 0
+    """
+    c_lower = company.lower()
+    p_lower = property_type.lower()
+
+    is_major_broker = 1 if c_lower in MAJOR_BROKER_COMPANIES else 0
+    is_mansion = 1 if p_lower == "mansion" else 0
+
+    return (is_major_broker, is_mansion)
+
+
+def sort_jobs_by_priority(jobs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """
+    各端末で「大手仲介優先 ➔ マンション優先」の2軸で順次処理できるようソート (Issue #985)
+    1. 大手仲介 × マンション
+    2. 大手仲介 × その他種別
+    3. その他仲介 × マンション
+    4. その他仲介 × その他種別
+    """
+    return sorted(jobs, key=lambda j: calculate_job_priority(j[0], j[1]), reverse=True)
