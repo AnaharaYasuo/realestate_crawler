@@ -58,8 +58,8 @@ class PropertyDataValidator:
             if not is_invest:
                 reasons.append(ERR_MISSING_TRAFFIC)
 
-    @staticmethod
-    def _check_madori_and_age(item: Any, reasons: list[str]) -> None:
+    @classmethod
+    def _check_madori_and_age(cls, item: Any, reasons: list[str]) -> None:
         """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査（モデル未定義時はスキップ）"""
         has_madori_field = True
         has_age_field = True
@@ -71,7 +71,9 @@ class PropertyDataValidator:
         if has_madori_field:
             madori_val = getattr(item, "madori", None)
             if _blank(madori_val) and str(madori_val or "").strip() not in ("-", "―", "ー", "未定", "相談"):
-                reasons.append(ERR_MISSING_MADORI)
+                # 投資用区分マンションはスペック表に間取り表記がない場合があるため除外
+                if not cls._is_invest_unit_mansion(item):
+                    reasons.append(ERR_MISSING_MADORI)
         if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
             reasons.append(ERR_MISSING_AGE)
 
@@ -108,6 +110,24 @@ class PropertyDataValidator:
             except (ValueError, TypeError):
                 has_valid_yield = False
         return is_invest_type and (any(kw in full_text for kw in invest_keywords) or has_valid_yield)
+
+    @classmethod
+    def _is_invest_unit_mansion(cls, item: Any) -> bool:
+        """投資ポータル由来または利回り・想定年収を伴う投資用区分マンション判定"""
+        url_str = str(getattr(item, "pageUrl", "") or "").lower()
+        if "toushi" in url_str or "invest" in url_str:
+            return True
+        raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
+        if raw_yield is not None:
+            try:
+                if float(raw_yield) > 0:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        name = str(getattr(item, "propertyName", "") or "")
+        biko = str(getattr(item, "biko", "") or "")
+        full_text = f"{name} {biko}"
+        return any(kw in full_text for kw in ["オーナーチェンジ", "利回り", "投資用"])
 
     @classmethod
     def _validate_price(cls, item: Any, ptype: str, reasons: list[str]) -> float:
@@ -270,7 +290,9 @@ class PropertyDataValidator:
             has_floor = True
 
         if not has_floor:
-            reasons.append(ERR_MISSING_FLOOR)
+            # 投資用区分マンションはサイトスペック表に所在階が非掲載の場合があるため除外
+            if not cls._is_invest_unit_mansion(item):
+                reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod
     def _check_kodate_specs(item: Any, reasons: list[str]) -> None:

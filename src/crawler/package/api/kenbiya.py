@@ -21,8 +21,8 @@ from package.parser.kenbiyaParser import (
     KenbiyaTochiParser,
 )
 
-DETAIL_PARALLEL_LIMIT = 3
-MIDDLE_PARALLEL_LIMIT = 3
+DETAIL_PARALLEL_LIMIT = 1
+MIDDLE_PARALLEL_LIMIT = 1
 
 # Mansion (/pp1/)
 class ParseKenbiyaMansionDetailFuncAsync(ParseDetailPageAsyncBase):
