@@ -108,6 +108,8 @@ class DaikyoParser(ParserBase):
         return self._find_page_param_link(response)
 
     def _normalize_detail_url(self, href: str) -> str:
+        if not href or "/sumai/" in href:
+            return ""
         full_url = self.getRootDestUrl(href)
         parsed = urllib.parse.urlparse(full_url)
         path = parsed.path

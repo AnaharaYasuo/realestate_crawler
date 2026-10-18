@@ -1749,6 +1749,7 @@ class ParserBase(metaclass=ABCMeta):
             "/360/",
             "/chintai/",
             "/rent/",
+            "/sumai/detail/",
             TOKEN_INQUIRY,
             TOKEN_CONTACT,
             "/benefit/",
