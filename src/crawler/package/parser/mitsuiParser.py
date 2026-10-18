@@ -30,6 +30,7 @@ REGEX_DIGITS = r'(\d+)'
 REGEX_DECIMAL_GROUP = r"(\d+(?:\.\d+)?)"
 ROAD_WIDTH_PREFIX = "前面道路幅員により"
 RESERVE_FUND_KEY = "修繕積立金"
+MANSION_KEYWORD = "マンション"
 
 
 class MitsuiParser(ParserBase):
@@ -1278,7 +1279,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
     @staticmethod
     def _check_land_exclusion(page_url: str, shumoku: str) -> None:
         """非投資用土地物件の除外判定"""
-        is_bldg = any(b in shumoku for b in ("アパート", "マンション", "ビル", "一棟", "戸建", "テラス"))
+        is_bldg = any(b in shumoku for b in ("アパート", MANSION_KEYWORD, "ビル", "一棟", "戸建", "テラス"))
         if "/tochi/" in page_url or ("土地" in shumoku and not is_bldg):
             raise SkipPropertyException(f"Mitsui investment skipped non-investment land property: {page_url} (種別: {shumoku})")
 
@@ -1295,7 +1296,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             return None
 
         is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
-        is_apt_building = "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku
+        is_apt_building = "アパート" in shumoku or MANSION_KEYWORD in shumoku or "ビル" in shumoku
 
         target_cls = None
         if is_apt_building and not is_apartment_parser:
@@ -1561,7 +1562,7 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
         if "/buy/mansion/" in page_url:
             specs = self._get_specs(response)
             shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
-            if "マンション" in shumoku or "アパート" in shumoku or "ビル" in shumoku:
+            if MANSION_KEYWORD in shumoku or "アパート" in shumoku or "ビル" in shumoku:
                 parser = MitsuiInvestmentApartmentParser()
                 parser._is_delegating = True
                 new_item = parser.createEntity()
