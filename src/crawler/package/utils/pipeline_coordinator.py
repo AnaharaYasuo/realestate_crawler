@@ -80,11 +80,18 @@ def _task_record_fields(rec) -> tuple | None:
     return None
 
 
-def aggregate_task_array_reports(task_records: list, total_jobs: int = 89) -> dict:
+def aggregate_task_array_reports(task_records: list, total_jobs: int | None = None) -> dict:
     """
     Aggregates results_json from all CrawlerTaskExecution records.
     Handles both model instances and plain dictionaries.
     """
+    if total_jobs is None:
+        try:
+            from package.utils.crawl_jobs import CRAWL_JOBS
+            total_jobs = len(CRAWL_JOBS)
+        except ImportError:
+            total_jobs = 104
+
     all_results = []
     task_stats = []
     for rec in task_records:
