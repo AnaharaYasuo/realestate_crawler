@@ -320,6 +320,8 @@ def main(argv=None):
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if args.skip_portals:
             eval_cmd.append("--skip-portals")
+        else:
+            eval_cmd.append("--no-skip-portals")
         if args.skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
         run_command(eval_cmd, f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}")

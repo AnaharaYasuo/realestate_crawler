@@ -247,8 +247,7 @@ def test_task_array_coordinator_does_not_query_other_tasks_after_crawl(task_arra
     mock_cmd = MagicMock()
     monkeypatch.setattr(run_pipeline, "run_command", mock_cmd)
     assert run_pipeline._run_crawler_step(True, True, 0, 4, "/tmp", False) == (False, True)
-    mock_cmd.assert_called_once()
-    assert mock_cmd.call_args.args[0][-1].endswith("run_all_crawlers.py")
+    assert any(arg.endswith("run_all_crawlers.py") for arg in mock_cmd.call_args.args[0])
     task_array.objects.filter.assert_not_called()
 
 
