@@ -59,6 +59,8 @@ def fetch_assigned_targets(
     urls: list[str] | None = None,
     model_name: str | None = None,
     field_empty: str | None = None,
+    company: str | None = None,
+    include_needs_recrawl: bool = False,
 ) -> list[Any]:
     """各タスクの担当条件(Modulo)と--limitをDjangoクエリに直接適用して取得する"""
     if urls:
@@ -79,7 +81,10 @@ def fetch_assigned_targets(
             qs = qs[:limit]
         return [TargetPropertyRef(getattr(item, "pageUrl", ""), item.id) for item in qs.only("id", "pageUrl")]
 
-    qs = PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)
+    flag_q = Q(needs_parser_fix=True) | Q(needs_recrawl=True) if include_needs_recrawl else Q(needs_parser_fix=True)
+    qs = PropertyEvaluation.objects.filter(flag_q, is_published=True)
+    if company:
+        qs = qs.filter(company=company)
     if task_index is not None and task_count > 1:
         # Django DB 側で Modulo フィルタを適用し、不要な全件ロードを抑制
         qs = qs.annotate(mod_id=F("property_id") % task_count).filter(mod_id=task_index)
@@ -191,7 +196,7 @@ async def _recrawl_single_url(
                 return "failed"
             if not latest.is_published:
                 return "delisted"
-            if item is not None and not latest.needs_parser_fix:
+            if item is not None and not latest.needs_parser_fix and not latest.needs_recrawl:
                 return "resolved"
             return "failed" if item is None else "unresolved"
 
@@ -213,6 +218,8 @@ async def recrawl_anomalies_async(
     urls: list[str] | None = None,
     model_name: str | None = None,
     field_empty: str | None = None,
+    company: str | None = None,
+    include_needs_recrawl: bool = False,
 ):
     """不整合物件および指定対象物件の分散再クローリング本体ロジック"""
     # 1. 担当条件と上限を DB クエリに直接適用して取得
@@ -223,6 +230,8 @@ async def recrawl_anomalies_async(
         urls=urls,
         model_name=model_name,
         field_empty=field_empty,
+        company=company,
+        include_needs_recrawl=include_needs_recrawl,
     )
     logger.info(
         "Task [%s/%d]: Assigned %d properties to recrawl (Concurrency: %d, DryRun: %s)",
@@ -260,6 +269,8 @@ def main():
     parser.add_argument("--urls", type=str, default=None, help="Comma-separated target URLs to recrawl directly")
     parser.add_argument("--model", type=str, default=None, help="Target model name (e.g. NomuraKodate)")
     parser.add_argument("--field-empty", type=str, default=None, help="Field name that is empty (e.g. madori)")
+    parser.add_argument("--company", type=str, default=None, help="Filter by company name (e.g. homes)")
+    parser.add_argument("--include-needs-recrawl", action="store_true", help="Include needs_recrawl=True records")
     args = parser.parse_args()
 
     env_index, env_count = get_task_config()
@@ -282,6 +293,8 @@ def main():
             urls=url_list,
             model_name=args.model,
             field_empty=args.field_empty,
+            company=args.company,
+            include_needs_recrawl=args.include_needs_recrawl,
         )
     )
 
