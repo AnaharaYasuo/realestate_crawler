@@ -301,8 +301,24 @@ def test_kenbiya_specs_not_overwritten_by_glossary():
     assert item.chikunengetsu == datetime.date(1991, 7, 1)
 
 
+def test_kenbiya_price_fallback_selector():
+    from bs4 import BeautifulSoup
+    from package.parser.kenbiyaParser import KenbiyaMansionParser
 
-
-
-
+    html = """
+    <html>
+      <body>
+        <div class="aside-unrelated">
+          <span class="price">9,999万円</span>
+        </div>
+        <div class="property">
+          <span class="price">4,580万円</span>
+        </div>
+      </body>
+    </html>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    parser = KenbiyaMansionParser()
+    assert parser._parsePrice(soup) == 45800000
+    assert parser._parsePriceStr(soup) == "4,580万円"
 

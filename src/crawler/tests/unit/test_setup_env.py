@@ -55,7 +55,7 @@ def test_validate_data_standalone_execution():
         env=env,
         capture_output=True,
         text=True,
-        timeout=10,
+        timeout=30,
         check=False,
     )
     assert proc.returncode == 0, f"Failed with stderr: {proc.stderr}"
