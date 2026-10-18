@@ -249,9 +249,15 @@ class MitsuiParser(ParserBase):
         split_lines = []
         for line in lines:
             if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
-                sub = re.split(r'(?<=(?:徒歩|停歩|バス)\s*\d{1,3}\s*分)(?=[^\d\s]+(?:線|駅|バス))', line)
-                if len(sub) > 1:
-                    split_lines.extend([s.strip() for s in sub if s.strip()])
+                # Insert newline delimiter after "...分" followed by next transit entity
+                normalized = re.sub(
+                    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
+                    r'\1\n',
+                    line
+                )
+                parts = [s.strip() for s in normalized.split('\n') if s.strip()]
+                if len(parts) > 1:
+                    split_lines.extend(parts)
                     continue
             split_lines.append(line)
         return split_lines
@@ -307,9 +313,14 @@ class MitsuiParser(ParserBase):
         )
         lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
         if len(lines) == 1 and re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', lines[0]):
-            sub_lines = re.split(r'(?<=(?:徒歩|停歩|バス)\d{1,3}分)(?=[^\d\s]+(?:線|駅|バス))', lines[0])
+            norm = re.sub(
+                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
+                r'\1\n',
+                lines[0]
+            )
+            sub_lines = [sl.strip() for sl in norm.split('\n') if sl.strip()]
             if len(sub_lines) > 1:
-                lines = [sl.strip() for sl in sub_lines if sl.strip()]
+                lines = sub_lines
 
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
