@@ -1177,9 +1177,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             try:
                 _sync_save_error_html_by_url(url, model_name, reason, raw_html)
             except Exception:
-                logging.exception("Failed to save error HTML synchronously for %s", url)
+                logger.exception("Failed to save error HTML synchronously for %s", url)
         except Exception:
-            logging.exception("Failed to save error HTML for %s", url)
+            logger.exception("Failed to save error HTML for %s", url)
 
     def _resolve_target_company(self) -> str | None:
         """APIインスタンスまたはパーサーから対象企業名を特定"""
@@ -2248,9 +2248,9 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             try:
                 _sync_save_error_html_by_url(url, model_name, reason, raw_html)
             except Exception:
-                logging.exception("Failed to save error HTML synchronously by URL for %s", url)
+                logger.exception("Failed to save error HTML synchronously by URL for %s", url)
         except Exception:
-            logging.exception("Failed to save error HTML by URL")
+            logger.exception("Failed to save error HTML by URL")
 
     def _save_error_html_record(self, item, invalid_fields=None):
         """Save HTML of failed property for debugging"""
