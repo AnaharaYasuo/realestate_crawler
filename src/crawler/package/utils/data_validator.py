@@ -184,11 +184,13 @@ class PropertyDataValidator:
         ]
         parsed = [c for c in candidates if c is not None]
         if parsed:
-            area = parsed[0]
-            for val in parsed:
-                if val > 5.0:
-                    area = val
-                    break
+            # > 5.0 を優先、なければ > 0.0 の正の値を優先
+            valid_areas = [val for val in parsed if val > 5.0]
+            if valid_areas:
+                area = max(valid_areas)
+            else:
+                positive_areas = [val for val in parsed if val > 0.0]
+                area = max(positive_areas) if positive_areas else parsed[0]
 
         if area <= 5.0:
             if not cls._is_invest_area_exempt(item, ptype):
