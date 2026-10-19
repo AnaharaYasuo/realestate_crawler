@@ -340,6 +340,10 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
           value = "property_alert"
         }
         env {
+          name  = "SLACK_DEV_CHANNEL"
+          value = "C0BKBHWD26T"
+        }
+        env {
           name  = "PROXYSQL_INSTANCE_NAME"
           value = google_compute_instance.proxysql_instance.name
         }
