@@ -252,7 +252,7 @@ class MitsuiParser(ParserBase):
             if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
                 # Insert newline delimiter after "...分" followed by next transit entity
                 normalized = re.sub(
-                    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
+                    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス|「|地下鉄|JR|東京メトロ|都営|東急|京王|小田急|西武|東武|京急|京成|相鉄))',
                     r'\1\n',
                     line
                 )
@@ -300,7 +300,7 @@ class MitsuiParser(ParserBase):
     def _split_single_transit_line(self, line: str) -> list[str]:
         if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
             norm = re.sub(
-                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス))',
+                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス|「|地下鉄|JR|東京メトロ|都営|東急|京王|小田急|西武|東武|京急|京成|相鉄))',
                 r'\1\n',
                 line
             )

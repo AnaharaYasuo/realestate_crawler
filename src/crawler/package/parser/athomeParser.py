@@ -367,13 +367,15 @@ class AthomeParser(ParserBase):
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
         if "RECOMMFLG=1" in href or "sref=nw_reco" in href:
             return False
+        if "/list/" in path.lower() or path.lower().endswith("/list") or "bklist" in href:
+            return False
         if "bkdetail" in href:
             return True
         ptype = getattr(self, "property_type", "")
         type_patterns = {
-            "kodate": r'/(kodate|buy/kodate)/(?:chuko/[^/]+/[^/]+/)?\d{6,}/?',
-            "mansion": r'/(mansion|buy/mansion)/(?:chuko/[^/]+/[^/]+/)?\d{6,}/?',
-            "tochi": r'/(tochi|buy/tochi)/(?:[^/]+/[^/]+/)?\d{6,}/?',
+            "kodate": r'/(kodate|buy/kodate)/.*?(\d{6,})/?',
+            "mansion": r'/(mansion|buy/mansion)/.*?(\d{6,})/?',
+            "tochi": r'/(tochi|buy/tochi)/.*?(\d{6,})/?',
             "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/.*?(\d{6,})/?',
         }
         pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/.*?(\d{6,})/?')
@@ -731,7 +733,13 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         specs = self._get_specs_table(response)
         
         item.madori = self._parseMadori(response, specs)
-        item.senyuMensekiStr = specs.get("専有面積", "")
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("壁芯面積", "")
+            or specs.get("登記簿面積", "")
+            or specs.get("内法面積", "")
+            or self.get_senyu_menseki_str(response)
+        )
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
@@ -814,11 +822,25 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
 
         item.madori = self._parseMadori(response, specs) or self.get_madori(response)
 
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("区画面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("実測面積", "")
+            or specs.get("面積", "")
+            or self.get_tochi_menseki_str(response)
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("延床面積", "")
+            or specs.get("延べ面積", "")
+            or specs.get("延床", "")
+            or self.get_tatemono_menseki_str(response)
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
@@ -960,11 +982,23 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
             logger.debug("Athome yield→rent derive skipped: %s", err)
 
     def _athome_fill_invest_areas(self, item, specs: dict) -> None:
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("区画面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("実測面積", "")
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("使用部分面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("使用部分面積", "")
+            or specs.get("延床面積", "")
+            or specs.get("延べ面積", "")
+            or specs.get("専有面積", "")
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
