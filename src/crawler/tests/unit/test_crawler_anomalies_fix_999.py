@@ -4,13 +4,11 @@ from bs4 import BeautifulSoup
 
 from package.parser.baseParser import SkipPropertyException, ParserBase
 from package.parser.athomeParser import (
-    AthomeParser,
+    AthomeInvestmentApartmentParser,
     AthomeKodateParser,
     AthomeMansionParser,
-    AthomeInvestmentApartmentParser,
-    AthomeTochiParser,
 )
-from package.parser.mitsuiParser import MitsuiParser, MitsuiMansionParser
+from package.parser.mitsuiParser import MitsuiMansionParser
 from package.utils.data_validator import PropertyDataValidator
 
 
