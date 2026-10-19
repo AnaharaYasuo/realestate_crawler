@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import datetime
 import gc
 import json
@@ -54,6 +55,7 @@ _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
 MIDDLE_PAGE_PARSE_FAILURE_PREFIX = "Middle Page Parse Failure:"
+STOP_FLAG_FILE = "stop.flag"
 
 _crawl_run_state = threading.local()
 _dispatched_detail_lock = threading.Lock()
@@ -89,22 +91,28 @@ def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> 
         _failed_fire_and_forget_dispatches.append((path, url, exc))
 
 
-def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
-    """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
-    start = time.monotonic()
-    curr = threading.current_thread()
-    while time.monotonic() - start < timeout:
-        with _active_threads_lock:
-            alive = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
-            _active_fire_and_forget_threads.intersection_update(set(alive) | ({curr} if curr in _active_fire_and_forget_threads else set()))
-        if not alive:
-            break
-        time.sleep(0.5)
+def _get_fire_and_forget_wait_timeout() -> float:
+    try:
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "7200.0"))
+        return val if val >= 0 else 7200.0
+    except (ValueError, TypeError):
+        return 7200.0
+
+
+def _poll_active_threads(curr: threading.Thread) -> list[threading.Thread]:
+    with _active_threads_lock:
+        alive = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        _active_fire_and_forget_threads.intersection_update(set(alive) | ({curr} if curr in _active_fire_and_forget_threads else set()))
+        return alive
+
+
+def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
     with _active_threads_lock:
         remaining = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
         failures = list(_failed_fire_and_forget_dispatches)
         _failed_fire_and_forget_dispatches.clear()
-    if remaining:
+
+    if remaining and not os.path.exists(STOP_FLAG_FILE):
         logger.error(
             "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
             timeout,
@@ -112,6 +120,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
             remaining,
         )
         raise TimeoutError(f"Timed out waiting for {len(remaining)} fire-and-forget threads to finish")
+
     if failures:
         logger.warning(
             "Fire-and-forget execution completed with %d child failures (e.g. %s -> %s: %r)",
@@ -120,6 +129,40 @@ def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
             failures[0][1],
             failures[0][2],
         )
+    else:
+        logger.info("All fire-and-forget background threads finished successfully")
+
+
+def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
+    """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
+    if timeout is None:
+        timeout = _get_fire_and_forget_wait_timeout()
+
+    start = time.monotonic()
+    curr = threading.current_thread()
+    last_log_time = start
+    consecutive_idle = 0
+
+    while not os.path.exists(STOP_FLAG_FILE):
+        now = time.monotonic()
+        if timeout > 0 and (now - start) >= timeout:
+            break
+
+        alive = _poll_active_threads(curr)
+        if not alive:
+            consecutive_idle += 1
+            if consecutive_idle >= 3:
+                break
+        else:
+            consecutive_idle = 0
+
+        if now - last_log_time >= 15.0 and alive:
+            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
+            last_log_time = now
+
+        time.sleep(0.5)
+
+    _check_wait_results(timeout, curr)
 
 
 def _current_dispatch_keys() -> set[tuple[str, str]] | None:
@@ -907,6 +950,13 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if (self._loop is None or self._loop.is_closed()):
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
+                # インタプリタ終了処理時のデフォルトエグゼキュータ閉鎖によるクラッシュを防止
+                executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=int(os.getenv("LOCAL_EXECUTION_WORKERS_PER_LOOP", "10")),
+                    thread_name_prefix="crawler-worker"
+                )
+                self._loop.set_default_executor(executor)
+                self._loop._custom_executor = executor  # type: ignore[attr-defined]
             return self._loop
 
     def _generateConnector(self, _loop):
@@ -972,7 +1022,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         start_time = time.monotonic()
         while thread.is_alive():
             thread.join(0.5)
-            if os.path.exists("stop.flag"):
+            if os.path.exists(STOP_FLAG_FILE):
                 logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
                 close_old_connections()
@@ -1043,7 +1093,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
-        if os.path.exists("stop.flag"):
+        if os.path.exists(STOP_FLAG_FILE):
             logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
             return detail_url, 200, "Aborted"
 
@@ -1140,6 +1190,20 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         # Optional lifecycle hook invoked after execution in subclasses
         pass
 
+    def _close_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
+        if not loop:
+            return
+        if loop.is_running():
+            loop.stop()
+        if not loop.is_closed():
+            custom_executor = getattr(loop, "_custom_executor", None)
+            if custom_executor is not None:
+                try:
+                    custom_executor.shutdown(wait=False, cancel_futures=True)
+                except Exception as ce:  # noqa: BLE001
+                    logger.debug("Error shutting down custom executor: %s", ce)
+            loop.close()
+
     def main(self, url):
         self.url = url
         loop: asyncio.AbstractEventLoop | None = None
@@ -1162,10 +1226,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if owns_run:
                 _wait_for_active_fire_and_forget_threads()
             _exit_crawl_run(owns_run)
-            if loop and loop.is_running():
-                loop.stop()
-            if loop and not loop.is_closed():
-                loop.close()
+            self._close_loop(loop)
         self._afterRunProc(run_result)
         return "finish", 200
 
