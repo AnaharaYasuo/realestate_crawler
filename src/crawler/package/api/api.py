@@ -1061,7 +1061,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
         send_state = {"sent": False}
 
-        local_result = await asyncio.to_thread(self._handle_local_execution, api_url, detail_url)
+        local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
             return local_result
 
@@ -1173,6 +1173,11 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         """Save HTML of failed property/page for debugging"""
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
+        except RuntimeError:
+            try:
+                _sync_save_error_html_by_url(url, model_name, reason, raw_html)
+            except Exception:
+                logging.exception("Failed to save error HTML synchronously for %s", url)
         except Exception:
             logging.exception("Failed to save error HTML for %s", url)
 
@@ -2147,7 +2152,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception:
             logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
             return
-        await asyncio.to_thread(CrawlerReporter.success, self.url, item.__class__.__name__)
+        try:
+            await asyncio.to_thread(CrawlerReporter.success, self.url, item.__class__.__name__)
+        except RuntimeError:
+            CrawlerReporter.success(self.url, item.__class__.__name__)
 
     def _find_existing_evaluation(self):
         normalized_url = UrlMatcher.normalize(self.url)
@@ -2218,7 +2226,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         elif is_skipped:
             await self._handle_skipped_property()
         else:
-            await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            try:
+                await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            except RuntimeError:
+                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
         return item
 
@@ -2233,6 +2244,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         """Save HTML of failed property for debugging when we only have the URL"""
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
+        except RuntimeError:
+            try:
+                _sync_save_error_html_by_url(url, model_name, reason, raw_html)
+            except Exception:
+                logging.exception("Failed to save error HTML synchronously by URL for %s", url)
         except Exception:
             logging.exception("Failed to save error HTML by URL")
 
