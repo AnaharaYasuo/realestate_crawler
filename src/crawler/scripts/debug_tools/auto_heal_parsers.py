@@ -402,7 +402,29 @@ def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = 
                 "source": "slack"
             })
 
-    # 3. 低件数サマリー
+    # 3. データ監視アラート個別行 (- :x: [Critical] [company/ptype] ... | URL: <url>)
+    # 例: - :x: [Critical] [mitsui/mansion] 価格異常 (0.0万円), 面積異常 (0.0㎡) | パークシティ中野 ザ タワー エアーズ | URL: <https://www.rehouse.co.jp/buy/mansion/bkdetail/FKJBFA06/>
+    monitor_alert_pattern = re.compile(
+        r"-\s*:(?:x|bulb):\s*\[(?:Critical|Warning)\]\s*\[([a-zA-Z0-9_]+)/([a-zA-Z0-9_]+)\]\s*([^|]+)\|\s*([^|]+)\|\s*URL:\s*<?(https?://[^\s>]+)>?",
+        re.IGNORECASE,
+    )
+    for match in monitor_alert_pattern.finditer(text):
+        site = match.group(1).lower().strip()
+        ptype = match.group(2).lower().strip()
+        reason = match.group(3).strip()
+        pname = match.group(4).strip()
+        url = match.group(5).strip()
+        targets.append({
+            "company": site,
+            "property_type": ptype,
+            "propertyName": pname,
+            "reason": f"{reason} (#{channel_name})",
+            "url": url,
+            "detected_at": ts,
+            "source": "slack",
+        })
+
+    # 4. 低件数サマリー
     major_sites = ["athome", "homes", "mitsui", "sumifu", "tokyu", "nomura"]
     for s in major_sites:
         pat = rf"(?:•|\*|-)?\s*{s}\s*[:：]\s*(\d+)\s*件"
@@ -424,7 +446,7 @@ def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = 
 
 async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, dict]]:
     token = os.environ.get("SLACK_BOT_TOKEN")
-    if not token or os.getenv("BLOCK_OUTBOUND_SLACK") or os.getenv("PYTEST_CURRENT_TEST"):
+    if not token or os.getenv("PYTEST_CURRENT_TEST"):
         return []
 
     import aiohttp
