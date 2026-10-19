@@ -60,6 +60,8 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
 
 
 class TokyuParser(ParserBase):
+    MAX_CONSECUTIVE_TIMEOUTS = 5
+    REQUEST_TIMEOUT_SEC = 25
 
     def _get_spec_val(self, specs, key, default=""):
         if not specs or key not in specs:
