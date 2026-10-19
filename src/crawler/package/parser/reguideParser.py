@@ -15,6 +15,8 @@ DIGIT_REGEX = re.compile(r"(\d+)")
 class ReguideInvestmentParser(InvestmentParser):
     property_type = "investment"
     BASE_URL = "https://www.re-guide.jp"
+    MAX_CONSECUTIVE_TIMEOUTS = 5
+    REQUEST_TIMEOUT_SEC = 25
 
     def __init__(self, params=None):
         super().__init__()
