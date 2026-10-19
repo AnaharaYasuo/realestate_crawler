@@ -79,7 +79,7 @@ def test_handle_local_execution_timeout():
         def main(self, url):
             time.sleep(10.0)
 
-    with patch.dict(os.environ, {"LOCAL_EXECUTION_TIMEOUT_SEC": "0.2"}), \
+    with patch.dict(os.environ, {"LOCAL_EXECUTION_TIMEOUT_SEC": "0.2", "CRAWLER_FIRE_AND_FORGET": "false"}), \
          patch("package.api.api.ApiRegistry.get", return_value=_HangingTarget):
         start = time.time()
         res = api._handle_local_execution("/api/dummy/detail", "http://example.com/item")
