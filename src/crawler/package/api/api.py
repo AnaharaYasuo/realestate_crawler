@@ -55,6 +55,7 @@ _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
 MIDDLE_PAGE_PARSE_FAILURE_PREFIX = "Middle Page Parse Failure:"
+STOP_FLAG_FILE = "stop.flag"
 
 _crawl_run_state = threading.local()
 _dispatched_detail_lock = threading.Lock()
@@ -111,7 +112,7 @@ def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
         failures = list(_failed_fire_and_forget_dispatches)
         _failed_fire_and_forget_dispatches.clear()
 
-    if remaining and not os.path.exists("stop.flag"):
+    if remaining and not os.path.exists(STOP_FLAG_FILE):
         logger.error(
             "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
             timeout,
@@ -142,7 +143,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
     last_log_time = start
     consecutive_idle = 0
 
-    while not os.path.exists("stop.flag"):
+    while not os.path.exists(STOP_FLAG_FILE):
         now = time.monotonic()
         if timeout > 0 and (now - start) >= timeout:
             break
@@ -1021,7 +1022,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         start_time = time.monotonic()
         while thread.is_alive():
             thread.join(0.5)
-            if os.path.exists("stop.flag"):
+            if os.path.exists(STOP_FLAG_FILE):
                 logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
                 close_old_connections()
@@ -1092,7 +1093,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
-        if os.path.exists("stop.flag"):
+        if os.path.exists(STOP_FLAG_FILE):
             logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
             return detail_url, 200, "Aborted"
 
