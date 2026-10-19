@@ -20,6 +20,7 @@ FEATURE_SETS = {
             "is_residential_zone", "is_commercial_zone", "is_industrial_zone", "zone_rank",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
@@ -40,6 +41,7 @@ FEATURE_SETS = {
             "interior_score", "layout_score",
             "is_shigaika_chousei", "is_saikenchiku_fuka", "rights_ratio",
             "potential_floor_area", "scale_discount",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
@@ -73,6 +75,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
@@ -105,6 +108,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
@@ -139,6 +143,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
@@ -172,6 +177,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "chikunen_depreciation_resistance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
@@ -203,6 +209,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ],
@@ -233,6 +240,7 @@ FEATURE_SETS = {
             "plot_mic_diameter", "plot_bottleneck_width", "plot_solidity", "plot_compactness",
             "plot_nta_discount", "plot_acute_angles", "plot_flagpole_ratio", "plot_shape_grade_num",
             "plot_shape_score_100",
+            "walk_min_elasticity", "effective_station_distance", "area_value_intensity",
             "zone_max_kenpei", "zone_max_youseki",
             "time_diff_months", "macro_repi", "macro_jgb_10y", "macro_nikkei", "macro_reit", "macro_construction_cost", "is_legacy_data"
         ]
