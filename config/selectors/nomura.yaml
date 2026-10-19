@@ -100,6 +100,8 @@ invest_kodate:
 mansion:
   title: "h1"
   property_links: "a[href*='/mansion/id/']"
+  region_links: ".searchSelectTabFrame a, .list-railway a, .c_selection_list a"
+  area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
@@ -131,7 +133,8 @@ mansion:
 kodate:
   title: "h1"
   property_links: "a[href*='/house/id/']"
-  region_links: ".list-railway a"
+  region_links: ".searchSelectTabFrame a, .list-railway a, .c_selection_list a"
+  area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
@@ -159,7 +162,8 @@ kodate:
 tochi:
   title: "h1"
   property_links: "a[href*='/land/id/']"
-  region_links: ".list-railway a"
+  region_links: ".searchSelectTabFrame a, .list-railway a, .c_selection_list a"
+  area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
   price_fallback: ".c_price_wrap, .price"
