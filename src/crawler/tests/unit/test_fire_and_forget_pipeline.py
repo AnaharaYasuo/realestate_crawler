@@ -105,7 +105,7 @@ def test_fetch_calls_handle_local_execution_directly_without_to_thread():
     import asyncio
     api = DummyMiddleApi()
 
-    with patch.object(api, "_handle_local_execution", new_callable=AsyncMock, return_value=("https://example.com/item1", 202, "FireAndForgetLocal")) as mock_exec, \
+    with patch.object(api, "_handle_local_execution", return_value=("https://example.com/item1", 202, "FireAndForgetLocal")) as mock_exec, \
          patch("asyncio.to_thread", side_effect=RuntimeError("cannot schedule new futures after shutdown")):
         loop = asyncio.new_event_loop()
         try:

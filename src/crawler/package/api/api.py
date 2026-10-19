@@ -968,10 +968,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
-    async def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
+    def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
         start_time = time.monotonic()
         while thread.is_alive():
-            await asyncio.sleep(0.1)
+            thread.join(0.5)
             if os.path.exists("stop.flag"):
                 logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
@@ -988,7 +988,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 return detail_url, 504, "LocalTimeout"
         return None
 
-    async def _handle_local_execution(self, api_url, detail_url):
+    def _handle_local_execution(self, api_url, detail_url):
         parsed = urlparse(api_url)
         path = parsed.path
         target_class = ApiRegistry.get(path)
@@ -1033,7 +1033,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             logger.info("Fire and forget (local dispatch accepted): %s -> %s", path, detail_url)
             return detail_url, 202, "FireAndForgetLocal"
 
-        timeout_res = await self._wait_for_local_execution(t, max_timeout, detail_url)
+        timeout_res = self._wait_for_local_execution(t, max_timeout, detail_url)
         if timeout_res is not None:
             return timeout_res
 
@@ -1061,7 +1061,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
         send_state = {"sent": False}
 
-        local_result = await self._handle_local_execution(api_url, detail_url)
+        local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
             return local_result
 
