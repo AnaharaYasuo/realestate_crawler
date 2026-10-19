@@ -1,5 +1,5 @@
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from package.api.api import ApiAsyncProcBase, ApiRegistry
 
@@ -105,7 +105,7 @@ def test_fetch_calls_handle_local_execution_directly_without_to_thread():
     import asyncio
     api = DummyMiddleApi()
 
-    with patch.object(api, "_handle_local_execution", return_value=("https://example.com/item1", 202, "FireAndForgetLocal")) as mock_exec, \
+    with patch.object(api, "_handle_local_execution", new_callable=AsyncMock, return_value=("https://example.com/item1", 202, "FireAndForgetLocal")) as mock_exec, \
          patch("asyncio.to_thread", side_effect=RuntimeError("cannot schedule new futures after shutdown")):
         loop = asyncio.new_event_loop()
         try:
@@ -117,16 +117,19 @@ def test_fetch_calls_handle_local_execution_directly_without_to_thread():
 
 
 def test_save_error_html_falls_back_synchronously_on_executor_shutdown():
-    """_save_error_html_by_url は to_thread が RuntimeError を返しても同期保存にフォールバックすること"""
+    """_save_error_html_by_url は to_thread が RuntimeError を返してもバックグラウンドスレッド保存にフォールバックすること"""
     import asyncio
     api = DummyMiddleApi()
 
     with patch("asyncio.to_thread", side_effect=RuntimeError("cannot schedule new futures after shutdown")), \
-         patch("package.api.api._sync_save_error_html_by_url") as mock_sync_save:
+         patch("threading.Thread") as mock_thread_cls:
+        mock_thread_instance = MagicMock()
+        mock_thread_cls.return_value = mock_thread_instance
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(api._save_error_html_by_url("https://example.com/fail", "DummyModel", "Test Error"))
-            mock_sync_save.assert_called_once_with("https://example.com/fail", "DummyModel", "Test Error", None)
+            mock_thread_cls.assert_called_once()
+            mock_thread_instance.start.assert_called_once()
         finally:
             loop.close()
 

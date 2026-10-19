@@ -968,10 +968,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             response_context = await mw.process_response(response_context)
         return response_context
 
-    def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
+    async def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
         start_time = time.monotonic()
         while thread.is_alive():
-            thread.join(1.0)
+            await asyncio.sleep(0.1)
             if os.path.exists("stop.flag"):
                 logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
@@ -988,7 +988,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 return detail_url, 504, "LocalTimeout"
         return None
 
-    def _handle_local_execution(self, api_url, detail_url):
+    async def _handle_local_execution(self, api_url, detail_url):
         parsed = urlparse(api_url)
         path = parsed.path
         target_class = ApiRegistry.get(path)
@@ -1033,7 +1033,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             logger.info("Fire and forget (local dispatch accepted): %s -> %s", path, detail_url)
             return detail_url, 202, "FireAndForgetLocal"
 
-        timeout_res = self._wait_for_local_execution(t, max_timeout, detail_url)
+        timeout_res = await self._wait_for_local_execution(t, max_timeout, detail_url)
         if timeout_res is not None:
             return timeout_res
 
@@ -1061,7 +1061,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
         send_state = {"sent": False}
 
-        local_result = self._handle_local_execution(api_url, detail_url)
+        local_result = await self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
             return local_result
 
@@ -1174,10 +1174,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
         except RuntimeError:
-            try:
-                _sync_save_error_html_by_url(url, model_name, reason, raw_html)
-            except Exception:
-                logger.exception("Failed to save error HTML synchronously for %s", url)
+            # Event loop / default executor is shut down; dispatch via dedicated background thread
+            threading.Thread(
+                target=_sync_save_error_html_by_url,
+                args=(url, model_name, reason, raw_html),
+                daemon=True,
+            ).start()
         except Exception:
             logger.exception("Failed to save error HTML for %s", url)
 
@@ -2245,10 +2247,12 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
         except RuntimeError:
-            try:
-                _sync_save_error_html_by_url(url, model_name, reason, raw_html)
-            except Exception:
-                logger.exception("Failed to save error HTML synchronously by URL for %s", url)
+            # Event loop / default executor is shut down; dispatch via dedicated background thread
+            threading.Thread(
+                target=_sync_save_error_html_by_url,
+                args=(url, model_name, reason, raw_html),
+                daemon=True,
+            ).start()
         except Exception:
             logger.exception("Failed to save error HTML by URL")
 
