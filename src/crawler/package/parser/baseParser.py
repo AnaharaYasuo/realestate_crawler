@@ -1755,6 +1755,12 @@ class ParserBase(metaclass=ABCMeta):
             "/benefit/",
             "/baikyaku/",
             "/step_buildingsurvey/",
+            "/support/",
+            "/mikata/",
+            "/guide/",
+            "/manual/",
+            "/column/",
+            "/list/",
         )
         if any(p in u_lower for p in skip_parts):
             logging.debug(f"Fast-skipping non-property/rental URL: {url}")
