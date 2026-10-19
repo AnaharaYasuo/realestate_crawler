@@ -133,3 +133,40 @@ def test_save_error_html_falls_back_synchronously_on_executor_shutdown():
         finally:
             loop.close()
 
+
+def test_get_active_event_loop_configures_custom_executor():
+    """_getActiveEventLoop で新しく作成されたイベントループには独立した ThreadPoolExecutor が設定されていること"""
+    api = DummyMiddleApi()
+    loop = api._getActiveEventLoop()
+    try:
+        executor = getattr(loop, "_custom_executor", None)
+        assert executor is not None
+        assert loop._default_executor is executor
+    finally:
+        if executor:
+            executor.shutdown(wait=False)
+        loop.close()
+
+
+def test_wait_for_active_fire_and_forget_threads_respects_custom_timeout(monkeypatch):
+    """CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT の設定を反映して待機処理が行われること"""
+    import threading
+    from package.api.api import _get_fire_and_forget_wait_timeout, _track_fire_and_forget_thread, _untrack_fire_and_forget_thread, _wait_for_active_fire_and_forget_threads
+
+    monkeypatch.setenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "0.2")
+    assert _get_fire_and_forget_wait_timeout() == 0.2
+
+    # 停止しないスレッドをトラッキングしてタイムアウトをシミュレート
+    stop_event = threading.Event()
+    t = threading.Thread(target=stop_event.wait, daemon=True)
+    t.start()
+    _track_fire_and_forget_thread(t)
+    try:
+        import pytest
+        with pytest.raises(TimeoutError):
+            _wait_for_active_fire_and_forget_threads(timeout=0.2)
+    finally:
+        stop_event.set()
+        t.join(timeout=1.0)
+        _untrack_fire_and_forget_thread(t)
+

@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import datetime
 import gc
 import json
@@ -89,22 +90,57 @@ def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> 
         _failed_fire_and_forget_dispatches.append((path, url, exc))
 
 
-def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
+def _get_fire_and_forget_wait_timeout() -> float:
+    try:
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "7200.0"))
+        return val if val >= 0 else 7200.0
+    except (ValueError, TypeError):
+        return 7200.0
+
+
+def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
+    if timeout is None:
+        timeout = _get_fire_and_forget_wait_timeout()
+
     start = time.monotonic()
     curr = threading.current_thread()
-    while time.monotonic() - start < timeout:
+    last_log_time = start
+    consecutive_idle = 0
+
+    while True:
+        if os.path.exists("stop.flag"):
+            logger.info("stop.flag detected during fire-and-forget wait, breaking wait loop")
+            break
+
+        now = time.monotonic()
+        if timeout > 0 and (now - start) >= timeout:
+            break
+
         with _active_threads_lock:
             alive = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
             _active_fire_and_forget_threads.intersection_update(set(alive) | ({curr} if curr in _active_fire_and_forget_threads else set()))
+
         if not alive:
-            break
+            consecutive_idle += 1
+            # 子スレッドが次スレッドを立ち上げる遷移の隙間による早期終了を防止（連続3回 = 1.5秒 idle を確認）
+            if consecutive_idle >= 3:
+                break
+        else:
+            consecutive_idle = 0
+
+        if now - last_log_time >= 15.0 and alive:
+            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
+            last_log_time = now
+
         time.sleep(0.5)
+
     with _active_threads_lock:
         remaining = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
         failures = list(_failed_fire_and_forget_dispatches)
         _failed_fire_and_forget_dispatches.clear()
-    if remaining:
+
+    if remaining and not os.path.exists("stop.flag"):
         logger.error(
             "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
             timeout,
@@ -112,6 +148,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
             remaining,
         )
         raise TimeoutError(f"Timed out waiting for {len(remaining)} fire-and-forget threads to finish")
+
     if failures:
         logger.warning(
             "Fire-and-forget execution completed with %d child failures (e.g. %s -> %s: %r)",
@@ -120,6 +157,8 @@ def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
             failures[0][1],
             failures[0][2],
         )
+    else:
+        logger.info("All fire-and-forget background threads finished successfully")
 
 
 def _current_dispatch_keys() -> set[tuple[str, str]] | None:
@@ -907,6 +946,13 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if (self._loop is None or self._loop.is_closed()):
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
+                # インタプリタ終了処理時のデフォルトエグゼキュータ閉鎖によるクラッシュを防止
+                executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=int(os.getenv("LOCAL_EXECUTION_WORKERS_PER_LOOP", "10")),
+                    thread_name_prefix="crawler-worker"
+                )
+                self._loop.set_default_executor(executor)
+                setattr(self._loop, "_custom_executor", executor)
             return self._loop
 
     def _generateConnector(self, _loop):
@@ -1165,6 +1211,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if loop and loop.is_running():
                 loop.stop()
             if loop and not loop.is_closed():
+                custom_executor = getattr(loop, "_custom_executor", None)
+                if custom_executor is not None:
+                    try:
+                        custom_executor.shutdown(wait=False, cancel_futures=True)
+                    except Exception as ce:  # noqa: BLE001
+                        logger.debug("Error shutting down custom executor: %s", ce)
                 loop.close()
         self._afterRunProc(run_result)
         return "finish", 200
