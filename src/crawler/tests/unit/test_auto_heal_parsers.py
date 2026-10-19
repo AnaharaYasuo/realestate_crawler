@@ -246,3 +246,34 @@ def test_summarize_errors_with_gemini_circuit_breaker_on_consecutive_timeouts(mo
         # クールダウン中は即時デフォルトサマリー返却
         res3 = ahp.summarize_errors_with_gemini(targets)
         assert "tokyu (tochi) [2件]: 土地面積極小" in res3
+
+
+def test_parse_slack_message_to_targets_data_monitor_alert():
+    from scripts.debug_tools.auto_heal_parsers import parse_slack_message_to_targets
+
+    text = """
+:warning: 【不動産クローラー データ監視アラート - MANSION】
+
+:rotating_light: **検出された異常/エラー: 25181 件**
+  - :x: [Critical] [mitsui/mansion] 価格異常 (0.0万円), 面積異常 (0.0㎡) | パークシティ中野 ザ タワー エアーズ | URL: <https://www.rehouse.co.jp/buy/mansion/bkdetail/FKJBFA06/>
+  - :bulb: [Warning] [sumifu/tochi] 面積異常 (0.0㎡) | 土地物件 | URL: https://www.stepon.co.jp/tochi/detail_12345/
+"""
+    targets = parse_slack_message_to_targets(text, channel_name="alerts-mansion", ts="1234567890.123")
+    assert len(targets) == 2
+
+    t0 = targets[0]
+    assert t0["company"] == "mitsui"
+    assert t0["property_type"] == "mansion"
+    assert "価格異常 (0.0万円), 面積異常 (0.0㎡)" in t0["reason"]
+    assert "(#alerts-mansion)" in t0["reason"]
+    assert t0["propertyName"] == "パークシティ中野 ザ タワー エアーズ"
+    assert t0["url"] == "https://www.rehouse.co.jp/buy/mansion/bkdetail/FKJBFA06/"
+    assert t0["source"] == "slack"
+
+    t1 = targets[1]
+    assert t1["company"] == "sumifu"
+    assert t1["property_type"] == "tochi"
+    assert "面積異常 (0.0㎡)" in t1["reason"]
+    assert t1["propertyName"] == "土地物件"
+    assert t1["url"] == "https://www.stepon.co.jp/tochi/detail_12345/"
+
