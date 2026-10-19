@@ -4,7 +4,6 @@ Orchestrates domain-specific feature extraction submodules.
 """
 
 import logging
-import math
 
 from .appraisal import _calculate_appraisal_values, _calculate_tochi_appraisal_factors
 from .building import (
@@ -43,6 +42,7 @@ from .reference_data import (
     _blend_land_prices,
     _calculate_effective_walk_min,
     _calculate_hazard_features,
+    _calculate_regional_sensitivity_features,
     _extract_macro_features,
     _init_global_caches,
     _query_municipal_potential,
@@ -115,21 +115,13 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
 
     kanrihi, syuzen, kouzou_str, kouzou_lifespan_ratio = _calculate_kanri_and_lifespan(property_obj, chikunen)
 
-    # 地域感応度変調特徴量（Issue #1003）
-    walk_min_elasticity = float(walk_min * math.log1p(max(0.0, float(pop_density or 0.0))))
-    effective_station_dist = float(walk_min / math.log10(max(100.0, float(passenger_volume or 100.0))))
-    area_intensity = float(area * math.log1p(max(0.0, float(average_land_price or 0.0))))
-
-    # 土地価値比率に基づく築年数減価耐性（立地価値比率が高いほど築古でも減価が緩やか）
-    if property_type == 'mansion':
-        potential_land_val = (area * 0.2) * (average_land_price / 10000.0)
-        potential_bldg_val = area * 25.0
-    else:
-        potential_land_val = tochi_area * (average_land_price / 10000.0) * scale_discount
-        potential_bldg_val = tatemono_area * 18.0
-    total_potential = potential_land_val + potential_bldg_val
-    land_share = (potential_land_val / total_potential) if total_potential > 0 else 0.5
-    chikunen_resistance = float(chikunen * (1.0 - land_share))
+    (
+        walk_min_elasticity, effective_station_dist,
+        chikunen_resistance, area_intensity
+    ) = _calculate_regional_sensitivity_features(
+        property_type, walk_min, pop_density, passenger_volume, average_land_price,
+        area, tatemono_area, tochi_area, chikunen, scale_discount
+    )
 
     feats = {
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,

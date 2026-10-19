@@ -3,6 +3,7 @@ ML 参照マスタ（地価、自治体、駅、ハザード、用途地域、�
 """
 import datetime
 import logging
+import math
 import re
 import threading
 from typing import Any
@@ -542,6 +543,38 @@ def query_hazard_features(address1: str, address2: str) -> tuple[int, int]:
     return flood_risk_level, landslide_risk_level
 
 
+def calculate_regional_sensitivity_features(
+    property_type: str,
+    walk_min: float,
+    pop_density: float,
+    passenger_volume: float,
+    average_land_price: float,
+    area: float,
+    tatemono_area: float,
+    tochi_area: float,
+    chikunen: float,
+    scale_discount: float,
+) -> tuple[float, float, float, float]:
+    """
+    都市部と地方における駅徒歩・築年数・面積・駅力への感応度差を変調する4つの交互作用特徴量を算出 (Issue #1003)
+    """
+    walk_min_elasticity = float(walk_min * math.log1p(max(0.0, float(pop_density or 0.0))))
+    effective_station_dist = float(walk_min / math.log10(max(100.0, float(passenger_volume or 100.0))))
+    area_intensity = float(area * math.log1p(max(0.0, float(average_land_price or 0.0))))
+
+    if property_type == 'mansion':
+        potential_land_val = (area * 0.2) * (average_land_price / 10000.0)
+        potential_bldg_val = area * 25.0
+    else:
+        potential_land_val = tochi_area * (average_land_price / 10000.0) * scale_discount
+        potential_bldg_val = tatemono_area * 18.0
+    total_potential = potential_land_val + potential_bldg_val
+    land_share = (potential_land_val / total_potential) if total_potential > 0 else 0.5
+    chikunen_resistance = float(chikunen * (1.0 - land_share))
+
+    return walk_min_elasticity, effective_station_dist, chikunen_resistance, area_intensity
+
+
 # Backward compatibility aliases
 _extract_macro_features = extract_macro_features
 _query_municipal_potential = query_municipal_potential
@@ -550,3 +583,4 @@ _calculate_effective_walk_min = calculate_effective_walk_min
 _resolve_zone_limits = resolve_zone_limits
 _blend_land_prices = blend_land_prices
 _calculate_hazard_features = query_hazard_features
+_calculate_regional_sensitivity_features = calculate_regional_sensitivity_features

@@ -1,8 +1,4 @@
-# -*- coding: utf-8 -*-
 import pytest
-import math
-import numpy as np
-from unittest.mock import MagicMock
 
 from package.ml.features.builder import build_features
 from package.ml.features.feature_sets import FEATURE_SETS
