@@ -654,7 +654,9 @@ def test_local_execution_child_thread_inherits_parent_keys(run_keys):
             seen["url"] = url
 
     page = _DummyMiddlePage()
-    with patch.object(api_module.ApiRegistry, "get", return_value=_Child):
+    with patch.dict(os.environ, {"CRAWLER_FIRE_AND_FORGET": "false"}), patch.object(
+        api_module.ApiRegistry, "get", return_value=_Child
+    ):
         result = page._handle_local_execution("http://api.example.com/detail", "https://a/9")
     assert result == ("https://a/9", 200, "LocalSync")
     assert seen == {"keys": run_keys, "url": "https://a/9"}
@@ -666,7 +668,9 @@ def test_local_execution_failure_returns_retryable_status(run_keys):
             raise RuntimeError("boom")
 
     page = _DummyMiddlePage()
-    with patch.object(api_module.ApiRegistry, "get", return_value=_Child):
+    with patch.dict(os.environ, {"CRAWLER_FIRE_AND_FORGET": "false"}), patch.object(
+        api_module.ApiRegistry, "get", return_value=_Child
+    ):
         result = page._handle_local_execution("http://api.example.com/detail", "https://a/10")
     assert result[0] == "https://a/10"
     assert result[1] == 500
@@ -687,7 +691,9 @@ def test_local_execution_failure_releases_dispatch_key(run_keys):
         return page._handle_local_execution(_api_url, detail_url)
 
     assert api_module._claim_detail_dispatch(run_keys, api_url, "https://a/11") is True
-    with patch.object(api_module.ApiRegistry, "get", return_value=_Child), patch.object(
+    with patch.dict(os.environ, {"CRAWLER_FIRE_AND_FORGET": "false"}), patch.object(
+        api_module.ApiRegistry, "get", return_value=_Child
+    ), patch.object(
         page, "_fetchWithEachSession", side_effect=_fetch_via_local
     ):
         asyncio.run(page._fetchDetailOnce(run_keys, "https://a/11", api_url, None))
