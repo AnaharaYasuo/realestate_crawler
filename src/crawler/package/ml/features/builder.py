@@ -93,7 +93,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         volume_digest_factor, road_condition_factor, frontage_penalty_factor,
         residual_land_value, road_direction_str, road_type_str, road_structure_str, chimoku_str
     ) = _calculate_tochi_appraisal_factors(
-        property_obj, property_type, tochi_area, max_youseki, average_land_price, setback_ratio_temp
+        property_obj, property_type, tochi_area, max_youseki, average_land_price, setback_ratio_temp, scale_discount
     )
     if property_type == 'tochi':
         area = tochi_area
