@@ -584,30 +584,54 @@ class AthomeParser(ParserBase):
             
         return item
 
+    def _extract_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
+        for dl in response.select("dl"):
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                label = re.sub(r"\s+", "", dt.get_text())
+                if label and label not in specs:
+                    specs[label] = dd.get_text().strip().split('\n')[0].strip()
+
     def _get_specs_table(self, response: BeautifulSoup) -> dict:
         """
         アットホーム詳細ページの物件スペックテーブルを辞書化して返す。
         """
         specs = {}
-        # 任意のテーブル行からth/tdペアを収集する
         for row in response.select("table tr"):
-            th_tags = row.find_all("th")
-            td_tags = row.find_all("td")
-            for th, td in zip(th_tags, td_tags):
-                label = th.get_text().strip()
-                val = td.get_text().strip()
+            for th, td in zip(row.find_all("th"), row.find_all("td")):
+                label = re.sub(r"\s+", "", th.get_text())
                 if label:
-                    # 改行後の不要なテキスト（支払シミュレーション等）を取り除く
-                    val_cleaned = val.split('\n')[0].strip()
+                    val_cleaned = td.get_text().strip().split('\n')[0].strip()
                     specs[label] = val_cleaned
+                    raw_lbl = th.get_text().strip()
+                    if raw_lbl not in specs:
+                        specs[raw_lbl] = val_cleaned
+
+        self._extract_dl_specs(response, specs)
         return specs
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         _ = specs
-        for th in response.find_all("th"):
+        for th in response.find_all(["th", "dt"]):
             text = th.get_text().strip()
-            if "所在地" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
+            if "所在地" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip().split('\n')[0].strip()
+        el = response.select_one(".address, .bukken-address, [class*='address']")
+        if el:
+            return el.get_text().strip().split('\n')[0].strip()
+        return ""
+
+    def _parseTraffic(self, response: BeautifulSoup) -> str:
+        for th in response.find_all(["th", "dt"]):
+            text = th.get_text().strip()
+            if "交通" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip()
+        el = response.select_one(".traffic, .access, .bukken-traffic, [class*='traffic']")
+        if el:
+            return el.get_text().strip()
         return ""
 
     @staticmethod
@@ -625,7 +649,7 @@ class AthomeParser(ParserBase):
                 txt = el.get_text().strip().split("\n")[0].strip()
                 if any(unit in txt for unit in ("万", "億", "円")):
                     return txt
-        for td in response.find_all("td"):
+        for td in response.find_all(["td", "dd"]):
             txt = td.get_text().strip()
             if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億", "円")):
                 return txt.split("\n")[0].strip()
@@ -636,24 +660,17 @@ class AthomeParser(ParserBase):
             val = self._parse_price_from_specs(specs)
             if val:
                 return val
-        for th in response.find_all("th"):
+        for th in response.find_all(["th", "dt"]):
             text = th.get_text().strip()
-            if "価格" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
+            if "価格" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip().split('\n')[0].strip()
         return self._parse_price_from_elements(response)
-
-
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int:
         pstr = self._parsePriceStr(response, specs)
         return converter.parse_price(pstr) or 0
-
-    def _parseTraffic(self, response: BeautifulSoup) -> str:
-        for th in response.find_all("th"):
-            text = th.get_text().strip()
-            if "交通" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip()
-        return ""
 
 class AthomeMansionParser(AthomeParser, MansionParserBase):
     def _parseRights(self, response, specs=None):
