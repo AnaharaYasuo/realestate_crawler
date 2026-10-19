@@ -70,6 +70,7 @@ def _get_default_dispatch_queue_size() -> int:
 
 DEFAULT_DISPATCH_QUEUE_SIZE = _get_default_dispatch_queue_size()
 _active_fire_and_forget_threads: set[threading.Thread] = set()
+_failed_fire_and_forget_dispatches: list[tuple[str, str, BaseException]] = []
 _active_threads_lock = threading.Lock()
 
 
@@ -83,16 +84,42 @@ def _untrack_fire_and_forget_thread(t: threading.Thread) -> None:
         _active_fire_and_forget_threads.discard(t)
 
 
+def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> None:
+    with _active_threads_lock:
+        _failed_fire_and_forget_dispatches.append((path, url, exc))
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float = 300.0) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     start = time.monotonic()
+    curr = threading.current_thread()
     while time.monotonic() - start < timeout:
         with _active_threads_lock:
-            alive = [t for t in _active_fire_and_forget_threads if t.is_alive()]
-            _active_fire_and_forget_threads.intersection_update(alive)
+            alive = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+            _active_fire_and_forget_threads.intersection_update(set(alive) | ({curr} if curr in _active_fire_and_forget_threads else set()))
         if not alive:
             break
         time.sleep(0.5)
+    with _active_threads_lock:
+        remaining = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        failures = list(_failed_fire_and_forget_dispatches)
+        _failed_fire_and_forget_dispatches.clear()
+    if remaining:
+        logger.error(
+            "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
+            timeout,
+            len(remaining),
+            remaining,
+        )
+        raise TimeoutError(f"Timed out waiting for {len(remaining)} fire-and-forget threads to finish")
+    if failures:
+        logger.warning(
+            "Fire-and-forget execution completed with %d child failures (e.g. %s -> %s: %r)",
+            len(failures),
+            failures[0][0],
+            failures[0][1],
+            failures[0][2],
+        )
 
 
 def _current_dispatch_keys() -> set[tuple[str, str]] | None:
@@ -983,6 +1010,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 target_class().main(detail_url)
             except Exception as exc:  # noqa: BLE001
                 child_errors.append(exc)
+                _record_fire_and_forget_failure(path, detail_url, exc)
                 logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
             finally:
                 _crawl_run_state.keys = None
