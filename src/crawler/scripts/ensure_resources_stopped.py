@@ -137,6 +137,13 @@ def send_slack_alert(message: str, channel: str | None = None) -> None:
         logger.info(f"[Slack Alert Placeholder ({target_channel})]: {message}")
 
 
+def send_slack_info(message: str, channel: str | None = None) -> None:
+    target_channel = channel or os.environ.get(
+        "SLACK_DEV_CHANNEL"
+    ) or "dev-agent"
+    send_slack_alert(message, channel=target_channel)
+
+
 def _get_gcp_access_token() -> str | None:
     if google is not None:
         try:
@@ -968,7 +975,7 @@ def check_and_stop_proxysql_instance(
                 f"・ProxySQL: `{instance_name}` (RUNNING)"
             )
             logger.info(info_msg)
-            send_slack_alert(info_msg)
+            send_slack_info(info_msg)
             return ResourceInspectionResult(
                 was_leaked=False,
                 forced_stop=False,
@@ -1072,7 +1079,7 @@ def check_and_stop_proxysql_instance(
             f"・直近{int(traffic_window_sec/60)}分間受信量: {traffic_mb:.2f} MB (閾値: {traffic_threshold_bytes/(1024*1024):.1f} MB)"
         )
         logger.info(info_msg)
-        send_slack_alert(info_msg)
+        send_slack_info(info_msg)
         return ResourceInspectionResult(
             was_leaked=False,
             forced_stop=False,
@@ -1245,7 +1252,7 @@ def check_and_stop_proxysql_mig(
                 f"・MIGサイズ: `{current_target_size}` 台"
             )
             logger.info(info_msg)
-            send_slack_alert(info_msg)
+            send_slack_info(info_msg)
             return ResourceInspectionResult(
                 was_leaked=False,
                 forced_stop=False,
