@@ -31,6 +31,9 @@ REGEX_DECIMAL_GROUP = r"(\d+(?:\.\d+)?)"
 ROAD_WIDTH_PREFIX = "前面道路幅員により"
 RESERVE_FUND_KEY = "修繕積立金"
 MANSION_KEYWORD = "マンション"
+_TRANSIT_SPLIT_PATTERN = re.compile(
+    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+[線駅「])'
+)
 
 
 class MitsuiParser(ParserBase):
@@ -249,18 +252,7 @@ class MitsuiParser(ParserBase):
         # If lines contain joined transit info without newlines (e.g. 六本木駅徒歩9分広尾駅徒歩13分)
         split_lines = []
         for line in lines:
-            if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
-                # Insert newline delimiter after "...分" followed by next transit entity
-                normalized = re.sub(
-                    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス|「|地下鉄|JR|東京メトロ|都営|東急|京王|小田急|西武|東武|京急|京成|相鉄))',
-                    r'\1\n',
-                    line
-                )
-                parts = [s.strip() for s in normalized.split('\n') if s.strip()]
-                if len(parts) > 1:
-                    split_lines.extend(parts)
-                    continue
-            split_lines.append(line)
+            split_lines.extend(self._split_single_transit_line(line))
         return split_lines
 
     def _extract_traffic_from_selectors(self, response) -> list[str]:
@@ -299,11 +291,7 @@ class MitsuiParser(ParserBase):
 
     def _split_single_transit_line(self, line: str) -> list[str]:
         if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
-            norm = re.sub(
-                r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+(?:線|駅|バス|「|地下鉄|JR|東京メトロ|都営|東急|京王|小田急|西武|東武|京急|京成|相鉄))',
-                r'\1\n',
-                line
-            )
+            norm = _TRANSIT_SPLIT_PATTERN.sub(r'\1\n', line)
             parts = [sl.strip() for sl in norm.split('\n') if sl.strip()]
             if len(parts) > 1:
                 return parts

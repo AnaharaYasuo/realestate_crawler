@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 HTML_PARSER = "html.parser"
 LABEL_KAIDATE_KAI = "階建 / 階"
 
-ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
-ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+PATH_LIST = "/list/"
+
+ATHOME_NAV_KEYWORDS = (PATH_LIST, "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
+ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", PATH_LIST, "toushi", "chuko", "buy_other")
 _ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_DIR_WIDTH_RE = (
@@ -367,7 +369,7 @@ class AthomeParser(ParserBase):
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
         if "RECOMMFLG=1" in href or "sref=nw_reco" in href:
             return False
-        if "/list/" in path.lower() or path.lower().endswith("/list") or "bklist" in href:
+        if PATH_LIST in path.lower() or path.lower().endswith("/list") or "bklist" in href:
             return False
         if "bkdetail" in href:
             return True
