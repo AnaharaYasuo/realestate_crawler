@@ -814,6 +814,8 @@ docs/
 - **[クローラータスク分散最適化および集約レポート母数是正 内部設計書](docs/internal_design/task_distribution_and_aggregation_fix_internal_design_980.md)**: _assign_8_task_index再設計・aggregate_task_array_reports内部仕様 (Issue #980)
 - **[Cloud定期実行ポータル除外および件数順優先処理 要件定義書](docs/requirements/cloud_skip_portals_and_prioritized_crawl_requirements_985.md)**: Cloudポータル除外・ローカル本番実行・件数規模順優先処理要件 (Issue #985)
 - **[Cloud定期実行ポータル除外および件数順優先処理 内部設計書](docs/internal_design/cloud_skip_portals_and_prioritized_crawl_internal_design_985.md)**: is_cloud_environment・sort_jobs_by_priority・キュー優先度制御内部仕様 (Issue #985)
+- **[都市部・地方地域感応度変調特徴量 要件定義書](docs/requirements/regional_sensitivity_features_requirements_1003.md)**: 駅徒歩弾力性・有効駅距離・築年減価耐性・面積価値強度による割安物件過大・過小予測是正要件 (Issue #1003)
+- **[都市部・地方地域感応度変調特徴量 内部設計書](docs/internal_design/regional_sensitivity_features_internal_design_1003.md)**: 4交互作用特徴量算出式・マスタ未登録時人口密度フォールバック・FEATURE_SETS登録・TDD検証仕様 (Issue #1003)
 
 
 ### 2. 開発を始める

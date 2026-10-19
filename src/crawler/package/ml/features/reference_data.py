@@ -7,7 +7,10 @@ import re
 import threading
 from typing import Any
 
-from package.ml.features.constants import PREFECTURE_BASE_LAND_PRICES
+from package.ml.features.constants import (
+    PREFECTURE_BASE_LAND_PRICES,
+    PREFECTURE_BASE_POP_DENSITY,
+)
 from package.ml.features.reference_records import (
     HazardMapRecord,
     LandPriceRecord,
@@ -315,10 +318,11 @@ def query_municipal_potential(address1: str, address2: str) -> tuple[float, int,
         has_ig = [float(x.income_growth_rate) for x in muni_pref_vals if x.income_growth_rate is not None]
         income_growth_rate = (sum(has_ig) / len(has_ig)) if has_ig else 0.0
         has_pd = [float(x.population_density) for x in muni_pref_vals if x.population_density is not None]
-        pop_density = (sum(has_pd) / len(has_pd)) if has_pd else 4000.0
+        pop_density = (sum(has_pd) / len(has_pd)) if has_pd else PREFECTURE_BASE_POP_DENSITY.get(address1, 4000.0)
         return pop_growth, income, total_population, income_growth_rate, pop_density
 
-    return 0.0, 3000, 100000, 0.0, 4000.0
+    base_density = PREFECTURE_BASE_POP_DENSITY.get(address1, 4000.0)
+    return 0.0, 3000, 100000, 0.0, base_density
 
 
 def query_station_volume(station1: str) -> int:
