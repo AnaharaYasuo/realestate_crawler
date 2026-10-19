@@ -1512,9 +1512,12 @@ class ParserBase(metaclass=ABCMeta):
         問題がある場合は [PARSER_EXTRACTION_ERROR] をエラーログとして出力する。
         """
         prop_type = self._resolve_validation_property_type(item)
-        expected_fields = self.EXPECTED_SPEC_FIELDS_BY_TYPE.get(
-            prop_type, ["price", "address"]
+        expected_fields = list(
+            self.EXPECTED_SPEC_FIELDS_BY_TYPE.get(prop_type, ["price", "address"])
         )
+        switched_from = getattr(item, "_switched_from_property_type", None)
+        if switched_from and switched_from in ("kodate", "mansion", "tochi") and prop_type == "investment":
+            expected_fields = [f for f in expected_fields if f not in ("grossYield", "annualRent")]
         errors: list[dict] = []
         for field in expected_fields:
             err = self._validate_item_field(item, field)
@@ -1970,6 +1973,7 @@ class ParserBase(metaclass=ABCMeta):
         )
         new_item = target_parser.createEntity()
         new_item.pageUrl = url
+        new_item._switched_from_property_type = self.property_type
         return (target_parser, new_item)
 
     async def parsePropertyDetailPage(self, session, url) -> models.Model:
