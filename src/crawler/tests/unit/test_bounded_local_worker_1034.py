@@ -1,17 +1,11 @@
-import os
 import time
 import threading
 from unittest.mock import MagicMock, patch
-import pytest
 
 from package.api.api import (
     ApiRegistry,
     ApiAsyncProcBase,
     _get_local_worker_concurrency,
-    _get_local_worker_semaphore,
-    _active_fire_and_forget_threads,
-    _track_fire_and_forget_thread,
-    _untrack_fire_and_forget_thread,
     _wait_for_active_fire_and_forget_threads,
 )
 
@@ -20,16 +14,25 @@ class DummyMiddleApi(ApiAsyncProcBase):
     def _generateParser(self):
         return None
 
-    def _generateTimeout(self):
-        return 5
+    def _getLocalPararellLimit(self):
+        return 1
 
-    def _generateConnector(self, loop):
-        return None
+    def _getCloudPararellLimit(self):
+        return 1
 
-    def _getTreatPageArg(self):
-        return None
+    def _getTimeOutSecond(self):
+        return 10
+
+    def _getApiKey(self):
+        return "/dummy/child"
 
     async def _treatPage(self, session, *arg):
+        return []
+
+    async def _callApi(self, url_list):
+        return []
+
+    def _getTreatPageArg(self):
         return None
 
 
@@ -65,8 +68,7 @@ def test_local_worker_concurrency_bounds_active_threads(monkeypatch):
         nonlocal active_count, max_observed_active
         with lock:
             active_count += 1
-            if active_count > max_observed_active:
-                max_observed_active = active_count
+            max_observed_active = max(max_observed_active, active_count)
         time.sleep(0.1)
         with lock:
             active_count -= 1
