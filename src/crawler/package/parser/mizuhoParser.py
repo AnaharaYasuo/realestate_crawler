@@ -112,7 +112,7 @@ class MizuhoParser(ParserBase):
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     return await self._handle_http_status(response, url)
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
                 self.consecutive_timeouts = cur_timeouts
                 if cur_timeouts >= max_timeouts:
@@ -146,8 +146,8 @@ class MizuhoParser(ParserBase):
         try:
             with open(links_file, encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip()]
-        except Exception as e:
-            logging.exception(f"Mizuho: Failed to read temporary URLs file: {e}")
+        except Exception:
+            logging.exception("Mizuho: Failed to read temporary URLs file")
             return []
 
     def _extract_static_detail_links(self, response: BeautifulSoup) -> list[ListItem]:
@@ -166,9 +166,38 @@ class MizuhoParser(ParserBase):
             if normalized in seen:
                 continue
             seen.add(normalized)
-            price = self._extract_card_price(a)
+            price = self._extract_mizuho_card_price(a)
             detail_items.append(ListItem(url=normalized, price=price))
         return detail_items
+
+    @classmethod
+    def _extract_mizuho_card_price(cls, link) -> int | None:
+        """みずほ物件カード要素から個別の物件価格のみを厳格に抽出する (Issue #1047: コンテナ範囲漏れ防止)"""
+        if not hasattr(link, "find_parent"):
+            return None
+        # カード要素（親タグ）を限定的に探索。リスト枠や親ブロックを超えて上位を探索しない
+        card = None
+        curr = link
+        for _ in range(4):
+            parent = curr.find_parent(["div", "li", "article", "section"])
+            if parent is None:
+                break
+            classes = " ".join(parent.get("class", [])) if isinstance(parent.get("class"), list) else str(parent.get("class", ""))
+            tag_id = str(parent.get("id", ""))
+            combined = f"{classes} {tag_id}".lower()
+            # ページ全体や検索結果一覧ブロック（親ラッパー）に到達した時点で探索を打ち切る
+            if any(wrap in combined for wrap in ["search", "result", "list", "wrapper", "container", "main", "content", "filter"]):
+                if card is None:
+                    card = curr
+                break
+            # 個別カードを示すクラス
+            if any(k in combined for k in ["card", "item", "box", "unit", "property"]):
+                card = parent
+                break
+            curr = parent
+
+        card = card or curr or link
+        return cls._extract_price_from_container(card)
 
     async def _execute_playwright_bypass_links(self):
         logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
