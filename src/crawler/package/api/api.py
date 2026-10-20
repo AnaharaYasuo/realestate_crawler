@@ -74,6 +74,25 @@ DEFAULT_DISPATCH_QUEUE_SIZE = _get_default_dispatch_queue_size()
 _active_fire_and_forget_threads: set[threading.Thread] = set()
 _failed_fire_and_forget_dispatches: list[tuple[str, str, BaseException]] = []
 _active_threads_lock = threading.Lock()
+_local_worker_semaphore: threading.Semaphore | None = None
+_local_worker_semaphore_lock = threading.Lock()
+
+
+def _get_local_worker_concurrency() -> int:
+    try:
+        val = int(os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "20"))
+        return val if val > 0 else 20
+    except (ValueError, TypeError):
+        return 20
+
+
+def _get_local_worker_semaphore() -> threading.Semaphore:
+    global _local_worker_semaphore
+    with _local_worker_semaphore_lock:
+        if _local_worker_semaphore is None:
+            limit = _get_local_worker_concurrency()
+            _local_worker_semaphore = threading.Semaphore(limit)
+        return _local_worker_semaphore
 
 
 def _track_fire_and_forget_thread(t: threading.Thread) -> None:
@@ -1051,27 +1070,29 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         parent_keys = _current_dispatch_keys()
 
         child_errors: list[BaseException] = []
+        sem = _get_local_worker_semaphore()
 
         def run_in_new_loop():
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            _crawl_run_state.keys = parent_keys
-            try:
-                target_class().main(detail_url)
-            except Exception as exc:  # noqa: BLE001
-                child_errors.append(exc)
-                _record_fire_and_forget_failure(path, detail_url, exc)
-                logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
-            finally:
-                _crawl_run_state.keys = None
+            with sem:
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                _crawl_run_state.keys = parent_keys
                 try:
-                    from django.db import close_old_connections, connections
-                    close_old_connections()
-                    connections.close_all()
-                except Exception as db_exc:  # noqa: BLE001
-                    logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
-                new_loop.close()
-                _untrack_fire_and_forget_thread(threading.current_thread())
+                    target_class().main(detail_url)
+                except Exception as exc:
+                    child_errors.append(exc)
+                    _record_fire_and_forget_failure(path, detail_url, exc)
+                    logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
+                finally:
+                    _crawl_run_state.keys = None
+                    try:
+                        from django.db import close_old_connections, connections
+                        close_old_connections()
+                        connections.close_all()
+                    except Exception as db_exc:  # noqa: BLE001
+                        logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
+                    new_loop.close()
+            _untrack_fire_and_forget_thread(threading.current_thread())
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
         t = threading.Thread(target=run_in_new_loop, daemon=True)
