@@ -79,7 +79,7 @@ class ParseSumifuInvestStartAsyncBase(ApiAsyncProcBase):
         return
 
 # ==============================================================================
-#  KODATE (戸建て賃貸)
+#  KODATE (戸建て賁E��)
 # ==============================================================================
 
 class ParseSumifuInvestKodateDetailFuncAsync(ParseSumifuInvestDetailFuncAsyncBase):
@@ -101,8 +101,8 @@ class ParseSumifuInvestKodateListFuncAsync(ParseSumifuInvestListFuncAsyncBase):
         return API_KEY_SUMIFU_INVEST_KODATE_DETAIL
 
 class ParseSumifuInvestKodateStartAsync(ParseSumifuInvestStartAsyncBase):
-    # 戸建 (7桁目が1)
-    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=000000100000"]
+    # 投資用戸建 (6桁目が1, value=7)
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=000001000000"]
 
     def _generateParser(self):
         return SumifuInvestmentKodateParser("")
@@ -113,7 +113,7 @@ class ParseSumifuInvestKodateStartAsync(ParseSumifuInvestStartAsyncBase):
         return API_KEY_SUMIFU_INVEST_KODATE_LIST
 
 # ==============================================================================
-#  APARTMENT (アパート)
+#  APARTMENT (アパ�EチE
 # ==============================================================================
 
 class ParseSumifuInvestApartmentDetailFuncAsync(ParseSumifuInvestDetailFuncAsyncBase):
@@ -135,8 +135,8 @@ class ParseSumifuInvestApartmentListFuncAsync(ParseSumifuInvestListFuncAsyncBase
         return API_KEY_SUMIFU_INVEST_APARTMENT_DETAIL
 
 class ParseSumifuInvestApartmentStartAsync(ParseSumifuInvestStartAsyncBase):
-    # アパート (2桁目が1)
-    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=010000000000"]
+    # アパ�EチE(2桁目ぁE)
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=001000000000"]
 
     def _generateParser(self):
         return SumifuInvestmentApartmentParser("")
