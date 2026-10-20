@@ -1421,8 +1421,12 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     async def parseNextPage(self, response):
         next_page_text = self.selectors.get('next_page', "次へ")
         next_link = response.find('a', string=re.compile(next_page_text))
+        if not next_link:
+            # Next.js pagination: <a aria-label="次のページへ" href="https://...?page=N">
+            next_link = response.find('a', attrs={'aria-label': re.compile('次')}, href=True)
         if next_link and next_link.get('href'):
-            return self.BASE_URL + next_link.get('href')
+            href = next_link.get('href')
+            return href if href.startswith('http') else self.BASE_URL + href
         return ""
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
