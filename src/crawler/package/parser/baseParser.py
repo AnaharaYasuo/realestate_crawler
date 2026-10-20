@@ -1015,6 +1015,20 @@ class ParserBase(metaclass=ABCMeta):
         return None
 
     @classmethod
+    def _extract_price_from_container(cls, card) -> int | None:
+        """コンテナ要素から価格を抽出するヘルパー"""
+        card_text = card.get_text(separator=" ", strip=True)
+        if not cls._SIMPLE_PRICE_RE.search(card_text):
+            return None
+        for sel in cls._PRICE_SELECTORS:
+            el = card.select_one(sel)
+            if el:
+                price = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
+                if price:
+                    return price
+        return cls._parse_valid_price(card_text)
+
+    @classmethod
     def _extract_card_price(cls, link, cache: dict | None = None) -> int | None:
         """カード要素やその周辺から物件価格（整数・円）を厳格に抽出する (Issue #635, #1039 最適化)"""
         if not hasattr(link, "find_parent"):
@@ -1024,21 +1038,7 @@ class ParserBase(metaclass=ABCMeta):
         if cache is not None and card_id in cache:
             return cache[card_id]
 
-        price = None
-        # 1. card 内のテキスト全体を1回だけ取得して適正価格の存在を事前チェック
-        card_text = card.get_text(separator=" ", strip=True)
-        if cls._SIMPLE_PRICE_RE.search(card_text):
-            # 2. card 内の価格専用クラス・要素を探索
-            for sel in cls._PRICE_SELECTORS:
-                el = card.select_one(sel)
-                if el:
-                    price = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
-                    if price:
-                        break
-            if not price:
-                # 3. テキスト全体から価格パターンを抽出
-                price = cls._parse_valid_price(card_text)
-
+        price = cls._extract_price_from_container(card)
         if cache is not None:
             cache[card_id] = price
         return price
