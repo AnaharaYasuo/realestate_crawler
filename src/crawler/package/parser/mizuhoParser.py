@@ -187,8 +187,7 @@ class MizuhoParser(ParserBase):
             combined = f"{classes} {tag_id}".lower()
             # ページ全体や検索結果一覧ブロック（親ラッパー）に到達した時点で探索を打ち切る
             if any(wrap in combined for wrap in ["search", "result", "list", "wrapper", "container", "main", "content", "filter"]):
-                if card is None:
-                    card = curr
+                card = curr
                 break
             # 個別カードを示すクラス
             if any(k in combined for k in ["card", "item", "box", "unit", "property"]):
