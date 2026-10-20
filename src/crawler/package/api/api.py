@@ -72,10 +72,13 @@ def _get_default_dispatch_queue_size() -> int:
 
 DEFAULT_DISPATCH_QUEUE_SIZE = _get_default_dispatch_queue_size()
 _active_fire_and_forget_threads: set[threading.Thread] = set()
+_active_fire_and_forget_futures: set[concurrent.futures.Future] = set()
 _failed_fire_and_forget_dispatches: list[tuple[str, str, BaseException]] = []
 _active_threads_lock = threading.Lock()
 _local_worker_semaphore: threading.Semaphore | None = None
 _local_worker_semaphore_lock = threading.Lock()
+_local_worker_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_local_worker_executor_lock = threading.Lock()
 
 
 def _get_local_worker_concurrency() -> int:
@@ -95,6 +98,19 @@ def _get_local_worker_semaphore() -> threading.Semaphore:
         return _local_worker_semaphore
 
 
+def _get_local_worker_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Issue #1046: スレッド無制限生成を防ぎ、固定ワーカー数で使い回すThreadPoolExecutorを取得"""
+    global _local_worker_executor
+    with _local_worker_executor_lock:
+        if _local_worker_executor is None:
+            limit = _get_local_worker_concurrency()
+            _local_worker_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=limit,
+                thread_name_prefix="crawler-worker"
+            )
+        return _local_worker_executor
+
+
 def _track_fire_and_forget_thread(t: threading.Thread) -> None:
     with _active_threads_lock:
         _active_fire_and_forget_threads.add(t)
@@ -103,6 +119,16 @@ def _track_fire_and_forget_thread(t: threading.Thread) -> None:
 def _untrack_fire_and_forget_thread(t: threading.Thread) -> None:
     with _active_threads_lock:
         _active_fire_and_forget_threads.discard(t)
+
+
+def _track_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_futures.add(fut)
+
+
+def _untrack_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_futures.discard(fut)
 
 
 def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> None:
@@ -118,16 +144,20 @@ def _get_fire_and_forget_wait_timeout() -> float:
         return 7200.0
 
 
-def _poll_active_threads(curr: threading.Thread) -> list[threading.Thread]:
+def _poll_active_threads(curr: threading.Thread) -> list[Any]:
     with _active_threads_lock:
-        alive = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
-        _active_fire_and_forget_threads.intersection_update(set(alive) | ({curr} if curr in _active_fire_and_forget_threads else set()))
-        return alive
+        alive_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        _active_fire_and_forget_threads.intersection_update(set(alive_threads) | ({curr} if curr in _active_fire_and_forget_threads else set()))
+        alive_futures = [f for f in _active_fire_and_forget_futures if not f.done()]
+        _active_fire_and_forget_futures.intersection_update(set(alive_futures))
+        return alive_threads + alive_futures
 
 
 def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
     with _active_threads_lock:
-        remaining = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        remaining_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        remaining_futures = [f for f in _active_fire_and_forget_futures if not f.done()]
+        remaining = remaining_threads + remaining_futures
         failures = list(_failed_fire_and_forget_dispatches)
         _failed_fire_and_forget_dispatches.clear()
 
@@ -152,6 +182,18 @@ def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
         logger.info("All fire-and-forget background threads finished successfully")
 
 
+def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
+    if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
+        return
+    cancelled_count = 0
+    with _active_threads_lock:
+        for fut in _active_fire_and_forget_futures:
+            if not fut.done() and fut.cancel():
+                cancelled_count += 1
+    if cancelled_count > 0:
+        logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
@@ -168,12 +210,9 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
             break
 
         alive = _poll_active_threads(curr)
-        if not alive:
-            consecutive_idle += 1
-            if consecutive_idle >= 3:
-                break
-        else:
-            consecutive_idle = 0
+        consecutive_idle = (consecutive_idle + 1) if not alive else 0
+        if consecutive_idle >= 3:
+            break
 
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
@@ -181,6 +220,8 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
 
         time.sleep(0.5)
 
+    timeout_expired = timeout > 0 and (time.monotonic() - start) >= timeout
+    _cancel_unstarted_futures_on_stop(timeout_expired)
     _check_wait_results(timeout, curr)
 
 
@@ -1070,40 +1111,44 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         parent_keys = _current_dispatch_keys()
 
         child_errors: list[BaseException] = []
-        sem = _get_local_worker_semaphore()
 
         def run_in_new_loop():
-            with sem:
-                new_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(new_loop)
-                _crawl_run_state.keys = parent_keys
+            if os.path.exists(STOP_FLAG_FILE):
+                logger.info("Skip local task because STOP_FLAG_FILE exists: %s", detail_url)
+                return
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            _crawl_run_state.keys = parent_keys
+            try:
+                target_class().main(detail_url)
+            except Exception as exc:
+                child_errors.append(exc)
+                _record_fire_and_forget_failure(path, detail_url, exc)
+                logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
+            finally:
+                _crawl_run_state.keys = None
                 try:
-                    target_class().main(detail_url)
-                except Exception as exc:
-                    child_errors.append(exc)
-                    _record_fire_and_forget_failure(path, detail_url, exc)
-                    logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
-                finally:
-                    _crawl_run_state.keys = None
-                    try:
-                        from django.db import close_old_connections, connections
-                        close_old_connections()
-                        connections.close_all()
-                    except Exception as db_exc:  # noqa: BLE001
-                        logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
-                    new_loop.close()
-            _untrack_fire_and_forget_thread(threading.current_thread())
+                    from django.db import close_old_connections, connections
+                    close_old_connections()
+                    connections.close_all()
+                except Exception as db_exc:  # noqa: BLE001
+                    logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
+                new_loop.close()
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
+        fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
+
+        if fire_and_forget:
+            executor = _get_local_worker_executor()
+            fut = executor.submit(run_in_new_loop)
+            _track_fire_and_forget_future(fut)
+            fut.add_done_callback(lambda f: _untrack_fire_and_forget_future(f))
+            logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
+            return detail_url, 202, "FireAndForgetLocal"
+
         t = threading.Thread(target=run_in_new_loop, daemon=True)
         _track_fire_and_forget_thread(t)
         t.start()
-
-        fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
-        if fire_and_forget:
-            logger.info("Fire and forget (local dispatch accepted): %s -> %s", path, detail_url)
-            return detail_url, 202, "FireAndForgetLocal"
-
         timeout_res = self._wait_for_local_execution(t, max_timeout, detail_url)
         if timeout_res is not None:
             return timeout_res
