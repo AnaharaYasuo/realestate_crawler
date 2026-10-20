@@ -42,10 +42,10 @@ class TestResourceAwareConcurrency895(unittest.TestCase):
 
     @patch("package.utils.resource_limiter.detect_available_memory_mb", return_value=16000)
     def test_high_memory_concurrency(self, mock_mem):
-        """利用可能メモリ > 8GB 時は既定並列度 (9 / 3) となること"""
+        """利用可能メモリ > 8GB 時は既定並列度 (7 / 3) となること (Issue #1037)"""
         with patch.dict(os.environ, {}, clear=True):
             p, pw, reason = get_resource_aware_concurrency()
-            self.assertEqual(p, 9)
+            self.assertEqual(p, 7)
             self.assertEqual(pw, 3)
             self.assertIn("16000MB", reason)
 

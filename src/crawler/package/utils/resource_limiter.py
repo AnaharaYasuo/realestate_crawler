@@ -95,7 +95,7 @@ def detect_available_memory_mb() -> int | None:
 
 
 def get_resource_aware_concurrency(
-    default_parallel: int = 9,
+    default_parallel: int = 7,
     default_playwright_parallel: int = 3,
 ) -> tuple[int, int, str]:
     """
