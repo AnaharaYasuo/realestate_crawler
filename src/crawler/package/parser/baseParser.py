@@ -1015,22 +1015,33 @@ class ParserBase(metaclass=ABCMeta):
         return None
 
     @classmethod
-    def _extract_card_price(cls, link) -> int | None:
-        """カード要素やその周辺から物件価格（整数・円）を厳格に抽出する (Issue #635: 誤判定完全排除)"""
-        if not hasattr(link, "find_parent"):
+    def _extract_price_from_container(cls, card) -> int | None:
+        """コンテナ要素から価格を抽出するヘルパー"""
+        card_text = card.get_text(separator=" ", strip=True)
+        if not cls._SIMPLE_PRICE_RE.search(card_text):
             return None
-        card = cls._find_card_container(link)
-
-        # 1. card 内の価格専用クラス・要素を探索
         for sel in cls._PRICE_SELECTORS:
             el = card.select_one(sel)
             if el:
-                p = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
-                if p:
-                    return p
+                price = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
+                if price:
+                    return price
+        return cls._parse_valid_price(card_text)
 
-        # 2. テキスト全体から価格パターンを抽出
-        return cls._parse_valid_price(card.get_text(separator=" ", strip=True))
+    @classmethod
+    def _extract_card_price(cls, link, cache: dict | None = None) -> int | None:
+        """カード要素やその周辺から物件価格（整数・円）を厳格に抽出する (Issue #635, #1039 最適化)"""
+        if not hasattr(link, "find_parent"):
+            return None
+        card = cls._find_card_container(link)
+        card_id = id(card)
+        if cache is not None and card_id in cache:
+            return cache[card_id]
+
+        price = cls._extract_price_from_container(card)
+        if cache is not None:
+            cache[card_id] = price
+        return price
 
     async def _parsePageCore(
         self, response: BeautifulSoup, xpath_fn=None, dest_url_fn=None
@@ -1038,6 +1049,7 @@ class ParserBase(metaclass=ABCMeta):
         if not dest_url_fn:
             return
         xpath_pattern = xpath_fn() if callable(xpath_fn) else ""
+        price_cache: dict[int, int | None] = {}
         for link in response.find_all("a"):
             href = link.get("href")
             if self._is_non_property_href(href):
@@ -1051,7 +1063,7 @@ class ParserBase(metaclass=ABCMeta):
                 continue
             dest_url = self._resolve_http_dest_url(href, dest_url_fn)
             if dest_url:
-                price = self._extract_card_price(link)
+                price = self._extract_card_price(link, cache=price_cache)
                 yield ListItem(url=dest_url, price=price)
 
     _SPECIAL_CITY_PREFIXES = (

@@ -10,14 +10,14 @@ from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 
 def test_job_parallel_default_is_9():
-    """アクセプタンス基準1: run_all_crawlers.py のデフォルト並行度が 9 であること"""
+    """アクセプタンス基準1: run_all_crawlers.py のデフォルト並行度が 7 であること (Issue #1037)"""
     from scripts.ops.run_all_crawlers import parse_args
     with patch("sys.argv", ["run_all_crawlers.py"]), patch(
         "scripts.ops.run_all_crawlers.get_resource_aware_concurrency",
         side_effect=lambda default_parallel, default_playwright_parallel: (default_parallel, default_playwright_parallel, 4),
     ):
         args = parse_args()
-        assert args.parallel == 9
+        assert args.parallel == 7
         assert args.playwright_parallel == 3
 
 
