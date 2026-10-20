@@ -112,7 +112,7 @@ class MizuhoParser(ParserBase):
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     return await self._handle_http_status(response, url)
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 cur_timeouts = getattr(self, 'consecutive_timeouts', 0) + 1
                 self.consecutive_timeouts = cur_timeouts
                 if cur_timeouts >= max_timeouts:
@@ -146,8 +146,8 @@ class MizuhoParser(ParserBase):
         try:
             with open(links_file, encoding="utf-8") as f:
                 return [line.strip() for line in f if line.strip()]
-        except Exception as e:
-            logging.exception(f"Mizuho: Failed to read temporary URLs file: {e}")
+        except Exception:
+            logging.exception("Mizuho: Failed to read temporary URLs file")
             return []
 
     def _extract_static_detail_links(self, response: BeautifulSoup) -> list[ListItem]:
@@ -166,9 +166,25 @@ class MizuhoParser(ParserBase):
             if normalized in seen:
                 continue
             seen.add(normalized)
-            price = self._extract_card_price(a)
+            price = self._extract_mizuho_card_price(a)
             detail_items.append(ListItem(url=normalized, price=price))
         return detail_items
+
+    @classmethod
+    def _extract_mizuho_card_price(cls, link) -> int | None:
+        """みずほ物件カード要素から個別の物件価格のみを厳格に抽出する (Issue #1047: コンテナ範囲漏れ防止)"""
+        if not hasattr(link, "find_parents"):
+            return None
+        # 詳細リンクの正規表現（buyers / investors の物件詳細URL）
+        detail_re = re.compile(r"/(?:buyers|investors)/(?:property|detail)/\d+")
+        card = link
+        for parent in link.find_parents(["div", "li", "article", "section"], limit=4):
+            hrefs = {a.get("href") for a in parent.find_all("a", href=detail_re)}
+            # 異なる詳細リンクを2件以上含む祖先に到達した時点で探索を打ち切る
+            if len(hrefs) > 1:
+                break
+            card = parent
+        return cls._extract_price_from_container(card)
 
     async def _execute_playwright_bypass_links(self):
         logging.info(f"Mizuho: No links found in static HTML (possible WAF/JS). Executing Playwright bypass for {self.property_type}...")
