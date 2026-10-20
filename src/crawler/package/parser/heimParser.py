@@ -154,7 +154,7 @@ class HeimParser(ParserBase):
             specs[k] = v
 
     _HEIM_LABEL_RE = re.compile(
-        r"^(?:種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+([^\r\n]{1,200})$"
+        r"^(種別|区画|販売価格|価格|土地面積|建物面積|間取り|間取)\s+([^\r\n]{1,200})$"
     )
 
 
