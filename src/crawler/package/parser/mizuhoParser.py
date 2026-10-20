@@ -173,29 +173,17 @@ class MizuhoParser(ParserBase):
     @classmethod
     def _extract_mizuho_card_price(cls, link) -> int | None:
         """みずほ物件カード要素から個別の物件価格のみを厳格に抽出する (Issue #1047: コンテナ範囲漏れ防止)"""
-        if not hasattr(link, "find_parent"):
+        if not hasattr(link, "find_parents"):
             return None
-        # カード要素（親タグ）を限定的に探索。リスト枠や親ブロックを超えて上位を探索しない
-        card = None
-        curr = link
-        for _ in range(4):
-            parent = curr.find_parent(["div", "li", "article", "section"])
-            if parent is None:
+        # 詳細リンクの正規表現（buyers / investors の物件詳細URL）
+        detail_re = re.compile(r"/(?:buyers|investors)/(?:property|detail)/\d+")
+        card = link
+        for parent in link.find_parents(["div", "li", "article", "section"], limit=4):
+            hrefs = {a.get("href") for a in parent.find_all("a", href=detail_re)}
+            # 異なる詳細リンクを2件以上含む祖先に到達した時点で探索を打ち切る
+            if len(hrefs) > 1:
                 break
-            classes = " ".join(parent.get("class", [])) if isinstance(parent.get("class"), list) else str(parent.get("class", ""))
-            tag_id = str(parent.get("id", ""))
-            combined = f"{classes} {tag_id}".lower()
-            # ページ全体や検索結果一覧ブロック（親ラッパー）に到達した時点で探索を打ち切る
-            if any(wrap in combined for wrap in ["search", "result", "list", "wrapper", "container", "main", "content", "filter"]):
-                card = curr
-                break
-            # 個別カードを示すクラス
-            if any(k in combined for k in ["card", "item", "box", "unit", "property"]):
-                card = parent
-                break
-            curr = parent
-
-        card = card or curr or link
+            card = parent
         return cls._extract_price_from_container(card)
 
     async def _execute_playwright_bypass_links(self):
