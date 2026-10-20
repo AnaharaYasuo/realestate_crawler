@@ -17,6 +17,16 @@ description: コンテナ起動確認から全件クローリング、MLモデ�
 
 ---
 
+## 前提定義: 「ローカル本番実行」と「ローカル開発環境実行」の区別
+- **ローカル本番実行 (Local Production Run)**:
+  - ローカル PC / Docker の計算リソースを用い、**本番基盤へ直接投入・連携**して動作させる実行形態。
+  - **DB保存先**: 本番 **Google Cloud SQL**（IAP トンネル経由 `host.docker.internal:6033`）
+  - **画像保存先**: 本番 **Google Cloud Storage (GCS)**（`STORAGE_BACKEND=gcs`）
+- **ローカル開発環境での動作 (Local Development Run)**:
+  - 単なるローカル閉鎖環境での動作（ローカル MySQL `db` コンテナ、MinIO `minio` コンテナへの保存）。「ローカル本番実行」とは呼ばない。
+
+---
+
 ## ワークフロー手順
 
 ### Phase 0: コンテナ起動確認 ＆ Pre-flight 疎通チェック
