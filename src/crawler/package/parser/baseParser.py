@@ -1856,7 +1856,7 @@ class ParserBase(metaclass=ABCMeta):
     @classmethod
     def _check_body_listing_ended(cls, clean_soup: BeautifulSoup) -> bool:
         err_boxes = clean_soup.select(
-            ".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended"
+            ".mod-message-end, .not-found, .error-message, .alert-box, .is-ended, .property-ended, .property-detail-not-found-template"
         )
         for err_box in err_boxes:
             box_text = WHITESPACE_REGEX.sub(" ", err_box.get_text())
