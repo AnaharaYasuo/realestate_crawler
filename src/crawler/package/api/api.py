@@ -80,10 +80,10 @@ _local_worker_semaphore_lock = threading.Lock()
 
 def _get_local_worker_concurrency() -> int:
     try:
-        val = int(os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "20"))
-        return val if val > 0 else 20
+        val = int(os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "10"))
+        return val if val > 0 else 10
     except (ValueError, TypeError):
-        return 20
+        return 10
 
 
 def _get_local_worker_semaphore() -> threading.Semaphore:
