@@ -11,10 +11,10 @@
 ### 2.1. 住友不動産投資用 (`package/api/sumifu_investment.py`)
 - `ParseSumifuInvestKodateStartAsync.urlList`:
   - 変更前: `["https://www.stepon.co.jp/pro/ca_0_001/?smk=000000100000"]`
-  - 変更後: `["https://www.stepon.co.jp/search/list/?type=pro2&searchType=area&smk=000001000000&ca=0_001"]`
+  - 変更後: `["https://www.stepon.co.jp/pro/ca_0_001/?smk=000001000000"]`
 - `ParseSumifuInvestApartmentStartAsync.urlList`:
   - 変更前: `["https://www.stepon.co.jp/pro/ca_0_001/?smk=010000000000"]`
-  - 変更後: `["https://www.stepon.co.jp/search/list/?type=pro2&searchType=area&smk=001000000000&ca=0_001"]`
+  - 変更後: `["https://www.stepon.co.jp/pro/ca_0_001/?smk=001000000000"]`
 
 ### 2.2. 相鉄不動産 (`routes/sotetsu_routes.py`)
 - `sotetsu_mansion_start`:

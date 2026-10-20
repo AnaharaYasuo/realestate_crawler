@@ -102,7 +102,7 @@ class ParseSumifuInvestKodateListFuncAsync(ParseSumifuInvestListFuncAsyncBase):
 
 class ParseSumifuInvestKodateStartAsync(ParseSumifuInvestStartAsyncBase):
     # 投資用戸建 (6桁目が1, value=7)
-    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/search/list/?type=pro2&searchType=area&smk=000001000000&ca=0_001"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=000001000000"]
 
     def _generateParser(self):
         return SumifuInvestmentKodateParser("")
@@ -136,7 +136,7 @@ class ParseSumifuInvestApartmentListFuncAsync(ParseSumifuInvestListFuncAsyncBase
 
 class ParseSumifuInvestApartmentStartAsync(ParseSumifuInvestStartAsyncBase):
     # アパ�EチE(2桁目ぁE)
-    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/search/list/?type=pro2&searchType=area&smk=001000000000&ca=0_001"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=001000000000"]
 
     def _generateParser(self):
         return SumifuInvestmentApartmentParser("")
