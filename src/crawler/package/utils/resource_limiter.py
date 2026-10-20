@@ -96,7 +96,7 @@ def detect_available_memory_mb() -> int | None:
 
 def get_resource_aware_concurrency(
     default_parallel: int = 7,
-    default_playwright_parallel: int = 2,
+    default_playwright_parallel: int = 3,
 ) -> tuple[int, int, str]:
     """
     Calculate safe concurrency levels based on available memory and environment variables.
@@ -122,7 +122,7 @@ def get_resource_aware_concurrency(
             safe_pw = 1
             tier = "LowMemory (<=4GB)"
         elif avail_mb <= 8192:
-            safe_p = 7
+            safe_p = 5
             safe_pw = 2
             tier = "MediumMemory (<=8GB)"
         else:

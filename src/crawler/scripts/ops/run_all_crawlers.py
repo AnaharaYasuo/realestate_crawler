@@ -66,7 +66,7 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
     default_parallel = 7
-    default_playwright_parallel = 2
+    default_playwright_parallel = 3
     default_parallel, default_playwright_parallel, _ = get_resource_aware_concurrency(
         default_parallel=default_parallel,
         default_playwright_parallel=default_playwright_parallel,
