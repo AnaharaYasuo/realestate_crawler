@@ -123,6 +123,9 @@ async def _extract_links_from_page(page, response) -> list:
     if "403" in title or (response and response.status == 403):
         logger.error("MizuhoBypass: Got blocked with 403!")
         return []
+    if (response and response.status in (502, 503, 504)) or "503" in title or "Service Unavailable" in title:
+        from package.parser.baseParser import ServerBusyException
+        raise ServerBusyException(f"Mizuho site temporarily unavailable ({response.status if response else '503'}): {title}")
 
     hrefs = await page.evaluate("""() => {
         const links = [];
