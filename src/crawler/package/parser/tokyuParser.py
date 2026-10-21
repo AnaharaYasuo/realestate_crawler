@@ -104,21 +104,30 @@ class TokyuParser(ParserBase):
     def getRootDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
-    async def parseRootPage(self, response):
+    def _extract_pc_root_links(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        pc_links = response.select("[class*='prefecturesListPc'] a[href*='/select-area/']")
+        if not pc_links:
+            return []
         seen = set()
-        # PC???????????????
-        if hasattr(response, "select"):
-            pc_links = response.select("[class*='prefecturesListPc'] a[href*='/select-area/']")
-            if pc_links:
-                for a in pc_links:
-                    href = a.get("href", "")
-                    if href:
-                        dest = self.getRootDestUrl(href)
-                        if dest and dest not in seen:
-                            seen.add(dest)
-                            yield dest
-                return
+        res = []
+        for a in pc_links:
+            href = a.get("href", "")
+            dest = self.getRootDestUrl(href) if href else None
+            if dest and dest not in seen:
+                seen.add(dest)
+                res.append(dest)
+        return res
 
+    async def parseRootPage(self, response):
+        pc_urls = self._extract_pc_root_links(response)
+        if pc_urls:
+            for url in pc_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
             url_str = getattr(dest_url, "url", str(dest_url))
             if url_str not in seen:
@@ -131,22 +140,28 @@ class TokyuParser(ParserBase):
     def getAreaDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
-    async def parseAreaPage(self, response):
+    def _extract_city_area_links(self, response) -> list:
+        if not hasattr(response, "find_all"):
+            return []
         seen = set()
-        # ????????? (/a\d+/) ??? (select-town????????????)
-        if hasattr(response, "find_all"):
-            found_cities = False
-            for a in response.find_all("a", href=True):
-                href = a.get("href", "")
-                if re.search(r'/kounyu/[^/]+/[^/]+/a\d+/?$', href):
-                    dest = self.getAreaDestUrl(href)
-                    if dest and dest not in seen:
-                        seen.add(dest)
-                        found_cities = True
-                        yield dest
-            if found_cities:
-                return
+        res = []
+        for a in response.find_all("a", href=True):
+            href = a.get("href", "")
+            if re.search(r'/kounyu/[^/]+/[^/]+/a\d+/?$', href):
+                dest = self.getAreaDestUrl(href)
+                if dest and dest not in seen:
+                    seen.add(dest)
+                    res.append(dest)
+        return res
 
+    async def parseAreaPage(self, response):
+        city_urls = self._extract_city_area_links(response)
+        if city_urls:
+            for url in city_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
             url_str = getattr(dest_url, "url", str(dest_url))
             if url_str not in seen:
@@ -159,9 +174,28 @@ class TokyuParser(ParserBase):
     def getPropertyListDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
+    def _extract_card_items(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        cards = response.select("[class*='propertyCardContents']")
+        if not cards:
+            return []
+        seen = set()
+        items = []
+        price_cache = {}
+        for card in cards:
+            a = card.find("a", href=True)
+            if not a:
+                continue
+            dest_url = self.getPropertyListDestUrl(a.get("href", ""))
+            if dest_url and dest_url not in seen:
+                seen.add(dest_url)
+                price = self._extract_card_price(a, cache=price_cache)
+                items.append(ListItem(url=dest_url, price=price))
+        return items
+
     async def parsePropertyListPage(self, response):
         seen = set()
-        # 1. Next.js JSON??????????????
         if hasattr(self, "_extract_nextjs_urls"):
             items = self._extract_nextjs_urls(response)
             if items is not None:
@@ -172,23 +206,12 @@ class TokyuParser(ParserBase):
                         yield item
                 return
 
-        # 2. HTML DOM????????? (propertyCardContents) ???????1?????
-        if hasattr(response, "select"):
-            cards = response.select("[class*='propertyCardContents']")
-            if cards:
-                price_cache = {}
-                for card in cards:
-                    a = card.find("a", href=True)
-                    if a:
-                        href = a.get("href", "")
-                        dest_url = self.getPropertyListDestUrl(href)
-                        if dest_url and dest_url not in seen:
-                            seen.add(dest_url)
-                            price = self._extract_card_price(a, cache=price_cache)
-                            yield ListItem(url=dest_url, price=price)
-                return
+        card_items = self._extract_card_items(response)
+        if card_items:
+            for item in card_items:
+                yield item
+            return
 
-        # 3. ??????? (_parsePageCore) ????????
         async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             url_str = getattr(item, "url", str(item))
             if url_str not in seen:
