@@ -42,14 +42,23 @@ def kill_hung_job_process(proc: Any) -> bool:
     if proc is None or proc.poll() is not None:
         return False
     try:
-        pgid = os.getpgid(proc.pid)
-        logger.warning(
-            f"⚠️ [Watchdog Hang Detected] Process group {pgid} (PID {proc.pid}) "
-            f"silent > {HANG_THRESHOLD_SEC}s. Killing process group via SIGKILL..."
-        )
-        os.killpg(pgid, signal.SIGKILL)
-        proc.communicate()
-        return True
+        if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+            pgid = os.getpgid(proc.pid)
+            logger.warning(
+                f"⚠️ [Watchdog Hang Detected] Process group {pgid} (PID {proc.pid}) "
+                f"silent > {HANG_THRESHOLD_SEC}s. Killing process group via SIGKILL..."
+            )
+            os.killpg(pgid, signal.SIGKILL)
+            proc.communicate()
+            return True
+        else:
+            logger.warning(
+                f"⚠️ [Watchdog Hang Detected] Process PID {proc.pid} "
+                f"silent > {HANG_THRESHOLD_SEC}s. Killing process via proc.kill()..."
+            )
+            proc.kill()
+            proc.communicate()
+            return True
     except Exception:
         logger.exception("Failed to kill hung process group")
         return False
@@ -70,8 +79,17 @@ def _update_single_job_progress(
     if (now - last_check_t) < check_interval_sec:
         return job_info
 
-    counts = count_fn(company, ptype, start_dt)
-    current_db_cnt = counts[2] if counts[0] is not None else None
+    # DB COUNT(*)???????????? (Issue #1054): ????????????????????
+    # count_fn?None????????????????
+    if count_fn is not None:
+        try:
+            counts = count_fn(company, ptype, start_dt)
+            current_db_cnt = counts[2] if counts[0] is not None else None
+        except Exception:
+            current_db_cnt = None
+    else:
+        current_db_cnt = None
+
     if current_db_cnt is not None:
         if current_db_cnt > prev_db_cnt:
             last_act = now
