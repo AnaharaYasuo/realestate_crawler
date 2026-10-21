@@ -194,17 +194,27 @@ class TokyuParser(ParserBase):
                 items.append(ListItem(url=dest_url, price=price))
         return items
 
-    async def parsePropertyListPage(self, response):
+    def _extract_nextjs_items_dedup(self, response) -> list | None:
+        if not hasattr(self, "_extract_nextjs_urls"):
+            return None
+        items = self._extract_nextjs_urls(response)
+        if items is None:
+            return None
         seen = set()
-        if hasattr(self, "_extract_nextjs_urls"):
-            items = self._extract_nextjs_urls(response)
-            if items is not None:
-                for item in items:
-                    url_str = getattr(item, "url", str(item))
-                    if url_str not in seen:
-                        seen.add(url_str)
-                        yield item
-                return
+        res = []
+        for item in items:
+            url_str = getattr(item, "url", str(item))
+            if url_str not in seen:
+                seen.add(url_str)
+                res.append(item)
+        return res
+
+    async def parsePropertyListPage(self, response):
+        nextjs_items = self._extract_nextjs_items_dedup(response)
+        if nextjs_items is not None:
+            for item in nextjs_items:
+                yield item
+            return
 
         card_items = self._extract_card_items(response)
         if card_items:
@@ -212,6 +222,7 @@ class TokyuParser(ParserBase):
                 yield item
             return
 
+        seen = set()
         async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
             url_str = getattr(item, "url", str(item))
             if url_str not in seen:
