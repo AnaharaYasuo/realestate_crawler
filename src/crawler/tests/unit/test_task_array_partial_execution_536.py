@@ -95,7 +95,7 @@ def test_crawler_parallelism_equals_task_count():
         content = f.read()
     task_count = _tf_default(content, "crawler_task_count")
     parallelism = _tf_default(content, "crawler_parallelism")
-    assert task_count == 8
+    assert task_count == 4
     assert parallelism == task_count
 
 

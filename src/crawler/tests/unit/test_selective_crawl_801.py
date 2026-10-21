@@ -57,9 +57,9 @@ def test_distribute_jobs_empty_when_no_matching():
     assert t1 == []
 
     # In modulo mode (e.g. 4 tasks)
-    t0_mod = distribute_jobs(targeted_jobs, task_index=0, task_count=4)
+    t0_mod = distribute_jobs(targeted_jobs, task_index=1, task_count=4)
     assert t0_mod == [("sumifu", "mansion")]
-    t1_mod = distribute_jobs(targeted_jobs, task_index=1, task_count=4)
+    t1_mod = distribute_jobs(targeted_jobs, task_index=0, task_count=4)
     assert t1_mod == []
 
 

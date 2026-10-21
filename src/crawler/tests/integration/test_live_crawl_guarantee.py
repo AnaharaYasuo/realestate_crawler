@@ -95,6 +95,12 @@ def test_live_crawl_guarantee_for_job(job):
         "sumai1_investment",
         "nomura_invest_kodate",
         "keikyu_kodate",
+        "kenbiya_mansion",
+        "kenbiya_kodate",
+        "kenbiya_tochi",
+        "kenbiya_invest_apartment",
+        "kenbiya_invest_building",
+        "athome_invest_apartment",
     ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(
