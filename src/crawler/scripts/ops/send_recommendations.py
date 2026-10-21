@@ -39,6 +39,45 @@ def _notify_status(msg: str) -> None:
 LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
 
+
+def batch_resolve_properties(eval_records: list) -> dict:
+    """
+    複数のPropertyEvaluationレコードに対応する実物件レコードを一括照会する。
+    1件ずつの個別クエリ発行によるN+1問題および長時間クエリタイムアウトを防止する。
+    戻り値: {property_url: property_record}
+    """
+    from collections import defaultdict
+    model_groups = defaultdict(list)
+    resolved = {}
+
+    for rec in eval_records:
+        if not rec.property_url:
+            continue
+        company = (rec.company or "").lower()
+        ptype = (rec.property_type or "").lower().replace("_", "")
+        model_groups[(company, ptype)].append(rec.property_url)
+
+    all_models = apps.get_models()
+    for (company, ptype), urls in model_groups.items():
+        matched_model = None
+        for model in all_models:
+            m_name = model.__name__.lower()
+            if m_name.startswith(company):
+                rest = m_name[len(company):]
+                if rest == ptype or rest == ptype.replace("invest", "investment"):
+                    matched_model = model
+                    break
+        if matched_model:
+            chunk_size = 500
+            for i in range(0, len(urls), chunk_size):
+                sub_urls = urls[i:i + chunk_size]
+                try:
+                    for obj in matched_model.objects.filter(pageUrl__in=sub_urls):
+                        resolved[obj.pageUrl] = obj
+                except Exception as e:
+                    logger.warning("Error batch resolving properties for %s: %s", matched_model.__name__, e)
+    return resolved
+
 def get_property_record(eval_record):
     """URLに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
     company = eval_record.company.lower()
@@ -252,21 +291,25 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
         return True
     return False
 
-def _fetch_recommendation_candidates():
+def _fetch_recommendation_candidates(limit: int = 2000):
     threshold_48h = timezone.now() - datetime.timedelta(hours=48)
-    candidates = PropertyEvaluation.objects.filter(
+    qs = PropertyEvaluation.objects.filter(
         is_slack_notified=False,
         is_published=True,
         needs_recrawl=False,
     ).filter(
         models.Q(analyzed_at__gte=threshold_48h) | models.Q(analyzed_at__isnull=True)
-    )
-    if not candidates.exists():
-        return PropertyEvaluation.objects.filter(
-            is_slack_notified=False,
-            is_published=True,
-            needs_recrawl=False,
-        ).order_by('-id')[:200]
+    ).order_by('-analyzed_at', '-id')
+
+    candidates = list(qs[:limit])
+    if not candidates:
+        candidates = list(
+            PropertyEvaluation.objects.filter(
+                is_slack_notified=False,
+                is_published=True,
+                needs_recrawl=False,
+            ).order_by('-id')[:200]
+        )
     return candidates
 
 def send_recommendations():
@@ -281,8 +324,10 @@ def send_recommendations():
     metrics.total_count = len(candidates)
     matched_candidates = []
 
+    prop_lookup = batch_resolve_properties(candidates)
+
     for eval_rec in candidates:
-        prop = get_property_record(eval_rec)
+        prop = prop_lookup.get(eval_rec.property_url) or get_property_record(eval_rec)
         if not prop:
             continue
         is_rec, reason, priority = _evaluate_candidate(eval_rec, prop)
