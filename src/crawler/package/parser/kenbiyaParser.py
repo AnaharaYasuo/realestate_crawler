@@ -93,8 +93,6 @@ class KenbiyaParserBase(ParserBase):
                 raise RateLimitedException(f"{RATE_LIMITED_KENBIYA_PREFIX}{url}")
             await asyncio.sleep(backoff)
             return None
-        if status in (401, 403):
-            raise ServerBusyException(f"Property page returned HTTP status {status} (WAF/Forbidden): {url}")
         raise LoadPropertyPageException(f"Failed to fetch {url} with status {status}")
 
     _request_lock = asyncio.Lock()
