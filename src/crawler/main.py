@@ -34,6 +34,7 @@ from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
 from package.utils.job_metrics import export_job_metrics
+from package.utils.crawler_watchdog import touch_crawler_progress, cleanup_crawler_progress
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -540,6 +541,7 @@ if __name__ == "__main__":
             signal.signal(signal.SIGINT, handle_sigterm)
 
             logger.info(f"Starting {company} {prop_type} crawl via CLI...")
+            touch_crawler_progress(company, prop_type)
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
@@ -565,6 +567,7 @@ if __name__ == "__main__":
                 export_job_metrics(company, prop_type)
             except Exception as me:
                 logger.warning(f"Failed to export job metrics on completion: {me}")
+            cleanup_crawler_progress(company, prop_type)
             logger.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:

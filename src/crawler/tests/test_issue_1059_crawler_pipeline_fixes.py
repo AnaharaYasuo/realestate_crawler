@@ -152,3 +152,15 @@ def test_sumai1_models_allow_blank_fields():
     invest = Sumai1Investment()
     field_soukosu = invest._meta.get_field("soukosu")
     assert field_soukosu.blank is True
+
+def test_api_proc_base_touch_watchdog_progress():
+    """ApiAsyncProcBase._touch_watchdog_progress touches progress file with lowercase names."""
+    from package.api.mitsui import ParseMitsuiMansionDetailFuncAsync
+    from package.utils.crawler_watchdog import cleanup_crawler_progress
+    detail_obj = ParseMitsuiMansionDetailFuncAsync()
+    p = get_progress_file_path("mitsui", "mansion")
+    cleanup_crawler_progress("mitsui", "mansion")
+    assert not p.exists()
+    detail_obj._touch_watchdog_progress()
+    assert p.exists()
+    cleanup_crawler_progress("mitsui", "mansion")
