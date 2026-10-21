@@ -112,15 +112,23 @@ async def get_mizuho_links_from_sitemap(
     return collected if limit is None else collected[:limit]
 
 
+def _check_page_errors(title: str, status: int | None) -> None:
+    if status in (502, 503, 504) or "503" in title or "Service Unavailable" in title:
+        from package.parser.baseParser import ServerBusyException
+        raise ServerBusyException(f"Mizuho site temporarily unavailable ({status or '503'}): {title}")
+
+
 async def _extract_links_from_page(page, response) -> list:
     title = await page.title()
+    status = response.status if response else None
     logger.info(
         "MizuhoBypass: Page loaded. Title: %s, Status: %s",
         title,
-        response.status if response else "None",
+        status or "None",
     )
+    _check_page_errors(title, status)
 
-    if "403" in title or (response and response.status == 403):
+    if "403" in title or status == 403:
         logger.error("MizuhoBypass: Got blocked with 403!")
         return []
 
@@ -316,6 +324,9 @@ async def _get_mizuho_links_once(url: str, limit: int | None = None) -> list:
                             exc_info=True,
                         )
     except Exception as e:  # noqa: BLE001
+        from package.parser.baseParser import ServerBusyException
+        if isinstance(e, ServerBusyException):
+            raise
         logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
     if not links:
         try:
