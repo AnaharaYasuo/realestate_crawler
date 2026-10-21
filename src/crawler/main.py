@@ -35,6 +35,7 @@ from package.utils.failure_reporter import FailureReporter
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
 from package.utils.job_metrics import export_job_metrics
 from package.utils.crawler_watchdog import touch_crawler_progress, cleanup_crawler_progress
+from package.parser.baseParser import ServerBusyException, SkipPropertyException
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -548,6 +549,25 @@ if __name__ == "__main__":
                     asyncio.run(func())
                 else:
                     func()
+            except (ServerBusyException, SkipPropertyException) as se:
+                logger.warning(f"Crawl job skipped/terminated gracefully due to target site condition: {se}")
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=prop_type,
+                        error_type=type(se).__name__,
+                        error_message=str(se),
+                        exit_code=0,
+                        traceback_str=str(se)
+                    )
+                except Exception:
+                    pass
+                try:
+                    export_job_metrics(company, prop_type)
+                except Exception:
+                    pass
+                cleanup_crawler_progress(company, prop_type)
+                sys.exit(0)
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.exception("Error during crawl execution")
