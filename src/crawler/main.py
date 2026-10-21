@@ -549,7 +549,7 @@ if __name__ == "__main__":
                     asyncio.run(func())
                 else:
                     func()
-            except (ServerBusyException, SkipPropertyException) as se:
+            except SkipPropertyException as se:
                 logger.warning(f"Crawl job skipped/terminated gracefully due to target site condition: {se}")
                 try:
                     FailureReporter.record_job_failure(
