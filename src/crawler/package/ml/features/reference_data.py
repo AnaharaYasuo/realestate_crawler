@@ -33,6 +33,7 @@ _lp_pref_comm_cache: dict[str, list[LandPriceRecord]] = {}
 _hazard_cache: dict[tuple[str, str], HazardMapRecord] = {}
 _zone_cache: dict[str, UrbanPlanningZoneRecord] = {}
 _macro_cache: dict[str, MacroEconomicRecord] = {}
+_caches_initialized: bool = False
 
 _cache_lock = threading.Lock()
 
@@ -228,6 +229,8 @@ def _all_caches_populated() -> bool:
 
 
 def _clear_all_caches() -> None:
+    global _caches_initialized
+    _caches_initialized = False
     for cache in (_muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache,
                   _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache):
         cache.clear()
@@ -241,7 +244,8 @@ def reset_reference_caches() -> None:
 
 def _init_global_caches(force_refresh: bool = False) -> None:
     """全 Potential 関連マスタを一括でインメモリキャッシュ"""
-    if not force_refresh and _all_caches_populated():
+    global _caches_initialized
+    if not force_refresh and _caches_initialized:
         return
 
     from package.models.evaluation import (
@@ -258,6 +262,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
         loaded = _init_muni_cache(MunicipalPotential)
         loaded |= _init_lp_cache(LandPricePotential)
         loaded |= _init_misc_caches(StationPotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex)
+        _caches_initialized = True
 
     if loaded:
 
