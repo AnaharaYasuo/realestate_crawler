@@ -31,7 +31,7 @@ class Sumai1Mansion(Sumai1Model):
     saikou = models.TextField(blank=True)
     kadobeya = models.TextField(blank=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kanriKeitaiKaisya = models.TextField(blank=True)
     kanriKeitai = models.TextField(blank=True)
     kanriKaisya = models.TextField(blank=True)
@@ -76,9 +76,9 @@ class Sumai1Tochi(Sumai1Model):
 
     setsudou = models.TextField(blank=True)
     douroMuki = models.TextField(blank=True)
-    douroHaba = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    douroHaba = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     douroKubun = models.TextField(blank=True)
-    setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    setsumen = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
     maguchiStr = models.TextField(default="", blank=True)
     maguchi = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
@@ -106,7 +106,7 @@ class Sumai1Investment(Sumai1Model):
     chikunengetsuStr = models.TextField(blank=True)
     chikunengetsu = models.DateField(null=True)
     soukosuStr = models.TextField(blank=True)
-    soukosu = models.IntegerField(null=True)
+    soukosu = models.IntegerField(null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     # 面積

@@ -235,9 +235,19 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
     logger.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
     success = async_to_sync(send_slack_message)(msg, channel=channel_id)
     if success:
-        with transaction.atomic():
-            eval_rec.is_slack_notified = True
-            eval_rec.save()
+        for attempt in range(3):
+            try:
+                with transaction.atomic():
+                    eval_rec.is_slack_notified = True
+                    eval_rec.save()
+                break
+            except Exception as dbe:
+                logger.warning(f"DB update failed on recommendation notify (attempt {attempt+1}/3): {dbe}")
+                close_old_connections()
+                connections.close_all()
+                if attempt == 2:
+                    raise
+                time.sleep(1.0)
         time.sleep(1.0)
         return True
     return False
