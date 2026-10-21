@@ -105,6 +105,31 @@ def kill_hung_job_process(proc: Any) -> bool:
         return False
 
 
+def _check_file_progress(company: str, ptype: str, last_act: float, prev_db_cnt: int) -> tuple[float, int]:
+    """進捗ファイルのmtimeを確認し、最新活動時刻と件数を返す"""
+    prog_path = get_progress_file_path(company, ptype)
+    if not prog_path.exists():
+        return last_act, prev_db_cnt
+    try:
+        mtime = prog_path.stat().st_mtime
+        if mtime > last_act:
+            return mtime, max(1, prev_db_cnt)
+    except Exception:
+        pass
+    return last_act, prev_db_cnt
+
+
+def _check_db_progress(count_fn: Any, company: str, ptype: str, start_dt: Any) -> int | None:
+    """DBカウント関数を実行して件数を取得（失敗時または未提供時はNone）"""
+    if count_fn is None:
+        return None
+    try:
+        counts = count_fn(company, ptype, start_dt)
+        return counts[2] if counts[0] is not None else None
+    except Exception:
+        return None
+
+
 def _update_single_job_progress(
     job_info: tuple,
     now: float,
@@ -120,29 +145,11 @@ def _update_single_job_progress(
     if (now - last_check_t) < check_interval_sec:
         return job_info
 
-    # 1. ローカル進捗ファイル（mtime）による進捗確認 (Issue #1059: DB負荷完全ゼロ)
-    prog_path = get_progress_file_path(company, ptype)
-    if prog_path.exists():
-        try:
-            mtime = prog_path.stat().st_mtime
-            if mtime > last_act:
-                last_act = mtime
-                # 少なくとも1回以上活動があったので prev_db_cnt もインクリメント扱いにして探索猶予から実稼働へ遷移
-                if prev_db_cnt == 0:
-                    prev_db_cnt = 1
-        except Exception:
-            pass
+    # 1. ローカル進捗ファイル（mtime）による進捗確認
+    last_act, prev_db_cnt = _check_file_progress(company, ptype, last_act, prev_db_cnt)
 
-    # 2. DB COUNT(*) による進捗確認（count_fn が提供されている場合のみ）
-    if count_fn is not None:
-        try:
-            counts = count_fn(company, ptype, start_dt)
-            current_db_cnt = counts[2] if counts[0] is not None else None
-        except Exception:
-            current_db_cnt = None
-    else:
-        current_db_cnt = None
-
+    # 2. DB COUNT(*) による進捗確認
+    current_db_cnt = _check_db_progress(count_fn, company, ptype, start_dt)
     if current_db_cnt is not None:
         if current_db_cnt > prev_db_cnt:
             last_act = now

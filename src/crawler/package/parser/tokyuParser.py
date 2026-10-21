@@ -10,6 +10,7 @@ import urllib.parse
 
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
+FUDOSAN_TOUSHI_PATH = "/fudosan-toushi/"
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
@@ -691,7 +692,7 @@ class TokyuParser(ParserBase):
 class TokyuMansionParser(TokyuParser, MansionParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and "/fudosan-toushi/" in str(url).lower():
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
             raise SkipPropertyException(f"Tokyu investment property mixed into mansion crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
@@ -890,7 +891,7 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 class TokyuTochiParser(TokyuParser, TochiParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and "/fudosan-toushi/" in str(url).lower():
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
             raise SkipPropertyException(f"Tokyu investment property mixed into tochi crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
@@ -1019,7 +1020,7 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
 class TokyuKodateParser(TokyuParser, KodateParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and "/fudosan-toushi/" in str(url).lower():
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
             raise SkipPropertyException(f"Tokyu investment property mixed into kodate crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
