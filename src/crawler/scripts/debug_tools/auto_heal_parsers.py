@@ -414,6 +414,11 @@ def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = 
         reason = match.group(3).strip()
         pname = match.group(4).strip()
         url = match.group(5).strip()
+
+        # ビジネス上の注意喚起・ペナルティ情報（再建築不可、間口0m等）はパーサーバグではないため除外
+        if any(w in reason for w in ("再建築不可", "間口0m", "無道路地")):
+            continue
+
         targets.append({
             "company": site,
             "property_type": ptype,
