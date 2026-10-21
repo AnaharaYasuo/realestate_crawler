@@ -332,18 +332,17 @@ def run_diagnostics(limit: int = 5000, target_date: str = None, dry_run: bool = 
     bound_mysql_timeouts()
     logger.info(f"Starting daily prediction diagnostics (limit={limit}, dry_run={dry_run})...")
 
-    # 1. 評価済みレコードの収集
-    qs = PropertyEvaluation.objects.filter(first_stage_predicted_price__isnull=False)
+    # 1. 評価済みレコードの収集 (最新順にスライス取得し、全件カウントによるタイムアウトを回避)
+    base_qs = PropertyEvaluation.objects.filter(first_stage_predicted_price__isnull=False)
     if target_date:
-        qs = qs.filter(analyzed_at__date=target_date)
+        base_qs = base_qs.filter(analyzed_at__date=target_date)
 
-    total_evals = qs.count()
-    if total_evals == 0:
+    # 最新順にlimit件を取得
+    eval_records = list(base_qs.order_by("-id")[:limit])
+    if not eval_records:
         logger.warning("No evaluated properties found for diagnostics.")
         return None
 
-    # 最新順に取得
-    eval_records = list(qs.order_by("-id")[:limit])
     logger.info(f"Loaded {len(eval_records)} evaluation records.")
 
     # 2. 元物件モデルから実際の販売価格（price）およびテキストを取得
