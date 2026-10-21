@@ -319,6 +319,9 @@ async def _get_mizuho_links_once(url: str, limit: int | None = None) -> list:
                             exc_info=True,
                         )
     except Exception as e:  # noqa: BLE001
+        from package.parser.baseParser import ServerBusyException
+        if isinstance(e, ServerBusyException):
+            raise
         logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
     if not links:
         try:
