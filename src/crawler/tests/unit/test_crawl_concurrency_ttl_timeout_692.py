@@ -29,17 +29,17 @@ def test_run_all_crawlers_default_parallel_is_safe():
 
 def test_run_all_crawlers_timeout_is_five_hours():
     """基準4: 1ジョブのタイムアウトが 10800s (3h) に設定されていること (Issue #861)"""
-    assert run_all_crawlers.timeout_sec == 10800
+    assert run_all_crawlers.timeout_sec == 14400
 
 
 def test_run_pipeline_default_timeout_is_five_hours():
     """基準4: run_pipeline の DEFAULT_TIMEOUT_SEC が 10800.0 であること (Issue #861)"""
-    assert run_pipeline.DEFAULT_TIMEOUT_SEC == 10800.0
+    assert run_pipeline.DEFAULT_TIMEOUT_SEC == 14400.0
 
 
 def test_ensure_resources_stopped_hung_threshold_is_five_hours_plus_grace():
     """基準4: Safety-Net のハング判定閾値が 11400.0s (10800s + 600s) であること (Issue #861)"""
-    assert ensure_resources_stopped.DEFAULT_HUNG_THRESHOLD_SEC == 11400.0
+    assert ensure_resources_stopped.DEFAULT_HUNG_THRESHOLD_SEC == 15000.0
 
 
 class _DummyProc(api_module.ApiAsyncProcBase):

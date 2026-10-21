@@ -88,7 +88,7 @@ def _deploy_step(job_name):
 
 
 def test_crawler_timeout_default_is_five_hours():
-    assert _var_default("crawler_timeout") == "10800s"
+    assert _var_default("crawler_timeout") == "14400s"
 
 
 def test_crawler_timeout_description_matches_cloud_run_limit():

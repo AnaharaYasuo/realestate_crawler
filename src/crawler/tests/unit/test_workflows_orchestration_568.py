@@ -58,13 +58,17 @@ def test_hang_kill_terminates_process_group():
     mock_proc.pid = 12345
     mock_proc.poll.return_value = None
 
-    with patch("os.getpgid", return_value=54321) as mock_getpgid, \
-         patch("os.killpg") as mock_killpg:
-        
+    if hasattr(os, "getpgid"):
+        with patch("os.getpgid", return_value=54321) as mock_getpgid, \
+             patch("os.killpg") as mock_killpg:
+            killed = kill_hung_job_process(mock_proc)
+            assert killed is True
+            mock_getpgid.assert_called_once_with(12345)
+            mock_killpg.assert_called_once_with(54321, signal.SIGKILL)
+    else:
         killed = kill_hung_job_process(mock_proc)
         assert killed is True
-        mock_getpgid.assert_called_once_with(12345)
-        mock_killpg.assert_called_once_with(54321, signal.SIGKILL)
+        mock_proc.kill.assert_called_once()
 
 
 def test_daily_pipeline_yaml_structure_and_cleanup():

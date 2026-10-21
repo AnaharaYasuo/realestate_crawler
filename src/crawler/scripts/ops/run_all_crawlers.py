@@ -110,7 +110,7 @@ logger = logging.getLogger(__name__)
 
 
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", "180"))
-timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "10800"))
+timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "14400"))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
@@ -800,7 +800,7 @@ def main():
         # 子プロセスの進捗監視（15秒経過ジョブのDB件数増分を確認し、公平に last_act を更新）
         # HANG_THRESHOLD_SEC <= 0 の場合はハング検知が無効化されているため進捗カウント取得をスキップ
         if HANG_THRESHOLD_SEC > 0:
-            update_watchdog_progress(active_processes, now, get_count_for_job)
+            update_watchdog_progress(active_processes, now, None)  # Bypass heavy COUNT(*) full table scans (Issue #1054)
 
         for idx in tuple(active_processes.keys()):
             if idx not in active_processes:
