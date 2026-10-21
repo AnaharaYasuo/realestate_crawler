@@ -58,6 +58,8 @@ def prefetch_building_masters(properties_list: list) -> dict[tuple[str, str], An
     except Exception:
         logger.warning("ML: BuildingMaster prefetch failed; falling back to per-property lookup", exc_info=True)
         return None
+    for k in keys:
+        lookup.setdefault(k, None)
     return lookup
 
 
