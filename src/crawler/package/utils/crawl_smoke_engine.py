@@ -1629,6 +1629,8 @@ async def _discover_detail_urls_for_target(
         if found:
             result.seed_url = seed
             return found, None
+        if last_discovery_error is None:
+            last_discovery_error = RuntimeError(f"Seed {seed} returned 0 detail URLs")
     return [], last_discovery_error
 
 

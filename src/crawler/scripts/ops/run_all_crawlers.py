@@ -37,6 +37,7 @@ from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_dev_report, send_slack_message
 from package.utils.task_distribution import (
+    BIG_4_COMPANIES,
     BIG_3_COMPANIES,
     get_task_config,
     distribute_jobs,
@@ -47,7 +48,13 @@ from package.utils.crawler_scheduler import select_next_job, sort_jobs_by_priori
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
-from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC, update_watchdog_progress
+from package.utils.crawler_watchdog import (
+    check_job_hung,
+    kill_hung_job_process,
+    cleanup_crawler_progress,
+    HANG_THRESHOLD_SEC,
+    update_watchdog_progress,
+)
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 from package.utils.crawl_jobs import (  # noqa: E402  — SSOT for production + tests
@@ -655,7 +662,9 @@ def main():
     results = []
     # 各端末で件数の多い大規模サイトから優先して先行処理 (Issue #985: Longest-Job-First / 主担当大手先行)
     host_company = None
-    if task_count == 3 and task_index is not None and 0 <= task_index < len(BIG_3_COMPANIES):
+    if task_count == 4 and task_index is not None and 0 <= task_index < len(BIG_4_COMPANIES):
+        host_company = BIG_4_COMPANIES[task_index]
+    elif task_count == 3 and task_index is not None and 0 <= task_index < len(BIG_3_COMPANIES):
         host_company = BIG_3_COMPANIES[task_index]
     job_queue = sort_jobs_by_priority(list(target_jobs), host_company=host_company)
     next_job_index = 1

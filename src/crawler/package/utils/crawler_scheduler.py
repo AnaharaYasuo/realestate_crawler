@@ -101,6 +101,12 @@ def calculate_job_priority(
     return (is_host, is_major_broker, is_mansion)
 
 
+def _job_sort_key(job: tuple[str, str], host_company: str | None = None):
+    """ソート用キー: calculate_job_priority に加え、大規模種別 (mansion ➔ kodate ➔ tochi) を優先"""
+    comp, ptype = job
+    pri = calculate_job_priority(comp, ptype, host_company=host_company)
+    type_order = {"mansion": 3, "kodate": 2, "tochi": 1}.get(ptype.lower(), 0)
+    return (pri, type_order)
 def sort_jobs_by_priority(
     jobs: list[tuple[str, str]], host_company: str | None = None
 ) -> list[tuple[str, str]]:
@@ -110,5 +116,5 @@ def sort_jobs_by_priority(
     2. 空いたスロットに投入される他社ジョブ（大手仲介優先 ➔ マンション優先）
     """
     return sorted(
-        jobs, key=lambda j: calculate_job_priority(j[0], j[1], host_company=host_company), reverse=True
+        jobs, key=lambda j: _job_sort_key(j, host_company=host_company), reverse=True
     )

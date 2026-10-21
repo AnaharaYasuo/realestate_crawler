@@ -41,6 +41,7 @@ from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.report import CrawlerReporter
 from package.utils.storage import get_storage_manager
 from package.utils.url_matcher import UrlMatcher
+from package.utils.crawler_watchdog import touch_crawler_progress
 
 logger = logging.getLogger(__name__)
 
@@ -958,6 +959,15 @@ class DynamicSemaphore:
 
 
 class ApiAsyncProcBase(metaclass=ABCMeta):
+    def _touch_watchdog_progress(self, item=None):
+        try:
+            comp = self._detect_company_name(item) if item else self._resolve_target_company()
+            ptype = PropertyTypeDetector.detect_from_object(item) if item else getattr(getattr(self, 'parser', None), 'property_type', None)
+            if comp and ptype:
+                touch_crawler_progress(str(comp).lower(), str(ptype).lower())
+        except Exception:
+            pass
+
     USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
     headersJson = {
         'Content-Type': 'application/json',
@@ -1462,7 +1472,10 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                         chunk_buffer = await self._flush_middle_page_chunk(chunk_buffer, all_results)
 
             if chunk_buffer:
+                self._touch_watchdog_progress()
                 await self._flush_middle_page_chunk(chunk_buffer, all_results)
+            else:
+                self._touch_watchdog_progress()
 
             return await self._extract_next_page_url(response, current_url)
         except Exception as e:
@@ -1960,6 +1973,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         try:
             company = self._detect_company_name(item)
             property_type = PropertyTypeDetector.detect_from_object(item)
+            self._touch_watchdog_progress(item)
             is_valid, reasons = tag_property_integrity(item, property_type, company)
             if not is_valid:
                 logger.warning(
@@ -2337,6 +2351,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
 
     async def _handle_skipped_property(self):
+        self._touch_watchdog_progress()
         logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
         try:
             await sync_to_async(self._sync_persist_delisted)()
