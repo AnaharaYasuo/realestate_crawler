@@ -59,6 +59,17 @@ class PropertyDataValidator:
                 reasons.append(ERR_MISSING_TRAFFIC)
 
     @classmethod
+    def _is_under_construction(cls, item: Any) -> bool:
+        """建築中・未完成物件の判定（築年月未抽出を許容する）"""
+        genkyo = str(getattr(item, "genkyo", "") or getattr(item, "currentStatus", "") or "")
+        if any(tok in genkyo for tok in ("未完成", "建築中", "新築（未完成）")):
+            return True
+        name = str(getattr(item, "propertyName", "") or "")
+        biko = str(getattr(item, "biko", "") or "")
+        combined = f"{name} {biko}"
+        return any(tok in combined for tok in ("建築中", "新築未完成", "建築確認番号"))
+
+    @classmethod
     def _check_madori_and_age(cls, item: Any, reasons: list[str]) -> None:
         """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査（モデル未定義時はスキップ）"""
         has_madori_field = True
@@ -75,7 +86,8 @@ class PropertyDataValidator:
                 if not cls._is_invest_unit_mansion(item):
                     reasons.append(ERR_MISSING_MADORI)
         if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
-            reasons.append(ERR_MISSING_AGE)
+            if not cls._is_under_construction(item):
+                reasons.append(ERR_MISSING_AGE)
 
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
