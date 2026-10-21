@@ -67,7 +67,7 @@ ERR_NO_COMPUTE_CLIENT: str = (
 )
 DEFAULT_GRACE_PERIOD_SEC: float = 900.0
 # 最長ジョブ (クローラー crawler_timeout = 10800s) + 猶予 600s
-DEFAULT_HUNG_THRESHOLD_SEC: float = 11400.0
+DEFAULT_HUNG_THRESHOLD_SEC: float = 15000.0
 # トラフィック監視ウィンドウ (10分)
 DEFAULT_TRAFFIC_WINDOW_SEC: float = 600.0
 # トラフィック判定閾値 (1MB = 1,048,576 バイト: ヘルスチェックの数十KBはアイドル判定)
@@ -77,7 +77,7 @@ DEFAULT_MAX_UPTIME_SEC: float = 28_800.0
 
 # ジョブ別の実効タイムアウト + 猶予 (crawler: 10800+600, ml: 7200+600, migrate: 600+300)
 JOB_HUNG_THRESHOLD_MAP: dict[str, float] = {
-    "realestate-crawler-pipeline": 11400.0,
+    "realestate-crawler-pipeline": 15000.0,
     "realestate-ml-pipeline": 7800.0,
     "realestate-migrate": 900.0,
 }

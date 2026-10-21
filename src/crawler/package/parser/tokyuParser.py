@@ -104,9 +104,35 @@ class TokyuParser(ParserBase):
     def getRootDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
+    def _extract_pc_root_links(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        pc_links = response.select("[class*='prefecturesListPc'] a[href*='/select-area/']")
+        if not pc_links:
+            return []
+        seen = set()
+        res = []
+        for a in pc_links:
+            href = a.get("href", "")
+            dest = self.getRootDestUrl(href) if href else None
+            if dest and dest not in seen:
+                seen.add(dest)
+                res.append(dest)
+        return res
+
     async def parseRootPage(self, response):
+        pc_urls = self._extract_pc_root_links(response)
+        if pc_urls:
+            for url in pc_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
-            yield dest_url
+            url_str = getattr(dest_url, "url", str(dest_url))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield dest_url
 
     def getAreaXpath(self):
         return ''
@@ -114,9 +140,33 @@ class TokyuParser(ParserBase):
     def getAreaDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
-    async def parseAreaPage(self, response):        
+    def _extract_city_area_links(self, response) -> list:
+        if not hasattr(response, "find_all"):
+            return []
+        seen = set()
+        res = []
+        for a in response.find_all("a", href=True):
+            href = a.get("href", "")
+            if re.search(r'/kounyu/[^/]+/[^/]+/a\d+/?$', href):
+                dest = self.getAreaDestUrl(href)
+                if dest and dest not in seen:
+                    seen.add(dest)
+                    res.append(dest)
+        return res
+
+    async def parseAreaPage(self, response):
+        city_urls = self._extract_city_area_links(response)
+        if city_urls:
+            for url in city_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
-            yield dest_url
+            url_str = getattr(dest_url, "url", str(dest_url))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield dest_url
 
     def getPropertyListXpath(self):
         return ''
@@ -124,9 +174,60 @@ class TokyuParser(ParserBase):
     def getPropertyListDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
+    def _extract_card_items(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        cards = response.select("[class*='propertyCardContents']")
+        if not cards:
+            return []
+        seen = set()
+        items = []
+        price_cache = {}
+        for card in cards:
+            a = card.find("a", href=True)
+            if not a:
+                continue
+            dest_url = self.getPropertyListDestUrl(a.get("href", ""))
+            if dest_url and dest_url not in seen:
+                seen.add(dest_url)
+                price = self._extract_card_price(a, cache=price_cache)
+                items.append(ListItem(url=dest_url, price=price))
+        return items
+
+    def _extract_nextjs_items_dedup(self, response) -> list | None:
+        if not hasattr(self, "_extract_nextjs_urls"):
+            return None
+        items = self._extract_nextjs_urls(response)
+        if items is None:
+            return None
+        seen = set()
+        res = []
+        for item in items:
+            url_str = getattr(item, "url", str(item))
+            if url_str not in seen:
+                seen.add(url_str)
+                res.append(item)
+        return res
+
     async def parsePropertyListPage(self, response):
-        async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
-            yield dest_url
+        nextjs_items = self._extract_nextjs_items_dedup(response)
+        if nextjs_items is not None:
+            for item in nextjs_items:
+                yield item
+            return
+
+        card_items = self._extract_card_items(response)
+        if card_items:
+            for item in card_items:
+                yield item
+            return
+
+        seen = set()
+        async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
+            url_str = getattr(item, "url", str(item))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield item
 
     @staticmethod
     def _is_valid_tokyu_svg_next(a, current_page: int) -> bool:
