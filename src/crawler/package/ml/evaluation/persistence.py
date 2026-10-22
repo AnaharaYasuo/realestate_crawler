@@ -2,7 +2,12 @@
 評価レコードの DB 一括保存モジュール (Issue #716)
 """
 
+import logging
+import time
 from typing import Any
+from django.db import OperationalError, close_old_connections
+
+logger = logging.getLogger(__name__)
 
 from package.ml.evaluation.record_builder import build_or_update_eval_record
 from package.models.evaluation import PropertyEvaluation
@@ -44,11 +49,21 @@ def bulk_update_evaluation_records(
     update_fields = list(BASE_UPDATE_FIELDS)
     if "investment" in property_type or "invest" in property_type:
         update_fields.extend(INVESTMENT_UPDATE_FIELDS)
-    PropertyEvaluation.objects.bulk_update(
-        valid_updates,
-        fields=update_fields,
-        batch_size=batch_size,
-    )
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            PropertyEvaluation.objects.bulk_update(
+                valid_updates,
+                fields=update_fields,
+                batch_size=batch_size,
+            )
+            break
+        except OperationalError as e:
+            logger.warning("bulk_update failed on attempt %d/%d: %s", attempt, max_retries, e)
+            close_old_connections()
+            if attempt == max_retries:
+                raise
+            time.sleep(1.0 * attempt)
 
 
 def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
@@ -62,11 +77,21 @@ def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
             seen_create_urls.add(r.property_url)
             unique_creates.append(r)
     if unique_creates:
-        PropertyEvaluation.objects.bulk_create(
-            unique_creates,
-            batch_size=batch_size,
-            ignore_conflicts=True,
-        )
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                PropertyEvaluation.objects.bulk_create(
+                    unique_creates,
+                    batch_size=batch_size,
+                    ignore_conflicts=True,
+                )
+                break
+            except OperationalError as e:
+                logger.warning("bulk_create failed on attempt %d/%d: %s", attempt, max_retries, e)
+                close_old_connections()
+                if attempt == max_retries:
+                    raise
+                time.sleep(1.0 * attempt)
 
 
 def save_chunk(

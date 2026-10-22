@@ -317,12 +317,20 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_TATEMONO)
 
-        tochi = getattr(item, "tochiMenseki", None)
-        try:
-            if not tochi or float(tochi) <= 0:
+        # マンション・区分所有やビル区分が混入している場合は土地面積必須チェックを免除
+        shumoku = getattr(item, "shumoku", "") or getattr(item, "bukkenShubetsu", "") or ""
+        page_url = getattr(item, "pageUrl", "") or ""
+        is_sectional_or_mansion = any(
+            kw in shumoku for kw in ["マンション", "区分", "ビル", "店舗", "事務所"]
+        ) or "/buy/mansion/" in page_url
+
+        if not is_sectional_or_mansion:
+            tochi = getattr(item, "tochiMenseki", None)
+            try:
+                if not tochi or float(tochi) <= 0:
+                    reasons.append(ERR_MISSING_TOCHI)
+            except (ValueError, TypeError):
                 reasons.append(ERR_MISSING_TOCHI)
-        except (ValueError, TypeError):
-            reasons.append(ERR_MISSING_TOCHI)
 
     @staticmethod
     def _check_tochi_specs(item: Any, reasons: list[str]) -> None:

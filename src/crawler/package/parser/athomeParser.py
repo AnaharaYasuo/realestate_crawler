@@ -748,6 +748,19 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         return AthomeMansion()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "")
+        # buy_other や 土地以外の種別で土地面積が存在しない物件はスキップ
+        if "/buy_other/" in page_url:
+            specs_peek = self._get_specs_table(response)
+            tochi_raw = (
+                specs_peek.get("土地面積", "")
+                or specs_peek.get("区画面積", "")
+                or specs_peek.get("敷地面積", "")
+                or specs_peek.get("面積", "")
+            )
+            if not tochi_raw or str(tochi_raw).strip() in ["", "-", "－", "―"]:
+                raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
+
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
         

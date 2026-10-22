@@ -1550,7 +1550,14 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
         if "/buy/mansion/" in page_url:
             specs = self._get_specs(response)
             shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
-            if MANSION_KEYWORD in shumoku or "アパート" in shumoku or "ビル" in shumoku:
+            if (
+                MANSION_KEYWORD in shumoku
+                or "アパート" in shumoku
+                or "ビル" in shumoku
+                or "区分所有" in shumoku
+                or "店舗" in shumoku
+                or "事務所" in shumoku
+            ):
                 parser = MitsuiInvestmentApartmentParser()
                 parser._is_delegating = True
                 new_item = parser.createEntity()
