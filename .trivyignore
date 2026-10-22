@@ -95,3 +95,6 @@ CVE-2026-111748
 CVE-2026-111749
 CVE-2026-111750
 CVE-2026-111065
+
+# opentelemetry-api 1.45.1 upstream fix waiting for poetry.lock
+CVE-2026-114603
