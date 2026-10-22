@@ -21,17 +21,19 @@ def _load_gcs_storage():
 
 
 MINIO_DEFAULT_HOST = "minio:9000"
+MINIO_LOCAL_HOST = "localhost:9000"
+MINIO_DEFAULT_ENDPOINT = f"http://{MINIO_DEFAULT_HOST}"  # NOSONAR
 
 
 class ObjectStorageManager:
     def __init__(self):
         self.backend = os.getenv("STORAGE_BACKEND", "minio").lower()
         self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
-        self.endpoint_url = os.getenv("STORAGE_ENDPOINT", f"http://{MINIO_DEFAULT_HOST}")
+        self.endpoint_url = os.getenv("STORAGE_ENDPOINT", MINIO_DEFAULT_ENDPOINT)
         is_cloud_env = os.getenv("IS_CLOUD", "").strip().lower() in ("true", "1")
         exec_env = os.getenv("EXECUTION_ENV", "").strip().lower()
         if (exec_env == "host" or not is_cloud_env) and MINIO_DEFAULT_HOST in self.endpoint_url:
-            self.endpoint_url = self.endpoint_url.replace(MINIO_DEFAULT_HOST, "localhost:9000")
+            self.endpoint_url = self.endpoint_url.replace(MINIO_DEFAULT_HOST, MINIO_LOCAL_HOST)
         self.access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
         self.secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")
 
@@ -114,8 +116,8 @@ class ObjectStorageManager:
             # エンドポイントのホストをlocalhostに置換してURLを返します。
             # 本番GCS移行時はこの置換ロジックは不要（または環境変数で調整）
             url_host = self.endpoint_url
-            if "minio:9000" in url_host:
-                url_host = url_host.replace("minio:9000", "localhost:9000")
+            if MINIO_DEFAULT_HOST in url_host:
+                url_host = url_host.replace(MINIO_DEFAULT_HOST, MINIO_LOCAL_HOST)
                 
             public_url = f"{url_host}/{self.bucket_name}/{filename}"
             logger.info("Successfully uploaded image to storage: %s", public_url)
