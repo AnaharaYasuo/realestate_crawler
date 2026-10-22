@@ -39,30 +39,33 @@ def clear_real_property_cache():
     """キャッシュをクリアする"""
     _REAL_PROPERTY_CACHE.clear()
 
+def _resolve_company_for_eval(company: str, ptype: str, prop_url: str) -> tuple[str, str]:
+    """評価レコードから会社名および種別サフィックスを解決する"""
+    if company and company != "unknown":
+        return company, ptype
+    for c in COMPANIES:
+        if ptype.lower().startswith(c):
+            return c, ptype.lower().replace(c, "")
+    url_lower = prop_url.lower()
+    if "asahi-kasei" in url_lower:
+        return "afr", ptype
+    if "re-guide" in url_lower or "reguide" in url_lower:
+        return "reguide", ptype
+    for c in COMPANIES:
+        if c in url_lower:
+            return c, ptype
+    return "", ptype
+
+
 def _get_real_property(eval_rec: PropertyEvaluation):
     """評価レコードに紐づく物件実データをモデルから解決する（キャッシュ対応）"""
     try:
         from django.apps import apps
-        company = eval_rec.company or ""
-        ptype = eval_rec.property_type or ""
-        prop_url = eval_rec.property_url or ""
-        if not company or company == "unknown":
-            for c in COMPANIES:
-                if ptype.lower().startswith(c):
-                    company = c
-                    ptype = ptype.lower().replace(c, "")
-                    break
-            if not company or company == "unknown":
-                url_lower = prop_url.lower()
-                if "asahi-kasei" in url_lower:
-                    company = "afr"
-                elif "re-guide" in url_lower or "reguide" in url_lower:
-                    company = "reguide"
-                else:
-                    for c in COMPANIES:
-                        if c in url_lower:
-                            company = c
-                            break
+        company, ptype = _resolve_company_for_eval(
+            eval_rec.company or "",
+            eval_rec.property_type or "",
+            eval_rec.property_url or "",
+        )
         if not company or company == "unknown":
             return None
         company_camel = company.capitalize()

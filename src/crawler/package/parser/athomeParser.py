@@ -35,6 +35,7 @@ _ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
 )
 _ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
 _ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
+PATH_BUY_OTHER = "/buy_other/"
 _ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Click to verify", "パズル認証", "Just a moment...")
 _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
@@ -750,7 +751,7 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
         # buy_other や 土地以外の種別で土地面積が存在しない物件はスキップ
-        if "/buy_other/" in page_url:
+        if PATH_BUY_OTHER in page_url:
             specs_peek = self._get_specs_table(response)
             tochi_raw = (
                 specs_peek.get("土地面積", "")
@@ -847,7 +848,7 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
         name = self._parsePropertyName(response)
-        if any(kw in page_url for kw in ("/buy_other/", "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
+        if any(kw in page_url for kw in (PATH_BUY_OTHER, "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
             raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
@@ -951,7 +952,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         """Prefer buy_other / bldg / toushi details; skip mansion reco noise on invest hubs."""
         async for url in super().parseRootPage(response):
             path = urllib.parse.urlparse(url).path.lower()
-            if any(tok in path for tok in ("/buy_other/", "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
+            if any(tok in path for tok in (PATH_BUY_OTHER, "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
                 yield url
 
     def _athome_reject_residential_shumoku(self, shumoku: str) -> None:
