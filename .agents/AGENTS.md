@@ -39,6 +39,13 @@
 - **完全ヘッドレスの厳守**: エージェントは CLI・デーモンとしてのみ環境を制御する。ユーザーのデスクトップに GUI ウィンドウ（`Docker Desktop.exe` 等）をポップアップさせる行為は全面禁止。
 - 具象ランブック: [docker_daemon_management.md](../docs/runbooks/docker_daemon_management.md)
 
+### 原則 1.1: ローカル本番実行・インフラ接続厳守原則 (Local Production Execution & Infrastructure)
+- **ローカル本番実行の定義**:
+  - 本番データベース（Google Cloud SQL）へ接続した状態でクローラーやML推定等のパイプラインを実行することを指す。
+  - **Docker不要（ホスト実行許可）**: .env の設定（EXECUTION_ENV=host）に従い、ホスト上のPython（PYTHON_PATH）での直接実行が明示的に許可されている。Dockerコンテナ起動に無駄に固執してはならない。
+  - **本番IAPトンネル・ProxySQL起動の事前義務**: 実行前に必ず GCE インスタンス proxysql-instance-prod（zone:  asia-northeast1-a）が RUNNING であることを確認し、gcloud compute start-iap-tunnel により 127.0.0.1:6033 へのトンネルを開設してDB疎通（SELECT 1）を確認すること。
+  - **DB未接続・エラー放置の絶対厳禁**: DB接続エラー（OperationalError: 2002 や接続拒否等）が発生している状態を「正常待機中」と誤認して放置・空転させてはならない。即座にプロセスを停止し、トンネルと接続を復旧した上で再実行すること。
+
 ### 原則 2: CodeGraph ファースト調査・影響範囲分析原則 (CodeGraph First)
 - 広範囲 grep や推測によるファイル全体の連続 Read を禁止する。
 - 必ず CodeGraph MCP ツール `codegraph_explore` をファーストコールし、ソースコード、Callers/Callees、Blast Radius（影響範囲）を 1 回で把握すること。

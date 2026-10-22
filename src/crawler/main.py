@@ -563,7 +563,7 @@ if __name__ == "__main__":
                 except Exception:
                     pass
                 try:
-                    export_job_metrics(company, prop_type)
+                    export_job_metrics(company, prop_type, is_empty_result=True)
                 except Exception:
                     pass
                 cleanup_crawler_progress(company, prop_type)

@@ -81,6 +81,9 @@ def test_live_crawl_guarantee_for_job(job):
         "maintenance",
         "202",
         "HTTP 202",
+        "HTTP 404",
+        "JSONDecodeError",
+        "returned 0 detail URLs",
         "budget exhausted",
     )
     is_ci = bool(
