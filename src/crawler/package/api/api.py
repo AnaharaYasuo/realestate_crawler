@@ -195,7 +195,7 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
 
 
-def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
+def _wait_for_active_fire_and_forget_threads(timeout: float | None = None, touch_fn: Any = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
         timeout = _get_fire_and_forget_wait_timeout()
@@ -218,6 +218,11 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
             last_log_time = now
+            if touch_fn:
+                try:
+                    touch_fn()
+                except Exception:
+                    pass
 
         time.sleep(0.5)
 
@@ -1131,6 +1136,12 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             _crawl_run_state.keys = parent_keys
             try:
                 target_class().main(detail_url)
+            except SkipPropertyException as se:
+                is_busy = isinstance(se, ServerBusyException) or "503" in str(se) or "busy" in str(se).lower()
+                if is_busy:
+                    from package.utils.job_metrics import mark_server_busy
+                    mark_server_busy()
+                logger.warning("Local background task skipped gracefully (%s): %s", path, se)
             except Exception as exc:
                 child_errors.append(exc)
                 _record_fire_and_forget_failure(path, detail_url, exc)
@@ -1300,7 +1311,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     run_result = res if isinstance(res, list) else [res]
         finally:
             if owns_run:
-                _wait_for_active_fire_and_forget_threads()
+                _wait_for_active_fire_and_forget_threads(touch_fn=self._touch_watchdog_progress)
             _exit_crawl_run(owns_run)
             self._close_loop(loop)
         self._afterRunProc(run_result)
@@ -1499,6 +1510,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 queue.task_done()
                 break
             try:
+                self._touch_watchdog_progress(item)
                 keys = _current_dispatch_keys()
                 if keys is None:
                     keys = set()
@@ -1506,6 +1518,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 if not _claim_detail_dispatch(keys, api_url, detail_url):
                     continue
                 result = await self._fetchDetailOnce(keys, detail_url, api_url, loop)
+                self._touch_watchdog_progress(item)
                 if isinstance(result, list):
                     all_results.extend(result)
                 elif result is not None:

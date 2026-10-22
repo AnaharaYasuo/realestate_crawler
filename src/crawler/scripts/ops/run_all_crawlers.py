@@ -523,17 +523,21 @@ def resolve_job_counts(
     """
     file_counts = read_job_metrics(company, ptype, run_date=today_str)
     if file_counts is not None:
-        detail, skip, tot, is_empty = file_counts
+        if len(file_counts) == 5:
+            detail, skip, tot, is_empty, is_busy = file_counts
+        else:
+            detail, skip, tot, is_empty = file_counts[:4]
+            is_busy = False
         logger.info(
-            "Direct metrics collected for %s - %s: detail=%d, skipped=%d, total=%d, is_empty_result=%s (DB query bypassed)",
-            company, ptype, detail, skip, tot, is_empty,
+            "Direct metrics collected for %s - %s: detail=%d, skipped=%d, total=%d, is_empty_result=%s, is_server_busy=%s (DB query bypassed)",
+            company, ptype, detail, skip, tot, is_empty, is_busy,
         )
-        return detail, skip, tot, is_empty, True
+        return detail, skip, tot, is_empty, is_busy, True
 
     db_counts = get_count_for_job(company, ptype, start_dt)
     if db_counts[0] is None:
-        return 0, 0, 0, False, False
-    return db_counts[0], db_counts[1], db_counts[2], False, False
+        return 0, 0, 0, False, False, False
+    return db_counts[0], db_counts[1], db_counts[2], False, False, False
 
 
 def format_job_success_message(
@@ -704,7 +708,12 @@ def main():
                 detail_cnt = 0
                 skipped_cnt = 0
                 if exit_code == 0:
-                    detail_cnt, skipped_cnt, scraped_cnt, is_empty_result, from_file = resolve_job_counts(company, ptype, start_dt, today_str)
+                    res_counts = resolve_job_counts(company, ptype, start_dt, today_str)
+                    if len(res_counts) == 6:
+                        detail_cnt, skipped_cnt, scraped_cnt, is_empty_result, is_server_busy, from_file = res_counts
+                    else:
+                        detail_cnt, skipped_cnt, scraped_cnt, is_empty_result, from_file = res_counts
+                        is_server_busy = False
                     if scraped_cnt > 0:
                         error_type = ""
                         post_slack(
@@ -718,6 +727,18 @@ def main():
                                 total_cnt=scraped_cnt,
                                 duration_job_str=duration_job_str,
                             )
+                        )
+                    elif from_file and is_server_busy:
+                        status = "success"
+                        error_type = ""
+                        error_msg = ""
+                        logger.info(
+                            "[%d] %s - %s reported server busy / maintenance (HTTP 503). Treating as graceful skip.",
+                            idx, company, ptype,
+                        )
+                        post_slack(
+                            f"⚠️ 【スキップ: メンテナンス/サーバー混雑】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | "
+                            f"相手先一時混雑のためスキップ | 処理時間: {duration_job_str}"
                         )
                     elif from_file and is_empty_result:
                         status = "success"

@@ -19,15 +19,17 @@ _lock = threading.Lock()
 _detail_count: int = 0
 _skipped_count: int = 0
 _is_empty_result: bool = False
+_is_server_busy: bool = False
 
 
 def reset_metrics() -> None:
     """Reset process-local metrics counters."""
-    global _detail_count, _skipped_count, _is_empty_result
+    global _detail_count, _skipped_count, _is_empty_result, _is_server_busy
     with _lock:
         _detail_count = 0
         _skipped_count = 0
         _is_empty_result = False
+        _is_server_busy = False
 
 
 def mark_empty_result() -> None:
@@ -41,6 +43,19 @@ def is_empty_result_marked() -> bool:
     """Check if empty result is marked."""
     with _lock:
         return _is_empty_result
+
+
+def mark_server_busy() -> None:
+    """Mark current job run as server busy / temporary maintenance (HTTP 503)."""
+    global _is_server_busy
+    with _lock:
+        _is_server_busy = True
+
+
+def is_server_busy_marked() -> bool:
+    """Check if server busy is marked."""
+    with _lock:
+        return _is_server_busy
 
 
 def record_detail_processed(n: int = 1) -> None:
@@ -84,6 +99,7 @@ def export_job_metrics(
     skipped_cnt: int | None = None,
     run_date: str | None = None,
     is_empty_result: bool | None = None,
+    is_server_busy: bool | None = None,
 ) -> Path | None:
     """
     Export crawler metrics to JSON file atomically.
@@ -93,6 +109,7 @@ def export_job_metrics(
     final_detail = cur_detail if detail_cnt is None else detail_cnt
     final_skip = cur_skip if skipped_cnt is None else skipped_cnt
     final_empty = is_empty_result if is_empty_result is not None else is_empty_result_marked()
+    final_busy = is_server_busy if is_server_busy is not None else is_server_busy_marked()
 
     metrics_path = get_metrics_file_path(company, property_type, run_date)
     data: dict[str, Any] = {
@@ -102,6 +119,7 @@ def export_job_metrics(
         "skipped_cnt": final_skip,
         "total_cnt": final_detail + final_skip,
         "is_empty_result": bool(final_empty),
+        "is_server_busy": bool(final_busy),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
@@ -135,7 +153,7 @@ def read_job_metrics(
 ) -> tuple[int, int, int, bool] | None:
     """
     Read job metrics from JSON file if available.
-    Returns: (detail_cnt, skipped_cnt, total_cnt, is_empty_result) or None if file not found / invalid.
+    Returns: (detail_cnt, skipped_cnt, total_cnt, is_empty_result, is_server_busy) or None if file not found / invalid.
     """
     metrics_path = get_metrics_file_path(company, property_type, run_date)
     if not metrics_path.exists():
@@ -148,7 +166,8 @@ def read_job_metrics(
         skipped = int(data.get("skipped_cnt", 0))
         total = int(data.get("total_cnt", detail + skipped))
         is_empty = bool(data.get("is_empty_result", False))
-        return detail, skipped, total, is_empty
+        is_busy = bool(data.get("is_server_busy", False))
+        return detail, skipped, total, is_empty, is_busy
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "Failed to read job metrics from %s: %s",

@@ -54,7 +54,7 @@ class ObjectStorageManager:
                 endpoint_url=self.endpoint_url,
                 aws_access_key_id=self.access_key,
                 aws_secret_access_key=self.secret_key,
-                config=Config(signature_version='s3v4'),
+                config=Config(signature_version='s3v4', connect_timeout=1, read_timeout=2, retries={'max_attempts': 1}),
                 region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
             )
             self._ensure_bucket_exists()

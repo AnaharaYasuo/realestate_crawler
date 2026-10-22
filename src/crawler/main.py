@@ -551,6 +551,7 @@ if __name__ == "__main__":
                     func()
             except SkipPropertyException as se:
                 logger.warning(f"Crawl job skipped/terminated gracefully due to target site condition: {se}")
+                is_busy = isinstance(se, ServerBusyException) or "503" in str(se) or "busy" in str(se).lower()
                 try:
                     FailureReporter.record_job_failure(
                         company=company,
@@ -563,7 +564,7 @@ if __name__ == "__main__":
                 except Exception:
                     pass
                 try:
-                    export_job_metrics(company, prop_type, is_empty_result=True)
+                    export_job_metrics(company, prop_type, is_empty_result=not is_busy, is_server_busy=is_busy)
                 except Exception:
                     pass
                 cleanup_crawler_progress(company, prop_type)

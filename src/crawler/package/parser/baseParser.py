@@ -1917,9 +1917,17 @@ class ParserBase(metaclass=ABCMeta):
     def _raise_on_listing_title(cls, title: str, url) -> None:
         if not title:
             return
-        if "サーバーが混み合っています" in title:
-            logging.debug(f"Server busy for URL: {url}")
-            raise ServerBusyException()
+        server_busy_keywords = [
+            "サーバーが混み合っています",
+            "サーバメンテナンス",
+            "メンテナンス中",
+            "ホームページメンテナンスのお知らせ",
+            "Service Unavailable",
+            "アクセスが集中",
+        ]
+        if any(kw in title for kw in server_busy_keywords):
+            logging.debug(f"Server busy/maintenance for URL: {url}")
+            raise ServerBusyException(f"Server busy/maintenance: {title}")
         if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
             logging.debug(f"{MSG_LISTING_ENDED_PREFIX} {url}")
             raise ListingEndedException(f"{MSG_LISTING_ENDED_PREFIX} {url}")

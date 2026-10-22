@@ -38,7 +38,7 @@ class MisawaParser(ParserBase):
             self.selectors = SelectorLoader.load('misawa', self.property_type)
 
     def getCharset(self):
-        return None  # Auto-detect
+        return "shift_jis"
 
     @staticmethod
     def _misawa_apply_setsudou_details(item) -> None:
@@ -93,6 +93,12 @@ class MisawaParser(ParserBase):
         return super()._parseTransport1(response, specs)
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
+        # メンテナンス画面検知 (ServerBusyException)
+        title = response.title.get_text(strip=True) if response.title else ""
+        if "メンテナンス" in title or "ホームページメンテナンス" in title or "サーバメンテナンス" in title:
+            from package.parser.baseParser import ServerBusyException
+            raise ServerBusyException(f"Misawa maintenance detected: {title}")
+
         sections = response.select('div.searchList div.section')
         
         if not sections:
