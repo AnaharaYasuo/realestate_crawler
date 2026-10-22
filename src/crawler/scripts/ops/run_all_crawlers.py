@@ -253,9 +253,13 @@ def cleanup_active_process():
     for idx, (proc, company, ptype, *_) in list(active_processes.items()):
         if proc.poll() is None:
             try:
-                pgid = os.getpgid(proc.pid)
-                logging.info(f"親プロセスの終了を検知したため、子プロセスグループ {pgid} ({company} - {ptype}) を強制終了します...")
-                os.killpg(pgid, signal.SIGKILL)
+                if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                    pgid = os.getpgid(proc.pid)
+                    logging.info(f"親プロセスの終了を検知したため、子プロセスグループ {pgid} ({company} - {ptype}) を強制終了します...")
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    logging.info(f"親プロセスの終了を検知したため、子プロセス PID {proc.pid} ({company} - {ptype}) を強制終了します...")
+                    proc.kill()
                 proc.communicate()  # プロセスゾンビ化を防ぐための回収
             except Exception as e:
                 logging.exception(f"子プロセスのクリーンアップ中にエラー: {e}")
@@ -875,8 +879,11 @@ def main():
                 # タイムアウト
                 logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
                 try:
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGKILL)
+                    if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                        pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        proc.kill()
                     proc.communicate()
                 except Exception:
                     logger.exception("Failed to kill")

@@ -1330,7 +1330,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if p_comp:
                 return str(p_comp).lower()
         cls_name = self.__class__.__name__.lower()
-        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio", "kenbiya", "ietan", "haseko", "adcast", "toho", "reguide"]:
             if c in cls_name:
                 return c
         return None
