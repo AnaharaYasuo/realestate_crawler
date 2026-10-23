@@ -280,10 +280,11 @@ class PropertyDataValidator:
                 and any(ch.isdigit() for ch in token)
                 for token in tokens
             )
-        # 単一トークンで "地上X階" や "X階建" は建物総階数であり所在階ではない
-        if '地上' in s or '建' in s:
-            return False
-        return '階' in s and any(ch.isdigit() for ch in s)
+        if len(tokens) == 1:
+            tok = tokens[0]
+            if '階' in tok and not ('地上' in tok or '地下' in tok or '建' in tok or '総' in tok):
+                return any(ch.isdigit() for ch in tok)
+        return False
 
     @classmethod
     def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:

@@ -1693,11 +1693,27 @@ class ParserBase(metaclass=ABCMeta):
         elif curr_val and hasattr(item, "genkyo") and (not genkyo_val):
             setattr(item, "genkyo", curr_val)
 
+    @staticmethod
+    def _extract_floor_kai_from_str(k_str: str) -> Optional[int]:
+        if not k_str:
+            return None
+        if "/" in k_str or "／" in k_str:
+            for p in reversed(re.split(r"[/／]", k_str)):
+                m = re.search(r"(\d{1,3})\s*階", p)
+                if m and "建" not in p and not any(kw in p for kw in ("地上", "地下", "総")):
+                    return int(m.group(1))
+        m = re.search(r"(?:^|[^地下上])(\d{1,3})\s*階", k_str)
+        return int(m.group(1)) if m else None
+
     def clean_parsed_item(self, item: models.Model) -> models.Model:
         self._clean_char_text_fields(item)
         self._clean_int_fields(item)
         self._autofill_chidai_from_soup(item)
         self._guard_gross_yield(item)
+        if hasattr(item, "floorType_kai") and getattr(item, "floorType_kai", None) is None:
+            val = self._extract_floor_kai_from_str(getattr(item, "kaisuStr", "") or "")
+            if val is not None:
+                item.floorType_kai = val
         self.validate_extracted_fields(item)
         self._normalize_station_fields(item)
         self._sync_genkyo_current_status(item)

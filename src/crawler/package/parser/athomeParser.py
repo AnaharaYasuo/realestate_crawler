@@ -1034,6 +1034,9 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
+            if hasattr(item, "senyuMenseki") and getattr(item, "senyuMenseki", None) is None:
+                item.senyuMenseki = item.tatemonoMenseki
+                item.senyuMensekiStr = item.tatemonoMensekiStr
 
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)

@@ -476,6 +476,8 @@ class MitsuiParser(ParserBase):
 
 
 class MitsuiMansionParser(MitsuiParser, MansionParserBase):
+    sectional_unit_guard_enabled = True
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
