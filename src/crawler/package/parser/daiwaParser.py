@@ -337,7 +337,7 @@ class DaiwaMansionParser(DaiwaParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
 
-        item.kaisuStr = specs.get("所在階", "") or specs.get("階数", "")
+        item.kaisuStr = specs.get("階数/階", "") or specs.get("所在階", "") or specs.get("階数", "")
         item.soukosuStr = specs.get("総戸数", "")
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
