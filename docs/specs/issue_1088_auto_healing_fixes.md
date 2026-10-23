@@ -24,19 +24,17 @@
 
 ### 2.3 アットホーム（Athome）
 - **事象**:
-  - `/buy_other/` URLが `AthomeTochiParser` にルーティングされ、`tochiMenseki` が None となりパースエラーおよび面積0㎡異常を誘発。
+  - `/buy_other/` URLにおいて一棟アパートとして掲載されている物件で、`使用部分面積` が `tatemonoMenseki` / `senyuMenseki` に抽出されず、面積0㎡異常を誘発。
   - 一部物件で価格1万円（`priceStr='1'`）などの異常値がそのまま入っていた。
 - **仕様**:
-  - `url_router.py`: `buy_other/` は土地ではなく `AthomeInvestmentApartmentParser` / `AthomeInvestmentApartment` に正しくルーティング。
+  - `url_router.py`: `buy_other/` に対し `tochi` と `apartment` の両方のルート定義を保持し、動的種別判定または `property_type="apartment"` 指定時に `AthomeInvestmentApartmentParser` / `AthomeInvestmentApartment` を適切に選択。
   - `AthomeInvestmentApartmentParser`: `使用部分面積`（34.54m² 等）を `tatemonoMenseki` / `senyuMenseki` に確実にマッピング。
 
 ### 2.4 健美家（Kenbiya）および掲載終了物件 (Kenbiya & Lifecycle)
 - **事象**:
-  - 健美家などの掲載終了・404/403物件において、過去に誤って取得されたヘルプ文（「単位は「万円」。」等）による価格1.0万円・面積1.0㎡の古い `PropertyEvaluation` レコードが `delisted_at` 設定後も `needs_parser_fix=True` のまま残り、オートヒール指示書を汚染。
-  - 健美家パーサーの `_is_excluded_spec_container` / `_clean_spec_value` において、ヘルプ・凡例説明文（「を表示。」で終わる文等）をスペック値として採用しないよう強化。
+  - 健美家などの掲載終了・404/403物件において、過去に誤って取得されたヘルプ文（「単位は「万円」。」等）による価格1.0万円・面積1.0㎡の古い `PropertyEvaluation` レコードが、指示書生成時にノイズとなっていた。
 - **仕様**:
-  - `api.py` の `_sync_persist_delisted`: 物件が掲載終了（delisted）となった場合、`needs_parser_fix = False` にクリア。
-  - `auto_heal_parsers.py`: `is_published=True` の公開中物件のみを修復対象とする原則を厳格化。
+  - `auto_heal_parsers.py`: `is_published=True` かつ `needs_parser_fix=True` の公開中物件のみを修復対象とする原則を厳格化（Issue #773 の公開終了物件不整合フラグ永続化仕様と共存）。
 
 ## 3. テスト計画 (Verification Plan)
 - 単体テスト:

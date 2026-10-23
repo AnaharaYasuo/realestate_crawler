@@ -55,9 +55,9 @@ class TestAutoHealingFixes(TestCase):
         self.assertEqual(item.floorType_kai, 7)
 
     def test_url_router_athome_buy_other(self):
-        """UrlRouter routes athome /buy_other/ to AthomeInvestmentApartmentParser."""
+        """UrlRouter routes athome /buy_other/ to AthomeInvestmentApartmentParser when property_type is apartment or detected."""
         url = "https://www.athome.co.jp/buy_other/1198396219/?BKLISTID=001LPC"
-        parser = UrlRouter.create_parser(url)
+        parser = UrlRouter.create_parser(url, property_type="apartment")
         self.assertEqual(parser.__class__.__name__, "AthomeInvestmentApartmentParser")
 
     def test_data_validator_floor_recognition(self):

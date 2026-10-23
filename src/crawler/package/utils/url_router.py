@@ -207,6 +207,15 @@ class UrlRouter:
         {
             "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
             "site": "athome",
+            "property_type": "tochi",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeTochiParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeTochi",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "site": "athome",
             "property_type": "apartment",
             "parser_module": ATHOME_PARSER_MODULE,
             "parser_cls": "AthomeInvestmentApartmentParser",
