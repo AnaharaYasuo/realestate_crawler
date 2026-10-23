@@ -135,10 +135,39 @@ def get_prop_dates(prop):
     pub_str = _format_dt(pub_dt)
     return pub_str, crawl_str
 
-def _evaluate_investment_candidate(eval_rec) -> tuple:
-    score = eval_rec.investment_score or eval_rec.total_investment_score or 0.0
-    if score >= 80.0:
-        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", score
+INVESTMENT_PROPERTY_TYPES = {
+    "investapartment",
+    "investmentapartment",
+    "apartment",
+    "invest_apartment",
+    "investkodate",
+    "investmentkodate",
+    "invest_kodate",
+    "investment",
+    "investmentbuilding",
+}
+
+def is_investment_type(property_type: str | None) -> bool:
+    if not property_type:
+        return False
+    ptype_clean = property_type.lower().replace("_", "")
+    return ptype_clean in INVESTMENT_PROPERTY_TYPES or "invest" in ptype_clean
+
+def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
+    score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
+    if score >= 70.0:
+        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
+
+    if prop:
+        asking_price = getattr(prop, "price", 0)
+        asking_price_man = normalize_asking_price_man(asking_price)
+        pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
+        if pred_price > 0 and asking_price_man > 0:
+            discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+            if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
+                calc_priority = 70.0 + discount_pct
+                return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
+
     return False, "", 0.0
 
 def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: float) -> tuple:
@@ -159,9 +188,8 @@ def _evaluate_candidate(eval_rec, prop) -> tuple:
     if not asking_price or asking_price <= 0:
         return False, "", 0.0
 
-    ptype_lower = eval_rec.property_type.lower().replace("_", "")
-    if ptype_lower in ["investapartment", "investmentapartment", "apartment", "investment"]:
-        return _evaluate_investment_candidate(eval_rec)
+    if is_investment_type(eval_rec.property_type):
+        return _evaluate_investment_candidate(eval_rec, prop)
 
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
@@ -291,26 +319,106 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
         return True
     return False
 
-def _fetch_recommendation_candidates(limit: int = 2000):
-    threshold_48h = timezone.now() - datetime.timedelta(hours=48)
-    qs = PropertyEvaluation.objects.filter(
+def _fetch_recommendation_candidates(limit: int = 3000):
+    """
+    全種別の候補をバランスよく取得する (Issue #1087)
+    住居系（マンション、戸建て、土地）と投資系（区分、一棟、戸建て）のそれぞれについて
+    最新の未通知・公開物件を並行してロードし、特定種別による枠の独占を防ぐ。
+    """
+    base_qs = PropertyEvaluation.objects.filter(
         is_slack_notified=False,
         is_published=True,
         needs_recrawl=False,
-    ).filter(
-        models.Q(analyzed_at__gte=threshold_48h) | models.Q(analyzed_at__isnull=True)
-    ).order_by('-analyzed_at', '-id')
+    )
+    all_types = [
+        'mansion', 'kodate', 'tochi',
+        'investmentapartment', 'investment', 'apartment',
+        'investmentkodate', 'invest_kodate', 'invest_apartment', 'investmentbuilding'
+    ]
+    per_type_limit = max(100, limit // len(all_types))
+    combined_candidates = []
+    seen_ids = set()
 
-    candidates = list(qs[:limit])
-    if not candidates:
-        candidates = list(
-            PropertyEvaluation.objects.filter(
-                is_slack_notified=False,
-                is_published=True,
-                needs_recrawl=False,
-            ).order_by('-id')[:200]
-        )
-    return candidates
+    for ptype in all_types:
+        qs_type = base_qs.filter(property_type=ptype).order_by('-id')[:per_type_limit]
+        for rec in qs_type:
+            if rec.id not in seen_ids:
+                seen_ids.add(rec.id)
+                combined_candidates.append(rec)
+
+    if len(combined_candidates) < limit:
+        remaining_limit = limit - len(combined_candidates)
+        fallback_qs = base_qs.exclude(id__in=seen_ids).order_by('-id')[:remaining_limit]
+        combined_candidates.extend(fallback_qs)
+
+    return combined_candidates
+
+def _select_balanced_recommendations(
+    matched_candidates: list,
+    quota: int = 15,
+    min_investment_quota: int = 3,
+    max_per_type: int = 5,
+) -> list:
+    """
+    優先度順に並べ替えつつ、住居系・投資系のバランスおよび特定種別の独占を防止する (Issue #1087)
+    - 投資物件を最低 min_investment_quota 件確保
+    - 住居系（マンション、戸建て、土地）もバランスよく選定
+    - 単一種別（例: investmentkodate のみ）の上限を max_per_type 件に制限
+    """
+    matched_candidates.sort(key=lambda x: x[0], reverse=True)
+    if len(matched_candidates) <= quota:
+        return matched_candidates
+
+    inv_candidates = [c for c in matched_candidates if is_investment_type(c[1].property_type)]
+    res_candidates = [c for c in matched_candidates if not is_investment_type(c[1].property_type)]
+
+    selected = []
+    type_counts = {}
+
+    def can_add(c):
+        ptype = c[1].property_type.lower().replace("_", "")
+        return type_counts.get(ptype, 0) < max_per_type
+
+    def add_candidate(c):
+        selected.append(c)
+        ptype = c[1].property_type.lower().replace("_", "")
+        type_counts[ptype] = type_counts.get(ptype, 0) + 1
+
+    # 1. 投資物件枠を確保
+    for c in inv_candidates:
+        if len([x for x in selected if is_investment_type(x[1].property_type)]) >= min_investment_quota:
+            break
+        if can_add(c):
+            add_candidate(c)
+
+    # 2. 住居系枠を確保（最低3件）
+    min_res_quota = min(3, len(res_candidates))
+    for c in res_candidates:
+        if len([x for x in selected if not is_investment_type(x[1].property_type)]) >= min_res_quota:
+            break
+        if can_add(c):
+            add_candidate(c)
+
+    # 3. 残り枠を全体優先度順に上限（max_per_type）に配慮して補充
+    used_ids = {c[1].id for c in selected}
+    for c in matched_candidates:
+        if len(selected) >= quota:
+            break
+        if c[1].id not in used_ids and can_add(c):
+            add_candidate(c)
+            used_ids.add(c[1].id)
+
+    # 上限に達しなかった場合のフェールセーフ（上限緩和して残り枠を埋める）
+    if len(selected) < quota:
+        for c in matched_candidates:
+            if len(selected) >= quota:
+                break
+            if c[1].id not in used_ids:
+                selected.append(c)
+                used_ids.add(c[1].id)
+
+    selected.sort(key=lambda x: x[0], reverse=True)
+    return selected
 
 def send_recommendations():
     close_old_connections()
@@ -354,7 +462,7 @@ def send_recommendations():
         return
 
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
-    top_candidates = matched_candidates[:15]
+    top_candidates = _select_balanced_recommendations(matched_candidates, quota=15, min_investment_quota=3)
     logger.info(f"Filtered {len(matched_candidates)} recommendation candidates down to top {len(top_candidates)} items.")
     _notify_status(
         f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {len(top_candidates)} 件を各Slackチャンネルへ配信します。"
