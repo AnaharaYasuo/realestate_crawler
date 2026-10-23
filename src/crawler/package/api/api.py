@@ -2325,7 +2325,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         if eval_rec:
             eval_rec.is_published = False
             eval_rec.delisted_at = now_utc
-            eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+            eval_rec.needs_parser_fix = False
+            eval_rec.data_quality_issue = ""
             eval_rec.needs_recrawl = False
             eval_rec.save()
             logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)

@@ -1698,6 +1698,28 @@ class ParserBase(metaclass=ABCMeta):
         self._clean_int_fields(item)
         self._autofill_chidai_from_soup(item)
         self._guard_gross_yield(item)
+        if hasattr(item, "floorType_kai") and getattr(item, "floorType_kai", None) is None:
+            k_str = getattr(item, "kaisuStr", "") or ""
+            if k_str:
+                # e.g. "4階/地上4階", "（地下2階）地上40階建 /8階", "7階", "5階部分"
+                # If slash or portion present, prioritize portion after slash or '部分'
+                kai_val = None
+                if "/" in k_str or "／" in k_str:
+                    parts = re.split(r"[/／]", k_str)
+                    for p in reversed(parts):
+                        m = re.search(r"(\d{1,3})\s*階", p)
+                        if m and not any(kw in p for kw in ("地上", "地下", "建", "総")):
+                            kai_val = int(m.group(1))
+                            break
+                        elif m and "建" not in p:
+                            kai_val = int(m.group(1))
+                            break
+                if kai_val is None:
+                    m = re.search(r"(?:^|[^地下地上])(\d{1,3})\s*階", k_str)
+                    if m:
+                        kai_val = int(m.group(1))
+                if kai_val is not None:
+                    item.floorType_kai = kai_val
         self.validate_extracted_fields(item)
         self._normalize_station_fields(item)
         self._sync_genkyo_current_status(item)

@@ -207,11 +207,11 @@ class UrlRouter:
         {
             "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
             "site": "athome",
-            "property_type": "tochi",
+            "property_type": "apartment",
             "parser_module": ATHOME_PARSER_MODULE,
-            "parser_cls": "AthomeTochiParser",
+            "parser_cls": "AthomeInvestmentApartmentParser",
             "model_module": ATHOME_MODEL_MODULE,
-            "model_cls": "AthomeTochi",
+            "model_cls": "AthomeInvestmentApartment",
         },
 
         # LIFULL HOME'S (Homes)
