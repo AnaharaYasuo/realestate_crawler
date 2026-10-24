@@ -98,3 +98,12 @@ CVE-2026-111065
 
 # opentelemetry-api 1.45.1 upstream fix waiting for poetry.lock
 CVE-2026-114603
+
+# Upstream dependency vulnerabilities waiting for dependabot merge
+GHSA-9v8h-qqgm-4m35
+CVE-2026-114501
+CVE-2026-112398
+CVE-2026-109924
+CVE-2026-109841
+CVE-2026-109869
+CVE-2026-111181
