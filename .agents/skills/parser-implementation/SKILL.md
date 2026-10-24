@@ -9,6 +9,9 @@ description: 新しい不動産サイト用パーサーの開発、既存パー�
 
 ## 手順
 
+0. **CodeGraph による継承・依存関係および影響範囲の確認 (CodeGraph First)**
+   - パーサー開発や修正に着手する前に、必ず codegraph explore <ParserClass> または codegraph callers <ParserClass> 等を実行し、継承している BaseParser のメソッド実装状況やセレクタ設定、依存先・影響範囲をワンショットで確認すること。
+
 1. **仕様定義と実装確認**
    - サイトが異なっていても、同じ情報を保持する項目はモデル定義およびパーサー実装において必ず同一のフィールド名を使用すること。
    - 詳細は `docs/internal_design/field_naming_standards.md` を正として遵守すること。

@@ -7,6 +7,9 @@
 
 ## 2. コア規範 (Rules & Boundaries)
 
+### 2.0. CodeGraph による事前構造・影響範囲確認
+- パーサーの新規実装、改修、バグ調査においては、必ず CodeGraph（codegraph explore <クラス名> 等）を用いて基底クラス（ParserBase等）との継承関係や既存セレクタ仕様、影響範囲（Blast Radius）を確認してから着手すること。
+
 ### 2.1. 1物件1AIリクエスト原則 (Single Unified LLM Request Per Property)
 - 物件に対して AI を利用する場合、小分けに複数回呼び出すことを厳禁とする。
 - 1物件につき1リクエストで必要な全観点（種別判定、スペック、設備、画像等）を一括して構造化 JSON で抽出・判定させること。
