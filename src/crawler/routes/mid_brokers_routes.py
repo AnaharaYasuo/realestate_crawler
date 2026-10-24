@@ -55,7 +55,7 @@ def _handle_detail(parser_async_cls):
 # --- Ietan Routes ---
 @mid_brokers_bp.route(API_KEY_IETAN_MANSION_START, methods=['POST', 'GET'])
 def ietan_mansion_start():
-    return ParseIetanMansionStartAsync().main("https://ietan.jp/mansion/tokyo/")
+    return ParseIetanMansionStartAsync().main("https://www.ietan.jp/mansion/tokyo")
 ietanMansionStart = ietan_mansion_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_MANSION_DETAIL, methods=['POST', 'GET'])
@@ -64,7 +64,7 @@ ietanMansionDetail = ietan_mansion_detail
 
 @mid_brokers_bp.route(API_KEY_IETAN_KODATE_START, methods=['POST', 'GET'])
 def ietan_kodate_start():
-    return ParseIetanKodateStartAsync().main("https://ietan.jp/kodate/tokyo/")
+    return ParseIetanKodateStartAsync().main("https://www.ietan.jp/kodate/tokyo")
 ietanKodateStart = ietan_kodate_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_KODATE_DETAIL, methods=['POST', 'GET'])
@@ -73,7 +73,7 @@ ietanKodateDetail = ietan_kodate_detail
 
 @mid_brokers_bp.route(API_KEY_IETAN_TOCHI_START, methods=['POST', 'GET'])
 def ietan_tochi_start():
-    return ParseIetanTochiStartAsync().main("https://ietan.jp/tochi/tokyo/")
+    return ParseIetanTochiStartAsync().main("https://www.ietan.jp/land/tokyo")
 ietanTochiStart = ietan_tochi_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_TOCHI_DETAIL, methods=['POST', 'GET'])

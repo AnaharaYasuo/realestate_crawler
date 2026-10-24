@@ -26,7 +26,7 @@ def check_ietan_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 
 class IetanBaseParser(ParserBase):
-    BASE_URL = "https://ietan.jp"
+    BASE_URL = "https://www.ietan.jp"
 
     def getCharset(self):
         return "utf-8"

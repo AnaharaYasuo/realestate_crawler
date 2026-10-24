@@ -114,6 +114,14 @@ class MisawaParser(ParserBase):
             yield ListItem(url=full_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
+        # 検索結果（物件一覧）が空の場合は次ページが存在しても探索を打ち切る (無限ループ防止 Issue #1092)
+        has_items = bool(
+            response.select('div.searchList div.section')
+            or response.select('a[href*="detail_"]')
+        )
+        if not has_items:
+            return ""
+
         # 多重セレクターおよびテキスト・属性探索によるフォールバック
         next_tag = (
             response.select_one('li.next a')
