@@ -9,6 +9,10 @@ description: バグ調査、パースエラーの修正、システムの不具�
 
 ## 手順
 
+0. **CodeGraph によるコード構造・影響範囲分析 (CodeGraph First)**
+   - 不具合やエラー箇所の調査・修正を行う際、広範囲な grep や推測によるファイル全体の連続読み込みを行ってはならない。
+   - 必ず CodeGraph（MCPツール codegraph_explore、または CLI codegraph explore <symbol> / codegraph impact <symbol> / codegraph callers <symbol>）をファーストコールし、対象シンボル・呼出元・呼出先・影響範囲（Blast Radius）を一撃で把握すること。
+
 1. **仮説構築と検証の徹底**
    - 問題が発生した原因に対して仮説を構築した場合、その仮説が正しいことを必ずログや実行結果で裏付け・確認してから原因対処（コードの修正等）を行うこと。
    - 単なる仮説のみに基づいて修正を行うことは禁止する。
