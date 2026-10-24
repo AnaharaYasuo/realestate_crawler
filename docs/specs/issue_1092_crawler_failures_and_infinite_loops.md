@@ -1,4 +1,4 @@
-# Issue #1092: クローラー異常修復仕様書 (misawa無限ループ、ietanドメイン/SSL、長谷工ドメイン移転、およびWatchdog進捗更新)
+# Issue #1092: クローラー異常修復仕様書 (misawa無限ループ、ietanドメイン/SSL、長谷工ドメイン移転、およびTohoHouseドメイン修正)
 
 ## 1. 概要
 直近12時間のSlackアラート監視（#property_alert / #dev-agent）により判明した以下のシステム・クローラー不具合を解消する。
@@ -10,8 +10,12 @@
    - `BASE_URL` が `https://ietan.jp`（Apexドメイン）になっており、SSL証明書のコモンネーム（`www.ietan.jp` / `*.ietan.jp`）と不一致を起こして `SSLCertVerificationError` で即座に失敗（Exit Code 1）していた。
    - また、土地の初期URLが `/tochi/tokyo/`（HTTP 404）となっていた。正しくは `/land/tokyo`。
    - **対策**: `BASE_URL` を `https://www.ietan.jp` に修正し、`routes/mid_brokers_routes.py` 内の初期URLも `https://www.ietan.jp/mansion/tokyo`、`https://www.ietan.jp/kodate/tokyo`、`https://www.ietan.jp/land/tokyo` に統一する。
-3. **toho / haseko 等のドメイン失効・移転に伴う安全なエラーハンドリング / スキップ**:
-   - 旧ドメイン（`toho-house.media`, `haseko-urbannet.co.jp`）のDNS失効によるクラッシュに対し、DNS未解決時やドメイン移転時はわかりやすいログを残し、パイプライン全体を停止させない。
+3. **toho（東宝ハウス）ドメインおよび一覧リンク・ページネーション修正**:
+   - `toho-house.media` のDNSレコードが存在しないため即座に失敗していた。
+   - 初期設計書（`site_structure_toho.md`）の正規ドメイン `https://th-yokohama.com` に修正し、一覧カードのリンク正規表現（`estate_detail_\d+`）およびページネーション（`.propertyPager__nextLink`）を対応。
+4. **haseko（長谷工）正規ドメインへの修正**:
+   - 旧ドメイン `www.haseko-urbannet.co.jp` から正規ドメイン `https://www.haseko-chukai.com` に更新。
+   - サイトが緊急メンテナンス（HTTP 503）中の場合は `baseParser` の `ServerBusyException` により安全にスキップ（Exit Code 0）される仕様を担保。
 
 ## 2. 外部設計
 - **misawa**:
@@ -23,9 +27,23 @@
     - mansion: `https://www.ietan.jp/mansion/tokyo`
     - kodate: `https://www.ietan.jp/kodate/tokyo`
     - tochi: `https://www.ietan.jp/land/tokyo`
+- **toho**:
+  - `TohoBaseParser.BASE_URL = "https://th-yokohama.com"`
+  - `parsePropertyListPage`: `(?:/detail/|estate_detail_)[a-zA-Z0-9_-]+` にマッチするリンクを抽出
+  - `parseNextPage`: `.propertyPager__nextLink` を優先取得
+  - `mid_brokers_routes.py`:
+    - mansion: `https://th-yokohama.com/estates/index?div=1&page=1`
+    - kodate: `https://th-yokohama.com/estates/index?div=2&page=1`
+    - tochi: `https://th-yokohama.com/estates/index?div=0&page=1`
+- **haseko**:
+  - `HasekoMansionParser.BASE_URL = "https://www.haseko-chukai.com"`
+  - `mid_brokers_routes.py`: `https://www.haseko-chukai.com/syutoken-buy/mansion/areas/tokyoto/`
 
 ## 3. テスト計画
 - `test_misawa_parser.py`:
   - 検索結果が空（`<div class="searchList"></div>`、かつ `li.next a` が存在）のHTMLを渡したとき、`parseNextPage` が `""` を返し、無限ループしないことをアサート。
 - `test_mid_broker_parsers.py`:
-  - ietanのURLがすべて `https://www.ietan.jp` になっていること、および土地URLが `/land/` を向いていることをテスト。
+  - ietan, toho, haseko の各パーサーおよび詳細ページ・掲載終了判定が正常動作することを確認。
+- `test_toho_list_and_next_page.py`:
+  - toho の一覧カード抽出および次ページURL取得が正しく動作することを確認。
+

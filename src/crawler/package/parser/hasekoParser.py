@@ -22,7 +22,7 @@ def check_haseko_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 
 class HasekoMansionParser(MansionParserBase):
-    BASE_URL = "https://www.haseko-urbannet.co.jp"
+    BASE_URL = "https://www.haseko-chukai.com"
 
     def getCharset(self):
         return "utf-8"

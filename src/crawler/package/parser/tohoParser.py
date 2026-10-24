@@ -26,14 +26,14 @@ def check_toho_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 
 class TohoBaseParser(ParserBase):
-    BASE_URL = "https://www.toho-house.media"
+    BASE_URL = "https://th-yokohama.com"
 
     def getCharset(self):
         return "utf-8"
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         detail_links = set()
-        for a in response.find_all("a", href=re.compile(r'/detail/[a-zA-Z0-9_-]+')):
+        for a in response.find_all("a", href=re.compile(r'(?:/detail/|estate_detail_)[a-zA-Z0-9_-]+')):
             href = a.get("href")
             if not href:
                 continue
@@ -54,7 +54,7 @@ class TohoBaseParser(ParserBase):
         return ""
 
     async def parseNextPage(self, response: BeautifulSoup):
-        next_tag = response.select_one('li.next a, a[rel="next"], a.next, .pager a.next')
+        next_tag = response.select_one('.propertyPager__nextLink, li.next a, a[rel="next"], a.next, .pager a.next')
         if next_tag is not None:
             href = next_tag.get("href")
             if href:
