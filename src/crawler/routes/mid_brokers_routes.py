@@ -55,7 +55,7 @@ def _handle_detail(parser_async_cls):
 # --- Ietan Routes ---
 @mid_brokers_bp.route(API_KEY_IETAN_MANSION_START, methods=['POST', 'GET'])
 def ietan_mansion_start():
-    return ParseIetanMansionStartAsync().main("https://www.ietan.jp/mansion/tokyo")
+    return ParseIetanMansionStartAsync().main("https://www.ietan.jp/mansion/tokyo/list/cc_13100")
 ietanMansionStart = ietan_mansion_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_MANSION_DETAIL, methods=['POST', 'GET'])
@@ -64,7 +64,7 @@ ietanMansionDetail = ietan_mansion_detail
 
 @mid_brokers_bp.route(API_KEY_IETAN_KODATE_START, methods=['POST', 'GET'])
 def ietan_kodate_start():
-    return ParseIetanKodateStartAsync().main("https://www.ietan.jp/kodate/tokyo")
+    return ParseIetanKodateStartAsync().main("https://www.ietan.jp/kodate/tokyo/list/cc_13100")
 ietanKodateStart = ietan_kodate_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_KODATE_DETAIL, methods=['POST', 'GET'])
@@ -73,7 +73,7 @@ ietanKodateDetail = ietan_kodate_detail
 
 @mid_brokers_bp.route(API_KEY_IETAN_TOCHI_START, methods=['POST', 'GET'])
 def ietan_tochi_start():
-    return ParseIetanTochiStartAsync().main("https://www.ietan.jp/land/tokyo")
+    return ParseIetanTochiStartAsync().main("https://www.ietan.jp/land/tokyo/list/cc_13100")
 ietanTochiStart = ietan_tochi_start
 
 @mid_brokers_bp.route(API_KEY_IETAN_TOCHI_DETAIL, methods=['POST', 'GET'])
@@ -112,7 +112,7 @@ adcastTochiDetail = adcast_tochi_detail
 # --- Toho Routes ---
 @mid_brokers_bp.route(API_KEY_TOHO_MANSION_START, methods=['POST', 'GET'])
 def toho_mansion_start():
-    return ParseTohoMansionStartAsync().main("https://th-yokohama.com/estates/index?div=1&page=1")
+    return ParseTohoMansionStartAsync().main("https://th-yokohama.com/estates/index?div=2&page=1")
 tohoMansionStart = toho_mansion_start
 
 @mid_brokers_bp.route(API_KEY_TOHO_MANSION_DETAIL, methods=['POST', 'GET'])
@@ -121,7 +121,7 @@ tohoMansionDetail = toho_mansion_detail
 
 @mid_brokers_bp.route(API_KEY_TOHO_KODATE_START, methods=['POST', 'GET'])
 def toho_kodate_start():
-    return ParseTohoKodateStartAsync().main("https://th-yokohama.com/estates/index?div=2&page=1")
+    return ParseTohoKodateStartAsync().main("https://th-yokohama.com/estates/index?div=1&page=1")
 tohoKodateStart = toho_kodate_start
 
 @mid_brokers_bp.route(API_KEY_TOHO_KODATE_DETAIL, methods=['POST', 'GET'])
@@ -130,7 +130,7 @@ tohoKodateDetail = toho_kodate_detail
 
 @mid_brokers_bp.route(API_KEY_TOHO_TOCHI_START, methods=['POST', 'GET'])
 def toho_tochi_start():
-    return ParseTohoTochiStartAsync().main("https://th-yokohama.com/estates/index?div=0&page=1")
+    return ParseTohoTochiStartAsync().main("https://th-yokohama.com/estates/index?div=3&page=1")
 tohoTochiStart = toho_tochi_start
 
 @mid_brokers_bp.route(API_KEY_TOHO_TOCHI_DETAIL, methods=['POST', 'GET'])

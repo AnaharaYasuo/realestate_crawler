@@ -217,6 +217,7 @@ class IetanMansionParser(IetanBaseParser, MansionParserBase):
         item.senyuMenseki = self._parseSenyuMenseki(response, specs)
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "")
         item.kouzou = self._parseKouzou(response, specs)
         item.kaisu = self._parseFloor(response, specs)
         item.kanrihi = self._parseManagementFee(response, specs)
