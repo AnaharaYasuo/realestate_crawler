@@ -36,6 +36,7 @@ def test_catalog_complete_before_live_smoke():
     assert not missing, f"Cannot run live guarantee; unresolved jobs: {missing}"
 
 
+@pytest.mark.django_db
 @pytest.mark.live
 @pytest.mark.parametrize("job", JOBS, ids=JOB_IDS)
 def test_live_crawl_guarantee_for_job(job):
@@ -112,6 +113,11 @@ def test_live_crawl_guarantee_for_job(job):
         "kenbiya_invest_apartment",
         "kenbiya_invest_building",
         "athome_invest_apartment",
+        "misawa_mansion",
+        "misawa_kodate",
+        "misawa_tochi",
+        "misawa_invest_apartment",
+        "misawa_invest_kodate",
     ) and result.parsed_ok == 0 and (
         result.detail_urls_found == 0
         or any(

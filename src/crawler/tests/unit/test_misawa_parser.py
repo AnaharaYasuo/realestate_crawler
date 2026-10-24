@@ -3,6 +3,8 @@
 ミサワホーム不動産 パーサー ユニットテスト
 ※ 固定モックHTMLおよびインラインHTML依存は完全に根絶し、パーサー契約・モデルを検証します。
 """
+import pytest
+import bs4
 from package.parser.misawaParser import (
     MisawaMansionParser,
     MisawaKodateParser,
@@ -54,3 +56,23 @@ class TestMisawaParser:
 
         parser = ParseMisawaInvestmentKodateStartAsync()._generateParser()
         assert parser.__class__.__name__ == "MisawaInvestmentKodateParser"
+
+    @pytest.mark.asyncio
+    async def test_parse_next_page_returns_empty_when_no_properties(self):
+        # Empty searchList with next link present (misawa bug reproduced)
+        empty_html = """
+        <html>
+          <body>
+            <div class="searchList"></div>
+            <div class="pageNav">
+              <ul>
+                <li class="next"><a href="/search/sale/list/?bukken_type[]=3&page=2"></a></li>
+              </ul>
+            </div>
+          </body>
+        </html>
+        """
+        soup = bs4.BeautifulSoup(empty_html, "html.parser")
+        parser = MisawaMansionParser(None)
+        next_url = await parser.parseNextPage(soup)
+        assert next_url == "", "Next URL should be empty when no property items exist in the search list"
