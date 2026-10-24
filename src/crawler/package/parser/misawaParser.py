@@ -12,6 +12,7 @@ from package.api.differential import ListItem
 from decimal import Decimal, ROUND_HALF_UP
 
 logger = logging.getLogger(__name__)
+_DETAIL_LINK_SELECTOR = 'a[href*="detail_"]'
 
 _MISAWA_MAGUCHI_RE = (
     r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[m米]?'
@@ -96,7 +97,7 @@ class MisawaParser(ParserBase):
         sections = response.select('div.searchList div.section')
         
         if not sections:
-             links = response.select('a[href*="detail_"]')
+             links = response.select(_DETAIL_LINK_SELECTOR)
              for link in links:
                  p = self._extract_card_price(link)
                  yield ListItem(url=self.getRootDestUrl(link.get('href')), price=p)
@@ -120,9 +121,7 @@ class MisawaParser(ParserBase):
         if search_list is not None:
             has_items = bool(
                 search_list.select('div.section')
-                or search_list.select('a[href*="detail_"]')
-                or response.select('div.searchList div.section')
-                or response.select('a[href*="detail_"]')
+                or search_list.select(_DETAIL_LINK_SELECTOR)
             )
             if not has_items:
                 return ""
