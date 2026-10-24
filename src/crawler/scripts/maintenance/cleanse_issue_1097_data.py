@@ -1,19 +1,22 @@
 """
-東急リバブル パーサー不整合データ クレンジングスクリプト (Issue #1097)
+東急リバブル パーサー不整合データ インプレース直接修復スクリプト (Issue #1106 / #1097)
 
 東急リバブル（tokyu）の物件において、間取りや構造等のフィールドに辞書の文字列表現
-（例: "{'value': ..."）が誤って格納されてしまったレコードを検出し、
-横断管理テーブル PropertyEvaluation 上で `needs_recrawl=True` を立てる。
+（例: "{'value': '3LDK', ...}"）が誤って格納されてしまったレコードを検出し、
+再クローリングを行うことなく既存レコードから本来の値を直接抽出してインプレース修復する。
 
-これにより、MLモデルの学習対象から即座に除外され、ピンポイント再クローリングバッチ
-（recrawl_anomalies.py）または次回クローラー実行時に正常な値で再取得・上書きされる。
+修復完了後、PropertyEvaluation 上の `needs_recrawl=False` および `data_quality_issue=""`
+を設定し、MLモデルの学習・推論対象に即時安全に復帰させる。
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import logging
 import os
+import re
 import sys
+from typing import Any
 
 _cur = os.path.abspath(__file__)
 while True:
@@ -40,85 +43,121 @@ from package.models.tokyu import (
 
 logger = logging.getLogger(__name__)
 
-
-def find_anomaly_urls() -> set[str]:
-    """辞書文字列表現が混入している東急リバブル物件の URL を収集する。"""
-    anomaly_urls: set[str] = set()
-
-    # 1. tokyu_kodate
-    kodate_urls = TokyuKodate.objects.filter(
-        Q(madori__startswith="{'value'")
-        | Q(kouzou__startswith="{'value'")
-        | Q(youtoChiiki__startswith="{'value'")
-        | Q(tochikenri__startswith="{'value'")
-    ).values_list("pageUrl", flat=True)
-    anomaly_urls.update(kodate_urls)
-
-    # 2. tokyu_mansion
-    mansion_urls = TokyuMansion.objects.filter(
-        Q(madori__startswith="{'value'")
-        | Q(kouzou__startswith="{'value'")
-        | Q(kaisuStr__startswith="{'value'")
-        | Q(tochikenri__startswith="{'value'")
-    ).values_list("pageUrl", flat=True)
-    anomaly_urls.update(mansion_urls)
-
-    # 3. tokyu_tochi
-    tochi_urls = TokyuTochi.objects.filter(
-        Q(chimoku__startswith="{'value'")
-        | Q(youtoChiiki__startswith="{'value'")
-        | Q(tochikenri__startswith="{'value'")
-    ).values_list("pageUrl", flat=True)
-    anomaly_urls.update(tochi_urls)
-
-    # 4. tokyu_investment_kodate
-    inv_kodate_urls = TokyuInvestmentKodate.objects.filter(
-        Q(kouzou__startswith="{'value'")
-        | Q(youtoChiiki__startswith="{'value'")
-        | Q(tochikenri__startswith="{'value'")
-    ).values_list("pageUrl", flat=True)
-    anomaly_urls.update(inv_kodate_urls)
-
-    return anomaly_urls
+VALUE_REGEX = re.compile(r"['\"]value['\"]\s*:\s*(?:'([^']*)'|\"([^\"]*)\")")
 
 
-def cleanse_tokyu_anomalies(dry_run: bool = False) -> int:
-    """不整合レコードの PropertyEvaluation.needs_recrawl を True に更新する。"""
-    anomaly_urls = find_anomaly_urls()
-    logger.info("Found %d anomaly properties with dict strings across tokyu models.", len(anomaly_urls))
+def extract_value_from_dict_repr(val: Any) -> Any:
+    """辞書文字列表現（"{'value': '3LDK', ...}" 等）から値文字列を取り出す。
+    辞書文字列表現でない場合はそのままの値を返す。
+    """
+    if not isinstance(val, str):
+        return val
 
-    if not anomaly_urls:
-        logger.info("No anomaly records detected.")
-        return 0
+    s = val.strip()
+    if not (s.startswith("{") and ("'value'" in s or '"value"' in s)):
+        return val
 
-    qs = PropertyEvaluation.objects.filter(
-        company="tokyu",
-        property_url__in=anomaly_urls,
+    m = VALUE_REGEX.search(s)
+    if m:
+        extracted = m.group(1) if m.group(1) is not None else m.group(2)
+        return extracted.strip()
+
+    try:
+        parsed = ast.literal_eval(s)
+        if isinstance(parsed, dict) and "value" in parsed:
+            extracted_val = parsed["value"]
+            return str(extracted_val).strip() if extracted_val is not None else ""
+    except Exception:
+        pass
+
+    return val
+
+
+def repair_model_records(model_cls, fields: list[str], dry_run: bool = False) -> tuple[int, set[str]]:
+    """指定モデルの対象フィールドに存在する辞書文字列表現をインプレース修復する。"""
+    query = Q()
+    for field in fields:
+        query |= Q(**{f"{field}__startswith": "{'value'"})
+        query |= Q(**{f"{field}__startswith": '{"value"'})
+
+    affected_urls: set[str] = set()
+    total_repaired = 0
+
+    qs = model_cls.objects.filter(query)
+    for obj in qs:
+        changed = False
+        for field in fields:
+            current_val = getattr(obj, field, None)
+            if current_val and isinstance(current_val, str) and (current_val.startswith("{'value'") or current_val.startswith('{"value"')):
+                new_val = extract_value_from_dict_repr(current_val)
+                if new_val != current_val:
+                    setattr(obj, field, new_val)
+                    changed = True
+
+        if changed:
+            affected_urls.add(obj.pageUrl)
+            total_repaired += 1
+            if not dry_run:
+                obj.save(update_fields=fields)
+
+    logger.info(
+        "[%s] Repaired %d records (%d unique URLs) in %s",
+        "DRY RUN" if dry_run else "APPLIED",
+        total_repaired,
+        len(affected_urls),
+        model_cls.__name__,
     )
-    target_count = qs.count()
-    logger.info("Target PropertyEvaluation records to update: %d", target_count)
+    return total_repaired, affected_urls
+
+
+def cleanse_tokyu_in_place(dry_run: bool = False) -> dict[str, int]:
+    """東急リバブルの全モデルの辞書文字列表現を修復し、PropertyEvaluation を正常化する。"""
+    model_targets = [
+        (TokyuKodate, ["madori", "kouzou", "youtoChiiki", "tochikenri"]),
+        (TokyuMansion, ["madori", "kouzou", "kaisuStr", "tochikenri"]),
+        (TokyuTochi, ["chimoku", "youtoChiiki", "tochikenri"]),
+        (TokyuInvestmentKodate, ["kouzou", "youtoChiiki", "tochikenri"]),
+        (TokyuInvestmentApartment, ["kouzou", "youtoChiiki", "tochikenri", "chimoku"]),
+    ]
+
+    all_affected_urls: set[str] = set()
+    stats: dict[str, int] = {}
+
+    for model_cls, fields in model_targets:
+        count, urls = repair_model_records(model_cls, fields, dry_run=dry_run)
+        stats[model_cls.__name__] = count
+        all_affected_urls.update(urls)
+
+    # PropertyEvaluation のフラグ正常化 (不整合URLまたは既存のtokyu_madori_dict_bug対象)
+    eval_qs = PropertyEvaluation.objects.filter(
+        company="tokyu",
+    ).filter(
+        Q(data_quality_issue="tokyu_madori_dict_bug") | Q(property_url__in=all_affected_urls)
+    )
+    eval_count = eval_qs.count()
+    stats["PropertyEvaluation_reset"] = eval_count
 
     if dry_run:
-        logger.info("[DRY RUN] Would update %d records to needs_recrawl=True", target_count)
-        return target_count
+        logger.info("[DRY RUN] Would reset needs_recrawl and data_quality_issue for %d PropertyEvaluation records", eval_count)
+    else:
+        with transaction.atomic():
+            eval_qs.update(
+                needs_recrawl=False,
+                data_quality_issue="",
+            )
+            logger.info("Reset %d PropertyEvaluation records to needs_recrawl=False", eval_count)
 
-    with transaction.atomic():
-        updated_count = qs.update(
-            needs_recrawl=True,
-            data_quality_issue="tokyu_madori_dict_bug",
-        )
-        logger.info("Successfully marked %d PropertyEvaluation records as needs_recrawl=True.", updated_count)
-
-    return updated_count
+    return stats
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    parser = argparse.ArgumentParser(description="Cleanse tokyu anomaly data by setting needs_recrawl=True")
+    parser = argparse.ArgumentParser(description="Cleanse tokyu anomaly data in-place without recrawling")
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without modifying database")
     args = parser.parse_args()
 
-    cleanse_tokyu_anomalies(dry_run=args.dry_run)
+    stats = cleanse_tokyu_in_place(dry_run=args.dry_run)
+    print("Summary:", stats)
 
 
 if __name__ == "__main__":

@@ -3,16 +3,32 @@ from unittest.mock import MagicMock, patch
 
 from package.models.tokyu import TokyuKodate, TokyuMansion
 from package.models.evaluation import PropertyEvaluation
-from scripts.maintenance.cleanse_issue_1097_data import cleanse_tokyu_anomalies, find_anomaly_urls
+from scripts.maintenance.cleanse_issue_1097_data import (
+    extract_value_from_dict_repr,
+    cleanse_tokyu_in_place,
+)
+
+
+def test_extract_value_from_dict_repr():
+    # Single quotes
+    assert extract_value_from_dict_repr("{'value': '3LDK', 'element': None}") == "3LDK"
+    # Double quotes
+    assert extract_value_from_dict_repr('{"value": "2SLDK", "element": null}') == "2SLDK"
+    # Complex strings
+    assert extract_value_from_dict_repr("{'value': '4LDK＋S（納戸）', 'row': 'test'}") == "4LDK＋S（納戸）"
+    # Plain string should be untouched
+    assert extract_value_from_dict_repr("3LDK") == "3LDK"
+    assert extract_value_from_dict_repr(None) is None
+    assert extract_value_from_dict_repr("") == ""
 
 
 @pytest.mark.django_db
-def test_cleanse_tokyu_anomalies():
+def test_cleanse_tokyu_in_place():
     # Setup test properties
     url_bad_kodate = "https://www.livable.co.jp/kodate/TEST001/"
     url_good_kodate = "https://www.livable.co.jp/kodate/TEST002/"
 
-    TokyuKodate.objects.create(
+    bad_kodate = TokyuKodate.objects.create(
         pageUrl=url_bad_kodate,
         propertyName="テスト物件1",
         priceStr="5000万円",
@@ -22,7 +38,7 @@ def test_cleanse_tokyu_anomalies():
         tochiMenseki=100.0,
         tatemonoMenseki=80.0,
         chikunengetsuStr="2020年1月",
-        kouzou="木造",
+        kouzou="{'value': '木造2階建', 'element': None}",
         setsumen="4m",
         douroHaba="4m",
         youtoChiiki="第一種住居地域",
@@ -33,10 +49,11 @@ def test_cleanse_tokyu_anomalies():
         property_type="kodate",
         property_url=url_bad_kodate,
         property_id=1,
-        needs_recrawl=False,
+        needs_recrawl=True,
+        data_quality_issue="tokyu_madori_dict_bug",
     )
 
-    TokyuKodate.objects.create(
+    good_kodate = TokyuKodate.objects.create(
         pageUrl=url_good_kodate,
         propertyName="テスト物件2",
         priceStr="6000万円",
@@ -60,23 +77,31 @@ def test_cleanse_tokyu_anomalies():
         needs_recrawl=False,
     )
 
-    # Test find_anomaly_urls
-    anomalies = find_anomaly_urls()
-    assert url_bad_kodate in anomalies
-    assert url_good_kodate not in anomalies
-
     # Test dry run
-    dry_count = cleanse_tokyu_anomalies(dry_run=True)
-    assert dry_count == 1
-    eval_bad = PropertyEvaluation.objects.get(property_url=url_bad_kodate)
-    assert eval_bad.needs_recrawl is False
+    stats_dry = cleanse_tokyu_in_place(dry_run=True)
+    assert stats_dry["TokyuKodate"] == 1
+    assert stats_dry["PropertyEvaluation_reset"] == 1
 
-    # Test actual run
-    actual_count = cleanse_tokyu_anomalies(dry_run=False)
-    assert actual_count == 1
-    eval_bad.refresh_from_db()
+    bad_kodate.refresh_from_db()
+    assert bad_kodate.madori == "{'value': '3LDK', 'element': None}"
+    assert bad_kodate.kouzou == "{'value': '木造2階建', 'element': None}"
+    eval_bad = PropertyEvaluation.objects.get(property_url=url_bad_kodate)
     assert eval_bad.needs_recrawl is True
     assert eval_bad.data_quality_issue == "tokyu_madori_dict_bug"
 
+    # Test actual run
+    stats_actual = cleanse_tokyu_in_place(dry_run=False)
+    assert stats_actual["TokyuKodate"] == 1
+    assert stats_actual["PropertyEvaluation_reset"] == 1
+
+    bad_kodate.refresh_from_db()
+    assert bad_kodate.madori == "3LDK"
+    assert bad_kodate.kouzou == "木造2階建"
+
+    eval_bad.refresh_from_db()
+    assert eval_bad.needs_recrawl is False
+    assert eval_bad.data_quality_issue == ""
+
     eval_good = PropertyEvaluation.objects.get(property_url=url_good_kodate)
     assert eval_good.needs_recrawl is False
+    assert eval_good.data_quality_issue == ""
