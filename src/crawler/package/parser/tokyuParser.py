@@ -73,11 +73,11 @@ class TokyuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return self._get_spec_val(specs, "現況") or self._get_spec_val(specs, "現況状況")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -707,22 +707,22 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+        return self._get_spec_val(specs, "階数") or self._get_spec_val(specs, "所在階") or super()._parseFloor(response, specs)
 
     def _parseSouKosu(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("総戸数", "")
+        val = self._get_spec_val(specs, "総戸数")
         if val:
             m = DIGITS_PATTERN.search(val)
             return int(m.group(1)) if m else None
@@ -730,12 +730,12 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseManagementFee(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        val = self._get_spec_val(specs, "管理費") or self._get_spec_val(specs, "管理費等")
         return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
 
     def _parseReserveFund(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("修繕積立金", "")
+        val = self._get_spec_val(specs, "修繕積立金")
         return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
 
     def _parseKenpei(self, response, specs=None):
@@ -915,18 +915,18 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
 
     def _parseChimoku(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("地目", "") or super()._parseChimoku(response, specs)
+        return self._get_spec_val(specs, "地目") or super()._parseChimoku(response, specs)
 
     def _parseSetsudou(self, response, specs=None) -> str:
         return super()._parseSetsudou(response, specs)
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     property_type = 'tochi'
 
@@ -1038,14 +1038,14 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -1055,11 +1055,11 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     property_type = 'kodate'
 
@@ -1121,6 +1121,12 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
         return self._parseDouro(response)
 
 class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
+
+    def _get_spec_val(self, specs, key, default=""):
+        if not specs or key not in specs:
+            return default
+        val = specs[key]
+        return val.get('value', default) if isinstance(val, dict) else str(val)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
@@ -1511,7 +1517,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         try:
             specs = self._scrape_specs(response)
             item.setsudou = self._parseSetsudou(response, specs)
-            item.setsumen = specs.get("接道方向／幅員", specs.get("接道", ""))
+            item.setsumen = self._get_spec_val(specs, "接道方向／幅員") or self._get_spec_val(specs, "接道")
             if item.setsumen:
                 item.maguchiStr = str(item.setsumen)
                 m = FLOAT_PATTERN.search(item.maguchiStr)
@@ -1768,14 +1774,14 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -1785,11 +1791,11 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     def createEntity(self):
         from package.models.tokyu import TokyuInvestmentKodate
