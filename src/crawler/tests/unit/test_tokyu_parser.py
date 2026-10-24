@@ -110,3 +110,85 @@ class TestTokyuParser:
         with pytest.raises(SkipPropertyException):
             parser._parsePropertyDetailPage(item, soup)
 
+    def test_tokyu_spec_values_are_strings_not_dict(self):
+        """Issue #1097: specs が dict を持つ場合でも _parseMadori 等が文字列を返すことを検証"""
+        html = """
+        <div class="m-status-table__wrapper">
+          <div>
+            <dt>間取り：</dt>
+            <dd><div>2LDK＋納戸×1</div></dd>
+          </div>
+          <div>
+            <dt>構造：</dt>
+            <dd><div>木造2階建</div></dd>
+          </div>
+          <div>
+            <dt>所在階：</dt>
+            <dd><div>3階</div></dd>
+          </div>
+          <div>
+            <dt>総戸数：</dt>
+            <dd><div>50戸</div></dd>
+          </div>
+          <div>
+            <dt>土地権利：</dt>
+            <dd><div>所有権</div></dd>
+          </div>
+          <div>
+            <dt>用途地域：</dt>
+            <dd><div>第一種低層住居専用地域</div></dd>
+          </div>
+          <div>
+            <dt>地目：</dt>
+            <dd><div>宅地</div></dd>
+          </div>
+          <div>
+            <dt>現況：</dt>
+            <dd><div>空家</div></dd>
+          </div>
+        </div>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+
+        kodate_parser = TokyuKodateParser()
+        k_specs = kodate_parser._scrape_specs(soup)
+        assert isinstance(kodate_parser._parseMadori(soup, k_specs), str)
+        assert kodate_parser._parseMadori(soup, k_specs) == "2LDK＋納戸×1"
+        assert isinstance(kodate_parser._parseKouzou(soup, k_specs), str)
+        assert kodate_parser._parseKouzou(soup, k_specs) == "木造2階建"
+        assert isinstance(kodate_parser._parseRights(soup, k_specs), str)
+        assert kodate_parser._parseRights(soup, k_specs) == "所有権"
+        assert isinstance(kodate_parser._parseYoutoChiiki(soup, k_specs), str)
+        assert kodate_parser._parseYoutoChiiki(soup, k_specs) == "第一種低層住居専用地域"
+
+        mansion_parser = TokyuMansionParser()
+        m_specs = mansion_parser._scrape_specs(soup)
+        assert isinstance(mansion_parser._parseMadori(soup, m_specs), str)
+        assert mansion_parser._parseMadori(soup, m_specs) == "2LDK＋納戸×1"
+        assert isinstance(mansion_parser._parseKouzou(soup, m_specs), str)
+        assert mansion_parser._parseKouzou(soup, m_specs) == "木造2階建"
+        assert isinstance(mansion_parser._parseFloor(soup, m_specs), str)
+        assert mansion_parser._parseFloor(soup, m_specs) == "3階"
+        assert mansion_parser._parseSouKosu(soup, m_specs) == 50
+
+        tochi_parser = TokyuTochiParser()
+        t_specs = tochi_parser._scrape_specs(soup)
+        assert isinstance(tochi_parser._parseChimoku(soup, t_specs), str)
+        assert tochi_parser._parseChimoku(soup, t_specs) == "宅地"
+        assert isinstance(tochi_parser._parseRights(soup, t_specs), str)
+        assert tochi_parser._parseRights(soup, t_specs) == "所有権"
+        assert isinstance(tochi_parser._parseYoutoChiiki(soup, t_specs), str)
+        assert tochi_parser._parseYoutoChiiki(soup, t_specs) == "第一種低層住居専用地域"
+
+        invest_kodate_parser = TokyuInvestmentKodateParser()
+        ik_specs = invest_kodate_parser._scrape_specs(soup)
+        assert isinstance(invest_kodate_parser._parseMadori(soup, ik_specs), str)
+        assert invest_kodate_parser._parseMadori(soup, ik_specs) == "2LDK＋納戸×1"
+        assert isinstance(invest_kodate_parser._parseKouzou(soup, ik_specs), str)
+        assert invest_kodate_parser._parseKouzou(soup, ik_specs) == "木造2階建"
+        assert isinstance(invest_kodate_parser._parseRights(soup, ik_specs), str)
+        assert invest_kodate_parser._parseRights(soup, ik_specs) == "所有権"
+        assert isinstance(invest_kodate_parser._parseYoutoChiiki(soup, ik_specs), str)
+        assert invest_kodate_parser._parseYoutoChiiki(soup, ik_specs) == "第一種低層住居専用地域"
+
+
