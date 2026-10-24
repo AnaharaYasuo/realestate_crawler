@@ -115,12 +115,17 @@ class MisawaParser(ParserBase):
 
     async def parseNextPage(self, response: BeautifulSoup):
         # 検索結果（物件一覧）が空の場合は次ページが存在しても探索を打ち切る (無限ループ防止 Issue #1092)
-        has_items = bool(
-            response.select('div.searchList div.section')
-            or response.select('a[href*="detail_"]')
-        )
-        if not has_items:
-            return ""
+        # searchList要素が存在し、かつ物件セクションや詳細リンクが0件の場合は空結果ページとみなす
+        search_list = response.select_one('div.searchList')
+        if search_list is not None:
+            has_items = bool(
+                search_list.select('div.section')
+                or search_list.select('a[href*="detail_"]')
+                or response.select('div.searchList div.section')
+                or response.select('a[href*="detail_"]')
+            )
+            if not has_items:
+                return ""
 
         # 多重セレクターおよびテキスト・属性探索によるフォールバック
         next_tag = (
