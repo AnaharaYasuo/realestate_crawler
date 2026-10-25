@@ -8,13 +8,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HANG_THRESHOLD_SEC: float = 300.0
+
 def _parse_hang_threshold() -> float:
-    raw = os.getenv("CRAWLER_HANG_THRESHOLD_SEC", "0.0").strip()
+    raw = os.getenv("CRAWLER_HANG_THRESHOLD_SEC", str(DEFAULT_HANG_THRESHOLD_SEC)).strip()
     try:
         val = float(raw)
         return max(0.0, val)
     except (ValueError, TypeError):
-        return 0.0
+        return DEFAULT_HANG_THRESHOLD_SEC
 
 HANG_THRESHOLD_SEC: float = _parse_hang_threshold()
 INITIAL_DISCOVERY_GRACE_SEC: float = float(os.getenv("CRAWLER_INITIAL_GRACE_SEC", "1800.0").strip())
