@@ -312,7 +312,7 @@ def _sync_save_error_html_by_url(
     company_dir.mkdir(parents=True, exist_ok=True)
 
     match = DETAIL_ID_PATTERN.search(url) or BKDETAIL_ID_PATTERN.search(url)
-    p_id = match.group(1) if match else str(int(datetime.datetime.now().timestamp()))
+    p_id = match.group(1) if match else hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
 
     html_file = company_dir / f"{p_id}.html"
 
@@ -1417,6 +1417,15 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             parser_func = self._getParserFunc()
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
+            if not detail_url_list:
+                logger.warning("Zero items parsed from middle page: %s", self.url)
+                raw_html_content = str(response) if response is not None else None
+                await self._save_error_html_by_url(
+                    self.url,
+                    self.__class__.__name__,
+                    f"Zero items parsed from middle page: {self.url}",
+                    raw_html=raw_html_content,
+                )
         except Exception as e:
             logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
             raw_html_content = str(response) if response is not None else None
