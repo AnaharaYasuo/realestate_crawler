@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 import datetime
 import gc
+import hashlib
 import json
 import logging
 import os
