@@ -123,6 +123,18 @@ class FailureReporter:
         job_key = f"{comp_clean}_{type_clean}"
 
         html_key = None
+        if not raw_html:
+            # Check if an error page was already saved by baseParser or api for this job
+            fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+            existing_err_dir = fallback_base / "runs" / date_str / "error_pages" / job_key
+            if existing_err_dir.exists():
+                existing_htmls = list(existing_err_dir.glob("*.html"))
+                if existing_htmls:
+                    try:
+                        raw_html = existing_htmls[0].read_bytes()
+                    except Exception:
+                        pass
+
         if raw_html:
             url_hash = hashlib.sha256((target_url or job_key).encode("utf-8")).hexdigest()[:16]
             html_key = f"runs/{date_str}/error_pages/{job_key}/{url_hash}.html"
@@ -284,6 +296,13 @@ class FailureReporter:
             try:
                 with open(local_file, encoding="utf-8") as f:
                     data = json.load(f)
+                    if not data.get("gcs_html_path"):
+                        # Link existing local error page HTML if available
+                        error_pages_dir = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs")) / "runs" / date_str / "error_pages" / job_key
+                        if error_pages_dir.exists():
+                            html_files = list(error_pages_dir.glob("*.html"))
+                            if html_files:
+                                data["local_html_path"] = str(html_files[0])
                     failures.append(data)
             except Exception as fe:  # noqa: BLE001
                 logger.warning("Failed to parse local telemetry file %s: %s", local_file, fe)
