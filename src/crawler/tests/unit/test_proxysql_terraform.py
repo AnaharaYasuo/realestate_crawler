@@ -385,11 +385,16 @@ def test_startup_apt_retry_calls_abort_on_persistent_failure():
 
     lines = script.splitlines()
     first_call = next(i for i, line in enumerate(lines) if re.match(r"\s*apt_retry\s+(update|install)\b", line))
+    prefix_lines = lines[: first_call + 1]
+    if_count = sum(1 for l in prefix_lines if re.match(r"^\s*if\b", l))
+    fi_count = sum(1 for l in prefix_lines if re.match(r"^\s*fi\b", l))
+    syntax_closers = ["fi"] * (if_count - fi_count)
     flow = "\n".join([
         "sleep() { :; }",
         "fuser() { return 1; }",
         "apt-get() { return 1; }",
-        *lines[: first_call + 1],
+        *prefix_lines,
+        *syntax_closers,
         "echo REACHED_AFTER_APT",
     ])
     result = subprocess.run(["bash", "-c", flow], capture_output=True, text=True, timeout=30, check=False)
