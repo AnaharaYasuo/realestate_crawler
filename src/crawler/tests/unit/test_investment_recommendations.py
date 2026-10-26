@@ -45,6 +45,32 @@ def test_evaluate_investment_candidate_by_score():
     is_rec, reason, priority = _evaluate_candidate(rec3, prop3)
     assert is_rec is False
 
+def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
+    """投資スコアが高くても理論予測価格が売出価格の3倍超または1/3未満の極端な異常値の場合は除外されることを検証 (Issue #1116)"""
+    # 例: フローラ・国分寺ＡＢ (売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 約48.9倍)
+    rec_flora = MockEvaluation(
+        "investmentapartment",
+        total_investment_score=100.0,
+        first_stage_predicted_price=174133.0,
+        id=999
+    )
+    prop_flora = MockProperty(rec_flora.property_url, 35600000)
+    is_rec, reason, priority = _evaluate_candidate(rec_flora, prop_flora)
+    assert is_rec is False
+    assert reason == ""
+    assert priority == 0.0
+
+    # 極端に低い予測値（売出価格 3,000万円 に対し 予測価格 500万円 -> 約0.16倍）
+    rec_low = MockEvaluation(
+        "investmentapartment",
+        total_investment_score=85.0,
+        first_stage_predicted_price=500.0,
+        id=1000
+    )
+    prop_low = MockProperty(rec_low.property_url, 30000000)
+    is_rec, reason, priority = _evaluate_candidate(rec_low, prop_low)
+    assert is_rec is False
+
 def test_evaluate_investment_candidate_by_discount():
     """投資物件でも理論予測価格が存在し、割安度（discount_pct >= 20%）がある場合の判定テスト"""
     # 売出価格 1,500万円、理論予測価格 2,000万円（割安度 25.0%）、投資スコア未設定
