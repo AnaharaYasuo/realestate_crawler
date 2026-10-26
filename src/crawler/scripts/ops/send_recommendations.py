@@ -154,19 +154,29 @@ def is_investment_type(property_type: str | None) -> bool:
     return ptype_clean in INVESTMENT_PROPERTY_TYPES or "invest" in ptype_clean
 
 def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
+    asking_price = getattr(prop, "price", 0) if prop else 0
+    asking_price_man = normalize_asking_price_man(asking_price)
+    pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
+
+    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
+    if pred_price > 0 and asking_price_man > 0:
+        price_ratio = pred_price / asking_price_man
+        if price_ratio > 3.0 or price_ratio < 0.33:
+            logger.warning(
+                f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
+                f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
+            )
+            return False, "", 0.0
+
     score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
     if score >= 70.0:
         return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
 
-    if prop:
-        asking_price = getattr(prop, "price", 0)
-        asking_price_man = normalize_asking_price_man(asking_price)
-        pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
-        if pred_price > 0 and asking_price_man > 0:
-            discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-            if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
-                calc_priority = 70.0 + discount_pct
-                return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
+    if pred_price > 0 and asking_price_man > 0:
+        discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+        if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
+            calc_priority = 70.0 + discount_pct
+            return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
 
     return False, "", 0.0
 
@@ -272,7 +282,7 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         f"🏆 [お宝物件検出] {reason}\n"
         f"物件名: {p_name} ({ptype_jp})\n"
         f"売出価格: {asking_price_man}万円\n"
-        f"理論予測価格: {int(pred_price)}万円\n"
+        f"理論予測価格: {int(pred_price) if pred_price > 0 else '-'}万円\n" if pred_price > 0 else f"理論予測価格: -\n"
         f"【物件詳細】\n"
         f"住所: {address}\n"
         f"アクセス: {access}\n"
