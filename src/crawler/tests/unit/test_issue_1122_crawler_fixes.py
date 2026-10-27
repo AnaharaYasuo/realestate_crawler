@@ -10,26 +10,19 @@ from package.parser.mitsuiParser import MitsuiTochiParser
 from package.parser.nomuraParser import NomuraInvestmentApartmentParser
 from package.parser.sumai1Parser import Sumai1InvestmentParser
 from package.parser.tokyuParser import TokyuKodateParser
-from package.parser.totateParser import TotateMansionParser, TotateKodateParser, TotateTochiParser
+from package.parser.totateParser import TotateMansionParser
 from package.models.nomura import NomuraInvestmentApartment
 from package.models.sumifu import SumifuInvestmentApartment, SumifuKodate, SumifuTochi
 from package.models.tokyu import TokyuKodate
-from package.models.totate import TotateMansion, TotateKodate, TotateTochi
+from package.models.totate import TotateMansion
 from package.utils.url_router import UrlRouter
 
-def get_root_repo_dir() -> Path:
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if (parent / "logs/runs/20261026/error_pages").exists():
-            return parent
-    return Path("C:/Users/weare/.gemini/antigravity/scratch/realestate_crawler")
-
-ROOT_DIR = get_root_repo_dir()
+FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "issue_1122"
 
 @pytest.mark.django_db
 def test_mitsui_tochi_school_distance_not_parsed_as_road_width():
     # 小学校まで約11300m が roadWidth に入らず、DecimalField 上限違反にならないこと
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/mitsui_tochi/4b14092c953262f8.html"
+    html_path = FIXTURES_DIR / "mitsui_tochi.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
@@ -48,7 +41,7 @@ def test_mitsui_tochi_school_distance_not_parsed_as_road_width():
 @pytest.mark.django_db
 def test_nomura_investment_apartment_empty_current_status():
     # 現況が空でもバリデーションエラーにならないこと
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/nomura_investment_apartment/89429013a6896e10.html"
+    html_path = FIXTURES_DIR / "nomura_investment_apartment.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
@@ -66,7 +59,7 @@ def test_nomura_investment_apartment_empty_current_status():
 @pytest.mark.django_db
 def test_sumai1_investment_genko_shunyu_fallback():
     # 満室時想定収入がなく現行収入のみの投資物件が正しくパースされバリデーションを通ること
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/sumai1_investment/7f863b6ab021bb80.html"
+    html_path = FIXTURES_DIR / "sumai1_investment.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
@@ -85,7 +78,7 @@ def test_sumai1_investment_genko_shunyu_fallback():
 @pytest.mark.django_db
 def test_sumifu_investment_apartment_chikunengetsu_unknown():
     # 築年月不詳物件の実HTMLパーステスト
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/sumifu_investment_apartment/0530d1d43bd6d3d7.html"
+    html_path = FIXTURES_DIR / "sumifu_investment_apartment.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
@@ -104,7 +97,7 @@ def test_sumifu_investment_apartment_chikunengetsu_unknown():
 @pytest.mark.django_db
 def test_sumifu_kodate_and_tochi_empty_chisei():
     # 地勢未記載の sumifu 戸建て・土地がバリデーションを通ること
-    html_path_kodate = ROOT_DIR / "logs/runs/20261026/error_pages/sumifu_kodate/078a0dc8074d0cf1.html"
+    html_path_kodate = FIXTURES_DIR / "sumifu_kodate.html"
     if html_path_kodate.exists():
         with open(html_path_kodate, "rb") as f:
             soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
@@ -115,7 +108,7 @@ def test_sumifu_kodate_and_tochi_empty_chisei():
         assert item_k.chisei == ""
         item_k.full_clean()
 
-    html_path_tochi = ROOT_DIR / "logs/runs/20261026/error_pages/sumifu_tochi/1d7a1b9a9ea44292.html"
+    html_path_tochi = FIXTURES_DIR / "sumifu_tochi.html"
     if html_path_tochi.exists():
         with open(html_path_tochi, "rb") as f:
             soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
@@ -129,7 +122,7 @@ def test_sumifu_kodate_and_tochi_empty_chisei():
 @pytest.mark.django_db
 def test_totate_mansion_parser_on_sumikae_html():
     # sumikae.ttfuhan.co.jp の実HTMLが TotateMansionParser で正常にパース・バリデーションできること
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/tokyu_mansion/065d57f76d517f03.html"
+    html_path = FIXTURES_DIR / "tokyu_mansion.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
@@ -148,7 +141,7 @@ def test_totate_mansion_parser_on_sumikae_html():
 @pytest.mark.django_db
 def test_tokyu_kodate_saikou_empty_pass():
     # 方角・採光なしの戸建て物件がバリデーションを通過すること
-    html_path = ROOT_DIR / "logs/runs/20261026/error_pages/tokyu_kodate/b0196049ff493cc1.html"
+    html_path = FIXTURES_DIR / "tokyu_kodate.html"
     assert html_path.exists(), f"{html_path} must exist"
 
     with open(html_path, "rb") as f:
