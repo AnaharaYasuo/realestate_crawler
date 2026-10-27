@@ -53,8 +53,10 @@ def parse_yen(text):
             val_clean = yen_match.group(1).replace(',', '')
             if val_clean:
                 return int(val_clean)
+        # 小数点以下（例: "2,364,000.00" の ".00"）を事前に除去
+        cleaned_text = re.sub(r'\.\d+$', '', str(text).strip())
         # 数字以外の文字を除去 (フォールバック)
-        val = re.sub(r'\D', '', str(text))
+        val = re.sub(r'\D', '', cleaned_text)
         if val:
             return int(val)
     except Exception:

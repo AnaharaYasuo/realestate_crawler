@@ -544,14 +544,22 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
 
     def _parse_investment_yield_and_rent(self, item, response: BeautifulSoup, specs: dict):
         gross_yield_str = self._extract_input_or_spec(
-            response, specs, ["manshitsuji_rimawari", "genko_rimawari"], ["利回り", "表面利回り", "想定利回り", "現行利回り"]
+            response, specs, ["manshitsuji_rimawari"], ["利回り", "表面利回り", "想定利回り"]
         )
+        if not gross_yield_str:
+            gross_yield_str = self._extract_input_or_spec(
+                response, specs, ["genko_rimawari"], ["現行利回り"]
+            )
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
 
         annual_rent_str = self._extract_input_or_spec(
-            response, specs, ["manshitsuji_sotei_shunyu", "genko_shunyu"], ["想定年間収入", "年間想定収入", "想定収入", "現行年間収入", "現行収入"]
+            response, specs, ["manshitsuji_sotei_shunyu"], ["想定年間収入", "年間想定収入", "想定収入"]
         )
+        if not annual_rent_str:
+            annual_rent_str = self._extract_input_or_spec(
+                response, specs, ["genko_shunyu"], ["現行年間収入", "現行収入"]
+            )
         if annual_rent_str:
             rent_val = converter.parse_rent(annual_rent_str)
             if rent_val:

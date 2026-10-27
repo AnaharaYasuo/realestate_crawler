@@ -71,8 +71,9 @@ def test_sumai1_investment_genko_shunyu_fallback():
     item = parser.createEntity()
     item.pageUrl = "https://www.sumai1.com/buyers/investor/bukken/buk_Ske260169/"
     item = parser._parsePropertyDetailPage(item, soup)
-    assert item.annualRent is not None and item.annualRent > 0
-    assert item.monthlyRent is not None and item.monthlyRent > 0
+    # HTML内の現行収入は 2,364,000 円
+    assert item.annualRent == 2364000
+    assert item.monthlyRent == 2364000 // 12
     item.full_clean()
 
 @pytest.mark.django_db
@@ -98,26 +99,26 @@ def test_sumifu_investment_apartment_chikunengetsu_unknown():
 def test_sumifu_kodate_and_tochi_empty_chisei():
     # 地勢未記載の sumifu 戸建て・土地がバリデーションを通ること
     html_path_kodate = FIXTURES_DIR / "sumifu_kodate.html"
-    if html_path_kodate.exists():
-        with open(html_path_kodate, "rb") as f:
-            soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
-        parser_k = SumifuKodateParser()
-        item_k = parser_k.createEntity()
-        item_k.pageUrl = "https://www.stepon.co.jp/kodate/detail_96612119/"
-        item_k = parser_k._parsePropertyDetailPage(item_k, soup)
-        assert item_k.chisei == ""
-        item_k.full_clean()
+    assert html_path_kodate.exists(), f"{html_path_kodate} must exist"
+    with open(html_path_kodate, "rb") as f:
+        soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
+    parser_k = SumifuKodateParser()
+    item_k = parser_k.createEntity()
+    item_k.pageUrl = "https://www.stepon.co.jp/kodate/detail_96612119/"
+    item_k = parser_k._parsePropertyDetailPage(item_k, soup)
+    assert item_k.chisei == ""
+    item_k.full_clean()
 
     html_path_tochi = FIXTURES_DIR / "sumifu_tochi.html"
-    if html_path_tochi.exists():
-        with open(html_path_tochi, "rb") as f:
-            soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
-        parser_t = SumifuTochiParser()
-        item_t = parser_t.createEntity()
-        item_t.pageUrl = "https://www.stepon.co.jp/tochi/detail_967I1078/"
-        item_t = parser_t._parsePropertyDetailPage(item_t, soup)
-        assert item_t.chisei == ""
-        item_t.full_clean()
+    assert html_path_tochi.exists(), f"{html_path_tochi} must exist"
+    with open(html_path_tochi, "rb") as f:
+        soup = BeautifulSoup(f.read().decode("cp932", errors="ignore"), "html.parser")
+    parser_t = SumifuTochiParser()
+    item_t = parser_t.createEntity()
+    item_t.pageUrl = "https://www.stepon.co.jp/tochi/detail_967I1078/"
+    item_t = parser_t._parsePropertyDetailPage(item_t, soup)
+    assert item_t.chisei == ""
+    item_t.full_clean()
 
 @pytest.mark.django_db
 def test_totate_mansion_parser_on_sumikae_html():
