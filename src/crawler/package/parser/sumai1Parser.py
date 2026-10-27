@@ -536,8 +536,10 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
     def _extract_input_or_spec(self, response: BeautifulSoup, specs: dict, input_ids: list[str], spec_keys: list[str]) -> str:
         for inp_id in input_ids:
             inp = response.find("input", id=inp_id)
-            if inp and inp.get("value"):
-                return inp.get("value")
+            if inp is not None:
+                val = inp.get("value")
+                if val:
+                    return str(val)
         return _first_spec(specs, *spec_keys)
 
     def _parse_investment_yield_and_rent(self, item, response: BeautifulSoup, specs: dict):
