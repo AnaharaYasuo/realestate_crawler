@@ -36,7 +36,7 @@ class SumifuInvestmentKodate(SumifuModel):
     
     kouzou = models.TextField()
     chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     
     kenpeiStr = models.TextField(default="", blank=True)
     kenpei = models.IntegerField(null=True, blank=True)
@@ -70,9 +70,9 @@ class SumifuInvestmentApartment(SumifuModel):
     tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0)
     
-    kouzou = models.TextField()
+    kouzou = models.TextField(blank=True, default="")
     chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     kaisu = models.IntegerField(null=True, blank=True)
@@ -98,7 +98,7 @@ class SumifuMansion(SumifuModel):
     senyuMensekiStr = models.TextField()
     senyuMenseki = models.DecimalField(max_digits=8, decimal_places=3) # Strict
     chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
 
     balconyMensekiStr = models.TextField(default="", blank=True)
     saikouKadobeya = models.TextField(default="", blank=True)
@@ -145,7 +145,7 @@ class SumifuTochi(SumifuModel):
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3) # Strict
     chimokuChisei = models.TextField()
     chimoku = models.TextField() 
-    chisei = models.TextField()
+    chisei = models.TextField(blank=True, default="")
     setsudou = models.TextField(blank=True)
     douro = models.TextField(blank=True)
     douroMuki = models.TextField(blank=True)
@@ -193,7 +193,7 @@ class SumifuKodate(SumifuModel):
     kouzou  = models.TextField(blank=True)
     chimokuChisei = models.TextField()
     chimoku = models.TextField()
-    chisei = models.TextField()
+    chisei = models.TextField(blank=True, default="")
     setsudou = models.TextField(blank=True)
     douro = models.TextField(blank=True)
     douroMuki = models.TextField(blank=True)

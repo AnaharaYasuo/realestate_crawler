@@ -117,7 +117,7 @@ class NomuraInvestmentKodate(NomuraModel):
     grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
     annualRent = models.IntegerField() # Strict
     monthlyRent = models.IntegerField() # Strict
-    currentStatus = models.TextField() # Strict (Override base to strict if needed, validation handles it)
+    currentStatus = models.TextField(blank=True, default="")
     
     # Kodate Specific (Strict)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
@@ -149,7 +149,7 @@ class NomuraInvestmentApartment(NomuraModel):
     grossYield = models.DecimalField(max_digits=5, decimal_places=2) # Strict
     annualRent = models.IntegerField() # Strict
     monthlyRent = models.IntegerField() # Strict
-    currentStatus = models.TextField() # Strict
+    currentStatus = models.TextField(blank=True, default="")
     
     # Apartment Specific (Strict)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict

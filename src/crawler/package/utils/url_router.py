@@ -45,6 +45,8 @@ KEISEI_PARSER_MODULE = "package.parser.keiseiParser"
 KEISEI_MODEL_MODULE = "package.models.keisei"
 SUMIRIN_PARSER_MODULE = "package.parser.sumirinParser"
 SUMIRIN_MODEL_MODULE = "package.models.sumirin"
+TOTATE_PARSER_MODULE = "package.parser.totateParser"
+TOTATE_MODEL_MODULE = "package.models.totate"
 
 
 HEIM_DETAIL_PATTERN = re.compile(
@@ -625,33 +627,33 @@ class UrlRouter:
             "model_cls": "DaiwaTochi",
         },
 
-        # 東急リバブル提携 住み替え (Tokyu Sumikae)
+        # 住み替え (Totate / sumikae.ttfuhan.co.jp)
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/mansion/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "mansion",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuMansionParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuMansion",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateMansionParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateMansion",
         },
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/kodate/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "kodate",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuKodateParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuKodate",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateKodateParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateKodate",
         },
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/tochi/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "tochi",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuTochiParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuTochi",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateTochiParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateTochi",
         },
 
         # 小田急不動産 (Odakyu)
