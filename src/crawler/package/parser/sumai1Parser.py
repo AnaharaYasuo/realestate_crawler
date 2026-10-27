@@ -99,9 +99,13 @@ class Sumai1Parser(ParserBase):
         return ""
 
     async def parseRootPage(self, response):
-        # 物件一覧ページから詳細リンクを抽出
+        # 物件一覧ページから詳細リンクを抽出（property_type がある場合はその種別パスのみ抽出）
         detail_links = set()
-        for a in response.find_all("a", href=re.compile(r'/buyers/.*?/bukken/buk_')):
+        type_segment = self.property_type if self.property_type else '.*?'
+        if type_segment == 'investment':
+            type_segment = 'investor'
+        pattern = re.compile(rf'/buyers/{type_segment}/bukken/buk_')
+        for a in response.find_all("a", href=pattern):
             href = a.get("href")
             if href:
                 full_url = self.getRootDestUrl(href)
@@ -529,22 +533,33 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
     def createEntity(self):
         return Sumai1Investment()
 
+    def _extract_input_or_spec(self, response: BeautifulSoup, specs: dict, input_ids: list[str], spec_keys: list[str]) -> str:
+        for inp_id in input_ids:
+            inp = response.find("input", id=inp_id)
+            if inp is not None:
+                val = inp.get("value")
+                if val:
+                    return str(val)
+        return _first_spec(specs, *spec_keys)
+
     def _parse_investment_yield_and_rent(self, item, response: BeautifulSoup, specs: dict):
-        rimawari_input = response.find("input", id="manshitsuji_rimawari")
-        gross_yield_str = ""
-        if rimawari_input:
-            gross_yield_str = rimawari_input.get("value") or ""
+        gross_yield_str = self._extract_input_or_spec(
+            response, specs, ["manshitsuji_rimawari"], ["利回り", "表面利回り", "想定利回り"]
+        )
         if not gross_yield_str:
-            gross_yield_str = _first_spec(specs, "利回り", "表面利回り", "想定利回り")
+            gross_yield_str = self._extract_input_or_spec(
+                response, specs, ["genko_rimawari"], ["現行利回り"]
+            )
         if gross_yield_str:
             item.grossYield = converter.parse_ratio(gross_yield_str)
 
-        shunyu_input = response.find("input", id="manshitsuji_sotei_shunyu")
-        annual_rent_str = ""
-        if shunyu_input:
-            annual_rent_str = shunyu_input.get("value") or ""
+        annual_rent_str = self._extract_input_or_spec(
+            response, specs, ["manshitsuji_sotei_shunyu"], ["想定年間収入", "年間想定収入", "想定収入"]
+        )
         if not annual_rent_str:
-            annual_rent_str = _first_spec(specs, "想定年間収入", "年間想定収入", "想定収入")
+            annual_rent_str = self._extract_input_or_spec(
+                response, specs, ["genko_shunyu"], ["現行年間収入", "現行収入"]
+            )
         if annual_rent_str:
             rent_val = converter.parse_rent(annual_rent_str)
             if rent_val:

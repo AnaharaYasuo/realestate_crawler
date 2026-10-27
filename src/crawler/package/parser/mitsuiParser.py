@@ -894,8 +894,13 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
             r"接道[：:]?[^\n\r\t]{0,100}?(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", full_text
         )
         if m_width:
-            item.roadWidth = Decimal(m_width.group(1))
-            item.roadWidthStr = f"{m_width.group(1)}m"
+            try:
+                width_val = Decimal(m_width.group(1))
+                if 0 < width_val <= 50:
+                    item.roadWidth = width_val
+                    item.roadWidthStr = f"{width_val}m"
+            except Exception:
+                pass
 
     @staticmethod
     def _apply_road_direction_and_type(item, full_text: str) -> None:
