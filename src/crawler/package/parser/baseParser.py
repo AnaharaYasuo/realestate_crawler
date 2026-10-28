@@ -2025,9 +2025,9 @@ class ParserBase(metaclass=ABCMeta):
             parser_to_use.validate_required_fields(item)
         except SkipPropertyException:
             raise
-        except (LoadPropertyPageException, TimeoutError, ServerDownException):
-            logging.exception(f"Failure loading page: {url}")
-            raise
+        except (LoadPropertyPageException, TimeoutError, ServerDownException) as lpe:
+            logging.warning(f"Failure loading property page (skipping): {url} - {lpe}")
+            raise SkipPropertyException(f"Property fetch timed out or failed: {url}") from lpe
         except Exception as e:
             msg = f"Can not read property page: {url} - Reason: {str(e)}"
             logging.exception(msg)
@@ -2039,6 +2039,8 @@ class ParserBase(metaclass=ABCMeta):
     @staticmethod
     def _validate_http_status(status: int, url: str) -> None:
         """HTTPレスポンスステータスに応じた適切な例外を送出"""
+        if status in (200, 202):
+            return
         if status in (404, 410):
             raise ListingEndedException(
                 f"Property page returned HTTP status {status}: {url}"
@@ -2070,7 +2072,7 @@ class ParserBase(metaclass=ABCMeta):
                         total=req_timeout, connect=5, sock_read=10
                     ),
                 ) as response:
-                    if response.status == 200:
+                    if response.status in (200, 202):
                         self.consecutive_timeouts = 0
                         return await response.read()
                     self._validate_http_status(response.status, url)
