@@ -1846,6 +1846,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         "nomura": 0.5,
         "mitsui": 0.5,
         "smtrc": 1.0,
+        "sumai1": 0.5,
+        "odakyu": 0.5,
     }
     _SITE_RATE_LOCK: ClassVar[threading.Lock] = threading.Lock()
     _SITE_NEXT_ALLOWED: ClassVar[dict[str, float]] = {}
