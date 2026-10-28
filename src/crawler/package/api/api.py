@@ -196,6 +196,17 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
 
 
+def _touch_active_progress_files() -> None:
+    """Update progress touch files to signal watchdog that worker threads are active."""
+    try:
+        prog_dir = Path("logs/progress")
+        if prog_dir.exists():
+            for touch_file in prog_dir.glob("progress_*.touch"):
+                touch_file.touch(exist_ok=True)
+    except Exception:
+        pass
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
@@ -219,14 +230,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
             last_log_time = now
-            try:
-                # Update progress touch to signal watchdog that worker threads are active
-                _prog_dir = Path("logs/progress")
-                if _prog_dir.exists():
-                    for _touch_f in _prog_dir.glob("progress_*.touch"):
-                        _touch_f.touch(exist_ok=True)
-            except Exception:
-                pass
+            _touch_active_progress_files()
 
         time.sleep(0.5)
 
