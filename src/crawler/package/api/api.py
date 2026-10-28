@@ -196,6 +196,17 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
 
 
+def _touch_active_progress_files() -> None:
+    """Update progress touch files to signal watchdog that worker threads are active."""
+    try:
+        prog_dir = Path("logs/progress")
+        if prog_dir.exists():
+            for touch_file in prog_dir.glob("progress_*.touch"):
+                touch_file.touch(exist_ok=True)
+    except Exception:
+        pass
+
+
 def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
     """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
     if timeout is None:
@@ -219,6 +230,7 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
             last_log_time = now
+            _touch_active_progress_files()
 
         time.sleep(0.5)
 
@@ -1032,9 +1044,13 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
 
     def _generateConnector(self, _loop):
         """Create a bounded aiohttp connector using the default TLS checks."""
-        # SSL Context with secure defaults
+        # SSL Context with secure defaults and compatible ciphers
         ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_NO_TICKET
+        try:
+            ctx.set_ciphers("HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4")
+        except Exception:
+            pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
     def _generateTimeout(self):
@@ -1537,11 +1553,19 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             visited_urls.add(current_url)
             self.url = current_url
 
-            response = await self._fetch_middle_page_response(session, current_url)
+            try:
+                response = await self._fetch_middle_page_response(session, current_url)
+            except (LoadPropertyPageException, asyncio.TimeoutError) as fetch_err:
+                # If subsequent page (not start page) fails after retries, skip gracefully rather than aborting crawl
+                if current_url != start_url and len(all_results) > 0:
+                    logger.warning("Failed to fetch middle page %s after retries; stopping pagination gracefully: %s", current_url, fetch_err)
+                    break
+                raise
             try:
                 next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
             finally:
-                del response
+                if 'response' in locals() and response is not None:
+                    del response
                 gc.collect()
 
             if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
