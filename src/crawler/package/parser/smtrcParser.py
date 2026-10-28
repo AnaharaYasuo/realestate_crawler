@@ -231,7 +231,11 @@ class SmtrcParser(ParserBase):
                 logger.warning("smtrc connection/WAF error (%s) detected for %s, falling back to Playwright stealth...", e, url)
                 fb_content = await self._smtrc_fetch_with_playwright(url)
                 if len(fb_content) < 1000:
-                    raise RuntimeError(f"smtrc Playwright fetch failed on fallback: content size too small ({len(fb_content)} bytes) for {url}")
+                    await asyncio.sleep(2.0)
+                    fb_content = await self._smtrc_fetch_with_playwright(url)
+                if len(fb_content) < 1000:
+                    logger.warning("smtrc Playwright fetch received small content (%s bytes) for %s; graceful skip", len(fb_content), url)
+                    raise ServerBusyException(f"smtrc WAF challenge or temporary block ({len(fb_content)} bytes) for {url}")
                 return fb_content
             raise
 
