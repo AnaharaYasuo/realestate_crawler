@@ -1044,7 +1044,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_NO_TICKET
         try:
-            ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+            ctx.set_ciphers("HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4")
         except Exception:
             pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
