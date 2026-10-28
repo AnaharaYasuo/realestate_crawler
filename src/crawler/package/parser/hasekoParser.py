@@ -64,6 +64,23 @@ class HasekoMansionParser(MansionParserBase):
     def createEntity(self):
         return HasekoMansion()
 
+    def _extract_dl_pairs(self, dl) -> dict[str, str]:
+        pairs = {}
+        dts = dl.find_all("dt")
+        dds = dl.find_all("dd")
+        if len(dts) == len(dds) and dts:
+            for dt, dd in zip(dts, dds):
+                k = dt.get_text(strip=True)
+                v = dd.get_text(" ", strip=True)
+                if k:
+                    pairs[k] = v
+        elif dts and dds:
+            k = dts[0].get_text(strip=True)
+            v = dds[0].get_text(" ", strip=True)
+            if k:
+                pairs[k] = v
+        return pairs
+
     def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:
@@ -71,22 +88,7 @@ class HasekoMansionParser(MansionParserBase):
 
         specs = {}
         for dl in response.find_all("dl"):
-            dts = dl.find_all("dt")
-            dds = dl.find_all("dd")
-            if len(dts) == len(dds) and dts:
-                for dt, dd in zip(dts, dds):
-                    key = dt.get_text(strip=True)
-                    val = dd.get_text(" ", strip=True)
-                    if key:
-                        specs[key] = val
-            else:
-                dt = dl.find("dt")
-                dd = dl.find("dd")
-                if dt and dd:
-                    key = dt.get_text(strip=True)
-                    val = dd.get_text(" ", strip=True)
-                    if key:
-                        specs[key] = val
+            specs.update(self._extract_dl_pairs(dl))
 
         response._cached_specs = specs
         return specs
