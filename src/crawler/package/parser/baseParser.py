@@ -1833,6 +1833,10 @@ class ParserBase(metaclass=ABCMeta):
         "お探しのページは見つかりません",
         "お探しのページが見つかりません",
         "物件が見つかりません",
+        "物件が見つかりませんでした",
+        "該当する物件は存在しません",
+        "該当する物件がありません",
+        "こちらの物件の掲載は終了致しました",
         "存在しないか、掲載が終了",
         "会員様のみに公開",
         "会員限定",
@@ -1844,11 +1848,22 @@ class ParserBase(metaclass=ABCMeta):
         "お探しの物件は掲載が終了",
         "掲載を終了いたしました",
         "掲載を終了しました",
+        "掲載終了いたしました",
+        "掲載終了しました",
         "掲載終了物件",
+        "こちらの物件の掲載は終了致しました",
+        "ご指定の物件は、掲載終了いたしました",
+        "ご指定の物件は掲載終了いたしました",
         "ご指定の物件は掲載を終了",
         "指定された物件は掲載を終了",
         "お探しのページは見つかりませんでした",
         "お探しの物件は見つかりませんでした",
+        "ご指定のページは見つかりませんでした",
+        "該当する物件は存在しません",
+        "該当する物件がありません",
+        "物件が見つかりませんでした",
+        "すでに成約済みとなったか掲載が終了",
+        "成約済みとなったか掲載が終了",
         "お探しのページは存在しないか、掲載が終了",
         "現在、掲載を停止しております",
         "この物件は現在掲載されていません",
@@ -1860,7 +1875,8 @@ class ParserBase(metaclass=ABCMeta):
         noise_selectors = (
             "footer, nav, .recommend, .related, .recommend-area, .recommendations, "
             ".ranking-area, .sidebar, .related-properties, .recommended-properties, "
-            ".related-links, .other-properties"
+            ".related-links, .other-properties, .search-box, .search-widget, "
+            ".search-form, .search-panel, .property-search"
         )
         for noise in clean_soup.select(noise_selectors):
             noise.decompose()
