@@ -1875,7 +1875,8 @@ class ParserBase(metaclass=ABCMeta):
         noise_selectors = (
             "footer, nav, .recommend, .related, .recommend-area, .recommendations, "
             ".ranking-area, .sidebar, .related-properties, .recommended-properties, "
-            ".related-links, .other-properties"
+            ".related-links, .other-properties, .search-box, .search-widget, "
+            ".search-form, .search-panel, .property-search"
         )
         for noise in clean_soup.select(noise_selectors):
             noise.decompose()
