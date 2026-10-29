@@ -129,8 +129,8 @@ def test_tokyu_non_investment_parsers_reject_fudosan_toushi():
 
 
 def test_rearie_brand_only_top_redirect_detected():
-    """リアリエで物件スペックが一切存在せずブランド名のみの場合は ListingEndedException が送出されること"""
-    html = "<html><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head><body><h1></h1></body></html>"
+    """リアリエで明示的な掲載終了文言がある場合に ListingEndedException が送出されること"""
+    html = "<html><head><title>お探しの物件は見つかりませんでした - パナソニック ホームズ</title></head><body><h1>お探しの物件は見つかりませんでした</h1></body></html>"
     soup = BeautifulSoup(html, "html.parser")
     parser = RearieMansionParser()
     
