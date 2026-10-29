@@ -223,3 +223,16 @@ class ErrorPageReplayer:
       )
       send_slack_message(channel="#dev-agent", message=trigger_msg)
   ```
+
+
+---
+
+## 6. マルチエラー保持 ＆ フィールド充填率ドリフト可観測性詳細設計 (Issue #1151)
+
+### 6.1 `FailureReporter.record_job_failure` のマルチエラー保持とトレース拡充
+- 同一ジョブ（`job_key`）で複数回のエラーや複数物件のパース失敗が発生した際、既存の `runs/{date_str}/failures/{job_key}.json` を単一オブジェクトで上書き（Last-Write-Wins）するのではなく、`failures` 配列に履歴を追記（Append）して全エラー種別・スタックトレース・発生時刻を保持する。
+- 保存されたエラー生HTMLファイル群についても先頭1件（`existing_htmls[0]`）だけでなく、直近の該当エラーHTMLパスリスト（`local_error_html_paths`）および親一覧ページURL（`parent_list_url`）・HTTPステータスコードを構造化保持する。
+
+### 6.2 フィールド別充填率（Field Fill-Rate）テレメトリ
+- `job_metrics.py` および `newrelic_helper.py` において、保存された物件モデルの主要フィールド（`price`, `address`, `traffic`, `chikunengetsu`, `madori`, `tatemono_menseki`, `tochi_menseki`, `senyu_menseki`, `rimawari` 等）の非空充填率（Fill-Rate: `0.0`〜`1.0`）を集計・記録する関数 `compute_field_fill_rates(items)` を提供する。
+- 任意フィールドがサイト改修により一斉に `None` / 空文字となるサイレント劣化（Silent Degradation）を即時検知可能とする。

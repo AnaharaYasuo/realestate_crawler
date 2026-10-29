@@ -1,0 +1,17 @@
+{
+  "worktree-and-headless-guard": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "run_command|edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/hook_guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

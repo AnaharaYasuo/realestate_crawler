@@ -32,10 +32,10 @@
 
 | 開発対象 | ソースコードの場所 | 参照すべき設計ドキュメント |
 | :--- | :--- | :--- |
-| **パーサー (HTML解析)** | `package/parser/` | [parser_design_guidelines.md](parser_design_guidelines.md) (One-Item-One-Method)<br>[parser_implementation_procedure.md](parser_implementation_procedure.md) (抽出手順)<br>[field_naming_standards.md](../internal_design/field_naming_standards.md) (フィールド名統一規約) |
+| **パーサー (HTML解析)** | `package/parser/` | [parser_design_guidelines.md](parser_design_guidelines.md) (One-Item-One-Method)<br>[parser_implementation_procedure.md](parser_implementation_procedure.md) (抽出手順)<br>[field_naming_standards.md](../3_data_models/field_naming_standards.md) (フィールド名統一規約) |
 | **データベースモデル** | `package/models/` | [database_schema.md](../internal_design/database_schema.md) (テーブル・カラム定義)<br>[property_types.md](../domain/property_types.md) (物件種別判定ロジック) |
 | **クローラーAPI・通信** | `package/api/`, `routes/` | [api_structure.md](../internal_design/api_structure.md) (連鎖的非同期API構造) |
-| **機械学習・画像解析** | `package/ml/` | [project_status_and_design_intent.md](../requirements/project_status_and_design_intent.md) (ビジョンと2段階予測) |
+| **機械学習・画像解析** | `package/ml/` | [project_status_and_design_intent.md](../1_architecture/project_status_and_design_intent.md) (ビジョンと2段階予測) |
 
 ---
 

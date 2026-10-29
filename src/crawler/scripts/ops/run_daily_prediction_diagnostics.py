@@ -3,7 +3,7 @@
 """
 日次価格推定精度診断スクリプト (Daily Prediction Diagnostics)
 
-docs/internal_design/ml_prediction_diagnostics_policy.md に基づき、
+docs/4_valuation_and_ml/ml_prediction_diagnostics_policy.md に基づき、
 最新の物件評価（PropertyEvaluation）と実際の販売価格のズレを日次で分析・可視化し、
 ワースト乖離物件の自動原因タギングおよびSlackレポートを行います。
 """

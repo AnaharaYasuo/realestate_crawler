@@ -19,7 +19,7 @@ terraform/
 ├── iam.tf                     # 実行用 Service Account, IAM Role バインディング
 ├── cloud_run_job.tf           # Cloud Run Jobs (Dispatcher Job, ML Pipeline Job, DB移行, セーフティネット)
 ├── cloud_run_service.tf       # Cloud Run Service (Slack Agent 常時受付)
-├── cloud_run_crawler_service.tf # Cloud Run Service (Crawler Worker 分散スクレイピング)
+├── cloud_run_crawler_service.tf # Cloud Run Service (Crawler Worker 分散スクレイピング, cpu_idle=true 最適化)
 ├── cloud_tasks.tf             # Cloud Tasks (crawler-tasks Queue, レート・並列制御)
 ├── scheduler.tf               # Cloud Scheduler (日次定期キック)
 ├── budget.tf                  # Cloud Billing 予算アラート (50%, 80%, 100%, 120%予測)
@@ -41,8 +41,8 @@ terraform/
 | `db_tier` | `string` | `"db-f1-micro"` | Cloud SQL マシンスペック (`db-f1-micro` または `db-g1-small` / `db-custom-2-7680`) |
 | `db_name` | `string` | `"real_estate"` | MySQL データベース名 |
 | `db_user` | `string` | `"sumifu"` | MySQL ユーザー名 |
-| `crawler_cpu` | `string` | `"2"` | Cloud Run Jobs CPU コア数 |
-| `crawler_memory` | `string` | `"4Gi"` | Cloud Run Jobs メモリ割り当て |
+| `crawler_cpu` | `string` | `"1"` | Cloud Run Jobs CPU コア数 (Issue #814: 2 -> 1 に縮小) |
+| `crawler_memory` | `string` | `"3Gi"` | Cloud Run Jobs メモリ割り当て (Issue #814: 4Gi -> 3Gi に適正化) |
 | `crawler_timeout` | `string` | `"7200s"` | クローラー Cloud Run Job の 1 タスクあたりのタイムアウト（2 時間。Cloud Run Jobs の上限は 24 時間 = `86400s` だが、Safety-Net の hung 判定 7800s・`ml_pipeline_schedule_cron`・バックアップ開始時刻と整合させるため validation で `1s`〜`7200s` に制限）。同値の秒数を環境変数 `CLOUD_RUN_JOB_TIMEOUT_SEC` としてジョブに渡し、`run_pipeline.py` の内部締め切りと一致させる（Issue #550） |
 | `schedule_cron` | `string` | `"0 16 * * *"` | Cloud Scheduler 実行cron式（UTC 16:00 = JST 01:00） |
 | `ml_pipeline_schedule_cron` | `string` | `"10 20 * * *"` | ML Pipeline Job 起動cron式（UTC 20:10 = JST 05:10）。`schedule_cron` + `crawler_timeout`（最遅 18:00 UTC）より後であること（Issue #550） |
@@ -51,13 +51,12 @@ terraform/
 
 ## 3. リソース詳細設計
 
-### 3.1 ネットワーク & NAT (`network.tf`)
+### 3.1 ネットワーク設計 (`network.tf`)
 - `google_compute_network`: カスタムサブネット型 VPC
-- `google_compute_subnetwork`: VPC コネクタ用およびリソース用サブネット（VPC Flow Logs 有効化済）
-- `google_vpc_access_connector`: Cloud Run から VPC への接続インターフェース（`e2-micro`, min: 2, max: 3）
-- `google_compute_router`: Cloud NAT 制御用ルーター
-- `google_compute_address`: 送信元固定用の静的外部 IP アドレス
-- `google_compute_router_nat`: 静的外部 IP を紐付けた NAT ゲートウェイ（全サブネットからの送信パケットのIP固定）
+- `google_compute_subnetwork`: リソース用サブネット（10.0.0.0/24、VPC Flow Logs 有効化済、Private Google Access 有効）
+- **Cloud NAT 撤廃 (Issue #673)**:
+  - 外部クローリング通信における動的 IP 疎通性が実証されたため、Cloud NAT ゲートウェイ（`realestate-nat`）、Cloud Router（`realestate-router`）、および静的外部 IP（`crawler-nat-static-ip`）は撤廃。
+  - 各 Cloud Run サービスおよびジョブは Direct VPC Egress の `PRIVATE_RANGES_ONLY` を使用し、プライベート IP（ProxySQL: `10.0.0.10:6033`、Cloud SQL: `10.65.0.3:3306`）宛て通信のみ VPC 経由でルーティング。外部インターネット宛て通信は Google 動的共有 IP で直接抜ける設計。
 
 ### 3.2 データベース (`database.tf`)
 - `google_compute_global_address`: 内部接続用プライベート IP 範囲
@@ -84,6 +83,12 @@ terraform/
   - 環境変数: Secret Manager からシークレット参照（`value_source`）、Slack 通知先チャンネル ID 設定 (`SLACK_CHANNEL_ID`, `SLACK_DEV_CHANNEL`, `SLACK_ALERT_PROPERTY_ALERT`, `SLACK_RECOMMEND_*`)
 - `google_cloud_run_v2_job` (DBマイグレーション `migrate_job`):
   - DDL スキーマ更新のため、直接 Cloud SQL (`google_sql_database_instance.mysql_instance.private_ip_address:3306`) に接続
+- `google_cloud_run_v2_job` (`ml_pipeline_job` / `realestate-ml-pipeline`):
+  - 実行イメージ: `${region}-docker.pkg.dev/${project_id}/realestate-crawler/crawler:latest`
+  - 実行引数: `["python", "src/crawler/scripts/ops/run_ml_pipeline.py", "--force"]`
+  - スペック適正化 (Issue #809): 2vCPU / 2GiB (`var.ml_pipeline_cpu`, `var.ml_pipeline_memory`)。実測値 (CPU 17%, Memory 11%) に基づき 4vCPU/8GiB から縮小。日常学習は不要化（スキップ）。
+- `google_cloud_run_v2_job` (`recrawl_anomalies_job` / `realestate-recrawl-anomalies`):
+  - スペック適正化 (Issue #809): 2vCPU / 2GiB (`var.crawler_cpu`, `var.recrawl_memory`)。実測値 (Memory 16.5%) に基づきメモリ 4GiB から 2GiB へ縮小。
 - `google_cloud_run_v2_service` (`slack_agent_service`, `api_service`, `crawler_worker_service`):
   - データベース接続: ProxySQL (`google_compute_address.proxysql_ip.address:6033` / `10.0.0.10:6033`) へダイレクトルーティング。環境変数 `DB_POOL_SIZE = "5"`, `DB_MAX_OVERFLOW = "2"` 設定（API サービスは直接 Cloud SQL 接続）。
   - コスト最適化: `resources.cpu_idle = true`（アクセス/リクエスト処理中のみCPU割り当て）を適用し、待機中・破棄待ちのCPU課金を防止（Issue #670, #701）。
@@ -106,6 +111,7 @@ terraform/
     - DPKG/APT ロック競合対策 (Issue #518): `wait_for_apt_locks` 関数で `/var/lib/dpkg/lock-frontend`・`/var/lib/dpkg/lock`・`/var/lib/apt/lists/lock` を `fuser` で監視し、解放まで 2 秒間隔で待機。待機予算 600 秒は `apt_retry` 1 呼び出し内の全試行で累積共有（`APT_LOCK_WAITED`、試行ごとにリセットしない）し、予算消化後も即時失敗させず `apt-get -o DPkg::Lock::Timeout=120` のロック待機に委ねる（永続ロック時の最悪所要: 600 + 5×120 + 75 秒 ≒ 21 分）
     - `apt_retry` 関数で `apt-get` を最大 5 回、指数バックオフ（5, 10, 20, 40 秒）でリトライし、`set -euo pipefail` 下での一時的競合・通信瞬断による即死を防止
     - `apt-get update` は既定では一部リポジトリの一時的な取得失敗でも終了コード 0 を返し得るため、全 `update` 呼び出しに `--error-on=any` を指定して取得失敗を非ゼロ終了させ、`apt_retry` の再試行対象とする（古い・欠落した索引での後続 `install` を防止）
+    - 閉域VPC環境・起動高速化 (Issue #1112): `command -v proxysql` によりインストール済みを検知した場合は外部 `apt-get` / `wget` の実行をスキップし、外部通信タイムアウト待ち（数分〜10分）によるハングを防止。MLパイプラインの240秒ヘルスチェックタイムアウトによる失敗を解消。
 - `google_compute_firewall`:
   - `allow-proxysql-internal`: VPC 内部サブネット (`10.0.0.0/24`) からのポート 6033 アクセス許可
 - **ILB (Forwarding Rule / Backend Service / Health Check) の廃止**:
@@ -149,3 +155,15 @@ terraform/
   - `roles/secretmanager.secretAccessor` (秘密情報取得。対象 Secret は `iam.tf` の `secret_accessor` for_each で限定: `db_password` / `slack_bot` / `slack_app` / `new_relic_license_key`)
   - `roles/run.invoker` (Cloud Scheduler からの Job 起動権限)
 - **New Relic ライセンスキー**: `secrets.tf` の `realestate-new-relic-license-key-${var.environment}` を Cloud Run が参照するため、必ず `secret_accessor` に含める（Issue #484）。欠落時は `SecretsAccessCheckFailed` となる。
+
+---
+
+├── cloud_run_crawler_service.tf # Cloud Run Service (Crawler Worker 分散スクレイピング)
+| `crawler_cpu` | `string` | `"2"` | Cloud Run Jobs CPU コア数 |
+| `crawler_memory` | `string` | `"4Gi"` | Cloud Run Jobs メモリ割り当て |
+### 3.1 ネットワーク & NAT (`network.tf`)
+- `google_compute_subnetwork`: VPC コネクタ用およびリソース用サブネット（VPC Flow Logs 有効化済）
+- `google_vpc_access_connector`: Cloud Run から VPC への接続インターフェース（`e2-micro`, min: 2, max: 3）
+- `google_compute_router`: Cloud NAT 制御用ルーター
+- `google_compute_address`: 送信元固定用の静的外部 IP アドレス
+- `google_compute_router_nat`: 静的外部 IP を紐付けた NAT ゲートウェイ（全サブネットからの送信パケットのIP固定）

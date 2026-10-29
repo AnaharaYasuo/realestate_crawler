@@ -14,4 +14,4 @@ Cloud NAT 撤廃（Issue #673）に伴い、GCE 上の単一 ProxySQL インス�
 3. **新規プロビジョニング互換性の維持**:
    - 万が一 VM が初期化（再作成）された場合のみ、初期インストール処理へフォールバックするロジックを保持する。
 4. **仕様整合性とテスト保証**:
-   - 変更内容を Terraform 仕様書 (`docs/internal_design/terraform_specification.md`) 等に反映し、単体テスト・Terraform 構文テストを実施する。
+   - 変更内容を Terraform 仕様書 (`docs/6_platform_and_release/terraform_specification.md`) 等に反映し、単体テスト・Terraform 構文テストを実施する。
