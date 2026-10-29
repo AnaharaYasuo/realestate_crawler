@@ -6,7 +6,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.sotetsu import SotetsuMansion, SotetsuKodate, SotetsuTochi
-from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase, check_site_maintenance
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -75,6 +75,7 @@ class SotetsuParser(ParserBase):
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
+        check_site_maintenance(response, site_name="sotetsu")
         detail_links = set()
         for a in response.select('a[href*="/buy/view/"]'):
             href = a.get("href")
