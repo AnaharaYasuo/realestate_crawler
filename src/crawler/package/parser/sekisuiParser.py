@@ -124,7 +124,7 @@ class SekisuiParser(ParserBase):
 
     async def parseRootPage(self, response):
         detail_links = set()
-        for a in response.find_all("a", href=re.compile(r'/detail/[A-Za-z0-9]+/')):
+        for a in response.find_all("a", href=re.compile(r'/detail/[A-Za-z0-9]+/?')):
             item = self._extract_sekisui_item(a, detail_links)
             if item:
                 yield item

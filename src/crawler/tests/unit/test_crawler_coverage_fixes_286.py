@@ -253,8 +253,8 @@ def test_mitsui_parser_all_branches():
     # 2. getAreaDestUrl
     assert parser.getAreaDestUrl("") == ""
     assert parser.getAreaDestUrl("/buy/mansion/prefecture/13/city/") == ""
-    assert parser.getAreaDestUrl("/buy/mansion/prefecture/13/city/13101/") == "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=1000"
-    assert parser.getAreaDestUrl("https://www.rehouse.co.jp/list?foo=bar") == "https://www.rehouse.co.jp/list?foo=bar&limit=1000"
+    assert parser.getAreaDestUrl("/buy/mansion/prefecture/13/city/13101/") == "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=200"
+    assert parser.getAreaDestUrl("https://www.rehouse.co.jp/list?foo=bar") == "https://www.rehouse.co.jp/list?foo=bar&limit=200"
 
     # 3. parseRootPage 都道府県から市区町村親ページ (/city/) への置換
     async def fake_parse_page_core(resp, xpath_func, url_func):
@@ -269,7 +269,7 @@ def test_mitsui_parser_all_branches():
 
     # 4. parseAreaPage
     async def fake_area_core(resp, xpath_func, url_func):
-        yield "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=1000"
+        yield "https://www.rehouse.co.jp/buy/mansion/prefecture/13/city/13101/?limit=200"
         yield ""
 
     parser._parsePageCore = fake_area_core
