@@ -101,8 +101,8 @@ variable "schedule_cron" {
 
 variable "ml_pipeline_schedule_cron" {
   type        = string
-  description = "ML pipeline cron in UTC. Must start after schedule_cron + crawler_timeout (10 1 * * * is JST 10:10 next day; crawl ends 01:00 UTC)"
-  default     = "10 1 * * *"
+  description = "ML pipeline cron in UTC. Independent schedule starting at 20:10 UTC (05:10 JST next day), decoupled from crawler execution (Issue #1143)"
+  default     = "10 20 * * *"
 }
 
 # Budget Alert Variables
