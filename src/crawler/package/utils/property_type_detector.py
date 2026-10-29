@@ -595,6 +595,15 @@ class PropertyTypeDetector:
         if cls._has_explicit_non_mansion_indicator(property_obj):
             return False
 
+        # 土地面積と建物面積（または延床面積）の双方が正の値を持つ場合、区分所有ではなく一棟/戸建/土地建物複合物件
+        has_tochi = cls._is_positive_area_value(cls._get_field(property_obj, "tochiMenseki") or cls._get_field(property_obj, "土地面積"))
+        has_tatemono = (
+            cls._is_positive_area_value(cls._get_field(property_obj, "tatemonoMenseki") or cls._get_field(property_obj, "tatemonMenseki") or cls._get_field(property_obj, "建物面積"))
+            or cls._is_positive_area_value(cls._get_field(property_obj, "nobeyukaMenseki") or cls._get_field(property_obj, "延床面積"))
+        )
+        if has_tochi and has_tatemono:
+            return False
+
         for f in ("senyuMenseki", "専有面積", "壁芯面積"):
             if cls._is_positive_area_value(cls._get_field(property_obj, f)):
                 return True

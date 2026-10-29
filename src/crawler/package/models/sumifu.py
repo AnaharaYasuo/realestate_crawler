@@ -71,7 +71,7 @@ class SumifuInvestmentApartment(SumifuModel):
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0)
     
     kouzou = models.TextField(blank=True, default="")
-    chikunengetsuStr = models.TextField()
+    chikunengetsuStr = models.TextField(blank=True, default="")
     chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)

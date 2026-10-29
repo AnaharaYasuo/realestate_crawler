@@ -86,6 +86,8 @@ def test_property_similarity_and_deduplication():
     eval_b.delete()
     m_a.delete()
     m_b.delete()
+    from package.utils.deduplication import clear_real_property_cache
+    clear_real_property_cache()
 
 
 def test_calculate_property_similarity_get_real_property_exception_logs_warning():
