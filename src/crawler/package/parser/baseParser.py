@@ -101,10 +101,7 @@ MAINTENANCE_KEYWORDS = (
 )
 
 
-def check_site_maintenance(response, site_name: str = ""):
-    """Check if the response represents a site maintenance page."""
-    if response is None:
-        return
+def _get_page_header_text(response) -> tuple[str, str]:
     title_text = ""
     h1_text = ""
     if hasattr(response, "title") and response.title:
@@ -113,14 +110,19 @@ def check_site_maintenance(response, site_name: str = ""):
         h1_el = response.select_one("h1")
         if h1_el:
             h1_text = h1_el.get_text().strip()
+    return title_text, h1_text
 
-    check_target = f"{title_text} {h1_text}"
+
+def check_site_maintenance(response, site_name: str = ""):
+    """Check if the response represents a site maintenance page."""
+    if response is None:
+        return
+    title_text, h1_text = _get_page_header_text(response)
+    name_str = f" ({site_name})" if site_name else ""
     for kw in MAINTENANCE_KEYWORDS:
         if kw in title_text:
-            name_str = f" ({site_name})" if site_name else ""
             raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {title_text}")
         if kw in h1_text:
-            name_str = f" ({site_name})" if site_name else ""
             raise SiteMaintenanceException(f"Target site{name_str} is under maintenance: {h1_text}")
 
 
