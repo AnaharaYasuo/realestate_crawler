@@ -302,7 +302,7 @@ def test_safety_net_runs_after_latest_crawler_and_ml_end():
 
 def test_ml_pipeline_starts_after_four_hour_crawler_deadline():
     assert _after_crawl_start(_cron_seconds(_var_default("ml_pipeline_schedule_cron"))) > _crawler_latest_end_sec()
-    assert _var_default("ml_pipeline_schedule_cron") == "10 1 * * *"
+    assert _var_default("ml_pipeline_schedule_cron") == "10 20 * * *"
 
 
 # ---------------------------------------------------------------------------
