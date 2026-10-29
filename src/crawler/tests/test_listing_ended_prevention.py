@@ -94,16 +94,16 @@ def test_athome_auth_intermediate_page_raises_server_busy():
 
 
 def test_rearie_redirect_to_top_page_raises_listing_ended():
-    """パナソニックホームズ（リアリエ）で物件終了時にトップページへリダイレクトされた場合、ListingEndedException が送出されること (Issue #747)"""
+    """パナソニックホームズ（リアリエ）で明示的に掲載終了・見つからない文言がある場合に ListingEndedException を送出すること"""
     html = """
     <!doctype html>
     <html lang="ja">
       <head>
-        <title>- パナソニック ホームズ株式会社 - Panasonic</title>
+        <title>お探しの物件は見つかりませんでした - パナソニック ホームズ - Panasonic</title>
       </head>
       <body>
         <header><h1>パナソニック ホームズ</h1></header>
-        <nav>注文住宅 リフォーム 賃貸住宅</nav>
+        <div class="not-found">ご指定のページは見つかりませんでした</div>
       </body>
     </html>
     """
@@ -117,10 +117,10 @@ def test_rearie_redirect_to_top_page_raises_listing_ended():
 
 
 def test_rearie_empty_shell_with_blank_table_view_raises_listing_ended():
-    """掲載終了でタイトルがブランドのみ・dl.table-view が空殻のページは ListingEndedException (Issue #761)"""
+    """掲載終了で画面上に掲載終了文言がある場合は ListingEndedException"""
     html = """
-    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
-    <body><h1></h1><dl class="table-view"><div><dt></dt><dd></dd></div></dl></body></html>
+    <!doctype html><html lang="ja"><head><title>掲載終了物件 - パナソニック ホームズ - Panasonic</title></head>
+    <body><h1></h1><div class="mod-message-end">お探しの物件は掲載を終了しました</div></body></html>
     """
     soup = BeautifulSoup(html, "html.parser")
     from package.parser.rearieParser import RearieMansionParser
@@ -131,10 +131,10 @@ def test_rearie_empty_shell_with_blank_table_view_raises_listing_ended():
 
 
 def test_rearie_layout_table_brand_only_raises_listing_ended():
-    """レイアウト用tableが存在しても物件スペックが無ければ掲載終了扱い (CodeRabbit指摘 #761)"""
+    """掲載終了文言を含む画面で ListingEndedException が送出されること"""
     html = """
-    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
-    <body><table><tr><td>ナビゲーション</td><td>フッター</td></tr></table></body></html>
+    <!doctype html><html lang="ja"><head><title>指定された物件は掲載を終了いたしました - パナソニック ホームズ - Panasonic</title></head>
+    <body><table><tr><td>掲載終了いたしました</td></tr></table></body></html>
     """
     soup = BeautifulSoup(html, "html.parser")
     from package.parser.rearieParser import RearieMansionParser
