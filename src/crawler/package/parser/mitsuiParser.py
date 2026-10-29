@@ -110,7 +110,7 @@ class MitsuiParser(ParserBase):
             return ""
         dest = self.BASE_URL + link_url if not link_url.startswith("http") else link_url
         separator = "&" if "?" in dest else "?"
-        return f"{dest}{separator}limit=1000"
+        return f"{dest}{separator}limit=200"
 
     async def parseAreaPage(self, response):        
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):

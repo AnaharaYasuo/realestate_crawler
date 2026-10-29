@@ -2,7 +2,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentApartment, MisawaInvestmentKodate
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ServerBusyException
 import re
 import datetime
 import logging
@@ -93,7 +93,15 @@ class MisawaParser(ParserBase):
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return super()._parseTransport1(response, specs)
 
+    def _check_misawa_maintenance(self, response: BeautifulSoup):
+        title_text = response.title.get_text().strip() if response.title else ""
+        body_text = response.body.get_text() if response.body else ""
+        all_text = f"{title_text} {body_text}"
+        if any(msg in all_text for msg in ["システムメンテナンス中", "現在システムメンテナンスを実施しております", "ただいまメンテナンス中"]):
+            raise ServerBusyException("Misawa system maintenance in progress")
+
     async def parsePropertyListPage(self, response: BeautifulSoup):
+        self._check_misawa_maintenance(response)
         sections = response.select('div.searchList div.section')
         
         if not sections:
@@ -171,6 +179,7 @@ class MisawaParser(ParserBase):
         return self._specs_cache
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        self._check_misawa_maintenance(response)
         # Basic Info
         item.propertyName = self._parsePropertyName(response)
         item.priceStr = self._parsePriceStr(response)

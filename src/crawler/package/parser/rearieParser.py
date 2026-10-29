@@ -316,16 +316,22 @@ class RearieParser(ParserBase):
         return super()._split_address(address)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 0. 掲載終了・トップページリダイレクトの早期検知
+        # 0. 掲載終了の早期検知（画面上の明示的な文言検知を厳格化）
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
-        if any(msg in title_text or msg in body_text for msg in ["掲載を終了しました", "お探しの物件は見つかりませんでした", "掲載終了物件"]):
+        all_text = f"{title_text} {body_text}"
+        if any(msg in all_text for msg in [
+            "掲載を終了しました",
+            "掲載を終了いたしました",
+            "掲載終了しました",
+            "お探しの物件は見つかりませんでした",
+            "お探しのページは見つかりませんでした",
+            "ご指定のページは見つかりませんでした",
+            "該当する物件がありません",
+            "指定された物件は掲載を終了",
+            "掲載終了物件",
+        ]) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Rearie listing ended")
-        # ブランドタイトルのみ、または物件スペック（価格・面積・所在地等のキー）が存在しない場合はトップ転送/掲載終了
-        if "Panasonic" in title_text or "パナソニック" in title_text:
-            specs = self._get_specs(response)
-            if not any(k in specs for k in ["価格", "販売価格", "物件価格", "専有面積", "建物面積", "土地面積", "所在地"]):
-                raise ListingEndedException("Rearie redirected to top page (listing ended)")
 
         item = super()._parsePropertyDetailPage(item, response)
         
