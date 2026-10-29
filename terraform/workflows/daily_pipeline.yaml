@@ -74,9 +74,9 @@ main:
                   assign:
                     - effectiveTaskCount: 1
                 - condition: ${skipPortals}
-                  # ポータル除外時: 三大仲介（三井・住友・東急）軸の 3 タスク構成で並列実行 (Issue #985)
+                  # ポータル除外時: 四大仲介（三井・住友・東急・野村）軸の 4 タスク構成で並列分散実行 (Issue #1059, #1148)
                   assign:
-                    - effectiveTaskCount: 3
+                    - effectiveTaskCount: 4
 
     - tryPipeline:
         try:
