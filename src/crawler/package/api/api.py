@@ -30,6 +30,8 @@ from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.api.registry import ApiRegistry
 from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
 from package.parser.baseParser import (
+    check_site_maintenance,
+    SiteMaintenanceException,
     LoadPropertyPageException,
     ParserBase,
     ReadPropertyNameException,
@@ -1431,6 +1433,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
     async def _extract_middle_page_details(self, response, current_url):
         detail_url_list = []
         try:
+            check_site_maintenance(response, site_name=self.__class__.__name__)
             parser_func = self._getParserFunc()
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
@@ -1443,6 +1446,9 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                     f"Zero items parsed from middle page: {self.url}",
                     raw_html=raw_html_content,
                 )
+        except SkipPropertyException:
+            # サイトメンテナンス等の予定されたスキップ時はエラーログやエラーHTML保存を行わず再送出する
+            raise
         except Exception as e:
             logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
             raw_html_content = str(response) if response is not None else None
