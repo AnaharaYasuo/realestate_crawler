@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from asgiref.sync import sync_to_async
@@ -113,14 +114,27 @@ def _detect_company_and_type_from_model(model_class):
             comp = c
             break
 
-    ptypes = [
-        "invest_apartment", "invest_building", "invest_kodate", "investment",
-        "mansion", "kodate", "tochi", "building", "land"
+    ptype_pairs = [
+        ("investment_apartment", "invest_apartment"),
+        ("investmentapartment", "invest_apartment"),
+        ("invest_apartment", "invest_apartment"),
+        ("investment_building", "invest_building"),
+        ("investmentbuilding", "invest_building"),
+        ("invest_building", "invest_building"),
+        ("investment_kodate", "invest_kodate"),
+        ("investmentkodate", "invest_kodate"),
+        ("invest_kodate", "invest_kodate"),
+        ("investment", "investment"),
+        ("mansion", "mansion"),
+        ("kodate", "kodate"),
+        ("tochi", "tochi"),
+        ("building", "building"),
+        ("land", "land"),
     ]
     ptype = None
-    for p in sorted(ptypes, key=len, reverse=True):
-        if p.replace("_", "") in name or p in name:
-            ptype = p
+    for token, canonical in ptype_pairs:
+        if token in name:
+            ptype = canonical
             break
 
     return comp, ptype
@@ -129,9 +143,12 @@ def _detect_company_and_type_from_model(model_class):
 def _touch_differential_progress(model_class):
     """差分キャッシュスキップ時にウォッチドッグ進捗通知ファイルを更新する"""
     try:
-        comp, ptype = _detect_company_and_type_from_model(model_class)
+        comp = os.getenv("CRAWLER_JOB_COMPANY")
+        ptype = os.getenv("CRAWLER_JOB_TYPE")
+        if not (comp and ptype):
+            comp, ptype = _detect_company_and_type_from_model(model_class)
         if comp and ptype:
-            touch_crawler_progress(comp, ptype)
+            touch_crawler_progress(str(comp).lower(), str(ptype).lower())
     except Exception:
         pass
 
@@ -228,5 +245,3 @@ async def filter_differential_items(
     )
 
     return all_to_fetch, all_to_skip
-
-

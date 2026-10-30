@@ -2663,7 +2663,9 @@ class InvestmentParserBase(ParserBase):
         val = self.get_gross_yield_str(response)
         if val:
             m = DECIMAL_REGEX.search(val)
-            return Decimal(m.group(1)) if m else None
+            if m:
+                parsed = Decimal(m.group(1))
+                return parsed if Decimal(0) <= parsed < Decimal("1000") else None
         return None
 
     def get_annual_rent_str(self, response: BeautifulSoup) -> str:

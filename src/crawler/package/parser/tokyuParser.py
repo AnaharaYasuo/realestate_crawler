@@ -580,8 +580,11 @@ class TokyuParser(ParserBase):
 
     def _parseDouro(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
-        key = "接道方向／幅員"
-        return self._get_spec_val(specs, key)
+        return (
+            self._get_spec_val(specs, "接道方向／幅員")
+            or self._get_spec_val(specs, "道路幅員")
+            or self._get_spec_val(specs, "接道状況")
+        )
 
     def _parseDouroMuki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseDouro(response, specs)
@@ -754,6 +757,9 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
         return TokyuMansion()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        title_text = response.title.get_text(strip=True) if response and response.title else ""
+        if "｜投資用物件" in title_text or "| 投資用物件" in title_text or "投資用一棟" in title_text:
+            raise SkipPropertyException(f"Tokyu investment property mixed into mansion crawl: {getattr(item, 'pageUrl', '')}")
         item: TokyuMansion = super()._parsePropertyDetailPage(item, response)
         specs = self._scrape_specs(response)
         
@@ -1086,8 +1092,8 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
-        item.setsumen = self._parseSetsumen_Str(response)
-        item.douroHaba = self._parseDouroHaba_Str(response)
+        item.setsumen = self._parseSetsumen(response, specs)
+        item.douroHaba = self._parseDouroHaba(response, specs)
         item.saikou = self._parseSaikou(response, specs)
         item.kenpeiStr = self._parseKenpeiStr(response, specs)
         item.yousekiStr = self._parseYousekiStr(response, specs)
@@ -1098,13 +1104,15 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
         
         # 統一土地評価フィールドのパース ＆ 代入
         if item.setsumen is not None:
-            item.maguchiStr = item.setsumen
-            m = FLOAT_PATTERN.search(item.maguchiStr)
-            if m:
-                item.maguchi = Decimal(m.group(1))
+            item.maguchiStr = f"{item.setsumen}m"
+            item.maguchi = item.setsumen
                 
+        douro_str = self._parseDouroHaba_Str(response)
         if item.douroHaba is not None:
-            item.roadWidthStr = item.douroHaba
+            item.roadWidthStr = douro_str or f"{item.douroHaba}m"
+            item.roadWidth = item.douroHaba
+        elif douro_str:
+            item.roadWidthStr = douro_str
             m = FLOAT_PATTERN.search(item.roadWidthStr)
             if m:
                 item.roadWidth = Decimal(m.group(1))
@@ -1114,6 +1122,11 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
             item.okuyukiStr = f"{item.okuyuki}m"
             
         return item
+
+    def _parseSetsumen(self, response: BeautifulSoup, specs=None) -> Decimal | None:
+        val = self._parseSetsudou(response, specs) or self._parseDouro(response, specs)
+        match = re.search(r'(?:接面|間口)[：:\s]*(\d{1,3}(?:\.\d{1,3})?)\s*m', val)
+        return Decimal(match.group(1)) if match else None
 
     def _parseSetsumen_Str(self, response: BeautifulSoup) -> str:
         return self._parseDouro(response)

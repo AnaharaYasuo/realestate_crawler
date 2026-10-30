@@ -1,11 +1,15 @@
 import logging
 import re
+import threading
 from difflib import SequenceMatcher
 
+from django.db import OperationalError, close_old_connections
+from package.ml.constants import COMPANIES
 from package.models.evaluation import PropertyEvaluation
 from package.utils.url_matcher import UrlMatcher
 
 logger = logging.getLogger(__name__)
+
 
 def normalize_address(address: str) -> str:
     """
@@ -31,13 +35,15 @@ def normalize_address(address: str) -> str:
     return address
 
 
-from package.ml.constants import COMPANIES
-
 _REAL_PROPERTY_CACHE: dict[tuple[str, int], object] = {}
+_CACHE_LOCK = threading.Lock()
+
 
 def clear_real_property_cache():
     """キャッシュをクリアする"""
-    _REAL_PROPERTY_CACHE.clear()
+    with _CACHE_LOCK:
+        _REAL_PROPERTY_CACHE.clear()
+
 
 def _resolve_company_for_eval(company: str, ptype: str, prop_url: str) -> tuple[str, str]:
     """評価レコードから会社名および種別サフィックスを解決する"""
@@ -57,36 +63,88 @@ def _resolve_company_for_eval(company: str, ptype: str, prop_url: str) -> tuple[
     return "", ptype
 
 
+def _resolve_model_name_for_eval(eval_rec: PropertyEvaluation) -> str | None:
+    company, ptype = _resolve_company_for_eval(
+        eval_rec.company or "",
+        eval_rec.property_type or "",
+        eval_rec.property_url or "",
+    )
+    if not company or company == "unknown":
+        return None
+    company_camel = company.capitalize()
+    ptype_camel = (
+        ptype.replace("apartment", "Apartment")
+        .replace("kodate", "Kodate")
+        .replace("mansion", "Mansion")
+        .replace("tochi", "Tochi")
+        .replace("investment", "Investment")
+    )
+    if ptype_camel:
+        ptype_camel = ptype_camel[0].upper() + ptype_camel[1:]
+    return f"{company_camel}{ptype_camel}"
+
+
 def _get_real_property(eval_rec: PropertyEvaluation):
-    """評価レコードに紐づく物件実データをモデルから解決する（キャッシュ対応）"""
+    """評価レコードに紐づく物件実データをモデルから解決する（スレッドセーフキャッシュ・再接続対応）"""
     try:
         from django.apps import apps
-        company, ptype = _resolve_company_for_eval(
-            eval_rec.company or "",
-            eval_rec.property_type or "",
-            eval_rec.property_url or "",
-        )
-        if not company or company == "unknown":
+        model_name = _resolve_model_name_for_eval(eval_rec)
+        if not model_name:
             return None
-        company_camel = company.capitalize()
-        ptype_camel = ptype.replace('apartment', 'Apartment').replace('kodate', 'Kodate').replace('mansion', 'Mansion').replace('tochi', 'Tochi').replace('investment', 'Investment')
-        if ptype_camel:
-            ptype_camel = ptype_camel[0].upper() + ptype_camel[1:]
-        model_name = f'{company_camel}{ptype_camel}'
-        
-        cache_key = (model_name, eval_rec.property_id)
-        if cache_key in _REAL_PROPERTY_CACHE:
-            return _REAL_PROPERTY_CACHE[cache_key]
 
-        model_class = apps.get_model('package', model_name)
-        prop = model_class.objects.filter(id=eval_rec.property_id).first()
-        if len(_REAL_PROPERTY_CACHE) > 10000:
-            _REAL_PROPERTY_CACHE.clear()
-        _REAL_PROPERTY_CACHE[cache_key] = prop
+        cache_key = (model_name, eval_rec.property_id)
+        with _CACHE_LOCK:
+            if cache_key in _REAL_PROPERTY_CACHE:
+                return _REAL_PROPERTY_CACHE[cache_key]
+
+        model_class = apps.get_model("package", model_name)
+        try:
+            prop = model_class.objects.filter(id=eval_rec.property_id).first()
+        except OperationalError:
+            close_old_connections()
+            prop = model_class.objects.filter(id=eval_rec.property_id).first()
+
+        with _CACHE_LOCK:
+            if len(_REAL_PROPERTY_CACHE) > 10000:
+                _REAL_PROPERTY_CACHE.clear()
+            _REAL_PROPERTY_CACHE[cache_key] = prop
         return prop
     except Exception as e:  # noqa: BLE001
-        logger.warning(f'Failed to load real property data for evaluation {eval_rec.id}: {e}')
+        logger.warning(f"Failed to load real property data for evaluation {eval_rec.id}: {e}")
         return None
+
+
+def _prefetch_real_properties(candidates: list[PropertyEvaluation]) -> None:
+    """候補の評価レコード群の実物件データをモデルごとに一括プリフェッチしてN+1クエリを排除する (Issue #1160)"""
+    from django.apps import apps
+    missing_by_model: dict[str, set[int]] = {}
+    with _CACHE_LOCK:
+        for cand in candidates:
+            if not cand.property_id:
+                continue
+            model_name = _resolve_model_name_for_eval(cand)
+            if not model_name:
+                continue
+            if (model_name, cand.property_id) not in _REAL_PROPERTY_CACHE:
+                missing_by_model.setdefault(model_name, set()).add(cand.property_id)
+
+    for model_name, prop_ids in missing_by_model.items():
+        try:
+            model_class = apps.get_model("package", model_name)
+            try:
+                props = list(model_class.objects.filter(id__in=list(prop_ids)))
+            except OperationalError:
+                close_old_connections()
+                props = list(model_class.objects.filter(id__in=list(prop_ids)))
+            found_map = {p.id: p for p in props}
+            with _CACHE_LOCK:
+                if len(_REAL_PROPERTY_CACHE) > 10000:
+                    _REAL_PROPERTY_CACHE.clear()
+                for pid in prop_ids:
+                    _REAL_PROPERTY_CACHE[(model_name, pid)] = found_map.get(pid)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Batch prefetch skipped for %s: %s", model_name, e)
+
 
 def _calculate_address_score(prop_a, prop_b) -> float:
     addr_a = normalize_address(getattr(prop_a, 'address', ''))
@@ -103,6 +161,7 @@ def _calculate_address_score(prop_a, prop_b) -> float:
         return 0.2
     return 0.0
 
+
 def _calculate_area_score(prop_a, prop_b) -> float:
     area_a = float(getattr(prop_a, 'tatemonoMenseki', 0) or getattr(prop_a, 'senyuMenseki', 0) or 0)
     area_b = float(getattr(prop_b, 'tatemonoMenseki', 0) or getattr(prop_b, 'senyuMenseki', 0) or 0)
@@ -116,6 +175,7 @@ def _calculate_area_score(prop_a, prop_b) -> float:
     if diff_ratio <= 0.07:
         return 0.1
     return 0.0
+
 
 def _calculate_price_score(prop_a, prop_b) -> float:
     price_a = float(prop_a.price if prop_a.price else 0)
@@ -133,6 +193,7 @@ def _calculate_price_score(prop_a, prop_b) -> float:
         return 0.05
     return 0.0
 
+
 def _calculate_date_score(prop_a, prop_b) -> float:
     date_a = getattr(prop_a, 'chikunengetsu', None)
     date_b = getattr(prop_b, 'chikunengetsu', None)
@@ -143,6 +204,7 @@ def _calculate_date_score(prop_a, prop_b) -> float:
     if str_a and str_b and (str_a == str_b):
         return 0.1
     return 0.0
+
 
 def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEvaluation, prop_a=None, prop_b=None) -> float:
     """
@@ -160,6 +222,7 @@ def calculate_property_similarity(eval_a: PropertyEvaluation, eval_b: PropertyEv
     if not prop_a or not prop_b:
         return 0.0
     return _calculate_address_score(prop_a, prop_b) + _calculate_area_score(prop_a, prop_b) + _calculate_price_score(prop_a, prop_b) + _calculate_date_score(prop_a, prop_b)
+
 
 def get_root_parent(eval_rec: PropertyEvaluation) -> PropertyEvaluation:
     """
@@ -183,6 +246,7 @@ def get_root_parent(eval_rec: PropertyEvaluation) -> PropertyEvaluation:
         curr = parent
     return curr
 
+
 def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> PropertyEvaluation | None:
     """
     新しく登録された PropertyEvaluation に対して、DB内に同一とみなせる類似物件レコードが存在するか検索する。
@@ -192,7 +256,15 @@ def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> Prop
     qs = PropertyEvaluation.objects.filter(property_type=new_eval.property_type)
     if new_eval.id is not None:
         qs = qs.filter(id__lt=new_eval.id)
-    candidates = qs.select_related("duplicate_of").order_by("-id")[:50]
+    try:
+        candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
+    except OperationalError:
+        close_old_connections()
+        candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
+
+    if candidates:
+        _prefetch_real_properties(candidates)
+
     for cand in candidates:
         similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)
         if similarity < 0.85:

@@ -23,37 +23,30 @@ class TokyuModel(PropertyBaseModel, TransportationMixin):
         abstract = True
 
 class TokyuMansion(TokyuModel):
-    # inputDate/Time/Price strictness handled by Base (or overridden if needed stricter)
-    # Actually Base has null=True for flexibility in migration, but schema says Strict.
-    # We will assume Base definitions are flexible, but logic enforces validation.
-    # However, to match schema strictness we should change Base to null=False?
-    # Existing TokyuMansion had some null=False (implicit) for inputDate.
-    # Let's keep them generally simple.
-    
-    madori = models.TextField()
-    senyuMensekiStr = models.TextField()
+    madori = models.TextField(default="", blank=True)
+    senyuMensekiStr = models.TextField(default="", blank=True)
     senyuMenseki = models.DecimalField(max_digits=8, decimal_places=3)
-    kaisu = models.TextField()
-    chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    kaisu = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     
-    kanrihiStr = models.TextField()
-    kanrihi = models.IntegerField(null=True)
-    syuzenTsumitateStr = models.TextField()
-    syuzenTsumitate = models.IntegerField(null=True)
+    kanrihiStr = models.TextField(default="", blank=True)
+    kanrihi = models.IntegerField(null=True, blank=True)
+    syuzenTsumitateStr = models.TextField(default="", blank=True)
+    syuzenTsumitate = models.IntegerField(null=True, blank=True)
     sonotaHiyouStr = models.TextField(blank=True)
-    balconyMensekiStr = models.TextField()
-    balconyMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True)
-    kaisuStr = models.TextField()
-    tatemonoKaisu  = models.TextField()
-    kouzou  = models.TextField()
+    balconyMensekiStr = models.TextField(default="", blank=True)
+    balconyMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True, blank=True)
+    kaisuStr = models.TextField(default="", blank=True)
+    tatemonoKaisu  = models.TextField(default="", blank=True)
+    kouzou  = models.TextField(default="", blank=True)
     bunjoKaisya  = models.TextField(blank=True)
     sekouKaisya  = models.TextField(blank=True)
     kanriKaisya  = models.TextField(blank=True)
-    kanriKeitai  = models.TextField()
+    kanriKeitai  = models.TextField(default="", blank=True)
     
     tyusyajo  = models.TextField(blank=True)
-    saikou = models.TextField(verbose_name="向き", default="")
+    saikou = models.TextField(verbose_name="向き", default="", blank=True)
     soukosu = models.IntegerField(verbose_name="総戸数", null=True, blank=True)
     bikeokiba  = models.TextField(blank=True)
     isSoldout = models.IntegerField(null=True, blank=True)
@@ -64,8 +57,8 @@ class TokyuMansion(TokyuModel):
 
 class TokyuTochi(TokyuModel):
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    chimokuChisei = models.TextField()
-    chimoku = models.TextField()
+    chimokuChisei = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True)
     chisei = models.TextField(blank=True)
     setsudou = models.TextField(default="", blank=True)
     douro = models.TextField(default="", blank=True)
@@ -73,19 +66,19 @@ class TokyuTochi(TokyuModel):
     douroHaba = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
     douroKubun = models.TextField(default="", blank=True)
     setsumen = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
-    tochiMensekiStr = models.TextField(verbose_name="土地面積", default="")
+    tochiMensekiStr = models.TextField(verbose_name="土地面積", default="", blank=True)
     kenpei = models.IntegerField(verbose_name="建ぺい率", default=0)
     youseki = models.IntegerField(verbose_name="容積率", default=0)
-    kenpeiStr = models.TextField(verbose_name="建ぺい率（文字列）", default="")
-    yousekiStr = models.TextField(verbose_name="容積率（文字列）", default="")
-    kenpeiYousekiStr = models.TextField(verbose_name="建ぺい率・容積率", default="")
-    chiikiChiku = models.TextField()
-    kuiki = models.TextField()
-    youtoChiiki = models.TextField()
+    kenpeiStr = models.TextField(verbose_name="建ぺい率（文字列）", default="", blank=True)
+    yousekiStr = models.TextField(verbose_name="容積率（文字列）", default="", blank=True)
+    kenpeiYousekiStr = models.TextField(verbose_name="建ぺい率・容積率", default="", blank=True)
+    chiikiChiku = models.TextField(default="", blank=True)
+    kuiki = models.TextField(default="", blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
     boukaChiiki = models.TextField(blank=True)
     saikenchiku = models.TextField(blank=True)
     sonotaChiiki = models.TextField(blank=True)
-    kenchikuJoken = models.TextField()
+    kenchikuJoken = models.TextField(default="", blank=True)
     kokudoHou = models.TextField(blank=True)
     
     sonotaHiyouStr  = models.TextField(blank=True)
@@ -108,30 +101,30 @@ class TokyuTochi(TokyuModel):
 
 
 class TokyuKodate(TokyuModel):
-    madori = models.TextField()
-    chikunengetsuStr = models.TextField()
+    madori = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
     
-    tochiMensekiStr = models.TextField()
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    shidoMensekiStr = models.TextField()
+    shidoMensekiStr = models.TextField(default="", blank=True)
     shidoMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True, blank=True)
-    tatemonoMensekiStr = models.TextField()
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=8,decimal_places=3)
-    kouzou  = models.TextField()
+    kouzou  = models.TextField(default="", blank=True)
     saikou = models.TextField(verbose_name="向き", default="", blank=True)
     kaisuStr = models.TextField(verbose_name="階数（地上）", default="", blank=True)
 
-    setsumen  = models.TextField()
-    douroHaba  = models.TextField()
-    youtoChiiki = models.TextField()
+    setsumen  = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)
+    douroHaba  = models.DecimalField(max_digits=6, decimal_places=3, null=True, blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
     kenpei = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="建ぺい率（数値）", default=0)
     youseki = models.DecimalField(max_digits=10, decimal_places=3, verbose_name="容積率（数値）", default=0)
-    kenpeiStr = models.TextField(verbose_name="建ぺい率（文字列）", default="")
-    yousekiStr = models.TextField(verbose_name="容積率（文字列）", default="")
-    kenpeiYousekiStr = models.TextField(verbose_name="建ぺい率・容積率", default="")
+    kenpeiStr = models.TextField(verbose_name="建ぺい率（文字列）", default="", blank=True)
+    yousekiStr = models.TextField(verbose_name="容積率（文字列）", default="", blank=True)
+    kenpeiYousekiStr = models.TextField(verbose_name="建ぺい率・容積率", default="", blank=True)
     tyusyajo  = models.TextField(blank=True)
-    setsudou = models.TextField()
+    setsudou = models.TextField(default="", blank=True)
     isSoldout = models.IntegerField(null=True, blank=True)
 
     class Meta:
@@ -148,16 +141,13 @@ class TokyuInvestmentKodate(TokyuModel):
     propertyType = models.TextField() 
     
     # Building / Land Details
-    tochiMensekiStr = models.TextField(default="")
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, default=0) # 土地面積
-    tatemonoMensekiStr = models.TextField(default="")
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, default=0) # 建物面積/専有面積
-    kouzou = models.TextField() 
+    kouzou = models.TextField(default="", blank=True) 
     kaisuStr = models.TextField(default="", blank=True) 
-    chikunengetsuStr = models.TextField() 
-    
-    # Detailed Specs removed: soukosu, floorPlan, balconyArea, kanrihi, syuzenTsumitate
-    # These are condominium-specific fields not applicable to one-building properties 
+    chikunengetsuStr = models.TextField(default="", blank=True) 
     
     # Land Specific Details
     kenpeiStr = models.TextField(blank=True, default="")
@@ -193,9 +183,6 @@ class TokyuInvestmentApartment(TokyuModel):
     soukosuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     
-    # Costs (Strict for Apartment)
-    # kanrihi/syuzenTsumitate removed per user request (not applicable for Tokyu Apartments)
-    
     # Land Details
     kenpeiStr = models.TextField(blank=True, default="")
     kenpei = models.IntegerField(null=True, blank=True)
@@ -210,5 +197,3 @@ class TokyuInvestmentApartment(TokyuModel):
 
     class Meta:
         db_table = "tokyu_investment_apartment"
-
-        

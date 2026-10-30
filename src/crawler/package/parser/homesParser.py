@@ -600,7 +600,10 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
 
         # 利回り
         yield_str = self._get_table_text(response, "span.prg-rimawariTableItem", ["利回り"])
-        item.grossYield = converter.parse_ratio(yield_str)
+        parsed_yield = converter.parse_ratio(yield_str)
+        if parsed_yield is not None and (parsed_yield >= Decimal("1000") or parsed_yield < Decimal(0)):
+            parsed_yield = None
+        item.grossYield = parsed_yield
         self._homes_parse_invest_rent(item, response)
 
         item.currentStatus = self._get_table_text(response, "td.prg-statusTableItem", ["現況", "入居状況"])
@@ -699,13 +702,6 @@ class HomesTochiParser(HomesParser, TochiParserBase):
             else:
                 item.yousekiStr = ratio_text
                 item.youseki = converter.parse_ratio(ratio_text)
-
-        kenpei_tag = response.select_one(CSS_BUILDING_COVERAGE) or self._find_by_table_header(
-            response, ["建ぺい率"]
-        )
-        if kenpei_tag:
-            item.kenpeiStr = kenpei_tag.get_text().strip()
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)

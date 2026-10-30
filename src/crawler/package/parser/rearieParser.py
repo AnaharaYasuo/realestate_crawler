@@ -316,7 +316,7 @@ class RearieParser(ParserBase):
         return super()._split_address(address)
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 0. 掲載終了の早期検知（画面上の明示的な文言検知を厳格化）
+        # 0. 掲載終了の早期検知（画面上の明示的な文言検知・トップページリダイレクト検知を厳格化）
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
         all_text = f"{title_text} {body_text}"
@@ -333,19 +333,20 @@ class RearieParser(ParserBase):
         ]) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Rearie listing ended")
 
+        # 物件スペック表の取得
+        specs = self._get_specs(response)
+        h1_el = response.find("h1")
+        h1_text = h1_el.get_text().strip() if h1_el else ""
+        if title_text.startswith("- パナソニック ホームズ株式会社") or (not h1_text and not specs.get("価格")):
+            raise ListingEndedException("Rearie listing ended or redirected to top page")
+
         item = super()._parsePropertyDetailPage(item, response)
         
         # タイトル/物件名
-        title_el = response.find("h1")
-        if title_el:
-            # 改行や不要な空白などを整理
-            raw_title = title_el.get_text().strip()
+        if h1_text:
             # 複数行ある場合は最初の行を物件名にする
-            item.propertyName = raw_title.split("\n")[0].strip()
+            item.propertyName = h1_text.split("\n")[0].strip()
             
-        # 物件スペック表の取得
-        specs = self._get_specs(response)
-        
         # 価格
         price_val = specs.get("価格", "")
         if price_val:
