@@ -23,8 +23,11 @@
 ### 2.4. ミューテーションテスト品質ゲート (PR Mutation Testing Gate)
 - PR時およびCIにおいて、ミューテーションテスト（Level 1: データ変異検知率 100%、Level 2: コード変異キル率 80%以上）の全件合格を必須とする。
 
-### 2.5. プッシュ前静的解析・AIレビュー義務 (Pre-Push Gate)
-- リモートへプッシュする前に、必ずローカルで以下の検証に合格すること：
-  - SonarCloud: 認知複雑度 S3776 <= 15、ReDoS防止 S8786、Code Smell / バグ 0 件
-  - CodeRabbit CLI: ローカル差分AIレビューで未解決の重大指摘 0 件
+### 2.5. プッシュ前静的解析・AIレビュー義務 (Pre-Push Gate & 5大決定論的ハーネス)
+- リモートへプッシュする前に、必ずローカルで以下の5大決定論的ゲート検証に合格すること：
+  - **Gate 0 (高速文法・型検査)**: Ruff (Linter/Formatter) + MyPy (型検査)
+  - **Gate 1 (シークレット・SAST)**: detect-secrets (高エントロピー平文遮断) + Semgrep (SAST/JSON検証)
+  - **Gate 2 (アーキテクチャ・依存境界)**: `test_architecture_harness.py` (Gate 1〜5, レイヤー逆流インポート禁止)
+  - **Gate 3 (動的テスト・ミューテーション)**: pytest (動的アクティブ生HTML・100%パス) + Level 1/2 Mutation Testing (キル率 >= 80%)
+  - **Gate 4 (総合Quality Gate & AIレビュー)**: SonarCloud (認知複雑度 S3776 <= 15, ReDoS S8786) + CodeRabbit CLI (未解決重大指摘 0 件)
 - 関連スキル: [regression-testing](../skills/regression-testing/SKILL.md)

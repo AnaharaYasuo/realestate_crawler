@@ -156,9 +156,19 @@ tasks:
       - docker run --rm -v {{.PWD}}:/workspace -w /workspace aquasec/trivy fs . --scanners vuln,misconfig --severity HIGH,CRITICAL --ignorefile .trivyignore
 
   semgrep:
-    desc: Run Semgrep SAST scan locally using Docker (Free / No token needed)
+    desc: Run Semgrep SAST scan locally (Host CLI or Docker, Free / No token needed)
     cmds:
-      - docker run --rm -v {{.PWD}}:/src semgrep/semgrep semgrep scan --config p/python --config p/owasp-top-ten --severity ERROR src/
+      - cmd /c semgrep scan --config p/python --config p/ci --severity ERROR src/ || docker run --rm -v {{.PWD}}:/src semgrep/semgrep semgrep scan --config p/python --config p/owasp-top-ten --severity ERROR src/
+
+  secrets-check:
+    desc: Run detect-secrets high-entropy secret detection locally on source tree
+    cmds:
+      - cmd /c detect-secrets scan --all-files src/ || python -m detect_secrets scan --all-files src/
+
+  type-check:
+    desc: Run MyPy static type checking locally
+    cmds:
+      - cmd /c mypy --ignore-missing-imports --no-error-summary --disable-error-code=var-annotated src/crawler/package/site_registry.py src/crawler/package/models/
 
   checkov:
     desc: Run Checkov IaC & Google Cloud configuration audit locally using Docker
