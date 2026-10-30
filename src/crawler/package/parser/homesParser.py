@@ -168,7 +168,11 @@ class HomesParser(ParserBase):
     @staticmethod
     def _is_yield_indicated(tag) -> bool:
         """Check if parent row/card text specifies yield percentage."""
-        parent = tag.find_parent("tr") or tag.find_parent("li") or tag.find_parent("div")
+        parent = (
+            tag.find_parent("tr")
+            or tag.find_parent("li")
+            or tag.find_parent("div", class_="bukkenBlock")
+        )
         txt = parent.get_text() if parent else ""
         return "%" in txt or "％" in txt
 

@@ -249,6 +249,31 @@ class TestParserAndModelRegressions1160:
         item.pageUrl = "https://toushi.homes.co.jp/bukkendetail/index/4794546/"
         item.full_clean(validate_unique=False)
 
+    @pytest.mark.asyncio
+    async def test_homes_parse_root_page_prioritizes_yield_links_in_div_bukken_block(self):
+        """HomesParser.parseRootPage prioritizes cards with yield % even when cards use div.bukkenBlock inside a wrapper div."""
+        html = """
+        <html><body>
+          <div class="propertyListArea prg-bukkenListRoot">
+            <div class="bukkenBlock">
+              <a href="/bukkendetail/index/1001/">物件A</a>
+              <span>価格 3,280万円 利回り 未定</span>
+            </div>
+            <div class="bukkenBlock">
+              <a href="/bukkendetail/index/1002/">物件B</a>
+              <span>価格 5,480万円 利回り 7.50%</span>
+            </div>
+          </div>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        parser = HomesInvestmentApartmentParser("")
+        items = [item async for item in parser.parseRootPage(soup)]
+        assert [i.url for i in items] == [
+            "https://toushi.homes.co.jp/bukkendetail/index/1002/",
+            "https://toushi.homes.co.jp/bukkendetail/index/1001/",
+        ]
+
     def test_sumai1_investment_rejects_residential_buyers_urls(self):
         """Sumai1InvestmentParser rejects /buyers/tochi/, /buyers/kodate/, and /buyers/mansion/ URLs."""
         parser = Sumai1InvestmentParser("")
