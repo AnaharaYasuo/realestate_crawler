@@ -336,7 +336,7 @@ class RearieParser(ParserBase):
         # 物件スペック表の取得
         specs = self._get_specs(response)
         h1_el = response.find("h1")
-        h1_text = h1_el.get_text().strip() if h1_el else ""
+        h1_text = (h1_el.text or "").strip() if h1_el is not None else ""
         if title_text.startswith("- パナソニック ホームズ株式会社") or (not h1_text and not specs.get("価格")):
             raise ListingEndedException("Rearie listing ended or redirected to top page")
 

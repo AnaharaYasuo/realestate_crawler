@@ -185,8 +185,21 @@ def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
         logger.info("All fire-and-forget background threads finished successfully")
 
 
-def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
+def _shutdown_local_worker_executor_nonblocking() -> None:
     global _local_worker_executor
+    if _local_worker_executor is None:
+        return
+    try:
+        _local_worker_executor.shutdown(wait=False, cancel_futures=True)
+        import concurrent.futures.thread as _cft
+        for t in getattr(_local_worker_executor, "_threads", ()):
+            _cft._threads_queues.pop(t, None)
+    except Exception:
+        pass
+    _local_worker_executor = None
+
+
+def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
     if timeout_expired and not os.path.exists(STOP_FLAG_FILE):
@@ -194,22 +207,11 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
             Path(STOP_FLAG_FILE).write_text("STOP", encoding="utf-8")
         except Exception:
             pass
-    cancelled_count = 0
     with _active_threads_lock:
-        for fut in _active_fire_and_forget_futures:
-            if not fut.done() and fut.cancel():
-                cancelled_count += 1
+        cancelled_count = sum(1 for fut in _active_fire_and_forget_futures if not fut.done() and fut.cancel())
     if cancelled_count > 0:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
-    if _local_worker_executor is not None:
-        try:
-            _local_worker_executor.shutdown(wait=False, cancel_futures=True)
-            import concurrent.futures.thread as _cft
-            for t in getattr(_local_worker_executor, "_threads", ()):
-                _cft._threads_queues.pop(t, None)
-        except Exception:
-            pass
-        _local_worker_executor = None
+    _shutdown_local_worker_executor_nonblocking()
 
 
 def _touch_active_progress_files() -> None:

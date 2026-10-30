@@ -114,28 +114,34 @@ def _get_real_property(eval_rec: PropertyEvaluation):
         return None
 
 
-def _prefetch_real_properties(candidates: list[PropertyEvaluation]) -> None:
-    """候補の評価レコード群の実物件データをモデルごとに一括プリフェッチしてN+1クエリを排除する (Issue #1160)"""
-    from django.apps import apps
+def _collect_missing_ids_by_model(candidates: list[PropertyEvaluation]) -> dict[str, set[int]]:
     missing_by_model: dict[str, set[int]] = {}
     with _CACHE_LOCK:
         for cand in candidates:
             if not cand.property_id:
                 continue
             model_name = _resolve_model_name_for_eval(cand)
-            if not model_name:
-                continue
-            if (model_name, cand.property_id) not in _REAL_PROPERTY_CACHE:
+            if model_name and (model_name, cand.property_id) not in _REAL_PROPERTY_CACHE:
                 missing_by_model.setdefault(model_name, set()).add(cand.property_id)
+    return missing_by_model
 
+
+def _fetch_model_props_with_retry(model_class, prop_ids: set[int]) -> list:
+    try:
+        return list(model_class.objects.filter(id__in=list(prop_ids)))
+    except OperationalError:
+        close_old_connections()
+        return list(model_class.objects.filter(id__in=list(prop_ids)))
+
+
+def _prefetch_real_properties(candidates: list[PropertyEvaluation]) -> None:
+    """候補の評価レコード群の実物件データをモデルごとに一括プリフェッチしてN+1クエリを排除する (Issue #1160)"""
+    from django.apps import apps
+    missing_by_model = _collect_missing_ids_by_model(candidates)
     for model_name, prop_ids in missing_by_model.items():
         try:
             model_class = apps.get_model("package", model_name)
-            try:
-                props = list(model_class.objects.filter(id__in=list(prop_ids)))
-            except OperationalError:
-                close_old_connections()
-                props = list(model_class.objects.filter(id__in=list(prop_ids)))
+            props = _fetch_model_props_with_retry(model_class, prop_ids)
             found_map = {p.id: p for p in props}
             with _CACHE_LOCK:
                 if len(_REAL_PROPERTY_CACHE) > 10000:
