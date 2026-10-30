@@ -38,7 +38,7 @@ class TotateParser(ParserBase):
             return self.BASE_URL + link_url
         return self.BASE_URL + '/' + link_url
 
-    def _extract_next_anchor_url(self, a) -> str | None:
+    def _extract_next_anchor_url(self, a, current_url: str = "") -> str | None:
         text = a.get_text()
         if not ("次" in text or "next" in text.lower() or ">" in text):
             return None
@@ -47,7 +47,14 @@ class TotateParser(ParserBase):
             try:
                 decoded_qs = base64.b64decode(data_href).decode("utf-8")
                 if decoded_qs.startswith("?"):
-                    return self.getRootDestUrl(f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/{decoded_qs}")
+                    base_path = (
+                        urllib.parse.urlparse(current_url).path
+                        if current_url
+                        else f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/"
+                    )
+                    if not base_path.endswith("/"):
+                        base_path += "/"
+                    return self.getRootDestUrl(f"{base_path}{decoded_qs}")
                 if decoded_qs:
                     return self.getRootDestUrl(decoded_qs)
             except Exception:
@@ -57,10 +64,10 @@ class TotateParser(ParserBase):
             return self.getRootDestUrl(href)
         return None
 
-    async def parseNextPage(self, response: BeautifulSoup):
+    async def parseNextPage(self, response: BeautifulSoup, current_url: str = ""):
         # 東京建物の改ページリンク。pagingクラスなどの a タグから next または数字を探す。
         for a in response.select(".paging a, .pager a"):
-            next_url = self._extract_next_anchor_url(a)
+            next_url = self._extract_next_anchor_url(a, current_url=current_url)
             if next_url:
                 return next_url
         return ""

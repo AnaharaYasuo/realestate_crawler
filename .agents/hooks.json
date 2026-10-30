@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .agents/scripts/hook_guard.py",
+            "command": "C:/Users/weare/.gemini/antigravity/scratch/python311/python.exe .agents/scripts/hook_guard.py",
             "timeout": 10
           }
         ]

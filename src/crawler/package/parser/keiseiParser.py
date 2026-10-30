@@ -65,13 +65,42 @@ class KeiseiParser(ParserBase):
         return await super().getResponseBs(session, url, charset)
 
 
-    async def parseNextPage(self, response: BeautifulSoup):
+    async def parseNextPage(self, response: BeautifulSoup, current_url: str = ""):
         for a in response.select(".paging a, .pager a"):
             text = a.get_text().strip()
             if "次" in text or ">" in text or "next" in text.lower():
                 href = a.get("href")
                 if href:
                     return self.getRootDestUrl(href)
+
+        for btn in response.select("input[type='button'], button, a"):
+            val = btn.get("value", "") or btn.get_text(strip=True)
+            onclick = btn.get("onClick", "") or btn.get("onclick", "")
+            if "次" in val and "form1_submit" in onclick:
+                m = re.search(r"form1_submit\('(\d+)'\)", onclick)
+                if m and current_url:
+                    next_offset = m.group(1)
+                    parsed = urllib.parse.urlparse(current_url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    qs["offset"] = [next_offset]
+                    new_query = urllib.parse.urlencode(qs, doseq=True)
+                    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+        offset_select = response.select_one('select[name="offset"]')
+        if offset_select and current_url:
+            options = [opt.get("value") for opt in offset_select.select("option") if opt.get("value")]
+            selected_opt = offset_select.select_one("option[selected]")
+            curr_val = selected_opt.get("value") if selected_opt else (options[0] if options else None)
+            if curr_val and curr_val in options:
+                curr_idx = options.index(curr_val)
+                if curr_idx + 1 < len(options):
+                    next_offset = options[curr_idx + 1]
+                    parsed = urllib.parse.urlparse(current_url)
+                    qs = urllib.parse.parse_qs(parsed.query)
+                    qs["offset"] = [next_offset]
+                    new_query = urllib.parse.urlencode(qs, doseq=True)
+                    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):
