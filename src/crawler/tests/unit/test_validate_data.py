@@ -4,6 +4,7 @@ import pytest
 from scripts.maintenance.validate_data import validate_data
 
 
+@pytest.mark.django_db
 def test_validate_data_sends_alert_and_logs_error(monkeypatch):
     """異常データ検出時に send_dev_report が呼ばれ #dev-agent へ報告されることをテスト"""
     monkeypatch.setenv("SLACK_DEV_CHANNEL", "C0BKBHWD26T")
@@ -236,6 +237,27 @@ def test_validate_data_skip_url_check_env_and_arg(monkeypatch):
         monkeypatch.setenv("VALIDATE_DATA_SKIP_URL_CHECK", "true")
         validate_data()
         assert mock_parallel_run.call_args[1]["skip_url_check"] is True
+
+
+def test_batch_resolve_evaluations_chunking():
+    """batch_resolve_evaluations がチャンク分割して一括取得すること（N+1防止テスト）"""
+    from scripts.maintenance.validate_data import batch_resolve_evaluations
+    from package.models.evaluation import PropertyEvaluation
+
+    # 1. 空リスト
+    assert batch_resolve_evaluations([]) == {}
+
+    # 2. 複数URLのチャンク取得
+    urls = [f"https://example.com/p/{i}" for i in range(25)]
+    mock_records = [MagicMock(property_url=u) for u in urls[:10]]
+
+    with patch.object(PropertyEvaluation.objects, "filter") as mock_filter:
+        mock_filter.return_value = mock_records
+        res = batch_resolve_evaluations(urls, chunk_size=10)
+        assert len(res) == 10
+        # 25件を chunk_size=10 で分割するため filter は 3回呼ばれる (10, 10, 5)
+        assert mock_filter.call_count == 3
+
 
 
 
