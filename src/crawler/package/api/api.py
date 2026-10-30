@@ -983,7 +983,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         except Exception:
             pass
 
-    USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
+    USER_AGENT = header['User-Agent']
     headersJson = {
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
@@ -1081,6 +1081,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     async def _fetchWithEachSession(self, detail_url, api_url, loop):
         await self.semaphore.acquire()
         try:
+            shared = getattr(self, "_shared_session", None)
+            if shared is not None and not getattr(shared, "closed", True):
+                return await self._fetch(shared, detail_url, api_url, loop, retry_times=0)
             async with aiohttp.ClientSession(
                 headers=header,
                 connector=self._generateConnector(self._getActiveEventLoop()),
@@ -1604,14 +1607,22 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             workers = []
 
         try:
-            async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
-                await self._crawl_pages(session, _url, all_results)
-
-            if self._detail_queue is not None:
-                await self._detail_queue.join()
-                for _ in workers:
-                    await self._detail_queue.put(None)
-                await asyncio.gather(*workers, return_exceptions=True)
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=_connector,
+                timeout=_timeout,
+                trace_configs=[_request_sent_trace_config()],
+            ) as session:
+                self._shared_session = session
+                try:
+                    await self._crawl_pages(session, _url, all_results)
+                    if self._detail_queue is not None:
+                        await self._detail_queue.join()
+                        for _ in workers:
+                            await self._detail_queue.put(None)
+                        await asyncio.gather(*workers, return_exceptions=True)
+                finally:
+                    self._shared_session = None
 
         finally:
             if self._detail_queue is not None:

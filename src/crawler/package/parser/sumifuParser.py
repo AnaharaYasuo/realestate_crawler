@@ -6,8 +6,6 @@ from bs4 import BeautifulSoup
 from package.models.sumifu import SumifuMansion, SumifuTochi, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
 from package.parser.investmentParser import InvestmentParser
 from django.db import models
-import importlib
-importlib.reload(sys)
 from decimal import Decimal
 import datetime
 import re

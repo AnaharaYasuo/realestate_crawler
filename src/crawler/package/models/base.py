@@ -188,3 +188,34 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
     roadDirection = models.TextField(blank=True, default="", verbose_name="接道方位")
     roadType = models.TextField(blank=True, default="", verbose_name="道路区分")
     roadStructure = models.TextField(blank=True, default="", verbose_name="接道状況")
+
+
+
+class InvestmentBaseModel(PropertyBaseModel, TransportationMixin):
+    """
+    Abstract base class for investment properties (whole apartment/mansion buildings, investment houses).
+
+    Includes common fields for yield, rent income, building/land area, and zoning using Dual Storage Pattern.
+    """
+    class Meta:
+        abstract = True
+
+    grossYield = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="表面利回り")
+    annualRent = models.IntegerField(blank=True, null=True, verbose_name="想定年間収入")
+    monthlyRent = models.IntegerField(blank=True, null=True, verbose_name="想定月間収入")
+    currentStatus = models.TextField(blank=True, default="", verbose_name="現況")
+
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name="土地面積（文字列）")
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
+
+    tatemonoMensekiStr = models.TextField(blank=True, default="", verbose_name="建物面積（文字列）")
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="建物面積（数値）")
+
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name="築年月（文字列）")
+    chikunengetsu = models.DateField(blank=True, null=True, verbose_name="築年月（日付）")
+
+    kouzou = models.TextField(blank=True, default="", verbose_name="構造")
+    kaisu = models.TextField(blank=True, default="", verbose_name="階数")
+    youtoChiiki = models.TextField(blank=True, default="", verbose_name="用途地域")
+    kenpei = models.TextField(blank=True, default="", verbose_name="建ぺい率")
+    youseki = models.TextField(blank=True, default="", verbose_name="容積率")
