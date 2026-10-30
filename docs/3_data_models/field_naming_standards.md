@@ -174,7 +174,7 @@ else:
 
 1. このドキュメントに追加
 2. 全サイトで同一のフィールド名を使用
-3. `docs/database_schema.md` を更新
+3. `python manage.py makemigrations package` でマイグレーションを生成し、`test_migrations_in_sync.py`（`makemigrations package --check --dry-run`）によるモデル・マイグレーション完全同期ゲートを通過させること
 4. `README.md` のドキュメント一覧を更新
 
 ## 変更履歴

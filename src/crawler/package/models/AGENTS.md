@@ -18,4 +18,4 @@
 - `rimawari`（利回り）: `DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)`
 
 ## 3. 新規サイト追加時の統合レジストリ連携
-新規モデルを追加した場合は、必ず [`src/crawler/package/site_registry.py`](../site_registry.py)（および自動配線検証ゲート `test_architecture_harness.py`）を通じて ML 学習ローダー（`ml/constants.py`）とディスパッチャへ漏れなく登録すること。
+新規モデルを追加した場合は、必ず [`src/crawler/package/site_registry.py`](../site_registry.py)（および自動配線検証ゲート `test_architecture_harness.py`）を通じて ML 学習ローダー（`ml/constants.py`）とディスパッチャへ漏れなく登録すること。また、モデル定義変更時は必ずマイグレーションファイルを生成し、`test_migrations_in_sync.py`（`makemigrations package --check --dry-run`）が差分ゼロで通過することを保証すること。
