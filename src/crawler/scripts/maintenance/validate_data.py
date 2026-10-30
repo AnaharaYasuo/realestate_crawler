@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import copy
 import datetime
 import json
 import logging
@@ -296,7 +297,7 @@ def validate_data(
     eval_lookup = batch_resolve_evaluations(all_urls)
 
     tasks_input: list[tuple[Any, str, str, PropertyEvaluation | None]] = [
-        (item, ptype, company, eval_lookup.get(url))
+        (item, ptype, company, copy.copy(eval_lookup.get(url)) if eval_lookup.get(url) is not None else None)
         for item, ptype, company, url in raw_candidates
     ]
 
