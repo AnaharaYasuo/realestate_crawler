@@ -1,8 +1,8 @@
-"""Job metrics tracker and exporter for crawler processes (Issue #952).
+"""Job metrics tracker and exporter for crawler processes (Issue #952, #1151).
 
-Tracks detail processing count, skipped count, and export metrics to JSON files
-so that parent orchestrator (run_all_crawlers.py) can directly collect counts
-without hammering the database with heavy COUNT(*) queries.
+Tracks detail processing count, skipped count, and field fill-rate drift metrics
+and exports them to JSON files so that parent orchestrator (run_all_crawlers.py)
+can directly collect counts and detect silent schema/DOM degradation.
 """
 from __future__ import annotations
 
@@ -19,6 +19,46 @@ _lock = threading.Lock()
 _detail_count: int = 0
 _skipped_count: int = 0
 _is_empty_result: bool = False
+
+DEFAULT_MONITORED_FIELDS: tuple[str, ...] = (
+    "propertyName",
+    "price",
+    "address",
+    "station1",
+    "ensen1",
+    "toho1",
+)
+
+
+def _is_field_filled(val: Any) -> bool:
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val > 0
+    return bool(str(val).strip())
+
+
+def compute_field_fill_rates(
+    items: list[Any],
+    fields: tuple[str, ...] | None = None,
+) -> dict[str, float]:
+    """Compute per-field non-null/non-empty fill rates (0.0 to 1.0) across parsed items."""
+    target_fields = fields or DEFAULT_MONITORED_FIELDS
+    if not items:
+        return {field: 0.0 for field in target_fields}
+
+    total = len(items)
+    rates: dict[str, float] = {}
+    for field in target_fields:
+        filled = 0
+        for item in items:
+            val = item.get(field) if isinstance(item, dict) else getattr(item, field, None)
+            if _is_field_filled(val):
+                filled += 1
+        rates[field] = round(filled / total, 4)
+    return rates
 
 
 def reset_metrics() -> None:
@@ -84,6 +124,7 @@ def export_job_metrics(
     skipped_cnt: int | None = None,
     run_date: str | None = None,
     is_empty_result: bool | None = None,
+    field_fill_rates: dict[str, float] | None = None,
 ) -> Path | None:
     """
     Export crawler metrics to JSON file atomically.
@@ -104,6 +145,8 @@ def export_job_metrics(
         "is_empty_result": bool(final_empty),
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+    if field_fill_rates is not None:
+        data["field_fill_rates"] = field_fill_rates
 
     tmp_path = metrics_path.with_suffix(".tmp")
     try:

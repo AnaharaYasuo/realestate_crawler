@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 _LOG_LINE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 _LOG_NAME_DATE_PATTERN = re.compile(r"(?<!\d)(\d{4})-?(\d{2})-?(\d{2})(?!\d)")
 _ROTATED_LOG_NAME_PATTERN = re.compile(r"\.log\.(?:\d+|\d{4}-\d{2}-\d{2}(?:_[\d-]+)?)$")
+MAX_FAILURES_PER_JOB = 50
+MAX_LOCAL_ERROR_HTML_PATHS = 10
 
 
 def generate_auto_heal_trigger_message(
@@ -40,6 +42,10 @@ def html_meta_key(html_key: str) -> str:
 
 def _html_meta_bytes(record: dict[str, Any]) -> bytes:
     meta = {k: record.get(k) for k in ("target_url", "error_type", "error_message", "timestamp")}
+    if record.get("parent_list_url"):
+        meta["parent_list_url"] = record["parent_list_url"]
+    if record.get("http_status") is not None:
+        meta["http_status"] = record["http_status"]
     return json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8")
 
 
@@ -71,6 +77,32 @@ class FailureReporter:
         except Exception as se:  # noqa: BLE001
             logger.warning("ObjectStorageManager upload failed, falling back to local: %s", se)
             return False
+
+    @classmethod
+    def _load_existing_failures(cls, job_key: str, date_str: str) -> list[dict[str, Any]]:
+        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        meta_path = fallback_base / "runs" / date_str / "failures" / f"{job_key}.json"
+        if not meta_path.exists():
+            return []
+        try:
+            prev_data = json.loads(meta_path.read_text(encoding="utf-8"))
+            prev_failures = prev_data.get("failures")
+            if isinstance(prev_failures, list) and prev_failures:
+                return list(prev_failures)
+            if isinstance(prev_data, dict) and prev_data.get("error_type"):
+                return [{
+                    "error_type": prev_data.get("error_type"),
+                    "error_message": prev_data.get("error_message", ""),
+                    "target_url": prev_data.get("target_url", ""),
+                    "parent_list_url": prev_data.get("parent_list_url", ""),
+                    "http_status": prev_data.get("http_status"),
+                    "exit_code": prev_data.get("exit_code", 1),
+                    "traceback": prev_data.get("traceback", ""),
+                    "timestamp": prev_data.get("timestamp", ""),
+                }]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not load existing failure telemetry from %s: %s", meta_path, exc)
+        return []
 
     @classmethod
     def _save_local_fallback_telemetry(
@@ -112,9 +144,11 @@ class FailureReporter:
         duration_seconds: int = 0,
         task_index: int | None = None,
         task_count: int | None = None,
-        date_str: str | None = None
+        date_str: str | None = None,
+        parent_list_url: str = "",
+        http_status: int | None = None,
     ) -> dict[str, Any]:
-        """障害メタデータおよび失敗生HTMLを即座にGCS（またはフォールバック）へ保存"""
+        """障害メタデータおよび失敗生HTMLを即座にGCS（またはフォールバック）へ保存（複数エラー履歴も追記保持）"""
         if not date_str:
             date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
 
@@ -123,23 +157,37 @@ class FailureReporter:
         job_key = f"{comp_clean}_{type_clean}"
 
         html_key = None
-        if not raw_html:
-            # Check if an error page was already saved by baseParser or api for this job
-            fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
-            existing_err_dir = fallback_base / "runs" / date_str / "error_pages" / job_key
-            if existing_err_dir.exists():
-                existing_htmls = list(existing_err_dir.glob("*.html"))
-                if existing_htmls:
-                    try:
-                        raw_html = existing_htmls[0].read_bytes()
-                    except Exception:
-                        pass
+        local_error_html_paths: list[str] = []
+        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        existing_err_dir = fallback_base / "runs" / date_str / "error_pages" / job_key
+        if existing_err_dir.exists():
+            existing_htmls = sorted(existing_err_dir.glob("*.html"))
+            local_error_html_paths = [str(p) for p in existing_htmls[:MAX_LOCAL_ERROR_HTML_PATHS]]
+            if not raw_html and existing_htmls:
+                try:
+                    raw_html = existing_htmls[0].read_bytes()
+                except Exception:
+                    pass
 
         if raw_html:
             url_hash = hashlib.sha256((target_url or job_key).encode("utf-8")).hexdigest()[:16]
             html_key = f"runs/{date_str}/error_pages/{job_key}/{url_hash}.html"
 
         metadata_key = f"runs/{date_str}/failures/{job_key}.json"
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        prev_failures = cls._load_existing_failures(job_key, date_str)
+        current_entry: dict[str, Any] = {
+            "error_type": error_type,
+            "error_message": error_message,
+            "target_url": target_url,
+            "parent_list_url": parent_list_url,
+            "http_status": http_status,
+            "exit_code": exit_code,
+            "traceback": traceback_str,
+            "timestamp": now_iso,
+        }
+        failures_history = (prev_failures + [current_entry])[-MAX_FAILURES_PER_JOB:]
 
         record: dict[str, Any] = {
             "date": date_str,
@@ -150,14 +198,19 @@ class FailureReporter:
             "error_type": error_type,
             "error_message": error_message,
             "target_url": target_url,
+            "parent_list_url": parent_list_url,
+            "http_status": http_status,
             "gcs_html_path": None,
+            "local_error_html_paths": local_error_html_paths,
             "metadata_key": metadata_key,
             "parser_file": f"src/crawler/package/parser/{comp_clean}Parser.py",
             "traceback": traceback_str,
             "duration_seconds": duration_seconds,
             "task_index": task_index,
             "task_count": task_count,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            "timestamp": now_iso,
+            "failure_count": len(failures_history),
+            "failures": failures_history,
         }
 
         storage_uploaded = cls._upload_failure_telemetry(record, raw_html, html_key, metadata_key)
@@ -300,9 +353,10 @@ class FailureReporter:
                         # Link existing local error page HTML if available
                         error_pages_dir = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs")) / "runs" / date_str / "error_pages" / job_key
                         if error_pages_dir.exists():
-                            html_files = list(error_pages_dir.glob("*.html"))
+                            html_files = sorted(error_pages_dir.glob("*.html"))
                             if html_files:
                                 data["local_html_path"] = str(html_files[0])
+                                data["local_error_html_paths"] = [str(p) for p in html_files[:MAX_LOCAL_ERROR_HTML_PATHS]]
                     failures.append(data)
             except Exception as fe:  # noqa: BLE001
                 logger.warning("Failed to parse local telemetry file %s: %s", local_file, fe)
@@ -328,4 +382,3 @@ class FailureReporter:
             "failures": failures,
             "log_errors": log_errors
         }
-
