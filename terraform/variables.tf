@@ -72,25 +72,25 @@ variable "recrawl_memory" {
 
 variable "crawler_timeout" {
   type        = string
-  description = "Per-task execution timeout for the crawler Cloud Run Job (default 3h: 10800s; Cloud Run Jobs max is 86400s, but capped at 10800s by the Safety-Net hung threshold 11400s and ml_pipeline_schedule_cron). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"
-  default     = "10800s"
+  description = "Per-task execution timeout for the crawler Cloud Run Job (default 4h: 14400s; Cloud Run Jobs max is 86400s, but capped at 14400s by the Safety-Net hung threshold 15000s and ml_pipeline_schedule_cron). Also passed as CLOUD_RUN_JOB_TIMEOUT_SEC"
+  default     = "14400s"
 
   validation {
-    condition     = can(regex("^[0-9]+s$", var.crawler_timeout)) && tonumber(trimsuffix(var.crawler_timeout, "s")) > 0 && tonumber(trimsuffix(var.crawler_timeout, "s")) <= 10800
-    error_message = "crawler_timeout must be \"<seconds>s\" between 1s and 10800s. Raising it requires moving DEFAULT_HUNG_THRESHOLD_SEC (ensure_resources_stopped.py), ml_pipeline_schedule_cron and the Cloud SQL backup start_time together."
+    condition     = can(regex("^[0-9]+s$", var.crawler_timeout)) && tonumber(trimsuffix(var.crawler_timeout, "s")) > 0 && tonumber(trimsuffix(var.crawler_timeout, "s")) <= 14400
+    error_message = "crawler_timeout must be \"<seconds>s\" between 1s and 14400s. Raising it requires moving DEFAULT_HUNG_THRESHOLD_SEC (ensure_resources_stopped.py), ml_pipeline_schedule_cron and the Cloud SQL backup start_time together."
   }
 }
 
 variable "crawler_task_count" {
   type        = number
   description = "Total number of tasks for Cloud Run Job task array"
-  default     = 8
+  default     = 4
 }
 
 variable "crawler_parallelism" {
   type        = number
   description = "Number of tasks executing simultaneously in Cloud Run Job"
-  default     = 8
+  default     = 4
 }
 
 variable "schedule_cron" {
@@ -101,8 +101,8 @@ variable "schedule_cron" {
 
 variable "ml_pipeline_schedule_cron" {
   type        = string
-  description = "ML pipeline cron in UTC. Must start after schedule_cron + crawler_timeout (10 1 * * * is JST 10:10 next day; crawl ends 01:00 UTC)"
-  default     = "10 1 * * *"
+  description = "ML pipeline cron in UTC. Independent schedule starting at 20:10 UTC (05:10 JST next day), decoupled from crawler execution (Issue #1143)"
+  default     = "10 20 * * *"
 }
 
 # Budget Alert Variables

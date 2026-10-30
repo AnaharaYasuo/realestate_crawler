@@ -42,6 +42,7 @@ from .reference_data import (
     _blend_land_prices,
     _calculate_effective_walk_min,
     _calculate_hazard_features,
+    _calculate_regional_sensitivity_features,
     _extract_macro_features,
     _init_global_caches,
     _query_municipal_potential,
@@ -92,7 +93,7 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         volume_digest_factor, road_condition_factor, frontage_penalty_factor,
         residual_land_value, road_direction_str, road_type_str, road_structure_str, chimoku_str
     ) = _calculate_tochi_appraisal_factors(
-        property_obj, property_type, tochi_area, max_youseki, average_land_price, setback_ratio_temp
+        property_obj, property_type, tochi_area, max_youseki, average_land_price, setback_ratio_temp, scale_discount
     )
     if property_type == 'tochi':
         area = tochi_area
@@ -113,6 +114,14 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
     bm_amenity_feats = _extract_building_master_and_amenity_features(property_obj, combined_text, building_master_lookup)
 
     kanrihi, syuzen, kouzou_str, kouzou_lifespan_ratio = _calculate_kanri_and_lifespan(property_obj, chikunen)
+
+    (
+        walk_min_elasticity, effective_station_dist,
+        chikunen_resistance, area_intensity
+    ) = _calculate_regional_sensitivity_features(
+        property_type, walk_min, pop_density, passenger_volume, average_land_price,
+        area, tatemono_area, tochi_area, chikunen, scale_discount
+    )
 
     feats = {
         "area": area if property_type in ['mansion', 'tochi'] else tatemono_area,
@@ -160,6 +169,10 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "zone_max_kenpei": zone_max_kenpei,
         "zone_max_youseki": zone_max_youseki,
         "kouzou_lifespan_ratio": kouzou_lifespan_ratio,
+        "walk_min_elasticity": walk_min_elasticity,
+        "effective_station_distance": effective_station_dist,
+        "chikunen_depreciation_resistance": chikunen_resistance,
+        "area_value_intensity": area_intensity,
         "prefecture": address1,
         "city": address2,
         "station": station1,

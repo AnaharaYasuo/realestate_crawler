@@ -2,7 +2,7 @@
 
 [![DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2FAnaharaYasuo%2Frealestate_crawler)](https://deepwiki.com/AnaharaYasuo/realestate_crawler)
 
-このプロジェクトは、主要不動産会社・ポータルサイト計22社以上から不動産物件情報を自動的に収集（スクレイピング）し、データベースに保存するためのツールです。
+このプロジェクトは、主要不動産会社・ポータルサイト計29社（104ジョブ）から不動産物件情報を自動的に収集（スクレイピング）し、データベースに保存するためのツールです。
 
 ## 概要
 
@@ -10,8 +10,8 @@
 
 本システムは以下の3つの主要目的を持ちます：
 
-1. **データ収集**: 22社以上の不動産サイトから非同期HTTPリクエストとHTML解析により物件情報を自動取得
-2. **データ永続化**: 正規化されたデータベーススキーマ（16-17テーブル）に変換・保存
+1. **データ収集**: 29社の不動産・ポータルサイト（計104ジョブ）から非同期HTTPリクエストとHTML解析により物件情報を自動取得
+2. **データ永続化**: 正規化されたデータベーススキーマ（4基底モデル継承・全116テーブル）に変換・保存
 3. **投資評価・スクリーニング**: 周辺統計（地価・所得・駅力）、機械学習による理論価格予測、Geminiによる画像評価、および**「積算価格評価」「収支・キャッシュフロー・DSCR/CoCローンシミュレーション」**を行い、総合投資スコアとして可視化し、基準値を超える優良物件をSlackチャンネルへ自動でアラート通知します。
 
 ### 対応サイトと物件種別
@@ -50,7 +50,7 @@
 > - 戸建て（投資用一戸建て）※サイトにより対応状況が異なる
 > 
 > 区分マンション、ビル、店舗/事務所、工場/倉庫、ホテル/旅館などは収集対象外です。
-> 各サイトの全物件種別については、[収益不動産サイト物件種別一覧](docs/requirements/investment_property_types.md)を参照してください。
+> 各サイトの全物件種別については、[収益不動産サイト物件種別一覧](docs/2_crawlers/_standards/investment_property_types.md)を参照してください。
 
 ### システムの特徴
 
@@ -401,11 +401,11 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 
 詳細な仕様については、以下のドキュメントを参照してください。
 
-*   **[外部設計書 (Basic Design)](docs/basic_design/basic_design_master.md)**
+*   **[外部設計書 (Basic Design)](docs/1_architecture/basic_design_master.md)**
     *   クローラー仕様 (Fire-and-Forget, エラーハンドリング)
     *   障害耐性・クローラー優先順位制御 (Smallest-Site-First, サーキットブレイカー, 0件取得失敗判定)
     *   URL構造・パラメータ定義
-*   **[内部設計書 (Detailed Design)](docs/internal_design/detailed_design_master.md)**
+*   **[内部設計書 (Detailed Design)](docs/1_architecture/detailed_design_master.md)**
     *   データベーススキーマ定義 (全17モデル)
     *   アーキテクチャ原則 (階層型Baseパーサー, モニタリング, Slack疎通検証)
     *   APIエンドポイント構造
@@ -420,26 +420,26 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 ### 📋 1. 要件定義 (Requirements)
 `docs/requirements/`
 ユーザーの要求仕様や事前調査結果。
-*   **[requirements_master.md](docs/requirements/requirements_master.md)**
+*   **[requirements_master.md](docs/1_architecture/requirements_master.md)**
     *   基本要件定義書
     *   投資用物件種別定義一覧
     *   予備調査レポート (住友不動産ほか)
     *   サイト構造解析資料 (`site_structures/` ディレクトリへの参照)
 
     **詳細ドキュメント:**
-    *   **[investment_property_types.md](docs/requirements/investment_property_types.md)**: 投資用物件種別定義一覧
-    *   **[sumifu_crawling_report.md](docs/requirements/sumifu_crawling_report.md)**: 住友不動産予備調査レポート
-    *   **[additional_brokers_research.md](docs/requirements/additional_brokers_research.md)**: 不動産会社クローラー開発ロードマップ ＆ ターゲットリスト
+    *   **[investment_property_types.md](docs/2_crawlers/_standards/investment_property_types.md)**: 投資用物件種別定義一覧
+    *   **[sumifu_crawling_report.md](docs/2_crawlers/sites/sumifu_crawling_report.md)**: 住友不動産予備調査レポート
+    *   **[additional_brokers_research.md](docs/2_crawlers/_standards/additional_brokers_research.md)**: 不動産会社クローラー開発ロードマップ ＆ ターゲットリスト
     *   **[site_structures/](docs/2_crawlers/sites/)**: 各社サイト構造解析資料（ietan, haseko, adcast, toho 他）
-    *   **[project_status_and_design_intent.md](docs/requirements/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
-    *   **[land_evaluation_design.md](docs/requirements/land_evaluation_design.md)**: 土地情報収集＆高精度土地評価エンジン詳細設計書
-    *   **[security_scan_workflow.md](docs/requirements/security_scan_workflow.md)**: セキュリティ自動スキャンワークフロー要件定義書 (Trivy, Semgrep, Checkov, Prowler)
-    *   **[sonar_zero_issues_requirements.md](docs/requirements/sonar_zero_issues_requirements.md)**: SonarCloudオープン課題全件解消 ＆ Strict Quality Gate・多層防御要件定義書
-    *   **[proxysql_mig_client_param_requirements.md](docs/requirements/proxysql_mig_client_param_requirements.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック強化要件定義書
-    *   **[gcs_failure_telemetry_requirements.md](docs/requirements/gcs_failure_telemetry_requirements.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466, #477)
-    *   **[new_relic_monitoring_requirements.md](docs/requirements/new_relic_monitoring_requirements.md)**: New Relic 統合監視要件定義書 (APM・外形監視・コンテナ/DB・Cloud Logging・GenAI・Change Tracking・アラート) (Issue #471, #473, #478)
-    *   **[pipeline_resilience_and_slack_progress_requirements.md](docs/requirements/pipeline_resilience_and_slack_progress_requirements.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知要件定義書 (Issue #492)
-    *   **[parser_getter_architecture_requirements.md](docs/requirements/parser_getter_architecture_requirements.md)**: パーサー Getter メソッド化および表示バリエーション吸収 要件定義書 (Issue #564)
+    *   **[project_status_and_design_intent.md](docs/1_architecture/project_status_and_design_intent.md)**: プロジェクトのビジョン・設計意図・開発状況
+    *   **[land_evaluation_design.md](docs/4_valuation_and_ml/land_evaluation_design.md)**: 土地情報収集＆高精度土地評価エンジン詳細設計書
+    *   **[security_scan_workflow.md](docs/6_platform_and_release/security_scan_workflow_requirements.md)**: セキュリティ自動スキャンワークフロー要件定義書 (Trivy, Semgrep, Checkov, Prowler)
+    *   **[sonar_zero_issues_requirements.md](docs/6_platform_and_release/sonar_zero_issues_requirements.md)**: SonarCloudオープン課題全件解消 ＆ Strict Quality Gate・多層防御要件定義書
+    *   **[proxysql_mig_client_param_requirements.md](docs/6_platform_and_release/proxysql_mig_client_param_requirements.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック強化要件定義書
+    *   **[gcs_failure_telemetry_requirements.md](docs/7_operations_and_improvement/gcs_failure_telemetry_requirements.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール要件定義書 (Issue #466, #477)
+    *   **[new_relic_monitoring_requirements.md](docs/7_operations_and_improvement/new_relic_monitoring_requirements.md)**: New Relic 統合監視要件定義書 (APM・外形監視・コンテナ/DB・Cloud Logging・GenAI・Change Tracking・アラート) (Issue #471, #473, #478)
+    *   **[pipeline_resilience_and_slack_progress_requirements.md](docs/2_crawlers/_standards/pipeline_resilience_and_slack_progress_requirements.md)**: パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知要件定義書 (Issue #492)
+    *   **[parser_getter_architecture_requirements.md](docs/2_crawlers/_standards/parser_getter_architecture_requirements.md)**: パーサー Getter メソッド化および表示バリエーション吸収 要件定義書 (Issue #564)
     *   **[batch_metrics_specification.md](docs/requirements/batch_metrics_specification.md)**: バッチ処理標準メトリクス表示要件定義書 (学習・推定・配信の件数・時間・スループット可視化) (Issue #647)
     *   **[slack_validation_delisted_requirements.md](docs/requirements/slack_validation_delisted_requirements.md)**: Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携要件定義書 (Issue #665)
     *   **[slack_notification_channel_separation_requirements.md](docs/requirements/slack_notification_channel_separation_requirements.md)**: Slack通知チャンネル責務分離要件定義書 (Issue #688)
@@ -449,14 +449,18 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[task_array_fast_exit_requirements.md](docs/requirements/task_array_fast_exit_requirements.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 要件定義書 (Issue #823)
     *   **[mansion_crawler_speedup_and_differential_fix_requirements.md](docs/requirements/mansion_crawler_speedup_and_differential_fix_requirements.md)**: マンション系クローラー中間ページ並行化・WAF適正緩和および野村差分抽出修復 要件定義書 (Issue #867)
     *   **[crawler_hierarchy_and_parallel_expansion_requirements.md](docs/requirements/crawler_hierarchy_and_parallel_expansion_requirements.md)**: 全対象サイト中間ページ並行化・階層化 要件定義書 (Issue #870)
+    *   **[kenbiya_parser_spec_overwrite_requirements_926.md](docs/requirements/kenbiya_parser_spec_overwrite_requirements_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 要件定義書 (Issue #926)
+    *   **[slack_auto_heal_and_crawler_repairs_requirements_958.md](docs/requirements/slack_auto_heal_and_crawler_repairs_requirements_958.md)**: Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 要件定義書 (Issue #958)
+    *   **[tokyu_invest_kodate_other_requirements_965.md](docs/requirements/tokyu_invest_kodate_other_requirements_965.md)**: 東急リバブル投資用戸建て conditions-use=other からの判別抽出 要件定義書 (Issue #965)
+    *   **[mass_crawling_pagination_and_hang_fix_requirements_964.md](docs/requirements/mass_crawling_pagination_and_hang_fix_requirements_964.md)**: 全クローラーのページネーション・上限キャップ・ハング根絶と大量クローリング対応 要件定義書 (Issue #964)
 
 ### 📐 2. 外部設計 (Basic Design)
 `docs/basic_design/`
 外部システムの仕様やインターフェース定義。
-*   **[basic_design_master.md](docs/basic_design/basic_design_master.md)**
+*   **[basic_design_master.md](docs/1_architecture/basic_design_master.md)**
     *   クローラー仕様詳細
     *   サンプル物件URLリスト
-*   **[security_scan_workflow.md](docs/basic_design/security_scan_workflow.md)**: セキュリティ自動スキャン基本設計書 (多層防御アーキテクチャ・並列ジョブ構成)
+*   **[security_scan_workflow.md](docs/basic_design/security_scan_workflow_basic_design.md)**: セキュリティ自動スキャン基本設計書 (多層防御アーキテクチャ・並列ジョブ構成)
 *   **[sonar_zero_issues_basic_design.md](docs/basic_design/sonar_zero_issues_basic_design.md)**: SonarCloudオープン課題全件解消 ＆ Strict Quality Gateアーキテクチャ基本設計書
 *   **[proxysql_mig_client_param_basic_design.md](docs/basic_design/proxysql_mig_client_param_basic_design.md)**: ProxySQL MIG クライアント引数整合性修復およびフォールバック設計書
 *   **[gcs_failure_telemetry_basic_design.md](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: GCSリアルタイム障害テレメトリ・一括オートヒール基本設計書 (Issue #466, #477)
@@ -472,6 +476,10 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 *   **[task_array_fast_exit_external_design.md](docs/external_design/task_array_fast_exit_external_design.md)**: タスクアレイ完了時のプロセス即時終了保証および最終タスクへの全体集約委譲 外部設計書 (Issue #823)
 *   **[mansion_crawler_speedup_and_differential_fix_external_design.md](docs/external_design/mansion_crawler_speedup_and_differential_fix_external_design.md)**: マンション系クローラー中間ページ並行化・WAF適正緩和および野村差分抽出修復 外部設計書 (Issue #867)
 *   **[crawler_hierarchy_and_parallel_expansion_external_design.md](docs/external_design/crawler_hierarchy_and_parallel_expansion_external_design.md)**: 全対象サイト中間ページ並行化・階層化 外部設計書 (Issue #870)
+*   **[kenbiya_parser_spec_overwrite_external_design_926.md](docs/external_design/kenbiya_parser_spec_overwrite_external_design_926.md)**: 健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 外部設計書 (Issue #926)
+*   **[slack_auto_heal_and_crawler_repairs_external_design_958.md](docs/external_design/slack_auto_heal_and_crawler_repairs_external_design_958.md)**: Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 外部設計書 (Issue #958)
+*   **[tokyu_invest_kodate_other_external_design_965.md](docs/external_design/tokyu_invest_kodate_other_external_design_965.md)**: 東急リバブル投資用戸建て conditions-use=other からの判別抽出 外部設計書 (Issue #965)
+*   **[mass_crawling_pagination_and_hang_fix_external_design_964.md](docs/external_design/mass_crawling_pagination_and_hang_fix_external_design_964.md)**: 全クローラーのページネーション・上限キャップ・ハング根絶と大量クローリング対応 外部設計書 (Issue #964)
 
 ### 🔧 3. 内部設計 (Internal Design)
 `docs/internal_design/`
@@ -479,24 +487,24 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 
 **技術仕様書:**
 - **[データベーススキーマ設計](docs/internal_design/database_schema.md)** - 全モデルのフィールド定義とリレーション (土地評価用新フィールドの追加を反映)
-- **[詳細設計マスター](docs/internal_design/detailed_design_master.md)** - システム全体の詳細設計概要
+- **[詳細設計マスター](docs/1_architecture/detailed_design_master.md)** - システム全体の詳細設計概要
 - **[API構造設計](docs/internal_design/api_structure.md)** - 再帰的API連鎖アーキテクチャ、投資用物件取得戦略、および価格推定APIの詳細
 - **[価格推定API OpenAPI仕様書](docs/api/openapi.yaml)** - Swaggerで閲覧可能な価格推定API仕様書（OpenAPI 3.0）
-- **[フィールド名統一規約](docs/internal_design/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
-- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)** - 機械学習モデル・学習・推論・バルク評価パイプライン仕様書（2段階スクリーニング・特徴量・責務分割アーキテクチャ・参照マスタ軽量化・ストリーミング評価）
+- **[フィールド名統一規約](docs/3_data_models/field_naming_standards.md)** - 全共通モデルのフィールド名統一規約
+- **[MLモデル仕様書](docs/4_valuation_and_ml/ml_model_specifications.md)** - 機械学習モデル・学習・推論・バルク評価パイプライン仕様書（2段階スクリーニング・特徴量・責務分割アーキテクチャ・参照マスタ軽量化・ストリーミング評価）
 - **[パーサー実装手順ガイドライン](docs/implementation/parser_implementation_procedure.md)** - 一項目一メソッド（Template Method パターン）、基底クラス `@abstractmethod` 抽象設計規約、および関数名漢字利用禁止規約
-- **[日次予測精度診断運用ポリシー](docs/internal_design/ml_prediction_diagnostics_policy.md)** - MdAPEを主軸とした価格帯・種別別ズレ日次診断、ワースト要因タギング、AIインサイト運用仕様
-- **[SonarCloud課題全件解消詳細設計](docs/internal_design/sonar_zero_issues_internal_design.md)** - SonarCloud課題ゼロ化およびStrict Quality Gate・CI多層防御モジュール詳細設計書
-- **[マクロ経済時系列予測モデル設計書](docs/internal_design/macro_time_series_forecaster.md)** - 正則化多変量自己回帰 (Ridge VAR) による相場モメンタム特徴量 (`repi_growth_3m`, `macro_regime_score`) 仕様
-- **[1物件1リクエスト完結型AI属性抽出設計書](docs/internal_design/single_unified_property_ai_extractor.md)** - 1物件1AIリクエスト原則、マルチモーダル画像・全観点一括抽出スキーマ仕様
+- **[日次予測精度診断運用ポリシー](docs/4_valuation_and_ml/ml_prediction_diagnostics_policy.md)** - MdAPEを主軸とした価格帯・種別別ズレ日次診断、ワースト要因タギング、AIインサイト運用仕様
+- **[SonarCloud課題全件解消詳細設計](docs/6_platform_and_release/sonar_zero_issues_internal_design.md)** - SonarCloud課題ゼロ化およびStrict Quality Gate・CI多層防御モジュール詳細設計書
+- **[マクロ経済時系列予測モデル設計書](docs/4_valuation_and_ml/macro_time_series_forecaster.md)** - 正則化多変量自己回帰 (Ridge VAR) による相場モメンタム特徴量 (`repi_growth_3m`, `macro_regime_score`) 仕様
+- **[1物件1リクエスト完結型AI属性抽出設計書](docs/4_valuation_and_ml/single_unified_property_ai_extractor.md)** - 1物件1AIリクエスト原則、マルチモーダル画像・全観点一括抽出スキーマ仕様
 - **[建物マスタ設計書](docs/internal_design/building_master_design.md)** - マンション名寄せ・自動スペック伝搬・BuildingMasterモデル仕様
 - [CodeRabbitレビュー＆マージゲート内部設計書](docs/internal_design/coderabbit_gate_internal_design.md) - CodeRabbit自動コードレビュー設定、未解決レビューコメント解決必須化、CIマージブロックゲート仕様
-- [セキュリティ自動スキャン内部設計書](docs/internal_design/security_scan_workflow.md) - Trivy, Semgrep, Checkov 並列スキャン、SARIFアップロード、Prowler GCPライブ監査仕様
-- **[ProxySQL MIG クライアント引数整合性修復およびフォールバック内部設計書](docs/internal_design/proxysql_mig_client_param_internal_design.md)** - RegionInstanceGroupManagersClient 引数不整合修復および多重防御フォールバック内部設計
-- **[GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)** - リアルタイム障害JSON/生HTML GCS出力・分散タスク集約・Slack DevAgentゼロタッチ連携内部設計書 (Issue #466, #477)
-- **[New Relic 統合監視内部詳細設計書](docs/internal_design/new_relic_monitoring_internal_design.md)** - New Relic APM初期化・Synthetics・GenAI監視・デプロイ追跡・NRQLアラート詳細設計 (Issue #471, #473, #478)
-- **[パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知内部詳細設計書](docs/internal_design/pipeline_resilience_and_slack_progress_internal_design.md)** - クローリング異常終了時の後続パイプライン継続実行およびバルク価格推定・お宝物件スクリーニング進捗Slack通知詳細設計書 (Issue #492)
-- **[パーサー Getter メソッド化 内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)** - パーサー Getter メソッド化および表示バリエーション吸収 内部設計書 (Issue #564)
+- [セキュリティ自動スキャン内部設計書](docs/6_platform_and_release/security_scan_workflow_internal_design.md) - Trivy, Semgrep, Checkov 並列スキャン、SARIFアップロード、Prowler GCPライブ監査仕様
+- **[ProxySQL MIG クライアント引数整合性修復およびフォールバック内部設計書](docs/6_platform_and_release/proxysql_mig_client_param_internal_design.md)** - RegionInstanceGroupManagersClient 引数不整合修復および多重防御フォールバック内部設計
+- **[GCSリアルタイム障害テレメトリ・一括オートヒール内部設計書](docs/7_operations_and_improvement/gcs_failure_telemetry_internal_design.md)** - リアルタイム障害JSON/生HTML GCS出力・分散タスク集約・Slack DevAgentゼロタッチ連携内部設計書 (Issue #466, #477)
+- **[New Relic 統合監視内部詳細設計書](docs/7_operations_and_improvement/new_relic_monitoring_internal_design.md)** - New Relic APM初期化・Synthetics・GenAI監視・デプロイ追跡・NRQLアラート詳細設計 (Issue #471, #473, #478)
+- **[パイプライン耐障害性向上＆ML価格推定・お宝物件通知進捗Slack通知内部詳細設計書](docs/2_crawlers/_standards/pipeline_resilience_and_slack_progress_internal_design.md)** - クローリング異常終了時の後続パイプライン継続実行およびバルク価格推定・お宝物件スクリーニング進捗Slack通知詳細設計書 (Issue #492)
+- **[パーサー Getter メソッド化 内部設計書](docs/2_crawlers/_standards/parser_getter_architecture_internal_design.md)** - パーサー Getter メソッド化および表示バリエーション吸収 内部設計書 (Issue #564)
 - **[バッチ処理標準メトリクス内部設計書](docs/internal_design/batch_metrics_internal_design.md)** - バッチ処理標準メトリクス内部設計書 (Issue #647)
 - **[Slack進捗通知分離・公開終了保持・厳格バリデーション内部設計書](docs/internal_design/slack_validation_delisted_internal_design.md)** - Slack進捗通知の分離、公開終了物件のDB保持、価格推定前データ検証の厳格化およびAuto-Healフラグ連携内部設計書 (Issue #665)
 - **[Slack通知チャンネル責務分離内部設計書](docs/internal_design/slack_notification_channel_separation_internal_design.md)** - Slack通知チャンネル責務分離内部設計書 (Issue #688)
@@ -508,6 +516,11 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
 - **[全対象サイト中間ページ並行化・階層化 内部設計書](docs/internal_design/crawler_hierarchy_and_parallel_expansion_internal_design.md)** - 全対象サイトの中間ページ多階層化・並行探索化（MIDDLE_PARARELL_LIMIT=3）および動的並行度判定の適正化 (Issue #870)
 - **[クローラーDB監視DNS堅牢化 & ML再学習インポート修復 内部設計書](docs/internal_design/crawler_db_dns_and_ml_train_internal_design.md)** - DB接続先IP解決固定によるFast-Fail誤発動防止およびsetup_env連携によるML再学習インポート修復 (Issue #892)
 - **[継続実行時のパース・モデル不整合解消及びサーキットブレイカー誤爆防止 内部設計書](docs/internal_design/pipeline_resilience_and_model_fields_internal_design_898.md)** - リトライ試行内タイムアウトと連続タイムアウト判定の分離、および各社モデルの任意項目空文字・null許容化 (Issue #898)
+- **[健美家パーサーにおける用語解説欄による築年月・スペック上書き破壊の防止 内部設計書](docs/internal_design/kenbiya_parser_spec_overwrite_internal_design_926.md)** - 親要素判定によるガイド除外、div.property正規スペック優先走査、および同一キー上書き防止 (Issue #926)
+- **[クローラー自動修復・バリデーション境界是正 内部設計書](docs/internal_design/auto_heal_parsers_and_validator_fixes_internal_design_940.md)** - 東急戸建て間取りspecs伝播・投資物件面積免除・間取りハイフン許容および低廉キーワード拡充 (Issue #940)
+- **[Slackエラー読取・低件数検知のオートヒール統合およびathome/homesクローラー修復 内部設計書](docs/internal_design/slack_auto_heal_and_crawler_repairs_internal_design_958.md)** - Slackエラー自動読取、指示書統合、athome一覧セレクターおよびhomes価格パース修復 (Issue #958)
+- **[東急リバブル投資用戸建て conditions-use=other からの判別抽出 内部設計書](docs/internal_design/tokyu_invest_kodate_other_internal_design_965.md)** - conditions-use=other開始URL、除外ラベル/多戸数/高層フィルタリング、および詳細ページ二次ガード (Issue #965)
+- **[全クローラーのページネーション・上限キャップ・ハング根絶と大量クローリング対応 内部設計書](docs/internal_design/mass_crawling_pagination_and_hang_fix_internal_design_964.md)** - 住友・野村・三井・東急のページネーション修復、逆戻りループ解消、次ページ関数連動および大量取得実証 (Issue #964)
 
 
 
@@ -527,20 +540,20 @@ docker compose exec -T app pytest src/crawler/tests/ -v -s
     *   **[parser_implementation_procedure.md](docs/implementation/parser_implementation_procedure.md)**: パーサー実装手順ガイドライン
     *   **[parser_design_guidelines.md](docs/implementation/parser_design_guidelines.md)**: パーサー設計ガイドライン
     *   **[ai_developer_guide.md](docs/implementation/ai_developer_guide.md)**: AI駆動開発ガイドライン (AIエージェント向け)
-    *   **[slack_agent_guidelines.md](docs/operation/slack_agent_guidelines.md)**: Slack 24/7 常駐型自動応答エージェント仕様書（先頭識別子無帰還判定・動的段階的通知間隔）
+    *   **[slack_agent_guidelines.md](docs/5_alert_and_delivery/slack_agent_guidelines.md)**: Slack 24/7 常駐型自動応答エージェント仕様書（先頭識別子無帰還判定・動的段階的通知間隔）
 
 
 ### 🔧 5. 運用・保守 (Operation)
 `docs/operation/`
 運用手順やドキュメント管理ルール。
-*   **[operation_manual_master.md](docs/operation/operation_manual_master.md)**
+*   **[operation_manual_master.md](docs/7_operations_and_improvement/operation_manual_master.md)**
     *   運用トラブルシューティング
     *   ドキュメント管理ガイドライン
 
     **詳細ドキュメント:**
-    *   **[troubleshooting.md](docs/operation/troubleshooting.md)**: トラブルシューティング
-    *   **[documentation_guidelines.md](docs/operation/documentation_guidelines.md)**: ドキュメント管理ガイドライン
-    *   **[slack_agent_setup.md](docs/operation/slack_agent_setup.md)**: Slack 開発 Agent ボット設定手順
+    *   **[troubleshooting.md](docs/7_operations_and_improvement/troubleshooting.md)**: トラブルシューティング
+    *   **[documentation_guidelines.md](docs/1_architecture/documentation_guidelines.md)**: ドキュメント管理ガイドライン
+    *   **[slack_agent_setup.md](docs/5_alert_and_delivery/slack_agent_setup.md)**: Slack 開発 Agent ボット設定手順
 
 
 
@@ -651,71 +664,71 @@ docs/
 初めてのユーザーが次に学ぶべき内容：
 
 ### 1. システムの理解を深める
-- **[要件定義書](docs/requirements/requirements_master.md)**: システム要件、機能要件（差分クロール FR-004-DIFF、価格改定履歴 FR-005-HIST、重複データ移行 FR-005-MIGRATE、バルク推論）
+- **[要件定義書](docs/1_architecture/requirements_master.md)**: システム要件、機能要件（差分クロール FR-004-DIFF、価格改定履歴 FR-005-HIST、重複データ移行 FR-005-MIGRATE、バルク推論）
 - **[Bulk ML イテレータ接続維持・クローラーFast-Fail要件定義書](docs/requirements/bulk_ml_connection_and_crawler_fast_fail_requirements.md)**: DB アイドル切断防止・ProxySQL停止確実化・Fast-Fail仕様 (Issue #883)
-- **[物件詳細URL価格推定API要件定義書](docs/requirements/predict_by_url_requirements.md)**: URL指定推定API、3段階キャッシュ、SSRF防御、クローリング候補収集要件
-- **[GCPインフラ要件定義書](docs/requirements/gcp_infrastructure_requirements.md)**: クラウド移行要件・非機能要件
-- **[基本設計書](docs/basic_design/basic_design_master.md)**: 差分クロールパターン、価格履歴パターン、移行・重複排除アーキテクチャ、Fire-and-Forgetパターン
+- **[物件詳細URL価格推定API要件定義書](docs/4_valuation_and_ml/predict_by_url_requirements.md)**: URL指定推定API、3段階キャッシュ、SSRF防御、クローリング候補収集要件
+- **[GCPインフラ要件定義書](docs/6_platform_and_release/gcp_infrastructure_requirements.md)**: クラウド移行要件・非機能要件
+- **[基本設計書](docs/1_architecture/basic_design_master.md)**: 差分クロールパターン、価格履歴パターン、移行・重複排除アーキテクチャ、Fire-and-Forgetパターン
 - **[物件詳細URL価格推定API基本設計書](docs/basic_design/predict_by_url_design.md)**: エンドポイント設計、リクエスト/レスポンス、シーケンス図、エラー仕様
 - **[OpenAPI 3.0 仕様書](docs/api/openapi.yaml)**: Swagger / OpenAPI インターフェース定義
 - **[GCPアーキテクチャ基本設計書](docs/basic_design/gcp_architecture_design.md)**: Cloud Run Jobs / Cloud SQL / GCS サーバーレス構成
-- **[内部設計書](docs/internal_design/detailed_design_master.md)**: 差分クロール・価格履歴シーケンス図、データベーススキーマ、Dual Storageパターン
+- **[内部設計書](docs/1_architecture/detailed_design_master.md)**: 差分クロール・価格履歴シーケンス図、データベーススキーマ、Dual Storageパターン
 - **[Bulk ML イテレータ接続維持・クローラーFast-Fail内部設計書](docs/internal_design/bulk_ml_connection_and_crawler_fast_fail_design.md)**: チャンク別DB接続リフレッシュ・teardownリトライ設計 (Issue #883)
-- **[物件詳細URL価格推定API内部設計書](docs/internal_design/predict_by_url_internal_design.md)**: Singleflight、URLルーター、候補モデルスキーマ、SSRF防御
+- **[物件詳細URL価格推定API内部設計書](docs/4_valuation_and_ml/predict_by_url_internal_design.md)**: Singleflight、URLルーター、候補モデルスキーマ、SSRF防御
 - **[データベース定義書](docs/internal_design/database_schema.md)**: 各社物件テーブル、PropertyPriceHistory（価格改定履歴）定義、updateDateTimeフィールド
-- **[GCP並列分散実行内部設計書](docs/internal_design/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
-- **[Terraform詳細設計書](docs/internal_design/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
-- **[GCPコスト最適化・オンデマンドライフサイクル制御内部設計書](docs/internal_design/gcp_cost_optimization_design.md)**: ProxySQL MIGオンデマンド起動・起動チェック・タイムアウト時自律安全停止（SIGTERMハンドラ・早期停止）・安全停止セーフティネット、Direct VPC Egress、Artifact Registry保持ポリシー
+- **[GCP並列分散実行内部設計書](docs/6_platform_and_release/gcp_parallel_execution_design.md)**: Cloud Tasks + Cloud Run による並列分散クローリング・レート制限およびマルチスレッドML推論仕様
+- **[Terraform詳細設計書](docs/6_platform_and_release/terraform_specification.md)**: GCP IaC リソース定義・変数・出力仕様
+- **[GCPコスト最適化・オンデマンドライフサイクル制御内部設計書](docs/6_platform_and_release/gcp_cost_optimization_design.md)**: ProxySQL MIGオンデマンド起動・起動チェック・タイムアウト時自律安全停止（SIGTERMハンドラ・早期停止）・安全停止セーフティネット、Direct VPC Egress、Artifact Registry保持ポリシー
 - **[CodeRabbitレビュー＆未解決ゲート詳細設計書](docs/internal_design/coderabbit_gate_internal_design.md)**: CodeRabbit自動コードレビュー、未解決コメント・未完了チェックボックスのマージブロック強制設計
-- **[MLモデル仕様書](docs/internal_design/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
-- **[1物件1AIリクエスト属性抽出設計書](docs/internal_design/single_unified_property_ai_extractor.md)**: 1物件1リクエスト完結属性抽出、地代・借地権および建物マスタ連携仕様
-- **[重複物件名寄せ階層設計書](docs/internal_design/property_deduplication_policy.md)**: 登録最古優先（ID順単調性保証）による重複物件の親決定、循環参照・多段チェーン防止および平坦化仕様
+- **[MLモデル仕様書](docs/4_valuation_and_ml/ml_model_specifications.md)**: 一次・二次理論価格推定、アンサンブル重み最適化、スミアリング補正
+- **[1物件1AIリクエスト属性抽出設計書](docs/4_valuation_and_ml/single_unified_property_ai_extractor.md)**: 1物件1リクエスト完結属性抽出、地代・借地権および建物マスタ連携仕様
+- **[重複物件名寄せ階層設計書](docs/3_data_models/property_deduplication_policy.md)**: 登録最古優先（ID順単調性保証）による重複物件の親決定、循環参照・多段チェーン防止および平坦化仕様
 - **[物件URL一意性制約および重複排除・アップサート仕様要件](docs/requirements/pageurl_unique_constraint_requirements.md)**: PropertyBaseModel.pageUrl一意制約化、既存データ重複クレンジングおよびバルク評価耐障害性仕様 (Issue #660)
-- **[プロ買い付け目線リスク・画地幾何解析要件定義書](docs/requirements/professional_risk_and_shape_analysis.md)**: 区画図判定、国税庁不整形地補正・かげ地割合、擁壁・解体・インフラ・階段等のプロ目線リスク評価要件
-- **[プロ買い付け目線リスク・画地幾何解析基本設計書](docs/basic_design/professional_risk_and_shape_analysis.md)**: テキスト・画像解析パイプライン分離、画像選別・優先度制御、幾何エンジン連携
-- **[プロ買い付け目線リスク・画地幾何解析内部設計書](docs/internal_design/professional_risk_and_shape_analysis.md)**: text_risk_analyzer/image_handler詳細仕様、PropertyEvaluationモデルマッピング、オーケストレーション
-- **[Prodマージ高速化・CIトリガー最適化要件定義書](docs/requirements/prod_merge_ci_speedup.md)**: リリースPR自動起票、重複レビュー・テスト排除、Dependabot集約要件
-- **[Prodマージ高速化・CIトリガー最適化基本設計書](docs/basic_design/prod_merge_ci_speedup.md)**: CD高速化アーキテクチャ、Fast-Pass設計、Dependabotグループ化
-- **[Prodマージ高速化・CIトリガー最適化内部設計書](docs/internal_design/prod_merge_ci_speedup.md)**: auto-release-pr詳細実装、review-gate/dependabot/coderabbit設定仕様
-- **[CI/CD パイプライン最適化要件定義書](docs/requirements/ci_cd_optimization_requirements.md)**: master push 重複ジョブ廃止・PR提出時一本化・Production Gate 10秒化要件
+- **[プロ買い付け目線リスク・画地幾何解析要件定義書](docs/4_valuation_and_ml/professional_risk_and_shape_analysis_requirements.md)**: 区画図判定、国税庁不整形地補正・かげ地割合、擁壁・解体・インフラ・階段等のプロ目線リスク評価要件
+- **[プロ買い付け目線リスク・画地幾何解析基本設計書](docs/basic_design/professional_risk_and_shape_analysis_basic_design.md)**: テキスト・画像解析パイプライン分離、画像選別・優先度制御、幾何エンジン連携
+- **[プロ買い付け目線リスク・画地幾何解析内部設計書](docs/4_valuation_and_ml/professional_risk_and_shape_analysis_internal_design.md)**: text_risk_analyzer/image_handler詳細仕様、PropertyEvaluationモデルマッピング、オーケストレーション
+- **[Prodマージ高速化・CIトリガー最適化要件定義書](docs/6_platform_and_release/prod_merge_ci_speedup_requirements.md)**: リリースPR自動起票、重複レビュー・テスト排除、Dependabot集約要件
+- **[Prodマージ高速化・CIトリガー最適化基本設計書](docs/basic_design/prod_merge_ci_speedup_basic_design.md)**: CD高速化アーキテクチャ、Fast-Pass設計、Dependabotグループ化
+- **[Prodマージ高速化・CIトリガー最適化内部設計書](docs/6_platform_and_release/prod_merge_ci_speedup_internal_design.md)**: auto-release-pr詳細実装、review-gate/dependabot/coderabbit設定仕様
+- **[CI/CD パイプライン最適化要件定義書](docs/6_platform_and_release/ci_cd_optimization_requirements.md)**: master push 重複ジョブ廃止・PR提出時一本化・Production Gate 10秒化要件
 - **[CI/CD パイプライン最適化内部設計書](docs/internal_design/ci_cd_optimization_design.md)**: ワークフロー別トリガー見直し・production ブランチ保護ルール詳細仕様
-- **[PR事前全検証機構（Pre-PR Check）要件定義書](docs/requirements/pre_pr_check_requirements.md)**: SonarCloud / CodeRabbit CLI / Linter / 単体テスト一括水際検証要件
+- **[PR事前全検証機構（Pre-PR Check）要件定義書](docs/6_platform_and_release/pre_pr_check_requirements.md)**: SonarCloud / CodeRabbit CLI / Linter / 単体テスト一括水際検証要件
 - **[PR事前全検証機構（Pre-PR Check）基本設計書](docs/basic_design/pre_pr_check_design.md)**: 8大検証ステージ・Taskコマンド・Pre-Push Hook遮断アーキテクチャ
-- **[PR事前全検証機構（Pre-PR Check）内部設計仕様書](docs/internal_design/pre_pr_check_specification.md)**: pre_pr_check.py / StageResult / CLIオプション詳細仕様
-- **[Google GenAI SDK 移行要件定義書](docs/requirements/google_genai_sdk_migration.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
-- **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration.md)**: アーキテクチャ変更点・クライアント設計
-- **[GCS障害テレメトリ要件定義書](docs/requirements/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
+- **[PR事前全検証機構（Pre-PR Check）内部設計仕様書](docs/6_platform_and_release/pre_pr_check_specification.md)**: pre_pr_check.py / StageResult / CLIオプション詳細仕様
+- **[Google GenAI SDK 移行要件定義書](docs/4_valuation_and_ml/google_genai_sdk_migration_requirements.md)**: 非推奨 `google.generativeai` から `google-genai` への移行要件・受入基準
+- **[Google GenAI SDK 移行基本設計書](docs/basic_design/google_genai_sdk_migration_basic_design.md)**: アーキテクチャ変更点・クライアント設計
+- **[GCS障害テレメトリ要件定義書](docs/7_operations_and_improvement/gcs_failure_telemetry_requirements.md)**: 障害HTML保存・再パース検証要件 (Issue #466, #561)
 - **[GCS障害テレメトリ基本設計書](docs/basic_design/gcs_failure_telemetry_basic_design.md)**: 障害HTML永続化・再パース検証アーキテクチャ (Issue #466, #561)
-- **[GCS障害テレメトリ内部設計書](docs/internal_design/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
-- **[Cloud Workflows 統合オーケストレーション要件定義書](docs/requirements/cloud_workflows_orchestration_requirements.md)**: クロール・ML・割安物件配信の一貫自動化とタイムアウト集約要件
+- **[GCS障害テレメトリ内部設計書](docs/7_operations_and_improvement/gcs_failure_telemetry_internal_design.md)**: FailureReporter・ErrorPageReplayer・fetch_run_failures 詳細仕様 (Issue #466, #561)
+- **[Cloud Workflows 統合オーケストレーション要件定義書](docs/6_platform_and_release/cloud_workflows_orchestration_requirements.md)**: クロール・ML・割安物件配信の一貫自動化とタイムアウト集約要件
 - **[Cloud Workflows 統合オーケストレーション基本設計書](docs/basic_design/cloud_workflows_orchestration_basic_design.md)**: Workflows ステートマシン、ProxySQL 連動、7h/5h タイムアウト設計
 - **[Cloud Workflows 統合オーケストレーション内部設計書](docs/internal_design/cloud_workflows_orchestration_internal_design.md)**: YAML 定義仕様、ハング監視実装仕様
-- **[パーサー項目別Getter疎結合アーキテクチャ要件定義書](docs/requirements/parser_getter_architecture_requirements.md)**: 項目別Getterによるパース処理疎結合化、引数レスポンス単一化、表示差分吸収仕様
+- **[パーサー項目別Getter疎結合アーキテクチャ要件定義書](docs/2_crawlers/_standards/parser_getter_architecture_requirements.md)**: 項目別Getterによるパース処理疎結合化、引数レスポンス単一化、表示差分吸収仕様
 - **[パーサー項目別Getter疎結合アーキテクチャ基本設計書](docs/basic_design/parser_getter_architecture_basic_design.md)**: 種別基底パーサー階層、get_<field>(response) 設計、キャッシュ・委譲構造
-- **[パーサー項目別Getter疎結合アーキテクチャ内部設計書](docs/internal_design/parser_getter_architecture_internal_design.md)**: メソッドシグネチャ、正規表現・型変換、モデル空欄許容マッピング仕様
-- **[Slack Socket Mode 自律修復要件定義書](docs/requirements/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件、Top-50頻度優先・完了報告プロトコル要件 (Issue #575, #596, #767, #779)
+- **[パーサー項目別Getter疎結合アーキテクチャ内部設計書](docs/2_crawlers/_standards/parser_getter_architecture_internal_design.md)**: メソッドシグネチャ、正規表現・型変換、モデル空欄許容マッピング仕様
+- **[Slack Socket Mode 自律修復要件定義書](docs/7_operations_and_improvement/slack_socket_mode_auto_heal_requirements.md)**: クローラー異常検知 ➔ Slack Socket Mode ➔ Antigravity 自律修復中継要件、Top-50頻度優先・完了報告プロトコル要件 (Issue #575, #596, #767, #779)
 - **[Slack Socket Mode 自律修復基本設計書](docs/basic_design/slack_socket_mode_auto_heal_basic_design.md)**: Slack Socket Mode 中継アーキテクチャ・自己ループ防止設計、完了報告プロトコル・トークン節約設計 (Issue #575, #596, #767, #779)
-- **[Slack Socket Mode 自律修復内部設計書](docs/internal_design/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / aggregate_and_sort_targets / 完了報告プロトコル詳細仕様 (Issue #575, #596, #767, #779)
-- **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/requirements/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
+- **[Slack Socket Mode 自律修復内部設計書](docs/7_operations_and_improvement/slack_socket_mode_auto_heal_internal_design.md)**: slack_agent / auto_heal_parsers / aggregate_and_sort_targets / 完了報告プロトコル詳細仕様 (Issue #575, #596, #767, #779)
+- **[pre_pr_check 並列最適化・テスト動的選別要件定義書](docs/6_platform_and_release/pre_pr_check_optimization_requirements.md)**: 差分ファイル別テスト選別・先行テスト並列キック・CodeRabbitスキップ要件 (Issue #579)
 - **[pre_pr_check 並列最適化・テスト動的選別基本設計書](docs/basic_design/pre_pr_check_optimization_basic_design.md)**: 並行パイプライン・直列ミューテーション分離・Cavemanサマリー設計 (Issue #579)
-- **[MySQL認証プラグイン移行要件定義書](docs/requirements/mysql_auth_plugin_migration_requirements.md)**: caching_sha2_password 移行・非推奨警告解消要件 (Issue #572)
+- **[MySQL認証プラグイン移行要件定義書](docs/6_platform_and_release/mysql_auth_plugin_migration_requirements.md)**: caching_sha2_password 移行・非推奨警告解消要件 (Issue #572)
 - **[MySQL認証プラグイン移行基本設計書](docs/basic_design/mysql_auth_plugin_migration_basic_design.md)**: ProxySQL TLS 接続および暗号化認証アーキテクチャ (Issue #572)
-- **[MySQL認証プラグイン移行内部設計書](docs/internal_design/mysql_auth_plugin_migration_internal_design.md)**: Terraform / ProxySQL 定義差分および TDD テスト仕様 (Issue #572)
-- **[種別誤判定防止＆データ監視最適化要件定義書](docs/requirements/property_type_detection_and_validation_requirements.md)**: PropertyTypeDetector URL優先判定・validate_data 直近走査化要件 (Issue #584)
+- **[MySQL認証プラグイン移行内部設計書](docs/6_platform_and_release/mysql_auth_plugin_migration_internal_design.md)**: Terraform / ProxySQL 定義差分および TDD テスト仕様 (Issue #572)
+- **[種別誤判定防止＆データ監視最適化要件定義書](docs/2_crawlers/_standards/property_type_detection_and_validation_requirements.md)**: PropertyTypeDetector URL優先判定・validate_data 直近走査化要件 (Issue #584)
 - **[種別誤判定防止＆データ監視最適化基本設計書](docs/basic_design/property_type_detection_and_validation_basic_design.md)**: URL先行評価・7日間直近フィルタ・CLIオプション基本設計 (Issue #584)
-- **[種別誤判定防止＆データ監視最適化内部設計書](docs/internal_design/property_type_detection_and_validation_internal_design.md)**: _detect_rule_based / validate_data 詳細仕様 (Issue #584)
-- **[Review Gate CodeRabbit 自動Resolve化要件定義書](docs/requirements/review_gate_auto_resolve_requirements.md)**: 古いCHANGES_REQUESTED自動失効・未解決スレッド自動Resolve仕様 (Issue #589)
+- **[種別誤判定防止＆データ監視最適化内部設計書](docs/2_crawlers/_standards/property_type_detection_and_validation_internal_design.md)**: _detect_rule_based / validate_data 詳細仕様 (Issue #584)
+- **[Review Gate CodeRabbit 自動Resolve化要件定義書](docs/6_platform_and_release/review_gate_auto_resolve_requirements.md)**: 古いCHANGES_REQUESTED自動失効・未解決スレッド自動Resolve仕様 (Issue #589)
 - **[Review Gate CodeRabbit 自動Resolve化基本設計書](docs/basic_design/review_gate_auto_resolve_basic_design.md)**: GitHub GraphQL自動スレッド解決・Gateデッドロック解消設計 (Issue #589)
-- **[Review Gate CodeRabbit 自動Resolve化内部設計書](docs/internal_design/review_gate_auto_resolve_internal_design.md)**: autoResolveCodeRabbitThreads・CHANGES_REQUESTEDバイパス詳細仕様 (Issue #589)
-- **[デプロイ時イメージ管理要件定義書](docs/requirements/deploy_image_lifecycle_requirements.md)**: 本番デプロイ時のイメージ孤立防止・プルーニング順序要件 (Issue #593)
+- **[Review Gate CodeRabbit 自動Resolve化内部設計書](docs/6_platform_and_release/review_gate_auto_resolve_internal_design.md)**: autoResolveCodeRabbitThreads・CHANGES_REQUESTEDバイパス詳細仕様 (Issue #589)
+- **[デプロイ時イメージ管理要件定義書](docs/6_platform_and_release/deploy_image_lifecycle_requirements.md)**: 本番デプロイ時のイメージ孤立防止・プルーニング順序要件 (Issue #593)
 - **[デプロイ時イメージ管理基本設計書](docs/basic_design/deploy_image_lifecycle_basic_design.md)**: 全更新完了後プルーニング原則および安全シーケンス設計 (Issue #593)
 - **[デプロイ時イメージ管理内部設計書](docs/internal_design/deploy_image_lifecycle_internal_design.md)**: deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
-- **[掲載終了ページ共通ハンドリング要件定義書](docs/requirements/listing_ended_handling_requirements.md)**: 掲載終了ページの基底包括検知・クローリングエラー防止要件 (Issue #600)
+- **[掲載終了ページ共通ハンドリング要件定義書](docs/2_crawlers/_standards/listing_ended_handling_requirements.md)**: 掲載終了ページの基底包括検知・クローリングエラー防止要件 (Issue #600)
 - **[掲載終了ページ共通ハンドリング基本設計書](docs/basic_design/listing_ended_handling_basic_design.md)**: 基底パーサー検知パイプライン・キーワード定義・エラー除外アーキテクチャ (Issue #600)
-- **[掲載終了ページ共通ハンドリング内部設計書](docs/internal_design/listing_ended_handling_internal_design.md)**: ParserBase._raise_if_listing_ended詳細仕様・TDD検証設計 (Issue #600)
-- **[CI/PR監視--watch禁止・有限タイムアウト要件定義書](docs/requirements/finite_timeout_ci_watch_requirements.md)**: 無制限--watch禁止・有限タイムアウトポーリング強制・ハング根絶要件 (Issue #602)
+- **[掲載終了ページ共通ハンドリング内部設計書](docs/2_crawlers/_standards/listing_ended_handling_internal_design.md)**: ParserBase._raise_if_listing_ended詳細仕様・TDD検証設計 (Issue #600)
+- **[CI/PR監視--watch禁止・有限タイムアウト要件定義書](docs/6_platform_and_release/finite_timeout_ci_watch_requirements.md)**: 無制限--watch禁止・有限タイムアウトポーリング強制・ハング根絶要件 (Issue #602)
 - **[CI/PR監視--watch禁止・有限タイムアウト基本設計書](docs/basic_design/finite_timeout_ci_watch_basic_design.md)**: 非同期ポーリングアーキテクチャ・スタック検知・即時診断設計 (Issue #602)
-- **[CI/PR監視--watch禁止・有限タイムアウト内部設計書](docs/internal_design/finite_timeout_ci_watch_internal_design.md)**: check_pr_ci_status.py CLI仕様・カテゴリ別分類・タイムアウト制御仕様 (Issue #602)
+- **[CI/PR監視--watch禁止・有限タイムアウト内部設計書](docs/6_platform_and_release/finite_timeout_ci_watch_internal_design.md)**: check_pr_ci_status.py CLI仕様・カテゴリ別分類・タイムアウト制御仕様 (Issue #602)
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正要件定義書](docs/requirements/slack_notification_optimization_requirements.md)**: テスト時実API送信物理遮断・事前接続サイレント化・チャンネル不整合是正要件 (Issue #642)
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正基本設計書](docs/basic_design/slack_notification_optimization_basic_design.md)**: テスト隔離バリア・Silent Health Check・チャンネル集中ルーティング設計 (Issue #642)
 - **[Slack通知最適化・テスト時外部送信遮断およびチャンネル不整合是正内部設計書](docs/internal_design/slack_notification_optimization_internal_design.md)**: conftest自動遮断fixture・verify_slack_credentials・get_alert_channel詳細仕様 (Issue #642)
@@ -766,6 +779,43 @@ docs/
 - **[ProxySQL中断判定におけるトラフィック閾値チェック要件定義書](docs/requirements/safetynet_traffic_check_requirements_901.md)**: アクティブクエリ通信検知・ヘルスチェック除外・8時間連続稼働上限・Safety-Net誤停止防止要件 (Issue #901)
 - **[ProxySQL中断判定におけるトラフィック閾値チェック外部設計書](docs/external_design/safetynet_traffic_check_external_design_901.md)**: Cloud Monitoring 受信バイト数メトリクス・判定フロー・Slackアラート外部仕様 (Issue #901)
 - **[ProxySQL中断判定におけるトラフィック閾値チェック内部設計書](docs/internal_design/safetynet_traffic_check_internal_design_901.md)**: _get_instance_network_received_bytes・閾値1MB・max_uptime詳細仕様 (Issue #901)
+- **[クローラーからのDBマイグレーション撤去 要件定義書](docs/requirements/crawler_no_schema_migration_requirements_932.md)**: クローラー/ディスパッチャーのmigrate撤去・スキーマ変更CI/CD専用化要件 (Issue #932)
+- **[クローラーからのDBマイグレーション撤去 外部設計書](docs/external_design/crawler_no_schema_migration_external_design_932.md)**: 責務分離・パイプライン手順 (Issue #932)
+- **[クローラーからのDBマイグレーション撤去 内部設計書](docs/internal_design/crawler_no_schema_migration_internal_design_932.md)**: run_pipeline/run_dispatcher変更点・影響範囲 (Issue #932)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧要件定義書](docs/requirements/comprehensive_restoration_and_db_protection_requirements_909.md)**: 本番DB物理保護ガード・マイグレーション完全整合・欠損データ全件復旧・ML評価コネクション修復要件 (Issue #909)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧外部設計書](docs/external_design/comprehensive_restoration_and_db_protection_external_design_909.md)**: db_safetyガード・0062/0063マイグレーション分離・交通データ復旧外部設計 (Issue #909)
+- **[本番DBローカル保護機構・マイグレ完全整合化・欠損データ全件復旧内部設計書](docs/internal_design/comprehensive_restoration_and_db_protection_internal_design_909.md)**: assert_production_db_safety・PKベースチャンク取得・モデル整合内部仕様 (Issue #909)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧要件定義書](docs/requirements/all_models_traffic_restoration_requirements_913.md)**: 全サイト全モデル網羅・多経路交通合成・包括的欠損復旧要件 (Issue #913)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧外部設計書](docs/external_design/all_models_traffic_restoration_external_design_913.md)**: 動的モデル検出・Route1〜5合成仕様・CLIインターフェース外部設計 (Issue #913)
+- **[全サイト全モデル欠損データ（traffic等）包括的復旧内部設計書](docs/internal_design/all_models_traffic_restoration_internal_design_913.md)**: get_all_target_property_models・synthesize_traffic_str・バルク復旧内部仕様 (Issue #913)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用要件定義書](docs/requirements/proxysql_stop_guard_and_db_timeout_requirements.md)**: 共有インフラ停止ガード・他Cloud Run実行検知・全Django DB接続read_timeout強制要件 (Issue #916)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用基本設計書](docs/basic_design/proxysql_stop_guard_and_db_timeout_basic_design.md)**: has_active_other_cloud_run_executions・_can_stop_shared_proxysql・bound_mysql_timeouts基本設計 (Issue #916)
+- **[共有ProxySQL誤認停止防止および全DB接続タイムアウト強制適用内部設計書](docs/internal_design/proxysql_stop_guard_and_db_timeout_internal_design.md)**: run_v2/REST APIジョブ照会・自実行除外・OPTIONS read_timeout 120s強制適用内部仕様 (Issue #916)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復要件定義書](docs/requirements/cleanup_header_and_garbage_data_requirements_917.md)**: ヘッダー行誤登録防止・UPDATE正常化・野村間取りフォールバック要件 (Issue #917)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復外部設計書](docs/external_design/cleanup_header_and_garbage_data_external_design_917.md)**: パーサーガード・間取りフォールバック正規表現・UPDATEバッチCLI仕様 (Issue #917)
+- **[三井ヘッダー行ゴミ混入防止・UPDATE復旧および健美家・野村主要カラム欠損修復内部設計書](docs/internal_design/cleanup_header_and_garbage_data_internal_design_917.md)**: _assert_not_header_row・update_and_restore_garbage_records内部仕様 (Issue #917)
+- **[RE-Guide収益物件サイト構造要件定義書](docs/requirements/site_structures/site_structure_reguide_investment.md)**: RE-Guide収益物件のURL体系、一覧・詳細ページ構造およびフィールドマッピング要件 (Issue #945)
+- **[RE-Guide収益物件パーサー内部設計書](docs/internal_design/parser_reguide_internal_design.md)**: ReguideInvestmentParserクラス設計・セレクター・EUC-JP対応・TDD仕様 (Issue #945)
+- **[クローラー子プロセス処理件数直接回収・DB負荷根絶要件定義書](docs/requirements/crawler_metrics_direct_collection_requirements_952.md)**: 親プロセスCOUNT(*)撤廃・子プロセス直接メトリクス回収・ステップ間DB切断回復・マイグレ完全整合要件 (Issue #952)
+- **[クローラー子プロセス処理件数直接回収・DB負荷根絶外部設計書](docs/external_design/crawler_metrics_direct_collection_external_design_952.md)**: JSONメトリクス形式・フォールバック・非失敗ハンドリング外部設計 (Issue #952)
+- **[クローラー子プロセス処理件数直接回収・DB負荷根絶内部設計書](docs/internal_design/crawler_metrics_direct_collection_internal_design_952.md)**: export_job_metrics/read_job_metrics/close_all内部仕様 (Issue #952)
+- **[全体パイプラインへのリガイド組み込み要件定義書](docs/requirements/reguide_pipeline_integration_requirements.md)**: CRAWL_JOBS / ML パイプライン（COMPANIES）へのリガイド組み込み要件 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み外部設計書](docs/external_design/reguide_pipeline_integration_external_design.md)**: パイプライン連携・CLI引数・モデルマッピング外部仕様 (Issue #953)
+- **[全体パイプラインへのリガイド組み込み内部設計書](docs/internal_design/reguide_pipeline_integration_internal_design.md)**: CRAWL_JOBS / COMPANIES / crawl_job_catalog / data_loader 内部仕様 (Issue #953)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復要件定義書](docs/requirements/crawler_failures_recovery_requirements_959.md)**: RE-Guide正規URL・SMTRC Playwrightフォールバック・正常空結果・タイムアウト制御要件 (Issue #959)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復外部設計書](docs/external_design/crawler_failures_recovery_external_design_959.md)**: wwwドメイン・Playwrightフォールバック・Empty Resultメトリクス・Slack通知外部設計 (Issue #959)
+- **[失敗クローラー群接続・リダイレクト・空結果・タイムアウト修復内部設計書](docs/internal_design/crawler_failures_recovery_internal_design_959.md)**: 各パーサーおよびrun_all_crawlers内部詳細仕様 (Issue #959)
+- **[夜間バッチ実行エラー（三井・大京・アットホーム・リガイド）一括修復要件定義書](docs/requirements/overnight_batch_fixes_973_requirements.md)**: 三井交通分割・大京コラム除外・アットホーム土地面積・リガイドDBテーブル整備要件 (Issue #973)
+- **[夜間バッチ実行エラー（三井・大京・アットホーム・リガイド）一括修復内部設計書](docs/internal_design/overnight_batch_fixes_973_internal_design.md)**: 各パーサーおよびDBマイグレーション・TDD回帰テスト内部仕様 (Issue #973)
+- **[ドキュメント体系ピラミッド・憲法](.agents/AGENTS.md)**: 最上位プリンシプルと体系ナビゲーション (Issue #976)
+- **[Docker デーモン制御ランブック](docs/runbooks/docker_daemon_management.md)**: ヘッドレス運用およびデーモン起動具象手順 (Issue #976)
+- **[ローカル本番パイプライン実行ランブック](docs/runbooks/local_production_pipeline.md)**: IAPトンネルおよびローカル本番実行具象手順 (Issue #976)
+- **[クローラータスク分散最適化および集約レポート母数是正 要件定義書](docs/requirements/task_distribution_and_aggregation_fix_requirements_980.md)**: 8タスク負荷平準化・母数動的化要件 (Issue #980)
+- **[クローラータスク分散最適化および集約レポート母数是正 内部設計書](docs/internal_design/task_distribution_and_aggregation_fix_internal_design_980.md)**: _assign_8_task_index再設計・aggregate_task_array_reports内部仕様 (Issue #980)
+- **[Cloud定期実行ポータル除外および件数順優先処理 要件定義書](docs/requirements/cloud_skip_portals_and_prioritized_crawl_requirements_985.md)**: Cloudポータル除外・ローカル本番実行・件数規模順優先処理要件 (Issue #985)
+- **[Cloud定期実行ポータル除外および件数順優先処理 内部設計書](docs/internal_design/cloud_skip_portals_and_prioritized_crawl_internal_design_985.md)**: is_cloud_environment・sort_jobs_by_priority・キュー優先度制御内部仕様 (Issue #985)
+- **[都市部・地方地域感応度変調特徴量 要件定義書](docs/requirements/regional_sensitivity_features_requirements_1003.md)**: 駅徒歩弾力性・有効駅距離・築年減価耐性・面積価値強度による割安物件過大・過小予測是正要件 (Issue #1003)
+- **[都市部・地方地域感応度変調特徴量 内部設計書](docs/internal_design/regional_sensitivity_features_internal_design_1003.md)**: 4交互作用特徴量算出式・マスタ未登録時人口密度フォールバック・FEATURE_SETS登録・TDD検証仕様 (Issue #1003)
 
 
 ### 2. 開発を始める
@@ -774,6 +824,7 @@ docs/
 - **[Taskコマンド完全リファレンス](docs/implementation/task_commands.md)**: Taskコマンド一覧および仕様
 - **[SonarCloud事前検証・コーディング規約ガイド](docs/implementation/sonar_guardrail_guide.md)**: SonarLint設定、S3776/S8786対策、ローカルガードレール運用
 - **[Terraformデプロイガイド](terraform/README.md)**: GCPインフラ一括プロビジョニング手順
+- **[領域別ポリシー一覧](.agents/policies/)**: 環境制御、品質検証、ブランチ運用、クローラー設計各規範
 
 
 
@@ -785,4 +836,4 @@ docs/
     *   `main.py`: エントリーポイント
     *   `package/`: クローラーロジック
     *   `tests/`: テストコード
-*   `terraform/`: GCP インフラストラクチャ定義 (IaC)
+*   `terraform/`: GCP インフラストラクチャ定義 (IaC)

@@ -34,6 +34,7 @@ while True:
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX
+from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, is_cloud_environment
 from package.utils.pipeline_coordinator import aggregate_task_array_reports
 from package.utils.slack import send_crawling_summary_alert, send_dev_report
 from package.utils.gcp_resources import (
@@ -147,7 +148,10 @@ def verify_barrier_completion(execution_date: datetime.date | None = None, min_s
         return True, []
 
 
-def send_aggregated_crawl_report(execution_date: datetime.date | None = None) -> bool:
+def send_aggregated_crawl_report(
+    execution_date: datetime.date | None = None,
+    total_jobs: int | None = None,
+) -> bool:
     """最新クローラー実行の全タスク結果を集約し、全タスク集約レポートを Slack に 1 回送信する"""
     target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
     try:
@@ -156,7 +160,8 @@ def send_aggregated_crawl_report(execution_date: datetime.date | None = None) ->
             logger.warning(f"⚠️ [Aggregation] No identifiable crawler execution for {target_date}. Skipping aggregated report.")
             return False
         records = sorted(tasks, key=lambda t: t.task_index)
-        aggregated = aggregate_task_array_reports(records, total_jobs=89)
+        expected_total = total_jobs if total_jobs is not None else len(CRAWL_JOBS)
+        aggregated = aggregate_task_array_reports(records, total_jobs=expected_total)
         logger.info(
             f"📊 [Aggregation] Tasks: {len(records)}, Total: {aggregated['total_jobs']}, "
             f"Executed: {aggregated['executed_jobs']}, Success: {aggregated['success_jobs']}, Failed: {aggregated['failed_jobs']}"
@@ -221,7 +226,20 @@ def run_command(cmd: list[str], desc: str):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Cloud Run ML Pipeline Job")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (homes, athome)")
+    is_cloud = is_cloud_environment()
+    parser.add_argument(
+        "--skip-portals",
+        dest="skip_portals",
+        action="store_true",
+        default=is_cloud,
+        help="Skip large portal sites (homes, athome)",
+    )
+    parser.add_argument(
+        "--no-skip-portals",
+        dest="skip_portals",
+        action="store_false",
+        help="Do not skip portal sites even on Cloud environment",
+    )
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     parser.add_argument("--dry-run", action="store_true", help="Dry run without modifying GCP resources")
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
@@ -262,7 +280,15 @@ def main(argv=None):
 
         # Step 1: バリア完了検証
         ok, failed = verify_barrier_completion()
-        send_aggregated_crawl_report()
+        active_jobs = filter_crawl_jobs(
+            skip_portals=args.skip_portals,
+            skip_uncrawled=args.skip_uncrawled,
+        )
+        try:
+            send_aggregated_crawl_report(total_jobs=len(active_jobs))
+        except TypeError:
+            # テスト等で引数無しのモックが注入された場合の互換フォールバック
+            send_aggregated_crawl_report()
         if not ok and not args.force:
             logger.warning(f"⚠️ 一部タスク未完了/失敗のため ML パイプラインを中断します (失敗: {failed})。--force で強制実行可能。")
             return 1
@@ -294,6 +320,8 @@ def main(argv=None):
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if args.skip_portals:
             eval_cmd.append("--skip-portals")
+        else:
+            eval_cmd.append("--no-skip-portals")
         if args.skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
         run_command(eval_cmd, f"Step 3/5: Batch Estimation & Investment Evaluation{' [Skip Portals]' if args.skip_portals else ''}{' [Skip Uncrawled]' if args.skip_uncrawled else ''}")

@@ -121,7 +121,7 @@ def test_pre_pr_checker_fix_mode_branch(monkeypatch):
     checker_fix = PrePRChecker(fix_mode=True)
     called_cmds = []
 
-    def mock_run_cmd(cmd):
+    def mock_run_cmd(cmd, **_kwargs):
         called_cmds.append(cmd)
         if cmd == ["ruff", "--version"]:
             return 0, "0.16.8", ""
@@ -134,7 +134,7 @@ def test_pre_pr_checker_fix_mode_branch(monkeypatch):
     checker_nofix = PrePRChecker(fix_mode=False)
     called_cmds_nofix = []
 
-    def mock_run_cmd_nofix(cmd):
+    def mock_run_cmd_nofix(cmd, **_kwargs):
         called_cmds_nofix.append(cmd)
         if cmd == ["ruff", "--version"]:
             return 0, "0.16.8", ""

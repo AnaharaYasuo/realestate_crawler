@@ -194,6 +194,7 @@ graph TD
 ### 6.3 クロール処理とMLモデル評価の分離・バルク推論方針 (B案)
 - **クローリングとML評価の分離**: クローリング時は同期的ML評価（モデルファイル読込＋推論）を行わず、パースおよびDB保存のみをミリ秒単位で完了させる。
 - **バルク推論の実施**: ML 評価はモデルを1回のみメモリロードして一括処理するバルク評価バッチ（`run_bulk_ml_evaluation.py`）または一括評価ステップで処理する。
+- **データ検証の非同期並行化とタイムアウト設計**: `validate_data.py` のURL生存確認は `asyncio.Semaphore`（並行度 10〜20）および `asyncio.gather` による非同期並行バッチで処理し、直列HTTP待機によるタイムアウトを防止する。また、大量データ蓄積時や定期パイプライン実行時にURL生存確認をスキップする実行パラメータ（`--skip-url-check` / 環境変数 `VALIDATE_DATA_SKIP_URL_CHECK=true`）を提供する。`realestate-ml-pipeline-prod` のタイムアウトは 3,600秒（1時間）とし、Cloud SQL バックアップ（22:00 UTC）前に確実に完遂する。
 
 ### 6.4 ユーザー指示の設計方針自動ドキュメント保持原則
 - ユーザーから指示された設計方針・システム構成ルール・パフォーマンス制約は、単なる一回限りの対応で終わらせず、必ず [AGENTS.md](file:///.agents/AGENTS.md) および `docs/` 配下の仕様・運用ドキュメントに記載・更新して恒久的に保持する。
@@ -234,6 +235,12 @@ graph TD
 - 同一サイトに対するリクエストで連続 3 回以上のタイムアウト/通信不能が発生した場合、ジョブ実行エンジンが状態異常を検出して当該サイトの処理を即時 Abort（中断）する。
 - リトライの無限ループや後続処理の完全停止（ハングアップ）を防止する。
 
+### 6.9 クローラー安全上限フェイルセーフ設計 (Issue #643)
+- `ParserBase` の安全上限プロパティについて、通常の巡回規模で絶対に誤検知・途中終了しないよう以下の通り適正化する。
+  - `MAX_PAGES_PER_JOB`: 既定値 `2000`（環境変数 `MAX_PAGES_PER_JOB` でオーバーライド可能）
+  - `MAX_PROPERTIES_PER_JOB`: 既定値 `50000`（環境変数 `MAX_PROPERTIES_PER_JOB` でオーバーライド可能）
+- 環境変数のパース時は、正の整数値であればそれを採用し、不正値・0以下の場合は既定値へ安全にフォールバックする。
+
 ### 6.8.1 DB/ProxySQL 死活監視連動クローラー即時停止設計 (Issue #518)
 - `run_all_crawlers.py` のジョブ実行ループ内で `DbLivenessMonitor` が DB 接続先（Django `connection.settings_dict` の `HOST`/`PORT`、未設定時は環境変数 `DB_HOST`/`DB_PORT`。本番は ProxySQL `10.0.0.10:6033`）へ `socket.create_connection` による疎通確認を行う。
   - 監視間隔: `DB_HEALTH_CHECK_INTERVAL_SEC`（既定 15 秒）、ソケットタイムアウト: 3 秒（有限タイムアウト保証）。
@@ -249,17 +256,17 @@ graph TD
 - 手順 3 が DB 不通で完了しないと `CrawlerTaskExecution` が `RUNNING` のまま残り、Coordinator のバリア `wait_for_all_tasks()` が終端状態と判定できずタイムアウト（最大 1800 秒超）まで待機する。これを防ぐため、親プロセス `run_pipeline._run_crawler_step()` は `run_all_crawlers.py` が失敗終了（`TimeoutError` 以外の例外）した場合、Worker/Coordinator のいずれでもバリア到達前に `reconcile_aborted_task_execution()` を呼び出す。
   - 対象は自タスクの行（`execution_date` は起動時に固定した実行日 `get_execution_date()`、`task_index`（未設定時 0））のうち `status="RUNNING"` のもののみで、`FAILED` に更新する（`COMPLETED`/`FAILED` 済みの行は変更しない）。`FAILED` はバリアの終端状態のため、既存の「部分完了で後続処理を継続する」方針は変わらない。
 
-### 6.8.2 物件種別・サイト規模別タスクアレイ分散内部設計 (Issue #608)
+### 6.8.2 物件種別・サイト規模別タスクアレイ分散内部設計 (Issue #608, #851, #980)
 - **`package.utils.task_distribution.distribute_jobs` の刷新**:
-  - `task_count == 8` の場合、単純 Modulo（`i % 8`）を廃止し、以下の決定論的マッピングでジョブを分配する：
-    - **Task 0 (大手仲介マンション)**: `mitsui:mansion`, `sumifu:mansion`, `tokyu:mansion`, `nomura:mansion`, `misawa:mansion`
-    - **Task 1 (大手仲介戸建)**: `mitsui:kodate`, `sumifu:kodate`, `tokyu:kodate`, `nomura:kodate`, `misawa:kodate`
-    - **Task 2 (大手仲介土地)**: `mitsui:tochi`, `sumifu:tochi`, `tokyu:tochi`, `nomura:tochi`, `misawa:tochi`
-    - **Task 3 (大手・信託投資用)**: 大手5社の `invest_kodate` / `invest_apartment`、信託3社（`smtrc`, `sumai1`, `mizuho`）の `investment`
-    - **Task 4 (中小・信託居住用全件)**: 信託3社居住用（mansion/kodate/tochi）＋ 電鉄・ハウスメーカー系17社の全種別
-    - **Task 5 (Homes全種別)**: `homes:mansion`, `homes:kodate`, `homes:tochi`, `homes:invest_apartment`
-    - **Task 6 (Athomeマンション)**: `athome:mansion`（単独集中実行）
-    - **Task 7 (Athomeその他)**: `athome:kodate`, `athome:tochi`, `athome:invest_apartment`
+  - `task_count == 8` の場合、単純 Modulo（`i % 8`）を廃止し、以下の決定論的マッピングでジョブを分配する（Issue #980 平準化）：
+    - **Task 0 (大手仲介マンション + 大京マンション)**: `mitsui:mansion`, `sumifu:mansion`, `tokyu:mansion`, `nomura:mansion`, `misawa:mansion`, `daikyo:mansion` (6 jobs)
+    - **Task 1 (大手仲介戸建 + 大京戸建/土地)**: `mitsui:kodate`, `sumifu:kodate`, `tokyu:kodate`, `nomura:kodate`, `misawa:kodate`, `daikyo:kodate`, `daikyo:tochi` (7 jobs)
+    - **Task 2 (大手仲介土地 + 信託3社居住用)**: 大手5社土地 5件 ＋ 信託3社（`smtrc`, `sumai1`, `mizuho`）居住用全種別 9件 (14 jobs)
+    - **Task 3 (投資用・事業用全般)**: 大手5社の `invest_kodate` / `invest_apartment`、信託3社（`smtrc`, `sumai1`, `mizuho`）＋ `odakyu` ＋ `sumirin` ＋ `reguide` ＋ `kenbiya` の投資用 (18 jobs)
+    - **Task 4 (電鉄・ハウスメーカー系 戸建・土地)**: 電鉄・ハウスメーカー系13社の `kodate` および `tochi` (26 jobs)
+    - **Task 5 (Homes全種別)**: `homes:mansion`, `homes:kodate`, `homes:tochi`, `homes:invest_apartment` (4 jobs)
+    - **Task 6 (Athomeマンション + 中堅仲介全種別)**: `athome:mansion` ＋ 中堅仲介5社（`kenbiya`, `ietan`, `haseko`, `adcast`, `toho`）居住用・土地 (13 jobs)
+    - **Task 7 (Athomeその他 + 電鉄・ハウスメーカー系マンション)**: `athome:kodate`, `athome:tochi`, `athome:invest_apartment` ＋ 電鉄・ハウスメーカー系13社の `mansion` (16 jobs)
   - `task_count != 8` または `task_index is None` の場合は、互換性維持のため Modulo 分割または全件返却にフォールバックする。
 - **会社別並行度上限（`crawler_scheduler.py`）の緩和**:
   - 大手仲介各社（`mitsui`, `sumifu`, `tokyu`, `nomura`, `misawa`）の `COMPANY_CONCURRENCY_LIMITS` を `2` から `5` に引き上げ、同一タスク内で全種別が一斉に起動できるようにする。
@@ -659,27 +666,112 @@ graph TD
 - **ユーザー認証プラグイン更新**:
   - Cloud SQL ユーザー（`sumifu`, `monitor`）の認証方式を `caching_sha2_password` に移行。
 
-### 6.33 本番デプロイ時イメージ管理・プルーニング安全化内部設計 (Issue #593)
-- **ステップ順序の再定義**:
-  - `.github/workflows/deploy-production.yml` において、`Prune old images (Keep latest 3 versions)` をすべての Cloud Run Job および Cloud Run Service の更新ステップの後（末尾）に配置。
-  - マイグレーションやサービス更新が失敗した場合は Prune が呼び出されず、稼働中のコンテナイメージが保護される。
+### 6.34 Cloud Run Executions 照会耐障害性およびスペックノイズ除外内部設計 (Issue #634)
+- **Cloud Run Executions 403 回避フォールバック (`ensure_resources_stopped.py`)**:
+  - `_get_active_cloud_run_executions` の REST API フォールバックにおいて、`jobs.list` 取得時に `HTTP 403: run.jobs.list denied` 等の非200レスポンスが返された場合でも即座にエラー中断せず、`job_prefixes`（環境サフィックス付き候補含む）から構築したジョブ一覧に対して直接 `https://run.googleapis.com/v2/projects/{project_id}/locations/{region}/jobs/{job_name}/executions` を照会。
+  - いずれかのジョブで実行中（`completionTime` および `cancelled` が未設定）の Execution が存在するかを安全に判定し、不必要な停止スキップアラートや停止不能を防止。
+- **Crawler Runner サービスアカウント IAM 権限強化 (`terraform/iam.tf`)**:
+  - `google_project_iam_member.crawler_runner_run_viewer`（`roles/run.viewer`）を追加し、Cloud Run ジョブ・実行状態の参照権限を確実に付与。
+- **パーサースペック解析におけるフッター・ナビゲーションノイズ除外 (`ParserBase`)**:
+  - `_is_noise_container(tag)` 判定ヘルパーを `ParserBase` に実装。
+  - `footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のタグまたはクラス名配下に存在する要素を `_ingest_tr_specs`, `_ingest_dl_specs`, `_ingest_table_row_specs` の走査対象から除外。
+  - ホームズ等のフッターナビ（利回りバナー、投資物件ナビゲーション）がスペック辞書に混入して `PropertyTypeDetector` が誤爆する現象を根絶。
 
-### 6.34 クローラー巡回件数過少・ページネーション停止および0件取得包括復旧内部設計 (Issue #676)
-- **0件取得失敗 (Zero Count Failure) 解消設計**:
-  - `sumifu_investment.py` (`ParseSumifuInvestKodateStartAsync`): `urlList` を最新の戸建て収益物件パラメータまたは一覧取得URLに更新し、カード抽出を担保。
-  - `nomura_investment.py` (`ParseNomuraInvestKodateStartAsync`): `nomu.com/pro/house/` のDOMレイアウトに適合するパース・セレクターを定義。
-- **1ページ目打ち切り (Pagination停止) 解消設計**:
-  - `misawaParser.py`: `parseNextPage` において `li.next a` に加え、`.pager a[rel='next']`, `.pagination-next a`, ページ番号インクリメントのフォールバックチェーンを実装。
-  - `sekisuiParser.py`: `parseNextPage` で `a` タグの完全一致だけでなく、`rel='next'`, クラス名、矢印リンク、クエリパラメータ更新による多段階リンク探索を実装。
-  - `odakyuParser.py`: `parseNextPage` のセレクターチェーンに `.paging li.next a`, `a.next-page`, `a.page-link` 等を追加。
-- **実行時クラッシュ・極小件数サイトの防御的設計**:
-  - `homesParser.py`: 一覧パースおよび詳細パースで属性抽出時の例外を安全に捕捉・フォールバックし、プロセス全体の早期クラッシュを排除。
-  - `sumirinParser.py`, `daiwaParser.py`: 一覧ページからの詳細リンクパターン（正規表現）の許容性を高め、取りこぼしを根絶。
+### 6.34 クローラー4時間枠・一覧価格厳格抽出・athome拡張・タイムアウト発報内部設計 (Issue #635)
+- **クローラータイムアウト4時間 (14400s) 延長とパイプライン連動**:
+  - `terraform/variables.tf`: `crawler_timeout` default を `"14400s"`、validation 上限を `14400` に更新。
+  - `terraform/scheduler.tf`: `ml_pipeline_job_scheduler` の cron を `"10 20 * * *"` (20:10 UTC / JST 05:10)、`safety_net_hourly_scheduler` を `"0 17-23 * * *"` に変更。
+  - `terraform/database.tf`: バックアップ開始時刻を `"22:00"` (22:00 UTC / JST 07:00) に変更。
+  - `src/crawler/scripts/ensure_resources_stopped.py`: `DEFAULT_HUNG_THRESHOLD_SEC` を 15000s (14400s + 600s) に変更。
+  - `src/crawler/scripts/ops/run_pipeline.py`: `DEFAULT_TIMEOUT_SEC` を 14400.0 に変更。
+- **アットホームのエリア拡大および並行度向上**:
+  - `src/crawler/routes/athome_routes.py`: 開始 URL を東京 (`tokyo/city/`) だけでなく埼玉 (`saitama/city/`)、神奈川 (`kanagawa/city/`)、千葉 (`chiba/city/`)、愛知 (`aichi/city/`) へ展開。
+  - `src/crawler/package/api/athome.py`: `DETAIL_PARARELL_LIMIT` を 1 から 3 へ引き上げ。
+- **一覧カード価格抽出の厳格化と差分スキップ正常化**:
+  - `src/crawler/package/parser/baseParser.py`: `_extract_card_price` において、カード内テキストから安易な数字を拾わず、単位「万円」「円」の表記を持つ正規表現（100万円以上）のみを価格として抽出。駅徒歩分数や階数・築年数の誤認を排除。
+  - 各パーサーの一覧抽出ロジックで物件カードの価格要素を正確に捕捉し、既存物件の差分スキップ（キャッシュ確認）を100%機能させる。
+- **タイムアウト・異常終了時の Slack 即時発報**:
+  - `src/crawler/scripts/ops/run_pipeline.py`: `TimeoutError` や異常終了の捕捉箇所で `send_crawling_summary_alert` / `send_dev_report` を呼び出し、未完走タスク・エラー詳細を Slack へ即座に通知。
+
+### 6.35 詳細取得非同期並行化・差分TTL30日・タイムアウト5時間枠・DB保護内部設計 (Issue #692)
+- **詳細取得非同期並行化 (`src/crawler/package/api/api.py`)**:
+  - `_handle_local_execution`: 直列同期待機（`t.join(1.0)`）を解消し、`asyncio.to_thread` を用いた非同期実行へ変更。呼出元の `_callApi` / `_fetchWithEachSession` のセマフォ制御下で、最大 `CLOUD_DETAIL_CONCURRENCY`（デフォルト 2）の並行数で安全に詳細パース・保存を実行。
+  - プロセス内でのスレッド生成・DBコネクション破棄（`close_old_connections()` / `connections.close_all()`）を確実に担保し、DB接続リークを防止。
+- **プロセス並行度抑制 (`src/crawler/scripts/ops/run_all_crawlers.py`)**:
+  - `parse_args` の `default_parallel` を 35 から 6 に抑制。Cloud Run 8タスク同時稼働時の最大DB接続数を ProxySQL バックエンド上限（50）未満に制限。
+- **差分クロール TTL 30日化 (`src/crawler/package/api/differential.py`, `src/crawler/package/api/api.py`)**:
+  - `DIFFERENTIAL_TTL_DAYS` のデフォルトを `7` から `30` に変更。
+  - 一覧カードから抽出された価格がDB既存価格と一致しかつ最終更新から30日以内の物件は詳細アクセスを完全にスキップ。
+- **クローラータイムアウト5時間 (18000s) 延長とパイプライン連動**:
+  - `src/crawler/scripts/ops/run_all_crawlers.py`: `timeout_sec` のデフォルトを 18000 に変更。
+  - `src/crawler/scripts/ops/run_pipeline.py`: `DEFAULT_TIMEOUT_SEC` を 18000.0 に変更。
+  - `src/crawler/scripts/ensure_resources_stopped.py`: `DEFAULT_HUNG_THRESHOLD_SEC` を 18600.0 (18000s + 600s) に変更。
+  - `terraform/variables.tf`: `crawler_timeout` default を `"18000s"`、validation 上限を `18000` に更新。
+  - `terraform/variables.tf`: `ml_pipeline_schedule_cron` default を `"10 21 * * *"` (21:10 UTC / 06:10 JST) に変更。
+  - `terraform/database.tf`: バックアップ開始時刻 `start_time` を `"23:00"` (23:00 UTC / 08:00 JST) に変更。
+
+### 6.36 MLパイプラインの学習スキップオプション・GCSモデル永続化同期およびジョブタイムアウト2時間延長内部設計 (Issue #698)
+- **背景と課題**:
+  - 日次の ML パイプライン実行（`run_ml_pipeline.py`）において、全体1時間（3600秒）枠のうち約42分をモデル再学習（`train.py`）が占有し、後続のバルク価格推定（`run_bulk_ml_evaluation.py`）がタイムアウトで途中終了する事象が発生していた。
+  - 毎日モデルを再学習する必要はなく、通常運用では推論のみを実行可能とし、かつコンテナ再起動時にも最新学習済みモデルが消失しないよう GCS 経由でのモデル同期が必要となった。
+- **改修内容**:
+  1. **学習スキップオプション (`run_ml_pipeline.py`)**:
+     - `--skip-train` CLI フラグおよび環境変数 `ML_PIPELINE_SKIP_TRAIN=true` を新設。
+     - オプション指定時は Step 2/5 (ML Model Re-Training) をスキップし、Step 3/5 (Bulk ML Evaluation) を即時開始。
+  2. **GCSモデル同期ユーティリティ (`package/utils/storage.py`, `package/ml/train.py`, `package/ml/predict.py`)**:
+     - `ObjectStorageManager` に `upload_file(local_path, key)` および `download_file(key, local_path)` メソッドを整備。
+     - `train.py` 完了時に `models/` 配下のすべての `*.joblib` を GCS `ml_models/` プレフィックスへアップロード。
+     - `predict.py` または `run_ml_pipeline.py` において、ローカルの `models/` にモデルが存在しない場合は GCS から一括ダウンロードして推論を実行。
+  3. **タイムアウト2時間 (7200s) 延長とバックアップ連動 (`terraform/cloud_run_job.tf`, `terraform/database.tf`)**:
+     - `cloud_run_job.tf`: `ml_pipeline_job` の `timeout` を `"7200s"` に更新。
+     - `database.tf`: Cloud SQL 自動バックアップ `start_time` を `"23:30"` に変更（ML 最遅終了 21:10 UTC + 7200s = 23:10 UTC より後）。
+     - `test_crawler_timeout_4h_635.py`: バックアップ時刻アサーション（`start == 23 * 3600 + 1800`）を更新。
+
+### 6.37 バルクML価格推定処理の高速化とDB・N+1ボトルネック解消内部設計 (Issue #704)
+- **背景と課題**:
+  - `run_bulk_ml_evaluation.py` の実行時、一次判定通過物件の重複検知（`find_duplicate_property`）において、比較対象候補 50 件ごとに `_get_real_property(cand)` が呼ばれ、都度 DB クエリ（N+1）が同期発行されていた。
+  - これにより DB 往復待機（I/Oブロック）が CPU / メモリの大半を遊ばせ、推定処理全体の遅延要因（1000件で10分以上）となっていた。
+- **改修内容**:
+  1. **実物件レコード取得のインメモリキャッシュ (`package/utils/deduplication.py`)**:
+     - `_get_real_property(eval_rec)` にプロセス内辞書または LRU キャッシュ（`_REAL_PROPERTY_CACHE` または `functools.lru_cache` 相当）を導入。
+     - 同一 `(company, property_type, property_id)` に対する DB クエリを1回のみとし、2回目以降はキャッシュから即時取得して N+1 クエリを根絶。
+     - 呼び出し元から `prop_b` が渡された場合は DB クエリ自体を完全にバイパス。
+  2. **未処理物件走査の最適化 (`scripts/ops/run_bulk_ml_evaluation.py`)**:
+     - `_filter_unprocessed_items` において、`existing_eval_map` に登録済みの URL を用いて、不要な重複 ORM インスタンス生成を抑制。
+  3. **整合性およびテスト検証**:
+     - 既存の `test_deduplication.py` および新規ベンチマーク/ユニットテストによる機能検証。
+
+### 6.38 不整合物件 (needs_parser_fix) の分散再クローリングバッチ & 掲載終了連携内部設計 (Issue #735)
+- **背景と課題**:
+  - `validate_data.py` やクローリング時のリアルタイム検証で `needs_parser_fix=True` が付与された異常物件は、パーサー改修後やサイト仕様変更後に再クローリングして最新化・正常化する必要がある。
+  - 通常の全件巡回 API とは異なり、異常物件のみをピンポイントで再取得し、正常取得時には `needs_parser_fix=False` を解除し、掲載終了（404・販売終了）時には `is_published=False` / `delisted_at=now()` を反映する仕組みが求められる。
+  - また、対象が数千件規模に及ぶ場合でも、通常クローラーと同等の並列度（Cloud Run Jobs タスクアレイ 8 並列、プロセス内並行数 3）で安全・高速に分散実行できる必要がある。
+- **改修内容**:
+  1. **詳細パース基底クラスにおける掲載終了検知 (`package/api/api.py: ParseDetailPageAsyncBase`)**:
+     - `_treatPage()` において `is_skipped`（`ListingEndedException` / `SkipPropertyException`）検知時、`PropertyEvaluation` の `is_published=False`, `delisted_at=timezone.now()`, `needs_parser_fix=False` を更新・保存。
+  2. **分散再クローリングバッチ (`scripts/maintenance/recrawl_anomalies.py`)**:
+     - `PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)` を走査。
+     - Cloud Run Jobs タスクアレイ環境変数（`CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_COUNT=8`）および CLI オプション（`--task-index`, `--task-count`）による Modulo 分割（`property_id % task_count == task_index`）でタスク毎の担当物件を決定論的に抽出。
+     - プロセス内並行数は通常クローラーと完全同一の `DETAIL_PARARELL_LIMIT = 3`（`CLOUD_DETAIL_CONCURRENCY` / `--concurrency` で上書き可能）でセマフォ制御。
+     - 各物件の URL から `UrlRouter.create_parser(url)` でパーサーを動的解決し、詳細ページを取得・保存。
+     - 正常取得時は既存の `_validate_and_tag_property_integrity()` により `needs_parser_fix=False` を解除。
+  3. **再巡回専用 Cloud Run Job ＆ Cloud Workflows オーケストレーション (Issue #738)**:
+      - **Cloud Run Job (`realestate-recrawl-anomalies-${var.environment}`)**:
+        - タイムアウト上限は通常クローリングと完全同期の 5時間（`18000s`）。
+        - 実行コマンド: `["python", "src/crawler/scripts/maintenance/recrawl_anomalies.py"]`
+        - ProxySQL（VPC内部 10.0.0.10:6033）経由での安全な DB アクセス。
+      - **Cloud Workflows (`realestate-recrawl-anomalies-pipeline-${var.environment}`)**:
+        - `daily_pipeline.yaml` の堅牢運用パターンを踏襲:
+          - Step 1: ProxySQL VM インスタンス自動起動
+          - Step 2: systemd デーモン受付待機（25秒）
+          - Step 3: Cloud Run Job 実行 & 5時間上限ポーリング監視（一時的 API 障害時のリトライ耐性付き）
+          - Step 4: タイムアウト時能動キャンセル（`executions.cancel`）
+          - Step 5: 二重 try-except による ProxySQL VM 停止の絶対保証（放置課金防止）
+        - 実行時引数オーバーライド（`concurrency`, `limit`, `taskCount`）に対応。
 
 ---
 
 ## 7. 参照ドキュメント
-
 
 - [データベース定義書 (Database Schema)](database_schema.md): 完全なテーブル・カラム定義
 - [デプロイ時イメージ管理内部設計書](deploy_image_lifecycle_internal_design.md): deploy-production ワークフローにおけるステップ順序・Prune仕様 (Issue #593)
@@ -696,3 +788,110 @@ graph TD
 
 
 
+
+
+## 保存後データ品質チェックの共通化 (Issue #741)
+- `package.utils.data_validator.tag_property_integrity` を単件保存・バッチ保存(`_afterRunProc`)の保存後に共通呼び出しし、NGなら `PropertyEvaluation.needs_parser_fix=True` (auto_heal_parsers 対象)、OKなら解消する。
+- `PropertyDataValidator` は全ページ必須項目(物件名・住所・交通)、居住用(mansion/kodate)の間取り・築年月の欠損をNG判定する。
+
+## 掲載終了・リダイレクト画面検知の適正化 (Issue #747)
+- **アットホーム (`athomeParser.py`)**:
+  - Playwright/DOM取得時の中間画面（タイトルに `【アットホーム】認証中` を含む、または `認証中` でスペックテーブル不在）を `ListingEndedException` として検知し、パース失敗（`StrictExtractionFailed`）による ERROR ログ出力を防止。
+- **パナソニック ホームズ / リアリエ (`rearieParser.py`)**:
+  - 物件終了時にトップページへリダイレクトされる仕様（タイトルに `- パナソニック ホームズ株式会社 - Panasonic` を含み、物件スペック `dl.table-view` 不在）を `ListingEndedException` として検知し、安全に掲載終了ステータスへと遷移させる。
+
+## URLルーター網羅性と未解決ドメインの解消 (Issue #746)
+- **大京穴吹不動産 (`daikyoParser.py`)**: `daikyo-anabuki.co.jp/buy/detail/` から `DaikyoMansionParser`, `DaikyoKodateParser`, `DaikyoTochiParser` を動的解決。
+- **みずほ不動産販売 (`mizuhoParser.py`)**: `mizuho-re.co.jp/investors/` から `MizuhoInvestmentParser`, `mizuho-re.co.jp/buyers/` から Mansion/Kodate/Tochi パーサーを解決。
+- **大和ハウスリアルエステート (`daiwaParser.py`)**: `dh-realestate.co.jp/buy/` から `DaiwaMansionParser`, `DaiwaKodateParser`, `DaiwaTochiParser` を解決。
+- **東急リバブル (`tokyuParser.py`)**: 提携サイト `sumikae.ttfuhan.co.jp/` および投資用URL `/fudosan-toushi/` をカバー。
+- **小田急不動産 (`odakyuParser.py`)**: `/invest/` から `OdakyuInvestmentParser`, その他各物件種別パーサーを解決。
+- **電鉄系・ハウスメーカー系**: 京王 (`chukai.keiofudosan.co.jp`), 京急 (`keikyu-sumai.com`), 京成 (`keisei-land.co.jp`), 住友林業 (`suminavi.com`), アットホームその他 (`athome.co.jp/buy_other/`) を `ROUTES` に登録し未解決URLを根絶。
+
+## 再クローリング時公開終了物件の不整合フラグ維持およびML学習データからの不整合物件除外 (Issue #773)
+- **公開終了検知時のフラグ維持制御 (`ParseDetailPageAsyncBase._treatPage`)**:
+  - `is_skipped=True` 検知時、`PropertyEvaluation` の `needs_parser_fix` を一律で `False` に上書きしていた処理を改修。既存レコードの `needs_parser_fix` が `True` の場合はその値をそのまま維持し、パーサー改修・原因追跡の監査性を保証する。
+- **MLストリーミングデータローダーの除外キャッシュ (`data_loader.py`)**:
+  - `get_evaluation_and_duplicate_caches()` において、`PropertyEvaluation` から `needs_parser_fix=True` または `data_quality_issue` が空でない（不整合検知済み）URLを `invalid_urls` として抽出。
+  - `duplicate_urls`（重複物件URL）と `invalid_urls` を統合した `excluded_urls` を構築し、各モデルからの軽量レコード収集（`_collect_lightweight_records_for_ptype`）時にスキップさせることで、異常データによるモデル汚染を完全に遮断する。
+
+## 6.32 指定サイト・種別絞り込みクローリングおよび不要コンテナ起動抑制内部設計 (Issue #801)
+- **ジョブフィルタリングの拡張 (`package/utils/crawl_jobs.py`)**:
+  - `filter_crawl_jobs(jobs, *, sites=None, company=None, property_type=None)` において、カンマ区切りによる複数サイト（`company="sumifu,mitsui"`）および複数種別（`property_type="mansion,kodate"`）のAND組み合わせフィルタを完全サポート。
+- **タスク分散と動的タスク数計算 (`package/utils/task_distribution.py`)**:
+  - 対象ジョブ件数と指定タスク数に基づく安全な割り当て。
+  - `distribute_jobs(jobs, task_index, task_count)` において、割り当てジョブ数が0件の場合は空リストを返却。
+- **コンテナ内ゼロジョブ即時正常終了 (`scripts/ops/run_pipeline.py` & `run_all_crawlers.py`)**:
+  - `run_pipeline.py` の `main()` において、引数 `--company` / `--property-type` を受け取り。
+  - Step 0（ProxySQL起動やDBマイグレーション）の実行前に、自タスク番号（`task_index`）の担当ジョブが存在するか判定。
+  - 担当ジョブが0件の場合、「`Task {task_index}/{task_count}: 対象ジョブが0件のため即座に正常終了します。`」とログ出力し、リソース起動処理を行わずに `sys.exit(0)`。
+  - これにより、意図せず立ち上がった余剰コンテナは数ミリ秒でExit 0し課金とリソース消費を防止。
+- **Cloud Workflows オーケストレーション (`terraform/workflows/daily_pipeline.yaml`)**:
+  - `args` より `company` / `propertyType` / `taskCount` を受け取る。
+  - 引数が渡された場合、`runCrawlerTasks` の `containerOverrides` の `args` に `--company=${company}`、`--property-type=${propertyType}` を付与。
+  - また、引数がある場合は `taskCount` を動的に制限（`min(target_task_count, 8)`）し、対象外のコンテナをそもそも起動させない。
+- **日次MLパイプラインの学習スキップ標準化**:
+  - 日次実行における `run_ml_pipeline.py` 呼び出し引数に `--skip-train` を反映（または環境変数 `ML_PIPELINE_SKIP_TRAIN=true`）。日次はバルク推論とお宝通知のみを実行し、学習は月次スケジュールに委譲。
+
+## 6.33 日次定常巡回におけるポータル除外とタスク数動的最適化設計 (Issue #813)
+- **Cloud Scheduler 定義 (`terraform/scheduler.tf`)**:
+  - `crawler_daily_trigger` のリクエストペイロード `argument` に `"skipPortals": true` を追加。
+- **Cloud Workflows 定義 (`terraform/workflows/daily_pipeline.yaml`)**:
+  - `initVars`: `skipPortals` 引数（デフォルト: `true`）を取得。
+  - `buildCrawlerArgs`:
+    - `skipPortals == true` の場合、`crawlerArgs` に `"--skip-portals"` を追加。
+    - `checkTaskCount`: `explicitTaskCount` 未指定時、`company/propertyType/sites` が指定されておらず、かつ `skipPortals == true` の場合は `effectiveTaskCount = 5` を設定（Task 0〜4 のみ起動し、ポータル担当の Task 5〜7 を起動抑止）。
+  - `runMLAndEstimation`:
+    - `skipPortals == true` の場合、ML Pipeline ジョブの引数に `"--skip-portals"` を渡す。
+
+## 6.34 Cloud定期実行ポータル完全除外および件数規模順優先処理内部設計 (Issue #985)
+- **Cloud実行環境判定およびポータルスキップ自動解決 (`package/utils/crawl_jobs.py`)**:
+  - `is_cloud_environment()` ヘルパー関数を提供（`IS_CLOUD=true` または `CRAWL_SKIP_PORTALS=true` を検知）。
+  - `run_pipeline.py`, `run_all_crawlers.py`, `run_ml_pipeline.py`, `run_bulk_ml_evaluation.py` の CLI オプションにおいて、`skip_portals` のデフォルト値を `is_cloud_environment()` で解決。`--no-skip-portals` で明示的に無効化可能。
+  - ローカル実行環境（`IS_CLOUD` 未定義）ではデフォルト `skip_portals=False` を維持し、ローカル本番実行での104ジョブ全件巡回を保証。
+- **件数規模順優先ソート (Longest-Job-First) (`package/utils/crawler_scheduler.py`)**:
+  - `calculate_job_priority(company, property_type)`: サイトの取扱物件規模（Tier 1〜5）および種別重み（mansion > kodate > tochi > invest）に基づく整数スコアを算出。
+  - `sort_jobs_by_priority(jobs)`: 各端末（ローカルまたは各タスクコンテナ）に割り当てられたジョブキューをスコア降順にソート。
+  - `run_all_crawlers.py` のキュー初期化時に `job_queue = sort_jobs_by_priority(list(target_jobs))` を適用し、件数の多いサイトから優先して並行ワーカーに投入。
+- **集約レポート整合性 (`pipeline_coordinator.py`, `run_ml_pipeline.py`)**:
+  - Cloud定期実行時（5タスクまたは8タスク）に、集約レポートの母数がポータル除外後の実効ジョブ数と完全合致し、未実行誤警報を排除。
+
+---
+
+### 6.33 本番デプロイ時イメージ管理・プルーニング安全化内部設計 (Issue #593)
+- **ステップ順序の再定義**:
+  - `.github/workflows/deploy-production.yml` において、`Prune old images (Keep latest 3 versions)` をすべての Cloud Run Job および Cloud Run Service の更新ステップの後（末尾）に配置。
+  - マイグレーションやサービス更新が失敗した場合は Prune が呼び出されず、稼働中のコンテナイメージが保護される。
+### 6.34 クローラー巡回件数過少・ページネーション停止および0件取得包括復旧内部設計 (Issue #676)
+- **0件取得失敗 (Zero Count Failure) 解消設計**:
+  - `sumifu_investment.py` (`ParseSumifuInvestKodateStartAsync`): `urlList` を最新の戸建て収益物件パラメータまたは一覧取得URLに更新し、カード抽出を担保。
+  - `nomura_investment.py` (`ParseNomuraInvestKodateStartAsync`): `nomu.com/pro/house/` のDOMレイアウトに適合するパース・セレクターを定義。
+- **1ページ目打ち切り (Pagination停止) 解消設計**:
+  - `misawaParser.py`: `parseNextPage` において `li.next a` に加え、`.pager a[rel='next']`, `.pagination-next a`, ページ番号インクリメントのフォールバックチェーンを実装。
+  - `sekisuiParser.py`: `parseNextPage` で `a` タグの完全一致だけでなく、`rel='next'`, クラス名、矢印リンク、クエリパラメータ更新による多段階リンク探索を実装。
+  - `odakyuParser.py`: `parseNextPage` のセレクターチェーンに `.paging li.next a`, `a.next-page`, `a.page-link` 等を追加。
+- **実行時クラッシュ・極小件数サイトの防御的設計**:
+  - `homesParser.py`: 一覧パースおよび詳細パースで属性抽出時の例外を安全に捕捉・フォールバックし、プロセス全体の早期クラッシュを排除。
+  - `sumirinParser.py`, `daiwaParser.py`: 一覧ページからの詳細リンクパターン（正規表現）の許容性を高め、取りこぼしを根絶。
+- [Cloud定期実行ポータル除外および件数順優先処理内部設計書](../internal_design/cloud_skip_portals_and_prioritized_crawl_internal_design_985.md): Cloudポータル除外・件数規模順優先処理仕様 (Issue #985)
+
+
+---
+
+## 7. 3層エンジニアリング・ハーネス ＆ Unified Site Registry 詳細設計 (Issue #1151)
+
+### 7.1 Antigravity 3層エンジニアリング・ハーネス
+1. **Layer 1 (Cognitive & Hierarchical Rules)**:
+   - ルート `.agents/AGENTS.md` に加え、`src/crawler/package/models/AGENTS.md`、`src/crawler/package/parser/AGENTS.md`、`src/crawler/package/ml/AGENTS.md`、`docs/AGENTS.md` のディレクトリ階層別ルールを配置し、該当レイヤー編集時にリファレンス実装と不変条件を自動注入する。
+2. **Layer 2 (Lifecycle Hooks & Architectural Fitness Functions)**:
+   - `.agents/hooks.json` (`scripts/hook_guard.py`) により、`Docker Desktop.exe` 等の GUI 起動（原則1違反）、メインワークツリー直接編集（原則3違反）、`production` 直接 push（原則6違反）を `PreToolUse` で機械的に遮断する。
+   - `src/crawler/tests/unit/test_architecture_harness.py` により、①ドキュメントSSOT＆重複ゼロ、②モデル4基底継承・フィールド型統一＆パーサー禁止構文ゼロ、③`SiteRegistry` 10箇所完全配線、④物件種別誤判定0%＆ML `GroupKFold` 強制を自動検証する。
+3. **Layer 3 (Runtime Observability & Self-Healing)**:
+   - `FailureReporter` のマルチエラー保持および `job_metrics.py` / `newrelic_helper.py` のフィールド別充填率ドリフト監視と `/auto-healing` スキルを連動させる。
+
+### 7.2 `InvestmentBaseModel` ＆ `TochiBaseModel` 型統一
+- `src/crawler/package/models/base.py` に `InvestmentBaseModel(PropertyBaseModel)` を新設し、投資用共通フィールド（`rimawari`, `kaisu`, `tatemono_menseki`, `tochi_menseki`, `kenpei`, `youseki`, `kozo`, `chikunengetsu` 等）を標準定義する。
+- `TochiBaseModel` の `kenpei`・`youseki` を `IntegerField(null=True, blank=True)` に統一し、全社モデル間の型不一致を解消する。
+
+### 7.3 Unified Site Registry (`src/crawler/package/site_registry.py`)
+- 各サイトのメタデータ（`company`, `display_name`, `property_types`, `models`, `parsers`, `api_keys`, `url_domains`, `ml_enabled`）を一元管理し、`CRAWL_JOBS`・`ApiRegistry`・`main.py`・`task_distribution.py`・`UrlRouter`・`ml/constants.py:COMPANIES`・`ml/evaluation/targets.py` との完全整合性を検証・保証する。

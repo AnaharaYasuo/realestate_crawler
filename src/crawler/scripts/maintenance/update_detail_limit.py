@@ -10,7 +10,7 @@ for f in files:
     if filename in ["api.py", "middleware.py", "registry.py"]:
         continue
         
-    with open(f, "r", encoding="utf-8") as file:
+    with open(f, encoding="utf-8") as file:
         content = file.read()
         
     if "DETAIL_PARARELL_LIMIT = 1" in content:

@@ -2,7 +2,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 from package.models.misawa import MisawaMansion, MisawaKodate, MisawaTochi, MisawaInvestmentApartment, MisawaInvestmentKodate
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ServerBusyException
 import re
 import datetime
 import logging
@@ -12,6 +12,7 @@ from package.api.differential import ListItem
 from decimal import Decimal, ROUND_HALF_UP
 
 logger = logging.getLogger(__name__)
+_DETAIL_LINK_SELECTOR = 'a[href*="detail_"]'
 
 _MISAWA_MAGUCHI_RE = (
     r'(?:間口|接面|接す|接道)\s*[：:]?\s*(?:約\s*)?(\d{1,5}(?:\.\d{1,3})?)\s*[m米]?'
@@ -92,11 +93,19 @@ class MisawaParser(ParserBase):
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         return super()._parseTransport1(response, specs)
 
+    def _check_misawa_maintenance(self, response: BeautifulSoup):
+        title_text = response.title.get_text().strip() if response.title else ""
+        body_text = response.body.get_text() if response.body else ""
+        all_text = f"{title_text} {body_text}"
+        if any(msg in all_text for msg in ["システムメンテナンス中", "現在システムメンテナンスを実施しております", "ただいまメンテナンス中"]):
+            raise ServerBusyException("Misawa system maintenance in progress")
+
     async def parsePropertyListPage(self, response: BeautifulSoup):
+        self._check_misawa_maintenance(response)
         sections = response.select('div.searchList div.section')
         
         if not sections:
-             links = response.select('a[href*="detail_"]')
+             links = response.select(_DETAIL_LINK_SELECTOR)
              for link in links:
                  p = self._extract_card_price(link)
                  yield ListItem(url=self.getRootDestUrl(link.get('href')), price=p)
@@ -114,6 +123,17 @@ class MisawaParser(ParserBase):
             yield ListItem(url=full_url, price=price)
 
     async def parseNextPage(self, response: BeautifulSoup):
+        # 検索結果（物件一覧）が空の場合は次ページが存在しても探索を打ち切る (無限ループ防止 Issue #1092)
+        # searchList要素が存在し、かつ物件セクションや詳細リンクが0件の場合は空結果ページとみなす
+        search_list = response.select_one('div.searchList')
+        if search_list is not None:
+            has_items = bool(
+                search_list.select('div.section')
+                or search_list.select(_DETAIL_LINK_SELECTOR)
+            )
+            if not has_items:
+                return ""
+
         # 多重セレクターおよびテキスト・属性探索によるフォールバック
         next_tag = (
             response.select_one('li.next a')
@@ -159,6 +179,7 @@ class MisawaParser(ParserBase):
         return self._specs_cache
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        self._check_misawa_maintenance(response)
         # Basic Info
         item.propertyName = self._parsePropertyName(response)
         item.priceStr = self._parsePriceStr(response)

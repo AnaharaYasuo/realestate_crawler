@@ -192,9 +192,10 @@ def test_url_router_resolution():
     sumikae_url = "https://sumikae.ttfuhan.co.jp/mansion/DMHF91449/"
     route_sumikae = router.resolve(sumikae_url)
     assert route_sumikae is not None
-    assert route_sumikae["site"] == "tokyu"
+    assert route_sumikae["site"] == "totate"
     assert route_sumikae["property_type"] == "mansion"
-    assert isinstance(UrlRouter.create_parser(sumikae_url), TokyuMansionParser)
+    from package.parser.totateParser import TotateMansionParser
+    assert isinstance(UrlRouter.create_parser(sumikae_url), TotateMansionParser)
 
     # 小田急不動産 (Odakyu)
     odakyu_invest_url = "https://www.odakyu-chukai.com/invest/list?focus=VA0389"

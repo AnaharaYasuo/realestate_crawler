@@ -14,13 +14,15 @@ def mock_deps():
          patch("scripts.ensure_resources_stopped._get_active_cloud_run_executions") as m_active, \
          patch("scripts.ensure_resources_stopped._get_instance_network_received_bytes") as m_traffic, \
          patch("scripts.ensure_resources_stopped._stop_instance") as m_stop, \
-         patch("scripts.ensure_resources_stopped.send_slack_alert") as m_slack:
+         patch("scripts.ensure_resources_stopped.send_slack_alert") as m_slack, \
+         patch("scripts.ensure_resources_stopped.send_slack_info") as m_info_slack:
         yield {
             "info": m_info,
             "active": m_active,
             "traffic": m_traffic,
             "stop": m_stop,
             "slack": m_slack,
+            "info_slack": m_info_slack,
         }
 
 
@@ -40,7 +42,8 @@ def test_active_traffic_skips_stop(mock_deps):
     assert result.forced_stop is False
     assert result.skipped_reason == "active_traffic"
     mock_deps["stop"].assert_not_called()
-    mock_deps["slack"].assert_called()
+    mock_deps["info_slack"].assert_called_once()
+    mock_deps["slack"].assert_not_called()
 
 
 def test_low_traffic_triggers_stop(mock_deps):

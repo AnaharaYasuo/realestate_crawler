@@ -8,15 +8,17 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 このスキルは、クローリング監視アラートや0件取得検出時（またはユーザーからの `/auto-heal` 指示時）にトリガーされ、人手を介さずに全自動でバグ修正および後修復検証を行う実行ガイドラインです。
 
 ## 実行原則（トークン節約＆効率化）
+* **証拠起点調査原則 (Evidence-First Investigation) ＆ 保存生HTML最優先利用**:
+  - 自己修復調査を行う際、**必ず直近の実行ログで保存された logs/runs/<日付>/error_pages/ または GCS 上のエラー生HTML（一覧0件時の zero_count_list.html や詳細パース失敗HTML）をオフラインで読み込み、DOM構造やエラーメッセージの事実確認を行うことを絶対義務**とする。現場の生HTMLを確認せずに外部サイトへの再リクエストを推測で行ってはならない。
 * **発生頻度順（Top-50 First）優先修復 ＆ 実行契機の限定**:
   - 全体クローリング完了時（`run_all_crawlers.py` 末尾）または手動 `/auto-heal` 呼び出し時の**1回のみ**実行。物件ごとのクローリングループ内での常時・逐次実行は完全禁止。
   - 全方位の無差別探索を行わず、`Temp/auto_heal_instruction.json` または障害テレメトリから**発生件数の多いエラー上位（最大50件）**を抽出し、頻度順に1件ずつピンポイントで修復する。
 * **ローカルへの生ログ読み込み完全禁止 (Direct-to-AI / No Local Log Ingestion)**:
   - ローカルマシン環境や Antigravity のコンテキストに生ログ（数十〜数百行）を読み込むことを完全禁止。
   - エラー集計・要約はコンテナ内メモリから Google Cloud Gemini (Flash) へダイレクトに送信し、AI が要約した数行の抜粋テキストのみを指示書・通知経由で受け取る。
-* **無差別探索・全チャンネル巡回の完全禁止**:
-  - Slack全チャンネル（8箇所）の巡回探索やスレッド総なめを禁止。通知メッセージおよび指示書記載の情報を唯一の起点とする。
-  - コンテナログの全行取得（`docker logs --tail 300` 等）は廃止。
+* **Slackエラー＆低件数異常の自動インジェスト (Slack Telemetry Integration)**:
+  - `auto_heal_parsers.py` が `SLACK_BOT_TOKEN` を用いてSlackのアラートチャンネル（`#alerts-*`、`#property_alert`、`#dev-agent`）から直近のエラーログ（0件取得警告、パース例外、大規模サイトの極小件数異常）を自動取得し、DBのデータ不整合スキャン結果と統合して指示書（`Temp/auto_heal_instruction.json`）を生成する。
+  - 人手による個別チャンネル確認や無差別巡回を不要とし、Slack上の障害検知を唯一の集約指示書として直接AI自己修復の起点にする。
 * **単一軽量サブエージェント規約**:
   - 調査・探索フェーズでサブエージェントを呼ぶ場合は**必ず1台のみ**起動し、モデルには安価な `flash` または `flash_lite` を指定する。
   - サブエージェント側で取得ログやエラーHTMLを構造化・要約（caveman形式等）し、コンテキストを圧縮した抽出情報のみをメインエージェントに返却する。
@@ -24,7 +26,8 @@ description: 直近のクローリング監視や全アラートSlackチャン�
 ## 実行ステップ
 
 ### 1. 指示書およびエラー集計からの修復対象特定（Top-50）
-* `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
+* `Temp/auto_heal_instruction.json`（存在しない場合は `python src/crawler/scripts/debug_tools/auto_heal_parsers.py` を実行して生成。DB不整合＋Slackエラー＋低件数異常を一括集計）に記録された Gemini AI による要約（`ai_summary`）および発生頻度上位（最大50件）の修復対象を特定。
+* 大規模ポータル（athome, homes等）で0件警告や極小件数が記録されている場合、一覧URL抽出セレクター、ページネーション、あるいはアクセス遮断を最優先で調査・修復。
 * 同一サイト＆種別で大量（数十〜200件等）の失敗が発生している場合は、`python src/crawler/scripts/debug_tools/bulk_auto_heal_diagnose.py --site <site> --type <type>` を実行し、全失敗サンプルを圧縮して Gemini Flash へ1リクエスト投入することで、包括的修正マニフェスト（`Temp/auto_heal_bulk_fix_manifest.json`）を生成して一括原因究明を行う。
 * ローカルへのログファイルの引き出し・読み込みは行わず、指示書の要約情報および対象URL・パーサーを直接確認。
 * パーサー未整備エラー（`[PARSER_UNAVAILABLE]`）が検知された場合、新規パーサー開発対象（Backlog）として自律的に開発タスクを起票・実装する。

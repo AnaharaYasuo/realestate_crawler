@@ -1,3 +1,4 @@
+import pytest
 import datetime
 import ssl
 from package.parser.sekisuiParser import SekisuiMansionParser, SekisuiKodateParser
@@ -53,6 +54,7 @@ def test_converter_parse_chikunengetsu_wareki_and_seireki():
     assert converter.parse_chikunengetsu("昭和65年1月") is None
 
 
+@pytest.mark.django_db
 def test_sekisui_mansion_model_validation_allows_blank_optional_fields():
     """Verify SekisuiMansion allows blank/None for optional numeric and date fields."""
     mansion = SekisuiMansion(

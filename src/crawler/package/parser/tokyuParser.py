@@ -6,9 +6,11 @@ import json
 import logging
 import re
 import sys
+import urllib.parse
 
 from bs4 import BeautifulSoup
 from package.models.tokyu import TokyuKodate, TokyuMansion, TokyuTochi
+FUDOSAN_TOUSHI_PATH = "/fudosan-toushi/"
 from package.parser.baseParser import (
     InvestmentParserBase,
     KodateParserBase,
@@ -21,6 +23,7 @@ from package.parser.baseParser import (
 from package.parser.investmentParser import InvestmentParser
 from package.utils import converter
 from package.utils import logging_config  # noqa: F401
+from package.utils.job_metrics import mark_empty_result
 from package.utils.selector_loader import SelectorLoader
 from package.api.differential import ListItem
 
@@ -58,6 +61,8 @@ def check_tokyu_listing_ended(response, page_url: str = "unknown"):
 
 
 class TokyuParser(ParserBase):
+    MAX_CONSECUTIVE_TIMEOUTS = 5
+    REQUEST_TIMEOUT_SEC = 25
 
     def _get_spec_val(self, specs, key, default=""):
         if not specs or key not in specs:
@@ -68,11 +73,11 @@ class TokyuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return self._get_spec_val(specs, "現況") or self._get_spec_val(specs, "現況状況")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -100,9 +105,35 @@ class TokyuParser(ParserBase):
     def getRootDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
+    def _extract_pc_root_links(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        pc_links = response.select("[class*='prefecturesListPc'] a[href*='/select-area/']")
+        if not pc_links:
+            return []
+        seen = set()
+        res = []
+        for a in pc_links:
+            href = a.get("href", "")
+            dest = self.getRootDestUrl(href) if href else None
+            if dest and dest not in seen:
+                seen.add(dest)
+                res.append(dest)
+        return res
+
     async def parseRootPage(self, response):
+        pc_urls = self._extract_pc_root_links(response)
+        if pc_urls:
+            for url in pc_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getRootXpath, self.getRootDestUrl):
-            yield dest_url
+            url_str = getattr(dest_url, "url", str(dest_url))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield dest_url
 
     def getAreaXpath(self):
         return ''
@@ -110,9 +141,33 @@ class TokyuParser(ParserBase):
     def getAreaDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
-    async def parseAreaPage(self, response):        
+    def _extract_city_area_links(self, response) -> list:
+        if not hasattr(response, "find_all"):
+            return []
+        seen = set()
+        res = []
+        for a in response.find_all("a", href=True):
+            href = a.get("href", "")
+            if re.search(r'/kounyu/[^/]+/[^/]+/a\d+/?$', href):
+                dest = self.getAreaDestUrl(href)
+                if dest and dest not in seen:
+                    seen.add(dest)
+                    res.append(dest)
+        return res
+
+    async def parseAreaPage(self, response):
+        city_urls = self._extract_city_area_links(response)
+        if city_urls:
+            for url in city_urls:
+                yield url
+            return
+
+        seen = set()
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
-            yield dest_url
+            url_str = getattr(dest_url, "url", str(dest_url))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield dest_url
 
     def getPropertyListXpath(self):
         return ''
@@ -120,22 +175,103 @@ class TokyuParser(ParserBase):
     def getPropertyListDestUrl(self, link_url):
         return self.BASE_URL + link_url
 
-    async def parsePropertyListPage(self, response):
-        async for dest_url in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
-            yield dest_url
+    def _extract_card_items(self, response) -> list:
+        if not hasattr(response, "select"):
+            return []
+        cards = response.select("[class*='propertyCardContents']")
+        if not cards:
+            return []
+        seen = set()
+        items = []
+        price_cache = {}
+        for card in cards:
+            a = card.find("a", href=True)
+            if not a:
+                continue
+            dest_url = self.getPropertyListDestUrl(a.get("href", ""))
+            if dest_url and dest_url not in seen:
+                seen.add(dest_url)
+                price = self._extract_card_price(a, cache=price_cache)
+                items.append(ListItem(url=dest_url, price=price))
+        return items
 
-    async def getPropertyListNextPageUrl(self, response):
+    def _extract_nextjs_items_dedup(self, response) -> list | None:
+        if not hasattr(self, "_extract_nextjs_urls"):
+            return None
+        items = self._extract_nextjs_urls(response)
+        if items is None:
+            return None
+        seen = set()
+        res = []
+        for item in items:
+            url_str = getattr(item, "url", str(item))
+            if url_str not in seen:
+                seen.add(url_str)
+                res.append(item)
+        return res
+
+    async def parsePropertyListPage(self, response):
+        nextjs_items = self._extract_nextjs_items_dedup(response)
+        if nextjs_items is not None:
+            for item in nextjs_items:
+                yield item
+            return
+
+        card_items = self._extract_card_items(response)
+        if card_items:
+            for item in card_items:
+                yield item
+            return
+
+        seen = set()
+        async for item in self._parsePageCore(response, self.getPropertyListXpath, self.getPropertyListDestUrl):
+            url_str = getattr(item, "url", str(item))
+            if url_str not in seen:
+                seen.add(url_str)
+                yield item
+
+    @staticmethod
+    def _is_valid_tokyu_svg_next(a, current_page: int) -> bool:
+        href = a.get('href', '')
+        if not (('page=' in href or 'p=' in href) and a.find('svg')):
+            return False
+        classes = ' '.join(a.get('class', [])).lower()
+        rel = a.get('rel', '')
+        rel_str = ' '.join(rel) if isinstance(rel, list) else str(rel)
+        if 'prev' in classes or 'prev' in rel_str.lower() or 'back' in classes:
+            return False
+        m_p = re.search(r'[?&](?:page|p)=(\d+)', href)
+        if not m_p:
+            return False
+        target_page = int(m_p.group(1))
+        return target_page > max(1, current_page)
+
+    def _find_next_link(self, response, current_page: int = 1):
+        next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
+        next_el = response.select_one(next_css)
+        if next_el:
+            return next_el
+        next_el = response.find('a', string=re.compile("次へ|次"))
+        if next_el:
+            return next_el
+        if current_page > 0 and hasattr(response, 'find_all'):
+            return next((a for a in response.find_all('a', href=True) if self._is_valid_tokyu_svg_next(a, current_page)), None)
+        return None
+
+    async def getPropertyListNextPageUrl(self, response, current_url: str = ""):
         await asyncio.sleep(0)
         logger.trace("getPropertyListNextPageUrl")
         try:
             if hasattr(response, 'select_one'):
-                next_css = self.selectors.get('next_page_css', 'a.pagination-next, a.is-next, a[rel="next"]')
-                next_el = response.select_one(next_css)
-                if not next_el:
-                    next_el = response.find('a', string=re.compile("次へ|次"))
+                current_page = 0
+                if current_url:
+                    m_curr = re.search(r'[?&](?:page|p)=(\d+)', current_url)
+                    current_page = int(m_curr.group(1)) if m_curr else 1
+                next_el = self._find_next_link(response, current_page=current_page)
                 if next_el and next_el.get('href'):
                     href = next_el.get('href')
-                    return href if href.startswith('http') else self.BASE_URL + href
+                    base = current_url or self.BASE_URL
+                    return urllib.parse.urljoin(base, href)
         except Exception as e:
             logger.warning("getPropertyListNextPageUrl exception: %s", e)
         return ""
@@ -554,6 +690,11 @@ class TokyuParser(ParserBase):
 
 
 class TokyuMansionParser(TokyuParser, MansionParserBase):
+    def _reject_non_property_url(self, url) -> None:
+        super()._reject_non_property_url(url)
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
+            raise SkipPropertyException(f"Tokyu investment property mixed into mansion crawl: {url}")
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
@@ -566,22 +707,22 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseFloor(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("階数", "") or specs.get("所在階", "") or super()._parseFloor(response, specs)
+        return self._get_spec_val(specs, "階数") or self._get_spec_val(specs, "所在階") or super()._parseFloor(response, specs)
 
     def _parseSouKosu(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("総戸数", "")
+        val = self._get_spec_val(specs, "総戸数")
         if val:
             m = DIGITS_PATTERN.search(val)
             return int(m.group(1)) if m else None
@@ -589,12 +730,12 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 
     def _parseManagementFee(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("管理費", "") or specs.get("管理費等", "")
+        val = self._get_spec_val(specs, "管理費") or self._get_spec_val(specs, "管理費等")
         return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseManagementFee(response, specs)
 
     def _parseReserveFund(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        val = specs.get("修繕積立金", "")
+        val = self._get_spec_val(specs, "修繕積立金")
         return converter.parse_yen(val) if val and 'converter' in globals() else super()._parseReserveFund(response, specs)
 
     def _parseKenpei(self, response, specs=None):
@@ -748,6 +889,11 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
             item.syuzenTsumitate_p_heibei = (item.syuzenTsumitate or 0) / item.senyuMenseki
 
 class TokyuTochiParser(TokyuParser, TochiParserBase):
+    def _reject_non_property_url(self, url) -> None:
+        super()._reject_non_property_url(url)
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
+            raise SkipPropertyException(f"Tokyu investment property mixed into tochi crawl: {url}")
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
@@ -769,18 +915,18 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
 
     def _parseChimoku(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("地目", "") or super()._parseChimoku(response, specs)
+        return self._get_spec_val(specs, "地目") or super()._parseChimoku(response, specs)
 
     def _parseSetsudou(self, response, specs=None) -> str:
         return super()._parseSetsudou(response, specs)
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     property_type = 'tochi'
 
@@ -872,6 +1018,11 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
         return item
 
 class TokyuKodateParser(TokyuParser, KodateParserBase):
+    def _reject_non_property_url(self, url) -> None:
+        super()._reject_non_property_url(url)
+        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
+            raise SkipPropertyException(f"Tokyu investment property mixed into kodate crawl: {url}")
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
@@ -887,14 +1038,14 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -904,11 +1055,11 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     property_type = 'kodate'
 
@@ -921,28 +1072,29 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item: TokyuKodate = super()._parsePropertyDetailPage(item, response)
-        item.madori = self._parseMadori(response)
-        item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response)
-        item.tatemonoMenseki = self._parseTatemonoMenseki(response)
-        item.tochiMensekiStr = self._parseTochiMensekiStr(response)
-        item.tochiMenseki = self._parseTochiMenseki(response)
-        item.shidoMensekiStr = self._parseShidoMensekiStr(response)
-        item.shidoMenseki = self._parseShidoMenseki(response)
-        item.kouzou = self._parseKouzou(response)
-        item.kaisuStr = self._parseKaisuStr(response)
-        item.chikunengetsuStr = self._parseChikunengetsuStr(response)
-        item.chikunengetsu = self._parseChikunengetsu(response)
-        item.youtoChiiki = self._parseYoutoChiiki(response)
-        item.setsudou = self._parseSetsudou(response)
+        specs = self._scrape_specs(response)
+        item.madori = self._parseMadori(response, specs)
+        item.tatemonoMensekiStr = self._parseTatemonoMensekiStr(response, specs)
+        item.tatemonoMenseki = self._parseTatemonoMenseki(response, specs)
+        item.tochiMensekiStr = self._parseTochiMensekiStr(response, specs)
+        item.tochiMenseki = self._parseTochiMenseki(response, specs)
+        item.shidoMensekiStr = self._parseShidoMensekiStr(response, specs)
+        item.shidoMenseki = self._parseShidoMenseki(response, specs)
+        item.kouzou = self._parseKouzou(response, specs)
+        item.kaisuStr = self._parseKaisuStr(response, specs)
+        item.chikunengetsuStr = self._parseChikunengetsuStr(response, specs)
+        item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.setsudou = self._parseSetsudou(response, specs)
         item.setsumen = self._parseSetsumen_Str(response)
         item.douroHaba = self._parseDouroHaba_Str(response)
-        item.saikou = self._parseSaikou(response)
-        item.kenpeiStr = self._parseKenpeiStr(response)
-        item.yousekiStr = self._parseYousekiStr(response)
-        item.kenpeiYousekiStr = self._parseKenpeiYousekiStr(response)
-        item.kenpei = Decimal(self._parseKenpei(response))
-        item.youseki = Decimal(self._parseYouseki(response))
-        item.kuiki = self._parseKuiki(response)
+        item.saikou = self._parseSaikou(response, specs)
+        item.kenpeiStr = self._parseKenpeiStr(response, specs)
+        item.yousekiStr = self._parseYousekiStr(response, specs)
+        item.kenpeiYousekiStr = self._parseKenpeiYousekiStr(response, specs)
+        item.kenpei = Decimal(self._parseKenpei(response, specs))
+        item.youseki = Decimal(self._parseYouseki(response, specs))
+        item.kuiki = self._parseKuiki(response, specs)
         
         # 統一土地評価フィールドのパース ＆ 代入
         if item.setsumen is not None:
@@ -970,6 +1122,12 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
 
 class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
 
+    def _get_spec_val(self, specs, key, default=""):
+        if not specs or key not in specs:
+            return default
+        val = specs[key]
+        return val.get('value', default) if isinstance(val, dict) else str(val)
+
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
@@ -995,8 +1153,18 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         full_url = self.BASE_URL + detail_url if detail_url.startswith('/') else detail_url
         if self._is_non_property_href(full_url):
             return None
-        raw_price = item.get('price') or item.get('salesPrice')
-        price = converter.parse_price(str(raw_price)) if raw_price else None
+        price_model = item.get('priceModel')
+        if isinstance(price_model, dict) and price_model.get('price') is not None:
+            price = int(price_model['price'])
+        else:
+            raw_price = item.get('price') or item.get('salesPrice')
+            if isinstance(raw_price, (int, float)):
+                # If already an integer in yen (>= 100,000), use directly without man-to-yen multiplication
+                price = int(raw_price) if raw_price >= 100000 else int(raw_price * 10000)
+            elif raw_price:
+                price = converter.parse_price(str(raw_price))
+            else:
+                price = None
         return ListItem(url=full_url, price=price)
 
     def _extract_nextjs_urls(self, response):
@@ -1349,7 +1517,7 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
         try:
             specs = self._scrape_specs(response)
             item.setsudou = self._parseSetsudou(response, specs)
-            item.setsumen = specs.get("接道方向／幅員", specs.get("接道", ""))
+            item.setsumen = self._get_spec_val(specs, "接道方向／幅員") or self._get_spec_val(specs, "接道")
             if item.setsumen:
                 item.maguchiStr = str(item.setsumen)
                 m = FLOAT_PATTERN.search(item.maguchiStr)
@@ -1376,8 +1544,12 @@ class TokyuInvestmentParser(InvestmentParser, InvestmentParserBase):
     async def parseNextPage(self, response):
         next_page_text = self.selectors.get('next_page', "次へ")
         next_link = response.find('a', string=re.compile(next_page_text))
+        if not next_link:
+            # Next.js pagination: <a aria-label="次のページへ" href="https://...?page=N">
+            next_link = response.find('a', attrs={'aria-label': re.compile('次')}, href=True)
         if next_link and next_link.get('href'):
-            return self.BASE_URL + next_link.get('href')
+            href = next_link.get('href')
+            return href if href.startswith('http') else self.BASE_URL + href
         return ""
 
     def _scrape_specs(self, response: BeautifulSoup) -> dict:
@@ -1541,6 +1713,59 @@ class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase
 class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
     property_type = 'invest_kodate'
 
+    EXCLUDED_LABELS = {
+        'ホテル', '旅館', '車庫・立体駐車場', '車庫', '立体駐車場',
+        '店舗', '事務所', '倉庫', '工場', '寮・社宅', '医療施設',
+        'マンション一棟売', 'アパート一棟売', 'ビル一棟', 'リゾートマンション・別荘'
+    }
+
+    def _has_valid_kodate_label(self, item: dict) -> bool:
+        labels = item.get('labelList') or []
+        all_label_parts = set()
+        for lbl in labels:
+            if isinstance(lbl, dict):
+                for field in ('listText', 'detailText'):
+                    val = lbl.get(field)
+                    if val:
+                        all_label_parts.update(part.strip() for part in val.split('/'))
+        has_direct_kodate = any('戸建' in part or '戸建て' in part for part in all_label_parts)
+        has_other_label = 'その他(土地・建物)' in all_label_parts
+        if not has_direct_kodate and not has_other_label:
+            return False
+        return not any(
+            any(exc in part for exc in self.EXCLUDED_LABELS)
+            for part in all_label_parts
+        )
+
+    def _is_multi_unit_or_high_floor(self, item: dict) -> bool:
+        property_detail = item.get('propertyDetail') or []
+        for det_str in property_detail:
+            if '戸' in det_str:
+                m_unit = re.search(r'([1-9]\d*)戸', det_str)
+                if m_unit and int(m_unit.group(1)) > 1:
+                    return True
+            if '階建' in det_str:
+                m_floor = re.search(r'(?:地上)?([1-9]\d*)階建', det_str)
+                if m_floor and int(m_floor.group(1)) > 3:
+                    return True
+        return False
+
+    def _parse_nextjs_property_item(self, item):
+        if not self._has_valid_kodate_label(item):
+            return None
+        if self._is_multi_unit_or_high_floor(item):
+            return None
+        return super()._parse_nextjs_property_item(item)
+
+    async def parsePropertyListPage(self, response):
+        found_any = False
+        async for item in super().parsePropertyListPage(response):
+            found_any = True
+            yield item
+        if not found_any:
+            logger.info("TokyuInvestmentKodate: 0 active listings found on site, marking valid empty result.")
+            mark_empty_result()
+
     def _parseTochiMenseki(self, response, specs=None):
         return super()._parseTochiMenseki(response, specs)
 
@@ -1549,14 +1774,14 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _parseMadori(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("間取り", "") or specs.get("間取", "") or super()._parseMadori(response, specs)
+        return self._get_spec_val(specs, "間取り") or self._get_spec_val(specs, "間取") or super()._parseMadori(response, specs)
 
     def _parseChikunengetsu(self, response, specs=None):
         return super()._parseChikunengetsu(response, specs)
 
     def _parseKouzou(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or super()._parseKouzou(response, specs)
+        return self._get_spec_val(specs, "構造") or super()._parseKouzou(response, specs)
 
     def _parseKenpei(self, response, specs=None):
         return super()._parseKenpei(response, specs)
@@ -1566,11 +1791,11 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
 
     def _parseRights(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "") or super()._parseRights(response, specs)
+        return self._get_spec_val(specs, "権利") or self._get_spec_val(specs, "土地権利") or super()._parseRights(response, specs)
 
     def _parseYoutoChiiki(self, response, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("用途地域", "") or super()._parseYoutoChiiki(response, specs)
+        return self._get_spec_val(specs, "用途地域") or super()._parseYoutoChiiki(response, specs)
 
     def createEntity(self):
         from package.models.tokyu import TokyuInvestmentKodate
@@ -1582,7 +1807,7 @@ class TokyuInvestmentKodateParser(TokyuInvestmentParser, KodateParserBase):
         title_text = response.title.get_text() if response.title else ""
         h1_text = (response.find("h1") or "").get_text() if response.find("h1") else ""
         combined_text = f"{title_text} {h1_text} {item.propertyName or ''}"
-        if any(kw in combined_text for kw in ["マンション", "区分", "一室"]):
+        if any(kw in combined_text for kw in ["マンション", "区分", "一室", "ビル", "ホテル", "旅館", "店舗", "事務所", "立体駐車場"]):
             raise SkipPropertyException(f"Tokyu investment kodate parser skipping non-kodate unit: {item.propertyName}")
 
         item = super()._parsePropertyDetailPage(item, response)

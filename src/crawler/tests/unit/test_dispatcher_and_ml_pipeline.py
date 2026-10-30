@@ -9,19 +9,16 @@ def test_dispatcher_mig_start_and_enqueue():
 
     with patch.object(run_dispatcher, "scale_proxysql_mig") as mock_scale, \
          patch.object(run_dispatcher, "wait_for_proxysql_health") as mock_health, \
-         patch.object(run_dispatcher, "enqueue_crawl_tasks") as mock_enqueue, \
-         patch.object(run_dispatcher, "run_db_migration") as mock_migrate:
+         patch.object(run_dispatcher, "enqueue_crawl_tasks") as mock_enqueue:
 
         mock_scale.return_value = True
         mock_health.return_value = True
         mock_enqueue.return_value = 45
-        mock_migrate.return_value = True
 
         exit_code = run_dispatcher.main(argv=[])
         assert exit_code == 0
         mock_scale.assert_called_once_with(target_size=1, dry_run=False)
         mock_health.assert_called_once()
-        mock_migrate.assert_called_once()
         mock_enqueue.assert_called_once()
 
 

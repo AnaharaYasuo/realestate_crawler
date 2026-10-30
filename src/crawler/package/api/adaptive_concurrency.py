@@ -152,11 +152,11 @@ class AdaptiveConcurrencyController:
         try:
             from filelock import FileLock
             lock = FileLock(cls._get_lock_file(), timeout=3)
-            with lock, open(state_file, "r", encoding="utf-8") as f:
+            with lock, open(state_file, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:  # noqa: BLE001
             try:
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     return json.load(f)
             except (OSError, json.JSONDecodeError):
                 return {}
@@ -171,7 +171,7 @@ class AdaptiveConcurrencyController:
                 current = {}
                 if os.path.exists(state_file):
                     try:
-                        with open(state_file, "r", encoding="utf-8") as f:
+                        with open(state_file, encoding="utf-8") as f:
                             current = json.load(f)
                     except (OSError, json.JSONDecodeError):
                         current = {}

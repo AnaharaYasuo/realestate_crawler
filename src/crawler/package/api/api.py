@@ -1,45 +1,52 @@
 import asyncio
-import aiohttp
+import concurrent.futures
+import datetime
 import gc
-import os
+import hashlib
 import json
+import logging
+import os
+import re
 import ssl
 import threading
 import time
-import traceback
-from urllib.parse import urlparse
-from abc import ABCMeta, abstractmethod
-from typing import Any, ClassVar, Dict, Optional, Tuple  # noqa: UP035
-from pathlib import Path
-import re
 import uuid
+from abc import ABCMeta, abstractmethod
+from builtins import Exception
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, ClassVar
+from urllib.parse import urlparse
+
+import aiohttp
 import requests
-from package.api.registry import ApiRegistry
-from package.utils.storage import get_storage_manager
-from package.ml.investment_evaluator import evaluate_investment_property
-
-from package.parser.baseParser import LoadPropertyPageException, ParserBase, \
-    ReadPropertyNameException, SkipPropertyException, ListingEndedException
-
-import datetime
+from asgiref.sync import sync_to_async
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, OperationalError, close_old_connections
-from builtins import Exception
-import logging
+
+from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+from package.api.differential import ListItem, filter_differential_items
+from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
+from package.api.registry import ApiRegistry
+from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
+from package.parser.baseParser import (
+    LoadPropertyPageException,
+    ParserBase,
+    ReadPropertyNameException,
+    SkipPropertyException,
+    check_site_maintenance,
+)
+from package.utils.converter import parse_chidai
+from package.utils.crawler_watchdog import touch_crawler_progress
+from package.utils.data_validator import tag_property_integrity
+from package.utils.failure_reporter import FailureReporter
+from package.utils.property_type_detector import PropertyTypeDetector
+from package.utils.report import CrawlerReporter
+from package.utils.storage import get_storage_manager
+from package.utils.url_matcher import UrlMatcher
 
 logger = logging.getLogger(__name__)
-from decimal import Decimal
-from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
-from package.utils.report import CrawlerReporter
-from asgiref.sync import sync_to_async
-from package.api.differential import filter_differential_items, ListItem
-from package.models.evaluation import PropertyPriceHistory, PropertyEvaluation
-from package.utils.url_matcher import UrlMatcher
-from package.utils.property_type_detector import PropertyTypeDetector
-from package.utils.converter import parse_chidai
-from package.utils.failure_reporter import FailureReporter
-from package.utils.data_validator import tag_property_integrity
-from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+
 header = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 GLOBAL_SAVE_COUNT = 0
 
@@ -50,10 +57,187 @@ BKDETAIL_ID_PATTERN = re.compile(r'bkdetail/([^/]+)')
 _MODEL_NAME_PREFIXES = ("Parse",)
 _MODEL_NAME_SUFFIXES = ("StartAsync", "ListAsync", "DetailAsync", "Start", "Async", "API")
 _KNOWN_PROPERTY_TYPES = frozenset({"mansion", "kodate", "tochi", "invest", "investment"})
+MIDDLE_PAGE_PARSE_FAILURE_PREFIX = "Middle Page Parse Failure:"
+STOP_FLAG_FILE = "stop.flag"
 
 _crawl_run_state = threading.local()
 _dispatched_detail_lock = threading.Lock()
 _RETRYABLE_DISPATCH_STATUSES = frozenset({408, 429})
+
+
+def _get_default_dispatch_queue_size() -> int:
+    try:
+        val = int(os.getenv("CRAWLER_DISPATCH_QUEUE_SIZE", "5000"))
+        return val if val > 0 else 5000
+    except (ValueError, TypeError):
+        return 5000
+
+
+DEFAULT_DISPATCH_QUEUE_SIZE = _get_default_dispatch_queue_size()
+_active_fire_and_forget_threads: set[threading.Thread] = set()
+_active_fire_and_forget_futures: set[concurrent.futures.Future] = set()
+_failed_fire_and_forget_dispatches: list[tuple[str, str, BaseException]] = []
+_active_threads_lock = threading.Lock()
+_local_worker_semaphore: threading.Semaphore | None = None
+_local_worker_semaphore_lock = threading.Lock()
+_local_worker_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_local_worker_executor_lock = threading.Lock()
+
+
+def _get_local_worker_concurrency() -> int:
+    try:
+        val = int(os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "10"))
+        return val if val > 0 else 10
+    except (ValueError, TypeError):
+        return 10
+
+
+def _get_local_worker_semaphore() -> threading.Semaphore:
+    global _local_worker_semaphore
+    with _local_worker_semaphore_lock:
+        if _local_worker_semaphore is None:
+            limit = _get_local_worker_concurrency()
+            _local_worker_semaphore = threading.Semaphore(limit)
+        return _local_worker_semaphore
+
+
+def _get_local_worker_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """Issue #1046: スレッド無制限生成を防ぎ、固定ワーカー数で使い回すThreadPoolExecutorを取得"""
+    global _local_worker_executor
+    with _local_worker_executor_lock:
+        if _local_worker_executor is None:
+            limit = _get_local_worker_concurrency()
+            _local_worker_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=limit,
+                thread_name_prefix="crawler-worker"
+            )
+        return _local_worker_executor
+
+
+def _track_fire_and_forget_thread(t: threading.Thread) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_threads.add(t)
+
+
+def _untrack_fire_and_forget_thread(t: threading.Thread) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_threads.discard(t)
+
+
+def _track_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_futures.add(fut)
+
+
+def _untrack_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
+    with _active_threads_lock:
+        _active_fire_and_forget_futures.discard(fut)
+
+
+def _record_fire_and_forget_failure(path: str, url: str, exc: BaseException) -> None:
+    with _active_threads_lock:
+        _failed_fire_and_forget_dispatches.append((path, url, exc))
+
+
+def _get_fire_and_forget_wait_timeout() -> float:
+    try:
+        val = float(os.getenv("CRAWLER_FIRE_AND_FORGET_WAIT_TIMEOUT", "7200.0"))
+        return val if val >= 0 else 7200.0
+    except (ValueError, TypeError):
+        return 7200.0
+
+
+def _poll_active_threads(curr: threading.Thread) -> list[Any]:
+    with _active_threads_lock:
+        alive_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        _active_fire_and_forget_threads.intersection_update(set(alive_threads) | ({curr} if curr in _active_fire_and_forget_threads else set()))
+        alive_futures = [f for f in _active_fire_and_forget_futures if not f.done()]
+        _active_fire_and_forget_futures.intersection_update(set(alive_futures))
+        return alive_threads + alive_futures
+
+
+def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
+    with _active_threads_lock:
+        remaining_threads = [t for t in _active_fire_and_forget_threads if t.is_alive() and t is not curr]
+        remaining_futures = [f for f in _active_fire_and_forget_futures if not f.done()]
+        remaining = remaining_threads + remaining_futures
+        failures = list(_failed_fire_and_forget_dispatches)
+        _failed_fire_and_forget_dispatches.clear()
+
+    if remaining and not os.path.exists(STOP_FLAG_FILE):
+        logger.error(
+            "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
+            timeout,
+            len(remaining),
+            remaining,
+        )
+        raise TimeoutError(f"Timed out waiting for {len(remaining)} fire-and-forget threads to finish")
+
+    if failures:
+        logger.warning(
+            "Fire-and-forget execution completed with %d child failures (e.g. %s -> %s: %r)",
+            len(failures),
+            failures[0][0],
+            failures[0][1],
+            failures[0][2],
+        )
+    else:
+        logger.info("All fire-and-forget background threads finished successfully")
+
+
+def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
+    if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
+        return
+    cancelled_count = 0
+    with _active_threads_lock:
+        for fut in _active_fire_and_forget_futures:
+            if not fut.done() and fut.cancel():
+                cancelled_count += 1
+    if cancelled_count > 0:
+        logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
+
+
+def _touch_active_progress_files() -> None:
+    """Update progress touch files to signal watchdog that worker threads are active."""
+    try:
+        prog_dir = Path("logs/progress")
+        if prog_dir.exists():
+            for touch_file in prog_dir.glob("progress_*.touch"):
+                touch_file.touch(exist_ok=True)
+    except Exception:
+        pass
+
+
+def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> None:
+    """ルート main() 終了時に未完了の fire-and-forget スレッドの正常終了を待機"""
+    if timeout is None:
+        timeout = _get_fire_and_forget_wait_timeout()
+
+    start = time.monotonic()
+    curr = threading.current_thread()
+    last_log_time = start
+    consecutive_idle = 0
+
+    while not os.path.exists(STOP_FLAG_FILE):
+        now = time.monotonic()
+        if timeout > 0 and (now - start) >= timeout:
+            break
+
+        alive = _poll_active_threads(curr)
+        consecutive_idle = (consecutive_idle + 1) if not alive else 0
+        if consecutive_idle >= 3:
+            break
+
+        if now - last_log_time >= 15.0 and alive:
+            logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
+            last_log_time = now
+            _touch_active_progress_files()
+
+        time.sleep(0.5)
+
+    timeout_expired = timeout > 0 and (time.monotonic() - start) >= timeout
+    _cancel_unstarted_futures_on_stop(timeout_expired)
+    _check_wait_results(timeout, curr)
 
 
 def _current_dispatch_keys() -> set[tuple[str, str]] | None:
@@ -107,7 +291,7 @@ def _request_sent_trace_config() -> aiohttp.TraceConfig:
     return trace_config
 
 
-def _extract_company_and_ptype(model_name: str) -> Tuple[str, str]:
+def _extract_company_and_ptype(model_name: str) -> tuple[str, str]:
     """Derive company / property_type from entity or Parse* class names."""
     name = model_name or ""
     for prefix in _MODEL_NAME_PREFIXES:
@@ -142,16 +326,18 @@ def _sync_save_error_html_by_url(
     company_dir.mkdir(parents=True, exist_ok=True)
 
     match = DETAIL_ID_PATTERN.search(url) or BKDETAIL_ID_PATTERN.search(url)
-    p_id = match.group(1) if match else str(int(datetime.datetime.now().timestamp()))
+    p_id = match.group(1) if match else hashlib.sha256(url.encode('utf-8')).hexdigest()[:16]
 
     html_file = company_dir / f"{p_id}.html"
 
     html_bytes: bytes | None = None
+    http_status: int | None = None
     if raw_html is not None:
         html_bytes = raw_html.encode("utf-8") if isinstance(raw_html, str) else raw_html
     else:
         try:
             response = requests.get(url, headers=header, timeout=30)
+            http_status = response.status_code
             if response.status_code == 200:
                 html_bytes = response.content
             else:
@@ -177,7 +363,8 @@ def _sync_save_error_html_by_url(
             error_message=reason,
             target_url=url,
             exit_code=1,
-            raw_html=html_bytes
+            raw_html=html_bytes,
+            http_status=http_status,
         )
     except Exception as fe:  # noqa: BLE001
         logger.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
@@ -659,6 +846,10 @@ API_KEY_KENBIYA_INVEST_APARTMENT_DETAIL = '/api/kenbiya/invest_apartment/detail'
 API_KEY_KENBIYA_INVEST_BUILDING_START = '/api/kenbiya/invest_building/start'
 API_KEY_KENBIYA_INVEST_BUILDING_DETAIL = '/api/kenbiya/invest_building/detail'
 
+# RE-Guide (リガイド)
+API_KEY_REGUIDE_INVESTMENT_START = '/api/reguide/investment/start'
+API_KEY_REGUIDE_INVESTMENT_DETAIL = '/api/reguide/investment/detail'
+
 
 # ------------------------------------------------------------------
 # 偏差値（T-score）ベースの上位1%お宝物件判定ヘルパー
@@ -675,7 +866,8 @@ def get_score_statistics(is_investment: bool) -> tuple[float, float, int]:
     Returns:
         (mean, stddev, count)
     """
-    from django.db.models import Avg, StdDev, Count
+    from django.db.models import Avg, Count, StdDev
+
     from package.models.evaluation import PropertyEvaluation
 
     if is_investment:
@@ -784,12 +976,21 @@ class DynamicSemaphore:
 
 
 class ApiAsyncProcBase(metaclass=ABCMeta):
-    USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:61.0) Gecko/20100101 Firefox/61.1'
+    def _touch_watchdog_progress(self, item=None):
+        try:
+            comp = self._detect_company_name(item) if item else self._resolve_target_company()
+            ptype = PropertyTypeDetector.detect_from_object(item) if item else getattr(getattr(self, 'parser', None), 'property_type', None)
+            if comp and ptype:
+                touch_crawler_progress(str(comp).lower(), str(ptype).lower())
+        except Exception:
+            pass
+
+    USER_AGENT = header['User-Agent']
     headersJson = {
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
     }
-    _loop: Optional[asyncio.AbstractEventLoop] = None
+    _loop: asyncio.AbstractEventLoop | None = None
     middlewares: list[CrawlerMiddleware] = [LoggingMiddleware()]
     _semaphore: DynamicSemaphore | None = None
     _semaphore_limit: int | None = None
@@ -836,13 +1037,24 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if (self._loop is None or self._loop.is_closed()):
                 self._loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(self._loop)
+                # インタプリタ終了処理時のデフォルトエグゼキュータ閉鎖によるクラッシュを防止
+                executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=int(os.getenv("LOCAL_EXECUTION_WORKERS_PER_LOOP", "10")),
+                    thread_name_prefix="crawler-worker"
+                )
+                self._loop.set_default_executor(executor)
+                self._loop._custom_executor = executor  # type: ignore[attr-defined]
             return self._loop
 
     def _generateConnector(self, _loop):
         """Create a bounded aiohttp connector using the default TLS checks."""
-        # SSL Context with secure defaults
+        # SSL Context with secure defaults and compatible ciphers
         ctx = ssl.create_default_context()
         ctx.options |= ssl.OP_NO_TICKET
+        try:
+            ctx.set_ciphers("HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4")
+        except Exception:
+            pass
         return aiohttp.TCPConnector(loop=_loop, limit=TCP_CONNECTOR_LIMIT, ssl=ctx)
 
     def _generateTimeout(self):
@@ -871,6 +1083,9 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     async def _fetchWithEachSession(self, detail_url, api_url, loop):
         await self.semaphore.acquire()
         try:
+            shared = getattr(self, "_shared_session", None)
+            if shared is not None and not getattr(shared, "closed", True):
+                return await self._fetch(shared, detail_url, api_url, loop, retry_times=0)
             async with aiohttp.ClientSession(
                 headers=header,
                 connector=self._generateConnector(self._getActiveEventLoop()),
@@ -885,14 +1100,14 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         finally:
             self.semaphore.release()
 
-    async def _apply_middlewares_request(self, request_context: Dict[str, Any]) -> Optional[Any]:
+    async def _apply_middlewares_request(self, request_context: dict[str, Any]) -> Any | None:
         for mw in self.middlewares:
             result = await mw.process_request(request_context)
             if result is not None:
                 return result
         return None
 
-    async def _apply_middlewares_response(self, response_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _apply_middlewares_response(self, response_context: dict[str, Any]) -> dict[str, Any]:
         for mw in reversed(self.middlewares):
             response_context = await mw.process_response(response_context)
         return response_context
@@ -900,8 +1115,8 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
     def _wait_for_local_execution(self, thread: threading.Thread, max_timeout: float, detail_url: str):
         start_time = time.monotonic()
         while thread.is_alive():
-            thread.join(1.0)
-            if os.path.exists("stop.flag"):
+            thread.join(0.5)
+            if os.path.exists(STOP_FLAG_FILE):
                 logger.info("stop.flag found, forcing exit...")
                 from django.db import close_old_connections
                 close_old_connections()
@@ -932,13 +1147,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         child_errors: list[BaseException] = []
 
         def run_in_new_loop():
+            if os.path.exists(STOP_FLAG_FILE):
+                logger.info("Skip local task because STOP_FLAG_FILE exists: %s", detail_url)
+                return
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
             _crawl_run_state.keys = parent_keys
             try:
                 target_class().main(detail_url)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 child_errors.append(exc)
+                _record_fire_and_forget_failure(path, detail_url, exc)
+                logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
             finally:
                 _crawl_run_state.keys = None
                 try:
@@ -950,7 +1170,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 new_loop.close()
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
+        fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
+
+        if fire_and_forget:
+            executor = _get_local_worker_executor()
+            fut = executor.submit(run_in_new_loop)
+            _track_fire_and_forget_future(fut)
+            fut.add_done_callback(lambda f: _untrack_fire_and_forget_future(f))
+            logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
+            return detail_url, 202, "FireAndForgetLocal"
+
         t = threading.Thread(target=run_in_new_loop, daemon=True)
+        _track_fire_and_forget_thread(t)
         t.start()
         timeout_res = self._wait_for_local_execution(t, max_timeout, detail_url)
         if timeout_res is not None:
@@ -962,7 +1193,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         return detail_url, 200, "LocalSync"
 
     async def _fetch(self, session: aiohttp.ClientSession, detail_url, api_url, loop, retry_times: int):
-        if os.path.exists("stop.flag"):
+        if os.path.exists(STOP_FLAG_FILE):
             logging.info("stop.flag found at start of _fetch, aborting: " + detail_url)
             return detail_url, 200, "Aborted"
 
@@ -980,7 +1211,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         _timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0, sock_connect=2.0)
         send_state = {"sent": False}
 
-        local_result = await asyncio.to_thread(self._handle_local_execution, api_url, detail_url)
+        local_result = self._handle_local_execution(api_url, detail_url)
         if local_result is not None:
             return local_result
 
@@ -1005,7 +1236,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         except aiohttp.ConnectionTimeoutError:
             logger.warning("Connect timeout before request was sent: %s", detail_url)
             return detail_url, 504, "ConnectTimeout"
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             if not send_state["sent"]:
                 logger.warning("Timeout before request body was sent: %s", detail_url)
                 return detail_url, 504, "Timeout"
@@ -1059,9 +1290,23 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         # Optional lifecycle hook invoked after execution in subclasses
         pass
 
+    def _close_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
+        if not loop:
+            return
+        if loop.is_running():
+            loop.stop()
+        if not loop.is_closed():
+            custom_executor = getattr(loop, "_custom_executor", None)
+            if custom_executor is not None:
+                try:
+                    custom_executor.shutdown(wait=False, cancel_futures=True)
+                except Exception as ce:  # noqa: BLE001
+                    logger.debug("Error shutting down custom executor: %s", ce)
+            loop.close()
+
     def main(self, url):
         self.url = url
-        loop: Optional[asyncio.AbstractEventLoop] = None
+        loop: asyncio.AbstractEventLoop | None = None
         run_result = None
         owns_run = _enter_crawl_run()
         try:
@@ -1078,11 +1323,10 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     res = loop.run_until_complete(task)
                     run_result = res if isinstance(res, list) else [res]
         finally:
+            if owns_run:
+                _wait_for_active_fire_and_forget_threads()
             _exit_crawl_run(owns_run)
-            if loop and loop.is_running():
-                loop.stop()
-            if loop and not loop.is_closed():
-                loop.close()
+            self._close_loop(loop)
         self._afterRunProc(run_result)
         return "finish", 200
 
@@ -1090,8 +1334,15 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         """Save HTML of failed property/page for debugging"""
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
+        except RuntimeError:
+            # Event loop / default executor is shut down; dispatch via dedicated background thread
+            threading.Thread(
+                target=_sync_save_error_html_by_url,
+                args=(url, model_name, reason, raw_html),
+                daemon=True,
+            ).start()
         except Exception:
-            logging.exception("Failed to save error HTML for %s", url)
+            logger.exception("Failed to save error HTML for %s", url)
 
     def _resolve_target_company(self) -> str | None:
         """APIインスタンスまたはパーサーから対象企業名を特定"""
@@ -1103,7 +1354,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             if p_comp:
                 return str(p_comp).lower()
         cls_name = self.__class__.__name__.lower()
-        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio"]:
+        for c in ["mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho", "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu", "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio", "kenbiya", "ietan", "haseko", "adcast", "toho", "reguide"]:
             if c in cls_name:
                 return c
         return None
@@ -1187,16 +1438,29 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
     async def _extract_middle_page_details(self, response, current_url):
         detail_url_list = []
         try:
+            check_site_maintenance(response, site_name=self.__class__.__name__)
             parser_func = self._getParserFunc()
             async for detail_url in parser_func(response):
                 detail_url_list.append(detail_url)
+            if not detail_url_list:
+                logger.warning("Zero items parsed from middle page: %s", self.url)
+                raw_html_content = str(response) if response is not None else None
+                await self._save_error_html_by_url(
+                    self.url,
+                    self.__class__.__name__,
+                    f"Zero items parsed from middle page: {self.url}",
+                    raw_html=raw_html_content,
+                )
+        except SkipPropertyException:
+            # サイトメンテナンス等の予定されたスキップ時はエラーログやエラーHTML保存を行わず再送出する
+            raise
         except Exception as e:
             logger.exception(LOG_FAILED_TO_PARSE_MIDDLE_PAGE, current_url)
             raw_html_content = str(response) if response is not None else None
             await self._save_error_html_by_url(
                 current_url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content,
             )
             raise
@@ -1207,7 +1471,10 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
         if parser_next_func is None:
             return ""
         try:
-            return await parser_next_func(response)
+            try:
+                return await parser_next_func(response, current_url=current_url)
+            except TypeError:
+                return await parser_next_func(response)
         except Exception as npe:
             logger.warning("Failed to extract next page URL from %s (stopping pagination safely): %s", current_url, npe)
             raw_html_content = str(response) if response is not None else None
@@ -1242,7 +1509,10 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                         chunk_buffer = await self._flush_middle_page_chunk(chunk_buffer, all_results)
 
             if chunk_buffer:
+                self._touch_watchdog_progress()
                 await self._flush_middle_page_chunk(chunk_buffer, all_results)
+            else:
+                self._touch_watchdog_progress()
 
             return await self._extract_next_page_url(response, current_url)
         except Exception as e:
@@ -1251,44 +1521,141 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(
                 current_url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content,
             )
             raise
 
+    async def _detail_worker(self, queue: asyncio.Queue, all_results: list[Any]):
+        """キューから詳細URLを取り出し、クラス並行度(semaphore)で順次実行するワーカー"""
+        loop = self._getActiveEventLoop()
+        api_url = self._getApiUrl()
+        while True:
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
+                break
+            try:
+                keys = _current_dispatch_keys()
+                if keys is None:
+                    keys = set()
+                detail_url = self._detailItemUrl(item)
+                if not _claim_detail_dispatch(keys, api_url, detail_url):
+                    continue
+                result = await self._fetchDetailOnce(keys, detail_url, api_url, loop)
+                if isinstance(result, list):
+                    all_results.extend(result)
+                elif result is not None:
+                    all_results.append(result)
+            except asyncio.CancelledError:
+                queue.task_done()
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Error processing detail in worker for %s: %s", getattr(item, "url", item), e)
+                fail_url = self._detailItemUrl(item)
+                all_results.append((fail_url, 500, f"WorkerError: {e!s}"))
+            finally:
+                queue.task_done()
+
+    @staticmethod
+    def _is_valid_next_page(next_page_url: str | None, current_url: str, visited_urls: set[str]) -> bool:
+        return bool(next_page_url and next_page_url != current_url and next_page_url not in visited_urls)
+
+    async def _fetch_page_or_stop(
+        self,
+        session: aiohttp.ClientSession,
+        current_url: str,
+        start_url: str,
+        all_results: list[Any],
+    ):
+        try:
+            return await self._fetch_middle_page_response(session, current_url)
+        except (TimeoutError, LoadPropertyPageException) as fetch_err:
+            if current_url != start_url and all_results:
+                logger.warning(
+                    "Failed to fetch middle page %s after retries; stopping pagination gracefully: %s",
+                    current_url,
+                    fetch_err,
+                )
+                return None
+            raise
+
+    async def _crawl_pages(self, session: aiohttp.ClientSession, start_url: str, all_results: list[Any]):
+        current_url = start_url
+        visited_urls: set[str] = set()
+        while current_url and current_url not in visited_urls:
+            visited_urls.add(current_url)
+            self.url = current_url
+
+            response = await self._fetch_page_or_stop(session, current_url, start_url, all_results)
+            if response is None:
+                break
+            try:
+                next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
+            finally:
+                del response
+                gc.collect()
+
+            if not self._is_valid_next_page(next_page_url, current_url, visited_urls):
+                break
+            current_url = next_page_url
+
     async def _run(self, _url):
-        """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)"""
+        """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)
+        詳細パースは非同期キュー (上限 DEFAULT_DISPATCH_QUEUE_SIZE) 経由でワーカープールが非同期処理する。
+        """
         _loop = self._getActiveEventLoop()
         _timeout: aiohttp.ClientTimeout = self._generateTimeout()
         _connector: aiohttp.TCPConnector = self._generateConnector(_loop)
 
-        current_url = _url
         all_results = []
-        visited_urls = set()
+        api_key = self._getApiKey() or ""
+        is_detail_dispatch = "detail" in api_key.lower()
+
+        if is_detail_dispatch:
+            queue_size = DEFAULT_DISPATCH_QUEUE_SIZE
+            self._detail_queue = asyncio.Queue(maxsize=queue_size)
+            worker_count = max(1, self._getPararellLimit())
+            workers = [
+                asyncio.create_task(self._detail_worker(self._detail_queue, all_results))
+                for _ in range(worker_count)
+            ]
+        else:
+            self._detail_queue = None
+            workers = []
 
         try:
-            async with aiohttp.ClientSession(headers=header, connector=_connector, timeout=_timeout) as session:
-                while current_url and current_url not in visited_urls:
-                    visited_urls.add(current_url)
-                    self.url = current_url
-
-                    response = await self._fetch_middle_page_response(session, current_url)
-                    try:
-                        next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
-                    finally:
-                        del response
-                        gc.collect()
-
-                    if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
-                        current_url = next_page_url
-                    else:
-                        break
+            async with aiohttp.ClientSession(
+                headers=header,
+                connector=_connector,
+                timeout=_timeout,
+                trace_configs=[_request_sent_trace_config()],
+            ) as session:
+                self._shared_session = session
+                try:
+                    await self._crawl_pages(session, _url, all_results)
+                    if self._detail_queue is not None:
+                        await self._detail_queue.join()
+                        for _ in workers:
+                            await self._detail_queue.put(None)
+                        await asyncio.gather(*workers, return_exceptions=True)
+                finally:
+                    self._shared_session = None
 
         finally:
+            if self._detail_queue is not None:
+                self._detail_queue = None
+            for w in workers:
+                if not w.done():
+                    w.cancel()
+            if workers:
+                await asyncio.gather(*workers, return_exceptions=True)
             if _connector is not None:
                 await _connector.close()
 
         return all_results
+
+
 
 
     async def _treatPage(self, _session, *arg):
@@ -1299,7 +1666,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                  response = await self.parser.getResponse(_session, self.url, self.parser.getCharset())
         except Exception as e:
             logging.error(f"Failed to fetch middle page: {self.url}")
-            await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Fetch Failure: {str(e)}")
+            await self._save_error_html_by_url(self.url, self.__class__.__name__, f"Middle Page Fetch Failure: {e!s}")
             raise e
 
         detail_url_list = []
@@ -1313,7 +1680,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             await self._save_error_html_by_url(
                 self.url,
                 self.__class__.__name__,
-                f"Middle Page Parse Failure: {e!s}",
+                f"{MIDDLE_PAGE_PARSE_FAILURE_PREFIX} {e!s}",
                 raw_html=raw_html_content
             )
             raise e
@@ -1322,7 +1689,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             parser_next_func = self._getNextPageParserFunc()
             if parser_next_func is not None:
                 next_page_url = await parser_next_func(response)
-                if len(next_page_url) > 0:
+                if next_page_url and len(next_page_url) > 0:
                     await self._fetchNextPage(next_page_url)
 
         return detail_url_list
@@ -1386,6 +1753,12 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 enabled=enabled,
             )
 
+        queue = getattr(self, "_detail_queue", None)
+        if is_detail_dispatch and queue is not None:
+            for detail_item in to_fetch:
+                await queue.put(detail_item)
+            return []
+
         tasks = []
         loop = self._getActiveEventLoop()
         api_url = self._getApiUrl()
@@ -1420,6 +1793,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     @abstractmethod
     def _getParserFunc(self) -> Any:
+
         pass
 
     def _getNextPageParserFunc(self):
@@ -1483,16 +1857,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     aiohttp.client_exceptions.ServerDisconnectedError) as e:
                 retry_count += 1
                 if retry_count > max_retries:
-                    logging.exception("Max retries (%s) exceeded for %s", max_retries, url)
+                    logger.exception("Max retries (%s) exceeded for %s", max_retries, url)
                     raise
                 
                 # Exponential backoff: 2s, 4s, 8s
                 wait_time = 2 ** retry_count
-                logging.warning(f"Connection error for {url}, retry {retry_count}/{max_retries} after {wait_time}s")
-                logging.warning(f"Exception type: {type(e).__name__}, Details: {str(e)}")
+                logger.warning("Connection error for %s, retry %s/%s after %ss", url, retry_count, max_retries, wait_time)
+                logger.warning("Exception type: %s, Details: %s", type(e).__name__, e)
                 await asyncio.sleep(wait_time)
-            except Exception as e:
-                logging.exception("Unexpected error getting content from %s: %s", url, e)
+            except Exception:
+                logger.exception("Unexpected error getting content from %s", url)
                 raise
 
     @staticmethod
@@ -1507,6 +1881,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         "nomura": 0.5,
         "mitsui": 0.5,
         "smtrc": 1.0,
+        "sumai1": 0.5,
+        "odakyu": 0.5,
     }
     _SITE_RATE_LOCK: ClassVar[threading.Lock] = threading.Lock()
     _SITE_NEXT_ALLOWED: ClassVar[dict[str, float]] = {}
@@ -1569,7 +1945,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             except (LoadPropertyPageException, TimeoutError, ReadPropertyNameException) as e:
                 logging.error(f"get item exception (retry failed) for URL: {self.url}: {e}", exc_info=e)
                 await self._save_error_html_by_url(self.url, self.parser.createEntity().__class__.__name__, "Detail Page Retry Failure")
-                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {str(e)}")
+                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, f"Retry Failed: {e!s}")
                 return None, False
         except SkipPropertyException as e:
             logging.info(f"Skipping property (Expected / Listing Ended): {type(e).__name__} for URL: {self.url}")
@@ -1668,6 +2044,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         try:
             company = self._detect_company_name(item)
             property_type = PropertyTypeDetector.detect_from_object(item)
+            self._touch_watchdog_progress(item)
             is_valid, reasons = tag_property_integrity(item, property_type, company)
             if not is_valid:
                 logger.warning(
@@ -1920,10 +2297,16 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
 
     async def _perform_inline_ml_evaluation(self, item):
         try:
+            from django.utils import timezone
+
             from package.ml.predict import predict_first_stage, predict_second_stage
             from package.models.evaluation import PropertyEvaluation, PropertyImage
-            from package.utils.image_handler import extract_images_from_soup, clean_images, analyze_property_images_with_gemini, check_api_budget_cap
-            from django.utils import timezone
+            from package.utils.image_handler import (
+                analyze_property_images_with_gemini,
+                check_api_budget_cap,
+                clean_images,
+                extract_images_from_soup,
+            )
 
             company = self._detect_company_name(item)
             property_type = PropertyTypeDetector.detect_from_object(item)
@@ -1966,8 +2349,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                     extract_images_from_soup, clean_images, check_api_budget_cap,
                     analyze_property_images_with_gemini, predict_second_stage, PropertyImage
                 )
-        except Exception as ex:
-            logging.exception("ML/Image screening error for %s: %s", item.pageUrl, ex)
+        except Exception:
+            logger.exception("ML/Image screening error for %s", item.pageUrl)
 
     async def _handle_saved_property(self, item):
         try:
@@ -1983,22 +2366,66 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         except Exception:
             logger.exception("Failed to save item (Single) for URL: %s", item.pageUrl)
             return
-        await sync_to_async(CrawlerReporter.success)(self.url, item.__class__.__name__)
+        try:
+            await asyncio.to_thread(CrawlerReporter.success, self.url, item.__class__.__name__)
+        except RuntimeError:
+            CrawlerReporter.success(self.url, item.__class__.__name__)
+
+    def _find_existing_evaluation(self):
+        normalized_url = UrlMatcher.normalize(self.url)
+        return (
+            PropertyEvaluation.objects.filter(property_url=self.url).first()
+            or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
+            or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", self.url)
+        )
+
+    def _resolve_delisted_prop_id(self) -> int | None:
+        if not (hasattr(self, "parser") and self.parser):
+            return None
+        try:
+            entity = self.parser.createEntity()
+            matched = UrlMatcher.find_match_in_queryset(entity.__class__.objects, "pageUrl", self.url)
+            return getattr(matched, "id", None) if matched else None
+        except Exception as match_err:  # noqa: BLE001
+            logger.debug("Could not link prop_id for delisted property %s: %s", self.url, match_err)
+            return None
+
+    def _sync_persist_delisted(self):
+        now_utc = datetime.datetime.now(datetime.UTC)
+        eval_rec = self._find_existing_evaluation()
+        if eval_rec:
+            eval_rec.is_published = False
+            eval_rec.delisted_at = now_utc
+            eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
+            eval_rec.needs_recrawl = False
+            eval_rec.save()
+            logger.info("[Lifecycle] Marked existing PropertyEvaluation as delisted: %s", self.url)
+            return
+
+        company = self._resolve_target_company() or "unknown"
+        property_type = (
+            getattr(self.parser, "property_type", None)
+            or PropertyTypeDetector.detect_from_url(self.url)
+            or "unknown"
+        )
+        prop_id = self._resolve_delisted_prop_id() or 0
+        PropertyEvaluation.objects.create(
+            property_url=self.url,
+            company=company,
+            property_type=property_type,
+            property_id=prop_id,
+            is_published=False,
+            delisted_at=now_utc,
+            needs_recrawl=False,
+            analysis_status="skipped_by_budget",
+        )
+        logger.info("[Lifecycle] Created new PropertyEvaluation as delisted: %s (prop_id=%s)", self.url, prop_id)
 
     async def _handle_skipped_property(self):
+        self._touch_watchdog_progress()
         logger.info("Skipped property processing (Lifecycle / Filtered) for URL: %s", self.url)
         try:
-            def update_delisted():
-                eval_rec = PropertyEvaluation.objects.filter(property_url=self.url).first()
-                if eval_rec:
-                    eval_rec.is_published = False
-                    eval_rec.delisted_at = datetime.datetime.now(datetime.timezone.utc)
-                    # Issue #773: 不整合フラグ (needs_parser_fix) が立っている場合はリセットせず維持する
-                    eval_rec.needs_parser_fix = bool(eval_rec.needs_parser_fix)
-                    eval_rec.needs_recrawl = False
-                    eval_rec.save()
-                    logger.info("[Lifecycle] Marked PropertyEvaluation as delisted: %s", self.url)
-            await sync_to_async(update_delisted)()
+            await sync_to_async(self._sync_persist_delisted)()
         except OperationalError as le_err:
             if AdaptiveConcurrencyController.is_db_overload_error(le_err):
                 AdaptiveConcurrencyController.record_db_overload(f"TreatPageDelisted: {le_err}")
@@ -2014,7 +2441,10 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         elif is_skipped:
             await self._handle_skipped_property()
         else:
-            await sync_to_async(CrawlerReporter.failure)(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            try:
+                await asyncio.to_thread(CrawlerReporter.failure, self.url, self.parser.createEntity().__class__.__name__, "Item is None")
+            except RuntimeError:
+                CrawlerReporter.failure(self.url, self.parser.createEntity().__class__.__name__, "Item is None")
 
         return item
 
@@ -2029,8 +2459,15 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
         """Save HTML of failed property for debugging when we only have the URL"""
         try:
             await asyncio.to_thread(_sync_save_error_html_by_url, url, model_name, reason, raw_html)
+        except RuntimeError:
+            # Event loop / default executor is shut down; dispatch via dedicated background thread
+            threading.Thread(
+                target=_sync_save_error_html_by_url,
+                args=(url, model_name, reason, raw_html),
+                daemon=True,
+            ).start()
         except Exception:
-            logging.exception("Failed to save error HTML by URL")
+            logger.exception("Failed to save error HTML by URL")
 
     def _save_error_html_record(self, item, invalid_fields=None):
         """Save HTML of failed property for debugging"""

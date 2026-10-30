@@ -30,6 +30,10 @@ REGEX_DIGITS = r'(\d+)'
 REGEX_DECIMAL_GROUP = r"(\d+(?:\.\d+)?)"
 ROAD_WIDTH_PREFIX = "前面道路幅員により"
 RESERVE_FUND_KEY = "修繕積立金"
+MANSION_KEYWORD = "マンション"
+_TRANSIT_SPLIT_PATTERN = re.compile(
+    r'((?:徒歩|停歩|バス)\s*\d+\s*分)\s*(?=[^\d\s]+[線駅「])'
+)
 
 
 class MitsuiParser(ParserBase):
@@ -106,7 +110,7 @@ class MitsuiParser(ParserBase):
             return ""
         dest = self.BASE_URL + link_url if not link_url.startswith("http") else link_url
         separator = "&" if "?" in dest else "?"
-        return f"{dest}{separator}limit=1000"
+        return f"{dest}{separator}limit=200"
 
     async def parseAreaPage(self, response):        
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
@@ -177,6 +181,9 @@ class MitsuiParser(ParserBase):
         item.traffic = traffic_str
         self._populateTraffic(item, traffic_str)
 
+        # ヘッダー行誤登録防止ガード (Issue #917)
+        self._assert_not_header_row(item)
+
         return item
 
     def _parseChikunengetsuStr(self, response, _specs=None):
@@ -241,16 +248,76 @@ class MitsuiParser(ParserBase):
             text_parts = list(res.stripped_strings)
             if text_parts:
                 lines = [" ".join(text_parts)]
-        return lines
+
+        # If lines contain joined transit info without newlines (e.g. 六本木駅徒歩9分広尾駅徒歩13分)
+        split_lines = []
+        for line in lines:
+            split_lines.extend(self._split_single_transit_line(line))
+        return split_lines
+
+    def _extract_traffic_from_selectors(self, response) -> list[str]:
+        if not response:
+            return []
+        selectors = (
+            ".traffic-detail", ".access-detail", ".property-traffic",
+            ".detail-traffic", ".c-traffic", "div[class*='traffic']", "div[class*='access']",
+            ".p-detail-traffic", "section[class*='access']", "section[class*='traffic']"
+        )
+        for sel in selectors:
+            el = response.select_one(sel)
+            if not el:
+                continue
+            lines = [s.strip() for s in el.stripped_strings if s.strip()]
+            if lines:
+                return lines
+        return []
+
+    def _extract_traffic_from_th_dt(self, response) -> list[str]:
+        if not response:
+            return []
+        labels = ("交通", "最寄り駅", "沿線", "アクセス")
+        for tag in response.find_all(["th", "dt"]):
+            t_lbl = tag.get_text(strip=True)
+            if not any(lbl in t_lbl for lbl in labels):
+                continue
+            parent = tag.parent
+            val_el = parent.find(["td", "dd"]) if parent else None
+            if not val_el:
+                continue
+            extracted = self._extract_traffic_from_soup(val_el)
+            if extracted:
+                return extracted
+        return []
+
+    def _split_single_transit_line(self, line: str) -> list[str]:
+        if re.search(r'(?:徒歩|停歩|バス)\s*\d+\s*分', line):
+            norm = _TRANSIT_SPLIT_PATTERN.sub(r'\1\n', line)
+            parts = [sl.strip() for sl in norm.split('\n') if sl.strip()]
+            if len(parts) > 1:
+                return parts
+        return [line]
 
     def _parseTrafficLines(self, response, _specs=None):
-        res = self._getValueByLabel(response, "最寄り駅") or self._getValueByLabel(response, "交通")
-        if res:
-            lines = self._extract_traffic_from_soup(res)
-        else:
-            specs = _specs if _specs is not None else self._get_specs(response)
-            traffic_val = specs.get("交通", "") or specs.get("最寄り駅", "") or specs.get("沿線・駅", "")
-            lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
+        for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
+            res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
+            if res:
+                extracted = self._extract_traffic_from_soup(res)
+                if extracted:
+                    return extracted
+
+        specs = _specs if _specs is not None else self._get_specs(response)
+        traffic_val = (
+            specs.get("交通", "")
+            or specs.get("最寄り駅", "")
+            or specs.get("沿線・駅", "")
+            or specs.get("アクセス", "")
+        )
+        lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
+        if len(lines) == 1:
+            lines = self._split_single_transit_line(lines[0])
+
+        if not lines:
+            lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
 
         return [
             line for line in lines
@@ -409,6 +476,8 @@ class MitsuiParser(ParserBase):
 
 
 class MitsuiMansionParser(MitsuiParser, MansionParserBase):
+    sectional_unit_guard_enabled = True
+
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
 
@@ -518,28 +587,34 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     def get_floor(self, response: BeautifulSoup) -> int:
         return self._parseKaisu(response)
 
+    _KAISU_CANDIDATE_LABELS = (
+        "所在階",
+        "所在階 / 階建",
+        "所在階/階建",
+        "所在階・階建",
+        "階数",
+        "階数 / 階建",
+        "所在階/階数",
+        "所在階・階数",
+        "階",
+    )
+
     def _parseKaisuStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        val = (
-            target_specs.get("所在階")
-            or target_specs.get("所在階 / 階建")
-            or target_specs.get("階数")
-            or target_specs.get("階数 / 階建")
-            or target_specs.get("所在階/階数")
-            or target_specs.get("所在階/階建", "")
-        )
-        if not val and hasattr(self, "_getValueByLabel"):
-            label_tag = (
-                self._getValueByLabel(response, "所在階")
-                or self._getValueByLabel(response, "所在階 / 階建")
-                or self._getValueByLabel(response, "階数")
-            )
-            if label_tag:
-                val = label_tag.get_text(strip=True) if hasattr(label_tag, "get_text") else str(label_tag)
-        return val or ""
+        for label in self._KAISU_CANDIDATE_LABELS:
+            val = target_specs.get(label)
+            if val:
+                return val
+
+        if hasattr(self, "_getValueByLabel"):
+            for label in self._KAISU_CANDIDATE_LABELS:
+                tag = self._getValueByLabel(response, label)
+                if tag:
+                    return tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
+        return ""
 
     def _parseKaisu(self, response, _specs=None):
-        val = self._parseKaisuStr(response)
+        val = self._parseKaisuStr(response, specs=_specs)
         if val:
             try:
                 m = re.search(REGEX_DIGITS, val)
@@ -819,8 +894,13 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
             r"接道[：:]?[^\n\r\t]{0,100}?(?:約\s*)?([0-9.]{1,10})\s*[mｍ]", full_text
         )
         if m_width:
-            item.roadWidth = Decimal(m_width.group(1))
-            item.roadWidthStr = f"{m_width.group(1)}m"
+            try:
+                width_val = Decimal(m_width.group(1))
+                if 0 < width_val <= 50:
+                    item.roadWidth = width_val
+                    item.roadWidthStr = f"{width_val}m"
+            except Exception:
+                pass
 
     @staticmethod
     def _apply_road_direction_and_type(item, full_text: str) -> None:
@@ -1194,7 +1274,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
     @staticmethod
     def _check_land_exclusion(page_url: str, shumoku: str) -> None:
         """非投資用土地物件の除外判定"""
-        is_bldg = any(b in shumoku for b in ("アパート", "マンション", "ビル", "一棟", "戸建", "テラス"))
+        is_bldg = any(b in shumoku for b in ("アパート", MANSION_KEYWORD, "ビル", "一棟", "戸建", "テラス"))
         if "/tochi/" in page_url or ("土地" in shumoku and not is_bldg):
             raise SkipPropertyException(f"Mitsui investment skipped non-investment land property: {page_url} (種別: {shumoku})")
 
@@ -1211,7 +1291,7 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             return None
 
         is_apartment_parser = self.__class__.__name__ == "MitsuiInvestmentApartmentParser"
-        is_apt_building = "アパート" in shumoku or "マンション" in shumoku or "ビル" in shumoku
+        is_apt_building = "アパート" in shumoku or MANSION_KEYWORD in shumoku or "ビル" in shumoku
 
         target_cls = None
         if is_apt_building and not is_apartment_parser:
@@ -1473,6 +1553,24 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
                 yield filtered_url
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "") or ""
+        if "/buy/mansion/" in page_url:
+            specs = self._get_specs(response)
+            shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
+            if (
+                MANSION_KEYWORD in shumoku
+                or "アパート" in shumoku
+                or "ビル" in shumoku
+                or "区分所有" in shumoku
+                or "店舗" in shumoku
+                or "事務所" in shumoku
+            ):
+                parser = MitsuiInvestmentApartmentParser()
+                parser._is_delegating = True
+                new_item = parser.createEntity()
+                new_item.pageUrl = page_url
+                return parser._parsePropertyDetailPage(new_item, response)
+            raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item

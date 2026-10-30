@@ -94,16 +94,16 @@ def test_athome_auth_intermediate_page_raises_server_busy():
 
 
 def test_rearie_redirect_to_top_page_raises_listing_ended():
-    """パナソニックホームズ（リアリエ）で物件終了時にトップページへリダイレクトされた場合、ListingEndedException が送出されること (Issue #747)"""
+    """パナソニックホームズ（リアリエ）で明示的に掲載終了・見つからない文言がある場合に ListingEndedException を送出すること"""
     html = """
     <!doctype html>
     <html lang="ja">
       <head>
-        <title>- パナソニック ホームズ株式会社 - Panasonic</title>
+        <title>お探しの物件は見つかりませんでした - パナソニック ホームズ - Panasonic</title>
       </head>
       <body>
         <header><h1>パナソニック ホームズ</h1></header>
-        <nav>注文住宅 リフォーム 賃貸住宅</nav>
+        <div class="not-found">ご指定のページは見つかりませんでした</div>
       </body>
     </html>
     """
@@ -117,10 +117,10 @@ def test_rearie_redirect_to_top_page_raises_listing_ended():
 
 
 def test_rearie_empty_shell_with_blank_table_view_raises_listing_ended():
-    """掲載終了でタイトルがブランドのみ・dl.table-view が空殻のページは ListingEndedException (Issue #761)"""
+    """掲載終了で画面上に掲載終了文言がある場合は ListingEndedException"""
     html = """
-    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
-    <body><h1></h1><dl class="table-view"><div><dt></dt><dd></dd></div></dl></body></html>
+    <!doctype html><html lang="ja"><head><title>掲載終了物件 - パナソニック ホームズ - Panasonic</title></head>
+    <body><h1></h1><div class="mod-message-end">お探しの物件は掲載を終了しました</div></body></html>
     """
     soup = BeautifulSoup(html, "html.parser")
     from package.parser.rearieParser import RearieMansionParser
@@ -131,10 +131,10 @@ def test_rearie_empty_shell_with_blank_table_view_raises_listing_ended():
 
 
 def test_rearie_layout_table_brand_only_raises_listing_ended():
-    """レイアウト用tableが存在しても物件スペックが無ければ掲載終了扱い (CodeRabbit指摘 #761)"""
+    """掲載終了文言を含む画面で ListingEndedException が送出されること"""
     html = """
-    <!doctype html><html lang="ja"><head><title>- パナソニック ホームズ株式会社 - Panasonic</title></head>
-    <body><table><tr><td>ナビゲーション</td><td>フッター</td></tr></table></body></html>
+    <!doctype html><html lang="ja"><head><title>指定された物件は掲載を終了いたしました - パナソニック ホームズ - Panasonic</title></head>
+    <body><table><tr><td>掲載終了いたしました</td></tr></table></body></html>
     """
     soup = BeautifulSoup(html, "html.parser")
     from package.parser.rearieParser import RearieMansionParser
@@ -142,3 +142,27 @@ def test_rearie_layout_table_brand_only_raises_listing_ended():
     parser = RearieMansionParser()
     with pytest.raises(ListingEndedException):
         parser._parsePropertyDetailPage(RearieMansion(), soup)
+
+
+def test_stepon_non_property_url_rejection():
+    """住友不動産ステップの建物調査等の非物件URLが即時スキップされること (Issue #943)"""
+    from package.parser.baseParser import SkipPropertyException
+    with pytest.raises(SkipPropertyException):
+        DummyParser._reject_non_property_url("https://www.stepon.co.jp/step_buildingsurvey/")
+    with pytest.raises(SkipPropertyException):
+        DummyParser._reject_non_property_url("https://www.stepon.co.jp/step_buildingsurvey/detail")
+
+
+def test_sumifu_parser_none_safe_parsing():
+    """スペック表が存在しない・欠損したHTMLでもSumifuParserがNoneType例外を起こさないこと (Issue #943)"""
+    from package.parser.sumifuParser import SumifuMansionParser
+    from package.models.sumifu import SumifuMansion
+    parser = SumifuMansionParser()
+    item = SumifuMansion()
+    html = "<html><head><title>テスト案内</title></head><body><p>コンテンツなし</p></body></html>"
+    soup = BeautifulSoup(html, "html.parser")
+    # 例外を送出せずパースが完了すること
+    res_item = parser._parsePropertyDetailPage(item, soup)
+    assert res_item.price is None
+    assert res_item.propertyName == ""
+

@@ -9,7 +9,7 @@ import pytest
 from package.models.evaluation import HazardMapPotential, UrbanPlanningZonePotential, LandPricePotential
 from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
 from scripts.sync_all_potentials import run_all_syncs
-from package.ml.features import build_features, _load_all_potential_caches_once
+from package.ml.features import build_features
 
 
 
@@ -65,16 +65,9 @@ def test_build_features_with_hazard_and_urban_potentials():
         defaults={"average_land_price": 650000, "land_price_growth_rate": 4.5}
     )
 
-    # キャッシュをリフレッシュ
-    import package.ml.features as feat_mod
-    feat_mod._muni_cache = {}
-    feat_mod._muni_pref_cache = {}
-    feat_mod._station_cache = {}
-    feat_mod._hazard_cache = {}
-    feat_mod._zone_cache = {}
-    feat_mod._lp_cache = {}
-    feat_mod._lp_pref_res_cache = {}
-    feat_mod._lp_pref_comm_cache = {}
+    # キャッシュをリフレッシュ (Issue #1067 で導入された初期化フラグを含めて完全初期化)
+    from package.ml.features.reference_data import reset_reference_caches
+    reset_reference_caches()
 
     prop = {
         "address1": "東京都",

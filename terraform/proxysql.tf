@@ -108,15 +108,22 @@ resource "google_compute_instance" "proxysql_instance" {
       done
     }
 
-    # apt-get update は一時的な取得失敗でも 0 を返し得るため、--error-on=any で失敗させ再試行対象とする
-    apt_retry update --error-on=any
-    apt_retry install -y lsb-release wget gnupg default-mysql-client
+    # Issue #1112: 完全閉域VPC環境 (Cloud NAT撤廃済) における起動遅延・ハング防止
+    # ProxySQL が既にインストール済みの場合は外部 apt-get / wget をスキップする
+    if ! command -v proxysql >/dev/null 2>&1; then
+      echo "[INFO] ProxySQL not found. Starting installation..."
+      # apt-get update は一時的な取得失敗でも 0 を返し得るため、--error-on=any で失敗させ再試行対象とする
+      apt_retry update --error-on=any
+      apt_retry install -y lsb-release wget gnupg default-mysql-client
 
-    # ProxySQL 公式リポジトリの登録とインストール
-    wget -O - 'https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/repo_pub_key' | gpg --dearmor -o /etc/apt/trusted.gpg.d/proxysql.gpg
-    echo deb https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/$(lsb_release -sc)/ ./ | tee /etc/apt/sources.list.d/proxysql.list
-    apt_retry update --error-on=any
-    apt_retry install -y proxysql
+      # ProxySQL 公式リポジトリの登録とインストール
+      wget -O - 'https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/repo_pub_key' | gpg --dearmor -o /etc/apt/trusted.gpg.d/proxysql.gpg
+      echo deb https://repo.proxysql.com/ProxySQL/proxysql-2.6.x/$(lsb_release -sc)/ ./ | tee /etc/apt/sources.list.d/proxysql.list
+      apt_retry update --error-on=any
+      apt_retry install -y proxysql
+    else
+      echo "[INFO] ProxySQL is already installed. Skipping apt package installation."
+    fi
 
     # ProxySQL 初期設定ファイルの生成
     cat <<'CONFIG' > /etc/proxysql.cnf

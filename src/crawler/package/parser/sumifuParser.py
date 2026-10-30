@@ -1,4 +1,3 @@
-import sys
 import asyncio
 
 
@@ -6,8 +5,6 @@ from bs4 import BeautifulSoup
 from package.models.sumifu import SumifuMansion, SumifuTochi, SumifuKodate, SumifuInvestmentKodate, SumifuInvestmentApartment
 from package.parser.investmentParser import InvestmentParser
 from django.db import models
-import importlib
-importlib.reload(sys)
 from decimal import Decimal
 import datetime
 import re
@@ -98,13 +95,7 @@ class SumifuParser(ParserBase):
         return ''
 
     def getAreaDestUrl(self, link_url):
-        if not link_url:
-            return ""
-        full_url = urllib.parse.urljoin(self.BASE_URL, link_url)
-        sep = "&" if "?" in full_url else "?"
-        if "limit=1000" not in full_url:
-            full_url += f"{sep}limit=1000&mode=2"
-        return full_url
+        return self.getRegionDestUrl(link_url)
 
     async def parseAreaPage(self, response):       
         async for dest_url in self._parsePageCore(response, self.getAreaXpath, self.getAreaDestUrl):
@@ -483,16 +474,24 @@ class SumifuParser(ParserBase):
 
     def _parseKaisuRaw(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return target_specs.get("階数", target_specs.get("所在階", target_specs.get("所在階構造", "")))
+        return (
+            target_specs.get("階数")
+            or target_specs.get("所在階")
+            or target_specs.get("所在階構造")
+            or target_specs.get("所在階 / 階建")
+            or target_specs.get("所在階/階建")
+            or target_specs.get("所在階・階数")
+            or ""
+        )
 
     def _parseKaisuStr(self, response, _specs=None):
-        val = self._parseKaisuRaw(response)
+        val = self._parseKaisuRaw(response, specs=_specs)
         if val and "・" in val:
             return val.split("・")[0].strip()
         return val or ""
 
     def _parseKaisu(self, response, _specs=None):
-        k_str = self._parseKaisuStr(response)
+        k_str = self._parseKaisuStr(response, _specs=_specs)
         if k_str:
              m = DIGIT_REGEX.search(k_str)
              if m: return int(m.group(1))
@@ -501,7 +500,15 @@ class SumifuParser(ParserBase):
     def _parseTrafficLines(self, response, _specs=None):
         transport_key = self.selectors.get('transport_key', "交通")
         transport_td = self._getValueFromTable(response, transport_key)
-        if not transport_td: return []
+        if not transport_td:
+            specs = _specs if _specs is not None else self._get_specs(response)
+            traffic_val = (
+                specs.get(transport_key, "")
+                or specs.get("交通", "")
+                or specs.get("最寄り駅", "")
+                or specs.get("沿線・駅", "")
+            )
+            return [line.strip() for line in traffic_val.split("\n") if line.strip()]
         if hasattr(transport_td, 'select'):
             for br in transport_td.select("br"): br.replace_with("\n")
             full_text = transport_td.get_text().strip()
@@ -1242,7 +1249,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
         # Override to handle Sumifu Mansion specifics if base is insufficient
         # But let's check base implementation again.
         # It splits on "・". Sumifu often uses "／" or "建て".
-        val = self._parseKaisuRaw(response)
+        val = self._parseKaisuRaw(response, specs=_specs)
         if not val: return ""
         
         # Clean up common patterns

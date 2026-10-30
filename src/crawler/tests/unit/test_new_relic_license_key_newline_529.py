@@ -46,7 +46,7 @@ def test_init_new_relic_treats_blank_license_key_as_unset(blank_key):
 
 def test_push_endpoint_trims_license_key():
     tf_path = os.path.join(TERRAFORM_DIR, "new_relic_gcp_integration.tf")
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     active_lines = [

@@ -7,6 +7,24 @@ description: コンテナ起動確認から全件クローリング、MLモデ�
 
 コンテナ動作確認からクローリング、ML学習・推論、リコメンド配信、自動復旧（Auto-Healing）までを全自動化する一貫ワークフローです。
 
+## 上位ポリシー
+- [環境制御およびヘッドレス運用ポリシー](../../policies/environment_control_policy.md)
+- [クローラーおよびパーサー設計ポリシー](../../policies/crawler_and_parser_policy.md)
+
+## 下位ランブック
+- [ローカル本番パイプライン実行手順](../../../docs/runbooks/local_production_pipeline.md)
+- [Docker デーモン制御手順](../../../docs/runbooks/docker_daemon_management.md)
+
+---
+
+## 前提定義: 「ローカル本番実行」と「ローカル開発環境実行」の区別
+- **ローカル本番実行 (Local Production Run)**:
+  - ローカル PC / Docker の計算リソースを用い、**本番基盤へ直接投入・連携**して動作させる実行形態。
+  - **DB保存先**: 本番 **Google Cloud SQL**（IAP トンネル経由 `host.docker.internal:6033`）
+  - **画像保存先**: 本番 **Google Cloud Storage (GCS)**（`STORAGE_BACKEND=gcs`）
+- **ローカル開発環境での動作 (Local Development Run)**:
+  - 単なるローカル閉鎖環境での動作（ローカル MySQL `db` コンテナ、MinIO `minio` コンテナへの保存）。「ローカル本番実行」とは呼ばない。
+
 ---
 
 ## ワークフロー手順

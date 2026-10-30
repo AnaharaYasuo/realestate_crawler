@@ -1,6 +1,7 @@
 
 import os
 import asyncio
+from typing import ClassVar
 from package.api.api import ApiAsyncProcBase, ParseDetailPageAsyncBase, ParseMiddlePageAsyncBase, \
     API_KEY_SUMIFU_INVEST_KODATE_START, API_KEY_SUMIFU_INVEST_KODATE_LIST, API_KEY_SUMIFU_INVEST_KODATE_DETAIL, \
     API_KEY_SUMIFU_INVEST_KODATE_LIST_GCP, API_KEY_SUMIFU_INVEST_KODATE_DETAIL_GCP, \
@@ -52,7 +53,7 @@ class ParseSumifuInvestListFuncAsyncBase(ParseMiddlePageAsyncBase):
 
 class ParseSumifuInvestStartAsyncBase(ApiAsyncProcBase):
     # Default placeholder URL
-    urlList = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=111111111110&limit=1000"]
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=111111111110"]
 
     def _getLocalPararellLimit(self):
         return MIDDLE_PARARELL_LIMIT
@@ -78,7 +79,7 @@ class ParseSumifuInvestStartAsyncBase(ApiAsyncProcBase):
         return
 
 # ==============================================================================
-#  KODATE (戸建て賃貸)
+#  KODATE (戸建て賁E��)
 # ==============================================================================
 
 class ParseSumifuInvestKodateDetailFuncAsync(ParseSumifuInvestDetailFuncAsyncBase):
@@ -100,8 +101,8 @@ class ParseSumifuInvestKodateListFuncAsync(ParseSumifuInvestListFuncAsyncBase):
         return API_KEY_SUMIFU_INVEST_KODATE_DETAIL
 
 class ParseSumifuInvestKodateStartAsync(ParseSumifuInvestStartAsyncBase):
-    # 戸建 (7桁目が1)
-    urlList = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=000000100000&limit=1000"]
+    # 投資用戸建 (6桁目が1, value=7)
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=000001000000"]
 
     def _generateParser(self):
         return SumifuInvestmentKodateParser("")
@@ -112,7 +113,7 @@ class ParseSumifuInvestKodateStartAsync(ParseSumifuInvestStartAsyncBase):
         return API_KEY_SUMIFU_INVEST_KODATE_LIST
 
 # ==============================================================================
-#  APARTMENT (アパート)
+#  APARTMENT (アパ�EチE
 # ==============================================================================
 
 class ParseSumifuInvestApartmentDetailFuncAsync(ParseSumifuInvestDetailFuncAsyncBase):
@@ -134,8 +135,8 @@ class ParseSumifuInvestApartmentListFuncAsync(ParseSumifuInvestListFuncAsyncBase
         return API_KEY_SUMIFU_INVEST_APARTMENT_DETAIL
 
 class ParseSumifuInvestApartmentStartAsync(ParseSumifuInvestStartAsyncBase):
-    # アパート (2桁目が1)
-    urlList = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=010000000000&limit=1000"]
+    # アパ�EチE(2桁目ぁE)
+    urlList: ClassVar[list[str]] = ["https://www.stepon.co.jp/pro/ca_0_001/?smk=001000000000"]
 
     def _generateParser(self):
         return SumifuInvestmentApartmentParser("")

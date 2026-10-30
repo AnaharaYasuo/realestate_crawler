@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 import pytest
 import os
-import pandas as pd
 import numpy as np
 
 from package.ml.predict import _log_prediction_error
 from scripts.ops.run_daily_prediction_diagnostics import (
     calculate_metrics,
-    classify_error_cause,
-    diagnose_predictions
+    classify_error_cause
 )
 
 

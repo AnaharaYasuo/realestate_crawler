@@ -22,7 +22,7 @@ def check_haseko_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 
 class HasekoMansionParser(MansionParserBase):
-    BASE_URL = "https://www.haseko-urbannet.co.jp"
+    BASE_URL = "https://www.haseko-chukai.com"
 
     def getCharset(self):
         return "utf-8"
@@ -64,6 +64,23 @@ class HasekoMansionParser(MansionParserBase):
     def createEntity(self):
         return HasekoMansion()
 
+    def _extract_dl_pairs(self, dl) -> dict[str, str]:
+        pairs = {}
+        dts = dl.find_all("dt")
+        dds = dl.find_all("dd")
+        if len(dts) == len(dds) and dts:
+            for dt, dd in zip(dts, dds):
+                k = dt.get_text(strip=True)
+                v = dd.get_text(" ", strip=True)
+                if k:
+                    pairs[k] = v
+        elif dts and dds:
+            k = dts[0].get_text(strip=True)
+            v = dds[0].get_text(" ", strip=True)
+            if k:
+                pairs[k] = v
+        return pairs
+
     def _get_specs(self, response: BeautifulSoup) -> dict[str, str]:
         cached = getattr(response, "_cached_specs", None)
         if cached is not None:
@@ -71,12 +88,7 @@ class HasekoMansionParser(MansionParserBase):
 
         specs = {}
         for dl in response.find_all("dl"):
-            dt = dl.find("dt")
-            dd = dl.find("dd")
-            if dt and dd:
-                key = dt.get_text(strip=True)
-                val = dd.get_text(" ", strip=True)
-                specs[key] = val
+            specs.update(self._extract_dl_pairs(dl))
 
         response._cached_specs = specs
         return specs
@@ -101,7 +113,7 @@ class HasekoMansionParser(MansionParserBase):
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("所在地", "")
+        return specs.get("物件所在地", "") or specs.get("所在地", "")
 
     def _parseTransport1(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -118,12 +130,12 @@ class HasekoMansionParser(MansionParserBase):
 
     def _parseChikunengetsu(self, response: BeautifulSoup, specs=None):
         specs = specs or self._get_specs(response)
-        s = specs.get("築年月", "")
+        s = specs.get("築年月", "") or specs.get("完成時期", "")
         return converter.parse_chikunengetsu(s) if s else None
 
     def _parseKouzou(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        return specs.get("構造", "") or specs.get("構造・階建て", "")
+        return specs.get("建物構造", "") or specs.get("構造", "") or specs.get("構造・階建て", "")
 
     def _parseFloor(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
@@ -191,6 +203,7 @@ class HasekoMansionParser(MansionParserBase):
         item.senyuMenseki = self._parseSenyuMenseki(response, specs)
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsu = self._parseChikunengetsu(response, specs)
+        item.chikunengetsuStr = specs.get("築年月", "") or specs.get("完成時期", "")
         item.kouzou = self._parseKouzou(response, specs)
         item.kaisu = self._parseFloor(response, specs)
         item.kanrihi = self._parseManagementFee(response, specs)

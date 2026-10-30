@@ -115,8 +115,10 @@ class ParseNomuraMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraMansionStartAsync(ApiAsyncProcBase):
     urlList: ClassVar[list[str]] = [
-        "https://www.nomu.com/mansion/ensen_tokyo/2172/2172110/",
-        "https://www.nomu.com/mansion/ensen_tokyo/2171/2171110/",
+        "https://www.nomu.com/mansion/ensen_tokyo/",
+        "https://www.nomu.com/mansion/ensen_kanagawa/",
+        "https://www.nomu.com/mansion/ensen_saitama/",
+        "https://www.nomu.com/mansion/ensen_chiba/",
     ]
     def _generateParser(self): return NomuraMansionParser("")
     def _getLocalPararellLimit(self): return 5

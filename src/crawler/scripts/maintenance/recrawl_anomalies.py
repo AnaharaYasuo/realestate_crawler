@@ -24,7 +24,7 @@ while True:
     _cur = _parent
 
 from asgiref.sync import sync_to_async
-from django.db.models import F
+from django.db.models import F, Q
 from package.api.mitsui import DETAIL_PARARELL_LIMIT
 from package.models.evaluation import PropertyEvaluation
 from package.utils.task_distribution import get_task_config
@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 MAX_CONSECUTIVE_TIMEOUTS = 3
 
 
+class TargetPropertyRef:
+    """汎用再クローリング対象参照オブジェクト"""
+    def __init__(self, property_url: str, property_id: int = 0):
+        self.property_url = property_url
+        self.property_id = property_id
+
+
 def filter_targets_by_task(records: list[Any], task_index: int | None, task_count: int) -> list[Any]:
     """対象レコードを Cloud Run Jobs タスクアレイの Modulo 分割により抽出する (後方互換/単体テスト用)"""
     if task_index is None or task_count <= 1:
@@ -45,9 +52,39 @@ def filter_targets_by_task(records: list[Any], task_index: int | None, task_coun
     return [rec for rec in records if (getattr(rec, "property_id", 0) or 0) % task_count == task_index]
 
 
-def fetch_assigned_targets(task_index: int | None, task_count: int, limit: int | None = None) -> list[Any]:
+def fetch_assigned_targets(
+    task_index: int | None,
+    task_count: int,
+    limit: int | None = None,
+    urls: list[str] | None = None,
+    model_name: str | None = None,
+    field_empty: str | None = None,
+    company: str | None = None,
+    include_needs_recrawl: bool = False,
+) -> list[Any]:
     """各タスクの担当条件(Modulo)と--limitをDjangoクエリに直接適用して取得する"""
-    qs = PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)
+    if urls:
+        targets = [TargetPropertyRef(u.strip(), idx) for idx, u in enumerate(urls) if u.strip()]
+        filtered = filter_targets_by_task(targets, task_index=task_index, task_count=task_count)
+        return filtered[:limit] if (limit and limit > 0) else filtered
+
+    if model_name:
+        from django.apps import apps
+        model = apps.get_model("package", model_name)
+        qs = model.objects.all()
+        if field_empty:
+            qs = qs.filter(Q(**{field_empty: ""}) | Q(**{f"{field_empty}__isnull": True}))
+        if task_index is not None and task_count > 1:
+            qs = qs.annotate(mod_id=F("id") % task_count).filter(mod_id=task_index)
+        qs = qs.order_by("id")
+        if limit and limit > 0:
+            qs = qs[:limit]
+        return [TargetPropertyRef(getattr(item, "pageUrl", ""), item.id) for item in qs.only("id", "pageUrl")]
+
+    flag_q = Q(needs_parser_fix=True) | Q(needs_recrawl=True) if include_needs_recrawl else Q(needs_parser_fix=True)
+    qs = PropertyEvaluation.objects.filter(flag_q, is_published=True)
+    if company:
+        qs = qs.filter(company=company)
     if task_index is not None and task_count > 1:
         # Django DB 側で Modulo フィルタを適用し、不要な全件ロードを抑制
         qs = qs.annotate(mod_id=F("property_id") % task_count).filter(mod_id=task_index)
@@ -129,12 +166,12 @@ async def _recrawl_single_url(
     if circuit_breaker.is_tripped:
         return "skipped_by_circuit_breaker"
 
-    url = eval_rec.property_url
+    url = getattr(eval_rec, "property_url", None) or getattr(eval_rec, "pageUrl", None) or str(eval_rec)
     async with sem:
         if circuit_breaker.is_tripped:
             return "skipped_by_circuit_breaker"
         try:
-            logger.info("Recrawling anomaly URL: %s", url)
+            logger.info("Recrawling target URL: %s", url)
             runner = AnomalyDetailRunner(url)
             item = await runner.run()
         except (TimeoutError, asyncio.TimeoutError, ConnectionError, OSError):
@@ -143,17 +180,23 @@ async def _recrawl_single_url(
             return "failed"
         except Exception:
             await circuit_breaker.record_failure(is_timeout_or_connection=False)
-            logger.exception("Failed recrawling anomaly URL %s", url)
+            logger.exception("Failed recrawling target URL %s", url)
             return "failed"
 
         # 永続化後の最新レコード状態を確認して分類
         def get_post_state():
-            latest = PropertyEvaluation.objects.filter(property_url=url).first()
+            from package.utils.url_matcher import UrlMatcher
+            normalized_url = UrlMatcher.normalize(url)
+            latest = (
+                PropertyEvaluation.objects.filter(property_url=url).first()
+                or PropertyEvaluation.objects.filter(property_url=normalized_url).first()
+                or UrlMatcher.find_match_in_queryset(PropertyEvaluation.objects, "property_url", url)
+            )
             if not latest:
                 return "failed"
             if not latest.is_published:
                 return "delisted"
-            if item is not None and not latest.needs_parser_fix:
+            if item is not None and not latest.needs_parser_fix and not latest.needs_recrawl:
                 return "resolved"
             return "failed" if item is None else "unresolved"
 
@@ -172,10 +215,24 @@ async def recrawl_anomalies_async(
     concurrency: int = DETAIL_PARARELL_LIMIT,
     limit: int | None = None,
     dry_run: bool = False,
+    urls: list[str] | None = None,
+    model_name: str | None = None,
+    field_empty: str | None = None,
+    company: str | None = None,
+    include_needs_recrawl: bool = False,
 ):
-    """不整合物件の分散再クローリング本体ロジック"""
+    """不整合物件および指定対象物件の分散再クローリング本体ロジック"""
     # 1. 担当条件と上限を DB クエリに直接適用して取得
-    my_targets = await sync_to_async(fetch_assigned_targets)(task_index=task_index, task_count=task_count, limit=limit)
+    my_targets = await sync_to_async(fetch_assigned_targets)(
+        task_index=task_index,
+        task_count=task_count,
+        limit=limit,
+        urls=urls,
+        model_name=model_name,
+        field_empty=field_empty,
+        company=company,
+        include_needs_recrawl=include_needs_recrawl,
+    )
     logger.info(
         "Task [%s/%d]: Assigned %d properties to recrawl (Concurrency: %d, DryRun: %s)",
         task_index, task_count, len(my_targets), concurrency, dry_run
@@ -209,6 +266,11 @@ def main():
     parser.add_argument("--concurrency", type=int, default=None, help=f"In-process concurrency (default: {DETAIL_PARARELL_LIMIT})")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of items to recrawl")
     parser.add_argument("--dry-run", action="store_true", help="Simulate task allocation without fetching")
+    parser.add_argument("--urls", type=str, default=None, help="Comma-separated target URLs to recrawl directly")
+    parser.add_argument("--model", type=str, default=None, help="Target model name (e.g. NomuraKodate)")
+    parser.add_argument("--field-empty", type=str, default=None, help="Field name that is empty (e.g. madori)")
+    parser.add_argument("--company", type=str, default=None, help="Filter by company name (e.g. homes)")
+    parser.add_argument("--include-needs-recrawl", action="store_true", help="Include needs_recrawl=True records")
     args = parser.parse_args()
 
     env_index, env_count = get_task_config()
@@ -219,6 +281,8 @@ def main():
     default_concurrency = int(cloud_concurrency_env) if cloud_concurrency_env and cloud_concurrency_env.isdigit() else DETAIL_PARARELL_LIMIT
     concurrency = args.concurrency if args.concurrency is not None else default_concurrency
 
+    url_list = [u.strip() for u in args.urls.split(",") if u.strip()] if args.urls else None
+
     _, stats = asyncio.run(
         recrawl_anomalies_async(
             task_index=task_index,
@@ -226,6 +290,11 @@ def main():
             concurrency=concurrency,
             limit=args.limit,
             dry_run=args.dry_run,
+            urls=url_list,
+            model_name=args.model,
+            field_empty=args.field_empty,
+            company=args.company,
+            include_needs_recrawl=args.include_needs_recrawl,
         )
     )
 

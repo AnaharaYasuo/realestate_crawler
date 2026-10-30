@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-import re
 import importlib
 import logging
-from typing import Optional, Dict, Any, List
+import re
+from typing import Any
 
 from package.utils.property_type_detector import PropertyTypeDetector
-
 
 KENBIYA_PARSER_MODULE = "package.parser.kenbiyaParser"
 KENBIYA_MODEL_MODULE = "package.models.kenbiya"
@@ -45,6 +43,23 @@ KEISEI_PARSER_MODULE = "package.parser.keiseiParser"
 KEISEI_MODEL_MODULE = "package.models.keisei"
 SUMIRIN_PARSER_MODULE = "package.parser.sumirinParser"
 SUMIRIN_MODEL_MODULE = "package.models.sumirin"
+TOTATE_PARSER_MODULE = "package.parser.totateParser"
+TOTATE_MODEL_MODULE = "package.models.totate"
+SEKISUI_PARSER_MODULE = "package.parser.sekisuiParser"
+SEKISUI_MODEL_MODULE = "package.models.sekisui"
+AFR_PARSER_MODULE = "package.parser.afrParser"
+AFR_MODEL_MODULE = "package.models.afr"
+SEIBU_PARSER_MODULE = "package.parser.seibuParser"
+SEIBU_MODEL_MODULE = "package.models.seibu"
+SOTETSU_PARSER_MODULE = "package.parser.sotetsuParser"
+SOTETSU_MODEL_MODULE = "package.models.sotetsu"
+REGUIDE_PARSER_MODULE = "package.parser.reguideParser"
+REGUIDE_MODEL_MODULE = "package.models.reguide"
+MID_BROKERS_MODEL_MODULE = "package.models.mid_brokers"
+IETAN_PARSER_MODULE = "package.parser.ietanParser"
+HASEKO_PARSER_MODULE = "package.parser.hasekoParser"
+ADCAST_PARSER_MODULE = "package.parser.adcastParser"
+TOHO_PARSER_MODULE = "package.parser.tohoParser"
 
 
 HEIM_DETAIL_PATTERN = re.compile(
@@ -55,6 +70,13 @@ MIZUHO_BUYERS_PATTERN = re.compile(r"mizuho-re\.co\.jp/buyers/")
 KEIO_SALE_PATTERN = re.compile(r"chukai\.keiofudosan\.co\.jp/sale/")
 KEIKYU_DETAIL_PATTERN = re.compile(r"keikyu-sumai\.com/contents/code/detail/")
 KEISEI_DETAIL_PATTERN = re.compile(r"keisei-land\.co\.jp/contents/code/detail/")
+SEKISUI_DETAIL_PATTERN = re.compile(r"sumusite\.sekisuihouse\.co\.jp/")
+AFR_DETAIL_PATTERN = re.compile(r"hebel-haus\.com/")
+SEIBU_DETAIL_PATTERN = re.compile(r"sumai\.seiburealestate-pm\.co\.jp/")
+SOTETSU_DETAIL_PATTERN = re.compile(r"sotetsu-re\.co\.jp/")
+IETAN_DETAIL_PATTERN = re.compile(r"ietan\.jp/")
+ADCAST_DETAIL_PATTERN = re.compile(r"ad-cast\.info/")
+TOHO_DETAIL_PATTERN = re.compile(r"th-yokohama\.com/")
 
 
 class UrlRouter:
@@ -212,6 +234,15 @@ class UrlRouter:
             "parser_cls": "AthomeTochiParser",
             "model_module": ATHOME_MODEL_MODULE,
             "model_cls": "AthomeTochi",
+        },
+        {
+            "pattern": re.compile(r"athome\.co\.jp/buy_other/"),
+            "site": "athome",
+            "property_type": "apartment",
+            "parser_module": ATHOME_PARSER_MODULE,
+            "parser_cls": "AthomeInvestmentApartmentParser",
+            "model_module": ATHOME_MODEL_MODULE,
+            "model_cls": "AthomeInvestmentApartment",
         },
 
         # LIFULL HOME'S (Homes)
@@ -616,33 +647,33 @@ class UrlRouter:
             "model_cls": "DaiwaTochi",
         },
 
-        # 東急リバブル提携 住み替え (Tokyu Sumikae)
+        # 住み替え (Totate / sumikae.ttfuhan.co.jp)
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/mansion/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "mansion",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuMansionParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuMansion",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateMansionParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateMansion",
         },
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/kodate/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "kodate",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuKodateParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuKodate",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateKodateParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateKodate",
         },
         {
             "pattern": re.compile(r"sumikae\.ttfuhan\.co\.jp/tochi/"),
-            "site": "tokyu",
+            "site": "totate",
             "property_type": "tochi",
-            "parser_module": TOKYU_PARSER_MODULE,
-            "parser_cls": "TokyuTochiParser",
-            "model_module": TOKYU_MODEL_MODULE,
-            "model_cls": "TokyuTochi",
+            "parser_module": TOTATE_PARSER_MODULE,
+            "parser_cls": "TotateTochiParser",
+            "model_module": TOTATE_MODEL_MODULE,
+            "model_cls": "TotateTochi",
         },
 
         # 小田急不動産 (Odakyu)
@@ -807,10 +838,217 @@ class UrlRouter:
             "model_module": SUMIRIN_MODEL_MODULE,
             "model_cls": "SumirinInvestment",
         },
+        # 積水ハウス不動産 (Sekisui)
+        {
+            "pattern": SEKISUI_DETAIL_PATTERN,
+            "site": "sekisui",
+            "property_type": "mansion",
+            "parser_module": SEKISUI_PARSER_MODULE,
+            "parser_cls": "SekisuiMansionParser",
+            "model_module": SEKISUI_MODEL_MODULE,
+            "model_cls": "SekisuiMansion",
+        },
+        {
+            "pattern": SEKISUI_DETAIL_PATTERN,
+            "site": "sekisui",
+            "property_type": "kodate",
+            "parser_module": SEKISUI_PARSER_MODULE,
+            "parser_cls": "SekisuiKodateParser",
+            "model_module": SEKISUI_MODEL_MODULE,
+            "model_cls": "SekisuiKodate",
+        },
+        {
+            "pattern": SEKISUI_DETAIL_PATTERN,
+            "site": "sekisui",
+            "property_type": "tochi",
+            "parser_module": SEKISUI_PARSER_MODULE,
+            "parser_cls": "SekisuiTochiParser",
+            "model_module": SEKISUI_MODEL_MODULE,
+            "model_cls": "SekisuiTochi",
+        },
+        # 旭化成ホームズ (AFR / Hebel Haus)
+        {
+            "pattern": AFR_DETAIL_PATTERN,
+            "site": "afr",
+            "property_type": "mansion",
+            "parser_module": AFR_PARSER_MODULE,
+            "parser_cls": "AfrMansionParser",
+            "model_module": AFR_MODEL_MODULE,
+            "model_cls": "AfrMansion",
+        },
+        {
+            "pattern": AFR_DETAIL_PATTERN,
+            "site": "afr",
+            "property_type": "kodate",
+            "parser_module": AFR_PARSER_MODULE,
+            "parser_cls": "AfrKodateParser",
+            "model_module": AFR_MODEL_MODULE,
+            "model_cls": "AfrKodate",
+        },
+        {
+            "pattern": AFR_DETAIL_PATTERN,
+            "site": "afr",
+            "property_type": "tochi",
+            "parser_module": AFR_PARSER_MODULE,
+            "parser_cls": "AfrTochiParser",
+            "model_module": AFR_MODEL_MODULE,
+            "model_cls": "AfrTochi",
+        },
+        # 西武不動産 (Seibu)
+        {
+            "pattern": SEIBU_DETAIL_PATTERN,
+            "site": "seibu",
+            "property_type": "mansion",
+            "parser_module": SEIBU_PARSER_MODULE,
+            "parser_cls": "SeibuMansionParser",
+            "model_module": SEIBU_MODEL_MODULE,
+            "model_cls": "SeibuMansion",
+        },
+        {
+            "pattern": SEIBU_DETAIL_PATTERN,
+            "site": "seibu",
+            "property_type": "kodate",
+            "parser_module": SEIBU_PARSER_MODULE,
+            "parser_cls": "SeibuKodateParser",
+            "model_module": SEIBU_MODEL_MODULE,
+            "model_cls": "SeibuKodate",
+        },
+        {
+            "pattern": SEIBU_DETAIL_PATTERN,
+            "site": "seibu",
+            "property_type": "tochi",
+            "parser_module": SEIBU_PARSER_MODULE,
+            "parser_cls": "SeibuTochiParser",
+            "model_module": SEIBU_MODEL_MODULE,
+            "model_cls": "SeibuTochi",
+        },
+        # 相鉄不動産販売 (Sotetsu)
+        {
+            "pattern": SOTETSU_DETAIL_PATTERN,
+            "site": "sotetsu",
+            "property_type": "mansion",
+            "parser_module": SOTETSU_PARSER_MODULE,
+            "parser_cls": "SotetsuMansionParser",
+            "model_module": SOTETSU_MODEL_MODULE,
+            "model_cls": "SotetsuMansion",
+        },
+        {
+            "pattern": SOTETSU_DETAIL_PATTERN,
+            "site": "sotetsu",
+            "property_type": "kodate",
+            "parser_module": SOTETSU_PARSER_MODULE,
+            "parser_cls": "SotetsuKodateParser",
+            "model_module": SOTETSU_MODEL_MODULE,
+            "model_cls": "SotetsuKodate",
+        },
+        {
+            "pattern": SOTETSU_DETAIL_PATTERN,
+            "site": "sotetsu",
+            "property_type": "tochi",
+            "parser_module": SOTETSU_PARSER_MODULE,
+            "parser_cls": "SotetsuTochiParser",
+            "model_module": SOTETSU_MODEL_MODULE,
+            "model_cls": "SotetsuTochi",
+        },
+        # RE-Guide (Reguide)
+        {
+            "pattern": re.compile(r"re-guide\.jp/"),
+            "site": "reguide",
+            "property_type": "apartment",
+            "parser_module": REGUIDE_PARSER_MODULE,
+            "parser_cls": "ReguideInvestmentParser",
+            "model_module": REGUIDE_MODEL_MODULE,
+            "model_cls": "ReguideInvestment",
+        },
+        # 大成有楽不動産販売 (Ietan)
+        {
+            "pattern": IETAN_DETAIL_PATTERN,
+            "site": "ietan",
+            "property_type": "mansion",
+            "parser_module": IETAN_PARSER_MODULE,
+            "parser_cls": "IetanMansionParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "IetanMansion",
+        },
+        {
+            "pattern": IETAN_DETAIL_PATTERN,
+            "site": "ietan",
+            "property_type": "kodate",
+            "parser_module": IETAN_PARSER_MODULE,
+            "parser_cls": "IetanKodateParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "IetanKodate",
+        },
+        {
+            "pattern": IETAN_DETAIL_PATTERN,
+            "site": "ietan",
+            "property_type": "tochi",
+            "parser_module": IETAN_PARSER_MODULE,
+            "parser_cls": "IetanTochiParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "IetanTochi",
+        },
+        # 長谷工の仲介 (Haseko)
+        {
+            "pattern": re.compile(r"haseko-chukai\.com/"),
+            "site": "haseko",
+            "property_type": "mansion",
+            "parser_module": HASEKO_PARSER_MODULE,
+            "parser_cls": "HasekoMansionParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "HasekoMansion",
+        },
+        # アドキャスト (Adcast)
+        {
+            "pattern": ADCAST_DETAIL_PATTERN,
+            "site": "adcast",
+            "property_type": "kodate",
+            "parser_module": ADCAST_PARSER_MODULE,
+            "parser_cls": "AdCastKodateParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "AdCastKodate",
+        },
+        {
+            "pattern": ADCAST_DETAIL_PATTERN,
+            "site": "adcast",
+            "property_type": "tochi",
+            "parser_module": ADCAST_PARSER_MODULE,
+            "parser_cls": "AdCastTochiParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "AdCastTochi",
+        },
+        # 東宝ハウス (Toho)
+        {
+            "pattern": TOHO_DETAIL_PATTERN,
+            "site": "toho",
+            "property_type": "mansion",
+            "parser_module": TOHO_PARSER_MODULE,
+            "parser_cls": "TohoMansionParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "TohoMansion",
+        },
+        {
+            "pattern": TOHO_DETAIL_PATTERN,
+            "site": "toho",
+            "property_type": "kodate",
+            "parser_module": TOHO_PARSER_MODULE,
+            "parser_cls": "TohoKodateParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "TohoKodate",
+        },
+        {
+            "pattern": TOHO_DETAIL_PATTERN,
+            "site": "toho",
+            "property_type": "tochi",
+            "parser_module": TOHO_PARSER_MODULE,
+            "parser_cls": "TohoTochiParser",
+            "model_module": MID_BROKERS_MODEL_MODULE,
+            "model_cls": "TohoTochi",
+        },
     ]
 
     @classmethod
-    def _find_best_route(cls, matched_routes: List[Dict[str, Any]], target_ptype: str) -> Optional[Dict[str, Any]]:
+    def _find_best_route(cls, matched_routes: list[dict[str, Any]], target_ptype: str) -> dict[str, Any] | None:
         for route in matched_routes:
             if route["property_type"] == target_ptype:
                 return route
@@ -824,11 +1062,11 @@ class UrlRouter:
     def resolve(
         cls,
         url: str,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
-        property_type: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        property_type: str | None = None
+    ) -> dict[str, Any] | None:
         """
         URLから対象サイト・物件種別・パーサークラス情報を特定
         オプションで property_type, title, html_text, specs を渡すことで動的な物件種別判別にも対応
@@ -867,11 +1105,11 @@ class UrlRouter:
     def create_parser(
         cls,
         url: str,
-        title: Optional[str] = None,
-        html_text: Optional[str] = None,
-        specs: Optional[Dict[str, Any]] = None,
-        property_type: Optional[str] = None
-    ) -> Optional[Any]:
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        property_type: str | None = None
+    ) -> Any | None:
         """
         URLおよび動的判定情報（title, html_text, specs, property_type）から
         適切なパーサーを解決し、インスタンス化して返却

@@ -76,16 +76,18 @@ async def _fetch_sitemap_text(session: aiohttp.ClientSession, sm_url: str) -> st
         return None
 
 
-def _extend_collected(collected: list[str], locs: list[str], limit: int) -> None:
+def _extend_collected(
+    collected: list[str], locs: list[str], limit: Optional[int]
+) -> None:
     for loc in locs:
         if loc not in collected:
             collected.append(loc)
-        if len(collected) >= limit:
+        if limit is not None and len(collected) >= limit:
             return
 
 
 async def get_mizuho_links_from_sitemap(
-    kind_or_url: str, limit: int = 40
+    kind_or_url: str, limit: Optional[int] = None
 ) -> list[str]:
     """Fetch official detail sitemap(s) for the property kind (aiohttp, no PW)."""
     kind = infer_mizuho_sitemap_kind(kind_or_url)
@@ -95,7 +97,7 @@ async def get_mizuho_links_from_sitemap(
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             for sm_url in sitemap_urls:
-                if len(collected) >= limit:
+                if limit is not None and len(collected) >= limit:
                     break
                 text = await _fetch_sitemap_text(session, sm_url)
                 if not text:
@@ -107,18 +109,26 @@ async def get_mizuho_links_from_sitemap(
     logger.info(
         "MizuhoBypass: sitemap kind=%s yielded %d links", kind, len(collected)
     )
-    return collected[:limit]
+    return collected if limit is None else collected[:limit]
+
+
+def _check_page_errors(title: str, status: int | None) -> None:
+    if status in (502, 503, 504) or "503" in title or "Service Unavailable" in title:
+        from package.parser.baseParser import ServerBusyException
+        raise ServerBusyException(f"Mizuho site temporarily unavailable ({status or '503'}): {title}")
 
 
 async def _extract_links_from_page(page, response) -> list:
     title = await page.title()
+    status = response.status if response else None
     logger.info(
         "MizuhoBypass: Page loaded. Title: %s, Status: %s",
         title,
-        response.status if response else "None",
+        status or "None",
     )
+    _check_page_errors(title, status)
 
-    if "403" in title or (response and response.status == 403):
+    if "403" in title or status == 403:
         logger.error("MizuhoBypass: Got blocked with 403!")
         return []
 
@@ -167,7 +177,7 @@ async def get_mizuho_links(url: str, limit: Optional[int] = None) -> list:
     """
     logger.info("MizuhoBypass: Initializing discovery for URL: %s", url)
     kind = infer_mizuho_sitemap_kind(url)
-    sitemap_limit = max(1, int(limit)) if limit is not None else 500
+    sitemap_limit = max(1, int(limit)) if limit is not None else None
     sitemap_links = await get_mizuho_links_from_sitemap(kind, limit=sitemap_limit)
     if sitemap_links:
         logger.info(
@@ -314,11 +324,14 @@ async def _get_mizuho_links_once(url: str, limit: int | None = None) -> list:
                             exc_info=True,
                         )
     except Exception as e:  # noqa: BLE001
+        from package.parser.baseParser import ServerBusyException
+        if isinstance(e, ServerBusyException):
+            raise
         logger.exception("MizuhoBypass: Error during Playwright operation: %s", e)
     if not links:
         try:
             logger.info("MizuhoBypass: 0 links from Playwright. Falling back to official detail sitemaps...")
-            fallback_limit = max(1, int(limit)) if limit is not None else 500
+            fallback_limit = max(1, int(limit)) if limit is not None else None
             links = await get_mizuho_links_from_sitemap(url, limit=fallback_limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("MizuhoBypass: Sitemap fallback failed: %s", exc)

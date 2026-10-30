@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 HTML_PARSER = "html.parser"
 LABEL_KAIDATE_KAI = "階建 / 階"
 
-ATHOME_NAV_KEYWORDS = ("/list/", "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
-ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", "/list/", "toushi", "chuko", "buy_other")
+PATH_LIST = "/list/"
+
+ATHOME_NAV_KEYWORDS = (PATH_LIST, "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
+ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", PATH_LIST, "toushi", "chuko", "buy_other")
 _ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_DIR_WIDTH_RE = (
@@ -33,6 +35,7 @@ _ATHOME_MAGUCHI_IN_SETSUDOU_RE = (
 )
 _ATHOME_ROAD_TYPE_RE = r'(公道|私道)'
 _ATHOME_ROAD_STRUCT_RE = r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)'
+PATH_BUY_OTHER = "/buy_other/"
 _ATHOME_CHALLENGE_MARKERS = ("認証にご協力ください", "認証中", "Click to verify", "パズル認証", "Just a moment...")
 _ATHOME_PLAYWRIGHT_ARGS = [
     '--disable-blink-features=AutomationControlled',
@@ -59,7 +62,7 @@ _ATHOME_CONTENT_READY_JS = """() => {
     const hrefs = Array.from(document.querySelectorAll('a[href]'))
         .map(a => a.getAttribute('href') || '');
     const hasDetail = hrefs.some(h =>
-        /\\/(mansion|kodate|tochi|buy_other)\\/\\d{6,}/.test(h)
+        /\\/(mansion|kodate|tochi|buy_other)\\/.*?\\d{6,}/.test(h)
         || h.includes('bkdetail')
     );
     const hasPriceTable = text.includes('価格')
@@ -367,16 +370,18 @@ class AthomeParser(ParserBase):
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
         if "RECOMMFLG=1" in href or "sref=nw_reco" in href:
             return False
+        if PATH_LIST in path.lower() or path.lower().endswith("/list") or "bklist" in href:
+            return False
         if "bkdetail" in href:
             return True
         ptype = getattr(self, "property_type", "")
         type_patterns = {
-            "kodate": r'/(kodate|buy/kodate)/\d{6,}/?',
-            "mansion": r'/(mansion|buy/mansion)/\d{6,}/?',
-            "tochi": r'/(tochi|buy/tochi)/\d{6,}/?',
-            "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/\d{6,}/?',
+            "kodate": r'/(kodate|buy/kodate)/.*?(\d{6,})/?',
+            "mansion": r'/(mansion|buy/mansion)/.*?(\d{6,})/?',
+            "tochi": r'/(tochi|buy/tochi)/.*?(\d{6,})/?',
+            "investmentapartment": r'/(buy_other|toushi|bldg|building|buy_toushi)/.*?(\d{6,})/?',
         }
-        pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/\d{6,}/?')
+        pattern = type_patterns.get(ptype, r'/(mansion|kodate|toushi|tochi|bldg|building|detail|buy_toushi|buy_other)/.*?(\d{6,})/?')
         return bool(re.search(pattern, path))
 
     def _extract_detail_links_from_soup(self, soup: BeautifulSoup, base_domain: str):
@@ -580,30 +585,54 @@ class AthomeParser(ParserBase):
             
         return item
 
+    def _extract_dl_specs(self, response: BeautifulSoup, specs: dict) -> None:
+        for dl in response.select("dl"):
+            for dt, dd in zip(dl.find_all("dt"), dl.find_all("dd")):
+                label = re.sub(r"\s+", "", dt.get_text())
+                if label and label not in specs:
+                    specs[label] = dd.get_text().strip().split('\n')[0].strip()
+
     def _get_specs_table(self, response: BeautifulSoup) -> dict:
         """
         アットホーム詳細ページの物件スペックテーブルを辞書化して返す。
         """
         specs = {}
-        # 任意のテーブル行からth/tdペアを収集する
         for row in response.select("table tr"):
-            th_tags = row.find_all("th")
-            td_tags = row.find_all("td")
-            for th, td in zip(th_tags, td_tags):
-                label = th.get_text().strip()
-                val = td.get_text().strip()
+            for th, td in zip(row.find_all("th"), row.find_all("td")):
+                label = re.sub(r"\s+", "", th.get_text())
                 if label:
-                    # 改行後の不要なテキスト（支払シミュレーション等）を取り除く
-                    val_cleaned = val.split('\n')[0].strip()
+                    val_cleaned = td.get_text().strip().split('\n')[0].strip()
                     specs[label] = val_cleaned
+                    raw_lbl = th.get_text().strip()
+                    if raw_lbl not in specs:
+                        specs[raw_lbl] = val_cleaned
+
+        self._extract_dl_specs(response, specs)
         return specs
 
     def _parseAddress(self, response: BeautifulSoup, specs=None) -> str:
         _ = specs
-        for th in response.find_all("th"):
+        for th in response.find_all(["th", "dt"]):
             text = th.get_text().strip()
-            if "所在地" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
+            if "所在地" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip().split('\n')[0].strip()
+        el = response.select_one(".address, .bukken-address, [class*='address']")
+        if el:
+            return el.get_text().strip().split('\n')[0].strip()
+        return ""
+
+    def _parseTraffic(self, response: BeautifulSoup) -> str:
+        for th in response.find_all(["th", "dt"]):
+            text = th.get_text().strip()
+            if "交通" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip()
+        el = response.select_one(".traffic, .access, .bukken-traffic, [class*='traffic']")
+        if el:
+            return el.get_text().strip()
         return ""
 
     @staticmethod
@@ -621,7 +650,7 @@ class AthomeParser(ParserBase):
                 txt = el.get_text().strip().split("\n")[0].strip()
                 if any(unit in txt for unit in ("万", "億", "円")):
                     return txt
-        for td in response.find_all("td"):
+        for td in response.find_all(["td", "dd"]):
             txt = td.get_text().strip()
             if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億", "円")):
                 return txt.split("\n")[0].strip()
@@ -632,24 +661,17 @@ class AthomeParser(ParserBase):
             val = self._parse_price_from_specs(specs)
             if val:
                 return val
-        for th in response.find_all("th"):
+        for th in response.find_all(["th", "dt"]):
             text = th.get_text().strip()
-            if "価格" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip().split('\n')[0].strip()
+            if "価格" in text:
+                sib = th.find_next_sibling(["td", "dd"])
+                if sib:
+                    return sib.get_text().strip().split('\n')[0].strip()
         return self._parse_price_from_elements(response)
-
-
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int:
         pstr = self._parsePriceStr(response, specs)
         return converter.parse_price(pstr) or 0
-
-    def _parseTraffic(self, response: BeautifulSoup) -> str:
-        for th in response.find_all("th"):
-            text = th.get_text().strip()
-            if "交通" in text and th.find_next_sibling("td"):
-                return th.find_next_sibling("td").get_text().strip()
-        return ""
 
 class AthomeMansionParser(AthomeParser, MansionParserBase):
     def _parseRights(self, response, specs=None):
@@ -727,11 +749,30 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         return AthomeMansion()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = getattr(item, "pageUrl", "")
+        # buy_other や 土地以外の種別で土地面積が存在しない物件はスキップ
+        if PATH_BUY_OTHER in page_url:
+            specs_peek = self._get_specs_table(response)
+            tochi_raw = (
+                specs_peek.get("土地面積", "")
+                or specs_peek.get("区画面積", "")
+                or specs_peek.get("敷地面積", "")
+                or specs_peek.get("面積", "")
+            )
+            if not tochi_raw or str(tochi_raw).strip() in ["", "-", "－", "―"]:
+                raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
+
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
         
         item.madori = self._parseMadori(response, specs)
-        item.senyuMensekiStr = specs.get("専有面積", "")
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("壁芯面積", "")
+            or specs.get("登記簿面積", "")
+            or specs.get("内法面積", "")
+            or self.get_senyu_menseki_str(response)
+        )
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
@@ -807,18 +848,32 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
         name = self._parsePropertyName(response)
-        if any(kw in page_url for kw in ("/buy_other/", "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
+        if any(kw in page_url for kw in (PATH_BUY_OTHER, "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
             raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
 
         item.madori = self._parseMadori(response, specs) or self.get_madori(response)
 
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("区画面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("実測面積", "")
+            or specs.get("面積", "")
+            or self.get_tochi_menseki_str(response)
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("延床面積", "")
+            or specs.get("延べ面積", "")
+            or specs.get("延床", "")
+            or self.get_tatemono_menseki_str(response)
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
@@ -897,7 +952,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         """Prefer buy_other / bldg / toushi details; skip mansion reco noise on invest hubs."""
         async for url in super().parseRootPage(response):
             path = urllib.parse.urlparse(url).path.lower()
-            if any(tok in path for tok in ("/buy_other/", "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
+            if any(tok in path for tok in (PATH_BUY_OTHER, "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
                 yield url
 
     def _athome_reject_residential_shumoku(self, shumoku: str) -> None:
@@ -960,13 +1015,28 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
             logger.debug("Athome yield→rent derive skipped: %s", err)
 
     def _athome_fill_invest_areas(self, item, specs: dict) -> None:
-        item.tochiMensekiStr = specs.get("土地面積", "")
+        item.tochiMensekiStr = (
+            specs.get("土地面積", "")
+            or specs.get("敷地面積", "")
+            or specs.get("区画面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("実測面積", "")
+        )
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.tatemonoMensekiStr = specs.get("建物面積", "") or specs.get("使用部分面積", "")
+        item.tatemonoMensekiStr = (
+            specs.get("建物面積", "")
+            or specs.get("使用部分面積", "")
+            or specs.get("延床面積", "")
+            or specs.get("延べ面積", "")
+            or specs.get("専有面積", "")
+        )
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
+            if hasattr(item, "senyuMenseki") and getattr(item, "senyuMenseki", None) is None:
+                item.senyuMenseki = item.tatemonoMenseki
+                item.senyuMensekiStr = item.tatemonoMensekiStr
 
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)

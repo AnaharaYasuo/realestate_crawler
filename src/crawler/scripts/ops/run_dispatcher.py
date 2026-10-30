@@ -68,22 +68,6 @@ def scale_proxysql_mig(target_size: int = 1, project_id: str | None = None, regi
     return res
 
 
-def run_db_migration() -> bool:
-    """DB スキーママイグレーションを実行"""
-    logger.info("Executing database migration (manage.py migrate)...")
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    crawler_dir = os.path.dirname(os.path.dirname(current_dir))
-    manage_py = os.path.join(crawler_dir, "manage.py")
-
-    cmd = [sys.executable, manage_py, "migrate", "--noinput"]
-    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if res.returncode != 0:
-        logger.error(f"Migration failed: {res.stderr}")
-        raise RuntimeError(f"Database migration failed: {res.stderr}")
-    logger.info("Database migration finished successfully.")
-    return True
-
-
 def _record_pending_task(today: datetime.date, execution_id: str, task_index: int, task_count: int) -> None:
     """DB に今回のディスパッチ実行のタスク行を初期ステータス PENDING で登録"""
     try:
@@ -172,11 +156,8 @@ def main(argv=None):
     # 2. ProxySQL 疎通待機
     wait_for_proxysql_health(timeout_sec=60)
 
-    # 3. DB マイグレーション
-    if not args.dry_run:
-        run_db_migration()
-
-    # 4. Cloud Tasks へ全タスク投入
+    # 3. Cloud Tasks へ全タスク投入 (スキーマ変更は CI/CD 専用: Issue #932。
+    #    deploy-production.yml は migrate ジョブ成功後にのみ本ジョブのイメージを更新する)
     enqueue_crawl_tasks(skip_portals=args.skip_portals, dry_run=args.dry_run)
 
     logger.info("=== [DISPATCHER SUCCESS] All tasks dispatched. Exiting immediately (CPU cost ¥0). ===")

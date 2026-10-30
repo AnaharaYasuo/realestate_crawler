@@ -178,6 +178,7 @@ INVESTMENT_PARSERS = [
     ("homes", "package.parser.homesParser", "HomesInvestmentApartmentParser"),
     ("kenbiya", "package.parser.kenbiyaParser", "KenbiyaInvestmentApartmentParser"),
     ("kenbiya_building", "package.parser.kenbiyaParser", "KenbiyaInvestmentBuildingParser"),
+    ("reguide", "package.parser.reguideParser", "ReguideInvestmentParser"),
 ]
 
 

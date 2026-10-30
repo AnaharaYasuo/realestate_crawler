@@ -17,7 +17,7 @@ sotetsu_bp = Blueprint('sotetsu', __name__)
 @sotetsu_bp.route(API_KEY_SOTETSU_MANSION_START, methods=['POST', 'GET'])
 def sotetsu_mansion_start():
     # 東京都の中古マンション（相鉄沿線など）
-    return ParseSotetsuMansionStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/?a5%5B%5D=13108&a5%5B%5D=13116&a5%5B%5D=13209&t%5B%5D=1")
+    return ParseSotetsuMansionStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/1?t%5B%5D=1&s=new&o=desc")
 
 sotetsuMansionStart = sotetsu_mansion_start
 
@@ -33,7 +33,7 @@ sotetsuMansionDetail = sotetsu_mansion_detail
 @sotetsu_bp.route(API_KEY_SOTETSU_KODATE_START, methods=['POST', 'GET'])
 def sotetsu_kodate_start():
     # 東京都の中古戸建
-    return ParseSotetsuKodateStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/1?t%5B%5D=2&t%5B%5D=3&a5%5B%5D=13209&s=new&o=desc")
+    return ParseSotetsuKodateStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/1?t%5B%5D=2&t%5B%5D=3&s=new&o=desc")
 
 sotetsuKodateStart = sotetsu_kodate_start
 
@@ -49,7 +49,7 @@ sotetsuKodateDetail = sotetsu_kodate_detail
 @sotetsu_bp.route(API_KEY_SOTETSU_TOCHI_START, methods=['POST', 'GET'])
 def sotetsu_tochi_start():
     # 東京都の土地
-    return ParseSotetsuTochiStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/1?t%5B%5D=4&a5%5B%5D=13209&s=new&o=desc")
+    return ParseSotetsuTochiStartAsync().main("https://www.sotetsu-re.co.jp/buy/res/area/1?t%5B%5D=4&s=new&o=desc")
 
 sotetsuTochiStart = sotetsu_tochi_start
 

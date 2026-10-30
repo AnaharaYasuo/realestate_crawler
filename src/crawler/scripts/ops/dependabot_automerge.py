@@ -5,7 +5,7 @@ import logging
 import os
 import subprocess
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("dependabot_automerge")
@@ -20,7 +20,7 @@ class PRStatus(str, Enum):
 
 
 class DependabotPrInspector:
-    def fetch_dependabot_prs(self) -> List[Dict[str, Any]]:
+    def fetch_dependabot_prs(self) -> list[dict[str, Any]]:
         cmd = [
             "gh",
             "pr",
@@ -42,7 +42,7 @@ class DependabotPrInspector:
             logger.exception(f"Failed to parse gh output as JSON: {e}")
             return []
 
-    def evaluate_pr_status(self, pr_data: Dict[str, Any]) -> Tuple[PRStatus, str]:
+    def evaluate_pr_status(self, pr_data: dict[str, Any]) -> tuple[PRStatus, str]:
         """Classify a Dependabot PR from its mergeability and rolled-up CI state.
 
         Failed checks whose names contain ``upload-sarif``, ``code scanning``, or
@@ -126,7 +126,7 @@ class DependabotAutoMerger:
             logger.exception(f"Failed to request rebase on PR #{pr_number}: {e.stderr.strip()}")
             return False
 
-    def format_summary_markdown(self, results: List[Dict[str, Any]]) -> str:
+    def format_summary_markdown(self, results: list[dict[str, Any]]) -> str:
         lines = [
             "## Dependabot Auto-Merge Summary",
             "",

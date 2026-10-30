@@ -11,7 +11,7 @@ def test_workflows_timeout_definitions():
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         content = f.read()
 
     # YAMLから動的に maxPipelineDurationSec と crawlTimeoutSec の設定値を抽出
@@ -58,13 +58,17 @@ def test_hang_kill_terminates_process_group():
     mock_proc.pid = 12345
     mock_proc.poll.return_value = None
 
-    with patch("os.getpgid", return_value=54321) as mock_getpgid, \
-         patch("os.killpg") as mock_killpg:
-        
+    if hasattr(os, "getpgid"):
+        with patch("os.getpgid", return_value=54321) as mock_getpgid, \
+             patch("os.killpg") as mock_killpg:
+            killed = kill_hung_job_process(mock_proc)
+            assert killed is True
+            mock_getpgid.assert_called_once_with(12345)
+            mock_killpg.assert_called_once_with(54321, signal.SIGKILL)
+    else:
         killed = kill_hung_job_process(mock_proc)
         assert killed is True
-        mock_getpgid.assert_called_once_with(12345)
-        mock_killpg.assert_called_once_with(54321, signal.SIGKILL)
+        mock_proc.kill.assert_called_once()
 
 
 def test_daily_pipeline_yaml_structure_and_cleanup():
@@ -74,7 +78,7 @@ def test_daily_pipeline_yaml_structure_and_cleanup():
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     assert "main" in data
@@ -108,7 +112,7 @@ def test_daily_pipeline_crawler_failure_resilience():
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     main_steps = data["main"]["steps"]
@@ -135,7 +139,7 @@ def test_workflows_tf_configuration():
     tf_path = os.path.join(repo_root, "terraform", "workflows.tf")
     assert os.path.exists(tf_path), f"workflows.tf missing at {tf_path}"
 
-    with open(tf_path, "r", encoding="utf-8") as f:
+    with open(tf_path, encoding="utf-8") as f:
         content = f.read()
 
     assert 'resource "google_workflows_workflow" "daily_pipeline_workflow"' in content
@@ -153,7 +157,7 @@ def test_workflows_monitor_job_execution_fast_fail():
         yaml_path = os.path.join(repo_root, "terraform", "workflows", yaml_filename)
         assert os.path.exists(yaml_path), f"{yaml_filename} missing at {yaml_path}"
 
-        with open(yaml_path, "r", encoding="utf-8") as f:
+        with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         assert "monitorJobExecution" in data, f"{yaml_filename} must define monitorJobExecution subworkflow"
@@ -170,7 +174,7 @@ def test_workflows_monitor_job_execution_fast_fail():
         assert "except" in check_loop_step, f"{yaml_filename} checkStatusLoop must catch get errors"
 
         # YAML文字列として JobExecutionNotFound の raise が存在することを検証
-        with open(yaml_path, "r", encoding="utf-8") as f:
+        with open(yaml_path, encoding="utf-8") as f:
             yaml_text = f.read()
         assert "JobExecutionNotFound" in yaml_text, f"{yaml_filename} must raise JobExecutionNotFound on repeated failures"
 
@@ -179,12 +183,11 @@ def test_workflows_configurable_url_verification():
     """daily_pipeline.yaml において、死活検証(skipUrlCheck)がデフォルト true でスキップされ、
     crawlerArgs および mlArgs に --skip-url-check が伝搬されること.
     """
-    import yaml
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
     assert os.path.exists(yaml_path), f"daily_pipeline.yaml missing at {yaml_path}"
 
-    with open(yaml_path, "r", encoding="utf-8") as f:
+    with open(yaml_path, encoding="utf-8") as f:
         content = f.read()
 
     # skipUrlCheck のデフォルト値が true (スキップ) で定義されていること
@@ -194,7 +197,7 @@ def test_workflows_configurable_url_verification():
 
     # Cloud Scheduler (scheduler.tf) の日次トリガー引数に skipUrlCheck = true が明示設定されていること
     scheduler_tf_path = os.path.join(repo_root, "terraform", "scheduler.tf")
-    with open(scheduler_tf_path, "r", encoding="utf-8") as f:
+    with open(scheduler_tf_path, encoding="utf-8") as f:
         scheduler_content = f.read()
     assert 'skipUrlCheck' in scheduler_content
 

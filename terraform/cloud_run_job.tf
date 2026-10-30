@@ -184,7 +184,7 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
         }
         env {
           name  = "CRAWLER_HANG_THRESHOLD_SEC"
-          value = "600"
+          value = "180"
         }
 
         # Playwright は --disable-dev-shm-usage フラグで /tmp を利用するため shm の個別マウント不要
@@ -338,6 +338,10 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
         env {
           name  = "SLACK_ALERT_PROPERTY_ALERT"
           value = "property_alert"
+        }
+        env {
+          name  = "SLACK_DEV_CHANNEL"
+          value = "C0BKBHWD26T"
         }
         env {
           name  = "PROXYSQL_INSTANCE_NAME"

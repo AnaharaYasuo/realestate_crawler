@@ -3,9 +3,8 @@
 経済的価値創出力評価・外れ値除去仕様の単体テスト
 """
 import pytest
-import datetime
 from decimal import Decimal
-from package.ml.features import build_features, FEATURE_SETS
+from package.ml.features import build_features
 from package.ml.predict import _detect_property_type
 
 class MockProperty:

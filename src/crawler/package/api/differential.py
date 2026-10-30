@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+from package.utils.crawler_watchdog import touch_crawler_progress
 
 
 class ListItem(str):
@@ -89,9 +90,50 @@ async def _batch_update_cached(model_class: Any, to_skip: list[str], now: Any) -
             )
 
         updated_count = await sync_to_async(update_active_cached)()
+        _touch_differential_progress(model_class)
         logging.info(f"[Differential Crawl] Batch updated updateDateTime for {updated_count} active cached properties.")
     except Exception as ue:
         logging.warning(f"[Differential Crawl] Failed to update updateDateTime for cached properties: {ue}")
+
+
+def _detect_company_and_type_from_model(model_class):
+    """Djangoモデルクラス名から会社名と物件種別を逆引き判定する"""
+    if model_class is None:
+        return None, None
+    name = getattr(model_class, "__name__", "").lower()
+    companies = [
+        "mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho",
+        "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu",
+        "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio",
+        "adcast", "toho", "ietan", "haseko", "kenbiya"
+    ]
+    comp = None
+    for c in sorted(companies, key=len, reverse=True):
+        if name.startswith(c):
+            comp = c
+            break
+
+    ptypes = [
+        "invest_apartment", "invest_building", "invest_kodate", "investment",
+        "mansion", "kodate", "tochi", "building", "land"
+    ]
+    ptype = None
+    for p in sorted(ptypes, key=len, reverse=True):
+        if p.replace("_", "") in name or p in name:
+            ptype = p
+            break
+
+    return comp, ptype
+
+
+def _touch_differential_progress(model_class):
+    """差分キャッシュスキップ時にウォッチドッグ進捗通知ファイルを更新する"""
+    try:
+        comp, ptype = _detect_company_and_type_from_model(model_class)
+        if comp and ptype:
+            touch_crawler_progress(comp, ptype)
+    except Exception:
+        pass
 
 
 DIFFERENTIAL_CHUNK_SIZE: int = 200
@@ -133,6 +175,11 @@ async def _process_differential_chunk(
 
     if chunk_to_skip:
         await _batch_update_cached(model_class, chunk_to_skip, now)
+        try:
+            from package.utils.job_metrics import record_item_skipped
+            record_item_skipped(len(chunk_to_skip))
+        except Exception:
+            pass
 
     return chunk_to_fetch, chunk_to_skip
 

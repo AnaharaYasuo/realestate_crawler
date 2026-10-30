@@ -33,6 +33,9 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
+from package.utils.job_metrics import export_job_metrics
+from package.utils.crawler_watchdog import touch_crawler_progress, cleanup_crawler_progress
+from package.parser.baseParser import ServerBusyException, SkipPropertyException
 
 # Import Blueprints
 from routes.mitsui_routes import mitsui_bp
@@ -101,6 +104,7 @@ from routes.mid_brokers_routes import (
     tohoMansionStart,
     tohoTochiStart,
 )
+from routes.reguide_routes import reguide_bp, reguideInvestmentStart
 
 
 app = Flask(__name__)  # NOSONAR
@@ -137,6 +141,7 @@ app.register_blueprint(keisei_bp)
 app.register_blueprint(daikyo_bp)
 app.register_blueprint(kenbiya_bp)
 app.register_blueprint(mid_brokers_bp)
+app.register_blueprint(reguide_bp)
 app.register_blueprint(evaluation_bp)
 app.register_blueprint(swagger_bp)
 
@@ -360,6 +365,7 @@ def get_dispatch_map():
         ("toho", "mansion"): tohoMansionStart,
         ("toho", "kodate"): tohoKodateStart,
         ("toho", "tochi"): tohoTochiStart,
+        ("reguide", "investment"): reguideInvestmentStart,
     }
 
 
@@ -430,6 +436,10 @@ def execute_crawl_task(
     elapsed = int(time.time() - start_t)
     scraped_count = _count_scraped_items(company, prop_type, start_dt)
     _update_task_record(task_rec, success)
+    try:
+        export_job_metrics(company, prop_type, detail_cnt=scraped_count)
+    except Exception as me:
+        logging.warning("Failed to export metrics in execute_crawl_task: %s", me)
 
     return success, scraped_count, elapsed
 
@@ -532,12 +542,32 @@ if __name__ == "__main__":
             signal.signal(signal.SIGINT, handle_sigterm)
 
             logger.info(f"Starting {company} {prop_type} crawl via CLI...")
+            touch_crawler_progress(company, prop_type)
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
                     asyncio.run(func())
                 else:
                     func()
+            except SkipPropertyException as se:
+                logger.warning(f"Crawl job skipped/terminated gracefully due to target site condition: {se}")
+                try:
+                    FailureReporter.record_job_failure(
+                        company=company,
+                        property_type=prop_type,
+                        error_type=type(se).__name__,
+                        error_message=str(se),
+                        exit_code=0,
+                        traceback_str=str(se)
+                    )
+                except Exception:
+                    pass
+                try:
+                    export_job_metrics(company, prop_type, is_empty_result=True)
+                except Exception:
+                    pass
+                cleanup_crawler_progress(company, prop_type)
+                sys.exit(0)
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.exception("Error during crawl execution")
@@ -553,6 +583,11 @@ if __name__ == "__main__":
                 except Exception as fre:  # noqa: BLE001
                     logger.warning(f"Failed to record failure telemetry: {fre}")
                 sys.exit(1)
+            try:
+                export_job_metrics(company, prop_type)
+            except Exception as me:
+                logger.warning(f"Failed to export job metrics on completion: {me}")
+            cleanup_crawler_progress(company, prop_type)
             logger.info(f"Execution finished for {company} {prop_type}")
             sys.exit(0)
         else:

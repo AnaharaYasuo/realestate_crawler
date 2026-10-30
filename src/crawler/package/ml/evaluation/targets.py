@@ -56,6 +56,37 @@ def iter_active_items(
         skipped_count = 0
 
 
+def _is_real_django_model(model: Any) -> bool:
+    """本物の Django Model クラスかどうかを判定"""
+    from django.db import models
+    return isinstance(model, type) and issubclass(model, models.Model)
+
+
+def _iter_target_items(
+    model: Any,
+    existing_eval_map: dict[str, Any],
+    force: bool,
+    fetch_batch_size: int = 2000,
+) -> Iterator[tuple[Any | None, int]]:
+    """PKベースで未処理対象物件を1件ずつ取得し、(item, skipped_count) を yield する (S3776 分散)"""
+    last_pk = 0
+    while True:
+        close_old_connections()
+        batch_items = list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
+        if not batch_items:
+            break
+
+        for item in batch_items:
+            last_pk = item.pk
+            page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
+            if not page_url:
+                continue
+            if _should_skip_item(existing_eval_map.get(page_url), force):
+                yield None, 1
+                continue
+            yield item, 0
+
+
 def iter_unprocessed_chunks(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -65,9 +96,10 @@ def iter_unprocessed_chunks(
 ) -> Iterator[tuple[list[Any], int]]:
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
 
-    全件 list 化を行わず、同時にメモリ保持する物件数を chunk_size 以下に抑制する。
-    また、各チャンク走査前に close_old_connections() を実行して DB アイドルタイムアウト
-    (OperationalError 2006: MySQL server has gone away) を防止する (Issue #883)。
+    全件 list 化を行わず、同時にメモリ保持する物件数を fetch_batch_size 以下に抑制する。
+    本物の Django モデルでは PK ベースのバッチクエリにより、QuerySet カーソルオープン中の
+    不正な切断を防ぎ、バッチ境界で安全に close_old_connections() を呼んで DB アイドルタイムアウト
+    (OperationalError 2006: MySQL server has gone away) を物理的に根絶する (Issue #909)。
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
@@ -76,8 +108,16 @@ def iter_unprocessed_chunks(
     chunk_skipped = 0
     yielded_total = 0
 
-    for item, skp in iter_active_items(model, existing_eval_map, force):
+    if _is_real_django_model(model):
+        source_iterator = _iter_target_items(model, existing_eval_map, force)
+    else:
+        source_iterator = iter_active_items(model, existing_eval_map, force)
+
+    for item, skp in source_iterator:
         chunk_skipped += skp
+        if item is None:
+            continue
+
         current_chunk.append(item)
         target_size = min(chunk_size, limit - yielded_total) if limit is not None else chunk_size
         if len(current_chunk) >= target_size:
@@ -92,3 +132,4 @@ def iter_unprocessed_chunks(
     if current_chunk:
         yield current_chunk, chunk_skipped
         close_old_connections()
+

@@ -79,7 +79,7 @@ def test_handle_local_execution_timeout():
         def main(self, url):
             time.sleep(10.0)
 
-    with patch.dict(os.environ, {"LOCAL_EXECUTION_TIMEOUT_SEC": "0.2"}), \
+    with patch.dict(os.environ, {"LOCAL_EXECUTION_TIMEOUT_SEC": "0.2", "CRAWLER_FIRE_AND_FORGET": "false"}), \
          patch("package.api.api.ApiRegistry.get", return_value=_HangingTarget):
         start = time.time()
         res = api._handle_local_execution("/api/dummy/detail", "http://example.com/item")
@@ -136,19 +136,24 @@ def test_watchdog_triggers_kill_on_hung_job():
     assert crawler_watchdog.check_job_hung(last_activity_time=100.0, current_time=750.0, threshold_sec=600.0) is True
     assert crawler_watchdog.check_job_hung(last_activity_time=200.0, current_time=750.0, threshold_sec=600.0) is False
 
-    with patch("os.getpgid", return_value=12345), \
-         patch("os.killpg") as mock_killpg:
-        proc.communicate = MagicMock()
+    proc.communicate = MagicMock()
+    if hasattr(os, "getpgid"):
+        with patch("os.getpgid", return_value=12345), \
+             patch("os.killpg") as mock_killpg:
+            success = crawler_watchdog.kill_hung_job_process(proc)
+            assert success is True
+            mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
+    else:
         success = crawler_watchdog.kill_hung_job_process(proc)
         assert success is True
-        mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
+        proc.kill.assert_called_once()
 
 
 def test_ensure_resources_stopped_job_hung_threshold():
     """get_job_hung_threshold returns correct specific threshold for crawler, ml, and migrate jobs"""
     from scripts import ensure_resources_stopped
 
-    assert ensure_resources_stopped.get_job_hung_threshold("realestate-crawler-pipeline-prod") == 11400.0
+    assert ensure_resources_stopped.get_job_hung_threshold("realestate-crawler-pipeline-prod") == 15000.0
     assert ensure_resources_stopped.get_job_hung_threshold("realestate-ml-pipeline-prod") == 7800.0
     assert ensure_resources_stopped.get_job_hung_threshold("realestate-migrate-prod") == 900.0
     assert ensure_resources_stopped.get_job_hung_threshold("unknown-job", fallback_threshold=5000.0) == 5000.0

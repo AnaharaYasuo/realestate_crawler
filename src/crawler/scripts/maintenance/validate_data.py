@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import copy
 import datetime
 import json
 import logging
@@ -30,6 +31,7 @@ from package.models.athome import (
     AthomeTochi,
 )
 from package.models.evaluation import PropertyEvaluation
+from package.utils.db_timeouts import bound_mysql_timeouts
 from package.models.homes import (
     HomesInvestmentApartment,
     HomesKodate,
@@ -206,12 +208,31 @@ async def _run_parallel_validation(
     return await asyncio.gather(*coros)
 
 
+def batch_resolve_evaluations(urls: list[str], chunk_size: int = 1000) -> dict[str, PropertyEvaluation]:
+    """
+    URLリストに対応するPropertyEvaluationレコードをチャンク分割して一括取得する。
+    1件ごとの個別SELECTクエリ発行によるN+1問題およびMySQL/ProxySQLの接続切断を防止する。
+    戻り値: {property_url: PropertyEvaluation}
+    """
+    if not urls:
+        return {}
+
+    unique_urls = list(dict.fromkeys(urls))
+    eval_map: dict[str, PropertyEvaluation] = {}
+    for i in range(0, len(unique_urls), chunk_size):
+        chunk = unique_urls[i:i + chunk_size]
+        for rec in PropertyEvaluation.objects.filter(property_url__in=chunk):
+            eval_map[rec.property_url] = rec
+    return eval_map
+
+
 def validate_data(
     days: int | None = None,
     scan_all: bool = False,
     concurrency: int | None = None,
     skip_url_check: bool = False,
 ):
+    bound_mysql_timeouts()
     if concurrency is None:
         try:
             concurrency = int(os.getenv("VALIDATE_DATA_CONCURRENCY", "15").strip())
@@ -259,8 +280,7 @@ def validate_data(
     
     models = get_all_models_flat()
     
-    # 全モデルの対象レコードを収集
-    tasks_input: list[tuple[Any, str, str, PropertyEvaluation | None]] = []
+    raw_candidates: list[tuple[Any, str, str, str]] = []
     for model_cls, company, ptype in models:
         qs = model_cls.objects.all()
         if since_date and hasattr(model_cls, "inputDate"):
@@ -270,9 +290,16 @@ def validate_data(
             url = getattr(item, "pageUrl", "")
             if not url:
                 continue
+            raw_candidates.append((item, ptype, company, url))
 
-            eval_rec = PropertyEvaluation.objects.filter(property_url=url).first()
-            tasks_input.append((item, ptype, company, eval_rec))
+    # N+1問題を解消: 全URLからPropertyEvaluationを一括バッチ照会
+    all_urls = [c[3] for c in raw_candidates]
+    eval_lookup = batch_resolve_evaluations(all_urls)
+
+    tasks_input: list[tuple[Any, str, str, PropertyEvaluation | None]] = [
+        (item, ptype, company, copy.copy(eval_lookup.get(url)) if eval_lookup.get(url) is not None else None)
+        for item, ptype, company, url in raw_candidates
+    ]
 
     logger.info("Total properties to validate: %d. Running parallel verification...", len(tasks_input))
 
@@ -314,7 +341,7 @@ def validate_data(
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         report_path = os.path.join(project_root, "logs", f"error_report_{today_str}.json")
         if os.path.exists(report_path):
-            with open(report_path, "r", encoding="utf-8") as f:
+            with open(report_path, encoding="utf-8") as f:
                 rep = json.load(f)
                 html_errors_list = rep.get("recent_details", [])
     except Exception:

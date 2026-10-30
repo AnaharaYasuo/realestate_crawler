@@ -74,9 +74,9 @@ main:
                   assign:
                     - effectiveTaskCount: 1
                 - condition: ${skipPortals}
-                  # ポータル除外時: Task 5(homes), 6(athome mansion), 7(athome other) を除外して 5 タスクに抑制
+                  # ポータル除外時: 四大仲介（三井・住友・東急・野村）軸の 4 タスク構成で並列分散実行 (Issue #1059, #1148)
                   assign:
-                    - effectiveTaskCount: 5
+                    - effectiveTaskCount: 4
 
     - tryPipeline:
         try:

@@ -30,7 +30,13 @@ from django.db import close_old_connections, connection
 from package.utils.db_timeouts import bound_mysql_timeouts
 from package.utils.logging_config import configure_logging
 from package.models.crawler_task_execution import CrawlerTaskExecution
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES
+from package.utils.crawl_jobs import (
+    CRAWL_JOBS,
+    PORTAL_COMPANIES,
+    UNCRAWLED_COMPANIES,
+    filter_crawl_jobs,
+    is_cloud_environment,
+)
 from package.utils.task_distribution import (
     distribute_jobs,
     get_execution_date,
@@ -40,6 +46,7 @@ from package.utils.task_distribution import (
 )
 from package.utils.gcp_resources import (
     check_cloud_sql_status,
+    has_active_other_cloud_run_executions,
     patch_proxysql_autoscaler,
     scale_proxysql_mig,
     wait_for_proxysql_health,
@@ -57,7 +64,7 @@ _task_index: int | None = None
 _task_count: int = 1
 _teardown_done: bool = False
 _pipeline_start_time: float = time.time()
-DEFAULT_TIMEOUT_SEC: float = 10800.0
+DEFAULT_TIMEOUT_SEC: float = 14400.0
 SAFE_SHUTDOWN_BUFFER_SEC: float = 300.0
 TASK_RECONCILE_MAX_ATTEMPTS: int = 4
 TASK_RECONCILE_INTERVAL_SEC: float = 15.0
@@ -207,7 +214,15 @@ def _bind_parent_db_timeouts() -> None:
 
 
 def _can_stop_shared_proxysql() -> bool:
-    """タスクアレイでは他タスクが全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    """他タスク・他Cloud Run実行が全て終端状態の場合のみ共有 ProxySQL を停止できる (未確定時は Safety-Net に委譲)"""
+    if os.environ.get("IS_CLOUD") and has_active_other_cloud_run_executions(
+        current_execution_id=get_execution_id()
+    ):
+        logger.warning(
+            "⚠️ [Teardown Guard] 他の Cloud Run 実行が稼働中のため共有 ProxySQL 停止をスキップし Safety-Net に委譲します"
+        )
+        return False
+
     if _task_count <= 1:
         return True
     if _task_index is None:
@@ -362,7 +377,7 @@ BORDER_LINE = "============================================================="
 def _check_failed_slack_notifications(failed_slack_file: str) -> None:
     if not os.path.exists(failed_slack_file):
         return
-    with open(failed_slack_file, "r", encoding="utf-8") as f:
+    with open(failed_slack_file, encoding="utf-8") as f:
         failed_msgs = json.load(f)
     if failed_msgs:
         logger.critical(
@@ -487,15 +502,19 @@ def _run_crawler_step(
     task_index: int | None,
     task_count: int,
     ops_dir: str,
-    skip_portals: bool,
+    skip_portals: bool | None = None,
     skip_uncrawled: bool = False,
     company: str | None = None,
     property_type: str | None = None,
     sites: str | None = None,
 ) -> tuple[bool, bool]:
     crawl_cmd = [sys.executable, os.path.join(ops_dir, "run_all_crawlers.py")]
-    if skip_portals:
+    if skip_portals is True:
         crawl_cmd.append("--skip-portals")
+    elif skip_portals is False:
+        # 明示的に False が指定された場合のみ転送
+        # (親が引数未指定=Noneの場合はデフォルトに委ね、既存テスト呼び出しを壊さない)
+        crawl_cmd.append("--no-skip-portals")
     if skip_uncrawled:
         crawl_cmd.append("--skip-uncrawled")
     if company:
@@ -604,6 +623,8 @@ def _run_post_crawl_pipeline(
         eval_cmd = [sys.executable, os.path.join(ops_dir, "run_bulk_ml_evaluation.py")]
         if skip_portals:
             eval_cmd.append("--skip-portals")
+        else:
+            eval_cmd.append("--no-skip-portals")
         if skip_uncrawled:
             eval_cmd.append("--skip-uncrawled")
         run_command(
@@ -646,10 +667,19 @@ def _run_post_crawl_pipeline(
 
 def main():
     parser = argparse.ArgumentParser(description="Real Estate Pipeline")
+    is_cloud = is_cloud_environment()
     parser.add_argument(
         "--skip-portals",
+        dest="skip_portals",
         action="store_true",
+        default=is_cloud,
         help="Skip large portal sites (homes, athome)",
+    )
+    parser.add_argument(
+        "--no-skip-portals",
+        dest="skip_portals",
+        action="store_false",
+        help="Do not skip portal sites even on Cloud environment",
     )
     parser.add_argument(
         "--skip-uncrawled",
@@ -707,6 +737,7 @@ def main():
             sites=sites_arg,
             company=company_arg,
             property_type=prop_type_arg,
+            skip_portals=getattr(args, "skip_portals", False),
         )
     if task_count > 1 and task_index is not None:
         target_jobs = distribute_jobs(target_jobs, task_index, task_count)
@@ -803,22 +834,8 @@ def main():
             "Step 0.4/6: Database Readiness Pre-flight Check",
         )
 
-        # Step 0.5: Database Schema Migration
-        if is_coordinator:
-            run_command(
-                [
-                    sys.executable,
-                    os.path.join(crawler_dir, "manage.py"),
-                    "migrate",
-                    "--noinput",
-                ],
-                "Step 0.5/6: Database Schema Migration (Coordinator)",
-            )
-        else:
-            logger.info(
-                "⏳ [Worker] Coordinator による DB マイグレーション完了を待機中 (10秒)..."
-            )
-            time.sleep(10)
+        # Schema migration is CI/CD-only (deploy-production.yml, Issue #932); crawler never migrates.
+        # deploy-production.yml updates this job image only after the migrate job succeeds.
 
         should_continue, crawler_ok = _run_crawler_step(
             is_task_array,

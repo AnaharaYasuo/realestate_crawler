@@ -14,20 +14,14 @@ LISTING_ENDED_TITLE_KEYWORDS: tuple[str, ...] = (
     "ご成約",
     "お探しの物件は見つかりません",
     "お探しのページは見つかりません",
+    "お探しのページが見つかりません",
     "物件が見つかりません",
 )
 
-LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
-    "掲載が終了したか、成約済みになった可能性があります",
-    "お探しの物件は、掲載が終了",
-    "掲載を終了いたしました",
-    "掲載終了物件",
-    "ご指定の物件は掲載を終了",
-    "お探しのページは見つかりませんでした",
-    "お探しの物件は見つかりませんでした",
-    "お探しのページは存在しないか、掲載が終了",
-    "現在、掲載を停止しております",
-    "この物件は現在掲載されていません",
+CHALLENGE_TITLE_KEYWORDS: tuple[str, ...] = (
+    "認証にご協力ください",
+    "認証中",
+    "Just a moment...",
 )
 ```
 
@@ -40,8 +34,8 @@ LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
         """物件詳細ページが掲載終了・非公開状態の場合に ListingEndedException を送出"""
         title = soup.title.string.strip() if soup.title and soup.title.string else ""
         if title:
-            if "サーバーが混み合っています" in title:
-                logging.info(f"Server busy for URL: {url}")
+            if "サーバーが混み合っています" in title or any(kw in title for kw in cls.CHALLENGE_TITLE_KEYWORDS):
+                logging.info(f"Server busy / Challenge detected for URL: {url}")
                 raise ServerBusyException()
             if any(kw in title for kw in cls.LISTING_ENDED_TITLE_KEYWORDS):
                 logging.info(f"Listing ended (title match: '{title}') for URL: {url}")
@@ -87,4 +81,8 @@ LISTING_ENDED_BODY_KEYWORDS: tuple[str, ...] = (
 ## 2. 各社パーサーの整理
 
 * `athomeParser.py`: `_parsePropertyDetailPage` 内で独自に実施していた `ListingEndedException` の事前チェックを維持しつつ、共通判定と重複しても安全に動作することを保証。
-* `tokyuParser.py`: `check_tokyu_listing_ended` は互換性のため維持し、基底クラス側でも包括検知。
+* `tokyuParser.py`: `check_tokyu_listing_ended` は互換性のため維持し、基底クラス側でも包括検知。さらにタイトルが「購入・売却・賃貸 物件情報」を含む場合、または価格が存在せず「売り出し中の物件を見る」等の案内を含むカタログ・売出終了ページ、ならびに投資物件で詳細表が存在せず地域一覧（「投資物件・収益物件（建物）」等）へリダイレクトされたページを検知して `ListingEndedException` を送出 (Issue #764, #769, #782)。
+* `baseParser.py` (`_reject_non_property_url`): 住友不動産ステップ等の非物件URL（`/step_buildingsurvey/` 等）を `skip_parts` に追加し、早期に `SkipPropertyException` を送出してスキップ (Issue #943)。
+* `sumifuParser.py`: `_getValueFromTable` や各種項目抽出メソッドにおいて、対象要素やスペック辞書の参照値が `None` の場合に `.replace()` や文字列関数を無条件実行せず安全にデフォルト値を返すようガードを追加 (Issue #943)。
+
+

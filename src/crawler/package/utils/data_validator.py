@@ -2,8 +2,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from package.models.evaluation import PropertyEvaluation
-
 # Error messages (Sonar S1192 constant reuse)
 ERR_MISSING_SENYU = "必須項目欠損 (専有面積が未抽出)"
 ERR_MISSING_FLOOR = "必須項目欠損 (所在階が未抽出)"
@@ -60,17 +58,40 @@ class PropertyDataValidator:
             if not is_invest:
                 reasons.append(ERR_MISSING_TRAFFIC)
 
-    @staticmethod
-    def _check_madori_and_age(item: Any, reasons: list[str]) -> None:
-        """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査"""
-        if _blank(getattr(item, "madori", None)):
-            reasons.append(ERR_MISSING_MADORI)
-        if _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
-            reasons.append(ERR_MISSING_AGE)
+    @classmethod
+    def _is_under_construction(cls, item: Any) -> bool:
+        """建築中・未完成物件の判定（築年月未抽出を許容する）"""
+        genkyo = str(getattr(item, "genkyo", "") or getattr(item, "currentStatus", "") or "")
+        if any(tok in genkyo for tok in ("未完成", "建築中", "新築（未完成）")):
+            return True
+        name = str(getattr(item, "propertyName", "") or "")
+        biko = str(getattr(item, "biko", "") or "")
+        combined = f"{name} {biko}"
+        return any(tok in combined for tok in ("建築中", "新築未完成", "建築確認番号"))
+
+    @classmethod
+    def _check_madori_and_age(cls, item: Any, reasons: list[str]) -> None:
+        """居住用 (mansion/kodate) で必ず存在する間取り・築年月の欠損検査（モデル未定義時はスキップ）"""
+        has_madori_field = True
+        has_age_field = True
+        if hasattr(item, "_meta") and hasattr(item._meta, "get_fields"):
+            field_names = {f.name for f in item._meta.get_fields()}
+            has_madori_field = "madori" in field_names
+            has_age_field = "chikunengetsu" in field_names or "chikunengetsuStr" in field_names
+
+        if has_madori_field:
+            madori_val = getattr(item, "madori", None)
+            if _blank(madori_val) and str(madori_val or "").strip() not in ("-", "―", "ー", "未定", "相談"):
+                # 投資用区分マンションはスペック表に間取り表記がない場合があるため除外
+                if not cls._is_invest_unit_mansion(item):
+                    reasons.append(ERR_MISSING_MADORI)
+        if has_age_field and _blank(getattr(item, "chikunengetsu", None)) and _blank(getattr(item, "chikunengetsuStr", None)):
+            if not cls._is_under_construction(item):
+                reasons.append(ERR_MISSING_AGE)
 
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
-        """山林・原野・雑種地・農地・持分売買・投資区分など低価格（10万〜100万円未満）が正常なケース"""
+        """山林・原野・雑種地・農地・持分売買・投資区分・ヘルスケア・リゾート等低価格（10万〜100万円未満）が正常なケース"""
         chimoku = str(getattr(item, "chimoku", "") or "")
         valid_chimoku = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
         if any(target in chimoku for target in valid_chimoku):
@@ -79,7 +100,11 @@ class PropertyDataValidator:
         name = str(getattr(item, "propertyName", "") or "")
         biko = str(getattr(item, "biko", "") or "")
         full_text = f"{name} {biko}"
-        specific_keywords = ["山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ", "古家", "空き家", "空家"]
+        specific_keywords = [
+            "山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ",
+            "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
+            "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
+        ]
         if any(kw in full_text for kw in specific_keywords):
             return True
 
@@ -99,6 +124,24 @@ class PropertyDataValidator:
         return is_invest_type and (any(kw in full_text for kw in invest_keywords) or has_valid_yield)
 
     @classmethod
+    def _is_invest_unit_mansion(cls, item: Any) -> bool:
+        """投資ポータル由来または利回り・想定年収を伴う投資用区分マンション判定"""
+        url_str = str(getattr(item, "pageUrl", "") or "").lower()
+        if "toushi" in url_str or "invest" in url_str:
+            return True
+        raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
+        if raw_yield is not None:
+            try:
+                if float(raw_yield) > 0:
+                    return True
+            except (ValueError, TypeError):
+                pass
+        name = str(getattr(item, "propertyName", "") or "")
+        biko = str(getattr(item, "biko", "") or "")
+        full_text = f"{name} {biko}"
+        return any(kw in full_text for kw in ["オーナーチェンジ", "利回り", "投資用"])
+
+    @classmethod
     def _validate_price(cls, item: Any, ptype: str, reasons: list[str]) -> float:
         price = getattr(item, "price", 0) or 0
         try:
@@ -116,22 +159,54 @@ class PropertyDataValidator:
         return price_val
 
     @staticmethod
-    def _extract_and_validate_area(item: Any, ptype: str, reasons: list[str]) -> float:
-        area = 0.0
-        senyu = getattr(item, "senyuMenseki", None)
-        tatemono = getattr(item, "tatemonoMenseki", None)
-        tochi = getattr(item, "tochiMenseki", None)
+    def _parse_candidate_float(val: Any) -> float | None:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
 
-        for candidate in (senyu, tatemono, tochi):
-            if candidate is not None:
-                try:
-                    area = float(candidate)
-                    break
-                except (ValueError, TypeError):
-                    continue
+    @classmethod
+    def _is_invest_area_exempt(cls, item: Any, ptype: str) -> bool:
+        if cls._is_low_price_allowed(item, ptype):
+            return True
+        if not ("invest" in ptype or "apartment" in ptype):
+            return False
+
+        for attr in ("yieldRate", "grossYield", "rent", "monthlyRent", "annualRent"):
+            val = cls._parse_candidate_float(getattr(item, attr, None))
+            if val is not None and val > 0:
+                return True
+        return False
+
+    @classmethod
+    def _extract_and_validate_area(cls, item: Any, ptype: str, reasons: list[str]) -> float:
+        area = 0.0
+        if ptype in ("mansion", "invest_mansion"):
+            attrs = ("senyuMenseki",)
+        elif ptype == "tochi":
+            attrs = ("tochiMenseki",)
+        else:
+            attrs = ("senyuMenseki", "tatemonoMenseki", "tochiMenseki")
+
+        candidates = [
+            cls._parse_candidate_float(getattr(item, attr, None))
+            for attr in attrs
+        ]
+        parsed = [c for c in candidates if c is not None]
+        if parsed:
+            # > 5.0 を優先、なければ > 0.0 の正の値を優先
+            valid_areas = [val for val in parsed if val > 5.0]
+            if valid_areas:
+                area = max(valid_areas)
+            else:
+                positive_areas = [val for val in parsed if val > 0.0]
+                area = max(positive_areas) if positive_areas else parsed[0]
 
         if area <= 5.0:
-            reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
+            if not cls._is_invest_area_exempt(item, ptype):
+                reasons.append(f"面積異常 ({area:.1f}㎡: 5㎡以下)")
         elif area > 10000.0 and ptype in ["mansion", "kodate", "invest_kodate"]:
             reasons.append(f"面積異常 ({area:.1f}㎡: 住宅用として過大)")
         return area
@@ -144,8 +219,9 @@ class PropertyDataValidator:
             min_unit = 10.0 if cls._is_low_price_allowed(item, ptype) else 1000.0
             if unit_price < min_unit:
                 reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: {min_unit:.0f}円/㎡未満)")
-            elif unit_price > 15000000.0:
-                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 1500万円/㎡超)")
+            elif unit_price > 50000000.0:
+                reasons.append(f"単価異常 (平米単価 {unit_price:.0f}円: 5000万円/㎡超)")
+
 
     @staticmethod
     def _validate_age(item: Any, ptype: str, reasons: list[str]) -> None:
@@ -204,10 +280,11 @@ class PropertyDataValidator:
                 and any(ch.isdigit() for ch in token)
                 for token in tokens
             )
-        # 単一トークンで "地上X階" や "X階建" は建物総階数であり所在階ではない
-        if '地上' in s or '建' in s:
-            return False
-        return '階' in s and any(ch.isdigit() for ch in s)
+        if len(tokens) == 1:
+            tok = tokens[0]
+            if '階' in tok and not ('地上' in tok or '地下' in tok or '建' in tok or '総' in tok):
+                return any(ch.isdigit() for ch in tok)
+        return False
 
     @classmethod
     def _check_mansion_specs(cls, item: Any, reasons: list[str]) -> None:
@@ -228,7 +305,9 @@ class PropertyDataValidator:
             has_floor = True
 
         if not has_floor:
-            reasons.append(ERR_MISSING_FLOOR)
+            # 投資用区分マンションはサイトスペック表に所在階が非掲載の場合があるため除外
+            if not cls._is_invest_unit_mansion(item):
+                reasons.append(ERR_MISSING_FLOOR)
 
     @staticmethod
     def _check_kodate_specs(item: Any, reasons: list[str]) -> None:
@@ -239,12 +318,20 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_TATEMONO)
 
-        tochi = getattr(item, "tochiMenseki", None)
-        try:
-            if not tochi or float(tochi) <= 0:
+        # マンション・区分所有やビル区分が混入している場合は土地面積必須チェックを免除
+        shumoku = getattr(item, "shumoku", "") or getattr(item, "bukkenShubetsu", "") or ""
+        page_url = getattr(item, "pageUrl", "") or ""
+        is_sectional_or_mansion = any(
+            kw in shumoku for kw in ["マンション", "区分", "ビル", "店舗", "事務所"]
+        ) or "/buy/mansion/" in page_url
+
+        if not is_sectional_or_mansion:
+            tochi = getattr(item, "tochiMenseki", None)
+            try:
+                if not tochi or float(tochi) <= 0:
+                    reasons.append(ERR_MISSING_TOCHI)
+            except (ValueError, TypeError):
                 reasons.append(ERR_MISSING_TOCHI)
-        except (ValueError, TypeError):
-            reasons.append(ERR_MISSING_TOCHI)
 
     @staticmethod
     def _check_tochi_specs(item: Any, reasons: list[str]) -> None:
@@ -282,6 +369,8 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
     保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True (オートヒール対象)、
     OKなら解消する。単件保存・バッチ保存・validate_data.py から共通利用。
     """
+    from package.models.evaluation import PropertyEvaluation
+
     is_valid, reasons = PropertyDataValidator.validate_property(item, property_type)
     issue = "; ".join(reasons)
     eval_rec, _ = PropertyEvaluation.objects.get_or_create(

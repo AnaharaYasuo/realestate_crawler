@@ -3,11 +3,15 @@ ML 参照マスタ（地価、自治体、駅、ハザード、用途地域、�
 """
 import datetime
 import logging
+import math
 import re
 import threading
 from typing import Any
 
-from package.ml.features.constants import PREFECTURE_BASE_LAND_PRICES
+from package.ml.features.constants import (
+    PREFECTURE_BASE_LAND_PRICES,
+    PREFECTURE_BASE_POP_DENSITY,
+)
 from package.ml.features.reference_records import (
     HazardMapRecord,
     LandPriceRecord,
@@ -29,6 +33,7 @@ _lp_pref_comm_cache: dict[str, list[LandPriceRecord]] = {}
 _hazard_cache: dict[tuple[str, str], HazardMapRecord] = {}
 _zone_cache: dict[str, UrbanPlanningZoneRecord] = {}
 _macro_cache: dict[str, MacroEconomicRecord] = {}
+_caches_initialized: bool = False
 
 _cache_lock = threading.Lock()
 
@@ -45,12 +50,25 @@ def _match_tokyo_district_price(pref_clean: str, city_clean: str) -> tuple[int, 
     return None
 
 
+def _is_rural_district(city_or_address2: str) -> bool:
+    if not city_or_address2:
+        return False
+    s = city_or_address2.strip()
+    if re.search(r'^[^市]+市', s) or re.search(r'^[^区]+区', s):
+        return False
+    if re.search(r'^[^郡]+郡', s):
+        return True
+    if re.search(r'^[^町村]+[町村]', s):
+        return True
+    return s.endswith(("町", "村"))
+
+
 def _match_regional_hub_price(pref_clean: str, city_clean: str, base_res: int, base_comm: int) -> tuple[int, int] | None:
     if any(k in city_clean for k in ["北区", "中央区", "中区", "博多区", "東山区", "下京区", "西区"]) and any(
         p in pref_clean for p in ["大阪府", "京都府", "愛知県", "福岡県", "神奈川県", "兵庫県"]
     ):
         return max(base_res * 2, 450000), max(base_comm * 2, 1800000)
-    if any(k in city_clean for k in ["郡", "町", "村"]):
+    if _is_rural_district(city_clean):
         return int(base_res * 0.45), int(base_comm * 0.45)
     return None
 
@@ -211,6 +229,8 @@ def _all_caches_populated() -> bool:
 
 
 def _clear_all_caches() -> None:
+    global _caches_initialized
+    _caches_initialized = False
     for cache in (_muni_cache, _muni_pref_cache, _station_cache, _lp_cache, _lp_pref_res_cache,
                   _lp_pref_comm_cache, _hazard_cache, _zone_cache, _macro_cache):
         cache.clear()
@@ -224,7 +244,8 @@ def reset_reference_caches() -> None:
 
 def _init_global_caches(force_refresh: bool = False) -> None:
     """全 Potential 関連マスタを一括でインメモリキャッシュ"""
-    if not force_refresh and _all_caches_populated():
+    global _caches_initialized
+    if not force_refresh and _caches_initialized:
         return
 
     from package.models.evaluation import (
@@ -241,6 +262,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
         loaded = _init_muni_cache(MunicipalPotential)
         loaded |= _init_lp_cache(LandPricePotential)
         loaded |= _init_misc_caches(StationPotential, HazardMapPotential, UrbanPlanningZonePotential, MacroEconomicIndex)
+        _caches_initialized = True
 
     if loaded:
 
@@ -315,10 +337,11 @@ def query_municipal_potential(address1: str, address2: str) -> tuple[float, int,
         has_ig = [float(x.income_growth_rate) for x in muni_pref_vals if x.income_growth_rate is not None]
         income_growth_rate = (sum(has_ig) / len(has_ig)) if has_ig else 0.0
         has_pd = [float(x.population_density) for x in muni_pref_vals if x.population_density is not None]
-        pop_density = (sum(has_pd) / len(has_pd)) if has_pd else 4000.0
+        pop_density = (sum(has_pd) / len(has_pd)) if has_pd else PREFECTURE_BASE_POP_DENSITY.get(address1, 4000.0)
         return pop_growth, income, total_population, income_growth_rate, pop_density
 
-    return 0.0, 3000, 100000, 0.0, 4000.0
+    base_density = PREFECTURE_BASE_POP_DENSITY.get(address1, 4000.0)
+    return 0.0, 3000, 100000, 0.0, base_density
 
 
 def query_station_volume(station1: str) -> int:
@@ -330,7 +353,6 @@ def query_station_volume(station1: str) -> int:
 
 
 def calculate_effective_walk_min(walk_min: int, bus_use: int, bus_min: float, bus_walk: float, pop_density: float) -> float:
-    walk_min_penalty_scale = max(0.4, min(1.0, 0.4 + 0.6 * (pop_density / 4000.0)))
     if bus_use or bus_min > 0:
         raw_access_min = float(bus_min * 1.5 + bus_walk)
         if raw_access_min < walk_min and bus_min > 0:
@@ -339,7 +361,7 @@ def calculate_effective_walk_min(walk_min: int, bus_use: int, bus_min: float, bu
             raw_access_min = float(walk_min)
     else:
         raw_access_min = float(walk_min)
-    return raw_access_min * walk_min_penalty_scale
+    return float(raw_access_min)
 
 
 def _extract_slash_limit(text_str: str, is_youseki: bool) -> float | None:
@@ -479,6 +501,10 @@ def _get_land_price_stats(address1: str, address2: str, land_use: str, pref_cach
         growth = float(lp.land_price_growth_rate) if lp.land_price_growth_rate is not None else None
         return lp.average_land_price, lp.estimated_rosenka_price, lp.estimated_fixed_asset_price, growth
 
+    # 郡部・町・村の場合は、政令指定都市などの高額地価を含む県平均へ安易にフォールバックさせず、全国町村基準地価へフォールバックさせるため None を返す
+    if _is_rural_district(address2):
+        return None, None, None, None
+
     pref_list = pref_cache.get(address1, [])
     if not pref_list:
         return None, None, None, None
@@ -538,6 +564,39 @@ def query_hazard_features(address1: str, address2: str) -> tuple[int, int]:
     return flood_risk_level, landslide_risk_level
 
 
+def calculate_regional_sensitivity_features(
+    property_type: str,
+    walk_min: float,
+    pop_density: float,
+    passenger_volume: float,
+    average_land_price: float,
+    area: float,
+    tatemono_area: float,
+    tochi_area: float,
+    chikunen: float,
+    scale_discount: float,
+) -> tuple[float, float, float, float]:
+    """
+    都市部と地方における駅徒歩・築年数・面積・駅力への感応度差を変調する4つの交互作用特徴量を算出 (Issue #1003, #1008)
+    """
+    walk_min_elasticity = float(walk_min * math.log1p(max(0.0, float(pop_density or 0.0))))
+    effective_station_dist = float(walk_min / math.log10(max(100.0, float(passenger_volume or 100.0))))
+    # 高地価都市部での面積価値強度を適切にスケーリング
+    area_intensity = float(area * math.sqrt(max(0.0, float(average_land_price or 0.0) / 10000.0)))
+
+    if property_type == 'mansion':
+        potential_land_val = (area * 0.2) * (average_land_price / 10000.0)
+        potential_bldg_val = area * 25.0
+    else:
+        potential_land_val = tochi_area * (average_land_price / 10000.0) * scale_discount
+        potential_bldg_val = tatemono_area * 18.0
+    total_potential = potential_land_val + potential_bldg_val
+    land_share = (potential_land_val / total_potential) if total_potential > 0 else 0.5
+    chikunen_resistance = float(chikunen * (1.0 - land_share))
+
+    return walk_min_elasticity, effective_station_dist, chikunen_resistance, area_intensity
+
+
 # Backward compatibility aliases
 _extract_macro_features = extract_macro_features
 _query_municipal_potential = query_municipal_potential
@@ -546,3 +605,4 @@ _calculate_effective_walk_min = calculate_effective_walk_min
 _resolve_zone_limits = resolve_zone_limits
 _blend_land_prices = blend_land_prices
 _calculate_hazard_features = query_hazard_features
+_calculate_regional_sensitivity_features = calculate_regional_sensitivity_features

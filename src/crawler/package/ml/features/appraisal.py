@@ -151,7 +151,7 @@ def calculate_appraisal_values(
     address1: str,
     address2: str
 ) -> AppraisalValues:
-    scale_discount = max(0.05, float((1000.0 / tochi_area) ** 0.35)) if tochi_area > 1000.0 else 1.0
+    scale_discount = max(0.05, float((300.0 / tochi_area) ** 0.20)) if tochi_area > 300.0 else 1.0
     potential_floor_area = area if property_type == 'mansion' else tochi_area * (max_youseki / 100.0)
 
     # 原価法
@@ -280,7 +280,8 @@ def calculate_tochi_appraisal_factors(
     tochi_area: float,
     max_youseki: float,
     average_land_price: float,
-    setback_ratio_temp: float
+    setback_ratio_temp: float,
+    scale_discount: float | None = None,
 ) -> TochiAppraisalFactors:
     if property_type not in ['tochi', 'kodate', 'apartment']:
         return TochiAppraisalFactors(
@@ -298,6 +299,9 @@ def calculate_tochi_appraisal_factors(
             chimoku_str="",
         )
 
+    if scale_discount is None:
+        scale_discount = max(0.05, float((300.0 / tochi_area) ** 0.20)) if tochi_area > 300.0 else 1.0
+
     (
         maguchi_val, road_width_val, road_direction_str,
         road_type_str, road_structure_str, chimoku_str
@@ -309,7 +313,7 @@ def calculate_tochi_appraisal_factors(
     ) = _calculate_road_factors(
         tochi_area, maguchi_val, road_width_val, road_direction_str, road_structure_str, youto, max_youseki
     )
-    residual_land_value = tochi_area * (average_land_price / 10000.0) * volume_digest_factor * road_condition_factor * frontage_penalty_factor
+    residual_land_value = tochi_area * (average_land_price / 10000.0) * volume_digest_factor * road_condition_factor * frontage_penalty_factor * scale_discount
 
     return TochiAppraisalFactors(
         maguchi_val=maguchi_val,

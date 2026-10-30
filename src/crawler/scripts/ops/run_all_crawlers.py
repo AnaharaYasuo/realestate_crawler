@@ -36,23 +36,43 @@ from django.db import connection
 from django.db.models import Q
 from django.utils import timezone
 from package.utils.slack import send_crawling_summary_alert, send_dev_report, send_slack_message
-from package.utils.task_distribution import get_task_config, distribute_jobs, get_execution_date, get_execution_id
-from package.utils.crawler_scheduler import select_next_job
+from package.utils.task_distribution import (
+    BIG_4_COMPANIES,
+    BIG_3_COMPANIES,
+    get_task_config,
+    distribute_jobs,
+    get_execution_date,
+    get_execution_id,
+)
+from package.utils.crawler_scheduler import select_next_job, sort_jobs_by_priority
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.failure_reporter import FailureReporter, generate_auto_heal_trigger_message
 from package.utils.db_timeouts import bound_mysql_timeouts
-from package.utils.crawler_watchdog import check_job_hung, kill_hung_job_process, HANG_THRESHOLD_SEC, update_watchdog_progress
+from package.utils.crawler_watchdog import (
+    check_job_hung,
+    kill_hung_job_process,
+    cleanup_crawler_progress,
+    HANG_THRESHOLD_SEC,
+    update_watchdog_progress,
+)
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
-from package.utils.crawl_jobs import CRAWL_JOBS, filter_crawl_jobs, PORTAL_COMPANIES, UNCRAWLED_COMPANIES  # noqa: E402  — SSOT for production + tests
+from package.utils.crawl_jobs import (  # noqa: E402  — SSOT for production + tests
+    CRAWL_JOBS,
+    PORTAL_COMPANIES,
+    UNCRAWLED_COMPANIES,
+    filter_crawl_jobs,
+    is_cloud_environment,
+)
 from package.utils.resource_limiter import get_resource_aware_concurrency
+from package.utils.job_metrics import read_job_metrics
 
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def parse_args():
     """Parse CLI arguments for run_all_crawlers."""
-    default_parallel = 9
+    default_parallel = 7
     default_playwright_parallel = 3
     default_parallel, default_playwright_parallel, _ = get_resource_aware_concurrency(
         default_parallel=default_parallel,
@@ -62,7 +82,9 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true", help="Print jobs without execution.")
     parser.add_argument("--parallel", "--standard-parallel", type=int, default=default_parallel, help="Number of parallel standard crawler processes (aiohttp/http).")
     parser.add_argument("--playwright-parallel", type=int, default=default_playwright_parallel, help="Number of parallel Playwright crawler processes (high memory usage).")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes) for fast execution.")
+    is_cloud = is_cloud_environment()
+    parser.add_argument("--skip-portals", dest="skip_portals", action="store_true", default=is_cloud, help="Skip large portal sites (athome, homes) for fast execution.")
+    parser.add_argument("--no-skip-portals", dest="skip_portals", action="store_false", help="Do not skip portal sites even on Cloud environment.")
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho) for cloud schedule runs.")
     parser.add_argument("--company", type=str, default=None, help="Target company name(s), comma-separated (e.g. sumifu,mitsui).")
     parser.add_argument("--property-type", "--type", dest="property_type", type=str, default=None, help="Target property type(s), comma-separated (e.g. mansion,kodate).")
@@ -95,7 +117,7 @@ logger = logging.getLogger(__name__)
 
 
 cooldown_sec = int(os.getenv("CRAWL_COOLDOWN_SEC", "180"))
-timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "10800"))
+timeout_sec = int(os.getenv("CRAWL_TIMEOUT_SEC", "14400"))
 
 DB_HEALTH_CHECK_INTERVAL_SEC = max(1.0, float(os.getenv("DB_HEALTH_CHECK_INTERVAL_SEC", "15")))
 DB_HEALTH_MAX_CONSECUTIVE_FAILURES = max(1, int(os.getenv("DB_HEALTH_MAX_CONSECUTIVE_FAILURES", "3")))
@@ -231,9 +253,13 @@ def cleanup_active_process():
     for idx, (proc, company, ptype, *_) in list(active_processes.items()):
         if proc.poll() is None:
             try:
-                pgid = os.getpgid(proc.pid)
-                logging.info(f"親プロセスの終了を検知したため、子プロセスグループ {pgid} ({company} - {ptype}) を強制終了します...")
-                os.killpg(pgid, signal.SIGKILL)
+                if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                    pgid = os.getpgid(proc.pid)
+                    logging.info(f"親プロセスの終了を検知したため、子プロセスグループ {pgid} ({company} - {ptype}) を強制終了します...")
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    logging.info(f"親プロセスの終了を検知したため、子プロセス PID {proc.pid} ({company} - {ptype}) を強制終了します...")
+                    proc.kill()
                 proc.communicate()  # プロセスゾンビ化を防ぐための回収
             except Exception as e:
                 logging.exception(f"子プロセスのクリーンアップ中にエラー: {e}")
@@ -407,7 +433,7 @@ def clean_zombies():
         if pid == my_pid:
             continue
         try:
-            with open(os.path.join(proc_dir, name, 'cmdline'), 'r') as f:
+            with open(os.path.join(proc_dir, name, 'cmdline')) as f:
                 cmdline = f.read().replace('\x00', ' ')
             if 'main.py' in cmdline and '--company=' in cmdline:
                 logging.info(f"残留プロセスを検知: PID {pid} ({cmdline.strip()})")
@@ -480,6 +506,34 @@ def get_count_for_job(company: str, ptype: str, start_dt: datetime.datetime | No
         logger.exception("Failed to get db count for %s - %s", company, ptype)
         return None, None, None
     return 0, 0, 0
+
+
+def resolve_job_counts(
+    company: str,
+    ptype: str,
+    start_dt: datetime.datetime | None,
+    today_str: str | None = None,
+) -> tuple[int, int, int, bool, bool]:
+    """
+    ジョブの処理件数を回収する (Issue #952, #959)。
+    1. 子プロセスが出力したメトリクス JSON からの直接回収を優先試行 (DB クエリゼロ)。
+    2. JSON が見つからない場合のみ DB COUNT(*) へフォールバック。
+    Returns:
+        (detail_cnt, skipped_cnt, total_cnt, is_empty_result, is_from_metrics_file)
+    """
+    file_counts = read_job_metrics(company, ptype, run_date=today_str)
+    if file_counts is not None:
+        detail, skip, tot, is_empty = file_counts
+        logger.info(
+            "Direct metrics collected for %s - %s: detail=%d, skipped=%d, total=%d, is_empty_result=%s (DB query bypassed)",
+            company, ptype, detail, skip, tot, is_empty,
+        )
+        return detail, skip, tot, is_empty, True
+
+    db_counts = get_count_for_job(company, ptype, start_dt)
+    if db_counts[0] is None:
+        return 0, 0, 0, False, False
+    return db_counts[0], db_counts[1], db_counts[2], False, False
 
 
 def format_job_success_message(
@@ -573,6 +627,7 @@ def main():
             sites=sites_arg,
             company=company_arg,
             property_type=prop_type_arg,
+            skip_portals=getattr(args, "skip_portals", False),
         )
         logger.info(f"🎯 [Target Filter] Filtered jobs to {len(target_jobs)} jobs based on company={company_arg}, property_type={prop_type_arg}, sites={sites_arg}")
 
@@ -609,7 +664,13 @@ def main():
         post_slack(f"🚀 【クローリング開始】 一括巡回処理を開始します。(全 {len(target_jobs)} ジョブ{' [ポータル割愛]' if args.skip_portals else ''})")
     
     results = []
-    job_queue = list(target_jobs)
+    # 各端末で件数の多い大規模サイトから優先して先行処理 (Issue #985: Longest-Job-First / 主担当大手先行)
+    host_company = None
+    if task_count == 4 and task_index is not None and 0 <= task_index < len(BIG_4_COMPANIES):
+        host_company = BIG_4_COMPANIES[task_index]
+    elif task_count == 3 and task_index is not None and 0 <= task_index < len(BIG_3_COMPANIES):
+        host_company = BIG_3_COMPANIES[task_index]
+    job_queue = sort_jobs_by_priority(list(target_jobs), host_company=host_company)
     next_job_index = 1
     
     global active_processes
@@ -643,33 +704,52 @@ def main():
                 detail_cnt = 0
                 skipped_cnt = 0
                 if exit_code == 0:
-                    counts = get_count_for_job(company, ptype, start_dt)
-                    if counts[0] is None:
-                        status = "failed"
-                        error_type = "CountQueryFailure"
-                        error_msg = "Database count query failed"
-                        post_slack(f"❌ 【失敗: DB件数取得エラー】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 処理時間: {duration_job_str}")
-                    else:
-                        detail_cnt, skipped_cnt, scraped_cnt = counts
-                        if scraped_cnt > 0:
-                            error_type = ""
-                            post_slack(
-                                format_job_success_message(
-                                    company=company,
-                                    ptype=ptype,
-                                    idx=idx,
-                                    total_jobs=len(CRAWL_JOBS),
-                                    detail_cnt=detail_cnt,
-                                    skipped_cnt=skipped_cnt,
-                                    total_cnt=scraped_cnt,
-                                    duration_job_str=duration_job_str,
-                                )
+                    detail_cnt, skipped_cnt, scraped_cnt, is_empty_result, from_file = resolve_job_counts(company, ptype, start_dt, today_str)
+                    if scraped_cnt > 0:
+                        error_type = ""
+                        post_slack(
+                            format_job_success_message(
+                                company=company,
+                                ptype=ptype,
+                                idx=idx,
+                                total_jobs=len(CRAWL_JOBS),
+                                detail_cnt=detail_cnt,
+                                skipped_cnt=skipped_cnt,
+                                total_cnt=scraped_cnt,
+                                duration_job_str=duration_job_str,
                             )
-                        else:
-                            status = "failed"
-                            error_type = "ZeroCountFailure"
-                            error_msg = "0 items scraped (Zero count failure)"
-                            post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
+                        )
+                    elif from_file and is_empty_result:
+                        status = "success"
+                        error_type = ""
+                        error_msg = ""
+                        logger.info(
+                            "[%d] %s - %s reported valid empty result (0 active listings on site). Treating as success.",
+                            idx, company, ptype,
+                        )
+                        post_slack(
+                            f"✅ 【成功 (掲載0件)】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | "
+                            f"掲載件数: 0 件 (有効な空結果) | 処理時間: {duration_job_str}"
+                        )
+                    elif from_file:
+                        # 子プロセス正常終了でメトリクスファイルから0件の場合
+                        status = "failed"
+                        error_type = "ZeroCountFailure"
+                        error_msg = "0 items scraped (Zero count failure)"
+                        post_slack(f"❌ 【失敗: 0件取得】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | 新規取得: 0 件 | 処理時間: {duration_job_str} (データが1件も取得できていません)")
+                    else:
+                        # フォールバックDBクエリで0件または取得エラーの場合: exit_code==0 なら成功扱い（DB件数取得スキップ）
+                        status = "success"
+                        error_type = ""
+                        error_msg = ""
+                        logger.warning(
+                            "[%d] DB count query returned 0 or timed out for %s - %s, but process exited cleanly (exit_code=0). Treating as success without false alert.",
+                            idx, company, ptype,
+                        )
+                        post_slack(
+                            f"✅ 【成功 (件数確認スキップ)】 {company} - {ptype} (Job {idx}/{len(CRAWL_JOBS)}) | "
+                            f"処理時間: {duration_job_str} (DB負荷回避のため件数取得スキップ)"
+                        )
                 else:
                     if exit_code in (-9, 137):
                         error_type = "WatchdogKillFailure"
@@ -733,7 +813,7 @@ def main():
         # 子プロセスの進捗監視（15秒経過ジョブのDB件数増分を確認し、公平に last_act を更新）
         # HANG_THRESHOLD_SEC <= 0 の場合はハング検知が無効化されているため進捗カウント取得をスキップ
         if HANG_THRESHOLD_SEC > 0:
-            update_watchdog_progress(active_processes, now, get_count_for_job)
+            update_watchdog_progress(active_processes, now, None)  # Bypass heavy COUNT(*) full table scans (Issue #1054)
 
         for idx in tuple(active_processes.keys()):
             if idx not in active_processes:
@@ -799,8 +879,11 @@ def main():
                 # タイムアウト
                 logger.error(f"[{idx}] Crawl job timed out for {company} - {ptype} after {timeout_sec} seconds. Killing process group...")
                 try:
-                    pgid = os.getpgid(proc.pid)
-                    os.killpg(pgid, signal.SIGKILL)
+                    if hasattr(os, "getpgid") and hasattr(os, "killpg"):
+                        pgid = os.getpgid(proc.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        proc.kill()
                     proc.communicate()
                 except Exception:
                     logger.exception("Failed to kill")

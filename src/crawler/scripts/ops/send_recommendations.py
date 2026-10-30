@@ -18,12 +18,13 @@ while True:
         break
     _cur = _parent
 
-from django.db import models, transaction
+from django.db import models, transaction, close_old_connections, connections
 from django.utils import timezone
 from django.apps import apps
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
+from package.utils.db_timeouts import bound_mysql_timeouts
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -37,6 +38,45 @@ def _notify_status(msg: str) -> None:
 
 LABEL_INVEST_APARTMENT = "一棟アパート"
 LABEL_INVEST_KODATE = "戸建（投資用）"
+
+
+def batch_resolve_properties(eval_records: list) -> dict:
+    """
+    複数のPropertyEvaluationレコードに対応する実物件レコードを一括照会する。
+    1件ずつの個別クエリ発行によるN+1問題および長時間クエリタイムアウトを防止する。
+    戻り値: {property_url: property_record}
+    """
+    from collections import defaultdict
+    model_groups = defaultdict(list)
+    resolved = {}
+
+    for rec in eval_records:
+        if not rec.property_url:
+            continue
+        company = (rec.company or "").lower()
+        ptype = (rec.property_type or "").lower().replace("_", "")
+        model_groups[(company, ptype)].append(rec.property_url)
+
+    all_models = apps.get_models()
+    for (company, ptype), urls in model_groups.items():
+        matched_model = None
+        for model in all_models:
+            m_name = model.__name__.lower()
+            if m_name.startswith(company):
+                rest = m_name[len(company):]
+                if rest == ptype or rest == ptype.replace("invest", "investment"):
+                    matched_model = model
+                    break
+        if matched_model:
+            chunk_size = 500
+            for i in range(0, len(urls), chunk_size):
+                sub_urls = urls[i:i + chunk_size]
+                try:
+                    for obj in matched_model.objects.filter(pageUrl__in=sub_urls):
+                        resolved[obj.pageUrl] = obj
+                except Exception as e:
+                    logger.warning("Error batch resolving properties for %s: %s", matched_model.__name__, e)
+    return resolved
 
 def get_property_record(eval_record):
     """URLに対応する各社テーブルの物件レコードを動的かつ堅牢に取得する"""
@@ -95,10 +135,49 @@ def get_prop_dates(prop):
     pub_str = _format_dt(pub_dt)
     return pub_str, crawl_str
 
-def _evaluate_investment_candidate(eval_rec) -> tuple:
-    score = eval_rec.investment_score or eval_rec.total_investment_score or 0.0
-    if score >= 80.0:
-        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", score
+INVESTMENT_PROPERTY_TYPES = {
+    "investapartment",
+    "investmentapartment",
+    "apartment",
+    "invest_apartment",
+    "investkodate",
+    "investmentkodate",
+    "invest_kodate",
+    "investment",
+    "investmentbuilding",
+}
+
+def is_investment_type(property_type: str | None) -> bool:
+    if not property_type:
+        return False
+    ptype_clean = property_type.lower().replace("_", "")
+    return ptype_clean in INVESTMENT_PROPERTY_TYPES or "invest" in ptype_clean
+
+def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
+    asking_price = getattr(prop, "price", 0) if prop else 0
+    asking_price_man = normalize_asking_price_man(asking_price)
+    pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
+
+    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
+    if pred_price > 0 and asking_price_man > 0:
+        price_ratio = pred_price / asking_price_man
+        if price_ratio > 3.0 or price_ratio < 0.33:
+            logger.warning(
+                f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
+                f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
+            )
+            return False, "", 0.0
+
+    score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
+    if score >= 70.0:
+        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
+
+    if pred_price > 0 and asking_price_man > 0:
+        discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+        if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
+            calc_priority = 70.0 + discount_pct
+            return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
+
     return False, "", 0.0
 
 def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: float) -> tuple:
@@ -119,9 +198,8 @@ def _evaluate_candidate(eval_rec, prop) -> tuple:
     if not asking_price or asking_price <= 0:
         return False, "", 0.0
 
-    ptype_lower = eval_rec.property_type.lower().replace("_", "")
-    if ptype_lower in ["investapartment", "investmentapartment", "apartment", "investment"]:
-        return _evaluate_investment_candidate(eval_rec)
+    if is_investment_type(eval_rec.property_type):
+        return _evaluate_investment_candidate(eval_rec, prop)
 
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
@@ -204,7 +282,7 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         f"🏆 [お宝物件検出] {reason}\n"
         f"物件名: {p_name} ({ptype_jp})\n"
         f"売出価格: {asking_price_man}万円\n"
-        f"理論予測価格: {int(pred_price)}万円\n"
+        f"理論予測価格: {int(pred_price) if pred_price > 0 else '-'}万円\n" if pred_price > 0 else f"理論予測価格: -\n"
         f"【物件詳細】\n"
         f"住所: {address}\n"
         f"アクセス: {access}\n"
@@ -234,31 +312,128 @@ def _dispatch_single_recommendation(eval_rec, prop, reason: str) -> bool:
     logger.info(f"Sending recommendation for {p_name} ({eval_rec.property_url}) to {channel_id}")
     success = async_to_sync(send_slack_message)(msg, channel=channel_id)
     if success:
-        with transaction.atomic():
-            eval_rec.is_slack_notified = True
-            eval_rec.save()
+        for attempt in range(3):
+            try:
+                with transaction.atomic():
+                    eval_rec.is_slack_notified = True
+                    eval_rec.save()
+                break
+            except Exception as dbe:
+                logger.warning(f"DB update failed on recommendation notify (attempt {attempt+1}/3): {dbe}")
+                close_old_connections()
+                connections.close_all()
+                if attempt == 2:
+                    raise
+                time.sleep(1.0)
         time.sleep(1.0)
         return True
     return False
 
-def _fetch_recommendation_candidates():
-    threshold_48h = timezone.now() - datetime.timedelta(hours=48)
-    candidates = PropertyEvaluation.objects.filter(
+def _fetch_recommendation_candidates(limit: int = 3000):
+    """
+    全種別の候補をバランスよく取得する (Issue #1087)
+    住居系（マンション、戸建て、土地）と投資系（区分、一棟、戸建て）のそれぞれについて
+    最新の未通知・公開物件を並行してロードし、特定種別による枠の独占を防ぐ。
+    """
+    base_qs = PropertyEvaluation.objects.filter(
         is_slack_notified=False,
         is_published=True,
         needs_recrawl=False,
-    ).filter(
-        models.Q(analyzed_at__gte=threshold_48h) | models.Q(analyzed_at__isnull=True)
     )
-    if not candidates.exists():
-        return PropertyEvaluation.objects.filter(
-            is_slack_notified=False,
-            is_published=True,
-            needs_recrawl=False,
-        ).order_by('-id')[:200]
-    return candidates
+    all_types = [
+        'mansion', 'kodate', 'tochi',
+        'investmentapartment', 'investment', 'apartment',
+        'investmentkodate', 'invest_kodate', 'invest_apartment', 'investmentbuilding'
+    ]
+    per_type_limit = max(100, limit // len(all_types))
+    combined_candidates = []
+    seen_ids = set()
+
+    for ptype in all_types:
+        qs_type = base_qs.filter(property_type=ptype).order_by('-id')[:per_type_limit]
+        for rec in qs_type:
+            if rec.id not in seen_ids:
+                seen_ids.add(rec.id)
+                combined_candidates.append(rec)
+
+    if len(combined_candidates) < limit:
+        remaining_limit = limit - len(combined_candidates)
+        fallback_qs = base_qs.exclude(id__in=seen_ids).order_by('-id')[:remaining_limit]
+        combined_candidates.extend(fallback_qs)
+
+    return combined_candidates
+
+def _select_balanced_recommendations(
+    matched_candidates: list,
+    quota: int = 15,
+    min_investment_quota: int = 3,
+    max_per_type: int = 5,
+) -> list:
+    """
+    優先度順に並べ替えつつ、住居系・投資系のバランスおよび特定種別の独占を防止する (Issue #1087)
+    - 投資物件を最低 min_investment_quota 件確保
+    - 住居系（マンション、戸建て、土地）もバランスよく選定
+    - 単一種別（例: investmentkodate のみ）の上限を max_per_type 件に制限
+    """
+    matched_candidates.sort(key=lambda x: x[0], reverse=True)
+    if len(matched_candidates) <= quota:
+        return matched_candidates
+
+    inv_candidates = [c for c in matched_candidates if is_investment_type(c[1].property_type)]
+    res_candidates = [c for c in matched_candidates if not is_investment_type(c[1].property_type)]
+
+    selected = []
+    type_counts = {}
+
+    def can_add(c):
+        ptype = c[1].property_type.lower().replace("_", "")
+        return type_counts.get(ptype, 0) < max_per_type
+
+    def add_candidate(c):
+        selected.append(c)
+        ptype = c[1].property_type.lower().replace("_", "")
+        type_counts[ptype] = type_counts.get(ptype, 0) + 1
+
+    # 1. 投資物件枠を確保
+    for c in inv_candidates:
+        if len([x for x in selected if is_investment_type(x[1].property_type)]) >= min_investment_quota:
+            break
+        if can_add(c):
+            add_candidate(c)
+
+    # 2. 住居系枠を確保（最低3件）
+    min_res_quota = min(3, len(res_candidates))
+    for c in res_candidates:
+        if len([x for x in selected if not is_investment_type(x[1].property_type)]) >= min_res_quota:
+            break
+        if can_add(c):
+            add_candidate(c)
+
+    # 3. 残り枠を全体優先度順に上限（max_per_type）に配慮して補充
+    used_ids = {c[1].id for c in selected}
+    for c in matched_candidates:
+        if len(selected) >= quota:
+            break
+        if c[1].id not in used_ids and can_add(c):
+            add_candidate(c)
+            used_ids.add(c[1].id)
+
+    # 上限に達しなかった場合のフェールセーフ（上限緩和して残り枠を埋める）
+    if len(selected) < quota:
+        for c in matched_candidates:
+            if len(selected) >= quota:
+                break
+            if c[1].id not in used_ids:
+                selected.append(c)
+                used_ids.add(c[1].id)
+
+    selected.sort(key=lambda x: x[0], reverse=True)
+    return selected
 
 def send_recommendations():
+    close_old_connections()
+    connections.close_all()
+    bound_mysql_timeouts()
     metrics = BatchMetrics(job_name="Slack Recommendation")
     logger.info("Scanning for new hot recommendation properties to send via Slack...")
     _notify_status("🔍 【お宝物件スクリーニング開始】 未通知の割安物件・高利回り優良物件の抽出を開始します...")
@@ -267,8 +442,10 @@ def send_recommendations():
     metrics.total_count = len(candidates)
     matched_candidates = []
 
+    prop_lookup = batch_resolve_properties(candidates)
+
     for eval_rec in candidates:
-        prop = get_property_record(eval_rec)
+        prop = prop_lookup.get(eval_rec.property_url) or get_property_record(eval_rec)
         if not prop:
             continue
         is_rec, reason, priority = _evaluate_candidate(eval_rec, prop)
@@ -295,7 +472,7 @@ def send_recommendations():
         return
 
     matched_candidates.sort(key=lambda x: x[0], reverse=True)
-    top_candidates = matched_candidates[:15]
+    top_candidates = _select_balanced_recommendations(matched_candidates, quota=15, min_investment_quota=3)
     logger.info(f"Filtered {len(matched_candidates)} recommendation candidates down to top {len(top_candidates)} items.")
     _notify_status(
         f"🎯 【お宝物件検出】 {len(matched_candidates)} 件の候補物件を検出しました。優先度上位 {len(top_candidates)} 件を各Slackチャンネルへ配信します。"

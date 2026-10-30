@@ -88,7 +88,7 @@ def import_land_prices(csv_path):
     processed = 0
     created_count = 0
     
-    with open(clean_csv, 'r', encoding='utf-8') as f:
+    with open(clean_csv, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             pref = row.get("prefecture", "").strip()

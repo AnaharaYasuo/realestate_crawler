@@ -7,10 +7,9 @@
 - 大手仲介5社 (三井, 住友, 東急, 野村, ミサワ): 2本 (居住用+投資用のバランス消化)
 - 中小・電鉄・ハウスメーカー (積水, 大和, 旭化成, 小田急等 17社): 1本 (同一会社内完全直列)
 """
-from typing import Dict, List, Optional, Tuple
 
 # 会社別の最大同時実行プロセス数
-COMPANY_CONCURRENCY_LIMITS: Dict[str, int] = {
+COMPANY_CONCURRENCY_LIMITS: dict[str, int] = {
     # 超大規模ポータル (HTTP)
     "homes": 5,
     # 超大規模ポータル (Playwright)
@@ -33,12 +32,12 @@ def get_company_concurrency_limit(company: str) -> int:
 
 
 def select_next_job(
-    job_queue: List[Tuple[str, str]],
-    active_company_counts: Dict[str, int],
-    max_playwright_parallel: Optional[int] = None,
+    job_queue: list[tuple[str, str]],
+    active_company_counts: dict[str, int],
+    max_playwright_parallel: int | None = None,
     current_playwright_count: int = 0,
-    playwright_companies: Optional[List[str]] = None,
-) -> Optional[Tuple[int, Tuple[str, str]]]:
+    playwright_companies: list[str] | None = None,
+) -> tuple[int, tuple[str, str]] | None:
     """
     キューの中から、会社別並行度上限およびPlaywright上限に空きのある次のジョブを選択して
     (キュー内のインデックス, (company, ptype)) を返す。
@@ -66,3 +65,56 @@ def select_next_job(
             return i, (company, ptype)
 
     return None
+
+
+# 優先度判定用の主要仲介グループ (Issue #985)
+# 最優先: 主要仲介大手 (mitsui, sumifu, tokyu, nomura, misawa) および 信託系 (smtrc, sumai1, mizuho), 大京 (daikyo)
+MAJOR_BROKER_COMPANIES: set[str] = {
+    "mitsui",
+    "sumifu",
+    "tokyu",
+    "nomura",
+    "misawa",
+    "smtrc",
+    "sumai1",
+    "mizuho",
+    "daikyo",
+}
+
+
+def calculate_job_priority(
+    company: str, property_type: str, host_company: str | None = None
+) -> tuple[int, int, int]:
+    """
+    ユーザー指定の優先度タプルを算出 (値が大きいほど優先):
+    軸0 (自タスク主担当大手): host_company と一致する会社 -> 1, その他 -> 0 (最優先で全種別起動)
+    軸1 (主要仲介大手): 大手仲介 (大手5社 + 信託3社 + 大京) -> 1, その他 -> 0
+    軸2 (マンション優先): マンション (mansion) -> 1, その他種別 -> 0
+    """
+    c_lower = company.lower()
+    p_lower = property_type.lower()
+
+    is_host = 1 if host_company and c_lower == host_company.lower() else 0
+    is_major_broker = 1 if c_lower in MAJOR_BROKER_COMPANIES else 0
+    is_mansion = 1 if p_lower == "mansion" else 0
+
+    return (is_host, is_major_broker, is_mansion)
+
+
+def _job_sort_key(job: tuple[str, str], host_company: str | None = None):
+    """ソート用キー: calculate_job_priority に加え、大規模種別 (mansion ➔ kodate ➔ tochi) を優先"""
+    comp, ptype = job
+    pri = calculate_job_priority(comp, ptype, host_company=host_company)
+    type_order = {"mansion": 3, "kodate": 2, "tochi": 1}.get(ptype.lower(), 0)
+    return (pri, type_order)
+def sort_jobs_by_priority(
+    jobs: list[tuple[str, str]], host_company: str | None = None
+) -> list[tuple[str, str]]:
+    """
+    各端末で「自タスク主担当大手 ➔ 主要仲介 ➔ マンション優先」で順次処理できるようソート (Issue #985)
+    1. 自タスク主担当大手の全種別（マンション優先で開始直後に全種別並列実行）
+    2. 空いたスロットに投入される他社ジョブ（大手仲介優先 ➔ マンション優先）
+    """
+    return sorted(
+        jobs, key=lambda j: _job_sort_key(j, host_company=host_company), reverse=True
+    )

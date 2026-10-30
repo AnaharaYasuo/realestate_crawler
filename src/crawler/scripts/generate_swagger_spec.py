@@ -778,7 +778,7 @@ def generate_yaml(output_path=None, check_only=False):
         if not os.path.exists(target_path):
             print(f"Error: {target_path} does not exist.")
             return False
-        with open(target_path, "r", encoding="utf-8") as f:
+        with open(target_path, encoding="utf-8") as f:
             existing_content = f.read()
         existing_data = yaml.safe_load(existing_content)
         new_data = yaml.safe_load(yaml_content)

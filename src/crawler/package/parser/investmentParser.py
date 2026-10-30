@@ -1,6 +1,8 @@
-import re
 import logging
+import re
+
 from package.parser.baseParser import InvestmentParserBase
+from package.utils import converter
 
 NON_DIGIT_PATTERN = r'\D'
 
@@ -48,7 +50,6 @@ class InvestmentParser(InvestmentParserBase):
     def _parseYoutoChiiki(self, response, specs=None):
         return super()._parseYoutoChiiki(response, specs)
 
-
     def _parseGrossYield(self, response, specs=None):
         return super()._parseGrossYield(response, specs)
 
@@ -67,7 +68,6 @@ class InvestmentParser(InvestmentParserBase):
     def _parseTatemonoMenseki(self, response, specs=None):
         return super()._parseTatemonoMenseki(response, specs)
 
-    
     def getCharset(self):
         return "utf-8"
 
@@ -80,42 +80,19 @@ class InvestmentParser(InvestmentParserBase):
 
     def _parse_price(self, text):
         """
-        Parse Japanese price string like '1億5,000万円' to integer 150000000.
-        Returns None if parsing fails.
+        Parse Japanese price string like '1億5,000万円' or '1.5億円' to integer 150000000.
+        Delegates to canonical converter functions to prevent decimal '億円' 10x bugs.
         """
         if not text:
             return None
-        
-        try:
-            text = text.replace(",", "").strip()
-            total = 0
-            
-            # Create a simplified version for common formats
-            # Handle '億'
-            if '億' in text:
-                parts = text.split('億')
-                oku_part = parts[0]
-                total += int(re.sub(NON_DIGIT_PATTERN, '', oku_part)) * 100000000
-                remainder = parts[1]
-            else:
-                remainder = text
-                
-            # Handle '万'
-            if '万' in remainder:
-                man_part = remainder.split('万')[0]
-                # If there was '億', man_part might be empty or just numeric
-                if man_part:
-                    total += int(re.sub(NON_DIGIT_PATTERN, '', man_part)) * 10000
-            elif remainder and '億' not in text: # pure number?
-                # Sometimes prices are just raw numbers
-                clean_num = re.sub(NON_DIGIT_PATTERN, '', remainder)
-                if clean_num:
-                    total += int(clean_num)
-                    
-            return total if total > 0 else None
-        except Exception:
-            logging.warning(f"Failed to parse price: {text}")
+        cleaned = str(text).strip()
+        if not cleaned or cleaned == "-":
             return None
+        if "億" in cleaned or "万" in cleaned:
+            val = converter.parse_price(cleaned)
+            return val if val and val > 0 else None
+        val = converter.parse_yen(cleaned)
+        return val if val and val > 0 else None
 
     def _parse_yield(self, text):
         """

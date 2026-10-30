@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import time
 import logging
-from typing import Any, Dict
+from typing import Any
 from flask import Flask, request, g
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def mask_sensitive_data(data: Any) -> Any:
         return None
 
     if isinstance(data, dict):
-        masked_dict: Dict[str, Any] = {}
+        masked_dict: dict[str, Any] = {}
         for k, v in data.items():
             k_lower = str(k).lower().replace("-", "_")
             if any(sub in k_lower for sub in SENSITIVE_KEY_SUBSTRINGS):

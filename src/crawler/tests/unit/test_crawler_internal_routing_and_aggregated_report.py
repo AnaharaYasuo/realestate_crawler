@@ -59,9 +59,8 @@ class TestCrawlerInternalRoutingAndAggregatedReport(unittest.TestCase):
             with patch.dict(os.environ, {"IS_CLOUD": "true"}, clear=False):
                 res = api._handle_local_execution(f"http://127.0.0.1:8000{test_path}", "http://example.com/item1")
                 self.assertIsNotNone(res)
-                self.assertEqual(res[1], 200)
-                self.assertEqual(res[2], "LocalSync")
-                mock_handler.return_value.main.assert_called_once_with("http://example.com/item1")
+                self.assertEqual(res[1], 202)
+                self.assertEqual(res[2], "FireAndForgetLocal")
         finally:
             if test_path in ApiRegistry._registry:
                 del ApiRegistry._registry[test_path]

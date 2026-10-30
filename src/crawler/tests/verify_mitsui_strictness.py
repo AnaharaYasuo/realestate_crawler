@@ -13,7 +13,6 @@ try:
     realestateSettings.configure()
 except Exception as e:
     print(f"Settings config error: {e}")
-    pass
 
 from bs4 import BeautifulSoup
 from package.parser.mitsuiParser import MitsuiMansionParser, MitsuiKodateParser, MitsuiTochiParser, MitsuiInvestmentKodateParser, MitsuiInvestmentApartmentParser
@@ -26,7 +25,7 @@ def read_mock(filename):
     if not os.path.exists(path):
         print("Skipping: File not found")
         return None
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         return f.read()
 
 def test_mansion():

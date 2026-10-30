@@ -19,6 +19,7 @@ from package.ml.evaluation.runner import evaluate_single_model, run_bulk_evaluat
 from package.ml.evaluation.targets import get_all_property_models
 from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_dev_report
+from package.utils.crawl_jobs import is_cloud_environment
 
 _populate_text_risks = populate_text_risks
 _extract_land_rent_and_liability = extract_land_rent_and_liability
@@ -55,7 +56,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Bulk ML Evaluation Batch")
     parser.add_argument("--force", action="store_true", help="Force re-evaluation of already evaluated properties")
     parser.add_argument("--limit", type=int, default=None, help="Limit properties per model for testing")
-    parser.add_argument("--skip-portals", action="store_true", help="Skip large portal sites (athome, homes)")
+    is_cloud = is_cloud_environment()
+    parser.add_argument(
+        "--skip-portals",
+        dest="skip_portals",
+        action="store_true",
+        default=is_cloud,
+        help="Skip large portal sites (athome, homes)",
+    )
+    parser.add_argument(
+        "--no-skip-portals",
+        dest="skip_portals",
+        action="store_false",
+        help="Do not skip portal sites even on Cloud environment",
+    )
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     args = parser.parse_args()
     run_bulk_evaluation(force=args.force, limit_per_model=args.limit, skip_portals=args.skip_portals, skip_uncrawled=args.skip_uncrawled)

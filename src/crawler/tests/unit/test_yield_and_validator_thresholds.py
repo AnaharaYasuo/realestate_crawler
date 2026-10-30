@@ -72,6 +72,40 @@ class TestYieldAndValidatorThresholds(unittest.TestCase):
         is_valid, reasons = PropertyDataValidator.validate_property(item, "mansion")
         self.assertTrue(is_valid, f"Expected valid, got: {reasons}")
 
+    def test_validator_allows_hyphen_madori(self):
+        item = MagicMock()
+        item.pageUrl = "https://www.livable.co.jp/kodate/C27257565/"
+        item.propertyName = "新築戸建て"
+        item.address = "神奈川県横浜市青葉区"
+        item.traffic = "東急田園都市線 市が尾駅"
+        item.station1 = "市が尾"
+        item.price = 55000000
+        item.tochiMenseki = 120.0
+        item.tatemonoMenseki = 100.0
+        item.senyuMenseki = None
+        item.madori = "-"
+        item.chikunengetsuStr = "2025年1月"
+
+        is_valid, reasons = PropertyDataValidator.validate_property(item, "kodate")
+        self.assertTrue(is_valid, f"Expected valid, got: {reasons}")
+
+    def test_validator_allows_investment_without_area_if_yield_present(self):
+        item = MagicMock()
+        item.pageUrl = "https://www.odakyu-chukai.com/invest/list?focus=VI0023"
+        item.propertyName = "投資アパート"
+        item.address = "東京都小田原市"
+        item.traffic = "小田急線 小田原駅"
+        item.station1 = "小田原"
+        item.price = 30000000
+        item.grossYield = 7.5
+        item.senyuMenseki = 0.0
+        item.tatemonoMenseki = 0.0
+        item.tochiMenseki = 0.0
+
+        is_valid, reasons = PropertyDataValidator.validate_property(item, "investment")
+        self.assertTrue(is_valid, f"Expected valid, got: {reasons}")
+
 
 if __name__ == "__main__":
     unittest.main()
+

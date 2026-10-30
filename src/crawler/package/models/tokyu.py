@@ -110,16 +110,16 @@ class TokyuTochi(TokyuModel):
 class TokyuKodate(TokyuModel):
     madori = models.TextField()
     chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     
     tochiMensekiStr = models.TextField()
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     shidoMensekiStr = models.TextField()
-    shidoMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True)
+    shidoMenseki = models.DecimalField(max_digits=8,decimal_places=3, null=True, blank=True)
     tatemonoMensekiStr = models.TextField()
     tatemonoMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     kouzou  = models.TextField()
-    saikou = models.TextField(verbose_name="向き", default="")
+    saikou = models.TextField(verbose_name="向き", default="", blank=True)
     kaisuStr = models.TextField(verbose_name="階数（地上）", default="", blank=True)
 
     setsumen  = models.TextField()

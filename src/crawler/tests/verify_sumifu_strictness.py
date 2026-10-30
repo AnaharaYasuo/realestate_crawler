@@ -14,7 +14,6 @@ try:
 except Exception as e:
     print(f"Settings config error: {e}")
     # Fallback to direct configure if import fails (or just let it fail)
-    pass
 
 from bs4 import BeautifulSoup
 from package.parser.sumifuParser import SumifuMansionParser, SumifuKodateParser, SumifuTochiParser, SumifuInvestmentKodateParser, SumifuInvestmentApartmentParser
@@ -25,7 +24,7 @@ def test_mansion():
     print("\n[Testing Sumifu Mansion]")
     path = os.path.join(DOCS_DIR, 'requirements/site_samples/sumifu_mansion_mock.html')
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         html = f.read()
     
     parser = SumifuMansionParser()
@@ -46,7 +45,7 @@ def test_investment_kodate():
     print("\n[Testing Sumifu Investment Kodate]")
     path = os.path.join(DOCS_DIR, 'requirements/site_samples/sumifu_investment_kodate_mock.html')
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         html = f.read()
     
     parser = SumifuInvestmentKodateParser()
@@ -67,7 +66,7 @@ def test_investment_apartment():
     print("\n[Testing Sumifu Investment Apartment]")
     path = os.path.join(DOCS_DIR, 'requirements/site_samples/sumifu_investment_mansion_mock.html')
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         html = f.read()
     
     # Force Apartment model via type hint or parser logic adjustment
@@ -95,7 +94,7 @@ def test_kodate():
     print("\n[Testing Sumifu Kodate]")
     path = os.path.join(DOCS_DIR, 'requirements/site_samples/sumifu_kodate_mock.html')
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         html = f.read()
     
     parser = SumifuKodateParser()
@@ -116,7 +115,7 @@ def test_tochi():
     print("\n[Testing Sumifu Tochi]")
     path = os.path.join(DOCS_DIR, 'requirements/site_samples/sumifu_tochi_mock.html')
     print(f"Reading {path}")
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         html = f.read()
     
     parser = SumifuTochiParser()

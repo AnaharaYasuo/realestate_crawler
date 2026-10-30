@@ -77,6 +77,7 @@ from package.models.tokyu import (
     TokyuMansion,
     TokyuTochi,
 )
+from package.utils.data_validator import PropertyDataValidator
 from package.utils.slack import send_dev_report
 
 try:
@@ -193,12 +194,25 @@ def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 50) -
     return sorted_groups[:max_targets]
 
 
+def get_project_root() -> str:
+    """リポジトリルート（/app またはホストのプロジェクトルート）を動的に探索・解決する"""
+    cur = os.path.abspath(__file__)
+    while True:
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        if (os.path.exists(os.path.join(parent, "src")) and os.path.exists(os.path.join(parent, "docs"))) or os.path.exists(os.path.join(parent, ".git")):
+            return parent
+        cur = parent
+    curr = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(curr))))
+
+
 _CB_STATE_FILE = "gemini_circuit_breaker.json"
 
 
 def _get_cb_state_path() -> str:
-    curr = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(os.path.dirname(os.path.dirname(curr)))
+    root = get_project_root()
     return os.path.join(root, "Temp", _CB_STATE_FILE)
 
 
@@ -207,7 +221,7 @@ def _load_cb_state() -> tuple[int, datetime | None]:
     if not os.path.exists(path):
         return 0, None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
             count = data.get("consecutive_timeouts", 0)
             cd_str = data.get("cooldown_until")
@@ -342,6 +356,166 @@ def notify_auto_heal_request(
         logger.warning(f"Failed to send auto-heal Slack notification: {e}")
 
 
+def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = "") -> list[dict]:
+    """
+    Slackメッセージ本文から、0件取得警告、パース例外、低件数異常を抽出し、自己修復ターゲット辞書のリストを生成する。
+    """
+    if not text:
+        return []
+
+    targets = []
+    import re
+
+    # 1. 0件取得警告
+    if "0件取得検知" in text or ("取得件数: 0" in text and "クローリング" in text):
+        site_match = re.search(r"対象サイト:\s*([a-zA-Z0-9_]+)", text)
+        type_match = re.search(r"種別:\s*([a-zA-Z0-9_]+)", text)
+        site = site_match.group(1).lower() if site_match else "unknown"
+        ptype = type_match.group(1).lower() if type_match else "unknown"
+        if site != "unknown":
+            targets.append({
+                "company": site,
+                "property_type": ptype,
+                "reason": f"0件取得検知 (#{channel_name})",
+                "url": f"https://www.{site}.co.jp/" if "." not in site else f"https://{site}/",
+                "detected_at": ts,
+                "source": "slack"
+            })
+
+    # 2. パース例外 / データ異常検知
+    if "パース例外" in text or "データ異常検知" in text:
+        site_match = re.search(r"サイト:\s*([a-zA-Z0-9_]+)", text)
+        type_match = re.search(r"種別:\s*([a-zA-Z0-9_]+)", text)
+        err_match = re.search(r"エラー:\s*(.+)", text)
+        url_match = re.search(r"URL:\s*(https?://[^\s]+)", text)
+        site = site_match.group(1).lower() if site_match else "unknown"
+        ptype = type_match.group(1).lower() if type_match else "unknown"
+        err = err_match.group(1).strip() if err_match else "パース例外"
+        url = url_match.group(1).strip() if url_match else ""
+        if site != "unknown":
+            targets.append({
+                "company": site,
+                "property_type": ptype,
+                "reason": f"パース例外: {err}",
+                "url": url or f"https://www.{site}.co.jp/",
+                "detected_at": ts,
+                "source": "slack"
+            })
+
+    # 3. データ監視アラート個別行 (- :x: [Critical] [company/ptype] ... | URL: <url>)
+    # 例: - :x: [Critical] [mitsui/mansion] 価格異常 (0.0万円), 面積異常 (0.0㎡) | パークシティ中野 ザ タワー エアーズ | URL: <https://www.rehouse.co.jp/buy/mansion/bkdetail/FKJBFA06/>
+    monitor_alert_pattern = re.compile(
+        r"-\s*:(?:x|bulb):\s*\[(?:Critical|Warning)\]\s*\[([a-zA-Z0-9_]+)/([a-zA-Z0-9_]+)\]\s*([^|]+)\|\s*([^|]+)\|\s*URL:\s*<?(https?://[^\s>]+)>?",
+        re.IGNORECASE,
+    )
+    for match in monitor_alert_pattern.finditer(text):
+        site = match.group(1).lower().strip()
+        ptype = match.group(2).lower().strip()
+        reason = match.group(3).strip()
+        pname = match.group(4).strip()
+        url = match.group(5).strip()
+
+        # ビジネス上の注意喚起・ペナルティ情報（再建築不可、間口0m等）はパーサーバグではないため除外
+        if any(w in reason for w in ("再建築不可", "間口0m", "無道路地")):
+            continue
+
+        targets.append({
+            "company": site,
+            "property_type": ptype,
+            "propertyName": pname,
+            "reason": f"{reason} (#{channel_name})",
+            "url": url,
+            "detected_at": ts,
+            "source": "slack",
+        })
+
+    # 4. 低件数サマリー
+    major_sites = ["athome", "homes", "mitsui", "sumifu", "tokyu", "nomura"]
+    for s in major_sites:
+        pat = rf"(?:•|\*|-)?\s*{s}\s*[:：]\s*(\d+)\s*件"
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            cnt = int(m.group(1))
+            if cnt < 5:
+                targets.append({
+                    "company": s,
+                    "property_type": "mansion",
+                    "reason": f"大規模サイト極小件数異常: {cnt}件取得 (#{channel_name})",
+                    "url": f"https://www.{s}.co.jp/",
+                    "detected_at": ts,
+                    "source": "slack"
+                })
+
+    return targets
+
+
+async def fetch_all_slack_channel_messages(limit: int = 100) -> list[tuple[str, dict]]:
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    if not token or os.getenv("PYTEST_CURRENT_TEST"):
+        return []
+
+    import aiohttp
+    headers = {"Authorization": f"Bearer {token}"}
+    all_msgs = []
+    try:
+        timeout = aiohttp.ClientTimeout(total=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            list_url = "https://slack.com/api/conversations.list"
+            cursor = None
+            channels = []
+            while True:
+                params = {"types": "public_channel,private_channel", "limit": 100}
+                if cursor:
+                    params["cursor"] = cursor
+                async with session.get(list_url, headers=headers, params=params) as resp:
+                    if resp.status != 200:
+                        return []
+                    data = await resp.json()
+                    if not data.get("ok"):
+                        logger.warning(f"Slack API conversations.list returned error: {data.get('error')}")
+                        return []
+                    channels.extend(data.get("channels", []))
+                    cursor = data.get("response_metadata", {}).get("next_cursor")
+                    if not cursor:
+                        break
+
+            for ch in channels:
+                ch_name = ch.get("name", "")
+                if not (ch_name.startswith("alerts-") or ch_name in ["dev-agent", "property_alert", "alerts-crawling"]):
+                    continue
+                hist_url = "https://slack.com/api/conversations.history"
+                try:
+                    async with session.get(hist_url, headers=headers, params={"channel": ch["id"], "limit": limit}) as hresp:
+                        if hresp.status != 200:
+                            logger.warning(f"conversations.history HTTP {hresp.status} for {ch_name}")
+                            continue
+                        hdata = await hresp.json()
+                        if not hdata.get("ok"):
+                            logger.warning(f"conversations.history error for {ch_name}: {hdata.get('error')}")
+                            continue
+                        for m in hdata.get("messages", []):
+                            all_msgs.append((ch_name, m))
+                except Exception as ch_err:  # noqa: BLE001
+                    logger.warning(f"History fetch error for channel {ch_name}: {ch_err}")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to fetch Slack messages for auto-healing: {e}")
+    return all_msgs
+
+
+async def fetch_slack_error_targets(limit: int = 100) -> list[dict]:
+    """
+    Slackチャンネルからエラーメッセージおよび低件数異常を抽出し、ターゲットリストを返却する。
+    """
+    msgs = await fetch_all_slack_channel_messages(limit=limit)
+    targets = []
+    for ch_name, m in msgs:
+        text = m.get("text", "")
+        ts = m.get("ts", "")
+        parsed = parse_slack_message_to_targets(text, channel_name=ch_name, ts=ts)
+        targets.extend(parsed)
+    return targets
+
+
 def scan_anomalies_and_generate_instructions():
     """
     データ不整合（価格極小、面積極小、一棟面積不足、間口0m警告など）がある物件や、
@@ -353,6 +527,16 @@ def scan_anomalies_and_generate_instructions():
     )
 
     heal_targets = []
+
+    # Slackエラー・0件警告・極小件数異常の自動取得 (Issue #958)
+    try:
+        slack_targets = asyncio.run(fetch_slack_error_targets(limit=100))
+        for st in slack_targets:
+            if st not in heal_targets:
+                heal_targets.append(st)
+        logger.info(f"Loaded {len(slack_targets)} error targets from Slack telemetry.")
+    except Exception as se:  # noqa: BLE001
+        logger.warning(f"Could not load Slack error targets: {se}")
 
     three_days_ago = timezone.now() - timedelta(days=3)
     # needs_parser_fix=True かつ 公開中 (is_published=True) の物件をスキャン (Issue #665)
@@ -372,7 +556,16 @@ def scan_anomalies_and_generate_instructions():
         except model.DoesNotExist:
             continue
 
-        reason = ev.data_quality_issue or ""
+        # 現行バリデータで再検証: すでに合格するレコードは自動的に不整合フラグを解消 (Issue #922)
+        is_valid, current_reasons = PropertyDataValidator.validate_property(prop, ev.property_type)
+        if is_valid:
+            if ev.needs_parser_fix or ev.data_quality_issue:
+                ev.needs_parser_fix = False
+                ev.data_quality_issue = ""
+                ev.save(update_fields=["needs_parser_fix", "data_quality_issue"])
+            continue
+
+        reason = "; ".join(current_reasons) if current_reasons else (ev.data_quality_issue or "")
         if not reason:
             if prop.price and prop.price < 1000000:
                 reason = f"価格異常極小: {prop.priceStr} ({prop.price}円)"
@@ -380,13 +573,16 @@ def scan_anomalies_and_generate_instructions():
                 reason = f"建物面積異常極小: {prop.tatemonoMenseki}㎡"
             elif getattr(prop, "tochiMenseki", 0) and prop.tochiMenseki < 5.0:
                 reason = f"土地面積異常極小: {prop.tochiMenseki}㎡"
-        elif (
+
+        if (
             hasattr(prop, "maguchi")
             and prop.maguchi == 0
             and prop.setsudou
             and any(k in str(prop.setsudou) for k in ["間口", "接面"])
         ):
-            reason = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            maguchi_warn = f"間口パース漏れ警告 (接道: '{prop.setsudou}')"
+            reason = f"{reason}; {maguchi_warn}" if reason else maguchi_warn
+
 
         if reason:
             target = {
@@ -404,7 +600,7 @@ def scan_anomalies_and_generate_instructions():
                 heal_targets.append(target)
 
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+    project_root = get_project_root()
     temp_dir = os.path.join(project_root, "Temp")
 
     if not heal_targets:

@@ -18,7 +18,7 @@ import os
 import sys
 import argparse
 import logging
-from typing import List, Tuple, Dict, Any
+from typing import Any
 
 # パス設定
 _current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -76,7 +76,7 @@ def check_active_crawlers() -> bool:
     return False
 
 
-def get_target_models(target_filter: str = "") -> List[Any]:
+def get_target_models(target_filter: str = "") -> list[Any]:
     """移行対象となる全物件モデルクラスを取得する"""
     all_models = apps.get_models()
     targets = []
@@ -87,7 +87,7 @@ def get_target_models(target_filter: str = "") -> List[Any]:
     return sorted(targets, key=lambda x: x.__name__)
 
 
-def process_model(model: Any, is_execute: bool, batch_size: int = 500) -> Dict[str, Any]:
+def process_model(model: Any, is_execute: bool, batch_size: int = 500) -> dict[str, Any]:
     """対象モデルの重複URLを走査し、価格履歴の抽出および重複解消を行う"""
     model_name = model.__name__
     stats = {
@@ -137,14 +137,14 @@ def process_model(model: Any, is_execute: bool, batch_size: int = 500) -> Dict[s
             .order_by("pageUrl", "inputDateTime", "id")
         )
 
-        grouped: Dict[str, List[Any]] = {}
+        grouped: dict[str, list[Any]] = {}
         for r in chunk_records:
             grouped.setdefault(r.pageUrl, []).append(r)
 
-        history_to_create: List[PropertyPriceHistory] = []
-        ids_to_delete: List[int] = []
-        updates_to_perform: List[Tuple[Any, Any, Any]] = []  # (latest_row, oldest_row)
-        eval_relink_ids: Dict[str, int] = {}  # url -> latest_id
+        history_to_create: list[PropertyPriceHistory] = []
+        ids_to_delete: list[int] = []
+        updates_to_perform: list[tuple[Any, Any, Any]] = []  # (latest_row, oldest_row)
+        eval_relink_ids: dict[str, int] = {}  # url -> latest_id
 
         for url, records in grouped.items():
             if len(records) < 2:

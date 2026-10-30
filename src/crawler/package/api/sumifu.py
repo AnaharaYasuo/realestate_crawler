@@ -70,6 +70,9 @@ class ParseSumifuMansionListFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
 
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -194,6 +197,9 @@ class ParseSumifuTochiListFuncAsync(ParseMiddlePageAsyncBase):
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
 
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
+
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT
 
@@ -317,6 +323,9 @@ class ParseSumifuKodateListFuncAsync(ParseMiddlePageAsyncBase):
 
     def _getParserFunc(self):
         return self.parser.parsePropertyListPage
+
+    def _getNextPageParserFunc(self):
+        return self.parser.getPropertyListNextPageUrl
 
     def _getLocalPararellLimit(self):
         return DEFAULT_PARARELL_LIMIT

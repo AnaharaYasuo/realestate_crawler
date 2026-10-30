@@ -20,7 +20,7 @@ def test_coderabbit_excludes_production_branch():
     cr_path = REPO_ROOT / ".coderabbit.yaml"
     assert cr_path.exists(), f"{cr_path} does not exist"
 
-    with open(cr_path, "r", encoding="utf-8") as f:
+    with open(cr_path, encoding="utf-8") as f:
         cr_config = yaml.safe_load(f)
 
     reviews = cr_config.get("reviews", {})
@@ -40,7 +40,7 @@ def test_test_workflow_excludes_production_pr():
     test_yml_path = REPO_ROOT / ".github" / "workflows" / "test.yml"
     assert test_yml_path.exists(), f"{test_yml_path} does not exist"
 
-    with open(test_yml_path, "r", encoding="utf-8") as f:
+    with open(test_yml_path, encoding="utf-8") as f:
         content = f.read()
         workflow = yaml.safe_load(content)
 
@@ -64,7 +64,7 @@ def test_sonar_workflow_excludes_production_pr():
     sonar_yml_path = REPO_ROOT / ".github" / "workflows" / "sonar.yml"
     assert sonar_yml_path.exists(), f"{sonar_yml_path} does not exist"
 
-    with open(sonar_yml_path, "r", encoding="utf-8") as f:
+    with open(sonar_yml_path, encoding="utf-8") as f:
         content = f.read()
         workflow = yaml.safe_load(content)
 
@@ -84,7 +84,7 @@ def test_review_gate_excludes_production_pr():
     rg_path = REPO_ROOT / ".github" / "workflows" / "review-gate.yml"
     assert rg_path.exists(), f"{rg_path} does not exist"
 
-    with open(rg_path, "r", encoding="utf-8") as f:
+    with open(rg_path, encoding="utf-8") as f:
         workflow = yaml.safe_load(f)
 
     pr_trigger = (workflow.get("on") or workflow.get(True))["pull_request"]
@@ -109,7 +109,7 @@ def test_dependabot_groups_configured():
     dep_path = REPO_ROOT / ".github" / "dependabot.yml"
     assert dep_path.exists(), f"{dep_path} does not exist"
 
-    with open(dep_path, "r", encoding="utf-8") as f:
+    with open(dep_path, encoding="utf-8") as f:
         dep_config = yaml.safe_load(f)
 
     updates = dep_config.get("updates", [])

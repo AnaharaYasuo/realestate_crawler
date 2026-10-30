@@ -38,14 +38,14 @@ resource "google_cloud_scheduler_job" "crawler_daily_trigger" {
 }
 
 # Cloud Scheduler Job to trigger ML Pipeline once after the crawler job deadline
-# Note: Integrated into Cloud Workflows daily orchestration. Paused to prevent duplicate execution.
+# Issue #1143: Decouple ML estimation & recommendations into an independent daily schedule (05:00 JST / 20:00 UTC)
 resource "google_cloud_scheduler_job" "ml_pipeline_daily_trigger" {
   name             = "realestate-ml-pipeline-daily-${var.environment}"
-  description      = "Triggers aggregated crawl report, ML training, bulk estimation & recommendations daily at 03:10 JST (18:10 UTC)"
+  description      = "Triggers aggregated crawl report, ML training, bulk estimation & recommendations daily at 05:10 JST (20:10 UTC)"
   schedule         = var.ml_pipeline_schedule_cron
   time_zone        = "Etc/UTC"
   attempt_deadline = "300s"
-  paused           = true
+  paused           = false
 
   http_target {
     http_method = "POST"
