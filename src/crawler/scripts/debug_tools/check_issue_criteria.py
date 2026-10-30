@@ -153,6 +153,8 @@ def fetch_issue_data(issue_num: int) -> dict[str, Any] | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if res.returncode == 0:
