@@ -399,6 +399,45 @@ def record_parser_metrics(
         return False
 
 
+def record_field_fill_rate_event(
+    site_name: str,
+    property_type: str,
+    fill_rates: dict[str, float],
+    item_count: int,
+    low_fill_threshold: float = 0.5,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Record per-field extraction fill-rate drift metrics to New Relic (FieldFillRateEvent)."""
+    if not os.getenv("NEW_RELIC_LICENSE_KEY"):
+        return False
+
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+
+        degraded = sorted([f for f, rate in fill_rates.items() if rate < low_fill_threshold]) if item_count > 0 else []
+        min_rate = min(fill_rates.values()) if fill_rates else 0.0
+
+        params: dict[str, Any] = dict(metadata) if metadata else {}
+        params.update({
+            "site_name": site_name,
+            "property_type": property_type,
+            "item_count": item_count,
+            "min_fill_rate": round(min_rate, 4),
+            "degraded_fields": ",".join(degraded),
+            "has_drift": bool(degraded),
+        })
+        for field_name, rate in fill_rates.items():
+            params[f"fill_rate_{field_name}"] = round(float(rate), 4)
+
+        agent.record_custom_event("FieldFillRateEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic FieldFillRateEvent: {e}")
+        return False
+
+
 def record_ml_inference_metrics(
     model_type: str,
     duration_ms: float,
@@ -431,4 +470,3 @@ def record_ml_inference_metrics(
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to record New Relic ML inference event: {e}")
         return False
-

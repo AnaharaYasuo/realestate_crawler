@@ -58,6 +58,60 @@
   - **投資用物件**: 実額年間地代（`chidai * 12`）をネット営業純利益（NOI）から直接控除し、収益還元価格およびキャッシュフローを地代負債分減額すること。
   - **実需物件（戸建て・マンション・土地）**: 地代支払負担の資本化価値（還元利回り5.0%仮定: 年間地代 ÷ 0.05）を負債として算定し、ML特徴量および理論価格評価に負債減価ディスカウントとして反映すること。
 
+#### FR-CRAWL-635: クローラー4時間枠・一覧価格厳格抽出による差分スキップ・athome拡張・タイムアウト発報要件 (Issue #635)
+- **クローラータイムアウト4時間 (14400s) 延長**:
+  - `crawler_timeout` の上限およびデフォルトを 14400s (4時間) とし、内部締め切り `CLOUD_RUN_JOB_TIMEOUT_SEC` も連動すること。
+  - Safety-Net のハング判定閾値を 15000s (14400s + 600s)、ML パイプライン起動時刻を 20:10 UTC (クローラー 16:00 UTC 開始 + 4時間 + 10分バッファ)、Cloud SQL バックアップ時刻を 22:00 UTC へ連動変更すること。
+
+#### FR-ML-773: 再クローリング時公開終了物件の不整合フラグ維持およびML学習データからの不整合物件除外要件 (Issue #773)
+- **再クローリング時公開終了物件の不整合フラグ維持**:
+  - `ParseDetailPageAsyncBase._treatPage` において、`SkipPropertyException` 等で公開終了（`is_skipped=True`）を検知した際、すでに `needs_parser_fix=True` であればこれを `False` にリセットせず維持すること。
+  - `is_published = False` と `delisted_at` を正しく記録しつつ、再クローリング対象フラグ（`needs_recrawl = False`）のみを解除すること。
+- **ML学習データローダーにおける不整合物件の除外**:
+  - `data_loader.py` の `get_evaluation_and_duplicate_caches`（または除外URLキャッシュ）において、`needs_parser_fix=True` または `data_quality_issue` が設定されている物件URLを抽出し、重複物件URLと同様に学習レコード収集対象から除外すること。
+  - 外れ値やスペック欠損を持つ異常データが機械学習モデル（CatBoost / LightGBM）に混入するのを防止すること。
+
+#### FR-ML-698: MLパイプラインの学習スキップオプション・GCSモデル永続化同期およびジョブタイムアウト2時間延長要件 (Issue #698)
+- **通常実行時のモデル学習スキップ**:
+  - `run_ml_pipeline.py` に `--skip-train` CLI オプションおよび環境変数 `ML_PIPELINE_SKIP_TRAIN=true` を導入し、日次の通常実行では時間のかかるモデル再学習（`train.py`、約42分）をスキップしてバルク価格推定・投資評価（`run_bulk_ml_evaluation.py`）を即座に開始できること。
+  - Cloud Run Job `realestate-ml-pipeline-prod` の実行引数または環境変数に上記オプションを反映すること。
+- **GCSバケットへの学習済みモデル群の永続化同期**:
+  - `train.py` 実行後、生成されたすべてのモデル成果物（`*.joblib`）を GCS バケット（`ml_models/` プレフィックス）へ自動アップロードして永続化すること。
+  - 推論実行時（`predict.py` または `run_ml_pipeline.py`）、ローカルの `models/` ディレクトリにモデルが存在しない場合、GCS から最新のモデル群を自動ダウンロードして推論を可能とすること。
+- **MLパイプラインタイムアウトの2時間 (7200s) 延長とバックアップ時刻の整合性確保**:
+  - Cloud Run Job `realestate-ml-pipeline-prod` のタイムアウトを `3600s`（1時間）から `7200s`（2時間）へ延長すること。
+  - ML パイプラインの最遅終了時刻（21:10 UTC + 7200s = 23:10 UTC）に合わせて、Cloud SQL 自動バックアップ開始時刻 `start_time` を `23:00` から `23:30` に調整し、単体テスト（`test_crawler_timeout_4h_635.py`）のアサーションおよび整合性を完全担保すること。
+
+#### FR-ML-704: バルクML価格推定処理の高速化とDB・N+1ボトルネック解消要件 (Issue #704)
+- **重複物件判定時の実物件情報取得（_get_real_property）キャッシュ化**:
+  - `calculate_property_similarity` および `find_duplicate_property` において、`PropertyEvaluation` から紐づく実物件モデル（`_get_real_property`）を問い合わせる処理に LRU キャッシュまたはインメモリ辞書キャッシュ（`property_cache`）を導入し、重複判定ごとの DB N+1 クエリを根絶すること。
+- **未処理物件抽出（_filter_unprocessed_items）の最適化**:
+  - `run_bulk_ml_evaluation.py` の未処理物件走査において、不要なカラムを含まないイテレーション、または評価済み URL 辞書による早期判定で不要な ORM 生成・転送オーバーヘッドを最小化すること。
+- **互換性と整合性の維持**:
+  - 既存の重複判定ロジック（類似度スコア算出・親レコード特定）およびテストケースとの完全な互換性を維持すること。
+- **アットホームの対象エリア拡大および並行度向上**:
+  - 対象エリアを従来の東京都 (`tokyo/city/`) から、埼玉県 (`saitama/city/`)、神奈川県 (`kanagawa/city/`)、千葉県 (`chiba/city/`)、愛知県 (`aichi/city/`) を含む1都4県へ拡張すること。
+  - 詳細取得並列度 `DETAIL_PARARELL_LIMIT` を 1 から 3 へ引き上げ、巡回スループットを3倍化すること。
+- **一覧カード価格抽出の厳格化による差分スキップ100%正常化**:
+  - `baseParser._extract_card_price` において、「1分」「2階」などの無関係な数字の誤抽出を完全防止し、「万円」「円」の単位表記を持つ100万円以上の正規価格パターンのみを抽出すること。
+  - 全24サイト・全89物件種別で一覧カードからの価格取得精度を100%担保し、価格変更のない既存物件の詳細クローリングを確実にスキップすること。
+- **タイムアウト・異常終了時の Slack 即時発報**:
+  - `run_pipeline.py` において、制限時間超過 (`TimeoutError`) や未処理例外によりクローラーが強制終了された場合、未完走タスク番号、エラー内容、担当ジョブ一覧を Slack (`#property_alert` および `#dev-agent`) へ即座に通知すること。
+
+#### FR-CRAWL-692: 詳細取得非同期並行化・差分TTL30日・タイムアウト5時間枠・DB保護要件 (Issue #692)
+- **詳細取得の非同期並行化（スループット向上と直列詰まり解消）**:
+  - `_handle_local_execution` における `threading.Thread` 直列同期待機（`t.join(1.0)`）を解消し、`asyncio.to_thread` または非同期ワーカーを用いて `CLOUD_DETAIL_CONCURRENCY`（デフォルト 2）のセマフォ制御下で安全に並行処理すること。
+  - DB コネクション過負荷を防止するため、過度な並行化（10〜20等）を禁止し、プロセス内並行度は最大 2〜3 に抑えること。
+- **プロセス並行度の抑制による Cloud SQL / ProxySQL 負荷保護**:
+  - `run_all_crawlers.py` のデフォルト並行度 `--parallel` を 35 から 6 へ引き下げ、全タスク（8タスクアレイ）合計の同時接続数が ProxySQL バックエンド上限（50）および Cloud SQL（db-f1-micro）の許容範囲内に収まるよう制御すること。
+- **差分クロール TTL の 30 日延長と一覧早期スキップ**:
+  - `DIFFERENTIAL_TTL_DAYS` のデフォルト値を 7 日から 30 日へ延長し、一覧カードから価格が取得でき、DB 価格と一致しかつ 30 日以内の物件は詳細ページアクセスを完全にスキップすること。
+- **クローラータイムアウト 5 時間 (18000s) への延長とインフラ整合性保証**:
+  - `CRAWL_TIMEOUT_SEC`（1ジョブ上限）および Terraform `crawler_timeout`（Cloud Run Job タスク全体上限）を 18000s (5時間) に延長すること。
+  - Safety-Net のハング判定閾値 `DEFAULT_HUNG_THRESHOLD_SEC` を 18600s (18000s + 600s) に更新すること。
+  - ML パイプライン起動スケジュール `ml_pipeline_schedule_cron` を `10 21 * * *` (21:10 UTC = 06:10 JST) に連動更新すること。
+  - Cloud SQL 自動バックアップ開始時刻 `start_time` を `23:00` (JST 08:00) に連動更新し、バッチ実行中の DB 競合を完全遮断すること。
+
 #### FR-CRW-007: クローリングURL識別子維持および0件取得防止要件
 - **クエリパラメータ識別子維持 (`UrlMatcher`)**: rearie等、クエリパラメータ（`?id=` 等）で一意の物件詳細を識別するサイトにおいて、URL正規化処理で一意識別用パラメータを保護・維持し、同一URLへの衝突・上書きによる0件取得（Zero-Count Failure）を防止すること。
 - **マルチ階層クローリングのセッション自律管理 (`Daikyo`)**: 都道府県・地域別階層構造を展開して詳細物件をクロールするパーサーにおいて、内部HTTPリクエスト用のセッションを自律管理し、外部からセッションが渡されない場合でも一覧・詳細の到達を完結させること。
@@ -67,6 +121,16 @@
 - **非再帰反復ページネーション走査**: `ParseMiddlePageAsyncBase` において、一覧・中間ページの次ページ遷移（`parseNextPage`）は、同一スレッド・同一イベントループ内で直列的（Iterative）に次ページURLを追跡・取得すること。
 - **再帰的スレッド生成・イベントループ増殖の根絶**: ローカルルーティング（`_handle_local_execution`）において同一または同種の一覧・中間クラスが次ページ取得時に再帰的 `threading.Thread` を生成して親スレッドを待ち状態（Join/Wait Stack）に保持し続ける設計を排除し、ページ数に比例したスレッド・メモリ消費（O(N) ➔ O(1)）を根絶すること。
 - **ページ単位のDOMメモリ明示的解放**: 各一覧ページの取得・パース完了ごとに、BeautifulSoupツリー等のDOMレスポンス参照を即座に破棄（`del response`）し、大量ページ（50ページ以上）のクローリング中における cgroup メモリ上限超過（Exit Code -9 / SIGKILL）を完全に防止すること。
+
+#### FR-CRW-676: クローラー巡回件数過少・ページネーション停止および0件取得・実行時異常の包括復旧要件 (Issue #676)
+- **0件取得失敗 (Zero Count Failure) の根絶**:
+  - `sumifu - invest_kodate` および `nomura - invest_kodate` の一覧開始URLおよびカテゴリー判定・セレクターを最新サイト構造に適合させ、対象物件が存在する一覧ページを確実に捕捉して0件取得異常を根絶すること。
+- **1ページ目打ち切り (Pagination停止) の解消**:
+  - `misawa - mansion`, `sekisui - mansion`, `odakyu - mansion` において、各サイトのHTMLページネーション要素（`a[rel='next']`, `.next a`, `a:contains('次へ')`, `page=` パラメータなど）を網羅的に探索するフォールバックを備え、1ページ目（30件）で走査が終了する不具合を解消すること。
+- **実行時クラッシュ (Exit Code 1 / -9) の解消**:
+  - `homes` (mansion, kodate, tochi) および `odakyu - investment` において、例外未捕捉クラッシュ（Exit Code 1）およびメモリ・タイムアウト強制終了（Exit Code -9）の原因となるリクエスト・パース処理を防御的に改修し、安定完走を保証すること。
+- **極小件数サイトの抽出精度向上**:
+  - `sumirin`, `daiwa`, `misawa` 等の取得件数が極少にとどまるクローラーについて、一覧抽出リンクパターンおよび検索条件を最新化し、掲載物件を漏れなく抽出すること。
 
 
 ### 2.1 データ収集機能
@@ -183,14 +247,49 @@ Cloud Run Jobs の 8並列タスクアレイにおいて、各インスタンス
 3. **早期完了インスタンスの即時安全停止**:
    - ジョブが少ない・軽量なタスク（Task 3, Task 4等）は20〜30分で完了し、コンテナを即時正常終了（Exit 0）させること。
 
-#### FR-012: 全パーサー一覧ページ価格抽出による差分スキップ完全化要件 (Issue #608)
-既存クローリング済み物件の不要な詳細ページ通信を排除し、処理を大幅に高速化するため、以下の要件を満たすこと。
-1. **全パーサー一覧抽出での価格抽出統合**:
-   - すべてのパーサーの一覧抽出インターフェース（`parsePropertyListPage` 等）において、詳細URLのみではなく、一覧カードに表示されている価格情報を抽出し、`ListItem(url=..., price=...)` または `(url, price)` として生成・返却すること。
-2. **価格未変動物件の詳細フェッチ完全スキップ**:
-   - `filter_differential_items` において、一覧から取得した価格とデータベース保存済み価格（`record["price"]`）を比較し、価格が一致し有効期限（TTL）内の物件は詳細ページアクセスを完全にスキップ（HTTP/Playwrightリクエスト 0件）すること。
-3. **アクティブ確認日付（updateDateTime）の一括更新**:
-   - 詳細アクセスをスキップした物件は、掲載継続中（アクティブ）の事実を裏付けるため、`updateDateTime` を現在日時に一括バッチ更新（`_batch_update_cached`）すること。
+#### FR-CRW-013: Cloud Run Executions 取得耐障害性およびスペック解析フッターノイズ除外要件 (Issue #634)
+- **Cloud Run Executions 取得耐障害性 (`ensure_resources_stopped.py`)**:
+  - `_get_active_cloud_run_executions` において、`run_v2` および REST API の `jobs.list` 権限（`run.jobs.list`）が 403 PERMISSION_DENIED 等で拒否された場合でも、対象となるジョブ名候補群（`job_prefixes` および環境サフィックス）に対して直接ジョブ別 Executions エンドポイント（`https://run.googleapis.com/v2/{job_full_name}/executions`）を照会するフォールバックを実行すること。
+  - IAM 定義（`terraform/iam.tf`）において、Crawler Runner サービスアカウントにプロジェクト単位の `roles/run.viewer` を付与し、API 呼び出し権限を担保すること。
+- **パーサースペック解析におけるフッター・ナビゲーションノイズ混入根絶 (`ParserBase`)**:
+  - `_get_specs`（`_ingest_tr_specs`, `_ingest_dl_specs`, `_ingest_table_row_specs`）において、`footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のナビゲーション・フッター要素配下に存在する定義リスト（`dl`）やテーブル（`tr`）を解析対象から除外すること。
+  - サイト共通フッターに記載された投資物件リンクや想定利回りバナーを物件スペックとして誤認識し、非投資物件（土地・マンション・戸建て等）が投資物件と誤判定されて全件スキップ（実質0件取得）となる現象を恒久的に根絶すること。
+#### FR-CRW-014: ParserBase 安全上限値適正化および環境変数制御要件 (Issue #643)
+- **安全上限値の適正化 (`ParserBase`)**:
+  - `ParserBase` の `MAX_PAGES_PER_JOB`（デフォルト 2,000 ページ）および `MAX_PROPERTIES_PER_JOB`（デフォルト 50,000 件）を設定する。
+  - 通常のポータル・大手仲介サイトの巡回規模（最大数百ページ、数千件程度）で確実に抵触せず、無限ループ障害発生時のみ安全に停止させるフェイルセーフとする。
+- **動的オーバーライド (`os.getenv`)**:
+  - 環境変数 `MAX_PAGES_PER_JOB` および `MAX_PROPERTIES_PER_JOB` が指定されている場合、正の整数値であれば動的に上書き適用可能とすること。
+
+#### FR-CRW-015: 不整合データ (needs_parser_fix) の分散再クローリングおよび掲載終了連携要件 (Issue #735)
+1. **ピンポイント再取得**: `PropertyEvaluation.objects.filter(needs_parser_fix=True, is_published=True)` を対象とし、パーサー改修後やデータ不整合検知後に異常フラグが付与された物件のみをピンポイントで再取得すること。
+2. **通常クローラー準拠の並列・分散制御**:
+   - **水平分散**: Cloud Run Jobs の 8並列タスクアレイ（`CLOUD_RUN_TASK_INDEX` / `CLOUD_RUN_TASK_COUNT=8`）および CLI オプション（`--task-index`, `--task-count`）による Modulo 分割（`property_id % task_count == task_index`）に対応し、タスク毎に均等・決定論的に分散実行すること。
+   - **プロセス内並行度**: 通常クローラーの詳細取得上限と完全同一の `DETAIL_PARARELL_LIMIT = 3`（`CLOUD_DETAIL_CONCURRENCY` / `--concurrency` で上書き可能）でセマフォ制御すること。
+3. **フラグライフサイクルの自動更新**:
+   - **再取得成功時**: 正常データ抽出完了後、自動で `needs_parser_fix=False` および `data_quality_issue=""` に更新すること。
+   - **掲載終了検知時**: 404 や販売終了文言（`ListingEndedException` / `SkipPropertyException`）を検知した場合、自動で `is_published=False`、`delisted_at=now()`、`needs_parser_fix=False` に更新すること。
+
+#### FR-CRW-016: 指定サイト・物件種別絞り込みクローリングおよび不要コンテナ起動抑制要件 (Issue #801)
+1. **サイトと物件種別の柔軟な組み合わせ指定**:
+   - Cloud Workflows 引数（`company`, `propertyType` / `type`）、およびクローラー CLI / 環境変数において、特定サイト（カンマ区切りまたは単一）と特定物件種別（カンマ区切りまたは単一）をAND条件で組み合わせて対象ジョブを絞り込み可能であること。
+   - `sites` トークン指定（`tokyu:mansion`, `sumifu` 等）とも併用・互換性を維持すること。
+2. **Cloud Workflows レベルでのタスク数動的抑制**:
+   - Cloud Workflows (`daily_pipeline.yaml`) において、指定されたサイト・種別の組み合わせに合致する対象ジョブ数（`target_jobs_count`）に応じて、Cloud Run Job 実行時の `taskCount`（コンテナ起動数）を動的に抑制すること。
+   - 不要なコンテナを物理的に起動させず、Cloud Run リソースおよびコスト消費を最小化すること。
+3. **コンテナ内ゼロジョブ即時終了フェイルセーフ**:
+   - 起動されたタスク（コンテナ）において、自タスクに割り当てられた担当ジョブが0件である場合、DB疎通待機やProxySQL起動を待機することなく即座に正常終了（Exit Code 0）すること。
+4. **日次パイプラインにおけるML学習スキップと価格推定維持**:
+   - 日次実行ワークフローにおいて、MLモデルの再学習（`train.py`）をスキップ（`--skip-train` / `ML_PIPELINE_SKIP_TRAIN=true`）し、価格推定（`run_bulk_ml_evaluation.py`）およびお宝物件通知（`send_recommendations.py`）のみを実行すること。MLモデルの再学習は月次等の定期バッチに分離すること。
+
+#### FR-CRW-017: 深夜日次ワークフロー実行時におけるポータルサイト（athome/homes）除外要件 (Issue #813)
+1. **日次定常実行時のポータルサイト除外**:
+   - 深夜1時（JST）から実行される日次パイプライン（Cloud Scheduler -> Cloud Workflows: `daily_pipeline.yaml`）において、クローリング対象から大手ポータルサイト（アットホーム: athome、ホームズ: homes）を除外（`skipPortals: true`）して実行すること。
+2. **Cloud Workflows でのタスク数自動最適化**:
+   - `skipPortals: true` 指定時、全8タスクのうちポータル専用タスク（Task 5: homes, Task 6: athome mansion, Task 7: athome その他）の起動を抑制し、`taskCount: 5` で実行すること。
+3. **ML推論・価格推定におけるポータル除外連携**:
+   - 日次パイプラインの後続 ML 推論・評価ステップにおいても `--skip-portals` を連携させ、高速かつ低コストに日次バッチを完遂させること。
+
 
 ---
 
@@ -484,6 +583,10 @@ task stop
 - Detail API: 並列数6
 - TCP接続プール: 上限100
 
+#### FR-010: URLルーター網羅性と自動ルーティング
+- `UrlRouter` は、システムが対応する全22社以上の物件詳細URL（大京、みずほ、大和ハウス、東急投資用・住み替え、小田急、京王、京急、京成、住友林業、アットホームその他等を含む）を正規表現により網羅的に識別し、適切なパーサークラスおよびDBモデルクラスへ動的マッピングすること。
+- URLおよび指定・抽出された物件種別（`mansion`, `kodate`, `tochi`, `apartment`）に基づき、未解決ドメイン（No parser resolved）によるスキップやフラグ放置を発生させないこと。
+
 ### 2.6 機械学習・価格推定機能
 
 #### FR-015: ベクトル化バルク推論 (Vectorized Bulk Inference)
@@ -567,7 +670,7 @@ task stop
 - **文字コード UTF-8 保証（文字化け根絶）**:
   - 標準入出力および子プロセス間通信パイプで UTF-8 エンコーディングを明示し、日本語物件名やログの文字化け（`?` 置換）を完全に排除すること。
 - **物件公開終了（404/掲載終了）の例外分離**:
-  - 物件終了時は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップすること（エラー扱いしない）。
+  - 物件終了時、サイト仕様によるトップページリダイレクト（例: リアリエ終了時のパナソニックホームズTOP）、および巡回・取得時の中間認証・不在画面（例: アットホーム認証中画面）を検知した場合は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップおよび掲載終了ステータス反映を行うこと（エラー扱い・アラート対象としない）。
 
 ### 3.3 保守性要件
 
@@ -617,6 +720,14 @@ task stop
 - **厳格な有限時間タイムアウト**: リモート API コールは必ず有限時間（デフォルト10秒等、最大でも設定された秒数以内）でタイムアウトし、ネットワーク遅延や応答不達時にも安全にプロセスが終了すること。
 - **適用範囲**: 本要件は SonarCloud に限定されず、**クローラーを含むすべての外部リモート API 通信・curl コマンド実行**に適用される。各外部 API 呼び出しは有限時間内に完了することを義務付ける（NFR-003 と連携：タイムアウト後もクローラー処理自体は継続する）。
 - **専用検証スクリプトの提供**: SonarCloud Quality Gate 状態や未解消課題の確認は専用のタイムアウト保証スクリプト（`check_sonar_remote.py`）を介して実行し、PR番号やブランチ名指定で安全に結果を取得できること。`--timeout` オプションの最大値は 10 秒とし、超過値はスクリプトが CLI 入力エラーとして拒否すること。
+
+#### NFR-023: 機械学習パイプライン性能・メモリ効率化要件 (ML Pipeline Throughput & Memory Efficiency, Epic #710)
+- **バルク評価スループット**: 500〜1,000 件単位のベクトル化推論およびジェネレータストリーミングにより、未評価物件のバルク評価スループットを **300件/秒以上** に維持すること。
+- **学習・推論ピークメモリ上限**:
+  - 学習時（`train.py` / `package.ml.training`）の常駐ピーク RSS を **1.5GB 未満** に制限すること（ID 先行サンプリング＋チャンク取得による全件 ORM 展開防止）。
+  - 推論・バルク評価時（`run_bulk_ml_evaluation.py` / `package.ml.evaluation`）の常駐ピーク RSS を **1.0GB 未満** に制限すること（Django モデルを排除したスロット化軽量 dataclass キャッシュ＋float32 化）。
+- **特徴量生成クエリの定数化**: 特徴量生成時の参照マスタ取得（自治体・地価・駅・ハザード・用途地域・マクロ経済）は事前一括キャッシュにより行い、1物件あたりの DB クエリ数を **O(1)（0クエリ）** に抑制すること。
+- **一次・二次推論の共通化**: 一次理論価格および二次精密理論価格を算出する経路（`predict_both_stages`）において、共通特徴量生成（`build_features_batch`）を 1 回のみ実行し、計算コストおよび一時メモリを半減させること。
 
 
 ### 3.4 拡張性要件
@@ -732,9 +843,9 @@ task stop
 - [Sumifuクローリング報告書](sumifu_crawling_report.md): 住友不動産販売のクローリング状況レポート
 - [デプロイ時イメージ管理要件定義書](deploy_image_lifecycle_requirements.md): 本番デプロイ時のイメージ孤立防止・プルーニング順序要件 (Issue #593)
 - [MySQL認証プラグイン移行要件定義書](mysql_auth_plugin_migration_requirements.md): caching_sha2_password 移行および TLS 接続要件 (Issue #572)
-- [クローラー仕様書](../basic_design/basic_design_master.md): アーキテクチャ、処理フロー詳細
+- [クローラー仕様書](../1_architecture/basic_design_master.md): アーキテクチャ、処理フロー詳細
 
-- [データベース定義書](../internal_design/detailed_design_master.md): テーブル・カラム定義
+- [データベース定義書](../1_architecture/detailed_design_master.md): テーブル・カラム定義
 - [API構造](../internal_design/api_structure.md): エンドポイント構造、Fire-and-Forget実装
 - [開発者ガイド](../implementation/developer_guide_master.md): 環境構築、デバッグ方法
 - [サイト構造ドキュメント](site_structures/): 各社のサイト構造詳細
@@ -745,4 +856,14 @@ task stop
 **バージョン**: 1.0 (ラフ版)  
 **ステータス**: Draft
 
+---
 
+#### FR-012: 全パーサー一覧ページ価格抽出による差分スキップ完全化要件 (Issue #608)
+既存クローリング済み物件の不要な詳細ページ通信を排除し、処理を大幅に高速化するため、以下の要件を満たすこと。
+1. **全パーサー一覧抽出での価格抽出統合**:
+   - すべてのパーサーの一覧抽出インターフェース（`parsePropertyListPage` 等）において、詳細URLのみではなく、一覧カードに表示されている価格情報を抽出し、`ListItem(url=..., price=...)` または `(url, price)` として生成・返却すること。
+2. **価格未変動物件の詳細フェッチ完全スキップ**:
+   - `filter_differential_items` において、一覧から取得した価格とデータベース保存済み価格（`record["price"]`）を比較し、価格が一致し有効期限（TTL）内の物件は詳細ページアクセスを完全にスキップ（HTTP/Playwrightリクエスト 0件）すること。
+3. **アクティブ確認日付（updateDateTime）の一括更新**:
+   - 詳細アクセスをスキップした物件は、掲載継続中（アクティブ）の事実を裏付けるため、`updateDateTime` を現在日時に一括バッチ更新（`_batch_update_cached`）すること。
+  - 物件終了時は `ListingEndedException` をスローし、`INFO`/`DEBUG` として正常スキップすること（エラー扱いしない）。

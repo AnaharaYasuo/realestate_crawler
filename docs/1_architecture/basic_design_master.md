@@ -152,16 +152,15 @@ railwayWalkMinute1 = 5
   - `price_diff`: 価格差（`new_price - old_price`、値下げ時はマイナス）
   - `recorded_at`: 改定検知日時
 
-### Migration & Deduplication Architecture (既存重複移行・正規化設計)
+### Cloud Run Executions Resilient Inspection & Parser Specs Noise Filter (Cloud Run 実行監視耐障害性 & スペックノイズ除外)
 
-過去クロールによって蓄積された同一URLの重複レコードを解消し、過去価格変動を履歴テーブルへ移行するアーキテクチャ。
+#### 1. Cloud Run Executions 照会耐障害性 (`ensure_resources_stopped.py`)
+- プロジェクト全域の `jobs.list` 権限（`run.jobs.list`）が未割り当てまたは 403 PERMISSION_DENIED の環境においても、ゾンビ ProxySQL 検出・安全停止処理を停止させない二段構えのフォールバック機構を採用。
+- `jobs.list` 失敗時は、定義済みジョブプレフィックス（`realestate-crawler-pipeline`, `realestate-ml-pipeline`, `realestate-migrate` 等）と環境サフィックス（`-prod`, `-stg` 等）から具体的なジョブ名を網羅的に組み立て、各ジョブの個別 Executions エンドポイント（`.../jobs/{job_name}/executions`）を直接照会する。
 
-**処理手順:**
-1. 同一 `pageUrl` の複数レコードを `(inputDateTime ASC, id ASC)` 順で取得。
-2. 時系列に価格差分（`old_price != new_price`）を判定し、`PropertyPriceHistory` へ一括投入。
-3. 最新レコードを生存マスタとして保持し、`inputDateTime` に最古日時、`updateDateTime` に最新日時を復元。
-4. 外部参照（`PropertyEvaluation.property_id`）を残す最新レコードの `id` に再リンク更新。
-5. 最新レコード以外の過去重複行をバッチ削除。
+#### 2. パーサー基底スペック解析のノイズ除外 (`ParserBase`)
+- `_get_specs` において、`footer`, `nav`, `.footer`, `#footer`, `.footerLinks`, `.sidebar`, `.recommend` 等のナビゲーション・フッター配下のタグをスキップ。
+- サイト共通フッターに配置された投資物件・利回りリンク等のバナー情報をスペック辞書に混入させず、物件本文の真正なスペックテーブルのみを抽出することで、動的種別判定における誤爆（非投資物件の投資扱いスキップ）を防止する。
 
 ---
 
@@ -1219,11 +1218,46 @@ MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグ�
 
 ---
 
-## 24. クローラー巡回件数過少・ページネーション停止および0件取得包括復旧アーキテクチャ (Issue #676)
+## 24. 指定サイト・物件種別絞り込みクローリングおよび不要コンテナ起動抑制アーキテクチャ (Issue #801)
 
 ### 24.1 概要と目的
-本番パイプラインにおける全89ジョブの巡回実績を監査した結果確認された、0件取得失敗・ページネーション停止（30件打ち切り）・実行時クラッシュを包括的に復旧し、全サイトの網羅的データ収集を保証する。
+未完走ジョブの再実行や特定サイト・種別の集中的なデータ収集において、全ジョブ実行および不要なタスクアレイコンテナ起動（8並列など）によるコスト・実行時間の浪費を防ぐため、ターゲット絞り込みとコンテナ起動数の動的制御を実現する。
 
+### 24.2 処理フローと連携仕様
+1. **Cloud Workflows (`daily_pipeline.yaml`)**:
+   - 実行時パラメータとして `company`（例: `"sumifu,mitsui"`）、`propertyType`（例: `"mansion,kodate"`）、`taskCount`（明示指定用）を受け付ける。
+   - `company` や `propertyType` が指定された場合、対象ジョブの存在を確認し、Cloud Run Job 起動時の `containerOverrides` の引数に `--company` / `--property-type` を渡す。
+   - 起動する `taskCount` は、明示指定がない場合でも指定条件によって必要最小限（例: 単一会社・単一特定種別の場合は 1）に動的抑制し、余剰コンテナをそもそも起動させない。
+2. **コンテナ内フェイルセーフ (`run_pipeline.py` & `run_all_crawlers.py`)**:
+   - コンテナ起動後、自タスク番号（`CLOUD_RUN_TASK_INDEX`）に割り当てられた対象ジョブ件数が 0 件の場合、Cloud SQL確認、ProxySQL起動待機、DB疎通チェック、マイグレーション等を一切行わず、即座に Exit Code 0（正常終了）する。
+3. **日次MLパイプラインの分離**:
+   - 日次の `run_ml_pipeline.py`（または `daily_pipeline.yaml` 経由）では、`--skip-train` を標準化し、モデル再学習を行わずにバルク価格推定とお宝物件通知のみを迅速に実行する。
+
+## 25. 日次定常巡回におけるポータル除外とタスク数最適化アーキテクチャ (Issue #813)
+
+### 25.1 概要と目的
+大手ポータルサイト（athome, homes）はクロール件数およびHTML解析負荷が大きく、夜間日次バッチの実行時間を長時間化させる要因となる。日次の定常ワークフロー実行時はポータルサイトをクローリング対象から除外し、独自仲介・電鉄・ハウスメーカー系サイトに集中させることで、パイプラインの安定完遂とリソースコスト最適化を実現する。
+
+### 25.2 処理連携仕様
+1. **Cloud Scheduler (`scheduler.tf`)**:
+   - 日次トリガー `crawler_daily_trigger` のリクエストボディに `skipPortals = true` を設定。
+2. **Cloud Workflows (`daily_pipeline.yaml`)**:
+   - 引数 `skipPortals`（デフォルト: `true`）を受け取り、true の場合はクローラージョブ引数に `--skip-portals` を付加。
+   - ポータル除外時、ポータル専用タスク（Task 5, 6, 7）の起動を抑制し、`taskCount` を 5 に設定。
+   - 後続の ML パイプライン実行ステップ（`runMLAndEstimation`）においても、`--skip-portals` を連携。
+
+---
+
+### Migration & Deduplication Architecture (既存重複移行・正規化設計)
+過去クロールによって蓄積された同一URLの重複レコードを解消し、過去価格変動を履歴テーブルへ移行するアーキテクチャ。
+**処理手順:**
+1. 同一 `pageUrl` の複数レコードを `(inputDateTime ASC, id ASC)` 順で取得。
+2. 時系列に価格差分（`old_price != new_price`）を判定し、`PropertyPriceHistory` へ一括投入。
+3. 最新レコードを生存マスタとして保持し、`inputDateTime` に最古日時、`updateDateTime` に最新日時を復元。
+4. 外部参照（`PropertyEvaluation.property_id`）を残す最新レコードの `id` に再リンク更新。
+5. 最新レコード以外の過去重複行をバッチ削除。
+## 24. クローラー巡回件数過少・ページネーション停止および0件取得包括復旧アーキテクチャ (Issue #676)
+本番パイプラインにおける全89ジョブの巡回実績を監査した結果確認された、0件取得失敗・ページネーション停止（30件打ち切り）・実行時クラッシュを包括的に復旧し、全サイトの網羅的データ収集を保証する。
 ### 24.2 復旧対象アーキテクチャ方針
 1. **0件取得失敗の解消 (`sumifu - invest_kodate`, `nomura - invest_kodate`)**:
    - `sumifu`: 一覧開始URLの絞り込みパラメータ（`smk=` 等）およびHTMLテーブルからのリンク抽出パスを修正し、最新レイアウトに対応。
@@ -1235,11 +1269,3 @@ MySQL 8.0 非推奨警告を解消し、MySQL 8.4 LTS / 9.0 へのアップグ�
 3. **実行時クラッシュ・極小件数サイトの修復 (`homes`, `sumirin`, `daiwa`)**:
    - `homes`: 一覧・詳細パース時の例外未捕捉を防止し、`tochi` や `mansion` 等の早期エラー停止を解消。
    - `sumirin`, `daiwa`: 最新DOM構造に合致したリンク抽出パターンを適用し、掲載物件の取りこぼしを根絶。
-
-
-
-
-
-
-
-

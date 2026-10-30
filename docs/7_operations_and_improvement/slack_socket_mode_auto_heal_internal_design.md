@@ -73,18 +73,18 @@ function shouldProcessEvent(event, allowedUsers) {
 ```
 
 ### 1.3 `src/crawler/scripts/debug_tools/auto_heal_parsers.py`
-`scan_anomalies_and_generate_instructions()` において、検知したエラーをグループ化・発生回数で集計し、Top-10 を優先抽出するロジックを実装：
+`scan_anomalies_and_generate_instructions()` において、検知したエラーをグループ化・発生回数で集計し、Top-50 を優先抽出するロジックを実装：
 
 ```python
-def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 10) -> list[dict]:
+def aggregate_and_sort_targets(raw_targets: list[dict], max_targets: int = 50) -> list[dict]:
     """
     検知された異常物件リストを (company, property_type, reason_prefix) 単位で集計し、
-    発生件数（頻度）が多い順にソートして上位最大 max_targets 件（デフォルト10件）を返却する。
+    発生件数（頻度）が多い順にソートして上位最大 max_targets 件（デフォルト50件）を返却する。
     """
     ...
 ```
 
-`notify_auto_heal_request()` も Top-10 に基づくサマリーを発報：
+`notify_auto_heal_request()` も Top-50 に基づくサマリーを発報：
 
 ```python
 def notify_auto_heal_request(heal_targets: list[dict]):
@@ -129,3 +129,10 @@ def notify_auto_heal_request(heal_targets: list[dict]):
    - `user="U12345"`, `text="修正して"` ➔ `(True, "修正して")` を検証。
 5. `test_should_process_slack_event_unauthorized_user`:
    - `user="UNAUTHORIZED"`, `text="修正して"` ➔ `(False, "")` を検証。
+
+## 3. 自己修復完了報告プロトコル仕様
+自己修復および後続テスト検証が完了した際、エージェントは報告事項として以下の3項目を明示する：
+1. **問題事象**: 発生エラー、対象サイト、物件種別、対象URL、件数、原因
+2. **修正内容**: 変更対象ファイル、差分概要
+3. **修正後の動作確認結果**: 実行したテストコマンド、全件成功（Pass）の事実
+

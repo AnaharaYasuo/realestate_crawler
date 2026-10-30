@@ -9,6 +9,18 @@ type-specific fields.
 
 from django.db import models
 
+VERBOSE_CHIKUNENGETSU_STR = "築年月（文字列）"
+VERBOSE_CHIKUNENGETSU_DATE = "築年月（日付）"
+VERBOSE_TOCHI_MENSEKI_STR = "土地面積（文字列）"
+VERBOSE_TOCHI_MENSEKI_NUM = "土地面積（数値）"
+VERBOSE_TATEMONO_MENSEKI_STR = "建物面積（文字列）"
+VERBOSE_TATEMONO_MENSEKI_NUM = "建物面積（数値）"
+VERBOSE_YOUTO_CHIIKI = "用途地域"
+VERBOSE_KENPEI = "建ぺい率"
+VERBOSE_YOUSEKI = "容積率"
+VERBOSE_KOUZOU = "構造"
+VERBOSE_MADORI = "間取り"
+
 
 class PropertyBaseModel(models.Model):
     """
@@ -117,8 +129,8 @@ class MansionBaseModel(PropertyBaseModel, TransportationMixin):
     senyuMensekiStr = models.TextField(blank=True, default="", verbose_name="専有面積（文字列）")
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="専有面積（数値）")
     
-    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name="築年月（文字列）")
-    chikunengetsu = models.DateField(blank=True, null=True, verbose_name="築年月（日付）")
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_CHIKUNENGETSU_STR)
+    chikunengetsu = models.DateField(blank=True, null=True, verbose_name=VERBOSE_CHIKUNENGETSU_DATE)
     
     kanrihiStr = models.TextField(blank=True, default="", verbose_name="管理費（文字列）")
     kanrihi = models.IntegerField(blank=True, null=True, verbose_name="管理費（数値）")
@@ -127,7 +139,7 @@ class MansionBaseModel(PropertyBaseModel, TransportationMixin):
     syuzenTsumitate = models.IntegerField(blank=True, null=True, verbose_name="修繕積立金（数値）")
     
     # Mansion-specific fields
-    madori = models.TextField(blank=True, default="", verbose_name="間取り")
+    madori = models.TextField(blank=True, default="", verbose_name=VERBOSE_MADORI)
     balconyMensekiStr = models.TextField(blank=True, default="", verbose_name="バルコニー面積（文字列）")
     balconyMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="バルコニー面積（数値）")
     kaisu = models.TextField(blank=True, default="", verbose_name="所在階")
@@ -143,18 +155,18 @@ class KodateBaseModel(PropertyBaseModel, TransportationMixin):
         abstract = True
     
     # Dual Storage Pattern fields
-    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name="土地面積（文字列）")
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_TOCHI_MENSEKI_STR)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name=VERBOSE_TOCHI_MENSEKI_NUM)
     
-    tatemonoMensekiStr = models.TextField(blank=True, default="", verbose_name="建物面積（文字列）")
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="建物面積（数値）")
+    tatemonoMensekiStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_TATEMONO_MENSEKI_STR)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name=VERBOSE_TATEMONO_MENSEKI_NUM)
     
-    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name="築年月（文字列）")
-    chikunengetsu = models.DateField(blank=True, null=True, verbose_name="築年月（日付）")
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_CHIKUNENGETSU_STR)
+    chikunengetsu = models.DateField(blank=True, null=True, verbose_name=VERBOSE_CHIKUNENGETSU_DATE)
     
     # Kodate-specific fields
-    madori = models.TextField(blank=True, default="", verbose_name="間取り")
-    kouzou = models.TextField(blank=True, default="", verbose_name="構造")
+    madori = models.TextField(blank=True, default="", verbose_name=VERBOSE_MADORI)
+    kouzou = models.TextField(blank=True, default="", verbose_name=VERBOSE_KOUZOU)
 
 
 class TochiBaseModel(PropertyBaseModel, TransportationMixin):
@@ -167,13 +179,13 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
         abstract = True
     
     # Dual Storage Pattern fields
-    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name="土地面積（文字列）")
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name="土地面積（数値）")
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_TOCHI_MENSEKI_STR)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name=VERBOSE_TOCHI_MENSEKI_NUM)
     
     # Tochi-specific fields
-    youtoChiiki = models.TextField(blank=True, default="", verbose_name="用途地域")
-    kenpei = models.TextField(blank=True, default="", verbose_name="建ぺい率")
-    youseki = models.TextField(blank=True, default="", verbose_name="容積率")
+    youtoChiiki = models.TextField(blank=True, default="", verbose_name=VERBOSE_YOUTO_CHIIKI)
+    kenpei = models.TextField(blank=True, default="", verbose_name=VERBOSE_KENPEI)
+    youseki = models.TextField(blank=True, default="", verbose_name=VERBOSE_YOUSEKI)
     
     # 土地評価エンジン用新規取得パラメータ
     maguchiStr = models.TextField(blank=True, default="", verbose_name="間口（文字列）")
@@ -188,3 +200,34 @@ class TochiBaseModel(PropertyBaseModel, TransportationMixin):
     roadDirection = models.TextField(blank=True, default="", verbose_name="接道方位")
     roadType = models.TextField(blank=True, default="", verbose_name="道路区分")
     roadStructure = models.TextField(blank=True, default="", verbose_name="接道状況")
+
+
+
+class InvestmentBaseModel(PropertyBaseModel, TransportationMixin):
+    """
+    Abstract base class for investment properties (whole apartment/mansion buildings, investment houses).
+
+    Includes common fields for yield, rent income, building/land area, and zoning using Dual Storage Pattern.
+    """
+    class Meta:
+        abstract = True
+
+    grossYield = models.DecimalField(max_digits=6, decimal_places=2, blank=True, null=True, verbose_name="表面利回り")
+    annualRent = models.IntegerField(blank=True, null=True, verbose_name="想定年間収入")
+    monthlyRent = models.IntegerField(blank=True, null=True, verbose_name="想定月間収入")
+    currentStatus = models.TextField(blank=True, default="", verbose_name="現況")
+
+    tochiMensekiStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_TOCHI_MENSEKI_STR)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name=VERBOSE_TOCHI_MENSEKI_NUM)
+
+    tatemonoMensekiStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_TATEMONO_MENSEKI_STR)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True, verbose_name=VERBOSE_TATEMONO_MENSEKI_NUM)
+
+    chikunengetsuStr = models.TextField(blank=True, default="", verbose_name=VERBOSE_CHIKUNENGETSU_STR)
+    chikunengetsu = models.DateField(blank=True, null=True, verbose_name=VERBOSE_CHIKUNENGETSU_DATE)
+
+    kouzou = models.TextField(blank=True, default="", verbose_name=VERBOSE_KOUZOU)
+    kaisu = models.TextField(blank=True, default="", verbose_name="階数")
+    youtoChiiki = models.TextField(blank=True, default="", verbose_name=VERBOSE_YOUTO_CHIIKI)
+    kenpei = models.TextField(blank=True, default="", verbose_name=VERBOSE_KENPEI)
+    youseki = models.TextField(blank=True, default="", verbose_name=VERBOSE_YOUSEKI)
