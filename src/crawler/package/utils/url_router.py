@@ -70,6 +70,13 @@ MIZUHO_BUYERS_PATTERN = re.compile(r"mizuho-re\.co\.jp/buyers/")
 KEIO_SALE_PATTERN = re.compile(r"chukai\.keiofudosan\.co\.jp/sale/")
 KEIKYU_DETAIL_PATTERN = re.compile(r"keikyu-sumai\.com/contents/code/detail/")
 KEISEI_DETAIL_PATTERN = re.compile(r"keisei-land\.co\.jp/contents/code/detail/")
+SEKISUI_DETAIL_PATTERN = re.compile(r"sumusite\.sekisuihouse\.co\.jp/")
+AFR_DETAIL_PATTERN = re.compile(r"hebel-haus\.com/")
+SEIBU_DETAIL_PATTERN = re.compile(r"sumai\.seiburealestate-pm\.co\.jp/")
+SOTETSU_DETAIL_PATTERN = re.compile(r"sotetsu-re\.co\.jp/")
+IETAN_DETAIL_PATTERN = re.compile(r"ietan\.jp/")
+ADCAST_DETAIL_PATTERN = re.compile(r"ad-cast\.info/")
+TOHO_DETAIL_PATTERN = re.compile(r"th-yokohama\.com/")
 
 
 class UrlRouter:
@@ -833,7 +840,7 @@ class UrlRouter:
         },
         # 積水ハウス不動産 (Sekisui)
         {
-            "pattern": re.compile(r"sumusite\.sekisuihouse\.co\.jp/"),
+            "pattern": SEKISUI_DETAIL_PATTERN,
             "site": "sekisui",
             "property_type": "mansion",
             "parser_module": SEKISUI_PARSER_MODULE,
@@ -842,7 +849,7 @@ class UrlRouter:
             "model_cls": "SekisuiMansion",
         },
         {
-            "pattern": re.compile(r"sumusite\.sekisuihouse\.co\.jp/"),
+            "pattern": SEKISUI_DETAIL_PATTERN,
             "site": "sekisui",
             "property_type": "kodate",
             "parser_module": SEKISUI_PARSER_MODULE,
@@ -851,7 +858,7 @@ class UrlRouter:
             "model_cls": "SekisuiKodate",
         },
         {
-            "pattern": re.compile(r"sumusite\.sekisuihouse\.co\.jp/"),
+            "pattern": SEKISUI_DETAIL_PATTERN,
             "site": "sekisui",
             "property_type": "tochi",
             "parser_module": SEKISUI_PARSER_MODULE,
@@ -861,7 +868,7 @@ class UrlRouter:
         },
         # 旭化成ホームズ (AFR / Hebel Haus)
         {
-            "pattern": re.compile(r"hebel-haus\.com/"),
+            "pattern": AFR_DETAIL_PATTERN,
             "site": "afr",
             "property_type": "mansion",
             "parser_module": AFR_PARSER_MODULE,
@@ -870,7 +877,7 @@ class UrlRouter:
             "model_cls": "AfrMansion",
         },
         {
-            "pattern": re.compile(r"hebel-haus\.com/"),
+            "pattern": AFR_DETAIL_PATTERN,
             "site": "afr",
             "property_type": "kodate",
             "parser_module": AFR_PARSER_MODULE,
@@ -879,7 +886,7 @@ class UrlRouter:
             "model_cls": "AfrKodate",
         },
         {
-            "pattern": re.compile(r"hebel-haus\.com/"),
+            "pattern": AFR_DETAIL_PATTERN,
             "site": "afr",
             "property_type": "tochi",
             "parser_module": AFR_PARSER_MODULE,
@@ -889,7 +896,7 @@ class UrlRouter:
         },
         # 西武不動産 (Seibu)
         {
-            "pattern": re.compile(r"sumai\.seiburealestate-pm\.co\.jp/"),
+            "pattern": SEIBU_DETAIL_PATTERN,
             "site": "seibu",
             "property_type": "mansion",
             "parser_module": SEIBU_PARSER_MODULE,
@@ -898,7 +905,7 @@ class UrlRouter:
             "model_cls": "SeibuMansion",
         },
         {
-            "pattern": re.compile(r"sumai\.seiburealestate-pm\.co\.jp/"),
+            "pattern": SEIBU_DETAIL_PATTERN,
             "site": "seibu",
             "property_type": "kodate",
             "parser_module": SEIBU_PARSER_MODULE,
@@ -907,7 +914,7 @@ class UrlRouter:
             "model_cls": "SeibuKodate",
         },
         {
-            "pattern": re.compile(r"sumai\.seiburealestate-pm\.co\.jp/"),
+            "pattern": SEIBU_DETAIL_PATTERN,
             "site": "seibu",
             "property_type": "tochi",
             "parser_module": SEIBU_PARSER_MODULE,
@@ -917,7 +924,7 @@ class UrlRouter:
         },
         # 相鉄不動産販売 (Sotetsu)
         {
-            "pattern": re.compile(r"sotetsu-re\.co\.jp/"),
+            "pattern": SOTETSU_DETAIL_PATTERN,
             "site": "sotetsu",
             "property_type": "mansion",
             "parser_module": SOTETSU_PARSER_MODULE,
@@ -926,7 +933,7 @@ class UrlRouter:
             "model_cls": "SotetsuMansion",
         },
         {
-            "pattern": re.compile(r"sotetsu-re\.co\.jp/"),
+            "pattern": SOTETSU_DETAIL_PATTERN,
             "site": "sotetsu",
             "property_type": "kodate",
             "parser_module": SOTETSU_PARSER_MODULE,
@@ -935,7 +942,7 @@ class UrlRouter:
             "model_cls": "SotetsuKodate",
         },
         {
-            "pattern": re.compile(r"sotetsu-re\.co\.jp/"),
+            "pattern": SOTETSU_DETAIL_PATTERN,
             "site": "sotetsu",
             "property_type": "tochi",
             "parser_module": SOTETSU_PARSER_MODULE,
@@ -955,7 +962,7 @@ class UrlRouter:
         },
         # 大成有楽不動産販売 (Ietan)
         {
-            "pattern": re.compile(r"ietan\.jp/"),
+            "pattern": IETAN_DETAIL_PATTERN,
             "site": "ietan",
             "property_type": "mansion",
             "parser_module": IETAN_PARSER_MODULE,
@@ -964,7 +971,7 @@ class UrlRouter:
             "model_cls": "IetanMansion",
         },
         {
-            "pattern": re.compile(r"ietan\.jp/"),
+            "pattern": IETAN_DETAIL_PATTERN,
             "site": "ietan",
             "property_type": "kodate",
             "parser_module": IETAN_PARSER_MODULE,
@@ -973,7 +980,7 @@ class UrlRouter:
             "model_cls": "IetanKodate",
         },
         {
-            "pattern": re.compile(r"ietan\.jp/"),
+            "pattern": IETAN_DETAIL_PATTERN,
             "site": "ietan",
             "property_type": "tochi",
             "parser_module": IETAN_PARSER_MODULE,
@@ -993,7 +1000,7 @@ class UrlRouter:
         },
         # アドキャスト (Adcast)
         {
-            "pattern": re.compile(r"ad-cast\.info/"),
+            "pattern": ADCAST_DETAIL_PATTERN,
             "site": "adcast",
             "property_type": "kodate",
             "parser_module": ADCAST_PARSER_MODULE,
@@ -1002,7 +1009,7 @@ class UrlRouter:
             "model_cls": "AdCastKodate",
         },
         {
-            "pattern": re.compile(r"ad-cast\.info/"),
+            "pattern": ADCAST_DETAIL_PATTERN,
             "site": "adcast",
             "property_type": "tochi",
             "parser_module": ADCAST_PARSER_MODULE,
@@ -1012,7 +1019,7 @@ class UrlRouter:
         },
         # 東宝ハウス (Toho)
         {
-            "pattern": re.compile(r"th-yokohama\.com/"),
+            "pattern": TOHO_DETAIL_PATTERN,
             "site": "toho",
             "property_type": "mansion",
             "parser_module": TOHO_PARSER_MODULE,
@@ -1021,7 +1028,7 @@ class UrlRouter:
             "model_cls": "TohoMansion",
         },
         {
-            "pattern": re.compile(r"th-yokohama\.com/"),
+            "pattern": TOHO_DETAIL_PATTERN,
             "site": "toho",
             "property_type": "kodate",
             "parser_module": TOHO_PARSER_MODULE,
@@ -1030,7 +1037,7 @@ class UrlRouter:
             "model_cls": "TohoKodate",
         },
         {
-            "pattern": re.compile(r"th-yokohama\.com/"),
+            "pattern": TOHO_DETAIL_PATTERN,
             "site": "toho",
             "property_type": "tochi",
             "parser_module": TOHO_PARSER_MODULE,

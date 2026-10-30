@@ -129,7 +129,12 @@ def get_cv_strategy(
     else:
         df_len = int(df_or_len)
 
-    n_splits = 3 if df_len > 3000 else (2 if df_len < 50 else 5)
+    if df_len > 3000:
+        n_splits = 3
+    elif df_len < 50:
+        n_splits = 2
+    else:
+        n_splits = 5
     if groups is not None and len(groups) == df_len:
         unique_groups = len( pd.unique(groups) )
         if unique_groups >= n_splits and unique_groups < df_len:

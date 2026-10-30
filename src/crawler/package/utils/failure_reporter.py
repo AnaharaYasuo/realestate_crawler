@@ -145,10 +145,12 @@ class FailureReporter:
         task_index: int | None = None,
         task_count: int | None = None,
         date_str: str | None = None,
-        parent_list_url: str = "",
-        http_status: int | None = None,
+        **extra_context: Any,
     ) -> dict[str, Any]:
         """障害メタデータおよび失敗生HTMLを即座にGCS（またはフォールバック）へ保存（複数エラー履歴も追記保持）"""
+        parent_list_url = str(extra_context.get("parent_list_url", ""))
+        http_status_raw = extra_context.get("http_status")
+        http_status = int(http_status_raw) if http_status_raw is not None else None
         if not date_str:
             date_str = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
 

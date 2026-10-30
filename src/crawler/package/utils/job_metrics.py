@@ -47,7 +47,7 @@ def compute_field_fill_rates(
     """Compute per-field non-null/non-empty fill rates (0.0 to 1.0) across parsed items."""
     target_fields = fields or DEFAULT_MONITORED_FIELDS
     if not items:
-        return {field: 0.0 for field in target_fields}
+        return dict.fromkeys(target_fields, 0.0)
 
     total = len(items)
     rates: dict[str, float] = {}

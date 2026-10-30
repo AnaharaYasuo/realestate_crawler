@@ -283,9 +283,13 @@ class PropertyTypeDetector:
             return False
         return any(ft in key_str for ft in cls.FREE_TEXT_SPEC_KEYS)
 
-    _NEIGHBORHOOD_NOISE_RE = re.compile(
-        r"[^\s。、！!]*?(?:用地に最適|用地として|まで徒歩\d+分|徒歩\d+分|[の]?隣|近隣に[^\s。、！!]*|周辺に[^\s。、！!]*)"
-    )
+    _NEIGHBORHOOD_NOISE_PHRASES = ("用地に最適", "用地として", "徒歩", "の隣", "近隣", "周辺")
+
+    @classmethod
+    def _strip_neighborhood_noise(cls, text: str) -> str:
+        clauses = re.split(r"[。、！!\s]+", text)
+        kept = [c for c in clauses if c and not any(p in c for p in cls._NEIGHBORHOOD_NOISE_PHRASES)]
+        return " ".join(kept)
 
     @classmethod
     def _detect_from_priority_spec_keys(cls, specs: dict[str, Any]) -> str | None:
@@ -327,7 +331,7 @@ class PropertyTypeDetector:
 
         for k, val in specs.items():
             if cls._is_free_text_spec_key(str(k)):
-                cleaned_val = cls._NEIGHBORHOOD_NOISE_RE.sub("", str(val))
+                cleaned_val = cls._strip_neighborhood_noise(str(val))
                 ptype = cls._match_keywords(cleaned_val)
                 if ptype:
                     return ptype
