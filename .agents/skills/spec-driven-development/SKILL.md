@@ -5,7 +5,7 @@ description: "仕様駆動開発(SDD: Specification-Driven Development)に基づ
 
 # SDD（仕様駆動開発）× TDD（テスト駆動開発）統合開発スキル
 
-本スキルは、課題の起票・受入基準定義から仕様・ドキュメント策定、テスト、実装に至る **「GitHub Issue起票 ➔ 仕様定義 ➔ テスト ➔ 実装」** という一貫したトップダウンライフサイクルを強制・同期させるガイドラインです。
+本スキルは、課題の起票・受入基準定義から仕様・ドキュメント策定、テスト、実装に至る **「GitHub Issue起票 ➔ 仕様定義 ➔ テスト ➔ 実装 ➔ アーキテクチャ・ハーネス検証」** という一貫したトップダウンライフサイクルを強制・同期させるガイドラインです。
 
 ---
 
@@ -13,73 +13,26 @@ description: "仕様駆動開発(SDD: Specification-Driven Development)に基づ
 
 ### Step 0: GitHub Issues による課題・要求の起票 ＆ 受入基準策定 (Issue-Driven)
 機能追加や不具合修正に着手する前に、**修正内容を Issue の単位で GitHub Issues に起票**します。
-起票された Issue の内容に問題がないことを確認・合意（レビュー）した上で、以降の実装ステップに進みます。
+- 作業ブランチ名には必ず Issue 番号を含めます（例: `feat/1151-add-feature`, `fix/1152-fix-parser`）。
+- 必ず `.worktrees/<branch-name>` 配下の独立ワークツリーで作業します。
 
-- **プッシュ＆PRゲート制約**:
-  - 作業ブランチ名には必ず Issue 番号を含めます（例: `feature/12-add-login`, `fix/34-fix-parser`）。
-  - 有効な GitHub Issue が存在しない場合、ローカルの `pre-push` フック（`.githooks/pre-push`）でプッシュが拒否されます。
-  - `master` 宛ての Pull Request は GitHub Actions（`.github/workflows/issue-gate.yml`）で Issue 存在・紐付けが検証され、未紐付けの場合はマージ不可となります。
-#### 1. フィーチャーチケット（機能追加・改善）の標準構成
-```markdown
-## 1. 概要 / ユーザーストーリー
-【誰が】【何をしたいか】【なぜなら〜】の形式で記載します。
-* **ユーザーとして**、[役割]
-* **[目的]** をしたい
-* **なぜなら**、[理由・価値] のため
-
-## 2. アクセプタンスクライテリア (受入基準)
-* [ ] 【基準1】〜〜であること
-* [ ] 【基準2】〜〜の場合、〜〜となること
-
-## 3. 画面イメージ / モックアップ (任意)
-* Figmaのリンクやスクリーンショット
-
-## 4. テストデータ / 前提条件 (任意)
-* アカウント情報や、再現手順に必要なデータ
-```
-
-#### 2. バグチケット（不具合修復）の標準構成
-```markdown
-## 1. 概要 / バグ事象
-【どこで】【何が発生しているか】【本来どうあるべきか】を記載します。
-* **事象**: [発生している不具合の概要]
-* **対象機能・影響**: [影響を受けるコンポーネント・画面・ジョブ]
-
-## 2. 再現手順 / 前提条件
-1. [再現手順1]
-2. [再現手順2]
-* **前提条件 / テストデータ**: [再現に必要なデータ、URL、アカウント情報等]
-
-## 3. 期待される動作 vs 実際の動作
-* **期待される動作**: [本来あるべき正常動作]
-* **実際の動作**: [実際のエラー内容、不正な挙動]
-
-## 4. アクセプタンスクライテリア (受入基準)
-* [ ] 【基準1】〜〜のケースでエラーが発生せず正常完了すること
-* [ ] 【基準2】再現テスト/回帰テスト（テストコード）で不具合の再発防止が担保されていること
-
-## 5. エラーログ / 画面キャプチャ (任意)
-* エラーログ、スタックトレース、またはスクリーンショット
-```
-
----
-
-### Step 1: ドキュメント階層のトップダウン更新 (DDD)
-※仕様マークダウンの構図（要件 ➔ 設計）は維持します。
-コードを触る前に、上から下（要件 ➔ 外部設計 ➔ 内部設計）の順で仕様ドキュメントを先行更新します：
-1. **要件定義 (`docs/requirements/`)**: ビジネスルール・判定閾値・クロール優先度の変更。
-2. **外部設計・基本設計 (`docs/external_design/`, `docs/basic_design/`)**: API仕様・Slack通知形式・システムアーキテクチャの変更。
-3. **内部設計 (`docs/internal_design/`)**: DBスキーマ (`database_schema.md`)・モデルフィールド構造・命名標準の変更。
+### Step 1: 7大ドメイン正本ドキュメントのトップダウン更新 (SDD / SSOT)
+コードを触る前に、`docs/` 配下の7大ドメイン正本ディレクトリ（Single Source of Truth）を先行更新します（※同名の `.md` ファイルを複数ディレクトリに重複作成することは厳禁）：
+1. **`docs/1_architecture/`**: 全体要件定義（[`requirements_master.md`](../../../docs/1_architecture/requirements_master.md)）、基本設計（[`basic_design_master.md`](../../../docs/1_architecture/basic_design_master.md)）、詳細設計（[`detailed_design_master.md`](../../../docs/1_architecture/detailed_design_master.md)）
+2. **`docs/2_crawlers/`**: クローラー標準仕様（`_standards/`）およびサイト別構造定義（`sites/`）
+3. **`docs/3_data_models/`**: フィールド命名標準（[`field_naming_standards.md`](../../../docs/3_data_models/field_naming_standards.md)）、正規化・名寄せ仕様
+4. **`docs/4_valuation_and_ml/`**: MLモデル仕様（[`ml_model_specifications.md`](../../../docs/4_valuation_and_ml/ml_model_specifications.md)）、土地評価、AI属性抽出仕様
+5. **`docs/5_alert_and_delivery/`**: Slack通知・配信・エージェント仕様
+6. **`docs/6_platform_and_release/`**: GCPインフラ、Terraform、CI/CD、Pre-PR Check仕様
+7. **`docs/7_operations_and_improvement/`**: 障害テレメトリ（[`gcs_failure_telemetry_internal_design.md`](../../../docs/7_operations_and_improvement/gcs_failure_telemetry_internal_design.md)）、New Relic監視、Auto-Heal仕様
 
 ### Step 2: 受入基準（Issue）＆ ドキュメント仕様に基づくテストコード作成 (TDD)
-Issue に定義された「アクセプタンスクライテリア (受入基準)」および先行更新されたドキュメントの仕様を満たしているかを客観的に検証するため、コード実装前に `pytest` 等のテストコードを先に記述します。
+Issue に定義された「アクセプタンスクライテリア (受入基準)」および先行更新されたドキュメントの仕様を満たしているかを客観的に検証するため、コード実装前に `pytest` のテストコードを先に記述します。
 
-### Step 3: 受入基準 ＆ ドキュメント ＆ テストに適合する最小コード実装
-Issue 受入基準、仕様ドキュメント、およびテストコード（Single Source of Truth）に従い、テストが通過する最小限（Micro-Diff）のコードを実装します。
+### Step 3: 受入基準 ＆ ドキュメント ＆ リファレンス実装に適合する最小コード実装
+各ディレクトリの `AGENTS.md`（`models/AGENTS.md`, `parser/AGENTS.md`, `ml/AGENTS.md`）に規定されたリファレンス実装・不変条件に従い、テストが通過する最小限のコードを実装します。
 
-### Step 4: 先行実装発生時のレスキュー補正 (Safety-Net)
-バグ緊急修復や試行錯誤で実装が先行した場合も放置せず、**可及的速やかに「Issue受入基準整理 ➔ テストコード作成 (TDD) ➔ ドキュメント階層更新 (DDD)」の順で波及補正**を行います。
-
-### Step 5: README.md インデックス完全同期 ＆ 受入基準検証
-1. `docs/` 配下に新規作成・変更・移動があった場合、[README.md](../../../README.md) の「ドキュメント一覧」の目次リンクと解説文を同期更新します。
-2. GitHub Issue に記載されたアクセプタンスクライテリアのチェックボックスがすべて満たされていることを確認します。
+### Step 4: アーキテクチャ・ハーネス検証 ＆ README.md 完全同期
+1. `pytest src/crawler/tests/unit/test_architecture_harness.py` を実行し、6軸評価尺度に基づく4大ゲート（Doc SSOT Gate / Model & Parser Reference Gate / SiteRegistry Completeness Gate / PropertyType & ML Invariant Gate）がすべて PASS することを確認します。
+2. `docs/` 配下に新規作成・変更・移動があった場合、[README.md](../../../README.md) の目次リンクと解説文を同期更新します。
+3. GitHub Issue に記載されたアクセプタンスクライテリアのチェックボックスがすべて `[x]` に更新されていることを確認します。

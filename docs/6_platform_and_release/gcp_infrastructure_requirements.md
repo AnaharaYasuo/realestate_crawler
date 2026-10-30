@@ -28,7 +28,10 @@
 
 ### 3.1 性能・リソース要件
 - **バッチ処理時間**: 全サイトの巡回・評価処理（Cloud Tasks + Cloud Run の分散並列化により大幅短縮）。
-- **コンテナスペック**: 1タスクあたり 2〜4 vCPU、4〜8 GiB RAM を確保可能であること。
+- **コンテナスペック**: 
+  - クローラータスク (`realestate-crawler-pipeline-prod`): **1 vCPU / 3 GiB RAM** (実測CPU中央値20%、メモリp99 2.2GiBに基づき適正化、OOMクラッシュ安全マージン確保) (Issue #814)
+  - MLタスク (`realestate-ml-pipeline-prod`): **2 vCPU / 2 GiB RAM** (実測CPU<42%、メモリ<1.7GiBに基づき適正化) (Issue #809)
+  - 再取得タスク (`realestate-recrawl-anomalies-prod`): **2 vCPU / 2 GiB RAM** (実測メモリ<880MBに基づき適正化) (Issue #809)
 - **並列分散拡張性 & サイト規模別並行プロセス制御**:
   - 全20〜25社に対して一斉にジョブを開始（会社間並列）可能であること。
   - 各会社に対する同時実行プロセス数（種別並行度）は、取扱物件数およびブラウザ負荷に応じて以下の通り階層的に制御すること：
@@ -36,25 +39,30 @@
     - **超大規模ポータル (Browser: Athome)**: 最大 3 プロセス並行（Playwrightの並行消化加速）
     - **大手仲介 (三井, 住友, 東急, 野村, ミサワ)**: 最大 5 プロセス並行（各コンテナ起動時に全種別を一斉並列実行可能化）
     - **中小・電鉄・ハウスメーカー (積水, 大和, 旭化成, 小田急等 17社)**: 最大 1 プロセス（同一会社内完全直列で安全・低負荷消化）
-  - ML学習（LightGBM, XGBoost, CatBoost, RF）でコンテナのマルチCPUコア（`n_jobs=-1`）を完全活用すること。
-  - バルク価格推論（`run_bulk_ml_evaluation.py`）において、マルチスレッド/並行プール（4〜8並行）で物件モデル群を並行推論・永続化できること。
+  - 日常バッチでのMLモデル再学習は不要化し、デフォルトでスキップ（推論・推定のみ実行、明示的な `--train` 指定時のみ学習実行）とすること (Issue #809)。
+  - データ検証（`validate_data.py`）において、直近物件のURL生存確認（`verify_url_active`）を非同期並行化（`asyncio.gather` / セマフォ10〜20並行）して処理時間を短縮すること。また、大量物件蓄積時や日次定期パイプライン実行時にURL生存確認をスキップ可能な実行オプション（`--skip-url-check` / 環境変数 `VALIDATE_DATA_SKIP_URL_CHECK=true`）を提供すること。
+  - ML Pipeline Job（`realestate-ml-pipeline-prod`）は、データ検証のスキップ制御およびバルク推論の最適化により安全に完遂し、Cloud SQL バックアップ（04:00 UTC）との重複を防止すること。
 - **パイプライン制御 & 完了検知**:
-  - ディスパッチャーによる全タスク投入後、DB（`crawler_task_execution`）上で全タスクの完了を検知し、後続の「データ検証 ➔ ML再学習 ➔ バルク推論 ➔ Slack通知」を一貫自動実行できること。
+  - ディスパッチャーによる全タスク投入後、DB（`crawler_task_execution`）上で全タスクの完了を検知し、後続の「データ検証 ➔ バルク推論 ➔ Slack通知」を一貫自動実行できること。
 - **種別・サイト規模別タスクアレイ分散制御 (Issue #608)**:
   - 8タスクアレイを Modulo ではなく、種別・サイト規模特性（Task 0: 大手マンション、Task 1: 大手戸建、Task 2: 大手土地、Task 3: 大手/信託投資、Task 4: 中小/信託居住、Task 5: Homes全種別、Task 6: Athomeマンション、Task 7: Athomeその他）に基づいて最適分散すること。
 
 ### 3.2 ネットワーク & セキュリティ要件
-- **Bot検知（Anti-Scraping）対策**:
-  - クローラーからの外部HTTPリクエストは、Cloud NAT を経由して「固定静的外部IP (Static External IP)」から発信されること（データセンター変動IPによるブロックの低減）。
+- **外部クローリング通信 (Dynamic IP Direct Egress)**:
+  - クローラーからの外部HTTPリクエストは、Cloud NAT を介さず Google の動的共有外部 IP から直接発信されること（Cloud NAT 固定費削減。全対象サイトにてブロックを受けないことを実証済み）。
 - **閉域通信 (Private IP)**:
-  - クローラーと Cloud SQL 間の通信は、パブリックインターネットに露出させず、Serverless VPC Access を経由したプライベートIP通信（プライベートサービスアクセス）で行うこと。
+  - クローラーと Cloud SQL / ProxySQL 間の通信は、パブリックインターネットに露出させず、Direct VPC Egress (`PRIVATE_RANGES_ONLY`) を経由したプライベートIP通信で行うこと。
 - **最小権限の原則 (Least Privilege)**:
   - クローラー専用の IAM サービスアカウントを払い出し、必要なリソース（Cloud SQL クライアント、GCS オブジェクト操作、Secret アクセス）のみに権限を限定すること。
 
 ### 3.3 コスト最適化要件
 - **アイドル時コスト最小化**:
   - クローラー非稼働時間帯（日中の大半）はコンピュートリソース課金を ¥0（サーバーレス）とすること。
+  - Cloud Run Service (Crawler Worker, Web API, Slack Agent) は `min_instance_count = 0` に加え、`cpu_idle = true`（リクエスト処理中のみCPU割り当て）を適用し、アイドル待機中やコンテナ破棄待ち時間の不要なCPU課金を完全排除すること（Issue #670, #701）。
   - レガシー・不要リソース（未接続SSDディスク等）の完全排除を維持すること。
+- **Cloud NAT 撤廃 & PRIVATE_RANGES_ONLY 統合 (Issue #673)**:
+  - 全不動産サイト（全27社・80系統）に対して Google 動的 IP でのアクセス・パース疎通性を実証したことに基づき、全 Cloud Run サービスおよびジョブの VPC Egress を `PRIVATE_RANGES_ONLY` に統一すること。
+  - VPC から Cloud NAT ゲートウェイ（`realestate-nat`）および静的外部 IP（`crawler-nat-static-ip`）を完全撤廃し、月額約 $35〜$40 のインフラ固定維持費を削減すること。
 - **リソースオンデマンド・ライフサイクル制御**:
   - ProxySQL は単一 Compute Engine インスタンス（`proxysql-instance-${var.environment}`）および Direct VPC Egress 構成を採用する。
   - パイプライン（`run_pipeline.py`）起動時、Coordinator は DB アクセス前に ProxySQL インスタンス（または設定に応じた MIG）の起動・稼働状態を検証し、ポート6033の疎通健全性を確認（起動チェック）してから DB 処理に進むこと。単一インスタンス構成時は存在しない MIG Autoscaler の操作をスキップし、HTTP 404 エラーによるクラッシュを防止すること。
@@ -83,12 +91,13 @@
 - **ゾンビ課金防止セーフティネット (Deadman's Switch & Guardrails / Execution-Aware Safety Net)**:
   - 時刻ベースの単純強制停止ではなく、**Cloud Run Job Execution の稼働状態と因果関係に基づく動的停止判定**を行うこと。
   - **稼働状態判定 & 執行猶予 (Grace Period)**:
-    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常なクローリング処理を妨害しないこと。
+    - 関連ジョブ（`realestate-crawler-pipeline-*`, `realestate-ml-pipeline-*`, `realestate-migrate-*` 等）の Execution が `RUNNING` 状態かつ許容時間（タイムアウト以内）の場合、ProxySQL 停止をスキップし、正常な処理を妨害しないこと。
     - ProxySQL 起動から 15分間（900秒）は Grace Period（起動直後猶予）として停止をスキップし、起動〜ヘルスチェック〜ジョブ起動間のレースコンディション（誤爆停止）および処理完了直後の早期停止による再起動ループを完全に遮断すること（Issue #518 により 10分 ➔ 15分へ延長）。
   - **完全停止戦略 (Dual Hard-Kill on Hang)**:
     - Cloud Run Job Execution がタイムアウト上限（最長ジョブのクローラー 7200秒 + 猶予 600秒 = 7800秒。Issue #550）を超過してハングしている「真のゾンビ」を検知した場合、ProxySQL だけを停止する片肺停止を禁止し、**Cloud Run Job Execution のキャンセル（強制停止）と ProxySQL インスタンスの停止の両方を同時に強制実行**してコンテナ課金とインスタンス課金を完全に遮断すること。
-  - **親不在時の即時停止**:
+  - **親不在時の即時停止 & 24時間常時安全監査 (Issue #664)**:
     - 関連する Cloud Run Job Execution が存在しない（親不在）かつ Grace Period を超過している場合は、直ちに ProxySQL を停止して Slack へ通知すること。
+    - Safety-Net は特定の深夜帯のみならず、日中・夜間帯の手動実行や予期せぬ異常終了時のゾンビ課金を確実に防止するため、全時間帯毎時（`0 * * * *`）に稼働してリソース停止漏れを自律監査すること。また、デフォルトゾーンはインフラ実態に合わせて `asia-northeast1-a` で統一すること。
 - **Coordinator タイムアウト自律的フェイルセーフ (Graceful Self-Shutdown & Signal Handling)**:
   - Cloud Run Job の Coordinator（Task 0）実行中、Cloud Run タスクタイムアウト（7200秒。Issue #550 で 3600 秒から延長）に達する前に、自律的に安全停止マージン（バッファ時間: 300秒前）を検知して後続ステップを安全に中断し、確実に ProxySQL を停止（teardown）完了して終了すること。
   - Cloud Run からの強制終了シグナル（SIGTERM / SIGINT）を受信した場合でも、シグナルハンドラおよび atexit により同一プロセス内で即座にインライン teardown を実行して ProxySQL 停止を保証すること。
@@ -106,7 +115,7 @@
   - Safety-Net の hung 判定閾値は最長ジョブのタスクタイムアウト（7200 秒）+ 猶予（600 秒）= 7800 秒以上とし、2 時間以内で正常稼働中の実行をキャンセルしないこと。
   - ML Pipeline Job はクローラー最遅終了（16:00 UTC + 7200 秒 = 18:00 UTC）後の 18:10 UTC（03:10 JST）に起動すること。
   - Cloud SQL 自動バックアップはクローラー最遅終了および ML Pipeline Job 最遅終了（18:10 UTC + 3600 秒 = 19:10 UTC）以降の 20:00 UTC（05:00 JST）に開始すること。
-  - Safety-Net（17-21 UTC 毎時）はクローラー最遅終了（18:00 UTC）および ML Pipeline Job 最遅終了（19:10 UTC）以降にも起動すること。
+  - Safety-Net（毎時 `0 * * * *`）はクローラー最遅終了（18:00 UTC）および ML Pipeline Job 最遅終了（19:10 UTC）以降を含む全時間帯で起動すること。
 - **クロール詳細 URL の重複ディスパッチ防止**:
   - 一覧（中間）ページから抽出した詳細 URL は、同一ページ内・同一クロールプロセス内の別一覧ページ間で重複して詳細処理にディスパッチしてはならない（詳細 API ごとに 1 回）。バリデーション失敗で保存されない物件の再取得ループによるクロール時間浪費を防止する（Issue #537）。
 - **リソースタグ・ラベル統一による費用分析**:
@@ -141,7 +150,8 @@
 - **ジョブの二分割 ＆ オンデマンド待機課金ゼロ化 (Two-Phase Decoupled Jobs)**:
   - 親ジョブを「タスク投入役（Dispatcher Job）」と「学習・推論役（ML Pipeline Job）」の2つに分割すること。
   - Dispatcher Job はバッチ開始時に ProxySQL MIG をスケールアウト（`size: 0 -> 1`）し、疎通確認後に Cloud Tasks へタスクを投入して即座に終了（プロセス exit 0）し、クローリング中の親ジョブ待機課金を ¥0 とすること。
-  - ML Pipeline Job はクローリング全完了後に起動し、4vCPU / 8GiB の集中リソースで ML モデル再学習・バルク価格推定・お宝物件 Slack 通知を実行し、完了フックで ProxySQL MIG を安全にスケールイン（`size: 1 -> 0`）停止すること。
+  - ML Pipeline Job はクローリング全完了後に起動し、2vCPU / 2GiB の適正化されたリソースでバルク価格推定・お宝物件 Slack 通知を実行（定期日次学習は不要化・スキップし推論のみ実行、Issue #809）し、完了フックで ProxySQL MIG を安全にスケールイン（`size: 1 -> 0`）停止すること。
+  - Recrawl Anomalies Job は 2vCPU / 2GiB の適正リソースで異常物件の再クロールを実行すること (Issue #809)。
 
 ### 3.6 データベース監視・ヘルスチェック認証およびログ重大度昇格要件 (Database Monitoring & Log Severity Elevation)
 - **ProxySQL 監視専用ユーザー (`monitor`) の独立プロビジョニング**:

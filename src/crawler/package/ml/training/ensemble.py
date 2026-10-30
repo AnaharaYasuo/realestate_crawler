@@ -1,5 +1,5 @@
 """
-アンサンブル学習および評価モジュール (Issue #715)
+アンサンブル学習および評価モジュール (Issue #715, #1151)
 """
 
 import logging
@@ -13,9 +13,16 @@ from package.ml.training.regressors import get_regressor
 from package.ml.training.tuning import tune_hyperparameters
 from scipy.optimize import minimize
 from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import KFold, RepeatedKFold
+from sklearn.model_selection import GroupKFold, KFold, RepeatedKFold
 
 logger = logging.getLogger(__name__)
+
+GROUP_CANDIDATE_COLS: tuple[str, ...] = (
+    "building_group",
+    "chome_group",
+    "propertyName",
+    "address",
+)
 
 
 class TrainedEnsemble(dict):
@@ -25,6 +32,70 @@ class TrainedEnsemble(dict):
         super().__init__(models)
         self.weights = weights or {}
         self.smearing_factor = smearing_factor
+
+
+def _resolve_group_labels(df: pd.DataFrame) -> np.ndarray | None:
+    """同一マンション棟・同一所在地によるデータリーク防止用グループラベルを抽出"""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    for col in GROUP_CANDIDATE_COLS:
+        if col in df.columns:
+            vals = df[col].fillna("").astype(str).str.strip()
+            non_empty = vals[vals != ""]
+            if len(non_empty) == len(df) and vals.nunique() >= 2:
+                return vals.to_numpy()
+    if "address1" in df.columns and "address2" in df.columns:
+        combined = (
+            df["address1"].fillna("").astype(str).str.strip()
+            + "_"
+            + df["address2"].fillna("").astype(str).str.strip()
+        )
+        if combined.nunique() >= 2 and (combined != "_").all():
+            return combined.to_numpy()
+    return None
+
+
+def compute_oof_chome_encoding(
+    df: pd.DataFrame,
+    y: pd.Series,
+    cv: Any,
+    groups: np.ndarray | None = None,
+    smoothing: float = 10.0,
+) -> np.ndarray:
+    """CV Fold 内でリークなしの Empirical-Bayes 平滑化町丁目ターゲットエンコーディングを算出"""
+    n = len(df)
+    if n == 0:
+        return np.zeros(0, dtype=np.float32)
+
+    key_col = None
+    for cand in ("chome_group", "address2", "address", "station1"):
+        if cand in df.columns:
+            key_col = cand
+            break
+    if key_col is None:
+        return np.full(n, float(y.mean()), dtype=np.float32)
+
+    keys = df[key_col].fillna("unknown").astype(str).to_numpy()
+    y_arr = y.to_numpy(dtype=float)
+    oof_encoded = np.zeros(n, dtype=float)
+    oof_counts = np.zeros(n, dtype=float)
+
+    split_iter = cv.split(df, y_arr, groups) if isinstance(cv, GroupKFold) and groups is not None else cv.split(df)
+    for train_idx, val_idx in split_iter:
+        global_mean = float(np.mean(y_arr[train_idx])) if len(train_idx) > 0 else 0.0
+        train_df = pd.DataFrame({"key": keys[train_idx], "y": y_arr[train_idx]})
+        stats = train_df.groupby("key")["y"].agg(["count", "mean"])
+        counts = stats["count"]
+        means = stats["mean"]
+        smoothed = (counts * means + smoothing * global_mean) / (counts + smoothing)
+        mapping = smoothed.to_dict()
+
+        val_encoded = np.array([mapping.get(k, global_mean) for k in keys[val_idx]], dtype=float)
+        oof_encoded[val_idx] += val_encoded
+        oof_counts[val_idx] += 1.0
+
+    oof_encoded /= np.maximum(1.0, oof_counts)
+    return oof_encoded.astype(np.float32)
 
 
 def prepare_features_and_target(df: pd.DataFrame, feature_cols: list[str]) -> tuple[pd.DataFrame, pd.Series]:
@@ -46,8 +117,29 @@ def prepare_features_and_target(df: pd.DataFrame, feature_cols: list[str]) -> tu
     return X.astype(np.float32), y
 
 
-def get_cv_strategy(df_len: int) -> tuple[Any, str]:
-    """データ長に応じたクロスバリデーション戦略を返却"""
+def get_cv_strategy(
+    df_or_len: pd.DataFrame | int,
+    groups: np.ndarray | None = None,
+) -> tuple[Any, str]:
+    """データ長および建物・空間グループに応じたクロスバリデーション戦略を返却"""
+    if isinstance(df_or_len, pd.DataFrame):
+        df_len = len(df_or_len)
+        if groups is None:
+            groups = _resolve_group_labels(df_or_len)
+    else:
+        df_len = int(df_or_len)
+
+    if df_len > 3000:
+        n_splits = 3
+    elif df_len < 50:
+        n_splits = 2
+    else:
+        n_splits = 5
+    if groups is not None and len(groups) == df_len:
+        unique_groups = len( pd.unique(groups) )
+        if unique_groups >= n_splits and unique_groups < df_len:
+            return GroupKFold(n_splits=n_splits), f"{n_splits}-Fold Spatial/Building GroupKFold"
+
     if df_len > 3000:
         return KFold(n_splits=3, shuffle=True, random_state=42), "3-Fold Fast CV"
     if df_len < 50:
@@ -83,10 +175,12 @@ def evaluate_folds(
     sample_weight: np.ndarray | None,
     oof_preds: dict[str, np.ndarray],
     oof_counts: dict[str, np.ndarray],
+    groups: np.ndarray | None = None,
 ) -> None:
     """CV 各 Fold での評価と OOF 予測の蓄積"""
     mapes, maes, r2s = [], [], []
-    for train_idx, val_idx in rkf.split(X):
+    split_iter = rkf.split(X, y, groups) if isinstance(rkf, GroupKFold) and groups is not None else rkf.split(X)
+    for train_idx, val_idx in split_iter:
         x_train, x_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
@@ -124,6 +218,7 @@ def train_single_algo(
     feature_cols: list[str],
     oof_preds: dict[str, np.ndarray],
     oof_counts: dict[str, np.ndarray],
+    groups: np.ndarray | None = None,
 ) -> Any:
     """単一アルゴリズムのハイパーパラメータ調整・CV評価・全体学習"""
     if len(df) >= 100:
@@ -133,7 +228,7 @@ def train_single_algo(
     else:
         params = {}
 
-    evaluate_folds(name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts)
+    evaluate_folds(name, params, X, y, df, rkf, sample_weight, oof_preds, oof_counts, groups=groups)
 
     final_model = get_regressor(name, params)
     if sample_weight is not None:
@@ -144,13 +239,29 @@ def train_single_algo(
     return final_model
 
 
+def _calculate_weighted_mape(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
+    if sample_weight is None or len(sample_weight) != len(y_true):
+        return float(calculate_mape(y_true, y_pred))
+    mask = y_true > 0
+    if not np.any(mask):
+        return 0.0
+    ape = np.abs((y_true[mask] - y_pred[mask]) / y_true[mask]) * 100.0
+    w = np.maximum(1e-6, np.asarray(sample_weight[mask], dtype=float))
+    return float(np.average(ape, weights=w))
+
+
 def optimize_ensemble_weights(
     df: pd.DataFrame,
     oof_preds: dict[str, np.ndarray],
     oof_counts: dict[str, np.ndarray],
     algos: list[str],
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[dict[str, float], np.ndarray, np.ndarray]:
-    """OOF 予測に基づくアンサンブル最適重みの算出"""
+    """OOF 予測に基づくアンサンブル最適重みの算出（時間減衰サンプル重み対応）"""
     for name in algos:
         oof_preds[name] /= np.maximum(1, oof_counts[name])
 
@@ -165,7 +276,7 @@ def optimize_ensemble_weights(
             return 9999.0
         w_norm = w / s
         pred_price = val_areas * (oof_unit_preds @ w_norm)
-        return float(calculate_mape(y_actual, pred_price))
+        return _calculate_weighted_mape(y_actual, pred_price, sample_weight=sample_weight)
 
     init_weights = [1.0 / len(algos)] * len(algos)
     bounds = [(0.0, 1.0)] * len(algos)
@@ -183,20 +294,43 @@ def optimize_ensemble_weights(
     return optimal_weights, opt_w, oof_unit_preds
 
 
-def compute_smearing_factor(df: pd.DataFrame, oof_unit_preds: np.ndarray, opt_w: np.ndarray) -> float:
-    """Duan's Smearing バイアス補正係数の算出"""
+def compute_smearing_factor(
+    df: pd.DataFrame,
+    oof_unit_preds: np.ndarray,
+    opt_w: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> float:
+    """Duan's Smearing バイアス補正係数の算出（時間減衰サンプル重み対応）"""
     ensemble_pred_units = oof_unit_preds @ opt_w
     actual_unit_prices = df["price"].values / np.maximum(0.1, df["area"].values)
     log_residuals = np.log(np.maximum(0.1, actual_unit_prices)) - np.log(np.maximum(0.1, ensemble_pred_units))
+    weights_arr = (
+        np.maximum(1e-6, np.asarray(sample_weight, dtype=float))
+        if sample_weight is not None and len(sample_weight) == len(log_residuals)
+        else None
+    )
+
     if len(log_residuals) >= 10:
         low = np.percentile(log_residuals, 2)
         high = np.percentile(log_residuals, 98)
-        clean_log_res = log_residuals[(log_residuals >= low) & (log_residuals <= high)]
+        keep_mask = (log_residuals >= low) & (log_residuals <= high)
+        clean_log_res = log_residuals[keep_mask]
+        clean_w = weights_arr[keep_mask] if weights_arr is not None else None
     else:
         clean_log_res = log_residuals
+        clean_w = weights_arr
 
-    mean_bias = float(np.mean(clean_log_res)) if len(clean_log_res) > 0 else 0.0
-    var_res = float(np.var(clean_log_res)) if len(clean_log_res) > 0 else 0.0
+    if len(clean_log_res) > 0:
+        if clean_w is not None and len(clean_w) == len(clean_log_res):
+            mean_bias = float(np.average(clean_log_res, weights=clean_w))
+            var_res = float(np.average((clean_log_res - mean_bias) ** 2, weights=clean_w))
+        else:
+            mean_bias = float(np.mean(clean_log_res))
+            var_res = float(np.var(clean_log_res))
+    else:
+        mean_bias = 0.0
+        var_res = 0.0
+
     smearing_factor = float(np.exp(mean_bias + var_res / 2.0))
     smearing_factor = max(0.90, min(1.40, smearing_factor))
     logger.info(
@@ -216,7 +350,8 @@ def train_and_compare(
 ) -> TrainedEnsemble:
     """複数アルゴリズムの学習・CV比較・最適重み算出・アンサンブル構築"""
     X, y = prepare_features_and_target(df, feature_cols)
-    rkf, cv_desc = get_cv_strategy(len(df))
+    groups = _resolve_group_labels(df)
+    rkf, cv_desc = get_cv_strategy(df, groups=groups)
     algos = list(ALGOS)
 
     logger.info("\n--- Tuning & Cross-Validating models for Stage: %s (%s) ---", stage_name, cv_desc)
@@ -226,10 +361,14 @@ def train_and_compare(
     trained_models = {}
     for name in algos:
         trained_models[name] = train_single_algo(
-            name, X, y, df, rkf, sample_weight, feature_cols, oof_preds, oof_counts
+            name, X, y, df, rkf, sample_weight, feature_cols, oof_preds, oof_counts, groups=groups
         )
 
-    optimal_weights, opt_w, oof_unit_preds = optimize_ensemble_weights(df, oof_preds, oof_counts, algos)
-    smearing_factor = compute_smearing_factor(df, oof_unit_preds, opt_w)
+    optimal_weights, opt_w, oof_unit_preds = optimize_ensemble_weights(
+        df, oof_preds, oof_counts, algos, sample_weight=sample_weight
+    )
+    smearing_factor = compute_smearing_factor(
+        df, oof_unit_preds, opt_w, sample_weight=sample_weight
+    )
 
     return TrainedEnsemble(trained_models, optimal_weights, smearing_factor)

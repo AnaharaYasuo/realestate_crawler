@@ -329,7 +329,7 @@ Docker Desktopを起動してから再実行
 
 ### システムの理解
 - **[README.md](../README.md)**: システム全体の概要とアーキテクチャ
-- **[クローラー仕様書](../basic_design/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング
+- **[クローラー仕様書](../1_architecture/basic_design_master.md)**: Fire-and-Forgetパターン、エラーハンドリング
 - **[データベース定義書](../internal_design/database_schema.md)**: 17モデルの構造、Dual Storageパターン
 
 ### 開発を始める
@@ -337,10 +337,10 @@ Docker Desktopを起動してから再実行
 - **[API構造](../internal_design/api_structure.md)**: APIエンドポイント構造、ルーティング
 
 ### トラブル対応
-- **[トラブルシューティング](../operation/troubleshooting.md)**: よくある問題と解決方法
+- **[トラブルシューティング](../7_operations_and_improvement/troubleshooting.md)**: よくある問題と解決方法
 
 ---
 
 ## サポート
 
-質問や問題が発生した場合は、[トラブルシューティングガイド](../operation/troubleshooting.md) を参照するか、GitHubのIssueで報告してください。
+質問や問題が発生した場合は、[トラブルシューティングガイド](../7_operations_and_improvement/troubleshooting.md) を参照するか、GitHubのIssueで報告してください。

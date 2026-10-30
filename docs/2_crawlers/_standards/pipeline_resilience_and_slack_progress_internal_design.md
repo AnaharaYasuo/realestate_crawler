@@ -66,6 +66,11 @@
   - 配信完了後:
     `_send_status(f"✅ 【お宝物件配信完了】 計 {sent_count}/{len(top_candidates)} 件のお宝物件カードを配信完了しました。")`
 
+### 1.4 `src/crawler/scripts/maintenance/validate_data.py`
+* **動的実行パス解決 (`setup_env`)**:
+  - スクリプトが独立プロセスとして `python validate_data.py` で直接呼び出された場合でも `setup_env.py` を確実にロードできるよう、`__file__` から親ディレクトリ階層を遡り、`setup_env.py` の存在するディレクトリ（`src/crawler/`）を `sys.path` に動的追加した上で `import setup_env` を実行する。
+  - `PYTHONPATH` 環境変数の有無やカレントディレクトリに依存しない実行保証を確立する。
+
 ## 2. エラーハンドリング・テスト観点
 1. **クローラーが終了コード 1 で異常終了した場合**:
    - `_run_crawler_step` が例外で落ちず、`_run_post_crawl_pipeline` に遷移すること。
@@ -73,3 +78,5 @@
    - バルク価格推定（Step 4）とお宝物件通知（Step 5）がスキップされずに正常実行されること。
 3. **Slack API エラー時**:
    - Slack通知の失敗が進捗や推論バッチを停止させないこと。
+4. **メンテナンス・検証スクリプトの独立起動時**:
+   - `validate_data.py` を任意のカレントディレクトリから単体プロセス実行した際に、`setup_env` の `ModuleNotFoundError` が発生せず正常に終了すること。

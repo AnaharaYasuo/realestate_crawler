@@ -1,4 +1,4 @@
-"""ML 特徴量アライメントとアンサンブル演算 (Issue #714)"""
+"""ML 特徴量アライメントとアンサンブル演算・予測区間算出 (Issue #714, #1151)"""
 
 import logging
 from typing import Any
@@ -9,7 +9,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _FEATURE_NAMES_CACHE: dict[int, list[str]] = {}
-
+DEFAULT_P10_Z_SCORE = 1.2816
+BASE_LOG_UNCERTAINTY = 0.05
 
 
 def _extract_from_booster(model: Any) -> list[str] | None:
@@ -90,7 +91,6 @@ def apply_smearing_and_ensemble(
     if total_weight <= 0:
         total_weight = 1.0
 
-
     num_samples = len(areas)
     ensemble_pred_units = np.zeros(num_samples, dtype=float)
 
@@ -104,3 +104,56 @@ def apply_smearing_and_ensemble(
     s_factor = float(smearing_factor) if smearing_factor and smearing_factor > 0 else 1.0
     final_preds = ensemble_pred_units * s_factor * np.array(areas, dtype=float)
     return np.maximum(final_preds, 0.0)
+
+
+def compute_prediction_interval_p10(
+    preds_log_dict: dict[str, np.ndarray],
+    weights: dict[str, float],
+    smearing_factor: float,
+    areas: np.ndarray,
+    z_p10: float = DEFAULT_P10_Z_SCORE,
+) -> tuple[np.ndarray, np.ndarray]:
+    """アンサンブルのモデル間分散から点予測値と下限10%予測値 (P10) を同時算出する"""
+    point_preds = apply_smearing_and_ensemble(preds_log_dict, weights, smearing_factor, areas)
+    num_samples = len(areas)
+    if num_samples == 0 or not preds_log_dict:
+        return point_preds, point_preds.copy()
+
+    total_weight = sum(weights.get(algo, 0.0) for algo in preds_log_dict)
+    if total_weight <= 0:
+        total_weight = 1.0
+
+    mean_log = np.zeros(num_samples, dtype=float)
+    for algo, preds_log in preds_log_dict.items():
+        w = weights.get(algo, 0.0) / total_weight
+        if w > 0:
+            mean_log += np.asarray(preds_log, dtype=float) * w
+
+    var_log = np.zeros(num_samples, dtype=float)
+    for algo, preds_log in preds_log_dict.items():
+        w = weights.get(algo, 0.0) / total_weight
+        if w > 0:
+            diff = np.asarray(preds_log, dtype=float) - mean_log
+            var_log += w * (diff ** 2)
+
+    sigma_log = np.sqrt(var_log + (BASE_LOG_UNCERTAINTY ** 2))
+    p10_preds = point_preds * np.exp(-float(z_p10) * sigma_log)
+    return point_preds, np.maximum(p10_preds, 0.0)
+
+
+def compute_risk_adjusted_bargain_score(
+    actual_price: float | np.ndarray,
+    predicted_price: float | np.ndarray,
+    p10_price: float | np.ndarray,
+) -> float | np.ndarray:
+    """下限予測値 P10 に基づくリスク調整済みお宝割安スコア (0.0〜1.0) を算出する"""
+    actual_arr = np.asarray(actual_price, dtype=float)
+    pred_arr = np.asarray(predicted_price, dtype=float)
+    p10_arr = np.minimum(pred_arr, np.asarray(p10_price, dtype=float))
+
+    safe_denom = np.where(p10_arr > 0, p10_arr, 1.0)
+    raw_discount = np.where(p10_arr > actual_arr, (p10_arr - actual_arr) / safe_denom, 0.0)
+    clamped = np.clip(raw_discount, 0.0, 1.0)
+    if np.ndim(actual_price) == 0 and np.ndim(predicted_price) == 0 and np.ndim(p10_price) == 0:
+        return float(clamped)
+    return clamped

@@ -1,5 +1,5 @@
 """
-機械学習パイプライン実行オーケストレータモジュール (Issue #715)
+機械学習パイプライン実行オーケストレータモジュール (Issue #715, #1151)
 """
 
 import gc
@@ -31,6 +31,8 @@ from package.ml.training.sample_weights import calculate_time_decay_weights
 from package.utils.batch_metrics import BatchMetrics, format_batch_duration
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_TRAINING_ITEMS = 50000
 
 
 def train_property_type(
@@ -132,6 +134,7 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
     all_smearing_factors: dict[str, Any] = {}
     ptype_summaries = []
     any_dummy_used = False
+    max_items = int(os.environ.get("ML_MAX_TRAINING_ITEMS", str(DEFAULT_MAX_TRAINING_ITEMS)))
 
     for ptype in PROPERTY_TYPES:
         stream = stream_training_features(
@@ -140,7 +143,7 @@ def run_training(allow_dummy_fallback: bool | None = None) -> None:
             eval_map,
             duplicate_urls,
             mkt_master,
-            max_items=15000,
+            max_items=max_items,
         )
         summary = train_property_type(
             ptype,

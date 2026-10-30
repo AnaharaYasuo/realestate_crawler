@@ -349,33 +349,73 @@ graph TD
 
 ---
 
-## 10. バルクML価格推定のストリーミング処理・責務分割アーキテクチャ (Issue #716)
+## 10. パッケージ構成と責務分離アーキテクチャ (Epic #710)
+
+巨大神モジュール（`features.py`, `train.py`, `predict.py`）を責務ごとに独立したサブパッケージ群へと完全分解・再構成しました。
+
+### 10.1 パッケージ構成全体図
+```
+src/crawler/package/ml/
+├── constants.py                    # 定数定義
+├── unified_property_extractor.py   # 1物件1AIリクエスト属性抽出器
+├── macro_forecaster.py             # マクロ経済時系列予測 (Ridge VAR)
+├── investment_evaluator.py         # 投資評価・DSCR/CoCシミュレーター
+├── predict.py                      # 推論互換ファサード
+├── train.py                        # 学習互換ファサード
+├── evaluation/                     # バルク推論・評価パイプライン (Issue #716)
+│   ├── targets.py                  # 未評価物件チャンクストリーミング
+│   ├── record_builder.py           # 評価レコード生成・プロ目線リスク判定
+│   ├── persistence.py              # DB一括保存・更新
+│   ├── notifications.py            # Slack進捗・完了通知
+│   └── runner.py                   # 並列オーケストレーター
+├── features/                       # 特徴量抽出・エンジニアリング (Issue #713)
+│   ├── appraisal.py                # 不動産鑑定評価額・積算価格
+│   ├── builder.py                  # 特徴量生成メインビルダー
+│   ├── building.py                 # 建物・設備スペック属性
+│   ├── constants.py                # 基準地価・全国マスタ定数
+│   ├── feature_sets.py             # 特徴量カラム定義
+│   ├── legal_furuya.py             # 権利関係・古家土地評価
+│   ├── parsers.py                  # 属性パーサー・数値変換
+│   ├── plot_shape.py               # 敷地形状・旗竿地判定
+│   ├── reference_data.py           # 参照マスタキャッシュ (スレッドセーフ)
+│   └── reference_records.py        # スロット化軽量データクラス (Issue #717)
+├── inference/                      # 推論エンジン (Issue #714)
+│   ├── api_client.py               # 推論APIクライアント・シリアライザ
+│   ├── ensemble.py                 # 動的アンサンブル・スミアリング補正
+│   ├── model_registry.py           # モデル・マスタシングルトンキャッシュ
+│   └── predictor.py                # バッチ推論・一次二次同時推論
+└── training/                       # 学習パイプライン (Issue #715)
+    ├── artifacts.py                # モデル・重み永続化
+    ├── cleaning.py                 # 外れ値除去・前処理
+    ├── data_loader.py              # ID先行サンプリング＋チャンクローダ
+    ├── dummy_data.py               # テスト・フォールバック用ダミー生成
+    ├── ensemble.py                 # 重み最適化・CV MAPE算出
+    ├── market_master.py            # 取引事例比較マスタ生成
+    ├── metrics.py                  # 評価指標算出
+    ├── pipeline.py                 # 学習パイプライン制御
+    ├── regressors.py               # LightGBM/XGB/Cat/RF 回帰器生成
+    ├── sample_weights.py           # サンプル重み付け
+    └── tuning.py                   # ハイパーパラメータ探索
+```
+
+---
+
+## 11. バルクML価格推定のストリーミング処理・責務分割アーキテクチャ (Issue #716)
 
 肥大化していた単一スクリプト（`run_bulk_ml_evaluation.py`）を責務ごとのサブモジュール群（`package.ml.evaluation`）へ分割し、未評価物件の全件 list 化を廃止してチャンク単位のジェネレータストリーミング処理を導入しました。
 
-### 10.1 パッケージ構成 (`package.ml.evaluation`)
-```
-src/crawler/package/ml/evaluation/
-├── __init__.py           # パッケージ公開シンボル
-├── targets.py            # 対象モデル走査および未評価物件のストリーミング抽出 (iter_unprocessed_chunks)
-├── record_builder.py     # 評価レコード生成・プロ目線リスク判定 (build_or_update_eval_record)
-├── persistence.py        # 評価レコードの DB 一括保存・更新 (save_chunk, bulk_update_evaluation_records)
-├── notifications.py      # Slack dev-agent への開始・進捗・完了サマリー通知 (notify_slack)
-└── runner.py             # 並列実行オーケストレーター (evaluate_single_model, run_bulk_evaluation)
-```
-
-### 10.2 ストリーミングとメモリ上限
+### 11.1 ストリーミングとメモリ上限
 - `iter_unprocessed_chunks`: `model.objects.order_by("pk").iterator(chunk_size=2000)` により DB から順次フェッチし、`chunk_size`（既定 1,000 件）ごとに yield。
 - 同時にメモリに保持する物件オブジェクト数を `chunk_size` 以下に厳格制限し、大手ポータル（athome, homes 等）処理時の RAM 急増（OOM）を防止。
 - スクリプト `run_bulk_ml_evaluation.py` は 60 行以下の CLI エントリポイントとし、後方互換 import を維持。
 
 ---
 
-## 11. 参照マスタ軽量化および推論一時メモリ最適化仕様 (Issue #717)
+## 12. 参照マスタ軽量化および推論一時メモリ最適化仕様 (Issue #717)
 
 推論プロセスと参照マスタキャッシュの常駐メモリ、および推論時の一時メモリを削減するためのアーキテクチャ。
 
-### 11.1 参照マスタの軽量レコード化 (`package.ml.features.reference_data`)
+### 12.1 参照マスタの軽量レコード化 (`package.ml.features.reference_data`)
 - Django ORM モデルインスタンスの辞書キャッシュを撤廃し、スロット化されたイミュータブルなデータクラス（`@dataclass(slots=True, frozen=True)`）へ置き換え。
   - `MunicipalRecord`: `prefecture`, `city`, `population_growth_rate`, `average_income`, `total_population`, `income_growth_rate`, `population_density`
   - `LandPriceRecord`: `prefecture`, `city`, `average_land_price`, `estimated_rosenka_price`, `estimated_fixed_asset_price`, `land_price_growth_rate`, `land_use`
@@ -385,8 +425,44 @@ src/crawler/package/ml/evaluation/
   - `MacroEconomicRecord`: `year_month`, `repi_mansion`, `repi_kodate`, `repi_tochi`, `jgb_10y_yield`, `nikkei_225`, `tse_reit_index`, `construction_cost_index`
 - ロード処理は `objects.values(*fields)` で行い、Decimal 値を float へ変換して dataclass に格納。Django モデルの内部状態（`_state`、キャッシュ等）をメモリから完全に排除。
 
-### 11.2 推論一時メモリ削減 (`package.ml.inference`)
+### 12.2 推論一時メモリ削減 (`package.ml.inference`)
 - `align_features`: DataFrame の明示的 `copy()` を撤廃し、`df.reindex(columns=expected, fill_value=0.0)` を活用した 1 回の再インデックス整列でメモリコピーを最小化。
 - `prepare_df_features`: 数値特徴量 DataFrame を `float32` 化して推論ピークメモリを半減。
 - `predict_both_stages`: 一次理論価格と二次理論価格を同時に求める経路において、共通特徴量生成（`build_features_batch`）を 1 回のみ実行し、画像スコア付与後に二次推論を実行することで、特徴量生成の重複オーバーヘッドを完全に解消。
 
+---
+
+## 10. バルクML価格推定のストリーミング処理・責務分割アーキテクチャ (Issue #716)
+### 10.1 パッケージ構成 (`package.ml.evaluation`)
+src/crawler/package/ml/evaluation/
+├── __init__.py           # パッケージ公開シンボル
+├── targets.py            # 対象モデル走査および未評価物件のストリーミング抽出 (iter_unprocessed_chunks)
+├── record_builder.py     # 評価レコード生成・プロ目線リスク判定 (build_or_update_eval_record)
+├── persistence.py        # 評価レコードの DB 一括保存・更新 (save_chunk, bulk_update_evaluation_records)
+├── notifications.py      # Slack dev-agent への開始・進捗・完了サマリー通知 (notify_slack)
+└── runner.py             # 並列実行オーケストレーター (evaluate_single_model, run_bulk_evaluation)
+### 10.2 ストリーミングとメモリ上限
+## 11. 参照マスタ軽量化および推論一時メモリ最適化仕様 (Issue #717)
+### 11.1 参照マスタの軽量レコード化 (`package.ml.features.reference_data`)
+### 11.2 推論一時メモリ削減 (`package.ml.inference`)
+
+
+---
+
+## 10. 次世代価格予測精度向上 ＆ リスク調整後お宝判定仕様 (Issue #1151)
+
+### 10.1 空間・建物グループ交差検証 (`GroupKFold`) によるリーク根絶
+- 同一マンション（同一建物・同一所在地）や同一町丁目の複数住戸が Train Fold と Validation Fold に分割されることによるデータリーク（Target Leakage）を防ぐため、`training/ensemble.py` の `get_cv_strategy` においてグループ識別子（正規化所在地・建物グループ）に基づく `GroupKFold` をサポート・標準適用する。
+
+### 10.2 学習データ件数キャップの拡張
+- `training/pipeline.py` の `run_training` における `max_items` デフォルト上限を `15,000` 件から `50,000` 件へ拡張し、蓄積された全社データの局所相場学習能力を最大化する。
+
+### 10.3 マイクロロケーション町丁目 OOF Target Encoding ＆ 近傍 Comps 特徴量
+- 市区町村単位の平均単価に加え、住所から抽出した「市区町村＋町丁目（Chome）」単位および「最寄駅×徒歩分数帯」単位の Out-of-Fold (OOF) Target Encoding 特徴量（`chome_encoded_price`, `station_walk_band_encoded_price`）をリークなしで生成する。
+
+### 10.4 サンプル重み一貫適用（Weighted OOF Ensemble & Weighted Duan's Smearing）
+- 時間減衰サンプル重み（`sample_weights`）をベースモデル学習時だけでなく、OOF アンサンブル重み最適化（`optimize_ensemble_weights`）および対数変換逆変換時の重み付き Duan's Smearing 係数（$\frac{\sum w_i \exp(e_i)}{\sum w_i}$）の算出にも一貫して適用する。
+
+### 10.5 予測区間（下限予測値 $P_{10}$）によるリスク調整後お宝スコア (Risk-Adjusted Bargain Score)
+- 推論時（`inference/ensemble.py`）に各ベースモデル（LightGBM / XGBoost / CatBoost / RF）の予測分布のばらつき（標準偏差 $\sigma_{\log}$）と残差スケールから、対数正規分布の 10% 下限予測値 $P_{10} = \hat{y}_{\text{median}} \cdot \exp(-1.2816 \cdot \sigma_{\text{total}})$ を算出する。
+- 点予測 $\hat{y}$ に対する単純割安率だけでなく、保守的な下限予測値 $P_{10}$ に対するリスク調整後割安率（`risk_adjusted_discount_pct = (P10 - actual_price) / P10`）を算出し、予測不確実性が高い物件（スペック欠損・外れ値）の誤通知を防止する。

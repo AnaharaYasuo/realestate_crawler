@@ -217,7 +217,11 @@ def record_ml_inference_metrics(
   2. **HTTP 通信・耐ブロック監視**: `HttpRequestEvent` のステータスコード分布（200 vs 403 vs 429）、平均レスポンス時間。
   3. **DB / ProxySQL パフォーマンス**: `DatabaseEvent` のテーブル別保存所要時間、保存件数、エラー。
   4. **パーサー品質 & フィールド欠損率**: `ParserEvent` の純パース時間、必須フィールド抽出率。
-  5. **Cloud Run コンテナリソース**: `ContainerSample` のメモリ使用率（%）、メモリ使用量（MB）、CPU積算時間。
+  5. **Cloud Run コンテナリソース＆サイジング監視**:
+     - `ContainerSample` のメモリ使用率（%）および 85% アラート閾値推移
+     - メモリ使用量（MB）vs メモリ制限上限（Limit MB）
+     - コンテナ CPU 積算時間（秒）推移（`cpuUsageSeconds`）
+     - インスタンスサイズ適正化サマリーテーブル（コンテナ別 Max/Avg メモリ% & MB、Max/Avg CPU秒）
   6. **Gemini GenAI 利用状況 & コスト**: `LlmEvent` のトークン消費、推定コスト（USD）、レスポンス時間。
   7. **ML 価格推定 & お宝物件**: `MlInferenceEvent` の推定件数、割安物件検知数。
   8. **外形監視 & ログ**: `SyntheticCheck` の可用性、直近のエラーログ（`Log`）。
