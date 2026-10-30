@@ -99,3 +99,37 @@ class TestArchitectureHarness:
         assert p10s[0] < pts[0]
         score = compute_risk_adjusted_bargain_score(4500.0, float(pts[0]), float(p10s[0]))
         assert 0.0 < score <= 1.0
+
+    def test_gate5_architectural_import_and_layer_boundaries(self):
+        """Gate 5: Strict AST import dependency rules preventing layer inversion and cycles."""
+        import ast
+
+        package_root = REPO_ROOT / "src" / "crawler" / "package"
+        models_dir = package_root / "models"
+        ml_dir = package_root / "ml"
+
+        violations: list[str] = []
+
+        forbidden_in_models = {"package.parser", "package.api", "package.ml"}
+        for py_path in models_dir.rglob("*.py"):
+            tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if any(alias.name == f or alias.name.startswith(f + ".") for f in forbidden_in_models):
+                            violations.append(f"{py_path.name} imports forbidden module: {alias.name}")
+                elif isinstance(node, ast.ImportFrom) and node.module and any(node.module == f or node.module.startswith(f + ".") for f in forbidden_in_models):
+                    violations.append(f"{py_path.name} imports from forbidden module: {node.module}")
+
+        forbidden_in_ml = {"package.parser", "package.api"}
+        for py_path in ml_dir.rglob("*.py"):
+            tree = ast.parse(py_path.read_text(encoding="utf-8"), filename=str(py_path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if any(alias.name == f or alias.name.startswith(f + ".") for f in forbidden_in_ml):
+                            violations.append(f"{py_path.name} imports forbidden module: {alias.name}")
+                elif isinstance(node, ast.ImportFrom) and node.module and any(node.module == f or node.module.startswith(f + ".") for f in forbidden_in_ml):
+                    violations.append(f"{py_path.name} imports from forbidden module: {node.module}")
+
+        assert violations == [], "Architectural layer import boundary violations found:\n" + "\n".join(violations)
