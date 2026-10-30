@@ -65,42 +65,58 @@ class KeiseiParser(ParserBase):
         return await super().getResponseBs(session, url, charset)
 
 
-    async def parseNextPage(self, response: BeautifulSoup, current_url: str = ""):
+    @staticmethod
+    def _with_offset_param(current_url: str, next_offset: str) -> str:
+        parsed = urllib.parse.urlparse(current_url)
+        qs = urllib.parse.parse_qs(parsed.query)
+        qs["offset"] = [next_offset]
+        new_query = urllib.parse.urlencode(qs, doseq=True)
+        return urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+    def _extract_next_paging_anchor(self, response: BeautifulSoup) -> str:
         for a in response.select(".paging a, .pager a"):
             text = a.get_text().strip()
-            if "次" in text or ">" in text or "next" in text.lower():
-                href = a.get("href")
-                if href:
-                    return self.getRootDestUrl(href)
+            href = a.get("href")
+            if href and ("次" in text or ">" in text or "next" in text.lower()):
+                return self.getRootDestUrl(href)
+        return ""
 
+    @staticmethod
+    def _extract_next_form_offset(response: BeautifulSoup) -> str | None:
         for btn in response.select("input[type='button'], button, a"):
             val = btn.get("value", "") or btn.get_text(strip=True)
             onclick = btn.get("onClick", "") or btn.get("onclick", "")
-            if "次" in val and "form1_submit" in onclick:
-                m = re.search(r"form1_submit\('(\d+)'\)", onclick)
-                if m and current_url:
-                    next_offset = m.group(1)
-                    parsed = urllib.parse.urlparse(current_url)
-                    qs = urllib.parse.parse_qs(parsed.query)
-                    qs["offset"] = [next_offset]
-                    new_query = urllib.parse.urlencode(qs, doseq=True)
-                    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+            if "次" not in val or "form1_submit" not in onclick:
+                continue
+            m = re.search(r"form1_submit\('(\d+)'\)", onclick)
+            if m:
+                return m.group(1)
+        return None
 
+    @staticmethod
+    def _extract_next_select_offset(response: BeautifulSoup) -> str | None:
         offset_select = response.select_one('select[name="offset"]')
-        if offset_select and current_url:
-            options = [opt.get("value") for opt in offset_select.select("option") if opt.get("value")]
-            selected_opt = offset_select.select_one("option[selected]")
-            curr_val = selected_opt.get("value") if selected_opt else (options[0] if options else None)
-            if curr_val and curr_val in options:
-                curr_idx = options.index(curr_val)
-                if curr_idx + 1 < len(options):
-                    next_offset = options[curr_idx + 1]
-                    parsed = urllib.parse.urlparse(current_url)
-                    qs = urllib.parse.parse_qs(parsed.query)
-                    qs["offset"] = [next_offset]
-                    new_query = urllib.parse.urlencode(qs, doseq=True)
-                    return urllib.parse.urlunparse(parsed._replace(query=new_query))
+        if not offset_select:
+            return None
+        options = [opt.get("value") for opt in offset_select.select("option") if opt.get("value")]
+        if not options:
+            return None
+        selected_opt = offset_select.select_one("option[selected]")
+        curr_val = selected_opt.get("value") if selected_opt else options[0]
+        if not curr_val or curr_val not in options:
+            return None
+        curr_idx = options.index(curr_val)
+        return options[curr_idx + 1] if curr_idx + 1 < len(options) else None
 
+    async def parseNextPage(self, response: BeautifulSoup, current_url: str = ""):
+        anchor_url = self._extract_next_paging_anchor(response)
+        if anchor_url:
+            return anchor_url
+        if not current_url:
+            return ""
+        next_offset = self._extract_next_form_offset(response) or self._extract_next_select_offset(response)
+        if next_offset:
+            return self._with_offset_param(current_url, next_offset)
         return ""
 
     async def parseRootPage(self, response: BeautifulSoup):

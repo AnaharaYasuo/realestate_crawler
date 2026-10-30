@@ -38,27 +38,31 @@ class TotateParser(ParserBase):
             return self.BASE_URL + link_url
         return self.BASE_URL + '/' + link_url
 
+    def _resolve_next_base_path(self, current_url: str) -> str:
+        default_path = f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/"
+        base_path = urllib.parse.urlparse(current_url).path if current_url else default_path
+        return base_path if base_path.endswith("/") else f"{base_path}/"
+
+    def _decode_data_href_url(self, data_href: str, current_url: str = "") -> str | None:
+        try:
+            decoded_qs = base64.b64decode(data_href).decode("utf-8")
+        except Exception:
+            return None
+        if not decoded_qs:
+            return None
+        if decoded_qs.startswith("?"):
+            return self.getRootDestUrl(f"{self._resolve_next_base_path(current_url)}{decoded_qs}")
+        return self.getRootDestUrl(decoded_qs)
+
     def _extract_next_anchor_url(self, a, current_url: str = "") -> str | None:
         text = a.get_text()
         if not ("次" in text or "next" in text.lower() or ">" in text):
             return None
         data_href = a.get("data-href")
         if data_href:
-            try:
-                decoded_qs = base64.b64decode(data_href).decode("utf-8")
-                if decoded_qs.startswith("?"):
-                    base_path = (
-                        urllib.parse.urlparse(current_url).path
-                        if current_url
-                        else f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/"
-                    )
-                    if not base_path.endswith("/"):
-                        base_path += "/"
-                    return self.getRootDestUrl(f"{base_path}{decoded_qs}")
-                if decoded_qs:
-                    return self.getRootDestUrl(decoded_qs)
-            except Exception:
-                pass
+            decoded_url = self._decode_data_href_url(data_href, current_url=current_url)
+            if decoded_url:
+                return decoded_url
         href = a.get("href")
         if href and not href.startswith("javascript:"):
             return self.getRootDestUrl(href)
