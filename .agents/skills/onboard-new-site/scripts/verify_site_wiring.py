@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify 10-point site wiring across crawler, dispatcher, tasks, and ML pipeline."""
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def main() -> int:

@@ -5,10 +5,10 @@ adding or modifying a real-estate site via `/onboard-new-site` never results in 
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import importlib
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from package.ml.constants import COMPANIES as ML_COMPANIES
 from package.utils.crawl_jobs import CRAWL_JOBS, PORTAL_COMPANIES, UNCRAWLED_COMPANIES
@@ -35,7 +35,7 @@ class SiteDefinition:
 class SiteRegistry:
     """Single Source of Truth registry for all crawler sites and jobs."""
 
-    _custom_sites: dict[str, SiteDefinition] = {}
+    _custom_sites: ClassVar[dict[str, SiteDefinition]] = {}
 
     @classmethod
     def register_site(cls, site_def: SiteDefinition) -> None:
@@ -90,6 +90,34 @@ class SiteRegistry:
         return sites
 
 
+def _check_single_site_definition(
+    comp: str,
+    sdef: SiteDefinition,
+    package_dir: Path,
+    ml_set: set[str],
+    router_sites: set[str],
+) -> list[str]:
+    errs: list[str] = []
+    parser_file = package_dir / "parser" / f"{comp}Parser.py"
+    if not parser_file.exists():
+        errs.append(f"Parser file missing for {comp}: {parser_file}")
+
+    model_stem = sdef.model_module.rsplit(".", 1)[-1]
+    model_file = package_dir / "models" / f"{model_stem}.py"
+    if not model_file.exists():
+        errs.append(f"Model file missing for {comp}: {model_file}")
+
+    if comp not in ml_set:
+        errs.append(f"ML COMPANIES (package/ml/constants.py) missing company: {comp}")
+
+    if comp not in router_sites:
+        errs.append(f"UrlRouter.ROUTES missing site route for company: {comp}")
+
+    if not sdef.property_types:
+        errs.append(f"SiteDefinition for {comp} has 0 property_types")
+    return errs
+
+
 def _check_dispatch_and_models(
     all_jobs: list[tuple[str, str]],
     sites: dict[str, SiteDefinition],
@@ -103,31 +131,18 @@ def _check_dispatch_and_models(
         missing.append(f"main.get_dispatch_map import failed: {exc}")
         dispatch_map = {}
 
-    for comp, ptype in all_jobs:
-        if dispatch_map and (comp, ptype) not in dispatch_map:
-            missing.append(f"main.get_dispatch_map missing job ({comp!r}, {ptype!r})")
+    if dispatch_map:
+        missing.extend(
+            f"main.get_dispatch_map missing job ({comp!r}, {ptype!r})"
+            for comp, ptype in all_jobs
+            if (comp, ptype) not in dispatch_map
+        )
 
     router_sites = {str(r.get("site", "")).lower() for r in UrlRouter.ROUTES}
     ml_set = {c.lower() for c in ML_COMPANIES}
 
     for comp, sdef in sites.items():
-        parser_file = package_dir / "parser" / f"{comp}Parser.py"
-        if not parser_file.exists():
-            missing.append(f"Parser file missing for {comp}: {parser_file}")
-
-        model_stem = sdef.model_module.rsplit(".", 1)[-1]
-        model_file = package_dir / "models" / f"{model_stem}.py"
-        if not model_file.exists():
-            missing.append(f"Model file missing for {comp}: {model_file}")
-
-        if comp not in ml_set:
-            missing.append(f"ML COMPANIES (package/ml/constants.py) missing company: {comp}")
-
-        if comp not in router_sites:
-            missing.append(f"UrlRouter.ROUTES missing site route for company: {comp}")
-
-        if not sdef.property_types:
-            missing.append(f"SiteDefinition for {comp} has 0 property_types")
+        missing.extend(_check_single_site_definition(comp, sdef, package_dir, ml_set, router_sites))
 
     return missing
 

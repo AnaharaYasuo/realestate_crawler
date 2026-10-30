@@ -30,21 +30,20 @@ from package.api.middleware import CrawlerMiddleware, LoggingMiddleware
 from package.api.registry import ApiRegistry
 from package.models.evaluation import PropertyEvaluation, PropertyPriceHistory
 from package.parser.baseParser import (
-    check_site_maintenance,
-    SiteMaintenanceException,
     LoadPropertyPageException,
     ParserBase,
     ReadPropertyNameException,
     SkipPropertyException,
+    check_site_maintenance,
 )
 from package.utils.converter import parse_chidai
+from package.utils.crawler_watchdog import touch_crawler_progress
 from package.utils.data_validator import tag_property_integrity
 from package.utils.failure_reporter import FailureReporter
 from package.utils.property_type_detector import PropertyTypeDetector
 from package.utils.report import CrawlerReporter
 from package.utils.storage import get_storage_manager
 from package.utils.url_matcher import UrlMatcher
-from package.utils.crawler_watchdog import touch_crawler_progress
 
 logger = logging.getLogger(__name__)
 
@@ -1234,7 +1233,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         except aiohttp.ConnectionTimeoutError:
             logger.warning("Connect timeout before request was sent: %s", detail_url)
             return detail_url, 504, "ConnectTimeout"
-        except (asyncio.TimeoutError, TimeoutError):
+        except TimeoutError:
             if not send_state["sent"]:
                 logger.warning("Timeout before request body was sent: %s", detail_url)
                 return detail_url, 504, "Timeout"
@@ -1555,32 +1554,48 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
             finally:
                 queue.task_done()
 
+    @staticmethod
+    def _is_valid_next_page(next_page_url: str | None, current_url: str, visited_urls: set[str]) -> bool:
+        return bool(next_page_url and next_page_url != current_url and next_page_url not in visited_urls)
+
+    async def _fetch_page_or_stop(
+        self,
+        session: aiohttp.ClientSession,
+        current_url: str,
+        start_url: str,
+        all_results: list[Any],
+    ):
+        try:
+            return await self._fetch_middle_page_response(session, current_url)
+        except (TimeoutError, LoadPropertyPageException) as fetch_err:
+            if current_url != start_url and all_results:
+                logger.warning(
+                    "Failed to fetch middle page %s after retries; stopping pagination gracefully: %s",
+                    current_url,
+                    fetch_err,
+                )
+                return None
+            raise
+
     async def _crawl_pages(self, session: aiohttp.ClientSession, start_url: str, all_results: list[Any]):
         current_url = start_url
-        visited_urls = set()
+        visited_urls: set[str] = set()
         while current_url and current_url not in visited_urls:
             visited_urls.add(current_url)
             self.url = current_url
 
-            try:
-                response = await self._fetch_middle_page_response(session, current_url)
-            except (LoadPropertyPageException, asyncio.TimeoutError) as fetch_err:
-                # If subsequent page (not start page) fails after retries, skip gracefully rather than aborting crawl
-                if current_url != start_url and len(all_results) > 0:
-                    logger.warning("Failed to fetch middle page %s after retries; stopping pagination gracefully: %s", current_url, fetch_err)
-                    break
-                raise
+            response = await self._fetch_page_or_stop(session, current_url, start_url, all_results)
+            if response is None:
+                break
             try:
                 next_page_url = await self._process_middle_page_stream(response, current_url, all_results)
             finally:
-                if 'response' in locals() and response is not None:
-                    del response
+                del response
                 gc.collect()
 
-            if next_page_url and len(next_page_url) > 0 and next_page_url != current_url and next_page_url not in visited_urls:
-                current_url = next_page_url
-            else:
+            if not self._is_valid_next_page(next_page_url, current_url, visited_urls):
                 break
+            current_url = next_page_url
 
     async def _run(self, _url):
         """一覧・中間ページの次ページネーションを同一ループ内で反復処理し、再帰スレッド生成とOOMを防止 (FR-CRW-012)
@@ -1847,7 +1862,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
                 logger.warning("Connection error for %s, retry %s/%s after %ss", url, retry_count, max_retries, wait_time)
                 logger.warning("Exception type: %s, Details: %s", type(e).__name__, e)
                 await asyncio.sleep(wait_time)
-            except Exception as e:
+            except Exception:
                 logger.exception("Unexpected error getting content from %s", url)
                 raise
 
@@ -2373,7 +2388,7 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             return None
 
     def _sync_persist_delisted(self):
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        now_utc = datetime.datetime.now(datetime.UTC)
         eval_rec = self._find_existing_evaluation()
         if eval_rec:
             eval_rec.is_published = False

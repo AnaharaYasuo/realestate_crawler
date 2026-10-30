@@ -150,7 +150,7 @@ class FailureReporter:
     ) -> dict[str, Any]:
         """障害メタデータおよび失敗生HTMLを即座にGCS（またはフォールバック）へ保存（複数エラー履歴も追記保持）"""
         if not date_str:
-            date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
+            date_str = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
 
         comp_clean = str(company).lower()
         type_clean = str(property_type).lower()
@@ -166,15 +166,15 @@ class FailureReporter:
             if not raw_html and existing_htmls:
                 try:
                     raw_html = existing_htmls[0].read_bytes()
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logger.debug("Could not read fallback error HTML %s: %s", existing_htmls[0], exc)
 
         if raw_html:
             url_hash = hashlib.sha256((target_url or job_key).encode("utf-8")).hexdigest()[:16]
             html_key = f"runs/{date_str}/error_pages/{job_key}/{url_hash}.html"
 
         metadata_key = f"runs/{date_str}/failures/{job_key}.json"
-        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now_iso = datetime.datetime.now(datetime.UTC).isoformat()
 
         prev_failures = cls._load_existing_failures(job_key, date_str)
         current_entry: dict[str, Any] = {
@@ -257,7 +257,7 @@ class FailureReporter:
         except OSError:
             return False
         # ログ行はローカル時刻のため、UTC 日付では前日扱いとなる対象日早朝の更新も許容し、行日付で最終判定する
-        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).date()
+        modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.UTC).date()
         return modified >= datetime.date.fromisoformat(iso_date) - datetime.timedelta(days=1)
 
     @classmethod
@@ -367,7 +367,7 @@ class FailureReporter:
     def fetch_daily_failures(cls, date_str: str | None = None) -> dict[str, Any]:
         """GCS（およびローカルフォールバック）から指定日付の全障害情報とログエラーを集約ロード"""
         if not date_str:
-            date_str = datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
+            date_str = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
 
         failures, seen_keys, storage_error = cls._fetch_from_storage(date_str)
         fallback_failures = cls._fetch_from_local_fallback(date_str, seen_keys)

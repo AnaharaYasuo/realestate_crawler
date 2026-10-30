@@ -6,10 +6,7 @@ import pytest
 from package.api.api import ApiAsyncProcBase, header
 from package.models.base import (
     InvestmentBaseModel,
-    KodateBaseModel,
-    MansionBaseModel,
     PropertyBaseModel,
-    TochiBaseModel,
     TransportationMixin,
 )
 from package.parser.investmentParser import InvestmentParser

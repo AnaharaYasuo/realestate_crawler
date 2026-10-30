@@ -1,5 +1,4 @@
 # ruff: noqa: E402
-# -*- coding: utf-8 -*-
 """
 日次価格推定精度診断スクリプト (Daily Prediction Diagnostics)
 

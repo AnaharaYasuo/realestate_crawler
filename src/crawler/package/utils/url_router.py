@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-import re
 import importlib
 import logging
+import re
 from typing import Any
 
 from package.utils.property_type_detector import PropertyTypeDetector
-
 
 KENBIYA_PARSER_MODULE = "package.parser.kenbiyaParser"
 KENBIYA_MODEL_MODULE = "package.models.kenbiya"

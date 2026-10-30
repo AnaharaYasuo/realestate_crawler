@@ -104,7 +104,7 @@ def get_current_metrics() -> tuple[int, int]:
 
 
 def _get_metrics_dir(run_date: str | None = None) -> Path:
-    date_str = run_date or datetime.datetime.now(datetime.timezone.utc).date().strftime("%Y%m%d")
+    date_str = run_date or datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
     d = Path("logs/runs") / date_str
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -143,7 +143,7 @@ def export_job_metrics(
         "skipped_cnt": final_skip,
         "total_cnt": final_detail + final_skip,
         "is_empty_result": bool(final_empty),
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     if field_fill_rates is not None:
         data["field_fill_rates"] = field_fill_rates

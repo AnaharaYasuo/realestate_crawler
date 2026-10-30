@@ -1803,7 +1803,7 @@ class ParserBase(metaclass=ABCMeta):
                 f.write(content)
             with open(meta_filepath, "w", encoding="utf-8") as f:
                 f.write(
-                    f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"URL: {url}\nReason: {reason}\nTimestamp: {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')}\n"
                 )
             logging.info(f"Saved error HTML to {company_dir}/{base_filename}")
         except Exception:
@@ -2132,7 +2132,7 @@ class ParserBase(metaclass=ABCMeta):
                         self.consecutive_timeouts = 0
                         return await response.read()
                     self._validate_http_status(response.status, url)
-            except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 if attempt == max_timeouts - 1:
                     cur_timeouts = getattr(self, "consecutive_timeouts", 0) + 1
                     self.consecutive_timeouts = cur_timeouts

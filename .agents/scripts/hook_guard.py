@@ -37,13 +37,15 @@ def evaluate_tool_call(payload: dict) -> dict:
 
     elif tool_name in ("edit_file", "write_file"):
         path = str(args.get("Path") or "").replace("\\", "/")
-        # Allow writing to brain/artifact/scratch directories or inside .worktrees/
-        if "/.worktrees/" not in path and "/brain/" not in path:
-            if re.search(r"/realestate_crawler/(src|docs|terraform|\.github|\.agents)/", path):
-                return {
-                    "decision": "deny",
-                    "reason": "Principle 3 violation: Direct file modification on the main working tree is forbidden. Edit inside '.worktrees/<branch-name>/'.",
-                }
+        if (
+            "/.worktrees/" not in path
+            and "/brain/" not in path
+            and re.search(r"/realestate_crawler/(src|docs|terraform|\.github|\.agents)/", path)
+        ):
+            return {
+                "decision": "deny",
+                "reason": "Principle 3 violation: Direct file modification on the main working tree is forbidden. Edit inside '.worktrees/<branch-name>/'.",
+            }
 
     return {"decision": "allow"}
 
@@ -53,7 +55,7 @@ def main() -> None:
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
         result = evaluate_tool_call(payload)
-    except Exception:
+    except Exception:  # noqa: BLE001
         result = {"decision": "allow"}
     sys.stdout.write(json.dumps(result))
 

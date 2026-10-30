@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import logging
 import os
 import re
@@ -289,38 +288,49 @@ class PropertyTypeDetector:
     )
 
     @classmethod
-    def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
-        """スペック表の特定キーおよび自由記述ノイズを除外した値から種別判定"""
+    def _detect_from_priority_spec_keys(cls, specs: dict[str, Any]) -> str | None:
         for k in cls.SPECS_PROPERTY_TYPE_KEYS:
-            if k in specs:
-                val_str = str(specs[k]).strip()
-                if val_str == "土地":
-                    return "tochi"
-                ptype = cls._match_keywords(val_str)
-                if ptype:
-                    return ptype
-
-        for k, val in specs.items():
-            if cls._is_free_text_spec_key(str(k)):
+            if k not in specs:
                 continue
-            ptype = cls._match_keywords(str(val))
+            val_str = str(specs[k]).strip()
+            if val_str == "土地":
+                return "tochi"
+            ptype = cls._match_keywords(val_str)
             if ptype:
                 return ptype
+        return None
 
-        if (
-            cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
-            and not cls._is_positive_area_value(specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積"))
-            and not cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
-        ):
-            return "tochi"
+    @classmethod
+    def _is_pure_land_from_spec_areas(cls, specs: dict[str, Any]) -> bool:
+        has_land = cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
+        has_bldg = cls._is_positive_area_value(
+            specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積")
+        )
+        has_senyu = cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
+        return bool(has_land and not has_bldg and not has_senyu)
+
+    @classmethod
+    def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
+        """スペック表の特定キーおよび自由記述ノイズを除外した値から種別判定"""
+        priority_hit = cls._detect_from_priority_spec_keys(specs)
+        if priority_hit:
+            return priority_hit
 
         for k, val in specs.items():
             if not cls._is_free_text_spec_key(str(k)):
-                continue
-            cleaned_val = cls._NEIGHBORHOOD_NOISE_RE.sub("", str(val))
-            ptype = cls._match_keywords(cleaned_val)
-            if ptype:
-                return ptype
+                ptype = cls._match_keywords(str(val))
+                if ptype:
+                    return ptype
+
+        if cls._is_pure_land_from_spec_areas(specs):
+            return "tochi"
+
+        for k, val in specs.items():
+            if cls._is_free_text_spec_key(str(k)):
+                cleaned_val = cls._NEIGHBORHOOD_NOISE_RE.sub("", str(val))
+                ptype = cls._match_keywords(cleaned_val)
+                if ptype:
+                    return ptype
         return None
 
 
@@ -435,7 +445,7 @@ class PropertyTypeDetector:
             return url.strip()
         if title and title.strip():
             return title.strip()
-        return f"{str(specs)}_{str(html_text)[:100]}"
+        return f"{specs!s}_{str(html_text)[:100]}"
 
     @staticmethod
     def _record_gemini_telemetry(
@@ -527,7 +537,7 @@ class PropertyTypeDetector:
         if cache_key in cls._ai_cache:
             return cls._ai_cache[cache_key]
 
-        combined_text = f"URL: {url or ''}\nTitle: {title or ''}\nSpecs: {str(specs or '')}\nText: {(html_text or '')[:500]}"
+        combined_text = f"URL: {url or ''}\nTitle: {title or ''}\nSpecs: {specs or ''!s}\nText: {(html_text or '')[:500]}"
 
         if cls._has_yield_signal(combined_text):
             cls._ai_cache[cache_key] = "apartment"
@@ -808,33 +818,34 @@ class PropertyTypeDetector:
         return any(tok in combined for tok in cls._NOISE_ATTR_TOKENS)
 
     @classmethod
+    def _has_noise_ancestor(cls, node: Any) -> bool:
+        curr = getattr(node, "parent", None)
+        while curr is not None and getattr(curr, "name", None) is not None:
+            if cls._is_noise_element(curr):
+                return True
+            curr = getattr(curr, "parent", None)
+        return False
+
+    @classmethod
     def extract_clean_body_text(cls, soup: Any, max_chars: int = 2000) -> str:
         """Layer 1: Strip global header/nav/footer/sidebar/recommendation noise before text detection."""
         if soup is None:
             return ""
-        if isinstance(soup, str):
-            return soup[:max_chars]
-        if not hasattr(soup, "find_all"):
+        if isinstance(soup, str) or not hasattr(soup, "find_all"):
             return str(soup)[:max_chars]
+
         chunks: list[str] = []
         total_len = 0
         for text_node in soup.find_all(string=True):
-            parent = getattr(text_node, "parent", None)
-            skip = False
-            curr = parent
-            while curr is not None and getattr(curr, "name", None) is not None:
-                if cls._is_noise_element(curr):
-                    skip = True
-                    break
-                curr = getattr(curr, "parent", None)
-            if skip:
+            if cls._has_noise_ancestor(text_node):
                 continue
             s = str(text_node).strip()
-            if s:
-                chunks.append(s)
-                total_len += len(s) + 1
-                if total_len >= max_chars:
-                    break
+            if not s:
+                continue
+            chunks.append(s)
+            total_len += len(s) + 1
+            if total_len >= max_chars:
+                break
         return " ".join(chunks)[:max_chars]
 
     @classmethod
@@ -852,7 +863,7 @@ class PropertyTypeDetector:
             if obj is not None
             else (cls.detect(url=url, title=title, html_text=html_text, specs=specs) or "mansion")
         )
-        combined = f"{title or ''} {html_text or ''} {str(specs or '')}"
+        combined = f"{title or ''} {html_text or ''} {specs or ''!s}"
         if obj is not None:
             combined += f" {cls._get_field(obj, 'propertyName') or ''} {cls._get_field(obj, 'remarks') or ''}"
         is_tenanted = (
