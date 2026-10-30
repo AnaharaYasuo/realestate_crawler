@@ -273,9 +273,24 @@ class PropertyTypeDetector:
             return "mansion"
         return None
 
+    FREE_TEXT_SPEC_KEYS = (
+        "備考", "remarks", "PR", "コメント", "おすすめ", "ポイント",
+        "周辺", "環境", "交通", "アクセス", "学区", "設備", "特徴", "その他",
+    )
+
+    @classmethod
+    def _is_free_text_spec_key(cls, key_str: str) -> bool:
+        if key_str in cls.SPECS_PROPERTY_TYPE_KEYS:
+            return False
+        return any(ft in key_str for ft in cls.FREE_TEXT_SPEC_KEYS)
+
+    _NEIGHBORHOOD_NOISE_RE = re.compile(
+        r"[^\s。、！!]*?(?:用地に最適|用地として|まで徒歩\d+分|徒歩\d+分|[の]?隣|近隣に[^\s。、！!]*|周辺に[^\s。、！!]*)"
+    )
+
     @classmethod
     def _detect_from_specs(cls, specs: dict[str, Any]) -> str | None:
-        """スペック表の特定キーおよび値全体から種別判定"""
+        """スペック表の特定キーおよび自由記述ノイズを除外した値から種別判定"""
         for k in cls.SPECS_PROPERTY_TYPE_KEYS:
             if k in specs:
                 val_str = str(specs[k]).strip()
@@ -285,8 +300,25 @@ class PropertyTypeDetector:
                 if ptype:
                     return ptype
 
-        for val in specs.values():
+        for k, val in specs.items():
+            if cls._is_free_text_spec_key(str(k)):
+                continue
             ptype = cls._match_keywords(str(val))
+            if ptype:
+                return ptype
+
+        if (
+            cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
+            and not cls._is_positive_area_value(specs.get("建物面積") or specs.get("tatemonoMenseki") or specs.get("延床面積"))
+            and not cls._is_positive_area_value(specs.get("専有面積") or specs.get("senyuMenseki"))
+        ):
+            return "tochi"
+
+        for k, val in specs.items():
+            if not cls._is_free_text_spec_key(str(k)):
+                continue
+            cleaned_val = cls._NEIGHBORHOOD_NOISE_RE.sub("", str(val))
+            ptype = cls._match_keywords(cleaned_val)
             if ptype:
                 return ptype
         return None
@@ -604,7 +636,11 @@ class PropertyTypeDetector:
         if has_tochi and has_tatemono:
             return False
 
-        for f in ("senyuMenseki", "専有面積", "壁芯面積"):
+        for f in (
+            "senyuMenseki", "専有面積", "壁芯面積",
+            "kanrihi", "管理費", "syuzenTsumitate", "修繕積立金",
+            "balconyMenseki", "バルコニー面積",
+        ):
             if cls._is_positive_area_value(cls._get_field(property_obj, f)):
                 return True
 
@@ -751,3 +787,103 @@ class PropertyTypeDetector:
         ptype_str = str(ptype).lower()
         return any(k in ptype_str for k in ("apartment", "investment", "invest"))
 
+    _NOISE_TAGS = frozenset({"header", "nav", "footer", "aside", "script", "style", "noscript"})
+    _NOISE_ATTR_TOKENS = ("gnav", "site-header", "sidebar", "recommend", "breadcrumb", "footer")
+    _NON_RESIDENTIAL_KEYWORDS = (
+        "オフィスビル", "商業ビル", "一棟売りビル", "一棟ビル", "売ビル",
+        "店舗・事務所", "区分店舗", "区分事務所", "倉庫", "工場", "駐車場",
+    )
+
+    @classmethod
+    def _is_noise_element(cls, tag: Any) -> bool:
+        name = getattr(tag, "name", None)
+        if not name:
+            return False
+        if name.lower() in cls._NOISE_TAGS:
+            return True
+        attrs = getattr(tag, "attrs", None) or {}
+        classes = " ".join(attrs.get("class") or []) if isinstance(attrs.get("class"), list) else str(attrs.get("class") or "")
+        el_id = str(attrs.get("id") or "")
+        combined = f"{classes} {el_id}".lower()
+        return any(tok in combined for tok in cls._NOISE_ATTR_TOKENS)
+
+    @classmethod
+    def extract_clean_body_text(cls, soup: Any, max_chars: int = 2000) -> str:
+        """Layer 1: Strip global header/nav/footer/sidebar/recommendation noise before text detection."""
+        if soup is None:
+            return ""
+        if isinstance(soup, str):
+            return soup[:max_chars]
+        if not hasattr(soup, "find_all"):
+            return str(soup)[:max_chars]
+        chunks: list[str] = []
+        total_len = 0
+        for text_node in soup.find_all(string=True):
+            parent = getattr(text_node, "parent", None)
+            skip = False
+            curr = parent
+            while curr is not None and getattr(curr, "name", None) is not None:
+                if cls._is_noise_element(curr):
+                    skip = True
+                    break
+                curr = getattr(curr, "parent", None)
+            if skip:
+                continue
+            s = str(text_node).strip()
+            if s:
+                chunks.append(s)
+                total_len += len(s) + 1
+                if total_len >= max_chars:
+                    break
+        return " ".join(chunks)[:max_chars]
+
+    @classmethod
+    def detect_physical_and_tenancy(
+        cls,
+        url: str | None = None,
+        title: str | None = None,
+        html_text: str | None = None,
+        specs: dict[str, Any] | None = None,
+        obj: Any = None,
+    ) -> dict[str, Any]:
+        """Layer 2: Orthogonal classification of physical structure vs tenancy/investment status."""
+        physical = (
+            cls.detect_from_object(obj)
+            if obj is not None
+            else (cls.detect(url=url, title=title, html_text=html_text, specs=specs) or "mansion")
+        )
+        combined = f"{title or ''} {html_text or ''} {str(specs or '')}"
+        if obj is not None:
+            combined += f" {cls._get_field(obj, 'propertyName') or ''} {cls._get_field(obj, 'remarks') or ''}"
+        is_tenanted = (
+            cls._has_yield_signal(combined)
+            or (isinstance(specs, dict) and cls._has_yield_signal_specs(specs))
+            or (obj is not None and cls._has_yield_in_object(obj))
+        )
+        is_non_res = any(kw in combined for kw in cls._NON_RESIDENTIAL_KEYWORDS)
+        return {
+            "physical_type": physical,
+            "is_tenanted": bool(is_tenanted),
+            "is_non_residential": bool(is_non_res),
+        }
+
+    @classmethod
+    def validate_physical_invariants(cls, property_obj: Any, expected_type: str) -> tuple[bool, str, str]:
+        """Layer 4: Post-parse physical invariant gate verifying area/floor/structure consistency."""
+        norm_expected = (expected_type or "mansion").lower()
+        has_senyu = cls._is_positive_area_value(cls._get_field(property_obj, "senyuMenseki"))
+        has_tochi = cls._is_positive_area_value(cls._get_field(property_obj, "tochiMenseki"))
+        has_tatemono = cls._is_positive_area_value(cls._get_field(property_obj, "tatemonoMenseki"))
+
+        if norm_expected == "tochi" and has_senyu and not has_tochi:
+            return False, "mansion", "senyuMenseki is positive while tochiMenseki is missing on 'tochi'"
+
+        if norm_expected == "kodate" and cls._is_rc_zero_land(property_obj):
+            return False, "mansion", "tochiMenseki is 0 with RC/senyuMenseki on 'kodate'"
+
+        if norm_expected == "mansion" and not has_senyu and has_tochi and has_tatemono:
+            has_yield = cls._has_yield_in_object(property_obj)
+            corrected = "apartment" if has_yield else "kodate"
+            return False, corrected, "senyuMenseki missing while both land and building area exist on 'mansion'"
+
+        return True, norm_expected, ""

@@ -2020,10 +2020,11 @@ class ParserBase(metaclass=ABCMeta):
         self, url, title: str, soup: BeautifulSoup, specs: dict, item: models.Model
     ):
         """Switch to a different parser when detected property type differs. Returns (parser, item)."""
+        clean_html_text = PropertyTypeDetector.extract_clean_body_text(soup, max_chars=2000)
         detected_type = PropertyTypeDetector.detect(
             url=url,
             title=title,
-            html_text=soup.get_text()[:2000],
+            html_text=clean_html_text,
             specs=specs,
             default=self.property_type,
         )
@@ -2045,7 +2046,7 @@ class ParserBase(metaclass=ABCMeta):
         target_parser = UrlRouter.create_parser(
             url=url,
             title=title,
-            html_text=soup.get_text()[:2000],
+            html_text=clean_html_text,
             specs=specs,
             property_type=detected_type,
         )
