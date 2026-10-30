@@ -90,6 +90,22 @@ class SiteRegistry:
         return sites
 
 
+def _check_route_models_for_company(comp: str) -> list[str]:
+    errs: list[str] = []
+    for route in UrlRouter.ROUTES:
+        if str(route.get("site", "")).lower() != comp:
+            continue
+        mod_name = str(route.get("model_module", ""))
+        cls_name = str(route.get("model_cls", ""))
+        try:
+            mod = importlib.import_module(mod_name)
+            if not hasattr(mod, cls_name):
+                errs.append(f"UrlRouter route model class missing for {comp}: {mod_name}.{cls_name}")
+        except Exception as exc:  # noqa: BLE001
+            errs.append(f"UrlRouter route model import failed for {comp} ({mod_name}): {exc}")
+    return errs
+
+
 def _check_single_site_definition(
     comp: str,
     sdef: SiteDefinition,
@@ -101,17 +117,24 @@ def _check_single_site_definition(
     parser_file = package_dir / "parser" / f"{comp}Parser.py"
     if not parser_file.exists():
         errs.append(f"Parser file missing for {comp}: {parser_file}")
+    else:
+        try:
+            importlib.import_module(sdef.parser_module)
+        except Exception as exc:  # noqa: BLE001
+            errs.append(f"Parser module import failed for {comp} ({sdef.parser_module}): {exc}")
 
     model_stem = sdef.model_module.rsplit(".", 1)[-1]
     model_file = package_dir / "models" / f"{model_stem}.py"
     if not model_file.exists():
         errs.append(f"Model file missing for {comp}: {model_file}")
 
-    if comp not in ml_set:
+    if sdef.in_ml_companies and comp not in ml_set:
         errs.append(f"ML COMPANIES (package/ml/constants.py) missing company: {comp}")
 
     if comp not in router_sites:
         errs.append(f"UrlRouter.ROUTES missing site route for company: {comp}")
+    else:
+        errs.extend(_check_route_models_for_company(comp))
 
     if not sdef.property_types:
         errs.append(f"SiteDefinition for {comp} has 0 property_types")
@@ -127,6 +150,8 @@ def _check_dispatch_and_models(
     try:
         main_mod = importlib.import_module("main")
         dispatch_map = main_mod.get_dispatch_map()
+        if not dispatch_map:
+            missing.append("main.get_dispatch_map returned empty dispatch map")
     except Exception as exc:  # noqa: BLE001
         missing.append(f"main.get_dispatch_map import failed: {exc}")
         dispatch_map = {}

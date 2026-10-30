@@ -121,6 +121,11 @@ class FailureReporter:
             html_path.parent.mkdir(parents=True, exist_ok=True)
             with open(html_path, "wb") as f:
                 f.write(raw_html)
+            html_path_str = str(html_path)
+            paths = record.setdefault("local_error_html_paths", [])
+            if html_path_str not in paths:
+                paths.append(html_path_str)
+                record["local_error_html_paths"] = paths[:MAX_LOCAL_ERROR_HTML_PATHS]
             try:
                 (fallback_base / html_meta_key(html_key)).write_bytes(_html_meta_bytes(record))
             except Exception as le:  # noqa: BLE001

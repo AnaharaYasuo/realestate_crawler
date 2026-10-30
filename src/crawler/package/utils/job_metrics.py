@@ -25,8 +25,8 @@ DEFAULT_MONITORED_FIELDS: tuple[str, ...] = (
     "price",
     "address",
     "station1",
-    "ensen1",
-    "toho1",
+    "railway1",
+    "railwayWalkMinute1",
 )
 
 

@@ -32,6 +32,7 @@ class TestPhase4Observability:
                 target_url="https://www.nomu.com/mansion/1",
                 parent_list_url="https://www.nomu.com/mansion/list?page=1",
                 http_status=200,
+                raw_html=b"<html>saved via raw_html</html>",
                 date_str="20261030",
             )
             rec2 = FailureReporter.record_job_failure(
@@ -46,13 +47,14 @@ class TestPhase4Observability:
             )
 
         assert rec1["failure_count"] == 1
+        assert len(rec1["local_error_html_paths"]) == 4
         assert rec2["failure_count"] == 2
         assert len(rec2["failures"]) == 2
         assert rec2["failures"][0]["error_type"] == "ParseHtmlError"
         assert rec2["failures"][0]["parent_list_url"] == "https://www.nomu.com/mansion/list?page=1"
         assert rec2["failures"][1]["error_type"] == "ZeroCountFailure"
         assert rec2["failures"][1]["http_status"] == 403
-        assert len(rec2["local_error_html_paths"]) >= 3
+        assert len(rec2["local_error_html_paths"]) >= 4
 
     def test_compute_field_fill_rates_and_export(self, monkeypatch):
         """compute_field_fill_rates calculates accurate ratios for both objects and dicts."""
@@ -62,16 +64,16 @@ class TestPhase4Observability:
                 price=128000000,
                 address="東京都港区赤坂",
                 station1="赤坂",
-                ensen1="東京メトロ千代田線",
-                toho1=5,
+                railway1="東京メトロ千代田線",
+                railwayWalkMinute1=5,
             ),
             SimpleNamespace(
                 propertyName="プラウド六本木",
                 price=98000000,
                 address="東京都港区六本木",
                 station1="",
-                ensen1=None,
-                toho1=0,
+                railway1=None,
+                railwayWalkMinute1=0,
             ),
         ]
         rates = compute_field_fill_rates(items)
@@ -79,8 +81,8 @@ class TestPhase4Observability:
         assert rates["price"] == 1.0
         assert rates["address"] == 1.0
         assert rates["station1"] == 0.5
-        assert rates["ensen1"] == 0.5
-        assert rates["toho1"] == 0.5
+        assert rates["railway1"] == 0.5
+        assert rates["railwayWalkMinute1"] == 0.5
 
         monkeypatch.chdir(self.tmp_path)
         path = export_job_metrics(
@@ -93,7 +95,7 @@ class TestPhase4Observability:
         )
         assert path is not None and path.exists()
         saved = json.loads(path.read_text(encoding="utf-8"))
-        assert saved["field_fill_rates"]["station1"] == 0.5
+        assert saved["field_fill_rates"] == rates
 
     def test_record_field_fill_rate_event_detects_drift(self, monkeypatch):
         """record_field_fill_rate_event flags degraded_fields when fill rate drops below threshold."""

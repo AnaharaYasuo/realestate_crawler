@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import main
 import setup_env  # noqa: F401
 from package.site_registry import SiteDefinition, SiteRegistry, verify_all_registered_sites
 
@@ -10,6 +11,8 @@ from package.site_registry import SiteDefinition, SiteRegistry, verify_all_regis
 class TestPhase5SiteRegistry:
     def test_verify_all_registered_sites_has_zero_missing_wiring(self):
         """All 30 companies and 104 crawl jobs must be wired across parser, model, dispatch, router, task dist, and ML."""
+        dispatch_map = main.get_dispatch_map()
+        assert len(dispatch_map) >= 104
         report = verify_all_registered_sites()
         assert report["missing"] == [], f"Unexpected site wiring gaps: {report['missing']}"
         assert report["total_sites"] >= 30
@@ -28,7 +31,8 @@ class TestPhase5SiteRegistry:
             sites = SiteRegistry.get_all_sites()
             assert "dummy_broker_xyz" in sites
             report = verify_all_registered_sites()
-            assert any("dummy_broker_xyz" in msg for msg in report["missing"])
+            assert any(msg.startswith("Parser file missing for dummy_broker_xyz:") for msg in report["missing"])
+            assert any(msg.startswith("Model file missing for dummy_broker_xyz:") for msg in report["missing"])
         finally:
             SiteRegistry._custom_sites.pop("dummy_broker_xyz", None)
 

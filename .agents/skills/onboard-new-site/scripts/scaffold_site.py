@@ -26,8 +26,16 @@ def generate_scaffold(company: str, display_name: str, property_types: list[str]
         "invest_kodate": "InvestmentBaseModel",
     }
     for pt in property_types:
-        pt_cap = "".join(part.capitalize() for part in pt.split("_"))
-        base_cls = base_map.get(pt, "MansionBaseModel")
+        if pt not in base_map:
+            raise ValueError(f"Unsupported property type: {pt!r}. Allowed: {sorted(base_map)}")
+        if pt == "investment":
+            pt_cap = "Investment"
+        elif pt.startswith("invest_"):
+            suffix = "".join(part.capitalize() for part in pt.split("_")[1:])
+            pt_cap = f"Investment{suffix}"
+        else:
+            pt_cap = "".join(part.capitalize() for part in pt.split("_"))
+        base_cls = base_map[pt]
         model_lines.extend([
             f"class {cap}{pt_cap}({base_cls}):",
             "    class Meta:",

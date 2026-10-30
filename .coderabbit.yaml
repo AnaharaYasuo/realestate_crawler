@@ -58,7 +58,7 @@ reviews:
     drafts: false
     # PR初回オープン時のみ自動レビュー。後続pushでの再レビュー連鎖を防止する。
     # 追加レビューが必要な場合は @coderabbitai review を手動実行する。
-    auto_incremental_review: false
+    auto_incremental_review: true
     base_branches:
       - "master"
     ignore_title_keywords:

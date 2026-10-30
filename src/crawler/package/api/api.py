@@ -331,11 +331,13 @@ def _sync_save_error_html_by_url(
     html_file = company_dir / f"{p_id}.html"
 
     html_bytes: bytes | None = None
+    http_status: int | None = None
     if raw_html is not None:
         html_bytes = raw_html.encode("utf-8") if isinstance(raw_html, str) else raw_html
     else:
         try:
             response = requests.get(url, headers=header, timeout=30)
+            http_status = response.status_code
             if response.status_code == 200:
                 html_bytes = response.content
             else:
@@ -361,7 +363,8 @@ def _sync_save_error_html_by_url(
             error_message=reason,
             target_url=url,
             exit_code=1,
-            raw_html=html_bytes
+            raw_html=html_bytes,
+            http_status=http_status,
         )
     except Exception as fe:  # noqa: BLE001
         logger.warning("Failed to record failure in _sync_save_error_html_by_url: %s", fe)
