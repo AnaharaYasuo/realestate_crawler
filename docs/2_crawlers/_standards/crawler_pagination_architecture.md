@@ -60,7 +60,7 @@
    - **スタートURL**: マンション (`r_type=3`)・戸建 (`r_type=2`)・土地 (`r_type=1`) すべてにおいて、特定区フィルタ (`pl_13[]`) を含まない全国一覧URL (`/contents/code/search_result?mode=list&all_pref=1&r_type={1|2|3}&by=area`) を使用する。
    - **ページネーション**: `parseNextPage(response, current_url)` にて `value` に `"次"` を含む `<input onClick="form1_submit('N')">`（または `<select name="offset">` の次オプション）から1始まりのページ番号 `offset` を抽出し、`current_url` のクエリパラメータ `offset` を更新して全ページを巡回する（「前10件」ボタンの `form1_submit` による無限ループを防止すること）。
 2. **東京建物不動産販売 (`totate`)**:
-   - **スタートURL**: 特定市区町村パラメータ (`city[]=13112` 等) を付与せず、全国全件を100件単位で返す `/buy/search/result/detail_search/{property_type}/kanto/?limit=100` を使用する。
+   - **スタートURL**: 特定市区町村パラメータ (`city[]=13112` 等) や地域パス (`/kanto/` 等) を付与せず、全国全件を100件単位で返す `/buy/search/result/detail_search/{property_type}/?limit=100` を使用する。
    - **ページネーション**: `.paging a, .pager a` 内の「次」リンクの `data-href`（Base64エンコードされた `?page=N&sort=new_arrival&limit=100`）をデコードし、`current_url` のパスに対して結合して最終ページまで巡回する。
 3. **住友林業ホームサービス (`sumirin`)**:
    - **スタートURL**: 新着12件のみを表示する種別トップページ (`/buy/{mansion|house|land}/`) ではなく、全国 (`r_seq=9`)・種別 (`ed_cd=01`: マンション, `02`: 戸建, `03`: 土地)・1ページ100件 (`p_num=100`) の検索結果一覧 `/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd={01|02|03}&s_mode=3&f_word=&p_num=100` を使用する。

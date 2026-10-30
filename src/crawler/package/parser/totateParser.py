@@ -39,7 +39,7 @@ class TotateParser(ParserBase):
         return self.BASE_URL + '/' + link_url
 
     def _resolve_next_base_path(self, current_url: str) -> str:
-        default_path = f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/kanto/"
+        default_path = f"/buy/search/result/detail_search/{self.property_type or 'mansion'}/"
         base_path = urllib.parse.urlparse(current_url).path if current_url else default_path
         return base_path if base_path.endswith("/") else f"{base_path}/"
 

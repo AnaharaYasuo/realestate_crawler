@@ -31,6 +31,10 @@ async def test_keisei_parse_next_page_form_submit():
     next_url = await parser.parseNextPage(soup, current_url=current_url)
     assert "offset=3" in next_url
     assert "offset=1" not in next_url
+    # Fallback when current_url is omitted
+    next_url_no_current = await parser.parseNextPage(soup)
+    assert "offset=3" in next_url_no_current
+    assert "r_type=3" in next_url_no_current
 
 
 @pytest.mark.asyncio
@@ -93,7 +97,8 @@ def test_keisei_routes_all_pref_start_urls():
 async def test_totate_nationwide_start_url_and_next_page():
     for ptype in ("mansion", "kodate", "tochi"):
         start_url = totate_routes.get_start_url(ptype)
-        assert f"/buy/search/result/detail_search/{ptype}/kanto/?limit=100" in start_url
+        assert f"/buy/search/result/detail_search/{ptype}/?limit=100" in start_url
+        assert "/kanto/" not in start_url
         assert "city[]" not in start_url
 
     parser = TotateKodateParser()
@@ -108,9 +113,9 @@ async def test_totate_nationwide_start_url_and_next_page():
     soup = BeautifulSoup(html, "html.parser")
     next_url = await parser.parseNextPage(
         soup,
-        current_url="https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/kodate/kanto/?limit=100",
+        current_url="https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/kodate/?limit=100",
     )
-    assert next_url == "https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/kodate/kanto/?page=2&sort=new_arrival&limit=100"
+    assert next_url == "https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/kodate/?page=2&sort=new_arrival&limit=100"
 
 
 @pytest.mark.asyncio
@@ -141,4 +146,26 @@ async def test_sumirin_nationwide_searchlist_routes_and_pagination():
     assert len(items) == 2
     assert items[0].url == "https://www.suminavi.com/buy/estate/estateInfo/house/shutoken/631287/"
     next_url = await parser.parseNextPage(soup)
-    assert next_url == "https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd=02&s_mode=3&f_word=&p_num=100&s=21&p=2"
+    assert "p=2" in next_url
+
+
+@pytest.mark.asyncio
+async def test_ietan_property_type_detail_url_filtering():
+    from package.parser.ietanParser import IetanKodateParser, IetanMansionParser, IetanTochiParser
+
+    html = '''
+    <html><body>
+        <a href="/mansion/detail/AAA16470">Mansion in header</a>
+        <a href="/mansion_catalog/detail/CAT001">Catalog link</a>
+        <a href="/kodate/detail/KOD99999">Kodate item</a>
+        <a href="/land/detail/LND88888">Tochi item</a>
+    </body></html>
+    '''
+    soup = BeautifulSoup(html, "html.parser")
+    kodate_items = [it async for it in IetanKodateParser().parsePropertyListPage(soup)]
+    mansion_items = [it async for it in IetanMansionParser().parsePropertyListPage(soup)]
+    tochi_items = [it async for it in IetanTochiParser().parsePropertyListPage(soup)]
+
+    assert [it.url for it in kodate_items] == ["https://www.ietan.jp/kodate/detail/KOD99999"]
+    assert [it.url for it in mansion_items] == ["https://www.ietan.jp/mansion/detail/AAA16470"]
+    assert [it.url for it in tochi_items] == ["https://www.ietan.jp/land/detail/LND88888"]
