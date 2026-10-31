@@ -21,9 +21,11 @@ HTML_PARSER = "html.parser"
 LABEL_KAIDATE_KAI = "階建 / 階"
 
 PATH_LIST = "/list/"
+PATH_CITY = "/city/"
+PATH_TOUSHI = "/toushi/"
 
-ATHOME_NAV_KEYWORDS = (PATH_LIST, "-city", "/city/", "/map/", "/line/", "/rosen_map/", "/buyall/")
-ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", "/city/", PATH_LIST, "toushi", "chuko", "buy_other")
+ATHOME_NAV_KEYWORDS = (PATH_LIST, "-city", PATH_CITY, "/map/", "/line/", "/rosen_map/", "/buyall/")
+ATHOME_LIST_KEYWORDS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi", "-city", PATH_CITY, PATH_LIST, "toushi", "chuko", "buy_other")
 _ATHOME_DIRECTION_RE = r'(北東|北西|南東|南西|北|南|東|西)'
 _ATHOME_WIDTH_RE = r'(?:幅員|幅|道路|前面)\s*(?:約\s*)?(\d+(?:\.\d+)?)\s*[m米]?'
 _ATHOME_DIR_WIDTH_RE = (
@@ -418,7 +420,7 @@ class AthomeParser(ParserBase):
             "mansion": ("/mansion/chuko/",),
             "kodate": ("/kodate/chuko/",),
             "tochi": ("/tochi/",),
-            "investmentapartment": ("/buy_other/", "/toushi/"),
+            "investmentapartment": (PATH_BUY_OTHER, PATH_TOUSHI),
         }
         allowed = type_prefixes.get(ptype)
         if not allowed:
@@ -437,7 +439,7 @@ class AthomeParser(ParserBase):
             return False
         if not any(f"/{pref}/" in p_lower for pref in self._ATHOME_TARGET_PREFS):
             return False
-        return any(tok in p_lower for tok in ("-city/list", "city-list", "/city/"))
+        return any(tok in p_lower for tok in ("-city/list", "city-list", PATH_CITY))
 
     async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> tuple[list[str], str | None]:
         try:
@@ -886,7 +888,7 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
         name = self._parsePropertyName(response)
-        if any(kw in page_url for kw in (PATH_BUY_OTHER, "/toushi/", "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
+        if any(kw in page_url for kw in (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
             raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
@@ -990,7 +992,7 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
         """Prefer buy_other / bldg / toushi details; skip mansion reco noise on invest hubs."""
         async for url in super().parseRootPage(response):
             path = urllib.parse.urlparse(url).path.lower()
-            if any(tok in path for tok in (PATH_BUY_OTHER, "/bldg/", "/building/", "/toushi/", "/buy_toushi/")):
+            if any(tok in path for tok in (PATH_BUY_OTHER, "/bldg/", "/building/", PATH_TOUSHI, "/buy_toushi/")):
                 yield url
 
     def _athome_reject_residential_shumoku(self, shumoku: str) -> None:
