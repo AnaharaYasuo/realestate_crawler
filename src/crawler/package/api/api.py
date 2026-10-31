@@ -37,6 +37,11 @@ from package.parser.baseParser import (
     check_site_maintenance,
 )
 from package.utils.converter import parse_chidai
+from package.utils.crawler_diagnostics import (
+    clear_thread_activity,
+    record_thread_activity,
+    save_hang_diagnostic_snapshot,
+)
 from package.utils.crawler_watchdog import touch_crawler_progress
 from package.utils.data_validator import tag_property_integrity
 from package.utils.failure_reporter import FailureReporter
@@ -165,6 +170,12 @@ def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
         _failed_fire_and_forget_dispatches.clear()
 
     if remaining and not os.path.exists(STOP_FLAG_FILE):
+        env_comp = os.getenv("CRAWLER_JOB_COMPANY", "unknown")
+        env_type = os.getenv("CRAWLER_JOB_TYPE", "unknown")
+        try:
+            save_hang_diagnostic_snapshot(env_comp, env_type, in_process=True, reason="FireAndForgetWaitTimeout")
+        except Exception:
+            pass
         logger.error(
             "Timeout (%.1fs) waiting for %d fire-and-forget background threads to finish: %s",
             timeout,
@@ -253,7 +264,6 @@ def _wait_for_active_fire_and_forget_threads(timeout: float | None = None) -> No
         if now - last_log_time >= 15.0 and alive:
             logger.info("Waiting for %d fire-and-forget background threads to finish (elapsed: %.1fs)...", len(alive), now - start)
             last_log_time = now
-            _touch_active_progress_files()
 
         time.sleep(0.5)
 
@@ -1189,6 +1199,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             new_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(new_loop)
             _crawl_run_state.keys = parent_keys
+            record_thread_activity("local_worker_dispatch", current_url=str(detail_url), parent_list_url=str(getattr(self, "url", "")))
             try:
                 target_class().main(detail_url)
             except Exception as exc:
@@ -1196,6 +1207,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 _record_fire_and_forget_failure(path, detail_url, exc)
                 logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
             finally:
+                clear_thread_activity("idle")
                 _crawl_run_state.keys = None
                 try:
                     from django.db import close_old_connections, connections
@@ -1203,7 +1215,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                     connections.close_all()
                 except Exception as db_exc:  # noqa: BLE001
                     logger.debug("Failed to close DB connections in run_in_new_loop: %s", db_exc)
-                new_loop.close()
+                self._close_loop(new_loop)
 
         max_timeout = float(os.getenv("LOCAL_EXECUTION_TIMEOUT_SEC", "120.0"))
         fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
@@ -1462,6 +1474,7 @@ LOG_FAILED_TO_PARSE_MIDDLE_PAGE = "Failed to parse middle page: %s"
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _fetch_middle_page_response(self, session, current_url):
+        record_thread_activity("middle_page_fetch", current_url=str(current_url), parent_list_url=str(getattr(self, "url", "")))
         self._touch_watchdog_progress()
         try:
             if self._isBsMiddlePage():
@@ -1526,6 +1539,8 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
     async def _flush_middle_page_chunk(self, chunk_buffer: list[Any], all_results: list[Any]) -> list[Any]:
         if not chunk_buffer:
             return []
+        self._touch_watchdog_progress()
+        record_thread_activity("middle_page_chunk_flush", current_url=str(getattr(self, "url", "")))
         page_res = await self._callApi(chunk_buffer)
         if isinstance(page_res, list):
             all_results.extend(page_res)
@@ -1580,6 +1595,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 if not _claim_detail_dispatch(keys, api_url, detail_url):
                     continue
                 self._touch_watchdog_progress()
+                record_thread_activity("detail_queue_dispatch", current_url=str(detail_url), parent_list_url=str(getattr(self, "url", "")))
                 result = await self._fetchDetailOnce(keys, detail_url, api_url, loop)
                 if isinstance(result, list):
                     all_results.extend(result)
@@ -1952,9 +1968,11 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             await self.semaphore.acquire()
             try:
                 await self._apply_download_delay_if_needed()
+                record_thread_activity("detail_page_fetch", current_url=str(self.url))
+                self._touch_watchdog_progress()
                 async with aiohttp.ClientSession(
                     headers=header,
-                    connector=self._generateConnector(self._getActiveEventLoop()),
+                    connector=_connector,
                     timeout=self._generateTimeout()
                 ) as dtl_session:
                     try:

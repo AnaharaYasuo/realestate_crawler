@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase, ListingEndedException, ServerBusyException, SkipPropertyException
 from package.models.athome import AthomeMansion, AthomeKodate, AthomeInvestmentApartment, AthomeTochi
 from package.utils.selector_loader import SelectorLoader
+from package.utils.data_validator import PropertyDataValidator
 from package.utils import converter
 from package.api.differential import ListItem
 from decimal import Decimal
@@ -471,29 +472,63 @@ class AthomeParser(ParserBase):
             return links, next_page
         return links, None
 
+    async def _crawl_sub_list_branch(
+        self,
+        l_url: str,
+        base_domain: str,
+        sem: asyncio.Semaphore,
+        visited_l_urls: set,
+        item_queue: asyncio.Queue,
+    ) -> None:
+        from package.utils.crawler_diagnostics import record_thread_activity
+        from package.utils.crawler_watchdog import touch_crawler_progress
+
+        curr_l_url = l_url
+        visited_l_urls.add(curr_l_url)
+        ptype = getattr(self, "property_type", "")
+        for page_count in range(1, 31):
+            if not curr_l_url:
+                break
+            touch_crawler_progress("athome", ptype)
+            record_thread_activity(
+                "sub_list_expand",
+                current_url=curr_l_url,
+                parent_list_url=l_url,
+                extra={"page_count": page_count},
+            )
+            links, curr_l_url = await self._step_sub_list_page(
+                curr_l_url, base_domain, sem, visited_l_urls
+            )
+            for link_item in links:
+                await item_queue.put(link_item)
+
     async def _expand_sub_list_pages(self, list_links, base_domain: str):
-        visited_l_urls = set()
+        branch_list = list(list_links)
+        if not branch_list:
+            return
+        visited_l_urls: set = set()
         sem = asyncio.Semaphore(6)
+        item_queue: asyncio.Queue = asyncio.Queue()
+        tasks = [
+            asyncio.create_task(
+                self._crawl_sub_list_branch(u, base_domain, sem, visited_l_urls, item_queue)
+            )
+            for u in branch_list
+        ]
 
-        async def _crawl_single_branch(l_url: str):
-            branch_results = []
-            curr_l_url = l_url
-            visited_l_urls.add(curr_l_url)
-            page_count = 0
-            while curr_l_url and page_count < 30:
-                page_count += 1
-                links, curr_l_url = await self._step_sub_list_page(curr_l_url, base_domain, sem, visited_l_urls)
-                branch_results.extend(links)
-            return branch_results
+        async def _wait_all():
+            for res in await asyncio.gather(*tasks, return_exceptions=True):
+                if isinstance(res, Exception):
+                    logging.warning(f"[Athome] Error in parallel list expansion: {res}")
+            await item_queue.put(None)
 
-        tasks = [_crawl_single_branch(u) for u in list_links]
-        gathered = await asyncio.gather(*tasks, return_exceptions=True)
-        for res in gathered:
-            if isinstance(res, list):
-                for item in res:
-                    yield item
-            elif isinstance(res, Exception):
-                logging.warning(f"[Athome] Error in parallel list expansion: {res}")
+        waiter = asyncio.create_task(_wait_all())
+        try:
+            while (item := await item_queue.get()) is not None:
+                yield item
+        finally:
+            if not waiter.done():
+                waiter.cancel()
 
     ATHOME_ALLOWED_HOSTS = ("www.athome.co.jp", "toushi-athome.jp", "athome.co.jp")
 
@@ -788,19 +823,37 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
     def createEntity(self):
         return AthomeMansion()
 
+    def _check_buy_other_land_area(self, page_url: str, response: BeautifulSoup) -> None:
+        if PATH_BUY_OTHER not in page_url:
+            return
+        specs_peek = self._get_specs_table(response)
+        tochi_raw = (
+            specs_peek.get("土地面積", "")
+            or specs_peek.get("区画面積", "")
+            or specs_peek.get("敷地面積", "")
+            or specs_peek.get("面積", "")
+        )
+        if not tochi_raw or str(tochi_raw).strip() in ("", "-", "－", "―"):
+            raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
+
+    @staticmethod
+    def _ensure_mansion_located_floor(item, response: BeautifulSoup, page_url: str) -> None:
+        if PropertyDataValidator._has_located_floor(item.kaisuStr):
+            return
+        title_str = response.title.get_text() if response and response.title else ""
+        search_txt = f"{getattr(item, 'propertyName', '')} {title_str}"
+        floor_match = re.search(r"(?<!地上)(?:地下)?\d{1,3}階(?!建)", search_txt)
+        if floor_match:
+            fl = floor_match.group(0)
+            item.kaisuStr = f"{item.kaisuStr} / {fl}" if item.kaisuStr else fl
+            return
+        raise SkipPropertyException(
+            f"Athome mansion missing/undisclosed located floor skipped: {page_url} (kaisuStr={item.kaisuStr!r})"
+        )
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = getattr(item, "pageUrl", "")
-        # buy_other や 土地以外の種別で土地面積が存在しない物件はスキップ
-        if PATH_BUY_OTHER in page_url:
-            specs_peek = self._get_specs_table(response)
-            tochi_raw = (
-                specs_peek.get("土地面積", "")
-                or specs_peek.get("区画面積", "")
-                or specs_peek.get("敷地面積", "")
-                or specs_peek.get("面積", "")
-            )
-            if not tochi_raw or str(tochi_raw).strip() in ["", "-", "－", "―"]:
-                raise SkipPropertyException(f"Athome buy_other without land area skipped: {page_url}")
+        self._check_buy_other_land_area(page_url, response)
 
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs_table(response)
@@ -816,7 +869,18 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
             
-        item.kaisuStr = specs.get(LABEL_KAIDATE_KAI, "")
+        item.kaisuStr = (
+            specs.get(LABEL_KAIDATE_KAI, "")
+            or specs.get("階建/階", "")
+            or specs.get("所在階/階建", "")
+            or specs.get("所在階／階建", "")
+            or specs.get("所在階", "")
+            or specs.get("階数", "")
+            or specs.get("階建", "")
+        )
+        self._ensure_mansion_located_floor(item, response, page_url)
+        if not item.senyuMenseki or float(item.senyuMenseki) <= 5.0:
+            raise SkipPropertyException(f"Athome mansion invalid senyuMenseki ({item.senyuMenseki}) skipped: {page_url}")
         item.saikou = specs.get("主要採光面", "")
         item.soukosuStr = specs.get("総戸数", "")
         item.soukosu = converter.parse_number(item.soukosuStr)
@@ -886,12 +950,19 @@ class AthomeKodateParser(AthomeParser, KodateParserBase):
         return AthomeKodate()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = getattr(item, "pageUrl", "")
+        page_url = getattr(item, "pageUrl", "") or ""
         name = self._parsePropertyName(response)
-        if any(kw in page_url for kw in (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/")) or any(kw in name for kw in ("一棟売アパート", "一棟売マンション")):
-            raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name})")
+        specs_pre = self._get_specs_table(response)
+        shumoku = str(specs_pre.get("物件種目", "") or specs_pre.get("種別", ""))
+        if (
+            any(kw in page_url for kw in (PATH_BUY_OTHER, PATH_TOUSHI, "/bldg/", "/mansion/", "/tochi/"))
+            or any(kw in name for kw in ("一棟売アパート", "一棟売マンション"))
+            or "マンション" in shumoku
+            or "売地" in shumoku
+        ):
+            raise SkipPropertyException(f"Non-kodate property skipped: {page_url} ({name} / {shumoku})")
         item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs_table(response)
+        specs = specs_pre
 
         item.madori = self._parseMadori(response, specs) or self.get_madori(response)
 
@@ -1113,6 +1184,12 @@ class AthomeInvestmentApartmentParser(AthomeParser, InvestmentParserBase):
             or getattr(item, "kouzou", "")
         )
         self._athome_fill_invest_areas(item, specs)
+        if (not item.tochiMenseki or float(item.tochiMenseki) <= 0) and (
+            not item.tatemonoMenseki or float(item.tatemonoMenseki) <= 0
+        ):
+            raise SkipPropertyException(
+                f"Athome investment listing missing both land and building area: {getattr(item, 'pageUrl', '')}"
+            )
         item.setsudou = self._parseSetsudou(response, specs)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
@@ -1179,11 +1256,21 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
             specs.get("土地面積", "")
             or specs.get("区画面積", "")
             or specs.get("敷地面積", "")
+            or specs.get("公簿面積", "")
+            or specs.get("実測面積", "")
             or specs.get("面積", "")
             or self.get_tochi_menseki_str(response)
         )
+        if not item.tochiMensekiStr:
+            for k, v in specs.items():
+                k_str = str(k)
+                if "面積" in k_str and ("土地" in k_str or "敷地" in k_str or "区画" in k_str) and v and str(v).strip() not in ("-", "－", "―"):
+                    item.tochiMensekiStr = str(v)
+                    break
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+        if not item.tochiMenseki or float(item.tochiMenseki) <= 0:
+            raise SkipPropertyException(f"AthomeTochi missing land area skipped: {getattr(item, 'pageUrl', '')}")
 
         # 用途地域・建容
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)

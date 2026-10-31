@@ -419,6 +419,15 @@ def parse_slack_message_to_targets(text: str, channel_name: str = "", ts: str = 
         if any(w in reason for w in ("再建築不可", "間口0m", "無道路地")):
             continue
 
+        u_low = url.lower()
+        if (
+            (ptype == "tochi" and any(seg in u_low for seg in ("/mansion/", "/kodate/")))
+            or (ptype == "kodate" and any(seg in u_low for seg in ("/mansion/", "/tochi/")))
+            or (ptype == "mansion" and any(seg in u_low for seg in ("/tochi/", "/kodate/")))
+            or (ptype in ("apartment", "investmentapartment") and "/tochi/" in u_low)
+        ):
+            continue
+
         targets.append({
             "company": site,
             "property_type": ptype,

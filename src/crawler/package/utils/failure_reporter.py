@@ -4,8 +4,8 @@ import hashlib
 import json
 import logging
 import os
-import re
 from pathlib import Path
+import re
 from typing import Any
 
 from package.utils.storage import get_storage_manager
@@ -136,6 +136,65 @@ class FailureReporter:
         logger.info("Saved failure telemetry to local fallback: %s", meta_path)
 
     @classmethod
+    def _auto_enrich_hang_diagnostics(
+        cls,
+        comp_clean: str,
+        type_clean: str,
+        error_type: str,
+        target_url: str,
+        parent_list_url: str,
+        traceback_str: str,
+        diagnostics: Any,
+    ) -> tuple[str, str, str, Any]:
+        if (target_url and traceback_str and diagnostics is not None) or error_type not in (
+            "HangSilentFailure",
+            "TimeoutError",
+            "ProcessCrashFailure",
+        ):
+            return target_url, parent_list_url, traceback_str, diagnostics
+        try:
+            from package.utils.crawler_diagnostics import (
+                build_hang_diagnostic_snapshot,
+                format_snapshot_summary_text,
+            )
+
+            snap = build_hang_diagnostic_snapshot(
+                comp_clean, type_clean, in_process=False, reason=error_type
+            )
+            target_url = target_url or str(snap.get("primary_target_url") or "")
+            parent_list_url = parent_list_url or str(snap.get("primary_parent_list_url") or "")
+            traceback_str = traceback_str or format_snapshot_summary_text(snap)
+            if diagnostics is None:
+                diagnostics = {
+                    "active_urls": snap.get("active_urls", []),
+                    "active_phases": snap.get("active_phases", []),
+                    "hardware_and_network": snap.get("hardware_and_network", {}),
+                    "database": snap.get("database", {}),
+                    "persisted_thread_states": snap.get("persisted_thread_states", []),
+                }
+        except Exception as diag_err:  # noqa: BLE001
+            logger.debug("Diagnostic enrichment skipped: %s", diag_err)
+        return target_url, parent_list_url, traceback_str, diagnostics
+
+    @classmethod
+    def _resolve_local_error_html(
+        cls, date_str: str, job_key: str, raw_html: bytes | None
+    ) -> tuple[bytes | None, list[str]]:
+        local_error_html_paths: list[str] = []
+        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        existing_err_dir = fallback_base / "runs" / date_str / "error_pages" / job_key
+        if not existing_err_dir.exists():
+            return raw_html, local_error_html_paths
+        existing_htmls = sorted(existing_err_dir.glob("*.html"))
+        local_error_html_paths = [str(p) for p in existing_htmls[:MAX_LOCAL_ERROR_HTML_PATHS]]
+        if not raw_html and existing_htmls:
+            try:
+                raw_html = existing_htmls[0].read_bytes()
+            except OSError as exc:
+                logger.debug("Could not read fallback error HTML %s: %s", existing_htmls[0], exc)
+        return raw_html, local_error_html_paths
+
+    @classmethod
     def record_job_failure(
         cls,
         company: str,
@@ -156,6 +215,7 @@ class FailureReporter:
         parent_list_url = str(extra_context.get("parent_list_url", ""))
         http_status_raw = extra_context.get("http_status")
         http_status = int(http_status_raw) if http_status_raw is not None else None
+        diagnostics = extra_context.get("diagnostics")
         if not date_str:
             date_str = datetime.datetime.now(datetime.UTC).date().strftime("%Y%m%d")
 
@@ -163,18 +223,11 @@ class FailureReporter:
         type_clean = str(property_type).lower()
         job_key = f"{comp_clean}_{type_clean}"
 
+        target_url, parent_list_url, traceback_str, diagnostics = cls._auto_enrich_hang_diagnostics(
+            comp_clean, type_clean, error_type, target_url, parent_list_url, traceback_str, diagnostics
+        )
+        raw_html, local_error_html_paths = cls._resolve_local_error_html(date_str, job_key, raw_html)
         html_key = None
-        local_error_html_paths: list[str] = []
-        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
-        existing_err_dir = fallback_base / "runs" / date_str / "error_pages" / job_key
-        if existing_err_dir.exists():
-            existing_htmls = sorted(existing_err_dir.glob("*.html"))
-            local_error_html_paths = [str(p) for p in existing_htmls[:MAX_LOCAL_ERROR_HTML_PATHS]]
-            if not raw_html and existing_htmls:
-                try:
-                    raw_html = existing_htmls[0].read_bytes()
-                except OSError as exc:
-                    logger.debug("Could not read fallback error HTML %s: %s", existing_htmls[0], exc)
 
         if raw_html:
             url_hash = hashlib.sha256((target_url or job_key).encode("utf-8")).hexdigest()[:16]
@@ -194,6 +247,8 @@ class FailureReporter:
             "traceback": traceback_str,
             "timestamp": now_iso,
         }
+        if diagnostics:
+            current_entry["diagnostics"] = diagnostics
         failures_history = (prev_failures + [current_entry])[-MAX_FAILURES_PER_JOB:]
 
         record: dict[str, Any] = {
@@ -219,6 +274,8 @@ class FailureReporter:
             "failure_count": len(failures_history),
             "failures": failures_history,
         }
+        if diagnostics:
+            record["diagnostics"] = diagnostics
 
         storage_uploaded = cls._upload_failure_telemetry(record, raw_html, html_key, metadata_key)
 
@@ -263,14 +320,13 @@ class FailureReporter:
             mtime = lpath.stat().st_mtime
         except OSError:
             return False
-        # ログ行はローカル時刻のため、UTC 日付では前日扱いとなる対象日早朝の更新も許容し、行日付で最終判定する
         modified = datetime.datetime.fromtimestamp(mtime, tz=datetime.UTC).date()
         return modified >= datetime.date.fromisoformat(iso_date) - datetime.timedelta(days=1)
 
     @classmethod
     def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
         error_logs: list[dict[str, Any]] = []
-        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        fallback_base = Path(os.getenv("CRAWLER_LOG_DIR", "").strip() or os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
         if not fallback_base.exists():
             return error_logs
 
@@ -278,8 +334,11 @@ class FailureReporter:
         log_files = set(fallback_base.glob("*.log")) | {
             p for p in fallback_base.glob("*.log.*") if _ROTATED_LOG_NAME_PATTERN.search(p.name)
         }
+        job_logs_dir = fallback_base / "runs" / date_str / "jobs"
+        if job_logs_dir.exists():
+            log_files |= set(job_logs_dir.glob("*.log"))
         for lpath in sorted(log_files):
-            name_dates = {"".join(parts) for parts in _LOG_NAME_DATE_PATTERN.findall(lpath.name)}
+            name_dates = {"".join(parts) for parts in _LOG_NAME_DATE_PATTERN.findall(str(lpath))}
             if name_dates and date_str not in name_dates:
                 continue
             if not name_dates and not cls._modified_on_or_after(lpath, iso_date):
@@ -357,7 +416,6 @@ class FailureReporter:
                 with open(local_file, encoding="utf-8") as f:
                     data = json.load(f)
                     if not data.get("gcs_html_path"):
-                        # Link existing local error page HTML if available
                         error_pages_dir = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs")) / "runs" / date_str / "error_pages" / job_key
                         if error_pages_dir.exists():
                             html_files = sorted(error_pages_dir.glob("*.html"))

@@ -233,10 +233,31 @@ class PropertyTypeDetector:
 
         return predicted_type
 
+    _SIMILE_NOISE_PHRASES = (
+        "戸建のような",
+        "戸建てのような",
+        "一戸建てのような",
+        "一戸建のような",
+        "戸建感覚",
+        "戸建て感覚",
+        "マンションのような",
+        "ホテルライク",
+    )
+
+    @classmethod
+    def _strip_simile_noise(cls, text: str) -> str:
+        if not text or not isinstance(text, str):
+            return ""
+        cleaned = text
+        for phrase in cls._SIMILE_NOISE_PHRASES:
+            cleaned = cleaned.replace(phrase, " ")
+        return cleaned
+
     @classmethod
     def _first_keyword_hit(cls, text: str, keywords) -> str | None:
+        cleaned = cls._strip_simile_noise(text)
         for kw in keywords:
-            if kw in text:
+            if kw in cleaned:
                 return kw
         return None
 
@@ -250,6 +271,7 @@ class PropertyTypeDetector:
         if not text or not isinstance(text, str):
             return None
 
+        text = cls._strip_simile_noise(text)
         has_definite_tochi = any(
             k in text for k in ("売地", "売土地", "売り土地", "建築条件付土地")
         )
@@ -416,12 +438,13 @@ class PropertyTypeDetector:
         """
         # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
         # ただしタイトルに一棟アパート・戸建・土地等の明確な他種別キーワードが含まれる場合はスキップ
-        title_has_itto_kw = bool(title and (any(k in title for k in cls.ITTO_KEYWORDS) or "アパート" in title))
-        title_has_non_mansion = bool(title and (
+        cleaned_title = cls._strip_simile_noise(title) if title else ""
+        title_has_itto_kw = bool(cleaned_title and (any(k in cleaned_title for k in cls.ITTO_KEYWORDS) or "アパート" in cleaned_title))
+        title_has_non_mansion = bool(cleaned_title and (
             title_has_itto_kw or
-            any(k in title for k in cls.KODATE_KEYWORDS) or
-            any(k in title for k in cls.TOCHI_KEYWORDS) or
-            "売地" in title
+            any(k in cleaned_title for k in cls.KODATE_KEYWORDS) or
+            any(k in cleaned_title for k in cls.TOCHI_KEYWORDS) or
+            "売地" in cleaned_title
         ))
         if not title_has_non_mansion and specs and cls._is_unit_mansion_indicator(specs):
             return "mansion"

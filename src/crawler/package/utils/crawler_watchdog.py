@@ -39,6 +39,17 @@ def get_progress_file_path(company: str, ptype: str) -> Path:
     return get_progress_dir() / f"progress_{company}_{ptype}.touch"
 
 
+def get_progress_file_mtime(company: str, ptype: str) -> float:
+    """進捗通知ファイルの最終更新時刻 (epoch秒) を返す。存在しない場合は 0.0"""
+    try:
+        p = get_progress_file_path(company, ptype)
+        if p.exists():
+            return float(p.stat().st_mtime)
+    except Exception:
+        pass
+    return 0.0
+
+
 def touch_crawler_progress(company: str, ptype: str) -> None:
     """子プロセスが物件詳細取得や保存時に呼び出し、進捗ファイルのmtimeを更新する"""
     try:
