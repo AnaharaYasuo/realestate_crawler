@@ -383,15 +383,16 @@ async def _probe_next_page_fetch(
 ) -> tuple[int, bool, bool, str | None]:
     if next_url == list_url.strip():
         return 1, False, False, f"parseNextPage returned same URL (loop): {next_url}"
-    next_fetch_ok = False
-    try:
-        if _remaining(deadline) > 2:
-            nxt_page = await _fetch_soup(
-                session, next_url, parser, deadline, pw=pw, force_pw=force_pw
-            )
-            next_fetch_ok = nxt_page is not None
-    except Exception as exc:
-        return 1, False, False, f"next page fetch failed: {exc}"
+    if _remaining(deadline) <= 2:
+        return 1, True, True, None
+    nxt_page, last_exc = await _fetch_list_page_for_paging(
+        session, parser, next_url, deadline, pw, force_pw
+    )
+    if nxt_page is None:
+        if last_exc is None or not str(last_exc).strip():
+            return 1, True, True, None
+        return 1, False, False, f"next page fetch failed: {last_exc}"
+    next_fetch_ok = True
     pages, exhausted, ok = evaluate_paging_result(
         list_url, next_url, next_fetch_ok=next_fetch_ok
     )
@@ -464,7 +465,7 @@ def _http_timeout_sec() -> float:
 def _fetch_timeout_sec(url: str, deadline: float) -> float:
     """Per-URL HTTP budget. Keio WP JSON payloads are large (~0.5MB) and often need >3s."""
     base = _http_timeout_sec()
-    if "keiofudosan" in url or "get_search_result_sale" in url:
+    if "keiofudosan" in url or "get_search_result_sale" in url or "misawa" in url:
         base = max(base, 12.0)
     return min(max(1.0, base), max(1.0, _remaining(deadline)), 15.0)
 
