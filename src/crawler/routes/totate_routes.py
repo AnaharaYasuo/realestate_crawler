@@ -15,8 +15,8 @@ from package.api.totate import (
 totate_bp = Blueprint('totate', __name__)
 
 def get_start_url(property_type='mansion'):
-    # 東京都世田谷区 (city[]=13112) をデフォルトのスタートとする
-    return f"https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/{property_type}/kanto/?city[]=13112&limit=100"
+    # 全国の物件検索結果一覧（city[]等の地域絞り込みを指定しないことで全国全件を取得）
+    return f"https://sumikae.ttfuhan.co.jp/buy/search/result/detail_search/{property_type}/?limit=100"
 
 @totate_bp.route(API_KEY_TOTATE_MANSION_START, methods=['POST', 'GET'])
 def totate_mansion_start():
