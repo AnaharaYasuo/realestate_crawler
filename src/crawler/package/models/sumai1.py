@@ -20,11 +20,11 @@ class Sumai1Model(PropertyBaseModel, TransportationMixin):
 class Sumai1Mansion(Sumai1Model):
     madori = models.TextField(blank=True)
     senyuMensekiStr = models.TextField(blank=True)
-    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
 
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
 
     balconyMensekiStr = models.TextField(blank=True)
     saikouKadobeya = models.TextField(blank=True)
@@ -61,12 +61,12 @@ class Sumai1Mansion(Sumai1Model):
 
 class Sumai1Tochi(Sumai1Model):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenchikuJoken = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)
@@ -96,15 +96,15 @@ class Sumai1Tochi(Sumai1Model):
 class Sumai1Investment(Sumai1Model):
     # 投資用共通
     grossYield = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    annualRent = models.IntegerField(null=True)
-    monthlyRent = models.IntegerField(null=True)
+    annualRent = models.IntegerField(null=True, blank=True)
+    monthlyRent = models.IntegerField(null=True, blank=True)
     currentStatus = models.TextField(blank=True)
     propertyType = models.TextField(blank=True) # "Apartment", "Mansion", "Building", "Tochi"
 
     # 建物スペック
     kouzou = models.TextField(blank=True)
     chikunengetsuStr = models.TextField(blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     kaisuStr = models.TextField(default="", blank=True)
@@ -130,9 +130,9 @@ class Sumai1Investment(Sumai1Model):
 
 class Sumai1Kodate(Sumai1Model):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     tatemonoMensekiStr = models.TextField(blank=True)
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
 
     kaisuKouzou = models.TextField(blank=True)
     kaisu = models.TextField(blank=True)
@@ -141,9 +141,9 @@ class Sumai1Kodate(Sumai1Model):
 
     tyusyajo = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)

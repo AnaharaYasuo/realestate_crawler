@@ -185,21 +185,43 @@ def _check_wait_results(timeout: float, curr: threading.Thread) -> None:
         logger.info("All fire-and-forget background threads finished successfully")
 
 
+def _shutdown_local_worker_executor_nonblocking() -> None:
+    global _local_worker_executor
+    if _local_worker_executor is None:
+        return
+    try:
+        _local_worker_executor.shutdown(wait=False, cancel_futures=True)
+        import concurrent.futures.thread as _cft
+        for t in getattr(_local_worker_executor, "_threads", ()):
+            _cft._threads_queues.pop(t, None)
+    except Exception:
+        pass
+    _local_worker_executor = None
+
+
 def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
-    cancelled_count = 0
+    if timeout_expired and not os.path.exists(STOP_FLAG_FILE):
+        try:
+            logger.warning("Fire-and-forget wait timeout expired; shutting down local worker executor")
+        except Exception:
+            pass
     with _active_threads_lock:
-        for fut in _active_fire_and_forget_futures:
-            if not fut.done() and fut.cancel():
-                cancelled_count += 1
+        cancelled_count = sum(1 for fut in _active_fire_and_forget_futures if not fut.done() and fut.cancel())
     if cancelled_count > 0:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
+    _shutdown_local_worker_executor_nonblocking()
 
 
 def _touch_active_progress_files() -> None:
     """Update progress touch files to signal watchdog that worker threads are active."""
     try:
+        env_comp = os.getenv("CRAWLER_JOB_COMPANY")
+        env_type = os.getenv("CRAWLER_JOB_TYPE")
+        if env_comp and env_type:
+            touch_crawler_progress(env_comp.lower(), env_type.lower())
+            return
         prog_dir = Path("logs/progress")
         if prog_dir.exists():
             for touch_file in prog_dir.glob("progress_*.touch"):
@@ -978,10 +1000,24 @@ class DynamicSemaphore:
 class ApiAsyncProcBase(metaclass=ABCMeta):
     def _touch_watchdog_progress(self, item=None):
         try:
+            env_comp = os.getenv("CRAWLER_JOB_COMPANY")
+            env_type = os.getenv("CRAWLER_JOB_TYPE")
+            if env_comp and env_type:
+                touch_crawler_progress(env_comp.lower(), env_type.lower())
+                return
             comp = self._detect_company_name(item) if item else self._resolve_target_company()
             ptype = PropertyTypeDetector.detect_from_object(item) if item else getattr(getattr(self, 'parser', None), 'property_type', None)
             if comp and ptype:
-                touch_crawler_progress(str(comp).lower(), str(ptype).lower())
+                ptype_norm = str(ptype).lower()
+                ptype_map = {
+                    "investmentapartment": "invest_apartment",
+                    "investment_apartment": "invest_apartment",
+                    "investmentkodate": "invest_kodate",
+                    "investment_kodate": "invest_kodate",
+                    "investmentbuilding": "invest_building",
+                    "investment_building": "invest_building",
+                }
+                touch_crawler_progress(str(comp).lower(), ptype_map.get(ptype_norm, ptype_norm))
         except Exception:
             pass
 
@@ -1426,6 +1462,7 @@ LOG_FAILED_TO_PARSE_MIDDLE_PAGE = "Failed to parse middle page: %s"
 class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
 
     async def _fetch_middle_page_response(self, session, current_url):
+        self._touch_watchdog_progress()
         try:
             if self._isBsMiddlePage():
                 return await self.parser.getResponseBs(session, current_url, self.parser.getCharset())
@@ -1542,6 +1579,7 @@ class ParseMiddlePageAsyncBase(ApiAsyncProcBase):
                 detail_url = self._detailItemUrl(item)
                 if not _claim_detail_dispatch(keys, api_url, detail_url):
                     continue
+                self._touch_watchdog_progress()
                 result = await self._fetchDetailOnce(keys, detail_url, api_url, loop)
                 if isinstance(result, list):
                     all_results.extend(result)
@@ -2528,9 +2566,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
     def _afterRunProc(self, run_result):
         logging.debug("start afterRunProc")
         try:
-            for item in run_result:
-                if item is not None:
-                    self._save_item_with_retry(item)
+            # Items are already persisted in _treatPage -> _handle_saved_property.
+            _ = run_result
         finally:
             close_old_connections()
             logging.debug("finished afterRunProc")

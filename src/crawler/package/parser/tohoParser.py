@@ -85,7 +85,10 @@ class TohoBaseParser(ParserBase):
     def _parsePropertyName(self, response: BeautifulSoup, specs=None) -> str:
         h1 = response.find("h1")
         if h1:
-            return h1.get_text(strip=True)
+            raw_h1 = h1.get_text(" ", strip=True)
+            cleaned_h1 = re.sub(r"^(?:お気に入りに追加\s*)+", "", raw_h1).strip()
+            if cleaned_h1:
+                return cleaned_h1
         if response.title:
             return response.title.get_text(strip=True).split("【")[0].strip()
         return ""

@@ -6,10 +6,10 @@ from .base import PropertyBaseModel, TransportationMixin
 
 class SumifuModel(PropertyBaseModel, TransportationMixin):
     # Sumifu Specific Fields
-    hikiwatashi = models.TextField()
-    genkyo = models.TextField()
-    tochikenri = models.TextField()
-    torihiki  = models.TextField()
+    hikiwatashi = models.TextField(default="", blank=True)
+    genkyo = models.TextField(default="", blank=True)
+    tochikenri = models.TextField(default="", blank=True)
+    torihiki  = models.TextField(default="", blank=True)
     biko  = models.TextField(blank=True)
 
     address1 = models.TextField(default="", blank=True)
@@ -29,13 +29,13 @@ class SumifuInvestmentKodate(SumifuModel):
     
     # Location
     
-    tochiMensekiStr = models.TextField(default="")
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, default=0) # Strict
-    tatemonoMensekiStr = models.TextField(default="")
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, default=0) # Strict
     
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField()
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
     
     kenpeiStr = models.TextField(default="", blank=True)
@@ -45,7 +45,7 @@ class SumifuInvestmentKodate(SumifuModel):
     setsudou = models.TextField(default="", blank=True)
     chimoku = models.TextField(default="", blank=True)
     youtoChiiki = models.TextField(default="", blank=True)
-    tochikenri = models.TextField()
+    tochikenri = models.TextField(default="", blank=True)
     
     # Extra fields for flexibility if needed, but keeping main ones strict
     propertyType = models.TextField() # To store "Kodate" explicitly
@@ -86,7 +86,7 @@ class SumifuInvestmentApartment(SumifuModel):
     setsudou = models.TextField(default="", blank=True)
     chimoku = models.TextField(default="", blank=True)
     youtoChiiki = models.TextField(default="", blank=True)
-    tochikenri = models.TextField()
+    tochikenri = models.TextField(default="", blank=True)
 
     propertyType = models.TextField() # To store "Apartment" explicitly
 
@@ -94,10 +94,10 @@ class SumifuInvestmentApartment(SumifuModel):
         db_table = "sumifu_investment_apartment"
 
 class SumifuMansion(SumifuModel):
-    madori = models.TextField()
-    senyuMensekiStr = models.TextField()
+    madori = models.TextField(default="", blank=True)
+    senyuMensekiStr = models.TextField(default="", blank=True)
     senyuMenseki = models.DecimalField(max_digits=8, decimal_places=3) # Strict
-    chikunengetsuStr = models.TextField()
+    chikunengetsuStr = models.TextField(default="", blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
 
     balconyMensekiStr = models.TextField(default="", blank=True)
@@ -106,20 +106,20 @@ class SumifuMansion(SumifuModel):
     kadobeya = models.TextField(default="", blank=True)
     soukosuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
-    kanriKeitaiKaisya = models.TextField()
-    kanriKeitai = models.TextField()
-    kanriKaisya = models.TextField()
-    kanrihiStr = models.TextField()
-    kanrihi = models.IntegerField(null=True)
-    syuzenTsumitateStr = models.TextField()
-    syuzenTsumitate = models.IntegerField(null=True)
+    kanriKeitaiKaisya = models.TextField(default="", blank=True)
+    kanriKeitai = models.TextField(default="", blank=True)
+    kanriKaisya = models.TextField(default="", blank=True)
+    kanrihiStr = models.TextField(default="", blank=True)
+    kanrihi = models.IntegerField(null=True, blank=True)
+    syuzenTsumitateStr = models.TextField(default="", blank=True)
+    syuzenTsumitate = models.IntegerField(null=True, blank=True)
     tyusyajo = models.TextField(blank=True)
     #追加項目
     kaisuKouzou = models.TextField(default="", blank=True) # Added for combined structure/floor label
     kaisu = models.IntegerField(null=True, blank=True) # Floor number (e.g. 5)
     kaisuStr = models.TextField(default="", blank=True) # Building height or raw string (e.g. 地上15階建)
     
-    kouzou  = models.TextField()
+    kouzou  = models.TextField(default="", blank=True)
     sonotaHiyouStr  = models.TextField(blank=True)
     bunjoKaisya  = models.TextField(blank=True)
     sekouKaisya  = models.TextField(blank=True)
@@ -127,7 +127,7 @@ class SumifuMansion(SumifuModel):
     floorType_kai = models.IntegerField(null=True, blank=True)
     floorType_chijo = models.IntegerField(null=True, blank=True)
     floorType_chika = models.IntegerField(null=True, blank=True)
-    floorType_kouzou = models.TextField(default="")
+    floorType_kouzou = models.TextField(default="", blank=True)
     kyutaishin = models.IntegerField(null=True, blank=True)
 
     balconyMenseki = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
@@ -141,10 +141,10 @@ class SumifuMansion(SumifuModel):
         abstract = False
 
 class SumifuTochi(SumifuModel):
-    tochiMensekiStr = models.TextField()
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3) # Strict
-    chimokuChisei = models.TextField()
-    chimoku = models.TextField() 
+    chimokuChisei = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True) 
     chisei = models.TextField(blank=True, default="")
     setsudou = models.TextField(blank=True)
     douro = models.TextField(blank=True)
@@ -152,7 +152,7 @@ class SumifuTochi(SumifuModel):
     douroHaba = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
     douroKubun = models.TextField(blank=True)
     setsumen = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
-    kenpeiYousekiStr = models.TextField()
+    kenpeiYousekiStr = models.TextField(default="", blank=True)
     kenpeiStr = models.TextField(blank=True)
     yousekiStr = models.TextField(blank=True)
     kenpei = models.IntegerField(null=True, blank=True)
@@ -182,17 +182,17 @@ class SumifuTochi(SumifuModel):
         abstract = False    
 
 class SumifuKodate(SumifuModel):
-    tochiMensekiStr = models.TextField()
+    tochiMensekiStr = models.TextField(default="", blank=True)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3) # Strict
-    tatemonoMensekiStr = models.TextField()
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3) # Strict
-    madori = models.TextField() # Strict
-    chikunengetsuStr = models.TextField()
+    madori = models.TextField(default="", blank=True) # Strict
+    chikunengetsuStr = models.TextField(default="", blank=True)
     chikunengetsu = models.DateField(null=True, blank=True)
-    kaisuKouzou  = models.TextField()
+    kaisuKouzou  = models.TextField(default="", blank=True)
     kouzou  = models.TextField(blank=True)
-    chimokuChisei = models.TextField()
-    chimoku = models.TextField()
+    chimokuChisei = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True)
     chisei = models.TextField(blank=True, default="")
     setsudou = models.TextField(blank=True)
     douro = models.TextField(blank=True)
@@ -202,7 +202,7 @@ class SumifuKodate(SumifuModel):
     setsumen = models.DecimalField(max_digits=6,decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
     yousekiStr = models.TextField(blank=True)
-    kenpeiYousekiStr = models.TextField()
+    kenpeiYousekiStr = models.TextField(default="", blank=True)
     kenpei = models.IntegerField(null=True, blank=True)
     youseki = models.IntegerField(null=True, blank=True)
     chiikiChiku = models.TextField(blank=True, default="")

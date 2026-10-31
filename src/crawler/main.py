@@ -541,8 +541,12 @@ if __name__ == "__main__":
             signal.signal(signal.SIGTERM, handle_sigterm)
             signal.signal(signal.SIGINT, handle_sigterm)
 
+            os.environ["CRAWLER_JOB_COMPANY"] = str(company).lower()
+            os.environ["CRAWLER_JOB_TYPE"] = str(prop_type).lower()
             logger.info(f"Starting {company} {prop_type} crawl via CLI...")
-            touch_crawler_progress(company, prop_type)
+            touch_file_path = os.path.join("logs", "progress", f"progress_{str(company).lower()}_{str(prop_type).lower()}.touch")
+            if not os.path.exists(touch_file_path):
+                touch_crawler_progress(company, prop_type)
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):

@@ -1,7 +1,15 @@
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import (
+    InvestmentParserBase,
+    KodateParserBase,
+    ListItem,
+    MansionParserBase,
+    ParserBase,
+    SkipPropertyException,
+    TochiParserBase,
+)
 from package.models.sumai1 import Sumai1Mansion, Sumai1Kodate, Sumai1Tochi, Sumai1Investment
 from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
@@ -482,6 +490,12 @@ class Sumai1TochiParser(Sumai1Parser, TochiParserBase):
 
 
 class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
+    def _reject_non_property_url(self, url) -> None:
+        super()._reject_non_property_url(url)
+        url_low = str(url or "").lower()
+        if any(seg in url_low for seg in ("/buyers/tochi/", "/buyers/kodate/", "/buyers/mansion/")):
+            raise SkipPropertyException(f"Sumai1 non-investment property mixed into investment crawl: {url}")
+
     def _parseRights(self, response, specs=None):
         return super()._parseRights(response, specs)
 
@@ -603,6 +617,7 @@ class Sumai1InvestmentParser(Sumai1Parser, InvestmentParserBase):
             item.soukosu = converter.parse_numeric(str(soukosu_val))
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        self._reject_non_property_url(getattr(item, "pageUrl", ""))
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 

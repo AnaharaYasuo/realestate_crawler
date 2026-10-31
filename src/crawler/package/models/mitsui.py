@@ -67,12 +67,12 @@ class MitsuiMansion(MitsuiModel):
         
 class MitsuiTochi(MitsuiModel):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenchikuJoken = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)
@@ -104,9 +104,9 @@ class MitsuiTochi(MitsuiModel):
         
 class MitsuiKodate(MitsuiModel):
     tochiMensekiStr = models.TextField(blank=True)
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     tatemonoMensekiStr = models.TextField(blank=True)
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     
     kaisuKouzou  = models.TextField(blank=True)
     kaisu  = models.TextField(blank=True)
@@ -115,9 +115,9 @@ class MitsuiKodate(MitsuiModel):
 
     tyusyajo = models.TextField(blank=True)
     chimoku = models.TextField(blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     kenpeiStr = models.TextField(blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     yousekiStr = models.TextField(blank=True)
 
     youtoChiiki = models.TextField(blank=True)
@@ -144,8 +144,8 @@ class MitsuiInvestmentKodate(MitsuiModel):
     currentStatus = models.TextField() # Strict
     
     # Common specs
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField()
+    kouzou = models.TextField(default="")
+    chikunengetsuStr = models.TextField(default="")
     
     # Areas (Strict for Kodate)
     tochiMensekiStr = models.TextField(default="")
@@ -207,5 +207,3 @@ class MitsuiInvestmentApartment(MitsuiModel):
 
     class Meta(MitsuiModel.Meta):
         db_table = "mitsui_investment_apartment"
-
-        
