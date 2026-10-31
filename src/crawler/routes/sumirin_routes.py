@@ -18,7 +18,9 @@ sumirin_bp = Blueprint('sumirin', __name__)
 
 @sumirin_bp.route(API_KEY_SUMIRIN_MANSION_START, methods=['POST', 'GET'])
 def sumirin_mansion_start():
-    return ParseSumirinMansionStartAsync().main("https://www.suminavi.com/buy/mansion/")
+    return ParseSumirinMansionStartAsync().main(
+        "https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd=01&s_mode=3&f_word=&p_num=100"
+    )
 
 sumirinMansionStart = sumirin_mansion_start
 
@@ -33,7 +35,9 @@ sumirinMansionDetail = sumirin_mansion_detail
 
 @sumirin_bp.route(API_KEY_SUMIRIN_KODATE_START, methods=['POST', 'GET'])
 def sumirin_kodate_start():
-    return ParseSumirinKodateStartAsync().main("https://www.suminavi.com/buy/house/")
+    return ParseSumirinKodateStartAsync().main(
+        "https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd=02&s_mode=3&f_word=&p_num=100"
+    )
 
 sumirinKodateStart = sumirin_kodate_start
 
@@ -48,7 +52,9 @@ sumirinKodateDetail = sumirin_kodate_detail
 
 @sumirin_bp.route(API_KEY_SUMIRIN_TOCHI_START, methods=['POST', 'GET'])
 def sumirin_tochi_start():
-    return ParseSumirinTochiStartAsync().main("https://www.suminavi.com/buy/land/")
+    return ParseSumirinTochiStartAsync().main(
+        "https://www.suminavi.com/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd=03&s_mode=3&f_word=&p_num=100"
+    )
 
 sumirinTochiStart = sumirin_tochi_start
 
