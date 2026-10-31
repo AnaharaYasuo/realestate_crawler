@@ -1938,7 +1938,8 @@ class ParseDetailPageAsyncBase(ApiAsyncProcBase):
             now = time.monotonic()
             next_allowed = self._SITE_NEXT_ALLOWED.get(company, now)
             scheduled_time = max(now, next_allowed)
-            self._SITE_NEXT_ALLOWED[company] = scheduled_time + delay
+            effective_delay = delay / max(1, self._getPararellLimit())
+            self._SITE_NEXT_ALLOWED[company] = scheduled_time + effective_delay
             wait_sec = scheduled_time - now
 
         if wait_sec > 0:

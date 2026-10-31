@@ -15,10 +15,10 @@ class DummyDetailApi(ParseDetailPageAsyncBase):
         return None
 
     def _getLocalPararellLimit(self) -> int:
-        return 5
+        return 1
 
     def _getCloudPararellLimit(self) -> int:
-        return 5
+        return 1
 
     def _getTimeOutSecond(self) -> int:
         return 30

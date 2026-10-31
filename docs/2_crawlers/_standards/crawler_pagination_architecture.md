@@ -65,3 +65,19 @@
 3. **住友林業ホームサービス (`sumirin`)**:
    - **スタートURL**: 新着12件のみを表示する種別トップページ (`/buy/{mansion|house|land}/`) ではなく、全国 (`r_seq=9`)・種別 (`ed_cd=01`: マンション, `02`: 戸建, `03`: 土地)・1ページ100件 (`p_num=100`) の検索結果一覧 `/buy/estate/searchList?r_seq=9&ec_cd=1&ed_cd={01|02|03}&s_mode=3&f_word=&p_num=100` を使用する。
    - **ページネーション**: `li.next a` 等の次ページリンク (`&p=2`, `&p=3`, ...) を辿り最終ページまで巡回する。
+
+4. **野村不動産ソリューションズ (`nomura`) (Issue #1167)**:
+   - **スタートURL**: 路線別 (`ensen_*`) ではなく都道府県エリア別 (`/mansion/area_{pref}/`, `/house/area_{pref}/`, `/land/area_{pref}/`) を使用し、複数駅からの重複ヒットを排除する。
+   - **市区町村階層**: `parseRegionPage` / `parseAreaPage` では5桁市区町村コードURL (`/area_{pref}/\d{5}/`) のみを抽出し、3〜4桁の中間集計グループ (`/131/`, `/1311/`) や詳細ページURL (`/id/`) を中間エンドポイントへ誤投入しない。
+5. **アットホーム (`athome`) (Issue #1167)**:
+   - **一覧展開フィルタ**: `_is_athome_list_url` は対象物件種別かつ対象都県 (`tokyo`, `saitama`, `kanagawa`, `chiba`, `aichi`) の市区町村一覧 (`-city/list/`, `city-list/`, `/city/`) のみを許可し、駅 (`-st/list/`)・路線 (`-line/list/`)・地図 (`/map/`, `/rosen_map/`)・賃貸 (`/chintai/`)・新築 (`shinchiku`)・リフォーム (`reform-renovation`) を除外する。
+   - **URL正規化**: `_normalize_athome_url` および `UrlMatcher` で一覧追跡パラメータ (`DOWN`, `BKLISTID`, `SEARCHDIV`, `sref`) を除去し、DBの `pageUrl` と完全一致させる。
+6. **東急リバブル (`tokyu`) (Issue #1167)**:
+   - **URL結合**: `getRootDestUrl` / `getAreaDestUrl` / `getPropertyListDestUrl` で既に `http` から始まる絶対URLへの `BASE_URL` 二重結合を防止し、対象外の `/grantact/` URLを除外する。
+7. **LIFULL HOME'S 投資 (`homes`) (Issue #1167)**:
+   - **種別パラメータ**: `tbg[]=1`（区分マンション）、`tbg[]=2`（一棟アパート）、`tbg[]=8`（戸建賃貸）、`tbg[]=5`（土地）を各対象テーブルと厳密に対応付ける。
+8. **一覧カード価格抽出と差分クロール (`baseParser`, `differential`) (Issue #1167)**:
+   - **単一カード隔離**: `_find_card_container` および `_extract_card_price` は、複数の異なる物件価格を含む親コンテナ（ページ全体ラッパーや複数住戸カード）から価格を誤抽出してはならない（単一カードが特定できない場合は `None` を返し、TTL内の偽の価格変更再フェッチを防止する）。
+9. **長谷工リアルエステート (`haseko`) ＆ 健美家 (`kenbiya`) (Issue #1167)**:
+   - **`haseko`**: スタートURLを物件一覧ページ `/syutoken-buy/mansion/areas/tokyoto-list/` とし、`parseRootPage` でエリア一覧リンクからの展開もサポートする。
+   - **`kenbiya`**: `aiohttp` リクエストが WAF により HTTP 403 となった場合、実セッション時は Playwright ステルスフェッチへフォールバックする。
