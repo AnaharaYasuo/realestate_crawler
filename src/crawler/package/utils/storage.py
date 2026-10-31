@@ -31,8 +31,8 @@ class ObjectStorageManager:
         self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
         self.endpoint_url = os.getenv("STORAGE_ENDPOINT", MINIO_DEFAULT_ENDPOINT)
         is_cloud_env = os.getenv("IS_CLOUD", "").strip().lower() in ("true", "1")
-        exec_env = os.getenv("EXECUTION_ENV", "").strip().lower()
-        if (exec_env == "host" or not is_cloud_env) and MINIO_DEFAULT_HOST in self.endpoint_url:
+        # Non-cloud environments resolve minio:9000 to localhost:9000
+        if not is_cloud_env and MINIO_DEFAULT_HOST in self.endpoint_url:
             self.endpoint_url = self.endpoint_url.replace(MINIO_DEFAULT_HOST, MINIO_LOCAL_HOST)
         self.access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
         self.secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")

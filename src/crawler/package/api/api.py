@@ -204,7 +204,7 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
         return
     if timeout_expired and not os.path.exists(STOP_FLAG_FILE):
         try:
-            Path(STOP_FLAG_FILE).write_text("STOP", encoding="utf-8")
+            logger.warning("Fire-and-forget wait timeout expired; shutting down local worker executor")
         except Exception:
             pass
     with _active_threads_lock:

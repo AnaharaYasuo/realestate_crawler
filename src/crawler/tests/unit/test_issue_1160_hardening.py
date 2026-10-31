@@ -83,7 +83,7 @@ class TestWatchdogAndFireAndForgetHardening:
 
         api_module._cancel_unstarted_futures_on_stop(timeout_expired=True)
 
-        assert stop_file.exists()
+        assert not stop_file.exists()
         mock_executor.shutdown.assert_called_once_with(wait=False, cancel_futures=True)
         assert api_module._local_worker_executor is None
 

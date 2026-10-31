@@ -58,7 +58,7 @@ class TokyuMansion(TokyuModel):
 class TokyuTochi(TokyuModel):
     tochiMenseki = models.DecimalField(max_digits=8,decimal_places=3)
     chimokuChisei = models.TextField(default="", blank=True)
-    chimoku = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="")
     chisei = models.TextField(blank=True)
     setsudou = models.TextField(default="", blank=True)
     douro = models.TextField(default="", blank=True)

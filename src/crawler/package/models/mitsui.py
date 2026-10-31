@@ -144,24 +144,24 @@ class MitsuiInvestmentKodate(MitsuiModel):
     currentStatus = models.TextField() # Strict
     
     # Common specs
-    kouzou = models.TextField(default="", blank=True)
-    chikunengetsuStr = models.TextField(default="", blank=True)
+    kouzou = models.TextField(default="")
+    chikunengetsuStr = models.TextField(default="")
     
     # Areas (Strict for Kodate)
-    tochiMensekiStr = models.TextField(default="", blank=True)
+    tochiMensekiStr = models.TextField(default="")
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2) # Strict
-    tatemonoMensekiStr = models.TextField(default="", blank=True)
+    tatemonoMensekiStr = models.TextField(default="")
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2) # Strict
     
     # Land Details
-    setsudou = models.TextField(default="", blank=True)
-    chimoku = models.TextField(default="", blank=True)
-    youtoChiiki = models.TextField(default="", blank=True)
-    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
-    kenpeiStr = models.TextField(default="", blank=True)
-    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
-    yousekiStr = models.TextField(default="", blank=True)
-    kaisuStr = models.TextField(default="", blank=True)
+    setsudou = models.TextField(default="")
+    chimoku = models.TextField(default="")
+    youtoChiiki = models.TextField(default="")
+    kenpei = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    kenpeiStr = models.TextField(default="")
+    youseki = models.DecimalField(max_digits=10, decimal_places=3, null=True)
+    yousekiStr = models.TextField(default="")
+    kaisuStr = models.TextField(default="")
     
     propertyType = models.TextField() # "Kodate"
 
