@@ -51,6 +51,8 @@ def set_diagnostic_job_context(company: str, property_type: str) -> Path:
     """Initialize diagnostic directory for a specific job in the current process."""
     _active_job_context["company"] = str(company or "")
     _active_job_context["property_type"] = str(property_type or "")
+    _thread_slots.clear()
+    _thread_local.slot = None
     job_dir = get_job_diagnostics_dir(company, property_type)
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -231,7 +233,15 @@ def collect_job_thread_activities(company: str, property_type: str) -> list[dict
     return read_persisted_thread_states(company, property_type)
 
 
-def collect_in_process_thread_stacks() -> list[dict[str, Any]]:
+def _slot_matches_job(slot: dict[str, Any], company: str, property_type: str) -> bool:
+    if not slot:
+        return False
+    if company and slot.get("company") != company:
+        return False
+    return not (property_type and slot.get("property_type") != property_type)
+
+
+def collect_in_process_thread_stacks(company: str = "", property_type: str = "") -> list[dict[str, Any]]:
     """Collect current Python stack traces for all alive threads in the current process."""
     frames = sys._current_frames()
     thread_map = {t.ident: t for t in threading.enumerate() if t.ident is not None}
@@ -242,7 +252,8 @@ def collect_in_process_thread_stacks() -> list[dict[str, Any]]:
         t_obj = thread_map.get(tid)
         t_name = t_obj.name if t_obj else f"Thread-{tid}"
         is_daemon = bool(t_obj.daemon) if t_obj else False
-        slot = _thread_slots.get(tid, {})
+        raw_slot = _thread_slots.get(tid, {})
+        slot = raw_slot if _slot_matches_job(raw_slot, company, property_type) else {}
         started = float(slot.get("phase_started_at") or slot.get("updated_at") or now_ts)
         stack_lines = traceback.format_stack(frame)
         results.append({
@@ -399,7 +410,7 @@ def build_hang_diagnostic_snapshot(
 ) -> dict[str, Any]:
     """Assemble a complete diagnostic snapshot for a hung or failing crawler job."""
     persisted_threads = read_persisted_thread_states(company, property_type)
-    in_proc_threads = collect_in_process_thread_stacks() if in_process else []
+    in_proc_threads = collect_in_process_thread_stacks(company, property_type) if in_process else []
     sorted_threads = _merge_thread_diagnostics(persisted_threads, in_proc_threads)
     active_urls, parent_urls, active_phases = _extract_active_urls_and_phases(sorted_threads)
 
