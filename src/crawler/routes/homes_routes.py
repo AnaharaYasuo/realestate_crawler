@@ -18,7 +18,7 @@ homes_bp = Blueprint('homes', __name__)
 
 @homes_bp.route(API_KEY_HOMES_MANSION_START, methods=['POST', 'GET'])
 def homes_mansion_start():
-    return ParseHomesMansionStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=2")
+    return ParseHomesMansionStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=1")
 
 homesMansionStart = homes_mansion_start
 
@@ -33,7 +33,7 @@ homesMansionDetail = homes_mansion_detail
 
 @homes_bp.route(API_KEY_HOMES_KODATE_START, methods=['POST', 'GET'])
 def homes_kodate_start():
-    return ParseHomesKodateStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=4")
+    return ParseHomesKodateStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=8")
 
 homesKodateStart = homes_kodate_start
 
@@ -48,7 +48,7 @@ homesKodateDetail = homes_kodate_detail
 
 @homes_bp.route(API_KEY_HOMES_INVEST_APARTMENT_START, methods=['POST', 'GET'])
 def homes_invest_apartment_start():
-    return ParseHomesInvestApartmentStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=1")
+    return ParseHomesInvestApartmentStartAsync().main("https://toushi.homes.co.jp/bukkensearch/?tbg[]=2")
 
 homesInvestApartmentStart = homes_invest_apartment_start
 

@@ -93,7 +93,7 @@ class ParseNomuraMansionListFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraMansionParser("")
-    def _getParserFunc(self): return _get_area_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseAreaPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
@@ -104,21 +104,21 @@ class ParseNomuraMansionAreaFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraMansionRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraMansionParser("")
-    def _getParserFunc(self): return _get_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseRegionPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_AREA_GCP
-        return API_KEY_NOMURA_MANSION_AREA
+        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_MANSION_LIST_GCP
+        return API_KEY_NOMURA_MANSION_LIST
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraMansionStartAsync(ApiAsyncProcBase):
     urlList: ClassVar[list[str]] = [
-        "https://www.nomu.com/mansion/ensen_tokyo/",
-        "https://www.nomu.com/mansion/ensen_kanagawa/",
-        "https://www.nomu.com/mansion/ensen_saitama/",
-        "https://www.nomu.com/mansion/ensen_chiba/",
+        "https://www.nomu.com/mansion/area_tokyo/",
+        "https://www.nomu.com/mansion/area_kanagawa/",
+        "https://www.nomu.com/mansion/area_saitama/",
+        "https://www.nomu.com/mansion/area_chiba/",
     ]
     def _generateParser(self): return NomuraMansionParser("")
     def _getLocalPararellLimit(self): return 5
@@ -166,7 +166,7 @@ class ParseNomuraKodateListFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraKodateParser("")
-    def _getParserFunc(self): return _get_area_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseAreaPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
@@ -177,21 +177,21 @@ class ParseNomuraKodateAreaFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraKodateRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraKodateParser("")
-    def _getParserFunc(self): return _get_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseRegionPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_AREA_GCP
-        return API_KEY_NOMURA_KODATE_AREA
+        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_KODATE_LIST_GCP
+        return API_KEY_NOMURA_KODATE_LIST
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraKodateStartAsync(ApiAsyncProcBase):
     urlList: ClassVar[list[str]] = [
-        "https://www.nomu.com/house/ensen_tokyo/",
-        "https://www.nomu.com/house/ensen_kanagawa/",
-        "https://www.nomu.com/house/ensen_saitama/",
-        "https://www.nomu.com/house/ensen_chiba/",
+        "https://www.nomu.com/house/area_tokyo/",
+        "https://www.nomu.com/house/area_kanagawa/",
+        "https://www.nomu.com/house/area_saitama/",
+        "https://www.nomu.com/house/area_chiba/",
     ]
     def _generateParser(self): return NomuraKodateParser("")
     def _getLocalPararellLimit(self): return 5
@@ -239,7 +239,7 @@ class ParseNomuraTochiListFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraTochiParser("")
-    def _getParserFunc(self): return _get_area_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseAreaPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 600
@@ -250,21 +250,21 @@ class ParseNomuraTochiAreaFuncAsync(ParseMiddlePageAsyncBase):
 
 class ParseNomuraTochiRegionFuncAsync(ParseMiddlePageAsyncBase):
     def _generateParser(self): return NomuraTochiParser("")
-    def _getParserFunc(self): return _get_combined_parser(self)
+    def _getParserFunc(self): return self.parser.parseRegionPage
     def _getLocalPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getCloudPararellLimit(self): return MIDDLE_PARARELL_LIMIT
     def _getTimeOutSecond(self): return 2400
     def _getApiKey(self):
-        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_AREA_GCP
-        return API_KEY_NOMURA_TOCHI_AREA
+        if os.getenv('IS_CLOUD', ''): return API_KEY_NOMURA_TOCHI_LIST_GCP
+        return API_KEY_NOMURA_TOCHI_LIST
     def _isBsMiddlePage(self): return True
 
 class ParseNomuraTochiStartAsync(ApiAsyncProcBase):
     urlList: ClassVar[list[str]] = [
-        "https://www.nomu.com/land/ensen_tokyo/",
-        "https://www.nomu.com/land/ensen_kanagawa/",
-        "https://www.nomu.com/land/ensen_saitama/",
-        "https://www.nomu.com/land/ensen_chiba/",
+        "https://www.nomu.com/land/area_tokyo/",
+        "https://www.nomu.com/land/area_kanagawa/",
+        "https://www.nomu.com/land/area_saitama/",
+        "https://www.nomu.com/land/area_chiba/",
     ]
     def _generateParser(self): return NomuraTochiParser("")
     def _getLocalPararellLimit(self): return 5

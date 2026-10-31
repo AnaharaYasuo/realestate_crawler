@@ -359,13 +359,29 @@ class AthomeParser(ParserBase):
             return self.getRootDestUrl(next_tag["href"], base_domain=base_domain)
         return ""
 
+    _ATHOME_TARGET_PREFS = ("tokyo", "saitama", "kanagawa", "chiba", "aichi")
+    _ATHOME_EXCLUDED_LIST_TOKENS = (
+        "/chintai/",
+        "/shinchiku/",
+        "reform-renovation",
+        "/map/",
+        "/line/",
+        "/rosen_map/",
+        "/buyall/",
+        "-st/list",
+        "-line/list",
+        "-locate/list",
+    )
+
     def _normalize_athome_url(self, href: str, base_domain: str) -> str:
+        from package.utils.url_matcher import UrlMatcher
+
         full_url = self.getRootDestUrl(href, base_domain=base_domain)
         parsed = urllib.parse.urlparse(full_url)
-        normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        raw = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
         if parsed.query:
-            normalized += f"?{parsed.query}"
-        return normalized
+            raw += f"?{parsed.query}"
+        return UrlMatcher.normalize(raw) or raw
 
     def _is_athome_detail_path(self, path: str, href: str) -> bool:
         if "RECOMMFLG=1" in href or "sref=nw_reco" in href:
@@ -396,10 +412,32 @@ class AthomeParser(ParserBase):
                 price = self._extract_card_price(a)
                 yield ListItem(url=url, price=price)
 
-    def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
-        if is_list_or_nav or "bklist" in href or "sitemaplist" in path:
+    def _matches_athome_type_prefix(self, p_lower: str) -> bool:
+        ptype = getattr(self, "property_type", "")
+        type_prefixes = {
+            "mansion": ("/mansion/chuko/",),
+            "kodate": ("/kodate/chuko/",),
+            "tochi": ("/tochi/",),
+            "investmentapartment": ("/buy_other/", "/toushi/"),
+        }
+        allowed = type_prefixes.get(ptype)
+        if not allowed:
             return True
-        return any(kw in path for kw in ATHOME_LIST_KEYWORDS)
+        return any(p_lower.startswith(pref) for pref in allowed)
+
+    def _is_athome_list_url(self, path: str, href: str, is_list_or_nav: bool) -> bool:
+        _ = is_list_or_nav
+        p_lower = (path or "").lower()
+        h_lower = (href or "").lower()
+        if any(tok in p_lower or tok in h_lower for tok in self._ATHOME_EXCLUDED_LIST_TOKENS):
+            return False
+        if "bklist" in h_lower or "sitemaplist" in p_lower:
+            return True
+        if not self._matches_athome_type_prefix(p_lower):
+            return False
+        if not any(f"/{pref}/" in p_lower for pref in self._ATHOME_TARGET_PREFS):
+            return False
+        return any(tok in p_lower for tok in ("-city/list", "city-list", "/city/"))
 
     async def _crawl_single_list_page(self, curr_l_url: str, base_domain: str) -> tuple[list[str], str | None]:
         try:

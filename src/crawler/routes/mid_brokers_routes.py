@@ -83,7 +83,7 @@ ietanTochiDetail = ietan_tochi_detail
 # --- Haseko Routes ---
 @mid_brokers_bp.route(API_KEY_HASEKO_MANSION_START, methods=['POST', 'GET'])
 def haseko_mansion_start():
-    return ParseHasekoMansionStartAsync().main("https://www.haseko-chukai.com/syutoken-buy/mansion/areas/tokyoto/")
+    return ParseHasekoMansionStartAsync().main("https://www.haseko-chukai.com/syutoken-buy/mansion/areas/tokyoto-list/")
 hasekoMansionStart = haseko_mansion_start
 
 @mid_brokers_bp.route(API_KEY_HASEKO_MANSION_DETAIL, methods=['POST', 'GET'])

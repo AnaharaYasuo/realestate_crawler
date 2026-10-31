@@ -1016,14 +1016,43 @@ class ParserBase(metaclass=ABCMeta):
         return f"{classes} {tag_id}".lower()
 
     @classmethod
+    def _extract_all_valid_prices(cls, text: str) -> set[int]:
+        """テキストから適正価格（100万円以上）の集合を抽出（2種類超で早期終了）"""
+        prices: set[int] = set()
+        for m in cls._SIMPLE_PRICE_RE.finditer(text):
+            after = text[m.end() : m.end() + 4]
+            if not any(unit in after for unit in cls._NON_PRICE_UNITS):
+                p = converter.parse_price(m.group(1))
+                if p and p >= 1000000:
+                    prices.add(p)
+                    if len(prices) > 1:
+                        return prices
+        return prices
+
+    @classmethod
+    def _extract_selector_prices(cls, container) -> set[int]:
+        """コンテナ内の価格セレクタ要素から一意な適正価格集合を抽出"""
+        prices: set[int] = set()
+        for sel in cls._PRICE_SELECTORS[:-1]:
+            for el in container.select(sel):
+                p = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
+                if p:
+                    prices.add(p)
+                    if len(prices) > 1:
+                        return prices
+        return prices
+
+    @classmethod
     def _has_valid_price_in_container(cls, container) -> bool:
-        for sel in cls._PRICE_SELECTORS:
-            el = container.select_one(sel)
-            if el and cls._parse_valid_price(el.get_text(separator=" ", strip=True)):
-                return True
-        return bool(
-            cls._parse_valid_price(container.get_text(separator=" ", strip=True))
+        sel_prices = cls._extract_selector_prices(container)
+        if len(sel_prices) > 1:
+            return False
+        if len(sel_prices) == 1:
+            return True
+        all_prices = cls._extract_all_valid_prices(
+            container.get_text(separator=" ", strip=True)
         )
+        return len(all_prices) == 1
 
     @classmethod
     def _find_card_container(cls, link):
@@ -1055,17 +1084,19 @@ class ParserBase(metaclass=ABCMeta):
 
     @classmethod
     def _extract_price_from_container(cls, card) -> int | None:
-        """コンテナ要素から価格を抽出するヘルパー"""
+        """コンテナ要素から単一物件の価格を抽出するヘルパー（複数物件ラッパーは除外）"""
         card_text = card.get_text(separator=" ", strip=True)
         if not cls._SIMPLE_PRICE_RE.search(card_text):
             return None
-        for sel in cls._PRICE_SELECTORS:
-            el = card.select_one(sel)
-            if el:
-                price = cls._parse_valid_price(el.get_text(separator=" ", strip=True))
-                if price:
-                    return price
-        return cls._parse_valid_price(card_text)
+        sel_prices = cls._extract_selector_prices(card)
+        if len(sel_prices) > 1:
+            return None
+        if len(sel_prices) == 1:
+            return next(iter(sel_prices))
+        all_prices = cls._extract_all_valid_prices(card_text)
+        if len(all_prices) == 1:
+            return next(iter(all_prices))
+        return None
 
     @classmethod
     def _extract_card_price(cls, link, cache: dict | None = None) -> int | None:

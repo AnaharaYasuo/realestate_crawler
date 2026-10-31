@@ -99,11 +99,18 @@ class TokyuParser(ParserBase):
         # Base implementation, overridden in concrete parser subclasses
         return None
 
+    def _resolve_tokyu_url(self, link_url: str) -> str:
+        if not link_url or "/grantact/" in link_url:
+            return ""
+        if link_url.startswith("http"):
+            return link_url
+        return self.BASE_URL + link_url
+
     def getRootXpath(self):
         return ''
 
     def getRootDestUrl(self, link_url):
-        return self.BASE_URL + link_url
+        return self._resolve_tokyu_url(link_url)
 
     def _extract_pc_root_links(self, response) -> list:
         if not hasattr(response, "select"):
@@ -139,7 +146,7 @@ class TokyuParser(ParserBase):
         return ''
 
     def getAreaDestUrl(self, link_url):
-        return self.BASE_URL + link_url
+        return self._resolve_tokyu_url(link_url)
 
     def _extract_city_area_links(self, response) -> list:
         if not hasattr(response, "find_all"):
@@ -173,7 +180,7 @@ class TokyuParser(ParserBase):
         return ''
 
     def getPropertyListDestUrl(self, link_url):
-        return self.BASE_URL + link_url
+        return self._resolve_tokyu_url(link_url)
 
     def _extract_card_items(self, response) -> list:
         if not hasattr(response, "select"):

@@ -2,13 +2,13 @@
 from flask import Blueprint, request
 from package.api.api import \
     API_KEY_NOMURA_MANSION_START, API_KEY_NOMURA_MANSION_REGION, API_KEY_NOMURA_MANSION_AREA, API_KEY_NOMURA_MANSION_LIST, API_KEY_NOMURA_MANSION_DETAIL, \
-    API_KEY_NOMURA_KODATE_START, API_KEY_NOMURA_KODATE_LIST, API_KEY_NOMURA_KODATE_DETAIL, \
-    API_KEY_NOMURA_TOCHI_START, API_KEY_NOMURA_TOCHI_LIST, API_KEY_NOMURA_TOCHI_DETAIL
+    API_KEY_NOMURA_KODATE_START, API_KEY_NOMURA_KODATE_REGION, API_KEY_NOMURA_KODATE_AREA, API_KEY_NOMURA_KODATE_LIST, API_KEY_NOMURA_KODATE_DETAIL, \
+    API_KEY_NOMURA_TOCHI_START, API_KEY_NOMURA_TOCHI_REGION, API_KEY_NOMURA_TOCHI_AREA, API_KEY_NOMURA_TOCHI_LIST, API_KEY_NOMURA_TOCHI_DETAIL
 
 from package.api.nomura import \
     ParseNomuraMansionStartAsync, ParseNomuraMansionRegionFuncAsync, ParseNomuraMansionAreaFuncAsync, ParseNomuraMansionListFuncAsync, ParseNomuraMansionDetailFuncAsync, \
-    ParseNomuraKodateStartAsync, ParseNomuraKodateListFuncAsync, ParseNomuraKodateDetailFuncAsync, \
-    ParseNomuraTochiStartAsync, ParseNomuraTochiListFuncAsync, ParseNomuraTochiDetailFuncAsync
+    ParseNomuraKodateStartAsync, ParseNomuraKodateRegionFuncAsync, ParseNomuraKodateAreaFuncAsync, ParseNomuraKodateListFuncAsync, ParseNomuraKodateDetailFuncAsync, \
+    ParseNomuraTochiStartAsync, ParseNomuraTochiRegionFuncAsync, ParseNomuraTochiAreaFuncAsync, ParseNomuraTochiListFuncAsync, ParseNomuraTochiDetailFuncAsync
 
 nomura_bp = Blueprint('nomura', __name__)
 
@@ -60,6 +60,22 @@ def nomura_kodate_start():
 
 nomuraKodateStart = nomura_kodate_start
 
+@nomura_bp.route(API_KEY_NOMURA_KODATE_REGION, methods=['POST', 'GET'])
+def nomura_kodate_region():
+    url = request.json['url']
+    ParseNomuraKodateRegionFuncAsync().main(url)
+    return "OK"
+
+nomuraKodateRegion = nomura_kodate_region
+
+@nomura_bp.route(API_KEY_NOMURA_KODATE_AREA, methods=['POST', 'GET'])
+def nomura_kodate_area():
+    url = request.json['url']
+    ParseNomuraKodateAreaFuncAsync().main(url)
+    return "OK"
+
+nomuraKodateArea = nomura_kodate_area
+
 @nomura_bp.route(API_KEY_NOMURA_KODATE_LIST, methods=['POST', 'GET'])
 def nomura_kodate_list():
     url = request.json['url']
@@ -83,6 +99,22 @@ def nomura_tochi_start():
     return "OK"
 
 nomuraTochiStart = nomura_tochi_start
+
+@nomura_bp.route(API_KEY_NOMURA_TOCHI_REGION, methods=['POST', 'GET'])
+def nomura_tochi_region():
+    url = request.json['url']
+    ParseNomuraTochiRegionFuncAsync().main(url)
+    return "OK"
+
+nomuraTochiRegion = nomura_tochi_region
+
+@nomura_bp.route(API_KEY_NOMURA_TOCHI_AREA, methods=['POST', 'GET'])
+def nomura_tochi_area():
+    url = request.json['url']
+    ParseNomuraTochiAreaFuncAsync().main(url)
+    return "OK"
+
+nomuraTochiArea = nomura_tochi_area
 
 @nomura_bp.route(API_KEY_NOMURA_TOCHI_LIST, methods=['POST', 'GET'])
 def nomura_tochi_list():

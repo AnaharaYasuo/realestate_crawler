@@ -111,6 +111,44 @@ class KenbiyaParserBase(ParserBase):
                 await asyncio.sleep(min_interval - elapsed)
             KenbiyaParserBase._last_request_time = time.monotonic()
 
+    async def _fetch_with_playwright(self, url: str) -> bytes:
+        from playwright.async_api import async_playwright
+
+        logging.info(f"Kenbiya Playwright fallback fetching: {url}")
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+            try:
+                context = await browser.new_context(
+                    user_agent=self._get_next_user_agent(),
+                    viewport={"width": 1920, "height": 1080},
+                    locale="ja-JP",
+                    timezone_id="Asia/Tokyo",
+                )
+                try:
+                    await context.add_init_script(
+                        "Object.defineProperty(navigator, 'webdriver', { get: () => undefined });"
+                    )
+                    page = await context.new_page()
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                        await page.wait_for_timeout(1500)
+                        content_str = await page.content()
+                        return content_str.encode("utf-8")
+                    finally:
+                        await page.close()
+                finally:
+                    await context.close()
+            finally:
+                await browser.close()
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -131,6 +169,13 @@ class KenbiyaParserBase(ParserBase):
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     last_status = response.status
+                    if last_status == 403 and isinstance(session, aiohttp.ClientSession):
+                        try:
+                            pw_bytes = await self._fetch_with_playwright(url)
+                            if pw_bytes and b"403 Forbidden" not in pw_bytes[:512]:
+                                return pw_bytes
+                        except Exception as pw_err:
+                            logging.warning(f"Kenbiya Playwright fallback failed for {url}: {pw_err}")
                     content = await self._handle_response(
                         response, url, attempt, max_timeouts
                     )

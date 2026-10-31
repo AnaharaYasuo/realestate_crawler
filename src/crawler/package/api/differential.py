@@ -145,16 +145,37 @@ async def _process_differential_chunk(
     now: Any,
     ttl_days: int,
 ) -> tuple[list[str], list[str]]:
+    from package.utils.url_matcher import UrlMatcher
+
     chunk_urls = [item.url for item in chunk_items if item.url]
     if not chunk_urls:
         return [], []
 
+    lookup_url_set: set[str] = set()
+    for raw_u in chunk_urls:
+        lookup_url_set.add(raw_u)
+        norm_u = UrlMatcher.normalize(raw_u)
+        if norm_u:
+            lookup_url_set.add(norm_u)
+            base_u = norm_u.rstrip("/")
+            if base_u:
+                lookup_url_set.add(base_u)
+                lookup_url_set.add(base_u + "/")
+    lookup_urls = list(lookup_url_set)
+
     try:
-        def query_existing(urls: list[str] = chunk_urls):
+        def query_existing(urls: list[str] = lookup_urls):
             qs = model_class.objects.filter(pageUrl__in=urls).values(
                 "pageUrl", "price", "updateDateTime", "inputDateTime"
             )
-            return {row["pageUrl"]: row for row in qs}
+            res_map: dict[str, dict[str, Any]] = {}
+            for row in qs:
+                p_url = row["pageUrl"]
+                res_map[p_url] = row
+                norm_key = UrlMatcher.normalize(p_url).rstrip("/")
+                if norm_key and norm_key not in res_map:
+                    res_map[norm_key] = row
+            return res_map
 
         existing_map: dict[str, dict[str, Any]] = await sync_to_async(query_existing)()
     except Exception as e:
@@ -167,11 +188,12 @@ async def _process_differential_chunk(
     for item in chunk_items:
         if not item.url:
             continue
-        record = existing_map.get(item.url)
+        norm_key = UrlMatcher.normalize(item.url).rstrip("/")
+        record = existing_map.get(item.url) or (existing_map.get(norm_key) if norm_key else None)
         if _should_fetch_item(item, record, now, ttl_days):
             chunk_to_fetch.append(item.url)
         else:
-            chunk_to_skip.append(item.url)
+            chunk_to_skip.append(record["pageUrl"] if record and record.get("pageUrl") else item.url)
 
     if chunk_to_skip:
         await _batch_update_cached(model_class, chunk_to_skip, now)

@@ -399,6 +399,31 @@ class NomuraParser(InvestmentParser):
 
         return urllib.parse.urljoin(current_url or NOMU_BASE_URL, next_url)
 
+    _MUNICIPALITY_AREA_RE = re.compile(r"/(?:mansion|house|land)/area_[a-z]+/\d{5}/?$")
+
+    @classmethod
+    def _extract_filtered_area_urls(cls, elements) -> list[str]:
+        raw_urls: list[str] = []
+        seen: set[str] = set()
+        for link in elements:
+            href = link.get("href")
+            if not href or href.startswith("#") or href.startswith(JAVASCRIPT_PREFIX):
+                continue
+            href = href.split("?")[0]
+            if any(
+                skip in href
+                for skip in ("/id/", "/pro/detail/", "/pro/bukken_local_id/", "/library/", "SearchList")
+            ):
+                continue
+            if href.startswith("/"):
+                href = NOMU_BASE_URL + href
+            if href not in seen:
+                seen.add(href)
+                raw_urls.append(href)
+
+        muni_urls = [u for u in raw_urls if cls._MUNICIPALITY_AREA_RE.search(u)]
+        return muni_urls if muni_urls else raw_urls
+
     async def parseAreaPage(self, response: BeautifulSoup):
         if hasattr(response, 'select'):
             selector = self.selectors.get('area_links', ".c_selection_list a")
@@ -406,14 +431,9 @@ class NomuraParser(InvestmentParser):
         else:
             xpath = self.selectors.get('area_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
             elements = response.xpath(xpath)
-            
-        for link in elements:
-            href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX):
-                # Area/Region pages usually don't have query params but safe to strip
-                href = href.split("?")[0]
-                if href.startswith("/"): href = NOMU_BASE_URL + href
-                yield href
+
+        for url in self._extract_filtered_area_urls(elements):
+            yield url
 
     async def parseRegionPage(self, response: BeautifulSoup):
         if hasattr(response, 'select'):
@@ -423,13 +443,8 @@ class NomuraParser(InvestmentParser):
             xpath = self.selectors.get('region_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
             elements = response.xpath(xpath)
 
-        for link in elements:
-            href = link.get("href")
-            if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX):
-                 # Region pages usually don't have query params but safe to strip
-                href = href.split("?")[0]
-                if href.startswith("/"): href = NOMU_BASE_URL + href
-                yield href
+        for url in self._extract_filtered_area_urls(elements):
+            yield url
 
 
     def _parseMadori(self, response, specs=None):
