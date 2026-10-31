@@ -12,6 +12,7 @@ _TRACKING_QUERY_KEYS = frozenset({
     "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
     "gclid", "fbclid", "yclid", "_ga", "ref", "from", "sort", "down",
     "mail_source", "mail_medium", "mail_campaign", "token",
+    "bklistid", "searchdiv", "sref",
 })
 
 

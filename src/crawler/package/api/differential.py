@@ -156,6 +156,62 @@ def _touch_differential_progress(model_class):
 DIFFERENTIAL_CHUNK_SIZE: int = 200
 
 
+def _build_lookup_urls(chunk_urls: list[str]) -> list[str]:
+    from package.utils.url_matcher import UrlMatcher
+
+    lookup_url_set: set[str] = set()
+    for raw_u in chunk_urls:
+        lookup_url_set.add(raw_u)
+        norm_u = UrlMatcher.normalize(raw_u)
+        if not norm_u:
+            continue
+        lookup_url_set.add(norm_u)
+        base_u = norm_u.rstrip("/")
+        if base_u:
+            lookup_url_set.add(base_u)
+            lookup_url_set.add(base_u + "/")
+    return list(lookup_url_set)
+
+
+def _query_existing_records_sync(model_class: Any, urls: list[str]) -> dict[str, dict[str, Any]]:
+    from package.utils.url_matcher import UrlMatcher
+
+    qs = model_class.objects.filter(pageUrl__in=urls).values(
+        "pageUrl", "price", "updateDateTime", "inputDateTime"
+    )
+    res_map: dict[str, dict[str, Any]] = {}
+    for row in qs:
+        p_url = row["pageUrl"]
+        res_map[p_url] = row
+        norm_key = UrlMatcher.normalize(p_url).rstrip("/")
+        if norm_key and norm_key not in res_map:
+            res_map[norm_key] = row
+    return res_map
+
+
+def _partition_chunk_items(
+    chunk_items: list[ListItem],
+    existing_map: dict[str, dict[str, Any]],
+    now: Any,
+    ttl_days: int,
+) -> tuple[list[str], list[str]]:
+    from package.utils.url_matcher import UrlMatcher
+
+    chunk_to_fetch: list[str] = []
+    chunk_to_skip: list[str] = []
+    for item in chunk_items:
+        if not item.url:
+            continue
+        norm_key = UrlMatcher.normalize(item.url).rstrip("/")
+        record = existing_map.get(item.url) or (existing_map.get(norm_key) if norm_key else None)
+        if _should_fetch_item(item, record, now, ttl_days):
+            chunk_to_fetch.append(item.url)
+        else:
+            skip_url = record.get("pageUrl") if record else None
+            chunk_to_skip.append(skip_url or item.url)
+    return chunk_to_fetch, chunk_to_skip
+
+
 async def _process_differential_chunk(
     chunk_items: list[ListItem],
     model_class: Any,
@@ -166,30 +222,18 @@ async def _process_differential_chunk(
     if not chunk_urls:
         return [], []
 
+    lookup_urls = _build_lookup_urls(chunk_urls)
     try:
-        def query_existing(urls: list[str] = chunk_urls):
-            qs = model_class.objects.filter(pageUrl__in=urls).values(
-                "pageUrl", "price", "updateDateTime", "inputDateTime"
-            )
-            return {row["pageUrl"]: row for row in qs}
-
-        existing_map: dict[str, dict[str, Any]] = await sync_to_async(query_existing)()
+        existing_map: dict[str, dict[str, Any]] = await sync_to_async(_query_existing_records_sync)(
+            model_class, lookup_urls
+        )
     except Exception as e:
-        logging.warning(f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl for chunk.")
+        logging.warning(
+            f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl for chunk."
+        )
         return chunk_urls, []
 
-    chunk_to_fetch: list[str] = []
-    chunk_to_skip: list[str] = []
-
-    for item in chunk_items:
-        if not item.url:
-            continue
-        record = existing_map.get(item.url)
-        if _should_fetch_item(item, record, now, ttl_days):
-            chunk_to_fetch.append(item.url)
-        else:
-            chunk_to_skip.append(item.url)
-
+    chunk_to_fetch, chunk_to_skip = _partition_chunk_items(chunk_items, existing_map, now, ttl_days)
     if chunk_to_skip:
         await _batch_update_cached(model_class, chunk_to_skip, now)
         try:

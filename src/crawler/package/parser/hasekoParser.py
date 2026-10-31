@@ -23,6 +23,7 @@ def check_haseko_listing_ended(response: BeautifulSoup, page_url: str = ""):
 
 class HasekoMansionParser(MansionParserBase):
     BASE_URL = "https://www.haseko-chukai.com"
+    DEFAULT_LIST_URL = "https://www.haseko-chukai.com/syutoken-buy/mansion/areas/tokyoto-list/"
 
     def getCharset(self):
         return "utf-8"
@@ -39,6 +40,13 @@ class HasekoMansionParser(MansionParserBase):
                 price = self._extract_card_price(a)
                 yield ListItem(url=full_url, price=price)
 
+    @staticmethod
+    def _is_valid_href(href: str | None) -> bool:
+        if not href:
+            return False
+        h = str(href).strip().lower()
+        return bool(h and not h.startswith("javascript:") and not h.startswith("#"))
+
     def _find_next_by_text(self, response: BeautifulSoup) -> str:
         for a in response.find_all("a"):
             if a is None:
@@ -46,14 +54,20 @@ class HasekoMansionParser(MansionParserBase):
             text = a.get_text(strip=True)
             if ("次へ" in text or "次のページ" in text or text == ">") and a.has_attr("href"):
                 href = str(a["href"])
-                return href if href.startswith("http") else f"{self.BASE_URL}{href}"
+                if self._is_valid_href(href):
+                    return href if href.startswith("http") else f"{self.BASE_URL}{href}"
         return ""
 
     async def parseNextPage(self, response: BeautifulSoup):
+        next_li = response.select_one("li.next[data-page]")
+        if next_li is not None:
+            data_page = str(next_li.get("data-page") or "").strip()
+            if data_page.isdigit():
+                return f"{self.DEFAULT_LIST_URL}?page={data_page}"
         next_tag = response.select_one('li.next a, a[rel="next"], a.next, .pager a.next')
         if next_tag is not None:
             href = next_tag.get("href")
-            if href:
+            if self._is_valid_href(href):
                 return str(href) if str(href).startswith("http") else f"{self.BASE_URL}{href}"
         return self._find_next_by_text(response)
 
