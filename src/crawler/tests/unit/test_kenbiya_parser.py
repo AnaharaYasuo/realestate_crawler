@@ -205,10 +205,10 @@ async def test_kenbiya_get_content_500_server_busy():
 
 @pytest.mark.asyncio
 async def test_kenbiya_get_content_generic_error():
-    """403 などの非対応エラーコード時に LoadPropertyPageException が送出されること"""
+    """403 (WAFブロック) 時に ServerBusyException が送出されて即座に次ジョブへ移ること"""
     from package.parser.kenbiyaParser import KenbiyaParserBase
-    from package.parser.baseParser import LoadPropertyPageException
-    from unittest.mock import AsyncMock, MagicMock
+    from package.parser.baseParser import ServerBusyException
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     class ConcreteKenbiyaParser(KenbiyaParserBase):
         def createEntity(self):
@@ -221,8 +221,9 @@ async def test_kenbiya_get_content_generic_error():
     mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_resp)
     mock_session.get.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    with pytest.raises(LoadPropertyPageException):
-        await parser._getContent(mock_session, "https://www.kenbiya.com/test_403")
+    with patch.object(parser, "_try_playwright_on_403", AsyncMock(return_value=None)):
+        with pytest.raises(ServerBusyException):
+            await parser._getContent(mock_session, "https://www.kenbiya.com/test_403")
 
 
 @pytest.mark.asyncio

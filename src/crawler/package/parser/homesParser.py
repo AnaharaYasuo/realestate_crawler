@@ -190,8 +190,7 @@ class HomesParser(ParserBase):
             "a[href*='/mansion/b-'], "
             "a[href*='/kodate/b-'], "
             "a[href*='/tochi/b-'], "
-            "a[href*='/bldg/'], "
-            "a[href*='/chuko/']"
+            "a[href*='/bldg/b-']"
         )
         for a in response.select(detail_selectors):
             href = a.get("href")
@@ -307,6 +306,27 @@ class HomesParser(ParserBase):
         if not tag:
             tag = self._find_by_table_header(response, headers)
         return tag.get_text().strip() if tag else ""
+
+    def _apply_homes_unit_mansion_override(self, item, response: BeautifulSoup) -> None:
+        senyu_tag = self._find_by_table_header(response, ["専有面積", "壁芯面積"])
+        kaisu_tag = self._find_by_table_header(response, ["所在階"])
+        kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
+        has_kaisu = bool(kaisu_text and "階" in kaisu_text and "階建" not in kaisu_text)
+        if senyu_tag or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
+            item.propertyType = "Mansion"
+            senyu_text = senyu_tag.get_text().strip() if senyu_tag else item.tatemonoMensekiStr
+            setattr(item, "senyuMensekiStr", senyu_text)
+            setattr(item, "senyuMenseki", converter.parse_menseki(senyu_text) if senyu_text else item.tatemonoMenseki)
+            item.tochiMenseki = None
+            item.tochiMensekiStr = ""
+
+    @staticmethod
+    def _ensure_homes_invest_area(item) -> None:
+        for attr in ("tochiMenseki", "tatemonoMenseki", "senyuMenseki"):
+            val = getattr(item, attr, None)
+            if val and float(val) > 5.0:
+                return
+        raise SkipPropertyException(f"Homes investment listing missing valid area: {getattr(item, 'pageUrl', '')}")
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
@@ -628,19 +648,8 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         item.chimoku = self._get_table_text(response, "td.prg-landCategoryTableItem", ["地目"])
         item.tochikenri = self._get_table_text(response, "td.prg-rightTableItem", ["土地権利", "権利"])
 
-        # Issue #969: 専有面積または所在階が存在する区分マンションの場合、propertyTypeをMansionに設定し敷地全体面積を排除
-        senyu_tag = self._find_by_table_header(response, ["専有面積", "壁芯面積"])
-        has_senyu = bool(senyu_tag)
-        kaisu_tag = self._find_by_table_header(response, ["所在階"])
-        kaisu_text = kaisu_tag.get_text() if kaisu_tag else ""
-        has_kaisu = bool(kaisu_text and "階" in kaisu_text and "階建" not in kaisu_text)
-        if has_senyu or has_kaisu or "区分" in str(getattr(item, "propertyName", "")):
-            item.propertyType = "Mansion"
-            senyu_text = senyu_tag.get_text().strip() if senyu_tag else item.tatemonoMensekiStr
-            setattr(item, "senyuMensekiStr", senyu_text)
-            setattr(item, "senyuMenseki", converter.parse_menseki(senyu_text) if senyu_text else item.tatemonoMenseki)
-            item.tochiMenseki = None
-            item.tochiMensekiStr = ""
+        self._apply_homes_unit_mansion_override(item, response)
+        self._ensure_homes_invest_area(item)
 
         return item
 
@@ -713,11 +722,13 @@ class HomesTochiParser(HomesParser, TochiParserBase):
         land_tag = (
             response.select_one(CSS_LAND_AREA)
             or response.select_one(CSS_HOUSE_AREA)
-            or self._find_by_table_header(response, ["土地面積", "敷地面積"])
+            or self._find_by_table_header(response, ["土地面積", "敷地面積", "実測面積", "公簿面積"])
         )
         item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+        if not item.tochiMenseki or float(item.tochiMenseki) <= 0:
+            raise SkipPropertyException(f"HomesTochi missing land area skipped: {getattr(item, 'pageUrl', '')}")
 
         self._homes_apply_tochi_kenpei_youseki(item, response)
 
