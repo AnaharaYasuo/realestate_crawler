@@ -95,68 +95,71 @@ class PropertyDataValidator:
             if not cls._is_under_construction(item):
                 reasons.append(ERR_MISSING_AGE)
 
+    _LOW_PRICE_CHIMOKU = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
+    _LOW_PRICE_KEYWORDS = (
+        "山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ",
+        "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
+        "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
+    )
+    _RURAL_KEYWORDS = ("郡", "大字", "字", "温泉", "荘", "団地")
+    _INVEST_PTYPES = {
+        "investment", "invest", "apartment", "investmentapartment",
+        "investment_apartment", "invest_apartment", "invest_kodate",
+        "investment_kodate", "investmentkodate",
+    }
+
+    @staticmethod
+    def _has_positive_numeric_attr(item: Any, *attrs: str) -> bool:
+        for attr in attrs:
+            raw = getattr(item, attr, None)
+            if raw is None:
+                continue
+            try:
+                if float(raw) > 0:
+                    return True
+            except (ValueError, TypeError):
+                continue
+        return False
+
+    @classmethod
+    def _is_rural_or_tochi_low_price(cls, item: Any, ptype: str, full_text: str) -> bool:
+        try:
+            price_num = float(getattr(item, "price", 0) or 0)
+        except (ValueError, TypeError):
+            return False
+        if price_num < 100000:
+            return False
+        if ptype == "tochi":
+            return True
+        addr = str(getattr(item, "address", "") or "")
+        return any(rk in addr or rk in full_text for rk in cls._RURAL_KEYWORDS)
+
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
         """山林・原野・雑種地・農地・持分売買・投資区分・ヘルスケア・リゾート等低価格（10万〜100万円未満）が正常なケース"""
         chimoku = str(getattr(item, "chimoku", "") or "")
-        valid_chimoku = {"山林", "原野", "雑種地", "農地", "畑", "田", "保安林", "ため池", "公衆用道路", "墓地"}
-        if any(target in chimoku for target in valid_chimoku):
+        if any(target in chimoku for target in cls._LOW_PRICE_CHIMOKU):
             return True
 
-        name = str(getattr(item, "propertyName", "") or "")
-        biko = str(getattr(item, "biko", "") or "")
-        full_text = f"{name} {biko}"
-        specific_keywords = [
-            "山林", "原野", "雑種地", "農地", "資材置場", "持分", "オーナーチェンジ",
-            "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
-            "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
-        ]
-        if any(kw in full_text for kw in specific_keywords):
+        full_text = f"{getattr(item, 'propertyName', '') or ''} {getattr(item, 'biko', '') or ''}"
+        if any(kw in full_text for kw in cls._LOW_PRICE_KEYWORDS):
             return True
 
-        addr = str(getattr(item, "address", "") or "")
-        rural_or_special_keywords = ("郡", "大字", "字", "温泉", "荘", "団地")
-        try:
-            price_num = float(getattr(item, "price", 0) or 0)
-        except (ValueError, TypeError):
-            price_num = 0.0
-        if price_num >= 100000 and (
-            ptype == "tochi" or any(rk in addr or rk in full_text for rk in rural_or_special_keywords)
-        ):
+        if cls._is_rural_or_tochi_low_price(item, ptype, full_text):
             return True
 
-        invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
-        is_invest_type = ptype in (
-            "investment",
-            "invest",
-            "apartment",
-            "investmentapartment",
-            "investment_apartment",
-            "invest_apartment",
-            "invest_kodate",
-            "investment_kodate",
-            "investmentkodate",
-        )
         url_str = str(getattr(item, "pageUrl", "") or "").lower()
         if "toushi" in url_str or "invest" in url_str:
             return True
-        has_valid_yield = False
-        raw_yield = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
-        if raw_yield is not None:
-            try:
-                y_val = float(raw_yield)
-                has_valid_yield = y_val > 0
-            except (ValueError, TypeError):
-                has_valid_yield = False
-        has_valid_rent = False
-        raw_rent = getattr(item, "annualRent", None) or getattr(item, "monthlyRent", None)
-        if raw_rent is not None:
-            try:
-                has_valid_rent = float(raw_rent) > 0
-            except (ValueError, TypeError):
-                has_valid_rent = False
-        return is_invest_type and (
-            any(kw in full_text for kw in invest_keywords) or has_valid_yield or has_valid_rent
+
+        if ptype not in cls._INVEST_PTYPES:
+            return False
+
+        invest_keywords = ("利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分")
+        return (
+            any(kw in full_text for kw in invest_keywords)
+            or cls._has_positive_numeric_attr(item, "yieldRate", "grossYield")
+            or cls._has_positive_numeric_attr(item, "annualRent", "monthlyRent")
         )
 
     @classmethod

@@ -36,6 +36,7 @@ JST = datetime.timezone(datetime.timedelta(hours=9))
 
 _CRAWLER_ROOT = Path(__file__).resolve().parent.parent.parent
 DIAGNOSTICS_BASE_DIR = _CRAWLER_ROOT / "logs" / "diagnostics"
+THREAD_STATE_GLOB = "thread_*.json"
 
 # Thread-local storage so each thread owns its state without lock contention
 _thread_local = threading.local()
@@ -53,12 +54,7 @@ def set_diagnostic_job_context(company: str, property_type: str) -> Path:
     job_dir = get_job_diagnostics_dir(company, property_type)
     try:
         job_dir.mkdir(parents=True, exist_ok=True)
-        # Clean stale thread files from previous runs of the same job
-        for old_file in job_dir.glob("thread_*.json"):
-            try:
-                old_file.unlink(missing_ok=True)
-            except OSError:
-                pass
+        cleanup_job_diagnostic_dir(company, property_type)
     except OSError:
         pass
     return job_dir
@@ -80,14 +76,71 @@ def cleanup_job_diagnostic_dir(company: str = "", property_type: str = "") -> No
     """Remove stale per-thread diagnostic files for a job."""
     try:
         job_dir = get_job_diagnostics_dir(company, property_type)
-        if job_dir.exists():
-            for old_file in job_dir.glob("thread_*.json"):
-                try:
-                    old_file.unlink(missing_ok=True)
-                except OSError:
-                    pass
+        if not job_dir.exists():
+            return
+        for old_file in job_dir.glob(THREAD_STATE_GLOB):
+            try:
+                old_file.unlink(missing_ok=True)
+            except OSError:
+                pass
     except OSError:
         pass
+
+
+def _create_thread_slot(
+    tid: int,
+    phase: str,
+    current_url: str,
+    parent_list_url: str,
+    company: str,
+    property_type: str,
+    now_ts: float,
+    now_iso: str,
+    extra: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "pid": os.getpid(),
+        "thread_id": tid,
+        "thread_name": threading.current_thread().name,
+        "company": company or _active_job_context.get("company", ""),
+        "property_type": property_type or _active_job_context.get("property_type", ""),
+        "phase": phase,
+        "current_url": current_url,
+        "parent_list_url": parent_list_url,
+        "phase_started_at": now_ts,
+        "updated_at": now_ts,
+        "updated_iso": now_iso,
+        "extra": extra or {},
+    }
+
+
+def _update_existing_thread_slot(
+    slot: dict[str, Any],
+    phase: str,
+    current_url: str,
+    parent_list_url: str,
+    company: str,
+    property_type: str,
+    now_ts: float,
+    now_iso: str,
+    extra: dict[str, Any] | None,
+) -> None:
+    if slot.get("phase") != phase or (current_url and slot.get("current_url") != current_url):
+        slot["phase_started_at"] = now_ts
+    slot["thread_name"] = threading.current_thread().name
+    slot["company"] = company or slot.get("company") or _active_job_context.get("company", "")
+    slot["property_type"] = (
+        property_type or slot.get("property_type") or _active_job_context.get("property_type", "")
+    )
+    slot["phase"] = phase
+    if current_url:
+        slot["current_url"] = current_url
+    if parent_list_url:
+        slot["parent_list_url"] = parent_list_url
+    slot["updated_at"] = now_ts
+    slot["updated_iso"] = now_iso
+    if extra is not None:
+        slot["extra"] = extra
 
 
 def record_thread_activity(
@@ -100,55 +153,23 @@ def record_thread_activity(
     extra: dict[str, Any] | None = None,
     force_flush: bool = False,
 ) -> None:
-    """Update the calling thread's own diagnostic state without shared file locking.
-
-    Each thread writes ONLY to its own `_thread_local.slot` and its own
-    `thread_<tid>.json` file (throttled to at most once per second unless `force_flush=True`).
-    """
+    """Update the calling thread's own diagnostic state without shared file locking."""
     tid = threading.get_ident()
     now_ts = time.time()
     now_iso = datetime.datetime.now(JST).isoformat()
 
     slot: dict[str, Any] | None = getattr(_thread_local, "slot", None)
     if slot is None or slot.get("thread_id") != tid:
-        slot = {
-            "pid": os.getpid(),
-            "thread_id": tid,
-            "thread_name": threading.current_thread().name,
-            "company": company or _active_job_context.get("company", ""),
-            "property_type": property_type or _active_job_context.get("property_type", ""),
-            "phase": phase,
-            "current_url": current_url,
-            "parent_list_url": parent_list_url,
-            "phase_started_at": now_ts,
-            "updated_at": now_ts,
-            "updated_iso": now_iso,
-            "extra": extra or {},
-        }
+        slot = _create_thread_slot(
+            tid, phase, current_url, parent_list_url, company, property_type, now_ts, now_iso, extra
+        )
         _thread_local.slot = slot
         _thread_local.last_flush_ts = 0.0
         _thread_slots[tid] = slot
     else:
-        if slot.get("phase") != phase or (current_url and slot.get("current_url") != current_url):
-            slot["phase_started_at"] = now_ts
-        slot["thread_name"] = threading.current_thread().name
-        if company:
-            slot["company"] = company
-        elif not slot.get("company"):
-            slot["company"] = _active_job_context.get("company", "")
-        if property_type:
-            slot["property_type"] = property_type
-        elif not slot.get("property_type"):
-            slot["property_type"] = _active_job_context.get("property_type", "")
-        slot["phase"] = phase
-        if current_url:
-            slot["current_url"] = current_url
-        if parent_list_url:
-            slot["parent_list_url"] = parent_list_url
-        slot["updated_at"] = now_ts
-        slot["updated_iso"] = now_iso
-        if extra is not None:
-            slot["extra"] = extra
+        _update_existing_thread_slot(
+            slot, phase, current_url, parent_list_url, company, property_type, now_ts, now_iso, extra
+        )
 
     last_flush = getattr(_thread_local, "last_flush_ts", 0.0)
     if force_flush or (now_ts - last_flush) >= _THROTTLE_DISK_FLUSH_SEC:
@@ -191,7 +212,7 @@ def read_persisted_thread_states(company: str, property_type: str) -> list[dict[
     if not job_dir.exists():
         return states
     now_ts = time.time()
-    for fpath in sorted(job_dir.glob("thread_*.json")):
+    for fpath in sorted(job_dir.glob(THREAD_STATE_GLOB)):
         try:
             data = json.loads(fpath.read_text(encoding="utf-8"))
             if isinstance(data, dict):
@@ -250,9 +271,7 @@ def collect_asyncio_task_diagnostics() -> list[dict[str, Any]]:
                 coro = task.get_coro()
                 coro_name = getattr(coro, "__qualname__", str(coro))
                 frames = task.get_stack(limit=5)
-                frame_strs = []
-                for f in frames:
-                    frame_strs.append(f"{f.f_code.co_filename}:{f.f_lineno} in {f.f_code.co_name}")
+                frame_strs = [f"{f.f_code.co_filename}:{f.f_lineno} in {f.f_code.co_name}" for f in frames]
                 tasks_info.append({
                     "task_name": task.get_name(),
                     "coroutine": coro_name,
@@ -291,7 +310,6 @@ def collect_database_connection_diagnostics() -> dict[str, Any]:
     except Exception as e:
         db_diag["django_db_error"] = str(e)
 
-    # Non-blocking TCP probe to ProxySQL / DB endpoint
     host = db_diag["proxysql_host"]
     port = db_diag["proxysql_port"]
     t0 = time.perf_counter()
@@ -307,14 +325,61 @@ def collect_database_connection_diagnostics() -> dict[str, Any]:
 
 
 def collect_network_and_hardware_diagnostics(target_pid: int | None = None) -> dict[str, Any]:
-    """Collect hardware (CPU, memory, child processes) and network socket states.
-
-    Works on both host (Windows/macOS/Linux via `psutil` + `/proc` fallbacks) and containers.
-    """
+    """Collect hardware (CPU, memory, child processes) and network socket states."""
     from package.utils.newrelic_helper import collect_hardware_resource_metrics
 
-    metrics = collect_hardware_resource_metrics(target_pid=target_pid)
-    return metrics
+    return collect_hardware_resource_metrics(target_pid=target_pid)
+
+
+def _merge_thread_diagnostics(
+    persisted_threads: list[dict[str, Any]],
+    in_proc_threads: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    combined_by_tid: dict[Any, dict[str, Any]] = {}
+    for pt in persisted_threads:
+        tid = pt.get("thread_id")
+        if tid is not None:
+            combined_by_tid[tid] = dict(pt)
+    for it in in_proc_threads:
+        tid = it.get("thread_id")
+        if tid is None:
+            continue
+        if tid in combined_by_tid:
+            merged = dict(combined_by_tid[tid])
+            for k, v in it.items():
+                if v or k not in merged:
+                    merged[k] = v
+            combined_by_tid[tid] = merged
+        else:
+            combined_by_tid[tid] = dict(it)
+
+    source_threads = list(combined_by_tid.values()) if combined_by_tid else (in_proc_threads or persisted_threads)
+    return sorted(
+        source_threads,
+        key=lambda t: float(t.get("elapsed_in_phase_sec", 0.0)),
+        reverse=True,
+    )
+
+
+def _extract_active_urls_and_phases(
+    sorted_threads: list[dict[str, Any]],
+) -> tuple[list[str], list[str], list[str]]:
+    active_urls: list[str] = []
+    parent_urls: list[str] = []
+    active_phases: list[str] = []
+    for t in sorted_threads:
+        phase = t.get("phase", "")
+        u = t.get("current_url", "")
+        pu = t.get("parent_list_url", "")
+        if phase and phase != "idle":
+            active_phases.append(
+                f"{t.get('thread_name', t.get('thread_id'))}:{phase}({t.get('elapsed_in_phase_sec', 0)}s)"
+            )
+        if u and u not in active_urls:
+            active_urls.append(u)
+        if pu and pu not in parent_urls:
+            parent_urls.append(pu)
+    return active_urls, parent_urls, active_phases
 
 
 def build_hang_diagnostic_snapshot(
@@ -328,61 +393,21 @@ def build_hang_diagnostic_snapshot(
     """Assemble a complete diagnostic snapshot for a hung or failing crawler job."""
     persisted_threads = read_persisted_thread_states(company, property_type)
     in_proc_threads = collect_in_process_thread_stacks() if in_process else []
-
-    # Determine primary active URL and parent list URL from non-idle threads
-    active_urls: list[str] = []
-    parent_urls: list[str] = []
-    active_phases: list[str] = []
-
-    combined_by_tid: dict[Any, dict[str, Any]] = {}
-    for pt in persisted_threads:
-        tid = pt.get("thread_id")
-        if tid is not None:
-            combined_by_tid[tid] = dict(pt)
-    for it in in_proc_threads:
-        tid = it.get("thread_id")
-        if tid in combined_by_tid:
-            merged = dict(combined_by_tid[tid])
-            for k, v in it.items():
-                if v or k not in merged:
-                    merged[k] = v
-            combined_by_tid[tid] = merged
-        elif tid is not None:
-            combined_by_tid[tid] = dict(it)
-
-    source_threads = list(combined_by_tid.values()) if combined_by_tid else (in_proc_threads or persisted_threads)
-    # Sort by longest elapsed time in current phase first
-    sorted_threads = sorted(
-        source_threads,
-        key=lambda t: float(t.get("elapsed_in_phase_sec", 0.0)),
-        reverse=True,
-    )
-    for t in sorted_threads:
-        phase = t.get("phase", "")
-        u = t.get("current_url", "")
-        pu = t.get("parent_list_url", "")
-        if phase and phase != "idle":
-            active_phases.append(f"{t.get('thread_name', t.get('thread_id'))}:{phase}({t.get('elapsed_in_phase_sec', 0)}s)")
-        if u and u not in active_urls:
-            active_urls.append(u)
-        if pu and pu not in parent_urls:
-            parent_urls.append(pu)
-
-    primary_url = active_urls[0] if active_urls else ""
-    primary_parent_url = parent_urls[0] if parent_urls else ""
+    sorted_threads = _merge_thread_diagnostics(persisted_threads, in_proc_threads)
+    active_urls, parent_urls, active_phases = _extract_active_urls_and_phases(sorted_threads)
 
     hw_net = collect_network_and_hardware_diagnostics(target_pid=target_pid)
     db_diag = collect_database_connection_diagnostics()
     asyncio_tasks = collect_asyncio_task_diagnostics() if in_process else []
 
-    snapshot: dict[str, Any] = {
+    return {
         "timestamp": datetime.datetime.now(JST).isoformat(),
         "company": company,
         "property_type": property_type,
         "pid": target_pid or os.getpid(),
         "reason": reason,
-        "primary_target_url": primary_url,
-        "primary_parent_list_url": primary_parent_url,
+        "primary_target_url": active_urls[0] if active_urls else "",
+        "primary_parent_list_url": parent_urls[0] if parent_urls else "",
         "active_urls": active_urls[:20],
         "active_phases": active_phases[:20],
         "hardware_and_network": hw_net,
@@ -391,40 +416,30 @@ def build_hang_diagnostic_snapshot(
         "persisted_thread_states": persisted_threads[:25],
         "asyncio_tasks": asyncio_tasks[:25],
     }
-    return snapshot
 
 
 def format_snapshot_summary_text(snapshot: dict[str, Any]) -> str:
     """Format a human-readable diagnostic summary and stack trace string for logs & FailureRecord."""
-    lines: list[str] = []
-    lines.append(
-        f"=== HANG / DIAGNOSTIC SNAPSHOT [{snapshot.get('company')}/{snapshot.get('property_type')}] "
-        f"PID={snapshot.get('pid')} reason={snapshot.get('reason')} ==="
-    )
-    lines.append(f"Primary URL: {snapshot.get('primary_target_url') or '(none)'}")
-    lines.append(f"Parent List URL: {snapshot.get('primary_parent_list_url') or '(none)'}")
-    lines.append(f"Active Phases: {', '.join(snapshot.get('active_phases', [])) or '(none)'}")
-    lines.append(f"Active URLs ({len(snapshot.get('active_urls', []))}): {', '.join(snapshot.get('active_urls', [])[:5])}")
-
     hw = snapshot.get("hardware_and_network", {})
-    lines.append(
+    db = snapshot.get("database", {})
+    lines: list[str] = [
+        f"=== HANG / DIAGNOSTIC SNAPSHOT [{snapshot.get('company')}/{snapshot.get('property_type')}] "
+        f"PID={snapshot.get('pid')} reason={snapshot.get('reason')} ===",
+        f"Primary URL: {snapshot.get('primary_target_url') or '(none)'}",
+        f"Parent List URL: {snapshot.get('primary_parent_list_url') or '(none)'}",
+        f"Active Phases: {', '.join(snapshot.get('active_phases', [])) or '(none)'}",
+        f"Active URLs ({len(snapshot.get('active_urls', []))}): {', '.join(snapshot.get('active_urls', [])[:5])}",
         f"Resources: CPU(proc={hw.get('cpuPercent', 0)}%, sys={hw.get('systemCpuPercent', 0)}%) | "
         f"Mem(proc={hw.get('memoryUsageMb', 0)}MB, sys={hw.get('systemMemoryPercent', 0)}%) | "
-        f"Threads={hw.get('activeThreadsCount', 0)} | ChildProcs={hw.get('childProcessCount', 0)}"
-    )
-    lines.append(
+        f"Threads={hw.get('activeThreadsCount', 0)} | ChildProcs={hw.get('childProcessCount', 0)}",
         f"Network: TCP(total={hw.get('tcpTotalCount', 0)}, ESTAB={hw.get('tcpEstablishedCount', 0)}, "
         f"SYN_SENT={hw.get('tcpSynSentCount', 0)}, CLOSE_WAIT={hw.get('tcpCloseWaitCount', 0)}, "
         f"TIME_WAIT={hw.get('tcpTimeWaitCount', 0)}) | "
-        f"Endpoints={', '.join(hw.get('remoteEndpoints', [])[:8])}"
-    )
-
-    db = snapshot.get("database", {})
-    lines.append(
+        f"Endpoints={', '.join(hw.get('remoteEndpoints', [])[:8])}",
         f"Database: open_conns={db.get('connections_open', 0)} | "
         f"ProxySQL({db.get('proxysql_host')}:{db.get('proxysql_port')}) "
-        f"reachable={db.get('proxysql_reachable')} ping_ms={db.get('proxysql_ping_ms')}"
-    )
+        f"reachable={db.get('proxysql_reachable')} ping_ms={db.get('proxysql_ping_ms')}",
+    ]
 
     for t in snapshot.get("threads", [])[:10]:
         lines.append(

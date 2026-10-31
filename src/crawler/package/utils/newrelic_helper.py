@@ -225,100 +225,132 @@ def _read_cgroup_cpu() -> int:
     return 0
 
 
+def _read_psutil_memory(pid: int) -> tuple[int, int, float] | None:
+    if _psutil is None:
+        return None
+    try:
+        proc = _psutil.Process(pid)
+        rss = int(proc.memory_info().rss)
+        for child in proc.children(recursive=True):
+            try:
+                rss += int(child.memory_info().rss)
+            except Exception:
+                pass
+        vm = _psutil.virtual_memory()
+        return rss, int(vm.total), round(float(vm.percent), 2)
+    except Exception:
+        return None
+
+
+def _read_procfs_memory(pid: int) -> tuple[int, int, float] | None:
+    if not (os.path.exists(f"/proc/{pid}/statm") and os.path.exists("/proc/meminfo")):
+        return None
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        with open(f"/proc/{pid}/statm") as f:
+            parts = f.read().split()
+            rss_bytes = int(parts[1]) * page_size if len(parts) > 1 else 0
+        mem_total = 0
+        mem_avail = 0
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    mem_total = int(line.split()[1]) * 1024
+                elif line.startswith("MemAvailable:"):
+                    mem_avail = int(line.split()[1]) * 1024
+        sys_pct = round(((mem_total - mem_avail) / mem_total) * 100.0, 2) if mem_total > 0 else 0.0
+        return rss_bytes, mem_total, sys_pct
+    except Exception:
+        return None
+
+
+class _WinMemoryStatusEx(ctypes.Structure):
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+class _WinProcessMemoryCounters(ctypes.Structure):
+    _fields_ = [
+        ("cb", ctypes.c_ulong),
+        ("PageFaultCount", ctypes.c_ulong),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
+
+
+def _read_win32_memory(pid: int) -> tuple[int, int, float] | None:
+    if sys.platform != "win32":
+        return None
+    try:
+        stat = _WinMemoryStatusEx()
+        stat.dwLength = ctypes.sizeof(_WinMemoryStatusEx)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        total_phys = int(stat.ullTotalPhys)
+        sys_pct = float(stat.dwMemoryLoad)
+
+        pmc = _WinProcessMemoryCounters()
+        pmc.cb = ctypes.sizeof(_WinProcessMemoryCounters)
+        h_proc = ctypes.windll.kernel32.OpenProcess(0x1000 | 0x0010, False, pid)
+        rss_bytes = 0
+        if h_proc:
+            try:
+                if ctypes.windll.psapi.GetProcessMemoryInfo(h_proc, ctypes.byref(pmc), ctypes.sizeof(pmc)):
+                    rss_bytes = int(pmc.WorkingSetSize)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(h_proc)
+        return rss_bytes, total_phys, round(sys_pct, 2)
+    except Exception:
+        return None
+
+
 def _read_host_memory_fallback(target_pid: int | None = None) -> tuple[int, int, float]:
     """Read (process_rss_bytes, total_sys_bytes, sys_memory_percent) without requiring psutil."""
     pid = target_pid or os.getpid()
-    if _psutil is not None:
-        try:
-            proc = _psutil.Process(pid)
-            rss = int(proc.memory_info().rss)
-            for child in proc.children(recursive=True):
-                try:
-                    rss += int(child.memory_info().rss)
-                except Exception:
-                    pass
-            vm = _psutil.virtual_memory()
-            return rss, int(vm.total), round(float(vm.percent), 2)
-        except Exception:
-            pass
-
-    # Linux /proc fallback
-    if os.path.exists(f"/proc/{pid}/statm") and os.path.exists("/proc/meminfo"):
-        try:
-            page_size = os.sysconf("SC_PAGE_SIZE")
-            with open(f"/proc/{pid}/statm") as f:
-                parts = f.read().split()
-                rss_bytes = int(parts[1]) * page_size if len(parts) > 1 else 0
-            mem_total = 0
-            mem_avail = 0
-            with open("/proc/meminfo") as f:
-                for line in f:
-                    if line.startswith("MemTotal:"):
-                        mem_total = int(line.split()[1]) * 1024
-                    elif line.startswith("MemAvailable:"):
-                        mem_avail = int(line.split()[1]) * 1024
-            sys_pct = round(((mem_total - mem_avail) / mem_total) * 100.0, 2) if mem_total > 0 else 0.0
-            return rss_bytes, mem_total, sys_pct
-        except Exception:
-            pass
-
-    # Windows ctypes fallback
-    if sys.platform == "win32":
-        try:
-            class MEMORYSTATUSEX(ctypes.Structure):
-                _fields_ = [
-                    ("dwLength", ctypes.c_ulong),
-                    ("dwMemoryLoad", ctypes.c_ulong),
-                    ("ullTotalPhys", ctypes.c_ulonglong),
-                    ("ullAvailPhys", ctypes.c_ulonglong),
-                    ("ullTotalPageFile", ctypes.c_ulonglong),
-                    ("ullAvailPageFile", ctypes.c_ulonglong),
-                    ("ullTotalVirtual", ctypes.c_ulonglong),
-                    ("ullAvailVirtual", ctypes.c_ulonglong),
-                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-                ]
-
-            stat = MEMORYSTATUSEX()
-            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
-            total_phys = int(stat.ullTotalPhys)
-            sys_pct = float(stat.dwMemoryLoad)
-
-            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-                _fields_ = [
-                    ("cb", ctypes.c_ulong),
-                    ("PageFaultCount", ctypes.c_ulong),
-                    ("PeakWorkingSetSize", ctypes.c_size_t),
-                    ("WorkingSetSize", ctypes.c_size_t),
-                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                    ("PagefileUsage", ctypes.c_size_t),
-                    ("PeakPagefileUsage", ctypes.c_size_t),
-                ]
-
-            pmc = PROCESS_MEMORY_COUNTERS()
-            pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            PROCESS_VM_READ = 0x0010
-            h_proc = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid
-            )
-            rss_bytes = 0
-            if h_proc:
-                try:
-                    if ctypes.windll.psapi.GetProcessMemoryInfo(
-                        h_proc, ctypes.byref(pmc), ctypes.sizeof(pmc)
-                    ):
-                        rss_bytes = int(pmc.WorkingSetSize)
-                finally:
-                    ctypes.windll.kernel32.CloseHandle(h_proc)
-            return rss_bytes, total_phys, round(sys_pct, 2)
-        except Exception:
-            pass
-
+    for reader in (_read_psutil_memory, _read_procfs_memory, _read_win32_memory):
+        res = reader(pid)
+        if res is not None:
+            return res
     return 0, 0, 0.0
+
+
+def _get_load_avg_1m() -> float:
+    if not hasattr(os, "getloadavg"):
+        return 0.0
+    try:
+        return round(float(os.getloadavg()[0]), 2)
+    except Exception:
+        return 0.0
+
+
+def _read_psutil_cpu(pid: int, cpu_usec: int, cpu_sec: float, load_avg_1m: float) -> dict[str, float] | None:
+    if _psutil is None:
+        return None
+    try:
+        proc = _psutil.Process(pid)
+        return {
+            "cpuUsageUsec": cpu_usec or int(cpu_sec * 1_000_000),
+            "cpuUsageSeconds": cpu_sec,
+            "cpuPercent": round(float(proc.cpu_percent(interval=None)), 2),
+            "systemCpuPercent": round(float(_psutil.cpu_percent(interval=None)), 2),
+            "loadAvg1m": load_avg_1m,
+        }
+    except Exception:
+        return None
 
 
 def _read_cpu_metrics(target_pid: int | None = None) -> dict[str, float]:
@@ -326,33 +358,13 @@ def _read_cpu_metrics(target_pid: int | None = None) -> dict[str, float]:
     global _last_proc_cpu_time, _last_proc_wall_time
     cpu_usec = _read_cgroup_cpu()
     cpu_sec = round(cpu_usec / 1_000_000, 2) if cpu_usec > 0 else round(time.process_time(), 2)
+    load_avg_1m = _get_load_avg_1m()
+
+    ps_res = _read_psutil_cpu(target_pid or os.getpid(), cpu_usec, cpu_sec, load_avg_1m)
+    if ps_res is not None:
+        return ps_res
+
     proc_cpu_pct = 0.0
-    sys_cpu_pct = 0.0
-    load_avg_1m = 0.0
-
-    if hasattr(os, "getloadavg"):
-        try:
-            load_avg_1m = round(float(os.getloadavg()[0]), 2)
-        except Exception:
-            pass
-
-    if _psutil is not None:
-        try:
-            pid = target_pid or os.getpid()
-            proc = _psutil.Process(pid)
-            proc_cpu_pct = round(float(proc.cpu_percent(interval=None)), 2)
-            sys_cpu_pct = round(float(_psutil.cpu_percent(interval=None)), 2)
-            return {
-                "cpuUsageUsec": cpu_usec or int(cpu_sec * 1_000_000),
-                "cpuUsageSeconds": cpu_sec,
-                "cpuPercent": proc_cpu_pct,
-                "systemCpuPercent": sys_cpu_pct,
-                "loadAvg1m": load_avg_1m,
-            }
-        except Exception:
-            pass
-
-    # Fallback delta calculation using time.process_time() and time.monotonic()
     with _cpu_sample_lock:
         now_proc = time.process_time()
         now_wall = time.monotonic()
@@ -364,10 +376,8 @@ def _read_cpu_metrics(target_pid: int | None = None) -> dict[str, float]:
         _last_proc_wall_time = now_wall
 
     cpu_count = os.cpu_count() or 1
-    if load_avg_1m > 0:
-        sys_cpu_pct = round(min(100.0, (load_avg_1m / cpu_count) * 100.0), 2)
-    else:
-        sys_cpu_pct = round(min(100.0, proc_cpu_pct / cpu_count), 2)
+    ratio = (load_avg_1m / cpu_count) * 100.0 if load_avg_1m > 0 else (proc_cpu_pct / cpu_count)
+    sys_cpu_pct = round(min(100.0, ratio), 2)
 
     return {
         "cpuUsageUsec": cpu_usec or int(cpu_sec * 1_000_000),
@@ -376,6 +386,114 @@ def _read_cpu_metrics(target_pid: int | None = None) -> dict[str, float]:
         "systemCpuPercent": sys_cpu_pct,
         "loadAvg1m": load_avg_1m,
     }
+
+
+_TCP_STATE_COUNTER_MAP = {
+    "ESTABLISHED": "tcpEstablishedCount",
+    "SYN_SENT": "tcpSynSentCount",
+    "CLOSE_WAIT": "tcpCloseWaitCount",
+    "TIME_WAIT": "tcpTimeWaitCount",
+    "01": "tcpEstablishedCount",
+    "02": "tcpSynSentCount",
+    "06": "tcpTimeWaitCount",
+    "08": "tcpCloseWaitCount",
+}
+
+
+def _increment_tcp_state(net_info: dict[str, Any], state_key: str) -> None:
+    net_info["tcpTotalCount"] += 1
+    counter_key = _TCP_STATE_COUNTER_MAP.get(state_key)
+    if counter_key:
+        net_info[counter_key] += 1
+
+
+def _populate_psutil_network(pid: int, net_info: dict[str, Any]) -> bool:
+    if _psutil is None:
+        return False
+    try:
+        nio = _psutil.net_io_counters()
+        if nio:
+            net_info["netBytesSent"] = int(nio.bytes_sent)
+            net_info["netBytesRecv"] = int(nio.bytes_recv)
+            net_info["netPacketsSent"] = int(nio.packets_sent)
+            net_info["netPacketsRecv"] = int(nio.packets_recv)
+        conns = _psutil.Process(pid).net_connections(kind="tcp")
+        endpoints: list[str] = []
+        for c in conns:
+            st = str(c.status).upper()
+            _increment_tcp_state(net_info, st)
+            if c.raddr:
+                ep = f"{c.raddr.ip}:{c.raddr.port}({st})"
+                if ep not in endpoints:
+                    endpoints.append(ep)
+        net_info["remoteEndpoints"] = endpoints[:15]
+        return True
+    except Exception:
+        return False
+
+
+def _populate_procfs_net_dev(net_info: dict[str, Any]) -> None:
+    if not os.path.exists("/proc/net/dev"):
+        return
+    try:
+        rx_bytes = tx_bytes = rx_pkts = tx_pkts = 0
+        with open("/proc/net/dev") as f:
+            for line in f.readlines()[2:]:
+                if ":" not in line:
+                    continue
+                iface, data = line.split(":", 1)
+                cols = data.split()
+                if iface.strip() != "lo" and len(cols) >= 10:
+                    rx_bytes += int(cols[0])
+                    rx_pkts += int(cols[1])
+                    tx_bytes += int(cols[8])
+                    tx_pkts += int(cols[9])
+        net_info["netBytesRecv"] = rx_bytes
+        net_info["netPacketsRecv"] = rx_pkts
+        net_info["netBytesSent"] = tx_bytes
+        net_info["netPacketsSent"] = tx_pkts
+    except Exception:
+        pass
+
+
+def _populate_procfs_net_tcp(net_info: dict[str, Any]) -> None:
+    for tcp_file in ("/proc/net/tcp", "/proc/net/tcp6"):
+        if not os.path.exists(tcp_file):
+            continue
+        try:
+            with open(tcp_file) as f:
+                for line in f.readlines()[1:]:
+                    cols = line.split()
+                    if len(cols) >= 4:
+                        _increment_tcp_state(net_info, cols[3].upper())
+        except Exception:
+            pass
+
+
+def _populate_win32_netstat(pid: int, net_info: dict[str, Any]) -> None:
+    if sys.platform != "win32" or net_info["tcpTotalCount"] > 0:
+        return
+    try:
+        proc_res = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        pid_str = str(pid)
+        endpoints: list[str] = []
+        for line in (proc_res.stdout or "").splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[4] == pid_str:
+                state = parts[3].upper()
+                _increment_tcp_state(net_info, state)
+                ep = f"{parts[2]}({state})"
+                if ep not in endpoints:
+                    endpoints.append(ep)
+        net_info["remoteEndpoints"] = endpoints[:15]
+    except Exception:
+        pass
 
 
 def _read_network_metrics(target_pid: int | None = None) -> dict[str, Any]:
@@ -392,118 +510,12 @@ def _read_network_metrics(target_pid: int | None = None) -> dict[str, Any]:
         "tcpTotalCount": 0,
         "remoteEndpoints": [],
     }
-
-    if _psutil is not None:
-        try:
-            nio = _psutil.net_io_counters()
-            if nio:
-                net_info["netBytesSent"] = int(nio.bytes_sent)
-                net_info["netBytesRecv"] = int(nio.bytes_recv)
-                net_info["netPacketsSent"] = int(nio.packets_sent)
-                net_info["netPacketsRecv"] = int(nio.packets_recv)
-            pid = target_pid or os.getpid()
-            conns = _psutil.Process(pid).net_connections(kind="tcp")
-            endpoints: list[str] = []
-            for c in conns:
-                st = str(c.status).upper()
-                net_info["tcpTotalCount"] += 1
-                if st == "ESTABLISHED":
-                    net_info["tcpEstablishedCount"] += 1
-                elif st == "SYN_SENT":
-                    net_info["tcpSynSentCount"] += 1
-                elif st == "CLOSE_WAIT":
-                    net_info["tcpCloseWaitCount"] += 1
-                elif st == "TIME_WAIT":
-                    net_info["tcpTimeWaitCount"] += 1
-                if c.raddr:
-                    ep = f"{c.raddr.ip}:{c.raddr.port}({st})"
-                    if ep not in endpoints:
-                        endpoints.append(ep)
-            net_info["remoteEndpoints"] = endpoints[:15]
-            return net_info
-        except Exception:
-            pass
-
-    # Linux /proc/net/dev & /proc/net/tcp fallback
-    if os.path.exists("/proc/net/dev"):
-        try:
-            rx_bytes = tx_bytes = rx_pkts = tx_pkts = 0
-            with open("/proc/net/dev") as f:
-                for line in f.readlines()[2:]:
-                    if ":" not in line:
-                        continue
-                    iface, data = line.split(":", 1)
-                    if iface.strip() == "lo":
-                        continue
-                    cols = data.split()
-                    if len(cols) >= 10:
-                        rx_bytes += int(cols[0])
-                        rx_pkts += int(cols[1])
-                        tx_bytes += int(cols[8])
-                        tx_pkts += int(cols[9])
-            net_info["netBytesRecv"] = rx_bytes
-            net_info["netPacketsRecv"] = rx_pkts
-            net_info["netBytesSent"] = tx_bytes
-            net_info["netPacketsSent"] = tx_pkts
-        except Exception:
-            pass
-
-    # Linux /proc/net/tcp state map: 01=ESTABLISHED, 02=SYN_SENT, 06=TIME_WAIT, 08=CLOSE_WAIT
-    for tcp_file in ("/proc/net/tcp", "/proc/net/tcp6"):
-        if os.path.exists(tcp_file):
-            try:
-                with open(tcp_file) as f:
-                    for line in f.readlines()[1:]:
-                        cols = line.split()
-                        if len(cols) < 4:
-                            continue
-                        st_hex = cols[3].upper()
-                        net_info["tcpTotalCount"] += 1
-                        if st_hex == "01":
-                            net_info["tcpEstablishedCount"] += 1
-                        elif st_hex == "02":
-                            net_info["tcpSynSentCount"] += 1
-                        elif st_hex == "06":
-                            net_info["tcpTimeWaitCount"] += 1
-                        elif st_hex == "08":
-                            net_info["tcpCloseWaitCount"] += 1
-            except Exception:
-                pass
-
-    # Windows netstat fallback for TCP socket states of the target PID
-    if sys.platform == "win32" and net_info["tcpTotalCount"] == 0:
-        try:
-            pid = target_pid or os.getpid()
-            proc_res = subprocess.run(
-                ["netstat", "-ano", "-p", "TCP"],
-                capture_output=True,
-                text=True,
-                timeout=2.0,
-                check=False,
-            )
-            pid_str = str(pid)
-            endpoints = []
-            for line in (proc_res.stdout or "").splitlines():
-                parts = line.split()
-                if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[4] == pid_str:
-                    state = parts[3].upper()
-                    remote = parts[2]
-                    net_info["tcpTotalCount"] += 1
-                    if state == "ESTABLISHED":
-                        net_info["tcpEstablishedCount"] += 1
-                    elif state == "SYN_SENT":
-                        net_info["tcpSynSentCount"] += 1
-                    elif state == "CLOSE_WAIT":
-                        net_info["tcpCloseWaitCount"] += 1
-                    elif state == "TIME_WAIT":
-                        net_info["tcpTimeWaitCount"] += 1
-                    ep = f"{remote}({state})"
-                    if ep not in endpoints:
-                        endpoints.append(ep)
-            net_info["remoteEndpoints"] = endpoints[:15]
-        except Exception:
-            pass
-
+    pid = target_pid or os.getpid()
+    if _populate_psutil_network(pid, net_info):
+        return net_info
+    _populate_procfs_net_dev(net_info)
+    _populate_procfs_net_tcp(net_info)
+    _populate_win32_netstat(pid, net_info)
     return net_info
 
 

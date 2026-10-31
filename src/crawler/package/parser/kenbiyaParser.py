@@ -160,6 +160,21 @@ class KenbiyaParserBase(ParserBase):
             logging.warning(f"Kenbiya Playwright fallback failed for {url}: {pw_err}")
         return None
 
+    async def _handle_response_or_403(
+        self,
+        session: aiohttp.ClientSession,
+        response: aiohttp.ClientResponse,
+        url: str,
+        attempt: int,
+        max_timeouts: int,
+    ) -> Optional[bytes]:
+        if response.status == 403:
+            pw_content = await self._try_playwright_on_403(session, 403, url)
+            if pw_content is not None:
+                return pw_content
+            raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
+        return await self._handle_response(response, url, attempt, max_timeouts)
+
     async def _getContent(self, session: aiohttp.ClientSession, url: str) -> bytes:
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -180,13 +195,8 @@ class KenbiyaParserBase(ParserBase):
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     last_status = response.status
-                    if last_status == 403:
-                        pw_content = await self._try_playwright_on_403(session, last_status, url)
-                        if pw_content is not None:
-                            return pw_content
-                        raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
-                    content = await self._handle_response(
-                        response, url, attempt, max_timeouts
+                    content = await self._handle_response_or_403(
+                        session, response, url, attempt, max_timeouts
                     )
                 if content is not None:
                     return content

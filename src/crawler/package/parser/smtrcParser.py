@@ -332,39 +332,46 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
         except Exception:
             return 0
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
+    _MANSION_MARKERS = ("マンション", "タワー", "レジデンス", "コート", "ハイツ", "コーポ", "パレス", "パーク", "ライオンズ")
+    _NON_MANSION_MARKERS = ("一戸建", "戸建", "売地", "土地")
 
+    @classmethod
+    def _ensure_smtrc_mansion_type(cls, item, specs: dict) -> None:
         pname = str(getattr(item, "propertyName", "") or "")
         shumoku = str(specs.get("物件種目", "") or specs.get("種別", ""))
-        mansion_markers = ("マンション", "タワー", "レジデンス", "コート", "ハイツ", "コーポ", "パレス", "パーク", "ライオンズ")
-        if ("一戸建" in pname or "戸建" in pname or "売地" in pname or "戸建" in shumoku or "土地" in shumoku) and not any(
-            m in pname or m in shumoku for m in mansion_markers
+        combined = f"{pname} {shumoku}"
+        if any(nm in combined for nm in cls._NON_MANSION_MARKERS) and not any(
+            mm in combined for mm in cls._MANSION_MARKERS
         ):
             raise SkipPropertyException(f"Non-mansion property in SmtrcMansionParser: {getattr(item, 'pageUrl', '')} ({pname})")
 
-        item.madori = specs.get("間取り", "") or specs.get("間取", "")
-        if not item.madori:
-            for k, v in specs.items():
-                if "間取" in str(k) and v:
-                    item.madori = str(v)
-                    break
-        if not item.madori:
-            m_madori = re.search(r"(\d+[SLDKＲ]+|ワンルーム)", f"{pname} {response.get_text(' ', strip=True) if response else ''}")
-            if m_madori:
-                item.madori = m_madori.group(1)
+    @staticmethod
+    def _extract_smtrc_madori(item, specs: dict, response: BeautifulSoup) -> str:
+        val = specs.get("間取り", "") or specs.get("間取", "")
+        if val:
+            return val
+        for k, v in specs.items():
+            if "間取" in str(k) and v:
+                return str(v)
+        pname = str(getattr(item, "propertyName", "") or "")
+        body_txt = response.get_text(" ", strip=True) if response else ""
+        m_madori = re.search(r"\d{1,2}[SLDKＲ]{1,4}|ワンルーム", f"{pname} {body_txt}")
+        return m_madori.group(0) if m_madori else ""
 
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+        self._ensure_smtrc_mansion_type(item, specs)
+
+        item.madori = self._extract_smtrc_madori(item, specs, response)
         item.senyuMensekiStr = (
-            specs.get("専有面積", "")
-            or specs.get("壁芯面積", "")
-            or specs.get("建物面積", "")
+            specs.get("専有面積", "") or specs.get("壁芯面積", "") or specs.get("建物面積", "")
         )
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
         if not item.senyuMenseki or float(item.senyuMenseki) <= 0:
             raise SkipPropertyException(f"SmtrcMansion missing senyuMenseki skipped: {getattr(item, 'pageUrl', '')}")
-            
+
         item.kaisuStr = (
             specs.get("所在階", "")
             or specs.get("所在階/階建", "")

@@ -172,11 +172,25 @@ class MitsuiParser(ParserBase):
             if key_spaced and key_spaced not in data:
                 data[key_spaced] = val
 
+    _LOAN_NOISE_WORDS = ("月々", "シミュレーション", "借入")
+    _PRICE_LABELS = ("価格", "販売価格", "物件価格")
+    _MITSUI_MANSION_PATH = "/buy/mansion/"
+    _MITSUI_TOCHI_PATH = "/buy/tochi/"
+    _MITSUI_KODATE_PATH = "/buy/kodate/"
+
+    @classmethod
+    def _is_valid_mitsui_price_text(cls, text: str) -> bool:
+        return bool(
+            text
+            and text not in cls._PRICE_LABELS
+            and not any(noise in text for noise in cls._LOAN_NOISE_WORDS)
+        )
+
     def get_price_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
-        for k in ("価格", "販売価格", "物件価格"):
+        for k in self._PRICE_LABELS:
             val = specs.get(k, "")
-            if val and val not in ("価格", "販売価格", "物件価格") and not any(noise in val for noise in ("月々", "シミュレーション", "借入")):
+            if self._is_valid_mitsui_price_text(val):
                 return val
         if response:
             el = response.select_one(
@@ -184,12 +198,10 @@ class MitsuiParser(ParserBase):
             )
             if el:
                 txt = el.get_text(strip=True)
-                if txt and txt not in ("価格", "販売価格", "物件価格") and not any(noise in txt for noise in ("月々", "シミュレーション", "借入")):
+                if self._is_valid_mitsui_price_text(txt):
                     return txt
         price_str = super().get_price_str(response)
-        if price_str and any(noise in price_str for noise in ("月々", "シミュレーション", "借入")):
-            return ""
-        return price_str
+        return price_str if self._is_valid_mitsui_price_text(price_str) else ""
 
     def get_address(self, response: BeautifulSoup) -> str:
         addr = super().get_address(response)
@@ -327,28 +339,24 @@ class MitsuiParser(ParserBase):
                 return lines
         return []
 
+    @staticmethod
+    def _is_traffic_label_tag(tag, labels: tuple[str, ...]) -> bool:
+        if tag.name == "td" and not any(c in (tag.get("class") or []) for c in ("table-header", "label")):
+            return False
+        t_lbl = tag.get_text(strip=True)
+        return any(lbl in t_lbl for lbl in labels)
+
     def _extract_traffic_from_th_dt(self, response) -> list[str]:
         if not response:
             return []
         labels = ("交通", "最寄り駅", "最寄駅", "沿線", "アクセス")
         for tag in response.find_all(["th", "dt", "td"]):
-            if tag.name == "td" and not any(
-                c in (tag.get("class") or []) for c in ("table-header", "label")
-            ):
+            if not self._is_traffic_label_tag(tag, labels) or not tag.parent:
                 continue
-            t_lbl = tag.get_text(strip=True)
-            if not any(lbl in t_lbl for lbl in labels):
+            candidates = [el for el in tag.parent.find_all(["td", "dd"]) if el is not tag]
+            if not candidates:
                 continue
-            parent = tag.parent
-            if not parent:
-                continue
-            candidates = [
-                el for el in parent.find_all(["td", "dd"]) if el is not tag
-            ]
-            val_el = candidates[0] if candidates else None
-            if not val_el:
-                continue
-            extracted = self._extract_traffic_from_soup(val_el)
+            extracted = self._extract_traffic_from_soup(candidates[0])
             if extracted:
                 return extracted
         return []
@@ -590,7 +598,7 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
     
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/buy/tochi/", "/buy/kodate/")):
+        if any(p in page_url for p in (self._MITSUI_TOCHI_PATH, self._MITSUI_KODATE_PATH)):
             raise SkipPropertyException(f"Non-mansion URL in MitsuiMansionParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -879,7 +887,7 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/buy/mansion/", "/buy/kodate/")):
+        if any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_KODATE_PATH)):
             raise SkipPropertyException(f"Non-tochi URL in MitsuiTochiParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -1121,7 +1129,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/buy/mansion/", "/buy/tochi/")):
+        if any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_TOCHI_PATH)):
             raise SkipPropertyException(f"Non-kodate URL in MitsuiKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -1635,7 +1643,7 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
     
     def _parsePropertyDetailPage(self, item, response:BeautifulSoup):
         page_url = getattr(item, "pageUrl", "") or ""
-        if "/buy/mansion/" in page_url:
+        if self._MITSUI_MANSION_PATH in page_url:
             specs = self._get_specs(response)
             shumoku = specs.get("物件種目") or specs.get("物件種別") or specs.get("種別") or ""
             if (

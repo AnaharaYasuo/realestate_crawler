@@ -472,30 +472,33 @@ class SumifuParser(ParserBase):
             return val or ""
         return ""
 
+    _SUMIFU_PRO_DETAIL = "/pro/detail_"
+    _SUMIFU_MANSION_DETAIL = "/mansion/detail_"
+    _SUMIFU_KODATE_DETAIL = "/kodate/detail_"
+    _SUMIFU_TOCHI_DETAIL = "/tochi/detail_"
+    _KAISU_SPEC_KEYS = ("階数", "所在階", "所在階構造", "所在階 / 階建", "所在階/階建", "所在階・階数")
+
+    @staticmethod
+    def _find_kaisu_in_spans(response: BeautifulSoup) -> str:
+        for span in response.select("span.text"):
+            txt = span.get_text(" ", strip=True)
+            if "階" in txt and any(ch.isdigit() for ch in txt):
+                return txt
+        return ""
+
     def _parseKaisuRaw(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        val = (
-            target_specs.get("階数")
-            or target_specs.get("所在階")
-            or target_specs.get("所在階構造")
-            or target_specs.get("所在階 / 階建")
-            or target_specs.get("所在階/階建")
-            or target_specs.get("所在階・階数")
-            or ""
+        for k in self._KAISU_SPEC_KEYS:
+            if target_specs.get(k):
+                return target_specs[k]
+        if response is None:
+            return ""
+        td = self._getValueFromTable(response, "所在階", partial_match=True) or self._getValueFromTable(
+            response, "階数", partial_match=True
         )
-        if not val and response is not None:
-            td = self._getValueFromTable(response, "所在階", partial_match=True) or self._getValueFromTable(
-                response, "階数", partial_match=True
-            )
-            if td:
-                val = self._getText(td)
-        if not val and response is not None:
-            for span in response.select("span.text"):
-                txt = span.get_text(" ", strip=True)
-                if "階" in txt and any(ch.isdigit() for ch in txt):
-                    val = txt
-                    break
-        return val or ""
+        if td:
+            return self._getText(td) or ""
+        return self._find_kaisu_in_spans(response)
 
     def _parseKaisuStr(self, response, _specs=None):
         val = self._parseKaisuRaw(response, specs=_specs)
@@ -506,12 +509,29 @@ class SumifuParser(ParserBase):
     def _parseKaisu(self, response, _specs=None):
         k_str = self._parseKaisuStr(response, _specs=_specs)
         if k_str:
-             m = DIGIT_REGEX.search(k_str)
-             if m: return int(m.group(1))
+            m = DIGIT_REGEX.search(k_str)
+            if m:
+                return int(m.group(1))
         return None
 
+    def _fallback_traffic_lines(self, response, specs: dict, transport_key: str) -> list[str]:
+        traffic_val = (
+            specs.get(transport_key, "")
+            or specs.get("交通", "")
+            or specs.get("最寄り駅", "")
+            or specs.get("沿線・駅", "")
+        )
+        lines = [line.strip() for line in str(traffic_val).split("\n") if line.strip()]
+        if lines or response is None:
+            return lines
+        for span in response.select("span.text, .access, .traffic"):
+            txt = span.get_text(" ", strip=True)
+            if any(w in txt for w in ("駅", "線", "バス", "徒歩")):
+                lines.append(txt)
+        return lines
+
     def _parseTrafficLines(self, response, _specs=None):
-        transport_key = self.selectors.get('transport_key', "交通")
+        transport_key = self.selectors.get("transport_key", "交通")
         transport_td = (
             self._getValueFromTable(response, transport_key, partial_match=True)
             or self._getValueFromTable(response, "交通", partial_match=True)
@@ -519,20 +539,8 @@ class SumifuParser(ParserBase):
         )
         if not transport_td:
             specs = _specs if _specs is not None else self._get_specs(response)
-            traffic_val = (
-                specs.get(transport_key, "")
-                or specs.get("交通", "")
-                or specs.get("最寄り駅", "")
-                or specs.get("沿線・駅", "")
-            )
-            lines = [line.strip() for line in str(traffic_val).split("\n") if line.strip()]
-            if not lines and response is not None:
-                for span in response.select("span.text, .access, .traffic"):
-                    txt = span.get_text(" ", strip=True)
-                    if any(w in txt for w in ("駅", "線", "バス", "徒歩")):
-                        lines.append(txt)
-            return lines
-        if hasattr(transport_td, 'select'):
+            return self._fallback_traffic_lines(response, specs, transport_key)
+        if hasattr(transport_td, "select"):
             for br in transport_td.select("br"):
                 br.replace_with("\n")
             full_text = transport_td.get_text().strip()
@@ -572,8 +580,8 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         if self.property_type in ("mansion", "kodate", "tochi"):
             return f"/{self.property_type}/" in href and "/detail_" in href
         if self.property_type in ("investment", "invest_apartment", "invest_kodate"):
-            return "/pro/detail_" in href
-        return "/pro/detail_" in href or "/detail_" in href
+            return self._SUMIFU_PRO_DETAIL in href
+        return self._SUMIFU_PRO_DETAIL in href or "/detail_" in href
 
     async def parsePropertyListPage(self, response: BeautifulSoup):
         property_links_selector = self.selectors.get('property_links')
@@ -619,7 +627,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/tochi/detail_", "/mansion/detail_", "/kodate/detail_")):
+        if any(p in page_url for p in (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL)):
             raise SkipPropertyException(f"Non-investment URL in SumifuInvestmentParserBase: {page_url}")
         # 1. Scraping basic labels
         
@@ -851,6 +859,31 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         target_specs = specs if specs is not None else self._get_specs(response)
         return target_specs.get("土地権利", "")
 
+    @staticmethod
+    def _apply_sumifu_tochi_road_eval(item) -> None:
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r"(\d+(?:\.\d+)?)", item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r"(\d+(?:\.\d+)?)", item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+        if item.douroMuki:
+            item.roadDirection = item.douroMuki
+        if item.douroKubun:
+            item.roadType = item.douroKubun
+        if item.setsudou:
+            structure_match = re.search(r"(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)", str(item.setsudou))
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
     def _parseTochiMensekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
         return target_specs.get("土地面積", "")
@@ -1061,7 +1094,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/tochi/detail_", "/kodate/detail_", "/pro/detail_")):
+        if any(p in page_url for p in (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL)):
             raise SkipPropertyException(f"Non-mansion URL in SumifuMansionParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -1405,7 +1438,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/mansion/detail_", "/kodate/detail_", "/pro/detail_")):
+        if any(p in page_url for p in (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL)):
             raise SkipPropertyException(f"Non-tochi URL in SumifuTochiParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
@@ -1443,35 +1476,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         item.saikenchiku = self._parseSaikenchiku(response)
         item.kokudoHou = self._parseKokudoHou(response)
 
-        # 統一土地評価フィールドのパース ＆ 代入
-        import re
-        if item.setsumen is not None:
-            item.maguchiStr = str(item.setsumen)
-            m = re.search(r'(\d+(?:\.\d+)?)', item.maguchiStr)
-            if m:
-                item.maguchi = Decimal(m.group(1))
-                
-        if item.douroHaba is not None:
-            item.roadWidthStr = str(item.douroHaba)
-            m = re.search(r'(\d+(?:\.\d+)?)', item.roadWidthStr)
-            if m:
-                item.roadWidth = Decimal(m.group(1))
-                
-        if item.douroMuki:
-            item.roadDirection = item.douroMuki
-            
-        if item.douroKubun:
-            item.roadType = item.douroKubun
-            
-        if item.setsudou:
-            structure_match = re.search(r'(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)', str(item.setsudou))
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-            
-        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
+        self._apply_sumifu_tochi_road_eval(item)
 
         return item
 
@@ -1614,7 +1619,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in ("/mansion/detail_", "/tochi/detail_", "/pro/detail_")):
+        if any(p in page_url for p in (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_PRO_DETAIL)):
             raise SkipPropertyException(f"Non-kodate URL in SumifuKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
