@@ -31,8 +31,8 @@ class ObjectStorageManager:
         self.bucket_name = os.getenv("STORAGE_BUCKET", "realestate-images")
         self.endpoint_url = os.getenv("STORAGE_ENDPOINT", MINIO_DEFAULT_ENDPOINT)
         is_cloud_env = os.getenv("IS_CLOUD", "").strip().lower() in ("true", "1")
-        exec_env = os.getenv("EXECUTION_ENV", "").strip().lower()
-        if (exec_env == "host" or not is_cloud_env) and MINIO_DEFAULT_HOST in self.endpoint_url:
+        # Non-cloud environments resolve minio:9000 to localhost:9000
+        if not is_cloud_env and MINIO_DEFAULT_HOST in self.endpoint_url:
             self.endpoint_url = self.endpoint_url.replace(MINIO_DEFAULT_HOST, MINIO_LOCAL_HOST)
         self.access_key = os.getenv("STORAGE_ACCESS_KEY", "minioadmin")
         self.secret_key = os.getenv("STORAGE_SECRET_KEY", "minioadmin")
@@ -54,7 +54,7 @@ class ObjectStorageManager:
                 endpoint_url=self.endpoint_url,
                 aws_access_key_id=self.access_key,
                 aws_secret_access_key=self.secret_key,
-                config=Config(signature_version='s3v4'),
+                config=Config(signature_version='s3v4', connect_timeout=float(os.getenv('STORAGE_CONNECT_TIMEOUT', '0.5')), read_timeout=float(os.getenv('STORAGE_READ_TIMEOUT', '1.0')), retries={'max_attempts': 1}),
                 region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1")
             )
             self._ensure_bucket_exists()

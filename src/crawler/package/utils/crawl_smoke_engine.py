@@ -468,7 +468,7 @@ def _http_timeout_sec() -> float:
 def _fetch_timeout_sec(url: str, deadline: float) -> float:
     """Per-URL HTTP budget. Keio WP JSON payloads are large (~0.5MB) and often need >3s."""
     base = _http_timeout_sec()
-    if "keiofudosan" in url or "get_search_result_sale" in url:
+    if "keiofudosan" in url or "get_search_result_sale" in url or "misawa" in url:
         base = max(base, 12.0)
     return min(max(1.0, base), max(1.0, _remaining(deadline)), 15.0)
 

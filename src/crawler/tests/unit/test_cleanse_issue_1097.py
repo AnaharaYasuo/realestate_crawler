@@ -39,8 +39,8 @@ def test_cleanse_tokyu_in_place():
         tatemonoMenseki=80.0,
         chikunengetsuStr="2020年1月",
         kouzou="{'value': '木造2階建', 'element': None}",
-        setsumen="4m",
-        douroHaba="4m",
+        setsumen=4.0,
+        douroHaba=4.0,
         youtoChiiki="第一種住居地域",
         setsudou="公道",
     )
@@ -64,8 +64,8 @@ def test_cleanse_tokyu_in_place():
         tatemonoMenseki=90.0,
         chikunengetsuStr="2021年1月",
         kouzou="木造",
-        setsumen="5m",
-        douroHaba="5m",
+        setsumen=5.0,
+        douroHaba=5.0,
         youtoChiiki="第一種低層住居専用地域",
         setsudou="公道",
     )

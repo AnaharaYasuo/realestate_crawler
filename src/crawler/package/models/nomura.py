@@ -4,10 +4,6 @@ from .base import PropertyBaseModel, TransportationMixin
 
 
 class NomuraModel(PropertyBaseModel, TransportationMixin):
-    # address and traffic are in PropertyBaseModel
-    # But wait, NomuraModel had traffic not in Mixin? PropertyBaseModel has traffic.
-    # So traffic is covered.
-    
     currentStatus = models.TextField(default="", blank=True)
     hikiwatashi = models.TextField(default="", blank=True)
     torihiki = models.TextField(default="", blank=True)
@@ -24,8 +20,8 @@ class NomuraModel(PropertyBaseModel, TransportationMixin):
         abstract = True
 
 class NomuraMansion(NomuraModel):
-    madori = models.TextField()
-    senyuMensekiStr = models.TextField(default="")
+    madori = models.TextField(default="", blank=True)
+    senyuMensekiStr = models.TextField(default="", blank=True)
     senyuMenseki = models.DecimalField(max_digits=10, decimal_places=3, default=0) # Strict
     balconyMensekiStr = models.TextField(default="", blank=True)
     balconyMenseki = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
@@ -34,18 +30,18 @@ class NomuraMansion(NomuraModel):
     kouzou = models.TextField(default="", blank=True)
     kaisu = models.TextField(default="", blank=True)
     chikunengetsuStr = models.TextField(default="", blank=True)
-    chikunengetsu = models.DateField(null=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosuStr = models.TextField(default="", blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     tochikenri = models.TextField(default="", blank=True)
     youtoChiiki = models.TextField(default="", blank=True)
-    kanriKaisya = models.TextField()
-    kanriKeitai = models.TextField()
-    manager = models.TextField()
-    kanrihiStr = models.TextField()
-    kanrihi = models.IntegerField(null=True)
-    syuzenTsumitateStr = models.TextField()
-    syuzenTsumitate = models.IntegerField(null=True)
+    kanriKaisya = models.TextField(default="", blank=True)
+    kanriKeitai = models.TextField(default="", blank=True)
+    manager = models.TextField(default="", blank=True)
+    kanrihiStr = models.TextField(default="", blank=True)
+    kanrihi = models.IntegerField(null=True, blank=True)
+    syuzenTsumitateStr = models.TextField(default="", blank=True)
+    syuzenTsumitate = models.IntegerField(null=True, blank=True)
     otherFees = models.TextField(blank=True)
     tyusyajo = models.TextField(blank=True)
 
@@ -54,23 +50,23 @@ class NomuraMansion(NomuraModel):
 
 class NomuraKodate(NomuraModel):
     madori = models.TextField(blank=True, default="")
-    tochiMensekiStr = models.TextField(default="")
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
-    tatemonoMensekiStr = models.TextField(default="")
-    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    tochiMensekiStr = models.TextField(default="", blank=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0)
+    tatemonoMensekiStr = models.TextField(default="", blank=True)
+    tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0)
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     tyusyajo = models.TextField(blank=True)
-    tochikenri = models.TextField()
-    chimoku = models.TextField() # 地目
+    tochikenri = models.TextField(default="", blank=True)
+    chimoku = models.TextField(default="", blank=True) # 地目
     privateRoadBurden = models.TextField(blank=True)
     setback = models.TextField(blank=True)
-    cityPlanning = models.TextField()
-    youtoChiiki = models.TextField()
-    kenpeiStr = models.TextField(default="") # 建ぺい率
+    cityPlanning = models.TextField(default="", blank=True)
+    youtoChiiki = models.TextField(default="", blank=True)
+    kenpeiStr = models.TextField(default="", blank=True) # 建ぺい率
     kenpei = models.IntegerField(null=True, blank=True)
-    yousekiStr = models.TextField(default="") # 容積率
+    yousekiStr = models.TextField(default="", blank=True) # 容積率
     youseki = models.IntegerField(null=True, blank=True)
     setsudou = models.TextField(default="", blank=True)
     facilities = models.TextField(blank=True)
@@ -79,17 +75,17 @@ class NomuraKodate(NomuraModel):
         db_table = "nomura_kodate"
 
 class NomuraTochi(NomuraModel):
-    tochiMensekiStr = models.TextField(default="")
-    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, default=0)
+    tochiMensekiStr = models.TextField(default="", blank=True)
+    tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, default=0)
     tochikenri = models.TextField(default="", blank=True)
     chimoku = models.TextField(default="", blank=True)
     privateRoadBurden = models.TextField(blank=True)
     setback = models.TextField(blank=True)
     cityPlanning = models.TextField(default="", blank=True)
     youtoChiiki = models.TextField(default="", blank=True)
-    kenpeiStr = models.TextField(default="")
+    kenpeiStr = models.TextField(default="", blank=True)
     kenpei = models.IntegerField(null=True, blank=True)
-    yousekiStr = models.TextField(default="")
+    yousekiStr = models.TextField(default="", blank=True)
     youseki = models.IntegerField(null=True, blank=True)
     setsudou = models.TextField(default="", blank=True)
     facilities = models.TextField(blank=True)
@@ -122,9 +118,9 @@ class NomuraInvestmentKodate(NomuraModel):
     # Kodate Specific (Strict)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     madori = models.TextField(blank=True, default="")
     
     # Land Details
@@ -154,9 +150,9 @@ class NomuraInvestmentApartment(NomuraModel):
     # Apartment Specific (Strict)
     tochiMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
     tatemonoMenseki = models.DecimalField(max_digits=10, decimal_places=2)  # Strict
-    kouzou = models.TextField()
-    chikunengetsuStr = models.TextField()
-    chikunengetsu = models.DateField(null=True)
+    kouzou = models.TextField(default="", blank=True)
+    chikunengetsuStr = models.TextField(default="", blank=True)
+    chikunengetsu = models.DateField(null=True, blank=True)
     soukosu = models.IntegerField(null=True, blank=True)
     
     # Land Details
@@ -173,4 +169,3 @@ class NomuraInvestmentApartment(NomuraModel):
 
     class Meta:
         db_table = "nomura_investment_apartment"
-

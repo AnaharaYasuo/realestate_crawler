@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from typing import Any
 
 _cur = os.path.abspath(__file__)
@@ -22,7 +23,7 @@ while True:
     _cur = _parent
 
 from asgiref.sync import async_to_sync
-from django.db import transaction
+from django.db import OperationalError, close_old_connections, transaction
 from django.utils import timezone
 from package.models.athome import (
     AthomeInvestmentApartment,
@@ -208,6 +209,20 @@ async def _run_parallel_validation(
     return await asyncio.gather(*coros)
 
 
+def _fetch_eval_chunk_with_retry(chunk: list[str], max_retries: int = 3) -> list[PropertyEvaluation]:
+    for attempt in range(max_retries):
+        try:
+            close_old_connections()
+            return list(PropertyEvaluation.objects.filter(property_url__in=chunk))
+        except OperationalError as oe:
+            close_old_connections()
+            if attempt >= max_retries - 1:
+                raise
+            logger.warning("OperationalError in batch_resolve_evaluations (attempt %d/%d): %s", attempt + 1, max_retries, oe)
+            time.sleep(0.2 * (attempt + 1))
+    return []
+
+
 def batch_resolve_evaluations(urls: list[str], chunk_size: int = 1000) -> dict[str, PropertyEvaluation]:
     """
     URLリストに対応するPropertyEvaluationレコードをチャンク分割して一括取得する。
@@ -221,9 +236,40 @@ def batch_resolve_evaluations(urls: list[str], chunk_size: int = 1000) -> dict[s
     eval_map: dict[str, PropertyEvaluation] = {}
     for i in range(0, len(unique_urls), chunk_size):
         chunk = unique_urls[i:i + chunk_size]
-        for rec in PropertyEvaluation.objects.filter(property_url__in=chunk):
+        for rec in _fetch_eval_chunk_with_retry(chunk):
             eval_map[rec.property_url] = rec
     return eval_map
+
+
+def _fetch_model_candidates_with_retry(model_cls: Any, since_date: Any, max_retries: int = 3) -> list[Any]:
+    for attempt in range(max_retries):
+        try:
+            close_old_connections()
+            qs = model_cls.objects.all()
+            if since_date and hasattr(model_cls, "inputDate"):
+                qs = qs.filter(inputDate__gte=since_date)
+            return list(qs)
+        except OperationalError as oe:
+            close_old_connections()
+            if attempt >= max_retries - 1:
+                raise
+            logger.warning("OperationalError scanning %s (attempt %d/%d): %s", getattr(model_cls, "__name__", str(model_cls)), attempt + 1, max_retries, oe)
+            time.sleep(0.2 * (attempt + 1))
+    return []
+
+
+def _save_eval_with_retry(eval_rec: PropertyEvaluation, max_retries: int = 3) -> None:
+    for attempt in range(max_retries):
+        try:
+            with transaction.atomic():
+                eval_rec.save()
+            return
+        except OperationalError as oe:
+            close_old_connections()
+            if attempt >= max_retries - 1:
+                raise
+            logger.warning("OperationalError saving PropertyEvaluation (attempt %d/%d): %s", attempt + 1, max_retries, oe)
+            time.sleep(0.2 * (attempt + 1))
 
 
 def validate_data(
@@ -282,11 +328,7 @@ def validate_data(
     
     raw_candidates: list[tuple[Any, str, str, str]] = []
     for model_cls, company, ptype in models:
-        qs = model_cls.objects.all()
-        if since_date and hasattr(model_cls, "inputDate"):
-            qs = qs.filter(inputDate__gte=since_date)
-            
-        for item in qs:
+        for item in _fetch_model_candidates_with_retry(model_cls, since_date):
             url = getattr(item, "pageUrl", "")
             if not url:
                 continue
@@ -309,10 +351,10 @@ def validate_data(
             concurrency=concurrency,
             skip_url_check=skip_url_check,
         )
+        close_old_connections()
         for res, eval_rec in results:
             if eval_rec:
-                with transaction.atomic():
-                    eval_rec.save()
+                _save_eval_with_retry(eval_rec)
 
             if res["status"] == "delisted":
                 delisted_count += 1

@@ -53,6 +53,7 @@ from package.utils.crawler_watchdog import (
     kill_hung_job_process,
     cleanup_crawler_progress,
     HANG_THRESHOLD_SEC,
+    touch_crawler_progress,
     update_watchdog_progress,
 )
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
@@ -971,7 +972,8 @@ def main():
 
                 
                 try:
-                    # クロール開始前のタイムスタンプを保存
+                    # クロール開始前のタイムスタンプを保存（INITIAL_DISCOVERY_GRACE_SEC維持のためPopen前にtouch）
+                    touch_crawler_progress(company, ptype)
                     start_dt = timezone.now() if timezone is not None else None
                     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
                     proc = subprocess.Popen(
