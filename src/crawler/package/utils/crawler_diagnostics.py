@@ -331,29 +331,27 @@ def collect_network_and_hardware_diagnostics(target_pid: int | None = None) -> d
     return collect_hardware_resource_metrics(target_pid=target_pid)
 
 
+def _merge_single_thread_entry(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for k, v in incoming.items():
+        if v or k not in merged:
+            merged[k] = v
+    return merged
+
+
 def _merge_thread_diagnostics(
     persisted_threads: list[dict[str, Any]],
     in_proc_threads: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    combined_by_tid: dict[Any, dict[str, Any]] = {}
-    for pt in persisted_threads:
-        tid = pt.get("thread_id")
-        if tid is not None:
-            combined_by_tid[tid] = dict(pt)
+    combined_by_tid = {
+        pt["thread_id"]: dict(pt) for pt in persisted_threads if pt.get("thread_id") is not None
+    }
     for it in in_proc_threads:
         tid = it.get("thread_id")
-        if tid is None:
-            continue
-        if tid in combined_by_tid:
-            merged = dict(combined_by_tid[tid])
-            for k, v in it.items():
-                if v or k not in merged:
-                    merged[k] = v
-            combined_by_tid[tid] = merged
-        else:
-            combined_by_tid[tid] = dict(it)
+        if tid is not None:
+            combined_by_tid[tid] = _merge_single_thread_entry(combined_by_tid.get(tid, {}), it)
 
-    source_threads = list(combined_by_tid.values()) if combined_by_tid else (in_proc_threads or persisted_threads)
+    source_threads = list(combined_by_tid.values()) or in_proc_threads or persisted_threads
     return sorted(
         source_threads,
         key=lambda t: float(t.get("elapsed_in_phase_sec", 0.0)),
