@@ -22,7 +22,8 @@ import package.utils.logging_config  # noqa: F401  # Register TRACE log level gl
 
 def pytest_configure():
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
-    if not settings.configured:
+    if not settings.configured or not getattr(settings, 'DATABASES', None) or not settings.DATABASES.get('default', {}).get('ENGINE'):
+        settings._wrapped = django.conf.empty
         # Per-process file so parallel Start-Job / xdist workers do not lock one another.
         # Avoid :memory: — asyncio.to_thread ORM saves need a shared schema per process.
         db_path = os.path.join(
@@ -33,7 +34,7 @@ def pytest_configure():
             for suffix in ("", "-wal", "-shm", "-journal"):
                 try:
                     os.remove(db_path + suffix)
-                except FileNotFoundError:
+                except (FileNotFoundError, PermissionError, OSError):
                     pass
 
         cleanup_test_database()
