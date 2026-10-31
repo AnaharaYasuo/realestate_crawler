@@ -80,3 +80,39 @@
    - Slack通知の失敗が進捗や推論バッチを停止させないこと。
 4. **メンテナンス・検証スクリプトの独立起動時**:
    - `validate_data.py` を任意のカレントディレクトリから単体プロセス実行した際に、`setup_env` の `ModuleNotFoundError` が発生せず正常に終了すること。
+
+
+---
+
+## 3. Issue #1160: Watchdogハング防止・バルク価格推定DB再接続・詳細二重保存排除・テスト強化設計
+
+### 3.1 Watchdog 進捗ファイル一致・初期探索猶予保護・`atexit` デッドロック防止
+* **ジョブ固有進捗ファイルの固定 (`CRAWLER_JOB_COMPANY` / `CRAWLER_JOB_TYPE`)**:
+  - `main.py`（および `run_all_crawlers.py` の子プロセス起動時）において、CLI引数 `--company` / `--type` を環境変数 `CRAWLER_JOB_COMPANY` / `CRAWLER_JOB_TYPE` に設定する。
+  - `ApiAsyncProcBase._touch_watchdog_progress()`、`differential._touch_differential_progress()`、および `_touch_active_progress_files()` は、環境変数 `CRAWLER_JOB_COMPANY` / `CRAWLER_JOB_TYPE` が存在する場合は最優先でそのファイル（`progress_{company}_{type}.touch`）のみを更新する。他プロセスの `.touch` ファイルを無差別に更新してはならない。
+* **初回探索猶予 (`INITIAL_DISCOVERY_GRACE_SEC = 1800s`) の保護**:
+  - `run_all_crawlers.py` は子プロセス起動前に初期 `.touch` ファイルを作成した上で `now_ts = time.time()` を記録し、`main.py` 起動直後の冗長な初期 `touch_crawler_progress()` によって `last_activity_time > start_time` が即座に成立して 1800秒の初期探索猶予が消失することを防ぐ。
+* **中間ページ・詳細ワーカーの Heartbeat 強化 & 終了時 `atexit` デッドロック防止**:
+  - `ParseMiddlePageAsyncBase._fetch_middle_page_response()` および `_detail_worker()` で進捗ファイルを更新する。
+  - `_wait_for_active_fire_and_forget_threads()` でタイムアウトまたは停止フラグ検知時は、`STOP_FLAG_FILE` を生成して未開始 `Future` をキャンセルし、`_local_worker_executor.shutdown(wait=False, cancel_futures=True)` を呼び出すとともに、`main.py` の CLI 異常終了時は `atexit` の `ThreadPoolExecutor` 無限 `join()` を回避して確実にプロセスを終了させる。
+
+### 3.2 バルク価格推定 (`bulk_evaluation`) ＆ `validate_data.py` の DB 切断耐性・名寄せ高速化
+* **チャンクイテレーション時の DB 再接続 (`targets.py` / `validate_data.py`)**:
+  - `_iter_target_items()` および `validate_data.py` のレコード走査を PK ベースチャンク（1,000件単位）で実行し、`OperationalError` (`2006`, `2013`, `9001`) 発生時は `close_old_connections()` 後に指数バックオフで最大3回リトライする。
+* **名寄せ (`deduplication.py`) のバッチプリフェッチ＆スレッドセーフ化**:
+  - `_REAL_PROPERTY_CACHE` を `threading.Lock` で保護し、候補レコードの実物件 (`_get_real_property`) をモデル別に `id__in` で一括プリフェッチすることで N+1 クエリと ProxySQL コネクション枯渇を防ぐ。
+
+### 3.3 詳細ページ単一保存ライフサイクル (`api.py`) ＆ モデル `blank=True` 規約 (Gate 2)
+* **`ParseDetailPageAsyncBase` の二重保存排除**:
+  - `ParseDetailPageAsyncBase._treatPage()` 内で `_handle_saved_property()` により保存・ML評価が完了しているため、`ParseDetailPageAsyncBase` では親クラスのバッチ用 `_afterRunProc` による再度の `_save_item_with_retry()`（`full_clean()` + `save()` 二重実行）を行わない。
+* **全具体モデルの `blank=True` 統一と Gate 2 ハーネス検証**:
+  - `null=True` を持つ全フィールドおよび任意文字列フィールドに `blank=True` を付与し、`test_architecture_harness.py` (Gate 2) で機械的に検証する。
+
+### 3.4 物件種別4層防衛・個別パーサーエッジケース対応
+* **`rearieParser.py`**: トップページリダイレクト等で `h1` が空かつ主要スペックが取得できない場合は `ListingEndedException` を送出する。
+* **`tokyuParser.py`**:
+  - `TokyuMansionParser`: `/fudosan-toushi/` URL やタイトル内の `｜投資用物件` を検出した場合は `SkipPropertyException` で即座にスキップする。
+  - `TokyuKodateParser`: `setsumen` / `douroHaba` には文字列メソッドではなく `Decimal | None` を返す `_parseSetsumen` / `_parseDouroHaba` を代入し、`接道方向／幅員` がない場合は `道路幅員` キーへフォールバックする。
+* **`homesParser.py` / `InvestmentParserBase`**: `grossYield >= 1000`（`DecimalField(max_digits=5, decimal_places=2)` 上限超過）の異常値は `None` にクレンジングする。
+* **`sumai1Parser.py`**: `Sumai1InvestmentParser` で `/buyers/tochi/`・`/buyers/kodate/`・`/buyers/mansion/` の実需URLを `SkipPropertyException` で拒否する。
+* **`tohoParser.py`**: `h1` 内の `お気に入りに追加` プレフィックスを除去して `propertyName` を抽出する。

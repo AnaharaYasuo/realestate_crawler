@@ -21,8 +21,9 @@ import package.utils.logging_config  # noqa: F401  # Register TRACE log level gl
 
 
 def pytest_configure():
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'realestateSettings')
-    if not settings.configured:
+    os.environ.pop('DJANGO_SETTINGS_MODULE', None)
+    if not settings.configured or not getattr(settings, 'DATABASES', None) or not settings.DATABASES.get('default', {}).get('ENGINE'):
+        settings._wrapped = django.conf.empty
         # Per-process file so parallel Start-Job / xdist workers do not lock one another.
         # Avoid :memory: — asyncio.to_thread ORM saves need a shared schema per process.
         db_path = os.path.join(
@@ -33,7 +34,7 @@ def pytest_configure():
             for suffix in ("", "-wal", "-shm", "-journal"):
                 try:
                     os.remove(db_path + suffix)
-                except FileNotFoundError:
+                except (FileNotFoundError, PermissionError, OSError):
                     pass
 
         cleanup_test_database()
@@ -75,4 +76,13 @@ def guard_slack_test_isolation(monkeypatch):
         monkeypatch.setenv("SLACK_BOT_TOKEN", "mock-test-bot-token-blocked")
     if not os.getenv("SLACK_APP_TOKEN") or not os.getenv("SLACK_APP_TOKEN").startswith("mock-"):
         monkeypatch.setenv("SLACK_APP_TOKEN", "mock-test-app-token-blocked")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Ensure any background ThreadPoolExecutor threads do not block interpreter exit."""
+    try:
+        import concurrent.futures.thread as _cft
+        _cft._threads_queues.clear()
+    except Exception:
+        pass
 

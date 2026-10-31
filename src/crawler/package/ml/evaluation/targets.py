@@ -1,13 +1,14 @@
 """
-評価対象モデルおよび未評価物件のストリーミング抽出モジュール (Issue #716)
+評価対象モデルおよび未評価物件のストリーミング抽出モジュール (Issue #716, #1160)
 """
 
 import logging
+import time
 from collections.abc import Iterator
 from typing import Any
 
 from django.apps import apps
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 from package.ml.constants import COMPANIES
 from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
@@ -62,6 +63,33 @@ def _is_real_django_model(model: Any) -> bool:
     return isinstance(model, type) and issubclass(model, models.Model)
 
 
+def _fetch_batch_items_with_retry(
+    model: Any,
+    last_pk: int,
+    fetch_batch_size: int,
+    max_retries: int = 3,
+) -> list[Any]:
+    """OperationalError (2006, 2013, 9001等) 発生時に接続を破棄して再試行するバッチフェッチ (Issue #1160)"""
+    for attempt in range(max_retries):
+        try:
+            close_old_connections()
+            return list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
+        except OperationalError as oe:
+            close_old_connections()
+            if attempt >= max_retries - 1:
+                raise
+            logger.warning(
+                "OperationalError fetching batch for %s (pk>%d, attempt %d/%d): %s. Retrying...",
+                getattr(model, "__name__", str(model)),
+                last_pk,
+                attempt + 1,
+                max_retries,
+                oe,
+            )
+            time.sleep(0.1 * (attempt + 1))
+    return []
+
+
 def _iter_target_items(
     model: Any,
     existing_eval_map: dict[str, Any],
@@ -71,8 +99,7 @@ def _iter_target_items(
     """PKベースで未処理対象物件を1件ずつ取得し、(item, skipped_count) を yield する (S3776 分散)"""
     last_pk = 0
     while True:
-        close_old_connections()
-        batch_items = list(model.objects.filter(pk__gt=last_pk).order_by("pk")[:fetch_batch_size])
+        batch_items = _fetch_batch_items_with_retry(model, last_pk, fetch_batch_size)
         if not batch_items:
             break
 
@@ -99,7 +126,7 @@ def iter_unprocessed_chunks(
     全件 list 化を行わず、同時にメモリ保持する物件数を fetch_batch_size 以下に抑制する。
     本物の Django モデルでは PK ベースのバッチクエリにより、QuerySet カーソルオープン中の
     不正な切断を防ぎ、バッチ境界で安全に close_old_connections() を呼んで DB アイドルタイムアウト
-    (OperationalError 2006: MySQL server has gone away) を物理的に根絶する (Issue #909)。
+    (OperationalError 2006: MySQL server has gone away) を物理的に根絶する (Issue #909, #1160)。
     Yields:
         (chunk_items, skipped_count_in_this_yield)
     """
@@ -132,4 +159,3 @@ def iter_unprocessed_chunks(
     if current_chunk:
         yield current_chunk, chunk_skipped
         close_old_connections()
-

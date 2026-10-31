@@ -315,12 +315,11 @@ class RearieParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        # 0. 掲載終了の早期検知（画面上の明示的な文言検知を厳格化）
+    def _check_rearie_listing_ended(self, response: BeautifulSoup, specs: dict) -> str:
         title_text = response.title.get_text().strip() if response.title else ""
         body_text = response.body.get_text() if response.body else ""
         all_text = f"{title_text} {body_text}"
-        if any(msg in all_text for msg in [
+        ended_markers = (
             "掲載を終了しました",
             "掲載を終了いたしました",
             "掲載終了しました",
@@ -330,22 +329,27 @@ class RearieParser(ParserBase):
             "該当する物件がありません",
             "指定された物件は掲載を終了",
             "掲載終了物件",
-        ]) or response.select_one(".mod-message-end, .not-found"):
+            "- パナソニック ホームズ株式会社",
+        )
+        if any(msg in all_text for msg in ended_markers) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Rearie listing ended")
+        h1_text = getattr(response.h1, "text", "").strip()
+        if not h1_text and not specs.get("価格"):
+            raise ListingEndedException("Rearie listing ended or redirected to top page")
+        return h1_text
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 物件スペック表の取得および掲載終了・トップページリダイレクトの早期検知
+        specs = self._get_specs(response)
+        h1_text = self._check_rearie_listing_ended(response, specs)
 
         item = super()._parsePropertyDetailPage(item, response)
         
         # タイトル/物件名
-        title_el = response.find("h1")
-        if title_el:
-            # 改行や不要な空白などを整理
-            raw_title = title_el.get_text().strip()
+        if h1_text:
             # 複数行ある場合は最初の行を物件名にする
-            item.propertyName = raw_title.split("\n")[0].strip()
+            item.propertyName = h1_text.split("\n")[0].strip()
             
-        # 物件スペック表の取得
-        specs = self._get_specs(response)
-        
         # 価格
         price_val = specs.get("価格", "")
         if price_val:
