@@ -333,7 +333,7 @@ class RearieParser(ParserBase):
         )
         if any(msg in all_text for msg in ended_markers) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Rearie listing ended")
-        title_el = response.find("h1")
+        title_el = response.select_one("h1")
         h1_text = title_el.get_text().strip() if title_el else ""
         if not h1_text and not specs.get("価格"):
             raise ListingEndedException("Rearie listing ended or redirected to top page")
