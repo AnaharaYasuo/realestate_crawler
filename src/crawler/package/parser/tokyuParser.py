@@ -702,8 +702,9 @@ class TokyuParser(ParserBase):
 class TokyuMansionParser(TokyuParser, MansionParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
-            raise SkipPropertyException(f"Tokyu investment property mixed into mansion crawl: {url}")
+        u_lower = str(url or "").lower()
+        if u_lower and (FUDOSAN_TOUSHI_PATH in u_lower or "/kodate/" in u_lower or "/tochi/" in u_lower):
+            raise SkipPropertyException(f"Tokyu non-mansion property mixed into mansion crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -904,8 +905,9 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
 class TokyuTochiParser(TokyuParser, TochiParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
-            raise SkipPropertyException(f"Tokyu investment property mixed into tochi crawl: {url}")
+        u_lower = str(url or "").lower()
+        if u_lower and (FUDOSAN_TOUSHI_PATH in u_lower or "/mansion/" in u_lower or "/kodate/" in u_lower):
+            raise SkipPropertyException(f"Tokyu non-tochi property mixed into tochi crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -1033,8 +1035,9 @@ class TokyuTochiParser(TokyuParser, TochiParserBase):
 class TokyuKodateParser(TokyuParser, KodateParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
-        if url and FUDOSAN_TOUSHI_PATH in str(url).lower():
-            raise SkipPropertyException(f"Tokyu investment property mixed into kodate crawl: {url}")
+        u_lower = str(url or "").lower()
+        if u_lower and (FUDOSAN_TOUSHI_PATH in u_lower or "/mansion/" in u_lower or "/tochi/" in u_lower):
+            raise SkipPropertyException(f"Tokyu non-kodate property mixed into kodate crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -1725,6 +1728,9 @@ class TokyuInvestmentApartmentParser(TokyuInvestmentParser, InvestmentParserBase
         return TokyuInvestmentApartment()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if "/tochi/" in page_url or "/kodate/" in page_url:
+            raise SkipPropertyException(f"Non-apartment URL in TokyuInvestmentApartmentParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
         item.propertyType = "Apartment"
         return item

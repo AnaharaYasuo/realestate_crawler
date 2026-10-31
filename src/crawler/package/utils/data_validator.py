@@ -53,7 +53,13 @@ class PropertyDataValidator:
             reasons.append(ERR_MISSING_NAME)
         if _blank(getattr(item, "address", None)):
             reasons.append(ERR_MISSING_ADDRESS)
-        if _blank(getattr(item, "traffic", None)) and _blank(getattr(item, "station1", None)):
+        if (
+            _blank(getattr(item, "traffic", None))
+            and _blank(getattr(item, "station1", None))
+            and _blank(getattr(item, "railway1", None))
+            and _blank(getattr(item, "busStation1", None))
+            and _blank(getattr(item, "transport1", None))
+        ):
             is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
             if not is_invest:
                 reasons.append(ERR_MISSING_TRAFFIC)
@@ -108,8 +114,29 @@ class PropertyDataValidator:
         if any(kw in full_text for kw in specific_keywords):
             return True
 
+        addr = str(getattr(item, "address", "") or "")
+        rural_or_special_keywords = ("郡", "大字", "字", "温泉", "荘", "団地")
+        try:
+            price_num = float(getattr(item, "price", 0) or 0)
+        except (ValueError, TypeError):
+            price_num = 0.0
+        if price_num >= 100000 and (
+            ptype == "tochi" or any(rk in addr or rk in full_text for rk in rural_or_special_keywords)
+        ):
+            return True
+
         invest_keywords = ["利回り", "賃料", "家賃", "満室", "稼働", "一棟", "区分"]
-        is_invest_type = ptype in ["investment", "invest", "investmentapartment", "investment_apartment"]
+        is_invest_type = ptype in (
+            "investment",
+            "invest",
+            "apartment",
+            "investmentapartment",
+            "investment_apartment",
+            "invest_apartment",
+            "invest_kodate",
+            "investment_kodate",
+            "investmentkodate",
+        )
         url_str = str(getattr(item, "pageUrl", "") or "").lower()
         if "toushi" in url_str or "invest" in url_str:
             return True
@@ -121,7 +148,16 @@ class PropertyDataValidator:
                 has_valid_yield = y_val > 0
             except (ValueError, TypeError):
                 has_valid_yield = False
-        return is_invest_type and (any(kw in full_text for kw in invest_keywords) or has_valid_yield)
+        has_valid_rent = False
+        raw_rent = getattr(item, "annualRent", None) or getattr(item, "monthlyRent", None)
+        if raw_rent is not None:
+            try:
+                has_valid_rent = float(raw_rent) > 0
+            except (ValueError, TypeError):
+                has_valid_rent = False
+        return is_invest_type and (
+            any(kw in full_text for kw in invest_keywords) or has_valid_yield or has_valid_rent
+        )
 
     @classmethod
     def _is_invest_unit_mansion(cls, item: Any) -> bool:
@@ -271,18 +307,18 @@ class PropertyDataValidator:
         # 所在階表記が明示されている場合
         if any(term in s for term in ["所在階", "階部分", "階／", "階/"]):
             return True
-        # スラッシュ区切りで所在階/建物階数となっている場合 (例: 3階 / 地上7階)
+        # スラッシュ区切りで所在階/建物階数となっている場合 (例: 3階 / 地上7階, 地下1階 / 地上7階建)
         tokens = [t.strip() for t in s.replace('/', ' ').replace('／', ' ').split() if t.strip()]
         if len(tokens) >= 2:
             return any(
                 '階' in token
-                and not ('地上' in token or '地下' in token or '建' in token or '総' in token)
+                and not ('地上' in token or '建' in token or '総' in token)
                 and any(ch.isdigit() for ch in token)
                 for token in tokens
             )
         if len(tokens) == 1:
             tok = tokens[0]
-            if '階' in tok and not ('地上' in tok or '地下' in tok or '建' in tok or '総' in tok):
+            if '階' in tok and not ('地上' in tok or '建' in tok or '総' in tok):
                 return any(ch.isdigit() for ch in tok)
         return False
 

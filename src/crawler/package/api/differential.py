@@ -8,8 +8,10 @@ from typing import Any
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+from package.utils.crawler_diagnostics import record_thread_activity
 from package.utils.crawler_watchdog import touch_crawler_progress
+
+logger = logging.getLogger(__name__)
 
 
 class ListItem(str):
@@ -60,21 +62,17 @@ def _is_ttl_expired(db_dt: Any, now: Any, ttl_days: int) -> bool:
 
 def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, ttl_days: int) -> bool:
     if not record:
-        # 新規物件は詳細フェッチ必須
         return True
     db_price = record.get("price")
     db_dt = record.get("updateDateTime") or record.get("inputDateTime")
 
-    # 一覧で価格が取得できており、かつDBの価格と完全一致している場合は即座にスキップ (TTL内)
     if item.price is not None and db_price is not None:
         if item.price != db_price:
             logger.info(f"[Differential Crawl] Price change detected for {item.url}: {db_price} -> {item.price}")
             return True
-        # 価格が完全一致している場合: TTL期限切れでなければスキップ確定
         if not _is_ttl_expired(db_dt, now, ttl_days):
             return False
 
-    # 価格が取れない場合でも、TTL有効期間内であれば不要な再フェッチをスキップ
     if _is_ttl_expired(db_dt, now, ttl_days):
         logger.debug(f"[Differential Crawl] TTL expired ({ttl_days}d) for {item.url}. Refreshing.")
         return True
@@ -222,6 +220,7 @@ async def _process_differential_chunk(
     if not chunk_urls:
         return [], []
 
+    record_thread_activity("differential_query", current_url=chunk_urls[0])
     lookup_urls = _build_lookup_urls(chunk_urls)
     try:
         existing_map: dict[str, dict[str, Any]] = await sync_to_async(_query_existing_records_sync)(
@@ -233,6 +232,7 @@ async def _process_differential_chunk(
         )
         return chunk_urls, []
 
+    _touch_differential_progress(model_class)
     chunk_to_fetch, chunk_to_skip = _partition_chunk_items(chunk_items, existing_map, now, ttl_days)
     if chunk_to_skip:
         await _batch_update_cached(model_class, chunk_to_skip, now)
@@ -267,7 +267,6 @@ async def filter_differential_items(
     normalized_items = [ListItem.from_raw(item) for item in items]
     all_urls = [item.url for item in normalized_items if item.url]
 
-    # If differential crawling is disabled, force full, or no Django model class provided
     if not enabled or force_full or model_class is None:
         return all_urls, []
 

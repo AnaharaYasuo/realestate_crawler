@@ -9,7 +9,7 @@ from decimal import Decimal
 import datetime
 import re
 from package.utils import converter
-from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import InvestmentParserBase, KodateParserBase, MansionParserBase, ParserBase, SkipPropertyException, TochiParserBase
 import logging
 from package.utils import logging_config  # noqa: F401
 from package.utils.selector_loader import SelectorLoader
@@ -474,7 +474,7 @@ class SumifuParser(ParserBase):
 
     def _parseKaisuRaw(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
-        return (
+        val = (
             target_specs.get("階数")
             or target_specs.get("所在階")
             or target_specs.get("所在階構造")
@@ -483,6 +483,19 @@ class SumifuParser(ParserBase):
             or target_specs.get("所在階・階数")
             or ""
         )
+        if not val and response is not None:
+            td = self._getValueFromTable(response, "所在階", partial_match=True) or self._getValueFromTable(
+                response, "階数", partial_match=True
+            )
+            if td:
+                val = self._getText(td)
+        if not val and response is not None:
+            for span in response.select("span.text"):
+                txt = span.get_text(" ", strip=True)
+                if "階" in txt and any(ch.isdigit() for ch in txt):
+                    val = txt
+                    break
+        return val or ""
 
     def _parseKaisuStr(self, response, _specs=None):
         val = self._parseKaisuRaw(response, specs=_specs)
@@ -499,7 +512,11 @@ class SumifuParser(ParserBase):
 
     def _parseTrafficLines(self, response, _specs=None):
         transport_key = self.selectors.get('transport_key', "交通")
-        transport_td = self._getValueFromTable(response, transport_key)
+        transport_td = (
+            self._getValueFromTable(response, transport_key, partial_match=True)
+            or self._getValueFromTable(response, "交通", partial_match=True)
+            or self._getValueFromTable(response, "最寄", partial_match=True)
+        )
         if not transport_td:
             specs = _specs if _specs is not None else self._get_specs(response)
             traffic_val = (
@@ -508,9 +525,16 @@ class SumifuParser(ParserBase):
                 or specs.get("最寄り駅", "")
                 or specs.get("沿線・駅", "")
             )
-            return [line.strip() for line in traffic_val.split("\n") if line.strip()]
+            lines = [line.strip() for line in str(traffic_val).split("\n") if line.strip()]
+            if not lines and response is not None:
+                for span in response.select("span.text, .access, .traffic"):
+                    txt = span.get_text(" ", strip=True)
+                    if any(w in txt for w in ("駅", "線", "バス", "徒歩")):
+                        lines.append(txt)
+            return lines
         if hasattr(transport_td, 'select'):
-            for br in transport_td.select("br"): br.replace_with("\n")
+            for br in transport_td.select("br"):
+                br.replace_with("\n")
             full_text = transport_td.get_text().strip()
         else:
             full_text = str(transport_td).strip()
@@ -594,6 +618,9 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/tochi/detail_", "/mansion/detail_", "/kodate/detail_")):
+            raise SkipPropertyException(f"Non-investment URL in SumifuInvestmentParserBase: {page_url}")
         # 1. Scraping basic labels
         
         item.propertyName = self._parsePropertyName(response)
@@ -639,6 +666,13 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         item.railwayCount = len(traffic_lines)
         traffic_str = "  ".join(traffic_lines)
         self._populateTraffic(item, traffic_str)
+
+        if (not item.grossYield or float(item.grossYield) <= 0) and (
+            not item.annualRent or float(item.annualRent) <= 0
+        ):
+            raise SkipPropertyException(
+                f"Sumifu investment property missing yield and rent: {getattr(item, 'pageUrl', '')}"
+            )
 
         return item
 
@@ -1026,6 +1060,9 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/tochi/detail_", "/kodate/detail_", "/pro/detail_")):
+            raise SkipPropertyException(f"Non-mansion URL in SumifuMansionParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.madori = self._parseMadori(response)
@@ -1367,6 +1404,9 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/mansion/detail_", "/kodate/detail_", "/pro/detail_")):
+            raise SkipPropertyException(f"Non-tochi URL in SumifuTochiParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
@@ -1573,6 +1613,9 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/mansion/detail_", "/tochi/detail_", "/pro/detail_")):
+            raise SkipPropertyException(f"Non-kodate URL in SumifuKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)

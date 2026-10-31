@@ -1,7 +1,10 @@
+import ctypes
 import logging
 import os
+import subprocess
 import sys
 import threading
+import time
 from typing import Any
 
 try:
@@ -9,11 +12,21 @@ try:
 except ImportError:
     newrelic = None
 
+try:
+    import psutil as _psutil
+except ImportError:
+    _psutil = None
+
 logger = logging.getLogger(__name__)
 
 # Holds the Application object returned by register_application().
 # Used to pass application= to record_custom_event() in batch/job processes.
 _NR_APP: Any = None
+
+# Baseline for delta CPU% calculation across calls
+_cpu_sample_lock = threading.Lock()
+_last_proc_cpu_time: float | None = None
+_last_proc_wall_time: float | None = None
 
 
 def _get_agent() -> Any | None:
@@ -56,10 +69,6 @@ def init_new_relic() -> bool:
         # Disable APM log forwarding — logs flow via Cloud Logging → Pub/Sub (Issue #562 #9)
         agent.initialize(config_file=None, environment=None, ignore_errors=True)
 
-        # register_application is required for batch processes that have no web transactions.
-        # Without it, record_custom_event() outside a transaction is silently discarded (Issue #562 #2).
-        # The returned Application object is stored globally so _get_application() returns it
-        # to all record_custom_event() calls (CodeRabbit: must use returned object, not agent.application()).
         global _NR_APP
         _NR_APP = agent.register_application(name=app_name, timeout=10.0)
         if _NR_APP is None:
@@ -72,12 +81,7 @@ def init_new_relic() -> bool:
 
 
 def shutdown_new_relic(timeout: float = 10.0) -> None:
-    """Flush and shut down the New Relic agent before process exit.
-
-    Must be called at the end of batch/job processes to ensure all buffered
-    custom events (CrawlerExecution, ContainerSample, LlmEvent) are flushed
-    to New Relic before the container terminates (Issue #562 #2).
-    """
+    """Flush and shut down the New Relic agent before process exit."""
     agent = _get_agent()
     if agent is None:
         return
@@ -122,7 +126,6 @@ def record_llm_event(
         if error_msg:
             params["error_msg"] = error_msg
 
-        # application= required outside a web transaction (batch/job processes) — Issue #562 #2
         agent.record_custom_event("LlmEvent", params, application=_get_application())
         return True
     except Exception as e:  # noqa: BLE001
@@ -161,7 +164,6 @@ def record_crawler_metrics(
             "status": status,
         })
 
-        # application= required outside a web transaction (batch/job processes) — Issue #562 #2
         agent.record_custom_event("CrawlerExecution", params, application=_get_application())
         return True
     except Exception as e:  # noqa: BLE001
@@ -223,11 +225,377 @@ def _read_cgroup_cpu() -> int:
     return 0
 
 
+def _read_host_memory_fallback(target_pid: int | None = None) -> tuple[int, int, float]:
+    """Read (process_rss_bytes, total_sys_bytes, sys_memory_percent) without requiring psutil."""
+    pid = target_pid or os.getpid()
+    if _psutil is not None:
+        try:
+            proc = _psutil.Process(pid)
+            rss = int(proc.memory_info().rss)
+            for child in proc.children(recursive=True):
+                try:
+                    rss += int(child.memory_info().rss)
+                except Exception:
+                    pass
+            vm = _psutil.virtual_memory()
+            return rss, int(vm.total), round(float(vm.percent), 2)
+        except Exception:
+            pass
+
+    # Linux /proc fallback
+    if os.path.exists(f"/proc/{pid}/statm") and os.path.exists("/proc/meminfo"):
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            with open(f"/proc/{pid}/statm") as f:
+                parts = f.read().split()
+                rss_bytes = int(parts[1]) * page_size if len(parts) > 1 else 0
+            mem_total = 0
+            mem_avail = 0
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        mem_total = int(line.split()[1]) * 1024
+                    elif line.startswith("MemAvailable:"):
+                        mem_avail = int(line.split()[1]) * 1024
+            sys_pct = round(((mem_total - mem_avail) / mem_total) * 100.0, 2) if mem_total > 0 else 0.0
+            return rss_bytes, mem_total, sys_pct
+        except Exception:
+            pass
+
+    # Windows ctypes fallback
+    if sys.platform == "win32":
+        try:
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            total_phys = int(stat.ullTotalPhys)
+            sys_pct = float(stat.dwMemoryLoad)
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            pmc = PROCESS_MEMORY_COUNTERS()
+            pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            PROCESS_VM_READ = 0x0010
+            h_proc = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid
+            )
+            rss_bytes = 0
+            if h_proc:
+                try:
+                    if ctypes.windll.psapi.GetProcessMemoryInfo(
+                        h_proc, ctypes.byref(pmc), ctypes.sizeof(pmc)
+                    ):
+                        rss_bytes = int(pmc.WorkingSetSize)
+                finally:
+                    ctypes.windll.kernel32.CloseHandle(h_proc)
+            return rss_bytes, total_phys, round(sys_pct, 2)
+        except Exception:
+            pass
+
+    return 0, 0, 0.0
+
+
+def _read_cpu_metrics(target_pid: int | None = None) -> dict[str, float]:
+    """Read CPU usage seconds, process CPU %, system CPU %, and 1m load average."""
+    global _last_proc_cpu_time, _last_proc_wall_time
+    cpu_usec = _read_cgroup_cpu()
+    cpu_sec = round(cpu_usec / 1_000_000, 2) if cpu_usec > 0 else round(time.process_time(), 2)
+    proc_cpu_pct = 0.0
+    sys_cpu_pct = 0.0
+    load_avg_1m = 0.0
+
+    if hasattr(os, "getloadavg"):
+        try:
+            load_avg_1m = round(float(os.getloadavg()[0]), 2)
+        except Exception:
+            pass
+
+    if _psutil is not None:
+        try:
+            pid = target_pid or os.getpid()
+            proc = _psutil.Process(pid)
+            proc_cpu_pct = round(float(proc.cpu_percent(interval=None)), 2)
+            sys_cpu_pct = round(float(_psutil.cpu_percent(interval=None)), 2)
+            return {
+                "cpuUsageUsec": cpu_usec or int(cpu_sec * 1_000_000),
+                "cpuUsageSeconds": cpu_sec,
+                "cpuPercent": proc_cpu_pct,
+                "systemCpuPercent": sys_cpu_pct,
+                "loadAvg1m": load_avg_1m,
+            }
+        except Exception:
+            pass
+
+    # Fallback delta calculation using time.process_time() and time.monotonic()
+    with _cpu_sample_lock:
+        now_proc = time.process_time()
+        now_wall = time.monotonic()
+        if _last_proc_cpu_time is not None and _last_proc_wall_time is not None:
+            dt_wall = now_wall - _last_proc_wall_time
+            if dt_wall > 0.05:
+                proc_cpu_pct = round(max(0.0, ((now_proc - _last_proc_cpu_time) / dt_wall) * 100.0), 2)
+        _last_proc_cpu_time = now_proc
+        _last_proc_wall_time = now_wall
+
+    cpu_count = os.cpu_count() or 1
+    if load_avg_1m > 0:
+        sys_cpu_pct = round(min(100.0, (load_avg_1m / cpu_count) * 100.0), 2)
+    else:
+        sys_cpu_pct = round(min(100.0, proc_cpu_pct / cpu_count), 2)
+
+    return {
+        "cpuUsageUsec": cpu_usec or int(cpu_sec * 1_000_000),
+        "cpuUsageSeconds": cpu_sec,
+        "cpuPercent": proc_cpu_pct,
+        "systemCpuPercent": sys_cpu_pct,
+        "loadAvg1m": load_avg_1m,
+    }
+
+
+def _read_network_metrics(target_pid: int | None = None) -> dict[str, Any]:
+    """Read network I/O counters and active TCP socket state counts."""
+    net_info: dict[str, Any] = {
+        "netBytesSent": 0,
+        "netBytesRecv": 0,
+        "netPacketsSent": 0,
+        "netPacketsRecv": 0,
+        "tcpEstablishedCount": 0,
+        "tcpSynSentCount": 0,
+        "tcpCloseWaitCount": 0,
+        "tcpTimeWaitCount": 0,
+        "tcpTotalCount": 0,
+        "remoteEndpoints": [],
+    }
+
+    if _psutil is not None:
+        try:
+            nio = _psutil.net_io_counters()
+            if nio:
+                net_info["netBytesSent"] = int(nio.bytes_sent)
+                net_info["netBytesRecv"] = int(nio.bytes_recv)
+                net_info["netPacketsSent"] = int(nio.packets_sent)
+                net_info["netPacketsRecv"] = int(nio.packets_recv)
+            pid = target_pid or os.getpid()
+            conns = _psutil.Process(pid).net_connections(kind="tcp")
+            endpoints: list[str] = []
+            for c in conns:
+                st = str(c.status).upper()
+                net_info["tcpTotalCount"] += 1
+                if st == "ESTABLISHED":
+                    net_info["tcpEstablishedCount"] += 1
+                elif st == "SYN_SENT":
+                    net_info["tcpSynSentCount"] += 1
+                elif st == "CLOSE_WAIT":
+                    net_info["tcpCloseWaitCount"] += 1
+                elif st == "TIME_WAIT":
+                    net_info["tcpTimeWaitCount"] += 1
+                if c.raddr:
+                    ep = f"{c.raddr.ip}:{c.raddr.port}({st})"
+                    if ep not in endpoints:
+                        endpoints.append(ep)
+            net_info["remoteEndpoints"] = endpoints[:15]
+            return net_info
+        except Exception:
+            pass
+
+    # Linux /proc/net/dev & /proc/net/tcp fallback
+    if os.path.exists("/proc/net/dev"):
+        try:
+            rx_bytes = tx_bytes = rx_pkts = tx_pkts = 0
+            with open("/proc/net/dev") as f:
+                for line in f.readlines()[2:]:
+                    if ":" not in line:
+                        continue
+                    iface, data = line.split(":", 1)
+                    if iface.strip() == "lo":
+                        continue
+                    cols = data.split()
+                    if len(cols) >= 10:
+                        rx_bytes += int(cols[0])
+                        rx_pkts += int(cols[1])
+                        tx_bytes += int(cols[8])
+                        tx_pkts += int(cols[9])
+            net_info["netBytesRecv"] = rx_bytes
+            net_info["netPacketsRecv"] = rx_pkts
+            net_info["netBytesSent"] = tx_bytes
+            net_info["netPacketsSent"] = tx_pkts
+        except Exception:
+            pass
+
+    # Linux /proc/net/tcp state map: 01=ESTABLISHED, 02=SYN_SENT, 06=TIME_WAIT, 08=CLOSE_WAIT
+    for tcp_file in ("/proc/net/tcp", "/proc/net/tcp6"):
+        if os.path.exists(tcp_file):
+            try:
+                with open(tcp_file) as f:
+                    for line in f.readlines()[1:]:
+                        cols = line.split()
+                        if len(cols) < 4:
+                            continue
+                        st_hex = cols[3].upper()
+                        net_info["tcpTotalCount"] += 1
+                        if st_hex == "01":
+                            net_info["tcpEstablishedCount"] += 1
+                        elif st_hex == "02":
+                            net_info["tcpSynSentCount"] += 1
+                        elif st_hex == "06":
+                            net_info["tcpTimeWaitCount"] += 1
+                        elif st_hex == "08":
+                            net_info["tcpCloseWaitCount"] += 1
+            except Exception:
+                pass
+
+    # Windows netstat fallback for TCP socket states of the target PID
+    if sys.platform == "win32" and net_info["tcpTotalCount"] == 0:
+        try:
+            pid = target_pid or os.getpid()
+            proc_res = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            pid_str = str(pid)
+            endpoints = []
+            for line in (proc_res.stdout or "").splitlines():
+                parts = line.split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[4] == pid_str:
+                    state = parts[3].upper()
+                    remote = parts[2]
+                    net_info["tcpTotalCount"] += 1
+                    if state == "ESTABLISHED":
+                        net_info["tcpEstablishedCount"] += 1
+                    elif state == "SYN_SENT":
+                        net_info["tcpSynSentCount"] += 1
+                    elif state == "CLOSE_WAIT":
+                        net_info["tcpCloseWaitCount"] += 1
+                    elif state == "TIME_WAIT":
+                        net_info["tcpTimeWaitCount"] += 1
+                    ep = f"{remote}({state})"
+                    if ep not in endpoints:
+                        endpoints.append(ep)
+            net_info["remoteEndpoints"] = endpoints[:15]
+        except Exception:
+            pass
+
+    return net_info
+
+
+def collect_hardware_resource_metrics(target_pid: int | None = None) -> dict[str, Any]:
+    """Collect unified CPU, memory, network, thread, child-process, and DB metrics."""
+    mem_usage_bytes, mem_limit_bytes = _read_cgroup_memory()
+    host_rss_bytes, host_total_bytes, sys_mem_pct = _read_host_memory_fallback(target_pid=target_pid)
+
+    if mem_usage_bytes <= 0:
+        mem_usage_bytes = host_rss_bytes
+    if mem_limit_bytes <= 0:
+        mem_limit_bytes = host_total_bytes
+
+    mem_usage_mb = round(mem_usage_bytes / (1024 * 1024), 2) if mem_usage_bytes > 0 else 0.0
+    mem_limit_mb = round(mem_limit_bytes / (1024 * 1024), 2) if mem_limit_bytes > 0 else 0.0
+    mem_percent = round((mem_usage_bytes / mem_limit_bytes) * 100, 2) if mem_limit_bytes > 0 else 0.0
+    if sys_mem_pct <= 0.0 and mem_percent > 0.0:
+        sys_mem_pct = mem_percent
+
+    cpu_data = _read_cpu_metrics(target_pid=target_pid)
+    net_data = _read_network_metrics(target_pid=target_pid)
+
+    child_proc_count = 0
+    if _psutil is not None:
+        try:
+            child_proc_count = len(_psutil.Process(target_pid or os.getpid()).children(recursive=True))
+        except Exception:
+            pass
+
+    db_open = 0
+    try:
+        from django.db import connections
+
+        db_open = sum(1 for alias in connections if connections[alias].connection is not None)
+    except Exception:
+        pass
+
+    metrics: dict[str, Any] = {
+        "memoryUsageBytes": mem_usage_bytes,
+        "memoryUsageMb": mem_usage_mb,
+        "memoryLimitBytes": mem_limit_bytes,
+        "memoryLimitMb": mem_limit_mb,
+        "memoryPercent": mem_percent,
+        "systemMemoryPercent": sys_mem_pct,
+        "activeThreadsCount": threading.active_count(),
+        "childProcessCount": child_proc_count,
+        "dbConnectionsOpen": db_open,
+    }
+    metrics.update(cpu_data)
+    metrics.update(net_data)
+    return metrics
+
+
 def record_container_sample(
     service_name: str | None = None,
     custom_metrics: dict[str, Any] | None = None,
+    *,
+    emit_log: bool = True,
 ) -> bool:
-    """Record container CPU and memory resource consumption to New Relic (ContainerSample)."""
+    """Record CPU, memory, network, and DB resource consumption to logs and New Relic (ContainerSample)."""
+    app_name = service_name or os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
+    params: dict[str, Any] = dict(custom_metrics) if custom_metrics else {}
+
+    hw_metrics = collect_hardware_resource_metrics()
+    # Exclude list objects from flat New Relic custom event attributes
+    remote_endpoints = hw_metrics.pop("remoteEndpoints", [])
+    if remote_endpoints:
+        params["remoteEndpointsSample"] = ",".join(remote_endpoints[:8])
+
+    params.update(hw_metrics)
+    params.update({
+        "containerName": app_name,
+        "containerId": os.getenv("HOSTNAME", "unknown"),
+    })
+
+    if emit_log:
+        logger.info(
+            "[ResourceSample] service=%s cpu_proc=%.1f%% cpu_sys=%.1f%% mem=%.1fMB(%.1f%%) "
+            "tcp_estab=%d tcp_total=%d net_rx=%dB net_tx=%dB db_open=%d threads=%d",
+            app_name,
+            params.get("cpuPercent", 0.0),
+            params.get("systemCpuPercent", 0.0),
+            params.get("memoryUsageMb", 0.0),
+            params.get("memoryPercent", 0.0),
+            params.get("tcpEstablishedCount", 0),
+            params.get("tcpTotalCount", 0),
+            params.get("netBytesRecv", 0),
+            params.get("netBytesSent", 0),
+            params.get("dbConnectionsOpen", 0),
+            params.get("activeThreadsCount", 0),
+        )
+
     if not os.getenv("NEW_RELIC_LICENSE_KEY"):
         return False
 
@@ -235,29 +603,6 @@ def record_container_sample(
         agent = _get_agent()
         if agent is None:
             return False
-
-        app_name = service_name or os.getenv("NEW_RELIC_APP_NAME", "realestate-crawler")
-        params: dict[str, Any] = dict(custom_metrics) if custom_metrics else {}
-
-        mem_usage_bytes, mem_limit_bytes = _read_cgroup_memory()
-        cpu_usage_usec = _read_cgroup_cpu()
-
-        mem_usage_mb = round(mem_usage_bytes / (1024 * 1024), 2) if mem_usage_bytes > 0 else 0.0
-        mem_limit_mb = round(mem_limit_bytes / (1024 * 1024), 2) if mem_limit_bytes > 0 else 0.0
-        mem_percent = round((mem_usage_bytes / mem_limit_bytes) * 100, 2) if mem_limit_bytes > 0 else 0.0
-        cpu_usage_seconds = round(cpu_usage_usec / 1_000_000, 2) if cpu_usage_usec > 0 else 0.0
-
-        params.update({
-            "containerName": app_name,
-            "containerId": os.getenv("HOSTNAME", "unknown"),
-            "memoryUsageBytes": mem_usage_bytes,
-            "memoryUsageMb": mem_usage_mb,
-            "memoryLimitBytes": mem_limit_bytes,
-            "memoryLimitMb": mem_limit_mb,
-            "memoryPercent": mem_percent,
-            "cpuUsageUsec": cpu_usage_usec,
-            "cpuUsageSeconds": cpu_usage_seconds,
-        })
 
         # application= required outside a web transaction (batch/job processes) — Issue #562 #3
         agent.record_custom_event("ContainerSample", params, application=_get_application())
@@ -267,21 +612,56 @@ def record_container_sample(
         return False
 
 
-def start_container_sample_thread(interval_sec: int = 60, service_name: str | None = None) -> threading.Thread | None:
-    """Start a background thread that records ContainerSample every interval_sec seconds.
-
-    Required for batch/job processes to capture memory usage throughout execution,
-    not just at startup (Issue #562 #3). Returns the daemon thread (already started).
-    """
+def record_hang_diagnostic_event(snapshot: dict[str, Any]) -> bool:
+    """Record a HangDiagnosticEvent to New Relic when a crawler job stalls or times out."""
     if not os.getenv("NEW_RELIC_LICENSE_KEY"):
-        return None
+        return False
+    try:
+        agent = _get_agent()
+        if agent is None:
+            return False
+        hw = snapshot.get("hardware_and_network", {})
+        db = snapshot.get("database", {})
+        params: dict[str, Any] = {
+            "company": snapshot.get("company", ""),
+            "property_type": snapshot.get("property_type", ""),
+            "pid": snapshot.get("pid", 0),
+            "reason": snapshot.get("reason", "HangSilentFailure"),
+            "primary_target_url": str(snapshot.get("primary_target_url", ""))[:500],
+            "primary_parent_list_url": str(snapshot.get("primary_parent_list_url", ""))[:500],
+            "active_phases": ",".join(snapshot.get("active_phases", [])[:10])[:500],
+            "cpuPercent": hw.get("cpuPercent", 0.0),
+            "systemCpuPercent": hw.get("systemCpuPercent", 0.0),
+            "memoryUsageMb": hw.get("memoryUsageMb", 0.0),
+            "systemMemoryPercent": hw.get("systemMemoryPercent", 0.0),
+            "tcpEstablishedCount": hw.get("tcpEstablishedCount", 0),
+            "tcpSynSentCount": hw.get("tcpSynSentCount", 0),
+            "tcpCloseWaitCount": hw.get("tcpCloseWaitCount", 0),
+            "tcpTotalCount": hw.get("tcpTotalCount", 0),
+            "dbConnectionsOpen": db.get("connections_open", 0),
+            "dbProxySqlReachable": bool(db.get("proxysql_reachable", False)),
+            "dbPingMs": db.get("proxysql_ping_ms") or -1.0,
+            "activeThreadsCount": hw.get("activeThreadsCount", 0),
+        }
+        agent.record_custom_event("HangDiagnosticEvent", params, application=_get_application())
+        return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to record New Relic HangDiagnosticEvent: {e}")
+        return False
 
+
+def start_container_sample_thread(interval_sec: int = 60, service_name: str | None = None) -> threading.Thread | None:
+    """Start a background thread that logs and records ContainerSample every interval_sec seconds.
+
+    Runs regardless of whether NEW_RELIC_LICENSE_KEY is set so structured resource logs
+    are always emitted during job execution (Issue #1170).
+    """
     stop_event = threading.Event()
 
     def _sampler() -> None:
         while not stop_event.wait(timeout=interval_sec):
             try:
-                record_container_sample(service_name=service_name)
+                record_container_sample(service_name=service_name, emit_log=True)
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"ContainerSample thread error: {e}")
 

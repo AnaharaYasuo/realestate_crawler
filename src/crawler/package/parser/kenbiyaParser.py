@@ -180,9 +180,11 @@ class KenbiyaParserBase(ParserBase):
                     url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
                 ) as response:
                     last_status = response.status
-                    pw_content = await self._try_playwright_on_403(session, last_status, url)
-                    if pw_content is not None:
-                        return pw_content
+                    if last_status == 403:
+                        pw_content = await self._try_playwright_on_403(session, last_status, url)
+                        if pw_content is not None:
+                            return pw_content
+                        raise ServerBusyException(f"Kenbiya WAF/403 blocked: {url}")
                     content = await self._handle_response(
                         response, url, attempt, max_timeouts
                     )
@@ -243,8 +245,12 @@ class KenbiyaParserBase(ParserBase):
         return self._find_next_by_text(response)
 
     async def parseRootPage(self, response: BeautifulSoup):
+        yielded = 0
         async for item in self.parsePropertyListPage(response):
+            yielded += 1
             yield item
+        if yielded == 0:
+            raise ServerBusyException("Kenbiya root page returned 0 items (WAF/blocked)")
 
     @staticmethod
     def _clean_spec_value(text: str) -> str:

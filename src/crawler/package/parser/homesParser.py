@@ -190,8 +190,7 @@ class HomesParser(ParserBase):
             "a[href*='/mansion/b-'], "
             "a[href*='/kodate/b-'], "
             "a[href*='/tochi/b-'], "
-            "a[href*='/bldg/'], "
-            "a[href*='/chuko/']"
+            "a[href*='/bldg/b-']"
         )
         for a in response.select(detail_selectors):
             href = a.get("href")
@@ -642,6 +641,13 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
             item.tochiMenseki = None
             item.tochiMensekiStr = ""
 
+        has_any_area = any(
+            getattr(item, attr, None) and float(getattr(item, attr) or 0) > 5.0
+            for attr in ("tochiMenseki", "tatemonoMenseki", "senyuMenseki")
+        )
+        if not has_any_area:
+            raise SkipPropertyException(f"Homes investment listing missing valid area: {getattr(item, 'pageUrl', '')}")
+
         return item
 
 
@@ -713,11 +719,13 @@ class HomesTochiParser(HomesParser, TochiParserBase):
         land_tag = (
             response.select_one(CSS_LAND_AREA)
             or response.select_one(CSS_HOUSE_AREA)
-            or self._find_by_table_header(response, ["土地面積", "敷地面積"])
+            or self._find_by_table_header(response, ["土地面積", "敷地面積", "実測面積", "公簿面積", "面積"])
         )
         item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+        if not item.tochiMenseki or float(item.tochiMenseki) <= 0:
+            raise SkipPropertyException(f"HomesTochi missing land area skipped: {getattr(item, 'pageUrl', '')}")
 
         self._homes_apply_tochi_kenpei_youseki(item, response)
 

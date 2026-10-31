@@ -56,6 +56,10 @@ from package.utils.crawler_watchdog import (
     touch_crawler_progress,
     update_watchdog_progress,
 )
+from package.utils.crawler_diagnostics import (
+    save_hang_diagnostic_snapshot,
+    format_hang_diagnostic_summary,
+)
 from package.api.adaptive_concurrency import AdaptiveConcurrencyController
 
 from package.utils.crawl_jobs import (  # noqa: E402  — SSOT for production + tests
@@ -823,10 +827,26 @@ def main():
             last_act = extra[0] if extra else start_t
             prev_db_cnt = extra[1] if len(extra) > 1 else 0
             if check_job_hung(last_act, now, threshold_sec=HANG_THRESHOLD_SEC, prev_db_cnt=prev_db_cnt, start_time=start_t):
-                # 沈黙監視 (ハング検知)
+                # 沈黙監視 (ハング検知): kill 前に必ず対象物件URL・フェーズ・NW/DB・リソーススナップショットを保存
+                hang_snap = {}
+                hang_summary = ""
+                try:
+                    hang_snap = save_hang_diagnostic_snapshot(
+                        company,
+                        ptype,
+                        target_pid=getattr(proc, "pid", None),
+                        in_process=False,
+                        reason=f"HangSilentFailure({int(HANG_THRESHOLD_SEC)}s)",
+                        date_str=today_str,
+                    )
+                    hang_summary = format_hang_diagnostic_summary(hang_snap)
+                except Exception as diag_err:
+                    logger.warning(f"Failed to capture pre-kill hang snapshot for {company} - {ptype}: {diag_err}")
                 logger.error(
                     f"[{idx}] Crawl job silent/hung for {company} - {ptype} "
-                    f"(no progress > {HANG_THRESHOLD_SEC}s). Killing process group..."
+                    f"(no progress > {HANG_THRESHOLD_SEC}s). "
+                    f"target_url={hang_snap.get('primary_target_url', '')} "
+                    f"phases={hang_snap.get('active_phases', [])}. Killing process group..."
                 )
                 kill_hung_job_process(proc)
                 elapsed = now - start_t
@@ -842,7 +862,11 @@ def main():
                         duration_seconds=int(elapsed),
                         task_index=task_index,
                         task_count=task_count,
-                        date_str=today_str
+                        date_str=today_str,
+                        target_url=hang_snap.get("primary_target_url") or None,
+                        parent_list_url=hang_snap.get("primary_parent_list_url") or None,
+                        traceback_str=hang_summary or None,
+                        diagnostics=hang_snap or None,
                     )
                 except Exception as hfe:
                     logger.warning(f"Failed to record hang telemetry for {company} - {ptype}: {hfe}")

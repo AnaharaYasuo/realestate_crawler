@@ -817,8 +817,8 @@ class ParserBase(metaclass=ABCMeta):
 
     @classmethod
     def _ingest_table_row_specs(cls, response: BeautifulSoup, specs: dict) -> None:
-        """Parse .table-row / div.row style label-value rows into specs dict."""
-        for row in response.select(".table-row, div.row, tr.table-row"):
+        """Parse .table-row / div.row / td.table-header style label-value rows into specs dict."""
+        for row in response.select(".table-row, div.row, tr.table-row, tr"):
             if cls._is_in_noise_container(row):
                 continue
             lbl = row.select_one(".label, .table-header, th, dt")
@@ -1309,8 +1309,8 @@ class ParserBase(metaclass=ABCMeta):
         return True
 
     def _try_space_traffic(self, item: models.Model, traffic_text: str) -> bool:
-        """Parse 沿線 駅名駅 徒歩N分 style traffic. Returns True if matched."""
-        tokens = traffic_text.replace("/", " ").split()
+        """Parse 沿線 駅名(駅) 徒歩N分 style traffic. Returns True if matched."""
+        tokens = traffic_text.replace("/", " ").replace("　", " ").split()
         railway_suffixes = (
             "線",
             "ライン",
@@ -1321,25 +1321,30 @@ class ParserBase(metaclass=ABCMeta):
             "地下鉄",
             "メトロ",
             "新幹線",
+            "バス",
         )
         for i in range(len(tokens) - 1):
             t0, t1 = tokens[i], tokens[i + 1]
-            if any(t0.endswith(s) for s in railway_suffixes) and t1.endswith("駅"):
-                walk_min = self._extract_walk_minutes(traffic_text)
-                self._apply_railway_station_fields(item, t0, t1, walk_min)
-                return True
+            if any(t0.endswith(s) for s in railway_suffixes):
+                station_tok = t1.split("徒歩")[0].split("歩")[0].split("バス")[0].strip()
+                if station_tok and not any(
+                    station_tok.startswith(p) for p in ("徒歩", "歩", "バス", "車")
+                ):
+                    walk_min = self._extract_walk_minutes(traffic_text)
+                    self._apply_railway_station_fields(item, t0, station_tok, walk_min)
+                    return True
         return False
 
     @staticmethod
     def _find_station_candidate(traffic_text: str) -> str | None:
         """Find station/stop name candidate from traffic text."""
-        station_suffixes = ("駅", "停留所", "バス停")
-        for t in traffic_text.split():
+        station_suffixes = ("駅", "停留所", "バス停", "停")
+        for t in traffic_text.replace("　", " ").split():
             for sfx in station_suffixes:
                 if sfx in t:
                     idx = t.find(sfx) + len(sfx)
                     candidate = t[:idx].lstrip("「（(").rstrip("」）)")
-                    if candidate:
+                    if candidate and candidate not in ("駅", "停", "バス停", "停留所"):
                         return candidate
         return None
 

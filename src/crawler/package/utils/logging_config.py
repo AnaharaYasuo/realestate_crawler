@@ -8,6 +8,7 @@ Google Cloud Logging (GCP Cloud Run / Cloud Functions / GKE) 準拠の構造化J
 import datetime
 import logging
 import os
+from pathlib import Path
 import sys
 from typing import Any
 
@@ -217,6 +218,45 @@ def get_logger(name: str | None = None):
     if not _configured:
         configure_logging()
     return structlog.get_logger(name)
+
+
+def configure_job_file_logging(
+    company: str,
+    property_type: str,
+    date_str: str | None = None,
+) -> str | None:
+    """Attach a per-job FileHandler writing to logs/runs/<YYYYMMDD>/jobs/<company>_<ptype>.log.
+
+    Each crawler job runs in its own isolated subprocess, so this file is never shared
+    across job processes.
+    """
+    if not company or not property_type:
+        return None
+    if not date_str:
+        jst = datetime.timezone(datetime.timedelta(hours=9))
+        date_str = datetime.datetime.now(jst).strftime("%Y%m%d")
+
+    base_dir = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", os.getenv("CRAWLER_LOG_DIR", "logs")))
+    job_log_dir = base_dir / "runs" / date_str / "jobs"
+    try:
+        job_log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = job_log_dir / f"{str(company).lower()}_{str(property_type).lower()}.log"
+
+        root_logger = logging.getLogger()
+        for existing in root_logger.handlers:
+            if isinstance(existing, logging.FileHandler) and getattr(existing, "baseFilename", "") == str(log_path.resolve()):
+                return str(log_path)
+
+        file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        file_handler.setLevel(root_logger.level or logging.INFO)
+        file_formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] [%(threadName)s] %(name)s: %(message)s"
+        )
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+        return str(log_path)
+    except Exception:
+        return None
 
 
 # モジュールインポート時にデフォルト設定

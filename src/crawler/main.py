@@ -1,7 +1,11 @@
 # ruff: noqa: E402
 import os
 import logging
-from package.utils.newrelic_helper import init_new_relic, record_container_sample
+from package.utils.newrelic_helper import (
+    init_new_relic,
+    record_container_sample,
+    start_container_sample_thread,
+)
 init_new_relic()
 record_container_sample()
 
@@ -22,19 +26,34 @@ from django.db.models import Q
 
 import realestateSettings
 realestateSettings.configure()  # package.apiがインポートされる前に実施する。
-from package.utils.logging_config import configure_logging
+from package.utils.logging_config import configure_logging, configure_job_file_logging
 configure_logging()
 logger = logging.getLogger(__name__)
 
 # Import keys for remaining routes (if any) or shared usage
-from package.api.api import API_KEY_MANSION_ALL_START, API_KEY_KILL
+import threading
+from package.api.api import (
+    API_KEY_MANSION_ALL_START,
+    API_KEY_KILL,
+    _shutdown_local_worker_executor_nonblocking,
+)
 from package.models.crawler_task_execution import CrawlerTaskExecution
 from package.utils.selector_loader import SelectorLoader
 from package.utils.api_logger import setup_api_logging
 from package.utils.failure_reporter import FailureReporter
 from package.utils.task_distribution import STANDALONE_EXECUTION_PREFIX, get_execution_id
 from package.utils.job_metrics import export_job_metrics
-from package.utils.crawler_watchdog import touch_crawler_progress, cleanup_crawler_progress
+from package.utils.crawler_watchdog import (
+    touch_crawler_progress,
+    cleanup_crawler_progress,
+    get_progress_file_mtime,
+    HANG_THRESHOLD_SEC,
+)
+from package.utils.crawler_diagnostics import (
+    set_diagnostic_job_context,
+    save_hang_diagnostic_snapshot,
+    cleanup_job_diagnostic_dir,
+)
 from package.parser.baseParser import ServerBusyException, SkipPropertyException
 
 # Import Blueprints
@@ -424,6 +443,8 @@ def execute_crawl_task(
     start_t = time.time()
     start_dt = datetime.datetime.now()
     exec_dt = datetime.datetime.strptime(execution_date, "%Y-%m-%d").date() if execution_date else datetime.date.today()
+    configure_job_file_logging(company, prop_type, exec_dt.strftime("%Y%m%d"))
+    set_diagnostic_job_context(company, prop_type)
 
     task_rec, _ = CrawlerTaskExecution.objects.update_or_create(
         execution_date=exec_dt,
@@ -543,10 +564,51 @@ if __name__ == "__main__":
 
             os.environ["CRAWLER_JOB_COMPANY"] = str(company).lower()
             os.environ["CRAWLER_JOB_TYPE"] = str(prop_type).lower()
+            configure_job_file_logging(company, prop_type)
+            set_diagnostic_job_context(company, prop_type)
+            cleanup_job_diagnostic_dir(company, prop_type)
+            start_container_sample_thread(interval_sec=60, service_name=f"crawler-{company}-{prop_type}")
             logger.info(f"Starting {company} {prop_type} crawl via CLI...")
             touch_file_path = os.path.join("logs", "progress", f"progress_{str(company).lower()}_{str(prop_type).lower()}.touch")
             if not os.path.exists(touch_file_path):
                 touch_crawler_progress(company, prop_type)
+
+            def _start_self_hang_dump_watchdog(comp_name: str, ptype_name: str) -> None:
+                if HANG_THRESHOLD_SEC <= 0:
+                    return
+                dump_threshold = max(45.0, float(HANG_THRESHOLD_SEC) - 35.0)
+
+                def _watch():
+                    dumped_for_mtime = 0.0
+                    start_watch_ts = time.time()
+                    while True:
+                        time.sleep(10.0)
+                        mtime = get_progress_file_mtime(comp_name, ptype_name)
+                        ref_ts = mtime if mtime > 0 else start_watch_ts
+                        silent_sec = time.time() - ref_ts
+                        if silent_sec >= dump_threshold and ref_ts != dumped_for_mtime:
+                            dumped_for_mtime = ref_ts
+                            try:
+                                logger.error(
+                                    "[SelfWatchdog] %s_%s silent for %.1fs (threshold %.1fs); capturing in-process thread stacks & diagnostics before parent kill",
+                                    comp_name,
+                                    ptype_name,
+                                    silent_sec,
+                                    dump_threshold,
+                                )
+                                save_hang_diagnostic_snapshot(
+                                    comp_name,
+                                    ptype_name,
+                                    in_process=True,
+                                    reason=f"PreWatchdogSelfDump(silent={int(silent_sec)}s)",
+                                )
+                            except Exception as wd_err:
+                                logger.warning("SelfWatchdog diagnostic dump failed: %s", wd_err)
+
+                t = threading.Thread(target=_watch, name="crawler-self-watchdog", daemon=True)
+                t.start()
+
+            _start_self_hang_dump_watchdog(company, prop_type)
             try:
                 # If it's a co-routine function, run it with asyncio
                 if inspect.iscoroutinefunction(func):
@@ -555,6 +617,7 @@ if __name__ == "__main__":
                     func()
             except SkipPropertyException as se:
                 logger.warning(f"Crawl job skipped/terminated gracefully due to target site condition: {se}")
+                _shutdown_local_worker_executor_nonblocking()
                 try:
                     FailureReporter.record_job_failure(
                         company=company,
@@ -575,6 +638,7 @@ if __name__ == "__main__":
             except Exception as e:
                 tb = traceback.format_exc()
                 logger.exception("Error during crawl execution")
+                _shutdown_local_worker_executor_nonblocking()
                 try:
                     FailureReporter.record_job_failure(
                         company=company,
@@ -587,6 +651,7 @@ if __name__ == "__main__":
                 except Exception as fre:  # noqa: BLE001
                     logger.warning(f"Failed to record failure telemetry: {fre}")
                 sys.exit(1)
+            _shutdown_local_worker_executor_nonblocking()
             try:
                 export_job_metrics(company, prop_type)
             except Exception as me:

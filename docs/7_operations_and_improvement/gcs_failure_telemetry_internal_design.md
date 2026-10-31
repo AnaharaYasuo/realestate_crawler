@@ -236,3 +236,32 @@ class ErrorPageReplayer:
 ### 6.2 フィールド別充填率（Field Fill-Rate）テレメトリ
 - `job_metrics.py` および `newrelic_helper.py` において、保存された物件モデルの主要フィールド（`price`, `address`, `traffic`, `chikunengetsu`, `madori`, `tatemono_menseki`, `tochi_menseki`, `senyu_menseki`, `rimawari` 等）の非空充填率（Fill-Rate: `0.0`〜`1.0`）を集計・記録する関数 `compute_field_fill_rates(items)` を提供する。
 - 任意フィールドがサイト改修により一斉に `None` / 空文字となるサイレント劣化（Silent Degradation）を即時検知可能とする。
+
+
+---
+
+## 7. スレッド非共有型ハング診断スナップショット ＆ ハードウェア/NW/DBテレメトリ詳細設計 (Issue #1170)
+
+### 7.1 死活監視と診断コンテキストの完全分離 (SRP & Lock-Free Per-Thread Isolation)
+- **死活監視 (`crawler_watchdog.touch_crawler_progress`)**:
+  - `logs/progress/progress_{company}_{ptype}.touch` の mtime 更新（0バイトファイル）専任とし、診断データ書き込み等の別責務を混在させない。
+- **スレッド独立型コンテキスト記録 (`package.utils.crawler_diagnostics`)**:
+  - 複数スレッドによるファイル書き込み競合を防ぐため、各スレッドは自身の `threading.get_ident()` 専用のコンテキストスロットおよび独立ファイル（`logs/diagnostics/{company}_{ptype}/thread_{tid}.json`）のみを更新する（スレッド間でのファイル共有ゼロ）。
+  - 記録項目: `thread_id`, `thread_name`, `phase` (`middle_page_fetch`, `sub_list_expand`, `differential_query`, `detail_fetch`, `db_save` 等), `current_url`, `parent_list_url`, `started_at`, `updated_at`。
+- **ジョブ別実行ログ常時保存 (`logging_config.configure_job_file_logging`)**:
+  - 各クローラージョブ起動時に `logs/runs/{YYYYMMDD}/jobs/{company}_{ptype}.log` への `FileHandler` をアタッチし、標準出力だけでなくジョブ単位の実行ログ・スタックトレースを確実にディスクへ残す。
+
+### 7.2 ハング検知時・異常終了時のフル診断スナップショット収集
+- 子プロセス内のセルフ診断ウォッチドッグ（無通信が閾値に近づいた時点、またはシグナル/タイムアウト捕捉時）および親プロセス（`kill_hung_job_process` 実行直前）において、以下の情報を `logs/runs/{YYYYMMDD}/diagnostics/hang_{company}_{ptype}.json`、ジョブログ、`FailureReporter.record_job_failure`、および New Relic (`HangDiagnosticEvent`) へ出力する：
+  1. **アクティブ処理コンテキスト**: スレッド別の `phase`, `current_url`, `parent_list_url`, `elapsed_sec` 一覧。
+  2. **全スレッド ＆ asyncio タスクのスタックトレース**: `sys._current_frames()` による全スレッドのコールスタックおよび実行中 `asyncio.Task` のスタック。
+  3. **ハードウェアリソース**: プロセスRSS/VMSメモリ(MB)、システムメモリ使用率(%)、プロセスCPU使用率(%)、システムCPU使用率(%)、スレッド数、子プロセス数（Chromium/Playwright等）。
+  4. **ネットワーク接続状態**: プロセスおよびホストのTCPソケット状態別カウント（`ESTABLISHED`, `SYN_SENT`, `CLOSE_WAIT`, `TIME_WAIT` 等）とリモートエンドポイント一覧。
+  5. **データベースコネクション状態**: Django `connections` のオープン状態・利用可否、および ProxySQL (`DB_HOST:DB_PORT`) へのTCP疎通・レイテンシ(ms)。
+
+### 7.3 New Relic & ログへのハードウェア・NW・DBリソース常時記録 (`newrelic_helper.py`)
+- `collect_hardware_resource_metrics()` および `record_container_sample()` を拡張し、Linuxコンテナ（cgroup + `/proc/net`）とホスト実行（`psutil` / OSネイティブフォールバック）の双方で以下を取得し、構造化ログ（`[ResourceSample]`）と New Relic (`ContainerSample` / `CrawlerExecution`) の双方へ記録する：
+  - メモリ: `memoryUsageMb`, `memoryLimitMb`, `memoryPercent`, `systemMemoryPercent`
+  - CPU: `cpuPercent`, `systemCpuPercent`, `cpuUsageSeconds`, `loadAvg1m`
+  - ネットワーク: `netBytesSent`, `netBytesRecv`, `netPacketsSent`, `netPacketsRecv`, `tcpEstablishedCount`, `tcpSynSentCount`, `tcpCloseWaitCount`, `tcpTimeWaitCount`, `tcpTotalCount`
+  - DB・プロセス: `dbConnectionsOpen`, `dbProxySqlReachable`, `dbPingMs`, `activeThreadsCount`, `childProcessCount`

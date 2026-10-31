@@ -145,6 +145,52 @@ class MitsuiParser(ParserBase):
             logging.warning(f"getPropertyListNextPageUrl exception: {e}")
         return ""
 
+    def _get_specs(self, soup: BeautifulSoup):
+        data = super()._get_specs(soup)
+        if not soup:
+            return data
+        self._merge_td_header_specs(soup, data)
+        return data
+
+    @staticmethod
+    def _merge_td_header_specs(soup: BeautifulSoup, data: dict) -> None:
+        for tr in soup.find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            if len(cells) >= 2:
+                MitsuiParser._merge_cell_pairs(cells, data)
+
+    @staticmethod
+    def _merge_cell_pairs(cells, data: dict) -> None:
+        for i in range(0, len(cells), 2):
+            if i + 1 >= len(cells):
+                continue
+            key = re.sub(r"\s+", "", cells[i].get_text(strip=True))
+            val = cells[i + 1].get_text(strip=True)
+            if key and key not in data:
+                data[key] = val
+            key_spaced = cells[i].get_text(" ", strip=True)
+            if key_spaced and key_spaced not in data:
+                data[key_spaced] = val
+
+    def get_price_str(self, response: BeautifulSoup) -> str:
+        specs = self._get_specs(response)
+        for k in ("価格", "販売価格", "物件価格"):
+            val = specs.get(k, "")
+            if val and val not in ("価格", "販売価格", "物件価格") and not any(noise in val for noise in ("月々", "シミュレーション", "借入")):
+                return val
+        if response:
+            el = response.select_one(
+                ".text-price-regular, .price, .mod-price, span.priceNum, td.price, .priceText, .detail-price, .bukken-price"
+            )
+            if el:
+                txt = el.get_text(strip=True)
+                if txt and txt not in ("価格", "販売価格", "物件価格") and not any(noise in txt for noise in ("月々", "シミュレーション", "借入")):
+                    return txt
+        price_str = super().get_price_str(response)
+        if price_str and any(noise in price_str for noise in ("月々", "シミュレーション", "借入")):
+            return ""
+        return price_str
+
     def get_address(self, response: BeautifulSoup) -> str:
         addr = super().get_address(response)
         if addr:
@@ -157,6 +203,15 @@ class MitsuiParser(ParserBase):
         item.propertyName = self.get_property_name(response)
         item.priceStr = self.get_price_str(response)
         item.price = self.get_price(response)
+        body_text = response.get_text(" ", strip=True) if response else ""
+        price_str_val = str(item.priceStr or "")
+        if "未定" in price_str_val or (
+            (not item.price or item.price <= 0)
+            and ("価格未定" in body_text or "予定価格" in body_text or "分譲カタログ" in body_text or price_str_val in ("-", "―", "相談", "応相談"))
+        ):
+            raise SkipPropertyException(
+                f"Mitsui property skipped due to undetermined/zero price: {getattr(item, 'pageUrl', '')} ({item.priceStr})"
+            )
         item.address = self.get_address(response)
         
         item.address1 = self._parseAddress1(response)
@@ -275,13 +330,22 @@ class MitsuiParser(ParserBase):
     def _extract_traffic_from_th_dt(self, response) -> list[str]:
         if not response:
             return []
-        labels = ("交通", "最寄り駅", "沿線", "アクセス")
-        for tag in response.find_all(["th", "dt"]):
+        labels = ("交通", "最寄り駅", "最寄駅", "沿線", "アクセス")
+        for tag in response.find_all(["th", "dt", "td"]):
+            if tag.name == "td" and not any(
+                c in (tag.get("class") or []) for c in ("table-header", "label")
+            ):
+                continue
             t_lbl = tag.get_text(strip=True)
             if not any(lbl in t_lbl for lbl in labels):
                 continue
             parent = tag.parent
-            val_el = parent.find(["td", "dd"]) if parent else None
+            if not parent:
+                continue
+            candidates = [
+                el for el in parent.find_all(["td", "dd"]) if el is not tag
+            ]
+            val_el = candidates[0] if candidates else None
             if not val_el:
                 continue
             extracted = self._extract_traffic_from_soup(val_el)
@@ -525,11 +589,16 @@ class MitsuiMansionParser(MitsuiParser, MansionParserBase):
         return  MitsuiMansion()
     
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/buy/tochi/", "/buy/kodate/")):
+            raise SkipPropertyException(f"Non-mansion URL in MitsuiMansionParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.madori = self.get_madori(response)
-        item.senyuMensekiStr = self.get_senyu_menseki_str(response)
-        item.senyuMenseki = self.get_senyu_menseki(response)
+        item.senyuMensekiStr = self.get_senyu_menseki_str(response) or self._parseSenyuMensekiStr(response)
+        item.senyuMenseki = self.get_senyu_menseki(response) or self._parseSenyuMenseki(response)
+        if not item.senyuMenseki or item.senyuMenseki <= 0:
+            raise SkipPropertyException(f"MitsuiMansion missing senyuMenseki: {page_url}")
         item.kaisuStr = self._parseKaisuStr(response)
         item.kaisu = self._parseKaisu(response)
         item.kouzou = self.get_kouzou(response)
@@ -809,10 +878,15 @@ class MitsuiTochiParser(MitsuiParser, TochiParserBase):
         return  MitsuiTochi()
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/buy/mansion/", "/buy/kodate/")):
+            raise SkipPropertyException(f"Non-tochi URL in MitsuiTochiParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
         item.tochiMenseki = self._parseTochiMenseki(response)
+        if not item.tochiMenseki or item.tochiMenseki <= 0:
+            raise SkipPropertyException(f"MitsuiTochi missing tochiMenseki: {page_url}")
         item.kenchikuJoken = self._parseKenchikuJoken(response)
         item.chimoku = self._parseChimoku(response)
         
@@ -1046,6 +1120,9 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         return tds[1].get_text(strip=True) if len(tds) > 1 else ""
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if any(p in page_url for p in ("/buy/mansion/", "/buy/tochi/")):
+            raise SkipPropertyException(f"Non-kodate URL in MitsuiKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)
 
         item.madori = self.get_madori(response) or self._parseMadori(response)
@@ -1055,6 +1132,10 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
         item.tochiMenseki = self._parseTochiMenseki(response)
+        if (not item.tatemonoMenseki or item.tatemonoMenseki <= 0) and (
+            not item.tochiMenseki or item.tochiMenseki <= 0
+        ):
+            raise SkipPropertyException(f"MitsuiKodate missing both areas: {page_url}")
         
         item.kaisuKouzou = self._parseKaisuKouzou(response)
         item.kouzou = self._parseKouzou(response)

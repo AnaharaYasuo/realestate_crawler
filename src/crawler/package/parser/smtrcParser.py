@@ -336,17 +336,44 @@ class SmtrcMansionParser(SmtrcParser, MansionParserBase):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
 
-        item.madori = specs.get("間取り", "")
-        item.senyuMensekiStr = specs.get("専有面積", "")
+        pname = str(getattr(item, "propertyName", "") or "")
+        shumoku = str(specs.get("物件種目", "") or specs.get("種別", ""))
+        mansion_markers = ("マンション", "タワー", "レジデンス", "コート", "ハイツ", "コーポ", "パレス", "パーク", "ライオンズ")
+        if ("一戸建" in pname or "戸建" in pname or "売地" in pname or "戸建" in shumoku or "土地" in shumoku) and not any(
+            m in pname or m in shumoku for m in mansion_markers
+        ):
+            raise SkipPropertyException(f"Non-mansion property in SmtrcMansionParser: {getattr(item, 'pageUrl', '')} ({pname})")
+
+        item.madori = specs.get("間取り", "") or specs.get("間取", "")
+        if not item.madori:
+            for k, v in specs.items():
+                if "間取" in str(k) and v:
+                    item.madori = str(v)
+                    break
+        if not item.madori:
+            m_madori = re.search(r"(\d+[SLDKＲ]+|ワンルーム)", f"{pname} {response.get_text(' ', strip=True) if response else ''}")
+            if m_madori:
+                item.madori = m_madori.group(1)
+
+        item.senyuMensekiStr = (
+            specs.get("専有面積", "")
+            or specs.get("壁芯面積", "")
+            or specs.get("建物面積", "")
+        )
         if item.senyuMensekiStr:
             item.senyuMenseki = converter.parse_menseki(item.senyuMensekiStr)
+        if not item.senyuMenseki or float(item.senyuMenseki) <= 0:
+            raise SkipPropertyException(f"SmtrcMansion missing senyuMenseki skipped: {getattr(item, 'pageUrl', '')}")
             
         item.kaisuStr = (
             specs.get("所在階", "")
             or specs.get("所在階/階建", "")
             or specs.get("所在階／階建", "")
             or specs.get("階数", "")
+            or specs.get("階建", "")
         )
+        if not item.kaisuStr:
+            raise SkipPropertyException(f"SmtrcMansion missing kaisuStr skipped: {getattr(item, 'pageUrl', '')}")
         self._parse_floor_spec(item, item.kaisuStr)
 
         item.balconyMensekiStr = specs.get("バルコニー面積", "")
