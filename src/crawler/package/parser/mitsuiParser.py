@@ -152,12 +152,14 @@ class MitsuiParser(ParserBase):
         self._merge_td_header_specs(soup, data)
         return data
 
-    @staticmethod
-    def _merge_td_header_specs(soup: BeautifulSoup, data: dict) -> None:
+    @classmethod
+    def _merge_td_header_specs(cls, soup: BeautifulSoup, data: dict) -> None:
         for tr in soup.find_all("tr"):
+            if cls._is_in_noise_container(tr):
+                continue
             cells = tr.find_all(["th", "td"])
             if len(cells) >= 2:
-                MitsuiParser._merge_cell_pairs(cells, data)
+                cls._merge_cell_pairs(cells, data)
 
     @staticmethod
     def _merge_cell_pairs(cells, data: dict) -> None:

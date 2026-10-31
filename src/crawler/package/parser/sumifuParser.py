@@ -476,6 +476,25 @@ class SumifuParser(ParserBase):
     _SUMIFU_MANSION_DETAIL = "/mansion/detail_"
     _SUMIFU_KODATE_DETAIL = "/kodate/detail_"
     _SUMIFU_TOCHI_DETAIL = "/tochi/detail_"
+
+    def _check_sumifu_url_guard(
+        self,
+        item,
+        response: BeautifulSoup,
+        forbidden_paths: tuple[str, ...],
+        expected_keywords: tuple[str, ...],
+    ) -> None:
+        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        if not any(p in page_url for p in forbidden_paths):
+            return
+        specs = self._get_specs(response) if response else {}
+        shintai = str(specs.get("物件種別", "") or "")
+        title_el = response.find("title") if response else None
+        title_txt = title_el.get_text(strip=True) if title_el else ""
+        combined = f"{shintai} {title_txt}"
+        if any(k in combined for k in expected_keywords):
+            return
+        raise SkipPropertyException(f"Cross-type URL rejected in {self.__class__.__name__}: {page_url}")
     _KAISU_SPEC_KEYS = ("階数", "所在階", "所在階構造", "所在階 / 階建", "所在階/階建", "所在階・階数")
 
     @staticmethod
@@ -626,9 +645,7 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
 
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL)):
-            raise SkipPropertyException(f"Non-investment URL in SumifuInvestmentParserBase: {page_url}")
+        self._check_sumifu_url_guard(item, response, (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL), ("一棟", "アパート", "収益", "利回り"))
         # 1. Scraping basic labels
         
         item.propertyName = self._parsePropertyName(response)
@@ -859,31 +876,6 @@ class SumifuInvestmentParserBase(SumifuParser, InvestmentParser, InvestmentParse
         target_specs = specs if specs is not None else self._get_specs(response)
         return target_specs.get("土地権利", "")
 
-    @staticmethod
-    def _apply_sumifu_tochi_road_eval(item) -> None:
-        if item.setsumen is not None:
-            item.maguchiStr = str(item.setsumen)
-            m = re.search(r"(\d+(?:\.\d+)?)", item.maguchiStr)
-            if m:
-                item.maguchi = Decimal(m.group(1))
-        if item.douroHaba is not None:
-            item.roadWidthStr = str(item.douroHaba)
-            m = re.search(r"(\d+(?:\.\d+)?)", item.roadWidthStr)
-            if m:
-                item.roadWidth = Decimal(m.group(1))
-        if item.douroMuki:
-            item.roadDirection = item.douroMuki
-        if item.douroKubun:
-            item.roadType = item.douroKubun
-        if item.setsudou:
-            structure_match = re.search(r"(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)", str(item.setsudou))
-            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
-        else:
-            item.roadStructure = "中間地"
-        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
-            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
-            item.okuyukiStr = f"{item.okuyuki}m"
-
     def _parseTochiMensekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
         return target_specs.get("土地面積", "")
@@ -1093,9 +1085,7 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL)):
-            raise SkipPropertyException(f"Non-mansion URL in SumifuMansionParser: {page_url}")
+        self._check_sumifu_url_guard(item, response, (self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL), ("中古マンション", "新築マンション", "区分マンション"))
         item = super()._parsePropertyDetailPage(item, response)
 
         item.madori = self._parseMadori(response)
@@ -1437,9 +1427,7 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL)):
-            raise SkipPropertyException(f"Non-tochi URL in SumifuTochiParser: {page_url}")
+        self._check_sumifu_url_guard(item, response, (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_KODATE_DETAIL, self._SUMIFU_PRO_DETAIL), ("売土地", "売り土地", "売地"))
         item = super()._parsePropertyDetailPage(item, response)
 
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
@@ -1479,6 +1467,32 @@ class SumifuTochiParser(SumifuParser, TochiParserBase):
         self._apply_sumifu_tochi_road_eval(item)
 
         return item
+
+    @staticmethod
+    def _apply_sumifu_tochi_road_eval(item) -> None:
+        if item.setsumen is not None:
+            item.maguchiStr = str(item.setsumen)
+            m = re.search(r"(\d+(?:\.\d+)?)", item.maguchiStr)
+            if m:
+                item.maguchi = Decimal(m.group(1))
+        if item.douroHaba is not None:
+            item.roadWidthStr = str(item.douroHaba)
+            m = re.search(r"(\d+(?:\.\d+)?)", item.roadWidthStr)
+            if m:
+                item.roadWidth = Decimal(m.group(1))
+        if item.douroMuki:
+            item.roadDirection = item.douroMuki
+        if item.douroKubun:
+            item.roadType = item.douroKubun
+        if item.setsudou:
+            structure_match = re.search(r"(角地|二方|三方|四方|敷延|袋小路|中間地|両面道路)", str(item.setsudou))
+            item.roadStructure = structure_match.group(1) if structure_match else "中間地"
+        else:
+            item.roadStructure = "中間地"
+        if item.tochiMenseki and item.maguchi and item.maguchi > 0:
+            item.okuyuki = round(item.tochiMenseki / item.maguchi, 2)
+            item.okuyukiStr = f"{item.okuyuki}m"
+
 
     def _parseTochiMensekiStr(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)
@@ -1618,9 +1632,7 @@ class SumifuKodateParser(SumifuParser, KodateParserBase):
     # Removed MAPPING to follow 1-item-per-method rule
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = str(getattr(item, "pageUrl", "") or "").lower()
-        if any(p in page_url for p in (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_PRO_DETAIL)):
-            raise SkipPropertyException(f"Non-kodate URL in SumifuKodateParser: {page_url}")
+        self._check_sumifu_url_guard(item, response, (self._SUMIFU_MANSION_DETAIL, self._SUMIFU_TOCHI_DETAIL, self._SUMIFU_PRO_DETAIL), ("一戸建", "戸建"))
         item = super()._parsePropertyDetailPage(item, response)
 
         item.tochiMensekiStr = self._parseTochiMensekiStr(response)
