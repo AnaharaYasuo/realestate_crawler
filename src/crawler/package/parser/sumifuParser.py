@@ -501,7 +501,7 @@ class SumifuParser(ParserBase):
     def _find_kaisu_in_spans(response: BeautifulSoup) -> str:
         for span in response.select("span.text"):
             txt = span.get_text(" ", strip=True)
-            if "階" in txt and any(ch.isdigit() for ch in txt):
+            if "階" in txt and "階建" not in txt and not txt.startswith("地上") and any(ch.isdigit() for ch in txt):
                 return txt
         return ""
 
@@ -552,8 +552,8 @@ class SumifuParser(ParserBase):
     def _parseTrafficLines(self, response, _specs=None):
         transport_key = self.selectors.get("transport_key", "交通")
         transport_td = (
-            self._getValueFromTable(response, transport_key, partial_match=True)
-            or self._getValueFromTable(response, "交通", partial_match=True)
+            self._getValueFromTable(response, transport_key, partial_match=False)
+            or self._getValueFromTable(response, "交通", partial_match=False)
             or self._getValueFromTable(response, "最寄", partial_match=True)
         )
         if not transport_td:

@@ -842,7 +842,7 @@ class AthomeMansionParser(AthomeParser, MansionParserBase):
             return
         title_str = response.title.get_text() if response and response.title else ""
         search_txt = f"{getattr(item, 'propertyName', '')} {title_str}"
-        floor_match = re.search(r"(?:地下)?\d{1,3}階(?!建)", search_txt)
+        floor_match = re.search(r"(?<!地上)(?:地下)?\d{1,3}階(?!建)", search_txt)
         if floor_match:
             fl = floor_match.group(0)
             item.kaisuStr = f"{item.kaisuStr} / {fl}" if item.kaisuStr else fl
@@ -1263,7 +1263,8 @@ class AthomeTochiParser(AthomeParser, TochiParserBase):
         )
         if not item.tochiMensekiStr:
             for k, v in specs.items():
-                if "面積" in str(k) and v and str(v).strip() not in ("-", "－", "―"):
+                k_str = str(k)
+                if "面積" in k_str and ("土地" in k_str or "敷地" in k_str or "区画" in k_str) and v and str(v).strip() not in ("-", "－", "―"):
                     item.tochiMensekiStr = str(v)
                     break
         if item.tochiMensekiStr:

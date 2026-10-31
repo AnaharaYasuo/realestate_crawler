@@ -864,7 +864,7 @@ def main():
                         task_count=task_count,
                         date_str=today_str,
                         target_url=hang_snap.get("primary_target_url") or None,
-                        parent_list_url=hang_snap.get("primary_parent_list_url") or None,
+                        parent_list_url=hang_snap.get("primary_parent_list_url") or "",
                         traceback_str=hang_summary or None,
                         diagnostics=hang_snap or None,
                     )

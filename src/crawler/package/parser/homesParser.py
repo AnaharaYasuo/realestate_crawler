@@ -722,7 +722,7 @@ class HomesTochiParser(HomesParser, TochiParserBase):
         land_tag = (
             response.select_one(CSS_LAND_AREA)
             or response.select_one(CSS_HOUSE_AREA)
-            or self._find_by_table_header(response, ["土地面積", "敷地面積", "実測面積", "公簿面積", "面積"])
+            or self._find_by_table_header(response, ["土地面積", "敷地面積", "実測面積", "公簿面積"])
         )
         item.tochiMensekiStr = land_tag.get_text().strip() if land_tag else ""
         if item.tochiMensekiStr:

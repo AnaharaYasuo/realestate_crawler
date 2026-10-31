@@ -326,7 +326,7 @@ class FailureReporter:
     @classmethod
     def _scan_local_logs(cls, date_str: str) -> list[dict[str, Any]]:
         error_logs: list[dict[str, Any]] = []
-        fallback_base = Path(os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
+        fallback_base = Path(os.getenv("CRAWLER_LOG_DIR", "").strip() or os.getenv("STORAGE_LOCAL_FALLBACK_DIR", "logs"))
         if not fallback_base.exists():
             return error_logs
 

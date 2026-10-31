@@ -576,7 +576,7 @@ if __name__ == "__main__":
             def _start_self_hang_dump_watchdog(comp_name: str, ptype_name: str) -> None:
                 if HANG_THRESHOLD_SEC <= 0:
                     return
-                dump_threshold = max(45.0, float(HANG_THRESHOLD_SEC) - 35.0)
+                dump_threshold = max(5.0, min(max(5.0, float(HANG_THRESHOLD_SEC) - 10.0), float(HANG_THRESHOLD_SEC) * 0.75))
 
                 def _watch():
                     dumped_for_mtime = 0.0

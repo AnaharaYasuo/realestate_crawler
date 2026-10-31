@@ -818,7 +818,7 @@ class ParserBase(metaclass=ABCMeta):
     @classmethod
     def _ingest_table_row_specs(cls, response: BeautifulSoup, specs: dict) -> None:
         """Parse .table-row / div.row / td.table-header style label-value rows into specs dict."""
-        for row in response.select(".table-row, div.row, tr.table-row, tr"):
+        for row in response.select(".table-row, div.row, tr.table-row"):
             if cls._is_in_noise_container(row):
                 continue
             lbl = row.select_one(".label, .table-header, th, dt")
@@ -1321,7 +1321,6 @@ class ParserBase(metaclass=ABCMeta):
             "地下鉄",
             "メトロ",
             "新幹線",
-            "バス",
         )
         for i in range(len(tokens) - 1):
             t0, t1 = tokens[i], tokens[i + 1]

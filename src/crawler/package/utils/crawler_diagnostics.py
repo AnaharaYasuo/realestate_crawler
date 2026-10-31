@@ -184,6 +184,8 @@ def clear_thread_activity(phase: str = "idle") -> None:
     slot: dict[str, Any] | None = getattr(_thread_local, "slot", None)
     if slot is not None:
         slot["phase"] = phase
+        slot["current_url"] = ""
+        slot["parent_list_url"] = ""
         slot["updated_at"] = now_ts
         slot["updated_iso"] = datetime.datetime.now(JST).isoformat()
         _flush_thread_slot_to_disk(tid, slot)
@@ -284,11 +286,15 @@ def collect_asyncio_task_diagnostics() -> list[dict[str, Any]]:
 
 def collect_database_connection_diagnostics() -> dict[str, Any]:
     """Collect Django database connection states and ProxySQL socket reachability."""
+    try:
+        db_port = int(os.getenv("DB_PORT", "6033") or 6033)
+    except (ValueError, TypeError):
+        db_port = 6033
     db_diag: dict[str, Any] = {
         "connections_open": 0,
         "aliases": {},
         "proxysql_host": os.getenv("DB_HOST", "127.0.0.1"),
-        "proxysql_port": int(os.getenv("DB_PORT", "6033") or 6033),
+        "proxysql_port": db_port,
         "proxysql_reachable": False,
         "proxysql_ping_ms": None,
     }
@@ -367,15 +373,18 @@ def _extract_active_urls_and_phases(
     active_phases: list[str] = []
     for t in sorted_threads:
         phase = t.get("phase", "")
+        if not phase or phase == "idle":
+            continue
         u = t.get("current_url", "")
         pu = t.get("parent_list_url", "")
-        if phase and phase != "idle":
-            active_phases.append(
-                f"{t.get('thread_name', t.get('thread_id'))}:{phase}({t.get('elapsed_in_phase_sec', 0)}s)"
-            )
+        active_phases.append(
+            f"{t.get('thread_name', t.get('thread_id'))}:{phase}({t.get('elapsed_in_phase_sec', 0)}s)"
+        )
         if u and u not in active_urls:
             active_urls.append(u)
-        if pu and pu not in parent_urls:
+            if pu and not parent_urls:
+                parent_urls.append(pu)
+        elif pu and pu not in parent_urls:
             parent_urls.append(pu)
     return active_urls, parent_urls, active_phases
 

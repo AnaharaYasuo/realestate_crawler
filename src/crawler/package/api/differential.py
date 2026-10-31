@@ -233,8 +233,10 @@ async def _process_differential_chunk(
         return chunk_urls, []
 
     _touch_differential_progress(model_class)
+    record_thread_activity("differential_partition", current_url=chunk_urls[0])
     chunk_to_fetch, chunk_to_skip = _partition_chunk_items(chunk_items, existing_map, now, ttl_days)
     if chunk_to_skip:
+        record_thread_activity("differential_batch_update", current_url=chunk_to_skip[0])
         await _batch_update_cached(model_class, chunk_to_skip, now)
         try:
             from package.utils.job_metrics import record_item_skipped

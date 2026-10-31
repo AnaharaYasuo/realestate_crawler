@@ -181,29 +181,29 @@ class MitsuiParser(ParserBase):
     _MITSUI_KODATE_PATH = "/buy/kodate/"
 
     @classmethod
-    def _is_valid_mitsui_price_text(cls, text: str) -> bool:
-        return bool(
-            text
-            and text not in cls._PRICE_LABELS
-            and not any(noise in text for noise in cls._LOAN_NOISE_WORDS)
-        )
+    def _clean_mitsui_price_text(cls, text: str) -> str:
+        if not text or text in cls._PRICE_LABELS:
+            return ""
+        cleaned = re.split(r"[/／]|月々|借入|シミュレーション", str(text))[0].strip()
+        if not cleaned or any(noise in cleaned for noise in cls._LOAN_NOISE_WORDS):
+            return ""
+        return cleaned
 
     def get_price_str(self, response: BeautifulSoup) -> str:
         specs = self._get_specs(response)
         for k in self._PRICE_LABELS:
-            val = specs.get(k, "")
-            if self._is_valid_mitsui_price_text(val):
-                return val
+            cleaned = self._clean_mitsui_price_text(specs.get(k, ""))
+            if cleaned:
+                return cleaned
         if response:
             el = response.select_one(
                 ".text-price-regular, .price, .mod-price, span.priceNum, td.price, .priceText, .detail-price, .bukken-price"
             )
             if el:
-                txt = el.get_text(strip=True)
-                if self._is_valid_mitsui_price_text(txt):
-                    return txt
-        price_str = super().get_price_str(response)
-        return price_str if self._is_valid_mitsui_price_text(price_str) else ""
+                cleaned = self._clean_mitsui_price_text(el.get_text(strip=True))
+                if cleaned:
+                    return cleaned
+        return self._clean_mitsui_price_text(super().get_price_str(response))
 
     def get_address(self, response: BeautifulSoup) -> str:
         addr = super().get_address(response)
@@ -218,8 +218,8 @@ class MitsuiParser(ParserBase):
         item.priceStr = self.get_price_str(response)
         item.price = self.get_price(response)
         body_text = response.get_text(" ", strip=True) if response else ""
-        price_str_val = str(item.priceStr or "")
-        if "未定" in price_str_val or (
+        price_str_val = str(item.priceStr or "").strip()
+        if price_str_val in ("未定", "価格未定", "販売価格未定") or (
             (not item.price or item.price <= 0)
             and ("価格未定" in body_text or "予定価格" in body_text or "分譲カタログ" in body_text or price_str_val in ("-", "―", "相談", "応相談"))
         ):
@@ -1130,7 +1130,7 @@ class MitsuiKodateParser(MitsuiParser, KodateParserBase):
         return tds[1].get_text(strip=True) if len(tds) > 1 else ""
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        page_url = str(getattr(item, "pageUrl", "") or "").lower()
+        page_url = str(getattr(item, "pageUrl", "") or "").lower().split("?", 1)[0]
         if any(p in page_url for p in (self._MITSUI_MANSION_PATH, self._MITSUI_TOCHI_PATH)):
             raise SkipPropertyException(f"Non-kodate URL in MitsuiKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)

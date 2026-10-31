@@ -101,7 +101,7 @@ class PropertyDataValidator:
         "古家", "空き家", "空家", "ヘルス・ケア", "ヘルスケア", "リゾート",
         "その他用地", "倉庫用地", "別荘地", "分譲地", "再建築不可", "借地権",
     )
-    _RURAL_KEYWORDS = ("郡", "大字", "字", "温泉", "荘", "団地")
+    _RURAL_KEYWORDS = ("郡", "村", "大字", "字", "温泉")
     _INVEST_PTYPES = {
         "investment", "invest", "apartment", "investmentapartment",
         "investment_apartment", "invest_apartment", "invest_kodate",
@@ -122,17 +122,17 @@ class PropertyDataValidator:
         return False
 
     @classmethod
-    def _is_rural_or_tochi_low_price(cls, item: Any, ptype: str, full_text: str) -> bool:
+    def _is_rural_or_tochi_low_price(cls, item: Any, ptype: str, _full_text: str) -> bool:
         try:
             price_num = float(getattr(item, "price", 0) or 0)
         except (ValueError, TypeError):
             return False
         if price_num < 100000:
             return False
-        if ptype == "tochi":
-            return True
+        if ptype not in ("tochi", "kodate", "invest_kodate"):
+            return False
         addr = str(getattr(item, "address", "") or "")
-        return any(rk in addr or rk in full_text for rk in cls._RURAL_KEYWORDS)
+        return any(rk in addr for rk in cls._RURAL_KEYWORDS)
 
     @classmethod
     def _is_low_price_allowed(cls, item: Any, ptype: str) -> bool:
@@ -321,7 +321,7 @@ class PropertyDataValidator:
             )
         if len(tokens) == 1:
             tok = tokens[0]
-            if '階' in tok and not ('地上' in tok or '建' in tok or '総' in tok):
+            if '階' in tok and not ('地上' in tok or '地下' in tok or '建' in tok or '総' in tok):
                 return any(ch.isdigit() for ch in tok)
         return False
 
