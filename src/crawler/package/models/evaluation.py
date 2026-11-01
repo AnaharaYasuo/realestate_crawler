@@ -259,6 +259,15 @@ class PropertyEvaluation(models.Model):
     needs_recrawl = models.BooleanField(default=False, db_index=True, verbose_name="再クローリング対象フラグ")
     data_quality_issue = models.TextField(blank=True, default="", verbose_name="データ不正・欠損理由")
 
+    # プロフェッショナル鑑定 ＆ 狼旅団団長RAG定性評価 (Issue #1175)
+    ai_evaluation_summary = models.TextField(blank=True, default="", verbose_name="AI総合査定サマリー")
+    highest_and_best_use = models.TextField(blank=True, default="", verbose_name="最有効使用・容積余力分析")
+    danchou_comment = models.TextField(blank=True, default="", verbose_name="元祖狼旅団団長実戦講評")
+    ai_positive_points = models.TextField(blank=True, default="", verbose_name="高評価ポイント")
+    ai_negative_points = models.TextField(blank=True, default="", verbose_name="留意・リスクポイント")
+    far_slack_ratio = models.FloatField(null=True, blank=True, verbose_name="未消化容積率（%）")
+    investment_rating = models.CharField(max_length=10, blank=True, default="", verbose_name="総合投資レーティング")
+
     class Meta:
         db_table = 'property_evaluation'
         verbose_name = "物件評価データ"

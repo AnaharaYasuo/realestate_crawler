@@ -25,6 +25,7 @@ from package.models.evaluation import PropertyEvaluation
 from package.utils.slack import send_slack_message, send_dev_report
 from package.utils.batch_metrics import BatchMetrics, format_timestamp_jst
 from package.utils.db_timeouts import bound_mysql_timeouts
+from package.ml.report_generator import generate_professional_and_danchou_report
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -168,8 +169,15 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
             )
             return False, "", 0.0
 
+    # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175)
+    if pred_price > 0 and asking_price_man > 0 and pred_price <= asking_price_man:
+        logger.info(
+            f"Skipping investment alert: Pred price ({pred_price:.0f}万) does not exceed asking price ({asking_price_man:.0f}万)"
+        )
+        return False, "", 0.0
+
     score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
-    if score >= 70.0:
+    if score >= 70.0 and (pred_price <= 0 or pred_price > asking_price_man):
         return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
 
     if pred_price > 0 and asking_price_man > 0:
@@ -231,25 +239,32 @@ def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
     return os.getenv("SLACK_RECOMMEND_CHANNEL_ID") or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
 
 def _format_access_and_area(prop) -> tuple:
-    access_parts = [
-        p for p in [
-            clean_val(getattr(prop, "railway1", "")),
-            clean_val(getattr(prop, "station1", "")),
-            clean_val(getattr(prop, "railwayWalkMinute1Str", ""))
-        ] if p and p != "-"
-    ]
-    access = " ".join(access_parts) if access_parts else clean_val(getattr(prop, "traffic", ""))
+    # 複数路線・最寄り駅の包括的フォールバック抽出
+    access_parts = []
+    for i in range(1, 4):
+        r = clean_val(getattr(prop, f"railway{i}", ""))
+        s = clean_val(getattr(prop, f"station{i}", ""))
+        w = clean_val(getattr(prop, f"railwayWalkMinute{i}Str", ""))
+        if s != "-":
+            part = f"{r} {s} 徒歩{w}" if w != "-" else f"{r} {s}"
+            access_parts.append(part.strip())
+
+    if access_parts:
+        access = " / ".join(access_parts)
+    else:
+        traffic_val = clean_val(getattr(prop, "traffic", ""))
+        access = traffic_val if traffic_val != "-" else "最寄り駅情報なし"
 
     area_parts = []
     senyu = clean_val(getattr(prop, "senyuMensekiStr", ""))
     tochi = clean_val(getattr(prop, "tochiMensekiStr", ""))
     tate = clean_val(getattr(prop, "tatemonoMensekiStr", ""))
     if senyu != "-":
-        area_parts.append(f"専有面積: {senyu}")
+        area_parts.append(f"専有: {senyu}")
     if tochi != "-":
-        area_parts.append(f"土地面積: {tochi}")
+        area_parts.append(f"土地: {tochi}")
     if tate != "-":
-        area_parts.append(f"建物面積: {tate}")
+        area_parts.append(f"建物: {tate}")
     area_info = " / ".join(area_parts) if area_parts else "-"
     return access, area_info
 
@@ -270,7 +285,11 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         "investment": "投資用物件"
     }.get(eval_rec.property_type, eval_rec.property_type)
 
-    address = clean_val(getattr(prop, "address", getattr(prop, "address1", "")))
+    # 住所の全フィールド統合フォールバック
+    addr_parts = [clean_val(getattr(prop, f"address{i}", "")) for i in ["", "1", "2", "3", "Kyoto"]]
+    addr_valid = [p for p in addr_parts if p and p != "-"]
+    address = " ".join(addr_valid) if addr_valid else "住所情報なし"
+
     access, area_info = _format_access_and_area(prop)
     chikunen = clean_val(getattr(prop, "chikunengetsuStr", getattr(prop, "chikunenki", "")))
     madori = clean_val(getattr(prop, "madori", ""))
@@ -278,27 +297,70 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
     youseki = clean_val(getattr(prop, "yousekiStr", getattr(prop, "youseki", "")))
     pub_date, crawled_date = get_prop_dates(prop)
 
-    msg = (
-        f"🏆 [お宝物件検出] {reason}\n"
-        f"物件名: {p_name} ({ptype_jp})\n"
-        f"売出価格: {asking_price_man}万円\n"
-        f"理論予測価格: {int(pred_price) if pred_price > 0 else '-'}万円\n" if pred_price > 0 else f"理論予測価格: -\n"
-        f"【物件詳細】\n"
-        f"住所: {address}\n"
-        f"アクセス: {access}\n"
-        f"面積: {area_info}\n"
-        f"間取り: {madori}\n"
-        f"築年月: {chikunen}\n"
-        f"建ぺい率 / 容積率: {kenpei} / {youseki}\n"
+    # 割安金額と割安率の算出
+    diff_man = int(pred_price - asking_price_man) if pred_price > 0 else 0
+    discount_pct = (pred_price - asking_price_man) / pred_price * 100.0 if pred_price > 0 else 0.0
+
+    # 【通知対象限定】プロ鑑定 ＆ 団長RAG高度レポートの生成とDB永続化 (Issue #1175)
+    report_data = generate_professional_and_danchou_report(
+        eval_rec=eval_rec,
+        prop=prop,
+        ptype_jp=ptype_jp,
+        asking_price_man=asking_price_man,
+        pred_price=pred_price,
+        address=address,
+        access=access
     )
 
-    if eval_rec.property_type in ["invest_apartment", "apartment", "invest_kodate", "investmentapartment", "investmentkodate", "investment"]:
-        msg += (
-            f"想定積算価格: {clean_val(eval_rec.estimated_sekisan_price)}万円\n"
-            f"年間キャッシュフロー: {clean_val(eval_rec.cash_flow)}万円/年 (DSCR: {clean_val(eval_rec.dscr)})\n"
-        )
+    rating_str = f" [{report_data.get('investment_rating')}]" if report_data.get("investment_rating") else ""
+
+    msg = (
+        f"🏆 [お宝物件検出]{rating_str} {reason}\n"
+        f"物件名: {p_name} ({ptype_jp})\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 価格・割安度（3面アプローチ）\n"
+        f"・売出価格: {asking_price_man}万円\n"
+        f"・理論予測価格: {int(pred_price) if pred_price > 0 else '-'}万円\n"
+    )
+    if pred_price > 0:
+        msg += f"・割安度: -{diff_man}万円 ({discount_pct:.1f}% 割安)\n"
+
+    if eval_rec.estimated_sekisan_price:
+        msg += f"・想定積算価格: {clean_val(eval_rec.estimated_sekisan_price)}万円\n"
+    if eval_rec.cash_flow:
+        msg += f"・年間CF: {clean_val(eval_rec.cash_flow)}万円/年 (DSCR: {clean_val(eval_rec.dscr)})\n"
 
     msg += (
+        f"\n📍 所在地・アクセス\n"
+        f"・所在地: {address}\n"
+        f"・最寄り駅: {access}\n"
+        f"\n🏠 物件スペック\n"
+        f"・面積: {area_info}\n"
+        f"・間取り: {madori} / 築年月: {chikunen}\n"
+        f"・建ぺい/容積率: {kenpei} / {youseki}\n"
+    )
+
+    # プロ鑑定 ＆ 団長目利きセクション
+    summary = report_data.get("ai_evaluation_summary", "")
+    hbu = report_data.get("highest_and_best_use", "")
+    dancho = report_data.get("danchou_comment", "")
+    pos = report_data.get("ai_positive_points", "")
+    neg = report_data.get("ai_negative_points", "")
+
+    msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📑 プロフェッショナル物件評価レポート\n"
+    if summary:
+        msg += f"\n【AI総括サマリー】\n{summary}\n"
+    if hbu:
+        msg += f"\n🏛 [最有効使用・容積余力ポテンシャル]\n{hbu}\n"
+    if dancho:
+        msg += f"\n🐺 [元祖・狼旅団 団長の辛口実戦目利き]\n{dancho}\n"
+    if pos:
+        msg += f"\n⭕️ [高評価ポイント]\n{pos}\n"
+    if neg:
+        msg += f"\n⚠️ [物理・法的DDチェック（留意点）]\n{neg}\n"
+
+    msg += (
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"情報公開日: {pub_date} | クロール日時: {crawled_date}\n"
         f"詳細URL: {eval_rec.property_url}\n"
     )
