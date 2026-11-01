@@ -222,17 +222,9 @@ def _calc_land_rating(ratio: float, diff_man: int) -> str:
     return "A"
 
 
-def _generate_fallback_for_land(
-    diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None,
-    prop: Any = None, site_text: str = ""
-) -> dict[str, Any]:
-    rating = _calc_land_rating(ratio, diff_man)
-    slack_text = f"（未消化容積率: {far_slack}%）" if far_slack is not None else ""
-
-    # 建築条件・接道状況に応じた動的分岐（構造化データ優先）
+def _determine_land_plan_desc(prop: Any, site_text: str) -> str:
+    """土地の建築条件および測量・接道状況から評価文を生成する"""
     joken = getattr(prop, "kenchikuJoken", None) or getattr(prop, "kenchikuJokenStr", None) or ""
-    setsudou = getattr(prop, "setsudou", None) or getattr(prop, "roadStructure", None) or ""
-
     if joken:
         is_joken_nashi = "なし" in joken or "無" in joken
         is_joken_ari = "付き" in joken or "有" in joken
@@ -255,6 +247,18 @@ def _generate_fallback_for_land(
         plan_desc += "\n・サイト掲載情報：確定測量済みによる隣地境界確定と安全な取引性"
     if has_south_road:
         plan_desc += "\n・サイト掲載情報：陽当たり・採光性に優れた南道路接道"
+    return plan_desc
+
+
+def _generate_fallback_for_land(
+    diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None,
+    prop: Any = None, site_text: str = ""
+) -> dict[str, Any]:
+    rating = _calc_land_rating(ratio, diff_man)
+    slack_text = f"（未消化容積率: {far_slack}%）" if far_slack is not None else ""
+    setsudou = getattr(prop, "setsudou", None) or getattr(prop, "roadStructure", None) or ""
+
+    plan_desc = _determine_land_plan_desc(prop, site_text)
 
     if "4m未満" in setsudou or "狭隘" in setsudou:
         use_desc = f"前面道路セットバックを考慮した専用住宅用地、または小規模敷地としての活用が最有効使用{slack_text}。"
