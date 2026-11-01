@@ -56,7 +56,7 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
         clean_lines = [line for line in lines if len(line) > 3]
         combined = "\n".join(clean_lines)
         return combined[:MAX_PAGE_TEXT_CHARS]
-    except (RuntimeError, ValueError, OSError, urllib.error.URLError) as e:
+    except (RuntimeError, ValueError, OSError) as e:
         logger.debug("Could not fetch property page text from %s: %s", url, e)
         return ""
 
