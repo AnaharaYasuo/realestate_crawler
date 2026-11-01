@@ -1054,11 +1054,12 @@ class UrlRouter:
             if target_ptype == "invest_kodate"
             else (target_ptype,)
         )
-        matched_site = matched_routes[0]["site"]
         for cand in candidate_ptypes:
             for route in matched_routes:
                 if route["property_type"] == cand:
                     return route
+        matched_site = matched_routes[0]["site"]
+        for cand in candidate_ptypes:
             for route in cls.ROUTES:
                 if route["site"] == matched_site and route["property_type"] == cand:
                     return route

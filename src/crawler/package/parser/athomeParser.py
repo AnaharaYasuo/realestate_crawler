@@ -749,7 +749,7 @@ class AthomeParser(ParserBase):
             if val:
                 return val
         for th in response.find_all(["th", "dt"]):
-            text = re.sub(r"\s+", "", th.get_text().strip())
+            text = re.sub(r"[（(].*", "", re.sub(r"\s+", "", th.get_text().strip()))
             if text in ("価格", "販売価格", "物件価格"):
                 sib = th.find_next_sibling(["td", "dd"])
                 if sib:

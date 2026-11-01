@@ -49,7 +49,7 @@ def _parse_sumai1_dl_specs(response: BeautifulSoup) -> dict:
         for dt, dd in zip(dl.select("dt"), dl.select("dd")):
             key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "").replace("：", "")
             val = dd.get_text().strip()
-            if key and key not in specs:
+            if key and val and not specs.get(key):
                 specs[key] = val
     return specs
 
@@ -179,7 +179,7 @@ class Sumai1Parser(ParserBase):
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = _parse_sumai1_table_specs(response)
         for k, v in _parse_sumai1_dl_specs(response).items():
-            if k not in specs:
+            if not specs.get(k) and v:
                 specs[k] = v
         _apply_sumai1_fallbacks(specs)
         return specs

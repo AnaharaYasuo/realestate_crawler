@@ -251,6 +251,18 @@ class PropertyTypeDetector:
     )
 
     @classmethod
+    def _is_multi_category_seo_segment(cls, seg: str) -> bool:
+        cleaned = seg
+        for term in cls._TOCHI_EXCLUDED_TERMS:
+            cleaned = cleaned.replace(term, "")
+        cat_hits = sum(
+            1
+            for group in (("一戸建", "戸建"), ("マンション",), ("土地", "売地"))
+            if any(kw in cleaned for kw in group)
+        )
+        return cat_hits >= 2
+
+    @classmethod
     def _strip_title_site_suffix(cls, title: str | None) -> str:
         """タイトル末尾のサイト共通SEOサフィックス（複数種別が並記されたセグメント）を除去する。"""
         if not title or not isinstance(title, str):
@@ -258,21 +270,7 @@ class PropertyTypeDetector:
         segments = re.split(r"[｜|]", title)
         if len(segments) <= 1:
             return title
-        kept: list[str] = []
-        for idx, seg in enumerate(segments):
-            if idx > 0:
-                cat_hits = sum(
-                    1
-                    for group in (
-                        ("一戸建", "戸建"),
-                        ("マンション",),
-                        ("土地", "売地"),
-                    )
-                    if any(kw in seg for kw in group)
-                )
-                if cat_hits >= 2:
-                    continue
-            kept.append(seg)
+        kept = [seg for idx, seg in enumerate(segments) if idx == 0 or not cls._is_multi_category_seo_segment(seg)]
         return "｜".join(kept) if kept else title
 
     @classmethod

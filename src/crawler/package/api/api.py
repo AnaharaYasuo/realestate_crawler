@@ -1210,7 +1210,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
             finally:
                 clear_thread_activity("idle")
-                _touch_active_progress_files()
+                self._touch_watchdog_progress()
                 _crawl_run_state.keys = None
                 try:
                     from django.db import close_old_connections, connections

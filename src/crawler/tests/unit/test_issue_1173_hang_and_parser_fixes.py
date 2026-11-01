@@ -206,6 +206,14 @@ def test_property_type_detector_and_router_fixes():
     )
     assert daikyo_parser.__class__.__name__ == "DaikyoKodateParser"
 
+    # 3b. Mitsui kodate URL with invest_kodate prefers URL-matched MitsuiKodateParser over site-wide apartment
+    mitsui_route_parser = UrlRouter.create_parser(
+        url="https://www.rehouse.co.jp/buy/kodate/bkdetail/F15BPA17/",
+        property_type="invest_kodate",
+    )
+    assert mitsui_route_parser.__class__.__name__ == "MitsuiKodateParser"
+    assert PropertyTypeDetector._strip_title_site_suffix("物件名｜土地付き中古戸建") == "物件名｜土地付き中古戸建"
+
     # 4. Mitsui kodate with partial fixed-term tenancy in remarks and no yield must stay 'kodate'
     mitsui_specs = {
         "価格": "8,480万円",
@@ -293,9 +301,9 @@ def test_site_specific_parser_fixes():
     assert converter.parse_chikunengetsu("1878年3月") is None
     assert converter.parse_chikunengetsu("1998年3月") is not None
 
-    # 7. RearieMansionParser skips unresolved Vue template
+    # 7. RearieMansionParser skips unresolved Vue template in h1/specs
     rp = RearieMansionParser()
-    r_soup = BeautifulSoup("<html><body><h1>{{ prop.name }}</h1><div>{{ prop.price }}</div></body></html>", "html.parser")
+    r_soup = BeautifulSoup("<html><body><h1>{{ prop.name }}</h1><table><tr><th>価格</th><td>{{ prop.price }}</td></tr></table></body></html>", "html.parser")
     with pytest.raises(SkipPropertyException):
         rp._parsePropertyDetailPage(rp.createEntity(), r_soup)
 

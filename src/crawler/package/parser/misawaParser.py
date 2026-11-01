@@ -221,9 +221,10 @@ class MisawaParser(ParserBase):
     
     def _parsePriceStr(self, response, specs=None):
         target_specs = specs or self._get_specs(response)
-        spec_price = target_specs.get("価格", "") or target_specs.get("販売価格", "") or target_specs.get("物件価格", "")
-        if spec_price:
-            return spec_price
+        for key in ("価格", "販売価格", "物件価格"):
+            spec_price = target_specs.get(key, "").strip()
+            if spec_price and spec_price not in ("-", "－", "―", "—") and converter.parse_price(spec_price):
+                return spec_price
         price_selector = self.selectors.get('price', '.detail-price .num')
         if price_selector:
             for price_tag in response.select(price_selector):
