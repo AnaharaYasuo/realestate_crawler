@@ -386,32 +386,91 @@ class ParserBase(metaclass=ABCMeta):
     def createEntity(self) -> models.Model:
         return None
 
+    _NON_SELLING_PRICE_CONTEXT_KEYWORDS = (
+        "管理費",
+        "修繕積立",
+        "駐車場",
+        "駐輪場",
+        "バイク置場",
+        "地代",
+        "借地料",
+        "ローン",
+        "月々",
+        "頭金",
+        "ボーナス",
+        "固定資産税",
+        "私道負担",
+        "施設費用",
+        "その他費用",
+        "町会費",
+        "自治会費",
+        "組合費",
+    )
+
+    @classmethod
+    def _has_non_selling_price_keyword(cls, text: str) -> bool:
+        return bool(text and any(kw in text for kw in cls._NON_SELLING_PRICE_CONTEXT_KEYWORDS))
+
+    @classmethod
+    def _find_associated_label_element(cls, el, container):
+        if container.name in ("tr", "dl"):
+            cell = (
+                el
+                if getattr(el, "name", None) in ("td", "dd")
+                else getattr(el, "find_parent", lambda *a: None)(["td", "dd"])
+            )
+            if cell is not None:
+                return cell.find_previous_sibling(["th", "dt"])
+            return container.find(["th", "dt"])
+        return container.find(["th", "dt"], recursive=False) if hasattr(container, "find") else None
+
+    @classmethod
+    def _ancestor_has_non_price_label(cls, el) -> bool:
+        curr = el
+        for _ in range(4):
+            curr = getattr(curr, "parent", None)
+            if curr is None or not hasattr(curr, "name"):
+                break
+            if curr.name not in ("tr", "dl", "li", "div", "section", "p"):
+                continue
+            lbl_el = cls._find_associated_label_element(el, curr)
+            if lbl_el is not None and cls._has_non_selling_price_keyword(lbl_el.get_text(" ", strip=True)):
+                return True
+            prev = getattr(el, "find_previous_sibling", lambda *a: None)(["th", "dt", "span", "p", "div"])
+            if prev is not None and cls._has_non_selling_price_keyword(prev.get_text(" ", strip=True)):
+                return True
+        return False
+
+    @classmethod
+    def _is_valid_selling_price_element(cls, el) -> bool:
+        """価格要素が管理費・修繕積立金・駐車場代・ローン目安等の非物件価格でないかを厳格検証する。"""
+        if el is None or not hasattr(el, "get_text") or cls._is_in_noise_container(el):
+            return False
+        txt = el.get_text(" ", strip=True)
+        if not txt or len(txt) > 80 or cls._has_non_selling_price_keyword(txt):
+            return False
+        return not cls._ancestor_has_non_price_label(el)
+
+    def _select_valid_price_element_text(self, response: BeautifulSoup) -> str:
+        for el in response.select(".price, .mod-price, span.priceNum, td.price, .priceText"):
+            if self._is_valid_selling_price_element(el):
+                txt = el.get_text(strip=True)
+                if txt:
+                    return txt
+        return ""
+
     def get_price_str(self, response: BeautifulSoup) -> str:
         """価格(文字列)の抽出"""
         specs = self._get_specs(response)
-        price_str = (
-            specs.get("価格", "")
-            or specs.get("販売価格", "")
-            or specs.get("物件価格", "")
-        )
+        price_str = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
         if not price_str and response:
-            tag = self._getValueByLabel(response, "価格") or self._getValueByLabel(
-                response, "販売価格"
-            )
+            tag = self._getValueByLabel(response, "価格") or self._getValueByLabel(response, "販売価格")
             if tag:
-                price_str = (
-                    tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
-                )
+                price_str = tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
         if not price_str and response:
-            el = response.select_one(
-                ".price, .mod-price, span.priceNum, td.price, .priceText"
-            )
-            if el:
-                price_str = el.get_text(strip=True)
+            price_str = self._select_valid_price_element_text(response)
         # ラベル文字列そのものを値として拾った場合は無効 (#761)
-        if price_str in ("価格", "販売価格", "物件価格"):
-            return ""
-        return price_str
+        return "" if price_str in ("価格", "販売価格", "物件価格") else price_str
 
     def get_price(self, response: BeautifulSoup) -> int | Decimal | None:
         """価格(数値)の抽出"""

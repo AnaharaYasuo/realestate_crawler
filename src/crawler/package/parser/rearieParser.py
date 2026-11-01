@@ -334,6 +334,9 @@ class RearieParser(ParserBase):
         if any(msg in all_text for msg in ended_markers) or response.select_one(".mod-message-end, .not-found"):
             raise ListingEndedException("Rearie listing ended")
         h1_text = getattr(response.h1, "text", "").strip()
+        spec_check_text = f"{h1_text} {specs.get('価格', '')} {specs.get('所在地', '')}"
+        if "{{ prop." in spec_check_text or "{{prop." in spec_check_text or "{{" in h1_text:
+            raise ListingEndedException("Rearie unresolved Vue template (listing unavailable)")
         if not h1_text and not specs.get("価格"):
             raise ListingEndedException("Rearie listing ended or redirected to top page")
         return h1_text

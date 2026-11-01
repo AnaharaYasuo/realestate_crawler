@@ -718,27 +718,39 @@ class AthomeParser(ParserBase):
         return ""
 
     @staticmethod
+    def _extract_valid_athome_price_text(el) -> str:
+        if not ParserBase._is_valid_selling_price_element(el):
+            return ""
+        txt = el.get_text().strip().split("\n")[0].strip()
+        if any(unit in txt for unit in ("万", "億")) and (converter.parse_price(txt) or 0) > 0:
+            return txt
+        return ""
+
+    @staticmethod
     def _parse_price_from_elements(response: BeautifulSoup) -> str:
-        for sel in (".bukken-price", ".price", "span.price", "p.price", "td.price", ".num", "em.price"):
-            el = response.select_one(sel)
-            if el:
-                txt = el.get_text().strip().split("\n")[0].strip()
-                if any(unit in txt for unit in ("万", "億", "円")):
-                    return txt
+        selectors = (".bukken-price", "#detailTitleArea .price", "span.price", "p.price", "td.price", ".price")
+        for sel in selectors:
+            for el in response.select(sel):
+                hit = AthomeParser._extract_valid_athome_price_text(el)
+                if hit:
+                    return hit
         for td in response.find_all(["td", "dd"]):
-            txt = td.get_text().strip()
-            if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億", "円")):
-                return txt.split("\n")[0].strip()
+            if ParserBase._is_valid_selling_price_element(td):
+                txt = td.get_text().strip()
+                if any(p in txt for p in ("価格", "販売価格")) and any(u in txt for u in ("万", "億")):
+                    return txt.split("\n")[0].strip()
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
+        if specs is None:
+            specs = self._get_specs_table(response)
         if specs and isinstance(specs, dict):
             val = self._parse_price_from_specs(specs)
             if val:
                 return val
         for th in response.find_all(["th", "dt"]):
-            text = th.get_text().strip()
-            if "価格" in text:
+            text = re.sub(r"[（(].*", "", re.sub(r"\s+", "", th.get_text().strip()))
+            if text in ("価格", "販売価格", "物件価格"):
                 sib = th.find_next_sibling(["td", "dd"])
                 if sib:
                     return sib.get_text().strip().split('\n')[0].strip()

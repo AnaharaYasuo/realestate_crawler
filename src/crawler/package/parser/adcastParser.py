@@ -98,14 +98,19 @@ class AdCastBaseParser(ParserBase):
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
-        el = response.find(class_=re.compile(r'price', re.I))
-        if el is not None:
+        specs = specs or self._get_specs(response)
+        for key in ("価格", "販売価格", "物件価格"):
+            spec_price = specs.get(key, "")
+            if spec_price and converter.parse_price(spec_price):
+                return spec_price
+        for el in response.find_all(class_=re.compile(r'price', re.I)):
+            if not self._is_valid_selling_price_element(el):
+                continue
             txt = el.get_text(strip=True)
             price_text = converter.extract_price_text(txt)
             if price_text:
                 return price_text
-        specs = specs or self._get_specs(response)
-        return specs.get("価格", "") or specs.get("販売価格", "")
+        return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
         p_str = self._parsePriceStr(response, specs)
