@@ -196,10 +196,11 @@ class MitsuiParser(ParserBase):
             if cleaned:
                 return cleaned
         if response:
-            el = response.select_one(
+            for el in response.select(
                 ".text-price-regular, .price, .mod-price, span.priceNum, td.price, .priceText, .detail-price, .bukken-price"
-            )
-            if el:
+            ):
+                if not self._is_valid_selling_price_element(el):
+                    continue
                 cleaned = self._clean_mitsui_price_text(el.get_text(strip=True))
                 if cleaned:
                     return cleaned
@@ -1395,6 +1396,8 @@ class MitsuiInvestmentParser(MitsuiParser, InvestmentParserBase):
             parser._is_delegating = True
             new_item = parser.createEntity()
             new_item.pageUrl = item.pageUrl
+            if hasattr(item, "_switched_from_property_type"):
+                new_item._switched_from_property_type = item._switched_from_property_type
             return parser._parsePropertyDetailPage(new_item, response)
         return None
 
@@ -1660,6 +1663,8 @@ class MitsuiInvestmentKodateParser(MitsuiInvestmentParser, KodateParserBase):
                 parser._is_delegating = True
                 new_item = parser.createEntity()
                 new_item.pageUrl = page_url
+                if hasattr(item, "_switched_from_property_type"):
+                    new_item._switched_from_property_type = item._switched_from_property_type
                 return parser._parsePropertyDetailPage(new_item, response)
             raise SkipPropertyException(f"Mansion URL skipped in MitsuiInvestmentKodateParser: {page_url}")
         item = super()._parsePropertyDetailPage(item, response)

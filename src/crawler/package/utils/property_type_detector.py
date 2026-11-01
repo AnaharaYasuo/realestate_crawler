@@ -32,9 +32,11 @@ class PropertyTypeDetector:
     SIGNAL_ANNUAL_RENT_EST = "年間予定賃料"
     SIGNAL_GROSS_INCOME = "想定年収"
     SIGNAL_FULL_OCCUPANCY = "満室想定"
+    SIGNAL_OWNER_CHANGE = "オーナーチェンジ"
+    SIGNAL_SUBLEASE = "サブリース"
     INVESTMENT_STRONG_SIGNALS = [
         "表面利回り", "実質利回り", "想定利回り", "現況利回り", "満室利回り", "満室時利回り",
-        "利回り", "オーナーチェンジ", "サブリース",
+        "利回り", SIGNAL_OWNER_CHANGE, SIGNAL_SUBLEASE,
         SIGNAL_GROSS_INCOME, SIGNAL_FULL_OCCUPANCY, SIGNAL_ANNUAL_RENT_EST, "賃貸中",
     ]
 
@@ -145,7 +147,7 @@ class PropertyTypeDetector:
         """
         if not text or not isinstance(text, str):
             return False
-        for sig in ("オーナーチェンジ", "サブリース", "賃貸中"):
+        for sig in (cls.SIGNAL_OWNER_CHANGE, cls.SIGNAL_SUBLEASE, "賃貸中"):
             if sig in text:
                 return True
         if cls._has_numeric_yield(text):
@@ -176,6 +178,10 @@ class PropertyTypeDetector:
     def _spec_entry_has_yield(cls, key_str: str, v_str: str) -> bool:
         if "grossYield" in key_str:
             return cls._gross_yield_positive(v_str)
+        if cls._is_free_text_spec_key(key_str):
+            if cls._has_numeric_yield(v_str):
+                return True
+            return any(sig in v_str for sig in (cls.SIGNAL_OWNER_CHANGE, cls.SIGNAL_SUBLEASE))
         if "利回り" in key_str:
             return (not cls._is_empty_yield_value(v_str)
                     and cls._has_numeric_yield(f"{key_str}{v_str}"))
@@ -245,6 +251,29 @@ class PropertyTypeDetector:
     )
 
     @classmethod
+    def _is_multi_category_seo_segment(cls, seg: str) -> bool:
+        cleaned = seg
+        for term in cls._TOCHI_EXCLUDED_TERMS:
+            cleaned = cleaned.replace(term, "")
+        cat_hits = sum(
+            1
+            for group in (("一戸建", "戸建"), ("マンション",), ("土地", "売地"))
+            if any(kw in cleaned for kw in group)
+        )
+        return cat_hits >= 2
+
+    @classmethod
+    def _strip_title_site_suffix(cls, title: str | None) -> str:
+        """タイトル末尾のサイト共通SEOサフィックス（複数種別が並記されたセグメント）を除去する。"""
+        if not title or not isinstance(title, str):
+            return ""
+        segments = re.split(r"[｜|]", title)
+        if len(segments) <= 1:
+            return title
+        kept = [seg for idx, seg in enumerate(segments) if idx == 0 or not cls._is_multi_category_seo_segment(seg)]
+        return "｜".join(kept) if kept else title
+
+    @classmethod
     def _strip_simile_noise(cls, text: str) -> str:
         if not text or not isinstance(text, str):
             return ""
@@ -286,6 +315,10 @@ class PropertyTypeDetector:
         # 建物キーワードを先に判定（「一棟アパート 土地・建物」や単独「土地」混在時の建物優先）
         if cls._first_keyword_hit(text, cls.APARTMENT_KEYWORDS):
             return "apartment"
+        # 建物名「テラスハウス〇〇」が「中古マンション」等と共起するケースでは明示的マンション複合語を優先
+        if any(mk in text for mk in ("区分マンション", "中古マンション", "新築マンション", "区分所有")):
+            if not any(kk in text for kk in ("一戸建", "戸建")):
+                return "mansion"
         if cls._first_keyword_hit(text, cls.KODATE_KEYWORDS):
             return "kodate"
         if cls._is_isolated_tochi(text) or cls._first_keyword_hit(text, cls.TOCHI_KEYWORDS):
@@ -387,6 +420,12 @@ class PropertyTypeDetector:
         return cls._detect_from_specs(specs)
 
     @classmethod
+    def _resolve_apartment_or_invest_kodate(cls, clean_title: str) -> str:
+        if clean_title and cls._first_keyword_hit(clean_title, cls.KODATE_KEYWORDS):
+            return "invest_kodate"
+        return "apartment"
+
+    @classmethod
     def _detect_rule_based(
         cls,
         url: str | None = None,
@@ -394,32 +433,49 @@ class PropertyTypeDetector:
         html_text: str | None = None,
         specs: dict[str, Any] | None = None,
     ) -> str | None:
+        clean_title = cls._strip_title_site_suffix(title) if title else ""
         specs_ptype = cls._detect_from_specs_rule(specs)
         if specs_ptype == "apartment":
-            if title and cls._first_keyword_hit(title, cls.KODATE_KEYWORDS):
-                return "invest_kodate"
-            return "apartment"
-        if title:
-            title_ptype = cls._match_keywords(title)
-            if title_ptype:
-                return title_ptype
-
-        # 数値付き利回りはURL（/mansion/等）よりも強い投資シグナルとして最優先
+            return cls._resolve_apartment_or_invest_kodate(clean_title)
+        title_ptype = cls._match_keywords(clean_title) if clean_title else None
+        if title_ptype:
+            return title_ptype
         if html_text and cls._has_numeric_yield(html_text):
             return "apartment"
-        # 明示的なスペック種別（物件種別: 区分マンション等）はURLより優先
         if specs_ptype:
             return specs_ptype
-        if url:
-            url_ptype = cls._detect_from_url(url)
-            if url_ptype:
-                return url_ptype
+        url_ptype = cls._detect_from_url(url) if url else None
+        if url_ptype:
+            return url_ptype
         if cls._has_yield_signal(html_text):
             return "apartment"
         return cls._match_keywords(html_text) if html_text else None
 
-
-
+    @classmethod
+    def _is_protected_unit_mansion(cls, title: str | None, specs: dict[str, Any] | None) -> bool:
+        if not specs:
+            return False
+        cleaned_title = cls._strip_simile_noise(cls._strip_title_site_suffix(title)) if title else ""
+        title_has_itto_kw = bool(
+            cleaned_title and (any(k in cleaned_title for k in cls.ITTO_KEYWORDS) or "アパート" in cleaned_title)
+        )
+        if not title_has_itto_kw:
+            has_senyu = cls._is_positive_area_value(
+                specs.get("専有面積") or specs.get("senyuMenseki") or specs.get("壁芯面積")
+            )
+            has_tochi = cls._is_positive_area_value(specs.get("土地面積") or specs.get("tochiMenseki"))
+            if has_senyu and not has_tochi and not cls._is_commercial_building_indicator(specs):
+                return True
+        title_has_non_mansion = bool(
+            cleaned_title
+            and (
+                title_has_itto_kw
+                or any(k in cleaned_title for k in cls.KODATE_KEYWORDS)
+                or any(k in cleaned_title for k in cls.TOCHI_KEYWORDS)
+                or "売地" in cleaned_title
+            )
+        )
+        return not title_has_non_mansion and cls._is_unit_mansion_indicator(specs)
 
     @classmethod
     def detect(
@@ -436,17 +492,7 @@ class PropertyTypeDetector:
         数値利回り(specs) > タイトル種別(投資シグナル優先・売地はナビ文言より優先) >
         本文Yield Guard > specs種別 > 本文キーワード > url > AI
         """
-        # 0. 区分投資マンション保護: 利回りがあっても専有面積や階数があれば mansion
-        # ただしタイトルに一棟アパート・戸建・土地等の明確な他種別キーワードが含まれる場合はスキップ
-        cleaned_title = cls._strip_simile_noise(title) if title else ""
-        title_has_itto_kw = bool(cleaned_title and (any(k in cleaned_title for k in cls.ITTO_KEYWORDS) or "アパート" in cleaned_title))
-        title_has_non_mansion = bool(cleaned_title and (
-            title_has_itto_kw or
-            any(k in cleaned_title for k in cls.KODATE_KEYWORDS) or
-            any(k in cleaned_title for k in cls.TOCHI_KEYWORDS) or
-            "売地" in cleaned_title
-        ))
-        if not title_has_non_mansion and specs and cls._is_unit_mansion_indicator(specs):
+        if cls._is_protected_unit_mansion(title, specs):
             return "mansion"
 
         detected = cls._detect_rule_based(url=url, title=title, html_text=html_text, specs=specs)
@@ -654,7 +700,14 @@ class PropertyTypeDetector:
 
         combined = f"{name} {explicit_type}"
         has_apartment = any(kw in combined for kw in cls.ITTO_KEYWORDS) or "アパート" in combined
-        has_kodate = any(kw in combined for kw in cls.KODATE_KEYWORDS)
+        has_senyu = cls._is_positive_area_value(cls._get_field(property_obj, "senyuMenseki") or cls._get_field(property_obj, "専有面積"))
+        has_tochi_area = cls._is_positive_area_value(cls._get_field(property_obj, "tochiMenseki") or cls._get_field(property_obj, "土地面積"))
+        kodate_kws = (
+            tuple(k for k in cls.KODATE_KEYWORDS if k != cls.KW_TERRACE_HOUSE)
+            if (has_senyu and not has_tochi_area)
+            else cls.KODATE_KEYWORDS
+        )
+        has_kodate = any(kw in combined for kw in kodate_kws)
         has_tochi = any(kw in combined for kw in cls.TOCHI_KEYWORDS) or "売地" in combined
         return has_apartment or has_kodate or has_tochi
 

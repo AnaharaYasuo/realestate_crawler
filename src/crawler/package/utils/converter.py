@@ -130,6 +130,8 @@ def parse_chikunengetsu(date_str):
         if match:
             year = int(match.group(1))
             month = int(match.group(2))
+            if year < 1900:
+                return None
             return datetime.date(year, month, 1)
 
         return _parse_wareki(s)

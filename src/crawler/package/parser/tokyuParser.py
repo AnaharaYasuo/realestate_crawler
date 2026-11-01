@@ -359,11 +359,13 @@ class TokyuParser(ParserBase):
             # Case 2: rows (div/dl) contain dt/dd
             self._scrape_row_dt_dd(rows, header_selector, value_selector, specs)
 
-        # Fallback: if specs still empty, scan dl tags in main content area directly
+        # Fallback: if specs still empty, scan dl tags and table tr/th/td in main content area directly
         if not specs:
             content_area = response.select_one('main, #main, article, #contents, .contents, div[class*="detail"]') or response
             for dl in content_area.find_all('dl'):
                 self._scrape_dl_direct_children(dl, specs)
+            for tr in content_area.find_all('tr'):
+                self._extract_specs_from_row(tr, 'th', 'td', specs)
 
         self._scrape_specs_cache[resp_id] = specs
         return specs
@@ -405,24 +407,30 @@ class TokyuParser(ParserBase):
 
 
     # --- Common Extraction Methods ---
+    def _extract_tokyu_price_element_text(self, el) -> str:
+        if not self._is_valid_selling_price_element(el):
+            return ""
+        el_text = el.get_text().strip()
+        if ("万円" in el_text or "億" in el_text) and (converter.parse_price(el_text) or 0) > 0:
+            return el_text
+        return ""
+
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
-        if specs is None: specs = self._scrape_specs(response)
-        key = self.selectors.get('price_key', "価格")
-        if key in specs:
-             return specs[key]['value']
-        # Header/hero/table price element fallback
-        for sel in ['p.price', 'span.price', 'div.price', 'td.price', '.p-detail-hero__price', '.price-text', '.detail-header__price', '.m-status-table__price', '.p-detail-summary__price', 'span.num']:
-            el = response.select_one(sel)
-            if el is None:
-                continue
-            el_text = el.get_text()
-            if '万円' in el_text or '円' in el_text:
-                return el_text.strip()
-        # Search elements containing '万円' with price-like structure
-        for tag in response.find_all(['span', 'p', 'div', 'td', 'dd']):
-            txt = tag.get_text().strip()
-            if '万円' in txt and len(txt) < 30 and re.search(r'\d+', txt):
-                return txt
+        if specs is None:
+            specs = self._scrape_specs(response)
+        for key in (self.selectors.get('price_key', "価格"), "価格", "販売価格", "物件価格"):
+            val = self._get_spec_val(specs, key)
+            if val:
+                return val
+        price_selectors = (
+            '.p-detail-hero__price', '.detail-header__price', '.m-status-table__price',
+            '.p-detail-summary__price', '.price-text', 'p.price', 'span.price', 'div.price', 'td.price',
+        )
+        for sel in price_selectors:
+            for el in response.select(sel):
+                hit = self._extract_tokyu_price_element_text(el)
+                if hit:
+                    return hit
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | None:
@@ -641,10 +649,17 @@ class TokyuParser(ParserBase):
     def _parseKuiki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseChiikiChiku(response, specs)
         if "/" in val:
-            return val.split("/")[0].strip()
-        if specs is None: specs = self._scrape_specs(response)
-        key = "都市計画"
-        return self._get_spec_val(specs, key)
+            res = val.split("/")[0].strip()
+            if res:
+                return res
+        if specs is None:
+            specs = self._scrape_specs(response)
+        for key in ("都市計画", "区域区分", "都市計画区域"):
+            v = self._get_spec_val(specs, key)
+            if v:
+                return v
+        return "-"
+
 
     def _parseBoukaChiiki(self, response: BeautifulSoup, specs=None) -> str:
         val = self._parseBiko(response, specs)
@@ -870,7 +885,10 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
         return self._get_spec_val(specs, key)
 
     def _parseKanrihi(self, response: BeautifulSoup, specs=None) -> int | None:
-        return converter.parse_price(self._parseKanrihiStr(response, specs))
+        s = (self._parseKanrihiStr(response, specs) or "").strip()
+        if s in ("-", "－", "―", "—", "無", "なし"):
+            return 0
+        return converter.parse_yen(s) if "万" not in s else converter.parse_price(s)
 
     def _parseSyuzenTsumitateStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
@@ -878,7 +896,10 @@ class TokyuMansionParser(TokyuParser, MansionParserBase):
         return self._get_spec_val(specs, key)
 
     def _parseSyuzenTsumitate(self, response: BeautifulSoup, specs=None) -> int | None:
-        return converter.parse_price(self._parseSyuzenTsumitateStr(response, specs))
+        s = (self._parseSyuzenTsumitateStr(response, specs) or "").strip()
+        if s in ("-", "－", "―", "—", "無", "なし"):
+            return 0
+        return converter.parse_yen(s) if "万" not in s else converter.parse_price(s)
 
     def _parseBunjoKaisya(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None: specs = self._scrape_specs(response)
@@ -1039,7 +1060,12 @@ class TokyuKodateParser(TokyuParser, KodateParserBase):
     def _reject_non_property_url(self, url) -> None:
         super()._reject_non_property_url(url)
         u_lower = str(url or "").lower()
-        if u_lower and (FUDOSAN_TOUSHI_PATH in u_lower or TOKYU_MANSION_PATH in u_lower or TOKYU_TOCHI_PATH in u_lower):
+        if u_lower and (
+            FUDOSAN_TOUSHI_PATH in u_lower
+            or TOKYU_MANSION_PATH in u_lower
+            or TOKYU_TOCHI_PATH in u_lower
+            or "/kounyu/bunjou/" in u_lower
+        ):
             raise SkipPropertyException(f"Tokyu non-kodate property mixed into kodate crawl: {url}")
 
     def _parsePropertyName(self, response, specs=None):

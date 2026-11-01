@@ -159,6 +159,10 @@ class NomuraParser(InvestmentParser):
                 specs[k] = v
 
     def _parsePriceStr(self, response, specs=None):
+        target_specs = specs or self._get_specs(response)
+        spec_price = target_specs.get("価格", "") or target_specs.get("販売価格", "") or target_specs.get("物件価格", "")
+        if spec_price:
+            return spec_price
         val = self._price_from_selector(response, self.selectors.get("price", ".price, .item_price"))
         if val:
             return val
@@ -167,19 +171,18 @@ class NomuraParser(InvestmentParser):
         )
         if val:
             return val
-        target_specs = specs or self._get_specs(response)
-        return target_specs.get("価格", "") or target_specs.get("販売価格", "") or super()._parsePriceStr(response, target_specs)
+        return super()._parsePriceStr(response, target_specs)
 
-    @staticmethod
-    def _price_from_selector(response, selector) -> str:
+    @classmethod
+    def _price_from_selector(cls, response, selector) -> str:
         if not selector:
             return ""
-        el = response.select_one(selector)
-        if not el:
-            return ""
-        val = el.get_text(strip=True)
-        if val and ("万" in val or "億" in val or "円" in val):
-            return val
+        for el in response.select(selector):
+            if not cls._is_valid_selling_price_element(el):
+                continue
+            val = el.get_text(strip=True)
+            if val and ("万" in val or "億" in val):
+                return val
         return ""
 
     def _parsePrice(self, response, _specs=None):
@@ -628,6 +631,7 @@ class NomuraParser(InvestmentParser):
             item.okuyukiStr = f"{item.okuyuki}m"
 
 class NomuraMansionParser(NomuraParser, MansionParserBase):
+    sectional_unit_guard_enabled = True
 
     def _parseSenyuMenseki(self, response, specs=None):
         target_specs = specs or self._get_specs(response)

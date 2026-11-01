@@ -220,13 +220,17 @@ class MisawaParser(ParserBase):
         return item
     
     def _parsePriceStr(self, response, specs=None):
+        target_specs = specs or self._get_specs(response)
+        for key in ("価格", "販売価格", "物件価格"):
+            spec_price = target_specs.get(key, "").strip()
+            if spec_price and spec_price not in ("-", "－", "―", "—") and converter.parse_price(spec_price):
+                return spec_price
         price_selector = self.selectors.get('price', '.detail-price .num')
         if price_selector:
-            price_tag = response.select_one(price_selector)
-            if price_tag:
-                return price_tag.get_text(strip=True)
-        target_specs = specs or self._get_specs(response)
-        return target_specs.get("価格", "") or target_specs.get("販売価格", "") or super()._parsePriceStr(response, target_specs)
+            for price_tag in response.select(price_selector):
+                if self._is_valid_selling_price_element(price_tag):
+                    return price_tag.get_text(strip=True)
+        return super()._parsePriceStr(response, target_specs)
 
     def _parsePrice(self, response, _specs=None):
         price_str = self._parsePriceStr(response)
