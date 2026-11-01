@@ -166,33 +166,32 @@ class KeiseiParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    def _extract_keisei_price_str(self, response: BeautifulSoup, specs: dict) -> str:
+        price_val = specs.get("価格", "") or specs.get("販売価格", "")
+        if price_val:
+            return price_val
+        for price_el in response.select("#price, .price_box"):
+            if self._is_valid_selling_price_element(price_el):
+                txt = price_el.get_text().strip()
+                if txt:
+                    return txt
+        return ""
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
-        
-        # 物件名
+
         item.propertyName = self._parsePropertyName(response)
-            
-        # 価格
-        price_val = specs.get("価格", "") or specs.get("販売価格", "")
-        if not price_val:
-            for price_el in response.select("#price, .price_box"):
-                if self._is_valid_selling_price_element(price_el):
-                    price_val = price_el.get_text().strip()
-                    if price_val:
-                        break
-            
+        price_val = self._extract_keisei_price_str(response, specs)
         if price_val:
             item.priceStr = price_val
             item.price = converter.parse_price(item.priceStr)
 
-        # 所在地
         addr_val = specs.get("所在地", "") or specs.get("住所", "")
         if addr_val:
             item.address = addr_val
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        # 交通
         traffic_str = specs.get("交通", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
