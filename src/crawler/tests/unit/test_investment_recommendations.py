@@ -45,6 +45,33 @@ def test_evaluate_investment_candidate_by_score():
     is_rec, reason, priority = _evaluate_candidate(rec3, prop3)
     assert is_rec is False
 
+def test_evaluate_investment_candidate_pred_price_must_exceed_asking_price():
+    """利回り・スコアが高くても理論予測価格が売出価格以下の場合は除外されることを検証 (Issue #1175)"""
+    # 売出価格 3,000万円 に対して 理論予測価格 2,500万円（理論価格割れ・割高）
+    rec = MockEvaluation(
+        "investmentapartment",
+        total_investment_score=85.0,
+        first_stage_predicted_price=2500.0,
+        id=201
+    )
+    prop = MockProperty(rec.property_url, 30000000)
+    is_rec, reason, priority = _evaluate_candidate(rec, prop)
+    assert is_rec is False
+    assert reason == ""
+    assert priority == 0.0
+
+    # 売出価格 3,000万円 に対して 理論予測価格 3,500万円（理論価格が売出を上回っている）
+    rec_pass = MockEvaluation(
+        "investmentapartment",
+        total_investment_score=85.0,
+        first_stage_predicted_price=3500.0,
+        id=202
+    )
+    is_rec2, reason2, priority2 = _evaluate_candidate(rec_pass, prop)
+    assert is_rec2 is True
+    assert "85.0点" in reason2
+    assert priority2 == 85.0
+
 def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
     """投資スコアが高くても理論予測価格が売出価格の3倍超または1/3未満の極端な異常値の場合は除外されることを検証 (Issue #1116)"""
     # 例: フローラ・国分寺ＡＢ (売出価格 3,560万円 に対し 理論予測価格 174,133万円 -> 約48.9倍)
