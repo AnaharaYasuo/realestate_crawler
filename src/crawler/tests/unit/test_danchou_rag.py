@@ -43,14 +43,17 @@ def test_load_danchou_knowledge_base():
 def test_search_danchou_knowledge():
     """物件特徴に応じた団長エピソードの検索抽出検証"""
     # 容積余力キーワード
-    results = search_danchou_knowledge("指定容積率 容積余力 増床 建て替え", top_k=2)
+    results = search_danchou_knowledge("指定容積率 容積余力 増床 建て替え", ptype_jp="一棟アパート", top_k=2)
     assert len(results) == 2
     assert any("容積" in r.get("category", "") or "容積" in r.get("title", "") for r in results)
 
-    # 指値・瞬間蒸発キーワード
-    results2 = search_danchou_knowledge("指値 瞬間蒸発 現金買い付け 公道", top_k=2)
-    assert len(results2) == 2
-    assert any("指値" in r.get("title", "") or "買い付け" in r.get("category", "") for r in results2)
+    # マンション種別適合
+    results_mansion = search_danchou_knowledge("修繕積立金 管理費 マンション", ptype_jp="中古マンション", top_k=2)
+    assert any("マンション" in r.get("title", "") or "区分" in r.get("category", "") for r in results_mansion)
+
+    # 土地種別適合
+    results_land = search_danchou_knowledge("更地 水道管 擁壁", ptype_jp="土地", top_k=2)
+    assert any("更地" in r.get("title", "") or "土地" in r.get("category", "") for r in results_land)
 
 def test_calculate_far_slack():
     """未消化容積率の計算ロジック検証"""
@@ -93,3 +96,41 @@ def test_generate_professional_and_danchou_report():
     assert eval_rec.investment_rating != ""
     assert eval_rec.danchou_comment != ""
     assert eval_rec.far_slack_ratio == 120.0
+
+def test_property_type_specific_reports():
+    """物件種別ごとに完全に差別化された定性評価が出力されることを検証 (Issue #1179)"""
+    prop = MockProp()
+    
+    # 1. マンション
+    eval_mansion = MockEval()
+    rep_mansion = generate_professional_and_danchou_report(
+        eval_rec=eval_mansion, prop=prop, ptype_jp="中古マンション",
+        asking_price_man=4000, pred_price=5500.0, address="東京都品川区東大井", access="大井町駅 徒歩7分"
+    )
+    assert "区分" in rep_mansion["ai_evaluation_summary"] or "リノベ" in rep_mansion["highest_and_best_use"]
+    assert "修繕積立金" in rep_mansion["ai_negative_points"]
+    assert "更地化による出口戦略" not in rep_mansion["highest_and_best_use"]
+
+    # 2. 土地
+    eval_land = MockEval()
+    rep_land = generate_professional_and_danchou_report(
+        eval_rec=eval_land, prop=prop, ptype_jp="土地",
+        asking_price_man=1500, pred_price=2200.0, address="埼玉県所沢市荒幡", access="下山口駅 徒歩10分"
+    )
+    assert "路線価" in rep_land["ai_evaluation_summary"] or "公示地価" in rep_land["ai_evaluation_summary"]
+    assert "水道" in rep_land["ai_negative_points"] or "擁壁" in rep_land["ai_negative_points"]
+    assert "プロパン" not in rep_land["ai_negative_points"]
+
+    # 3. 戸建
+    eval_kodate = MockEval()
+    rep_kodate = generate_professional_and_danchou_report(
+        eval_rec=eval_kodate, prop=prop, ptype_jp="中古戸建",
+        asking_price_man=800, pred_price=1200.0, address="埼玉県入間市仏子", access="仏子駅 徒歩15分"
+    )
+    assert "戸建" in rep_kodate["ai_evaluation_summary"] or "戸建" in rep_kodate["highest_and_best_use"]
+    assert "白蟻" in rep_kodate["ai_negative_points"] or "雨漏り" in rep_kodate["ai_negative_points"]
+
+    # 各種別の団長コメントや最有効使用が互いに重複していないこと
+    assert rep_mansion["highest_and_best_use"] != rep_land["highest_and_best_use"]
+    assert rep_mansion["danchou_comment"] != rep_land["danchou_comment"]
+    assert rep_land["danchou_comment"] != rep_kodate["danchou_comment"]
