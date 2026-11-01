@@ -84,8 +84,15 @@ def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, An
         logger.warning("Gemini generation failed for %s: %s", model_name, e)
     return None
 
+def _calc_mansion_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 1500:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
 def _generate_fallback_for_mansion(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any]) -> dict[str, Any]:
-    rating = "AAA" if ratio >= 30.0 or diff_man >= 1500 else "AA" if ratio >= 20.0 else "A"
+    rating = _calc_mansion_rating(ratio, diff_man)
     return {
         "investment_rating": rating,
         "ai_evaluation_summary": f"市場理論価格対比で{diff_man}万円（{ratio}%）の価格乖離。近隣成約平米単価および築年減価水準に照らして明確なディスカウントが確認される優良区分案件。",
@@ -95,8 +102,15 @@ def _generate_fallback_for_mansion(diff_man: int, ratio: float, address: str, kb
         "ai_negative_points": "・修繕積立金の総額積立残高および将来の一時金徴収予定の確認\n・専有部床下の給排水管（鉄管・鉛管の有無）の更新履歴\n・管理規約による利用制限（ペット・民泊・事務所・楽器可否）"
     }
 
+def _calc_land_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 500:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
 def _generate_fallback_for_land(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None) -> dict[str, Any]:
-    rating = "AAA" if ratio >= 30.0 or diff_man >= 500 else "AA" if ratio >= 20.0 else "A"
+    rating = _calc_land_rating(ratio, diff_man)
     slack_text = f"（未消化容積率: {far_slack}%）" if far_slack is not None else ""
     return {
         "investment_rating": rating,
@@ -107,11 +121,18 @@ def _generate_fallback_for_land(diff_man: int, ratio: float, address: str, kb_to
         "ai_negative_points": "・前面道路配水管から宅内への水道引込管径（20mm以上か）の確認\n・高低差に伴う擁壁再構築費用およびセットバック・隅切りの要否\n・確定測量図および境界標（隣地・道路）の全点明示状況"
     }
 
+def _calc_building_rating(diff_man: int, ratio: float, asking_price_man: int, sekisan_price: float) -> str:
+    if (diff_man >= 1000 and sekisan_price > asking_price_man) or ratio >= 25.0:
+        return "AAA"
+    if ratio >= 15.0:
+        return "AA"
+    return "A"
+
 def _generate_fallback_for_building(
     diff_man: int, ratio: float, asking_price_man: int, sekisan_price: float,
     far_slack: float | None, address: str, kb_top: dict[str, Any]
 ) -> dict[str, Any]:
-    rating = "AAA" if (diff_man >= 1000 and sekisan_price > asking_price_man) or ratio >= 25.0 else "AA" if ratio >= 15.0 else "A"
+    rating = _calc_building_rating(diff_man, ratio, asking_price_man, sekisan_price)
     slack_desc = f"指定容積率に対する未消化余力（{far_slack}%）を保有。" if far_slack and far_slack > 20 else "現状建物を限界までインカム運用。"
     return {
         "investment_rating": rating,
@@ -122,8 +143,15 @@ def _generate_fallback_for_building(
         "ai_negative_points": "・レントロール原契約日の確認（直近短期契約のサクラ・AD盛り看破）\n・外壁・屋上防水のメンテ履歴およびプロパンガス残債縛りの有無\n・公道接道状況および地銀プロパー融資の適合性"
     }
 
-def _generate_fallback_for_kodate(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None) -> dict[str, Any]:
-    rating = "AAA" if ratio >= 30.0 or diff_man >= 800 else "AA" if ratio >= 20.0 else "A"
+def _calc_kodate_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 800:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
+def _generate_fallback_for_kodate(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any]) -> dict[str, Any]:
+    rating = _calc_kodate_rating(ratio, diff_man)
     return {
         "investment_rating": rating,
         "ai_evaluation_summary": f"近隣戸建取引事例対比で{diff_man}万円（{ratio}%）のディスカウント。土地値近傍での仕入れが可能でありダウンサイドリスクが限定的。",
@@ -147,7 +175,7 @@ def _generate_fallback_report(
         return _generate_fallback_for_land(diff_man, ratio, address, kb_top, far_slack)
     if "アパート" in ptype_jp or "一棟" in ptype_jp:
         return _generate_fallback_for_building(diff_man, ratio, asking_price_man, sekisan_price, far_slack, address, kb_top)
-    return _generate_fallback_for_kodate(diff_man, ratio, address, kb_top, far_slack)
+    return _generate_fallback_for_kodate(diff_man, ratio, address, kb_top)
 
 def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | None) -> None:
     try:
