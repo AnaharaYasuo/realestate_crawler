@@ -59,66 +59,70 @@ SEED_KNOWLEDGE_BASE = [
     }
 ]
 
+def _load_from_local_cache(path: str) -> list[dict[str, Any]]:
+    if not os.path.exists(path):
+        return []
+    try:
+        items = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    items.append(json.loads(line))
+        return items
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Failed to load local knowledge cache: %s", e)
+        return []
+
+def _load_from_gcs(gcs_bucket: str, local_path: str) -> list[dict[str, Any]]:
+    try:
+        from google.cloud import storage
+        client = storage.Client()
+        blob = client.bucket(gcs_bucket).blob("rag/danchou_kb.jsonl")
+        if not blob.exists():
+            return []
+        content = blob.download_as_text(encoding="utf-8")
+        items = [json.loads(line) for line in content.splitlines() if line.strip()]
+        if items:
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            with open(local_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        return items
+    except (OSError, RuntimeError) as e:
+        logger.warning("GCS knowledge base fetch failed: %s", e)
+        return []
+
 def load_danchou_knowledge_base() -> list[dict[str, Any]]:
     """GCSまたはローカルキャッシュ、フォールバックとしてシードナレッジをロード"""
+    local_path = os.getenv("DANCHOU_KB_LOCAL_PATH", "data/rag/danchou_kb.jsonl")
+    cached = _load_from_local_cache(local_path)
+    if cached:
+        return cached
+
     gcs_bucket = os.getenv("GCS_BUCKET_NAME")
-    local_cache_path = os.getenv("DANCHOU_KB_LOCAL_PATH", "data/rag/danchou_kb.jsonl")
-
-    # 1. ローカルキャッシュ確認
-    if os.path.exists(local_cache_path):
-        try:
-            items = []
-            with open(local_cache_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.strip():
-                        items.append(json.loads(line))
-            if items:
-                logger.info("Loaded %d knowledge entries from local cache %s", len(items), local_cache_path)
-                return items
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning("Failed to load local knowledge cache: %s", e)
-
-    # 2. GCSからの取得試行（設定されている場合）
     if gcs_bucket:
-        try:
-            from google.cloud import storage
-            client = storage.Client()
-            bucket = client.bucket(gcs_bucket)
-            blob = bucket.blob("rag/danchou_kb.jsonl")
-            if blob.exists():
-                content = blob.download_as_text(encoding="utf-8")
-                items = [json.loads(line) for line in content.splitlines() if line.strip()]
-                if items:
-                    logger.info("Loaded %d knowledge entries from GCS gs://%s/rag/danchou_kb.jsonl", len(items), gcs_bucket)
-                    # ローカルにキャッシュ保存
-                    os.makedirs(os.path.dirname(local_cache_path), exist_ok=True)
-                    with open(local_cache_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    return items
-        except (OSError, RuntimeError) as e:
-            logger.warning("GCS knowledge base fetch failed (fallback to seed): %s", e)
+        gcs_items = _load_from_gcs(gcs_bucket, local_path)
+        if gcs_items:
+            return gcs_items
 
-    # 3. シードナレッジベース（常時利用可能）
     return SEED_KNOWLEDGE_BASE
+
+def _score_knowledge_item(item: dict[str, Any], query_lower: str) -> int:
+    score = 0
+    for kw in item.get("keywords", []):
+        if kw.lower() in query_lower:
+            score += 3
+    sample_words = ["戸建", "アパート", "マンション", "積算", "利回り", "容積", "指値", "公道", "私道", "サクラ", "新耐震", "旧耐震"]
+    haystack = item.get("title", "") + item.get("essence", "")
+    for word in sample_words:
+        if word in query_lower and word in haystack:
+            score += 1
+    return score
 
 def search_danchou_knowledge(query_text: str, top_k: int = 2) -> list[dict[str, Any]]:
     """物件特徴テキストに基づき、最も合致する団長ナレッジをスコアリング抽出"""
     kb = load_danchou_knowledge_base()
-    scored = []
-    
     query_lower = query_text.lower()
-    for item in kb:
-        score = 0
-        # キーワードマッチング
-        for kw in item.get("keywords", []):
-            if kw.lower() in query_lower:
-                score += 3
-        # タイトル・エッセンスの部分一致
-        for word in ["戸建", "アパート", "マンション", "積算", "利回り", "容積", "指値", "公道", "私道", "サクラ", "新耐震", "旧耐震"]:
-            if word in query_lower and word in (item.get("title", "") + item.get("essence", "")):
-                score += 1
-        scored.append((score, item))
-
+    scored = [(_score_knowledge_item(item, query_lower), item) for item in kb]
     scored.sort(key=lambda x: x[0], reverse=True)
     results = [item for score, item in scored[:top_k]]
     return results if results else kb[:top_k]
@@ -130,14 +134,12 @@ def calculate_far_slack(prop) -> float | None:
         tate_m2 = getattr(prop, "tatemonoMenseki", None) or getattr(prop, "senyuMenseki", None)
         youseki_str = str(getattr(prop, "yousekiStr", "") or getattr(prop, "youseki", ""))
         
-        # 容積率数値抽出（例: '200%' -> 200.0）
         match = re.search(r"(\d+(?:\.\d+)?)", youseki_str)
         if not match or not tochi_m2 or not tate_m2 or float(tochi_m2) <= 0:
             return None
             
-        designated_far = float(match.group(1)) # 指定容積率 %
-        current_far = (float(tate_m2) / float(tochi_m2)) * 100.0 # 現況消化率 %
-        
+        designated_far = float(match.group(1))
+        current_far = (float(tate_m2) / float(tochi_m2)) * 100.0
         slack = designated_far - current_far
         return round(slack, 1) if slack > 0 else 0.0
     except (ValueError, TypeError, ZeroDivisionError):
