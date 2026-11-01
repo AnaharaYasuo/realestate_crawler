@@ -386,6 +386,62 @@ class ParserBase(metaclass=ABCMeta):
     def createEntity(self) -> models.Model:
         return None
 
+    _NON_SELLING_PRICE_CONTEXT_KEYWORDS = (
+        "管理費",
+        "修繕積立",
+        "駐車場",
+        "駐輪場",
+        "バイク置場",
+        "地代",
+        "借地料",
+        "ローン",
+        "月々",
+        "頭金",
+        "ボーナス",
+        "固定資産税",
+        "私道負担",
+        "施設費用",
+        "その他費用",
+        "町会費",
+        "自治会費",
+        "組合費",
+    )
+
+    @classmethod
+    def _is_valid_selling_price_element(cls, el) -> bool:
+        """価格要素が管理費・修繕積立金・駐車場代・ローン目安等の非物件価格でないかを厳格検証する。"""
+        if el is None or not hasattr(el, "get_text"):
+            return False
+        if cls._is_in_noise_container(el):
+            return False
+        txt = el.get_text(" ", strip=True)
+        if not txt or len(txt) > 80:
+            return False
+        if any(kw in txt for kw in cls._NON_SELLING_PRICE_CONTEXT_KEYWORDS):
+            return False
+        curr = el
+        for _ in range(4):
+            curr = getattr(curr, "parent", None)
+            if curr is None or not hasattr(curr, "name"):
+                break
+            if curr.name in ("tr", "dl", "li", "div", "section", "p"):
+                if curr.name in ("tr", "dl"):
+                    # tr 内に複数の th/td ペアがある場合、直前の th/dt を優先して検査する
+                    cell = el if getattr(el, "name", None) in ("td", "dd") else getattr(el, "find_parent", lambda *a: None)(["td", "dd"])
+                    lbl_el = cell.find_previous_sibling(["th", "dt"]) if cell is not None else curr.find(["th", "dt"])
+                else:
+                    lbl_el = curr.find(["th", "dt"], recursive=False) if hasattr(curr, "find") else None
+                if lbl_el is not None:
+                    lbl_txt = lbl_el.get_text(" ", strip=True)
+                    if any(kw in lbl_txt for kw in cls._NON_SELLING_PRICE_CONTEXT_KEYWORDS):
+                        return False
+                prev = getattr(el, "find_previous_sibling", lambda *a: None)(["th", "dt", "span", "p", "div"])
+                if prev is not None:
+                    prev_txt = prev.get_text(" ", strip=True)
+                    if any(kw in prev_txt for kw in cls._NON_SELLING_PRICE_CONTEXT_KEYWORDS):
+                        return False
+        return True
+
     def get_price_str(self, response: BeautifulSoup) -> str:
         """価格(文字列)の抽出"""
         specs = self._get_specs(response)
@@ -403,11 +459,13 @@ class ParserBase(metaclass=ABCMeta):
                     tag.get_text(strip=True) if hasattr(tag, "get_text") else str(tag)
                 )
         if not price_str and response:
-            el = response.select_one(
+            for el in response.select(
                 ".price, .mod-price, span.priceNum, td.price, .priceText"
-            )
-            if el:
-                price_str = el.get_text(strip=True)
+            ):
+                if self._is_valid_selling_price_element(el):
+                    price_str = el.get_text(strip=True)
+                    if price_str:
+                        break
         # ラベル文字列そのものを値として拾った場合は無効 (#761)
         if price_str in ("価格", "販売価格", "物件価格"):
             return ""

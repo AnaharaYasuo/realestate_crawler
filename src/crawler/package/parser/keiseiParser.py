@@ -6,7 +6,7 @@ import urllib.parse
 from bs4 import BeautifulSoup
 
 from package.models.keisei import KeiseiMansion, KeiseiKodate, KeiseiTochi
-from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, TochiParserBase
+from package.parser.baseParser import KodateParserBase, ListItem, MansionParserBase, ParserBase, SkipPropertyException, TochiParserBase
 from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
@@ -174,12 +174,13 @@ class KeiseiParser(ParserBase):
         item.propertyName = self._parsePropertyName(response)
             
         # 価格
-        price_el = response.select_one("#price, .price_box")
-        price_val = ""
-        if price_el:
-            price_val = price_el.get_text().strip()
-        else:
-            price_val = specs.get("価格", "") or specs.get("販売価格", "")
+        price_val = specs.get("価格", "") or specs.get("販売価格", "")
+        if not price_val:
+            for price_el in response.select("#price, .price_box"):
+                if self._is_valid_selling_price_element(price_el):
+                    price_val = price_el.get_text().strip()
+                    if price_val:
+                        break
             
         if price_val:
             item.priceStr = price_val
@@ -403,6 +404,8 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
+        if not specs.get("土地面積") and (specs.get("専有面積") or "マンション" in str(specs.get("種目", ""))):
+            raise SkipPropertyException(f"Keisei mansion mixed into kodate parser: {getattr(item, 'pageUrl', '')}")
 
         item.madori = self._parseMadori(response, specs)
 

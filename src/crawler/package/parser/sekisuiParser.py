@@ -166,12 +166,14 @@ class SekisuiParser(ParserBase):
         return specs.get("物件名", "") or specs.get("建物名", "") or ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
-        _ = specs
-        price_elem = response.select_one(".detail-header__price, .price-value, .property-price, .price")
-        if price_elem:
-            return price_elem.get_text().strip()
-        specs = self._get_specs(response)
-        return specs.get("価格", "")
+        specs = specs or self._get_specs(response)
+        spec_price = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if spec_price:
+            return spec_price
+        for price_elem in response.select(".detail-header__price, .price-value, .property-price, .price"):
+            if self._is_valid_selling_price_element(price_elem):
+                return price_elem.get_text().strip()
+        return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         price_str = self._parsePriceStr(response, specs)

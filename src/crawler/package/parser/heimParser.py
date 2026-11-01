@@ -79,7 +79,7 @@ class HeimParser(ParserBase):
         price_val = None
         card = a.find_parent(class_=re.compile(r'item|box|card|cassette|plan', re.I)) or a.parent
         if card:
-            p_elem = card.find(class_=re.compile(r'price|num', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
+            p_elem = card.find(class_=re.compile(r'price', re.I)) or card.find(string=re.compile(r'[0-9,.]+\s*万円'))
             if p_elem:
                 text = p_elem.get_text(strip=True) if hasattr(p_elem, "get_text") else str(p_elem).strip()
                 price_val = converter.parse_price(text)
@@ -219,13 +219,18 @@ class HeimParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        for el in response.select("div.price_box > h5 > span, td.item, .price, .money, td, span, div"):
+        spec_price = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if spec_price:
+            return spec_price
+        for el in response.select("div.price_box > h5 > span, .price_box .price, .price_box .money, .price"):
+            if not self._is_valid_selling_price_element(el):
+                continue
             txt = el.get_text().strip()
-            if "万円" in txt and len(txt) < 40:
+            if ("万円" in txt or "億" in txt) and len(txt) < 40:
                 p_val = converter.parse_price(txt)
                 if p_val is not None and p_val > 0:
                     return txt
-        return specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         price_str = self._parsePriceStr(response, specs)

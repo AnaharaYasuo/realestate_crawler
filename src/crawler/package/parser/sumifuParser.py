@@ -423,8 +423,14 @@ class SumifuParser(ParserBase):
         return self._getText(td)
 
     def _parseTochikenri(self, response, _specs=None):
-        td = self._getValueFromTable(response, "土地権利")
+        td = (
+            self._getValueFromTable(response, "土地権利")
+            or self._getValueFromTable(response, "敷地の権利形態")
+            or self._getValueFromTable(response, "権利形態")
+            or self._getValueFromTable(response, "権利")
+        )
         return self._getText(td)
+
 
     def _parseTorihiki(self, response, _specs=None):
         td = self._getValueFromTable(response, "取引態様")
@@ -1341,8 +1347,10 @@ class SumifuMansionParser(SumifuParser, MansionParserBase):
 
     def _parseSyuzenTsumitate(self, response, _specs=None):
         syuzen_tsumitate_str = self._parseSyuzenTsumitateStr(response)
-        if not syuzen_tsumitate_str: return 0
-        if "万" in syuzen_tsumitate_str: return converter.parse_price(syuzen_tsumitate_str)
+        if not syuzen_tsumitate_str or syuzen_tsumitate_str in ("-", "－", "―", "—", "無", "なし"):
+            return 0
+        if "万" in syuzen_tsumitate_str:
+            return converter.parse_price(syuzen_tsumitate_str)
         return converter.parse_yen(syuzen_tsumitate_str)
 
     def _parseBunjoKaisya(self, response, _specs=None):

@@ -60,14 +60,28 @@ def _is_ttl_expired(db_dt: Any, now: Any, ttl_days: int) -> bool:
     return (now - dt_cmp).total_seconds() > ttl_days * 86400
 
 
+def _normalize_price_yen(p: int | float | None) -> int | None:
+    if p is None:
+        return None
+    try:
+        val = int(p)
+    except (ValueError, TypeError):
+        return None
+    if 0 < val < 100_000:
+        return val * 10_000
+    return val
+
+
 def _should_fetch_item(item: ListItem, record: dict[str, Any] | None, now: Any, ttl_days: int) -> bool:
     if not record:
         return True
     db_price = record.get("price")
     db_dt = record.get("updateDateTime") or record.get("inputDateTime")
 
-    if item.price is not None and db_price is not None:
-        if item.price != db_price:
+    norm_item_price = _normalize_price_yen(item.price)
+    norm_db_price = _normalize_price_yen(db_price)
+    if norm_item_price is not None and norm_db_price is not None:
+        if norm_item_price != norm_db_price:
             logger.info(f"[Differential Crawl] Price change detected for {item.url}: {db_price} -> {item.price}")
             return True
         if not _is_ttl_expired(db_dt, now, ttl_days):
@@ -104,7 +118,7 @@ def _detect_company_and_type_from_model(model_class):
         "mitsui", "sumifu", "tokyu", "nomura", "misawa", "smtrc", "sumai1", "mizuho",
         "odakyu", "afr", "sekisui", "daiwa", "totate", "athome", "homes", "seibu",
         "keikyu", "sotetsu", "keisei", "daikyo", "rearie", "heim", "sumirin", "keio",
-        "adcast", "toho", "ietan", "haseko", "kenbiya"
+        "adcast", "toho", "ietan", "haseko", "kenbiya", "reguide"
     ]
     comp = None
     for c in sorted(companies, key=len, reverse=True):

@@ -44,10 +44,13 @@ def _parse_sumai1_table_specs(response: BeautifulSoup) -> dict:
 def _parse_sumai1_dl_specs(response: BeautifulSoup) -> dict:
     specs = {}
     for dl in response.select("dl"):
+        if ParserBase._is_in_noise_container(dl) or dl.find_parent("aside") is not None:
+            continue
         for dt, dd in zip(dl.select("dt"), dl.select("dd")):
             key = dt.get_text().strip().replace("\n", "").replace(" ", "").replace("\u3000", "").replace("：", "")
             val = dd.get_text().strip()
-            specs[key] = val
+            if key and key not in specs:
+                specs[key] = val
     return specs
 
 
@@ -175,7 +178,9 @@ class Sumai1Parser(ParserBase):
 
     def _get_specs(self, response: BeautifulSoup) -> dict:
         specs = _parse_sumai1_table_specs(response)
-        specs.update(_parse_sumai1_dl_specs(response))
+        for k, v in _parse_sumai1_dl_specs(response).items():
+            if k not in specs:
+                specs[k] = v
         _apply_sumai1_fallbacks(specs)
         return specs
 
@@ -189,12 +194,17 @@ class Sumai1Parser(ParserBase):
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None):
-        _ = specs
-        price_elem = response.select_one(".price-value, .property-price, .price")
-        if price_elem:
-            return price_elem.get_text().strip()
-        specs = self._get_specs(response)
-        return specs.get("価格", "")
+        specs = specs or self._get_specs(response)
+        for key in ("価格", "販売価格", "物件価格"):
+            spec_price = specs.get(key, "")
+            if spec_price and "～" not in spec_price and converter.parse_price(spec_price):
+                return spec_price
+        for price_elem in response.select(".price-value, .property-price, .price"):
+            if self._is_valid_selling_price_element(price_elem):
+                txt = price_elem.get_text().strip()
+                if txt and "～" not in txt and converter.parse_price(txt):
+                    return txt
+        return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None):
         price_str = self._parsePriceStr(response, specs)

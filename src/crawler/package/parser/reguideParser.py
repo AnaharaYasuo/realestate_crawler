@@ -71,8 +71,7 @@ class ReguideInvestmentParser(InvestmentParser):
         """
         一覧ページのSoupから詳細ページのListItemを順次yieldする。
         """
-        html_content = str(response)
-        for url in self.extract_detail_urls(html_content):
+        for url in self.extract_detail_urls(response):
             yield ListItem(url=url)
 
     def createEntity(self):
@@ -265,12 +264,16 @@ class ReguideInvestmentParser(InvestmentParser):
         target_specs = specs or self._get_specs(response)
         return target_specs.get("引渡時期", "") or target_specs.get("引渡し", "") or super()._parseHikiwatashi(response, specs)
 
-    def extract_detail_urls(self, html_content: str) -> list[str]:
+    def extract_detail_urls(self, html_content: str | BeautifulSoup) -> list[str]:
         """
         一覧ページのHTMLから詳細ページの絶対URL一覧を抽出する。
         同一ドメイン (re-guide.jp) のみ許可。
         """
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = (
+            html_content
+            if isinstance(html_content, BeautifulSoup)
+            else BeautifulSoup(html_content, "html.parser")
+        )
         urls = set()
         container = soup.select_one("ul#result_list") or soup
         for a_tag in container.find_all("a", href=True):
@@ -280,7 +283,7 @@ class ReguideInvestmentParser(InvestmentParser):
             if (
                 parsed.scheme in ("http", "https")
                 and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
-                and re.match(r"^/investment/\d+/?", parsed.path)
+                and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
             ):
                 urls.add(abs_url)
         return sorted(urls)

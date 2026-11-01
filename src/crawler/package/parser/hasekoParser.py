@@ -116,9 +116,16 @@ class HasekoMansionParser(MansionParserBase):
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
-        el = response.find(class_=re.compile(r'price', re.I))
-        if el is not None:
-            return converter.extract_price_text(el.get_text(strip=True))
+        specs = specs or self._get_specs(response)
+        spec_price = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if spec_price:
+            return spec_price
+        for el in response.find_all(class_=re.compile(r'price', re.I)):
+            if not self._is_valid_selling_price_element(el):
+                continue
+            price_text = converter.extract_price_text(el.get_text(strip=True))
+            if price_text:
+                return price_text
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:

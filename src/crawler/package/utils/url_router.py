@@ -1049,13 +1049,19 @@ class UrlRouter:
 
     @classmethod
     def _find_best_route(cls, matched_routes: list[dict[str, Any]], target_ptype: str) -> dict[str, Any] | None:
-        for route in matched_routes:
-            if route["property_type"] == target_ptype:
-                return route
+        candidate_ptypes = (
+            ("invest_kodate", "apartment", "kodate")
+            if target_ptype == "invest_kodate"
+            else (target_ptype,)
+        )
         matched_site = matched_routes[0]["site"]
-        for route in cls.ROUTES:
-            if route["site"] == matched_site and route["property_type"] == target_ptype:
-                return route
+        for cand in candidate_ptypes:
+            for route in matched_routes:
+                if route["property_type"] == cand:
+                    return route
+            for route in cls.ROUTES:
+                if route["site"] == matched_site and route["property_type"] == cand:
+                    return route
         return None
 
     @classmethod

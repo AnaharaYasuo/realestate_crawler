@@ -132,6 +132,7 @@ def _untrack_fire_and_forget_thread(t: threading.Thread) -> None:
 def _track_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
     with _active_threads_lock:
         _active_fire_and_forget_futures.add(fut)
+    fut.add_done_callback(_untrack_fire_and_forget_future)
 
 
 def _untrack_fire_and_forget_future(fut: concurrent.futures.Future) -> None:
@@ -210,7 +211,7 @@ def _shutdown_local_worker_executor_nonblocking() -> None:
     _local_worker_executor = None
 
 
-def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
+def _cancel_unstarted_futures_on_stop(timeout_expired: bool = True) -> None:
     if not (os.path.exists(STOP_FLAG_FILE) or timeout_expired):
         return
     if timeout_expired and not os.path.exists(STOP_FLAG_FILE):
@@ -219,7 +220,8 @@ def _cancel_unstarted_futures_on_stop(timeout_expired: bool) -> None:
         except Exception:
             pass
     with _active_threads_lock:
-        cancelled_count = sum(1 for fut in _active_fire_and_forget_futures if not fut.done() and fut.cancel())
+        pending_futures = [fut for fut in _active_fire_and_forget_futures if not fut.done()]
+    cancelled_count = sum(1 for fut in pending_futures if fut.cancel())
     if cancelled_count > 0:
         logger.info("Cancelled %d unstarted fire-and-forget background tasks on stop/timeout", cancelled_count)
     _shutdown_local_worker_executor_nonblocking()
@@ -1208,6 +1210,7 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
                 logger.error("Local background dispatch failed for %s (%s): %s", path, detail_url, exc, exc_info=exc)
             finally:
                 clear_thread_activity("idle")
+                _touch_active_progress_files()
                 _crawl_run_state.keys = None
                 try:
                     from django.db import close_old_connections, connections
@@ -1224,7 +1227,6 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
             executor = _get_local_worker_executor()
             fut = executor.submit(run_in_new_loop)
             _track_fire_and_forget_future(fut)
-            fut.add_done_callback(lambda f: _untrack_fire_and_forget_future(f))
             logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
             return detail_url, 202, "FireAndForgetLocal"
 

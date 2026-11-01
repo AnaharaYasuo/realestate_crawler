@@ -126,8 +126,9 @@ def _update_existing_thread_slot(
     now_ts: float,
     now_iso: str,
     extra: dict[str, Any] | None,
-) -> None:
-    if slot.get("phase") != phase or (current_url and slot.get("current_url") != current_url):
+) -> bool:
+    phase_changed = slot.get("phase") != phase or (current_url and slot.get("current_url") != current_url)
+    if phase_changed:
         slot["phase_started_at"] = now_ts
     slot["thread_name"] = threading.current_thread().name
     slot["company"] = company or slot.get("company") or _active_job_context.get("company", "")
@@ -143,6 +144,7 @@ def _update_existing_thread_slot(
     slot["updated_iso"] = now_iso
     if extra is not None:
         slot["extra"] = extra
+    return bool(phase_changed)
 
 
 def record_thread_activity(
@@ -161,6 +163,7 @@ def record_thread_activity(
     now_iso = datetime.datetime.now(JST).isoformat()
 
     slot: dict[str, Any] | None = getattr(_thread_local, "slot", None)
+    phase_changed = False
     if slot is None or slot.get("thread_id") != tid:
         slot = _create_thread_slot(
             tid, phase, current_url, parent_list_url, company, property_type, now_ts, now_iso, extra
@@ -168,13 +171,14 @@ def record_thread_activity(
         _thread_local.slot = slot
         _thread_local.last_flush_ts = 0.0
         _thread_slots[tid] = slot
+        phase_changed = True
     else:
-        _update_existing_thread_slot(
+        phase_changed = _update_existing_thread_slot(
             slot, phase, current_url, parent_list_url, company, property_type, now_ts, now_iso, extra
         )
 
     last_flush = getattr(_thread_local, "last_flush_ts", 0.0)
-    if force_flush or (now_ts - last_flush) >= _THROTTLE_DISK_FLUSH_SEC:
+    if force_flush or phase_changed or (now_ts - last_flush) >= _THROTTLE_DISK_FLUSH_SEC:
         _flush_thread_slot_to_disk(tid, slot)
         _thread_local.last_flush_ts = now_ts
 
@@ -185,6 +189,8 @@ def clear_thread_activity(phase: str = "idle") -> None:
     now_ts = time.time()
     slot: dict[str, Any] | None = getattr(_thread_local, "slot", None)
     if slot is not None:
+        if slot.get("phase") != phase:
+            slot["phase_started_at"] = now_ts
         slot["phase"] = phase
         slot["current_url"] = ""
         slot["parent_list_url"] = ""

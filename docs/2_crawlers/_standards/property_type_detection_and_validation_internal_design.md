@@ -129,3 +129,21 @@
    - `specs.values()` 全体（自由記述の「備考」「PRコメント」等の「アパート用地に最適」「近隣にマンションあり」等）を無差別走査することを廃止し、`種別`・`物件種目`・`建物構造`・`間取り`・`総戸数`・`専有面積`・`土地面積` 等の明示的ラベルキーに基づき判定する。
 4. **Layer 4: Post-Parse 物理不変条件ゲート (`validate_physical_invariants`)**
    - パース完了後のモデルオブジェクトに対し、物理的不変条件（例: `tochi` なのに `senyu_menseki` や `madori` が存在する、区分 `mansion` なのに `senyu_menseki` が無く `tochi_menseki` のみ存在する等）を検証し、不整合を検知・補正する。
+
+
+---
+
+## 6. ハング防止・差分価格単位正規化・厳格価格抽出・サイト横断種別防衛設計 (Issue #1173)
+
+### 6.1 ハング・並行処理・差分クロール是正
+- **`_cancel_unstarted_futures_on_stop` (`api.py`)**: `_active_threads_lock` 保持中に `fut.cancel()` を呼ばず、ロック内でスナップショットを取得してからロック外で `cancel()` を実行し、完了コールバック `_untrack_fire_and_forget_future` との自己デッドロックを根絶する。
+- **`_should_fetch_item` (`differential.py`)**: 100,000未満の価格値（万円単位で保存された旧DBレコード）を円単位（×10,000）へ正規化して比較し、単位不一致による全件再フェッチ（ハング誘発）を防止する。
+- **`_handle_local_execution` (`api.py`)**: `fire_and_forget=True` 時も `_get_local_worker_semaphore()` によりバックプレッシャーを適用する。
+- **`crawler_diagnostics.py`**: `phase` 遷移時は 1秒スロットルをバイパスして即時ディスクフラッシュし、`clear_thread_activity` 時に `phase_started_at` を更新する。
+
+### 6.2 厳格な価格抽出とサイト固有パーサー・種別判定是正
+- **価格抽出順序の統一**: 全パーサーにおいて `specs`（`価格`, `販売価格`, `物件価格`）または詳細メインヘッダー専用セレクタを優先し、`.num` や全タグ走査、ローンシミュレーション・管理費・修繕積立金・周辺相場等の誤抽出を遮断する。
+- **タイトルSEOサフィックス除去と区分マンション保護 (`PropertyTypeDetector`, `UrlRouter`)**:
+  - `<title>` 末尾の複合種別SEOサフィックス（例: `｜京成線の不動産 一戸建て マンション 土地 京成不動産`）を除去してからタイトル判定を行う。
+  - `専有面積` があり `土地面積` が無い区分所有物件は、物件名に「テラスハウス」を含んでいても `mansion` として保護する。
+  - `UrlRouter._find_best_route` において `invest_kodate` ルートが存在しないサイト（大京穴吹等）は `apartment` ➔ `kodate` の順でフォールバック解決する。

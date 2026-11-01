@@ -18,6 +18,8 @@ from package.models.mid_brokers import TohoMansion, TohoKodate, TohoTochi
 logger = logging.getLogger(__name__)
 
 def check_toho_listing_ended(response: BeautifulSoup, page_url: str = ""):
+    if page_url and "/estate_list_seyaku/" in page_url:
+        raise ListingEndedException(f"Toho seyaku (contracted) URL: {page_url}")
     title_text = response.title.get_text() if response.title else ""
     body_text = response.body.get_text() if response.body else ""
     all_text = f"{title_text} {body_text}"
@@ -95,11 +97,15 @@ class TohoBaseParser(ParserBase):
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         specs = specs or self._get_specs(response)
-        if specs.get("価格"):
-            return specs["価格"]
-        el = response.find(class_=re.compile(r'price', re.I))
-        if el is not None:
-            return converter.extract_price_text(el.get_text(strip=True))
+        spec_price = specs.get("価格", "") or specs.get("販売価格", "") or specs.get("物件価格", "")
+        if spec_price:
+            return spec_price
+        for el in response.find_all(class_=re.compile(r'price', re.I)):
+            if not self._is_valid_selling_price_element(el):
+                continue
+            price_text = converter.extract_price_text(el.get_text(strip=True))
+            if price_text:
+                return price_text
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | Decimal | None:
@@ -206,6 +212,7 @@ class TohoMansionParser(TohoBaseParser, MansionParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         check_toho_listing_ended(response, getattr(item, 'pageUrl', ''))
+        item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
         item.propertyName = self._parsePropertyName(response, specs)
         item.priceStr = self._parsePriceStr(response, specs)
@@ -252,6 +259,7 @@ class TohoKodateParser(TohoBaseParser, KodateParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         check_toho_listing_ended(response, getattr(item, 'pageUrl', ''))
+        item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
         item.propertyName = self._parsePropertyName(response, specs)
         item.priceStr = self._parsePriceStr(response, specs)
@@ -288,6 +296,7 @@ class TohoTochiParser(TohoBaseParser, TochiParserBase):
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         check_toho_listing_ended(response, getattr(item, 'pageUrl', ''))
+        item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
         item.propertyName = self._parsePropertyName(response, specs)
         item.priceStr = self._parsePriceStr(response, specs)
