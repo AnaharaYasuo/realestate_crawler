@@ -25,7 +25,11 @@ def _build_rag_prompt(
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
     tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
     tate_m2 = getattr(prop, "tatemonoMenseki", None) or getattr(prop, "senyuMenseki", None) or "-"
-    chikunen = getattr(prop, "chikunenStr", None) or getattr(prop, "chikunen", None) or "-"
+    chikunen = getattr(prop, "chikunengetsuStr", None) or getattr(prop, "chikunenki", None) or getattr(prop, "chikunenStr", None) or "-"
+    kouzou = getattr(prop, "kouzou", None) or "-"
+    setsudou = getattr(prop, "setsudou", None) or "-"
+    cf_val = getattr(eval_rec, "cash_flow", None) or "-"
+    dscr_val = getattr(eval_rec, "dscr", None) or "-"
     diff_man = int(pred_price - asking_price_man)
     ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
 
@@ -43,6 +47,8 @@ def _build_rag_prompt(
 ・理論予測価格: {int(pred_price)}万円（割安額: {diff_man}万円、割安率: {ratio}%）
 ・積算価格: {int(sekisan_price)}万円
 ・土地面積: {tochi_m2} m2 / 建物面積: {tate_m2} m2 / 築年: {chikunen}
+・構造: {kouzou} / 接道状況: {setsudou}
+・年間CF: {cf_val}万円 / DSCR: {dscr_val}
 ・容積未消化余力: {far_slack if far_slack is not None else 'N/A'}%
 
 【団長ナレッジベース（参考実戦哲学）】
@@ -75,12 +81,12 @@ def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, An
         with urllib.request.urlopen(req, timeout=20) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        match = re.search(r"\{[^}]*\}", text)
+        match = re.search(r"(\{[^}]*\})", text)
         if not match:
             match = re.search(r"(\{.*\})", text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-    except (RuntimeError, ValueError, OSError) as e:
+    except (RuntimeError, ValueError, OSError, IndexError) as e:
         logger.warning("Gemini generation failed for %s: %s", model_name, e)
     return None
 
@@ -109,15 +115,37 @@ def _calc_land_rating(ratio: float, diff_man: int) -> str:
         return "AA"
     return "A"
 
-def _generate_fallback_for_land(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None) -> dict[str, Any]:
+def _generate_fallback_for_land(
+    diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None,
+    prop: Any = None
+) -> dict[str, Any]:
     rating = _calc_land_rating(ratio, diff_man)
     slack_text = f"（未消化容積率: {far_slack}%）" if far_slack is not None else ""
+    
+    # 建築条件・接道状況に応じた動的分岐
+    joken = getattr(prop, "kenchikuJoken", None) or getattr(prop, "kenchikuJokenStr", None) or ""
+    setsudou = getattr(prop, "setsudou", None) or getattr(prop, "roadStructure", None) or ""
+    is_joken_nashi = "なし" in joken or "無" in joken or "建築条件無" in str(getattr(prop, "name", ""))
+    is_joken_ari = "付き" in joken or "有" in joken or "建築条件付" in str(getattr(prop, "name", ""))
+
+    if is_joken_nashi:
+        plan_desc = "・建築条件なし土地としての自由な設計・プラン自由度"
+    elif is_joken_ari:
+        plan_desc = "・建築条件付き土地（指定ハウスメーカーでの建物プラン協議前提）"
+    else:
+        plan_desc = "・土地仕入れ後の建築条件有無およびプラン自由度の確認推奨"
+
+    if "4m未満" in setsudou or "狭隘" in setsudou:
+        use_desc = f"前面道路セットバックを考慮した専用住宅用地、または小規模敷地としての活用が最有効使用{slack_text}。"
+    else:
+        use_desc = f"前面道路幅員と指定容積率{slack_text}を活かした注文住宅用地、または建売・狭小アパートビルダーへの高密度開発用地としての卸・再販が最有効使用。"
+
     return {
         "investment_rating": rating,
         "ai_evaluation_summary": f"路線価および近隣公示地価対比で{diff_man}万円（{ratio}%）のディスカウント。更地または古家解体後の土地実質仕入れ値として高い安全余裕度を誇る。",
-        "highest_and_best_use": f"前面道路幅員と指定容積率{slack_text}を活かした注文住宅用地、または建売・狭小アパートビルダーへの高密度開発用地としての卸・再販が最有効使用。",
+        "highest_and_best_use": use_desc,
         "danchou_comment": f"「更地で安いからと飛びつくな。いいか、{kb_top.get('essence', '土地は水道管引込径と道路付け、擁壁の死に金を計算できないと即死する')}。前面道路の配管と高低差を現地で確認し、問題なければ満額即決で叩き込め。」",
-        "ai_positive_points": f"・周辺公示地価比で{diff_man}万円の割安仕入れ余力\n・{address}における住宅・事業用地としての底堅い引き合い\n・建築条件なし土地としての自由な設計・プラン自由度",
+        "ai_positive_points": f"・周辺公示地価比で{diff_man}万円の割安仕入れ余力\n・{address}における住宅・事業用地としての底堅い引き合い\n{plan_desc}",
         "ai_negative_points": "・前面道路配水管から宅内への水道引込管径（20mm以上か）の確認\n・高低差に伴う擁壁再構築費用およびセットバック・隅切りの要否\n・確定測量図および境界標（隣地・道路）の全点明示状況"
     }
 
@@ -163,7 +191,7 @@ def _generate_fallback_for_kodate(diff_man: int, ratio: float, address: str, kb_
 
 def _generate_fallback_report(
     matched_kb: list, ptype_jp: str, asking_price_man: int, pred_price: float,
-    sekisan_price: float, far_slack: float | None, address: str
+    sekisan_price: float, far_slack: float | None, address: str, prop: Any = None
 ) -> dict[str, Any]:
     diff_man = int(pred_price - asking_price_man) if pred_price > 0 else 0
     ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
@@ -172,7 +200,7 @@ def _generate_fallback_report(
     if "マンション" in ptype_jp:
         return _generate_fallback_for_mansion(diff_man, ratio, address, kb_top)
     if "土地" in ptype_jp:
-        return _generate_fallback_for_land(diff_man, ratio, address, kb_top, far_slack)
+        return _generate_fallback_for_land(diff_man, ratio, address, kb_top, far_slack, prop=prop)
     if "アパート" in ptype_jp or "一棟" in ptype_jp:
         return _generate_fallback_for_building(diff_man, ratio, asking_price_man, sekisan_price, far_slack, address, kb_top)
     return _generate_fallback_for_kodate(diff_man, ratio, address, kb_top)
@@ -212,7 +240,7 @@ def generate_professional_and_danchou_report(
             report_data = _call_gemini_api("gemini-2.5-flash", api_key, prompt)
 
     if not report_data:
-        report_data = _generate_fallback_report(matched_kb, ptype_jp, asking_price_man, pred_price, sekisan_price, far_slack, address)
+        report_data = _generate_fallback_report(matched_kb, ptype_jp, asking_price_man, pred_price, sekisan_price, far_slack, address, prop=prop)
 
     _persist_report(eval_rec, report_data, far_slack)
     return report_data
