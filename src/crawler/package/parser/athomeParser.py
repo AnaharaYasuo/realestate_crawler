@@ -718,29 +718,27 @@ class AthomeParser(ParserBase):
         return ""
 
     @staticmethod
+    def _extract_valid_athome_price_text(el) -> str:
+        if not ParserBase._is_valid_selling_price_element(el):
+            return ""
+        txt = el.get_text().strip().split("\n")[0].strip()
+        if any(unit in txt for unit in ("万", "億")) and (converter.parse_price(txt) or 0) > 0:
+            return txt
+        return ""
+
+    @staticmethod
     def _parse_price_from_elements(response: BeautifulSoup) -> str:
-        for sel in (
-            ".bukken-price",
-            "#detailTitleArea .price",
-            "span.price",
-            "p.price",
-            "td.price",
-            ".price",
-        ):
+        selectors = (".bukken-price", "#detailTitleArea .price", "span.price", "p.price", "td.price", ".price")
+        for sel in selectors:
             for el in response.select(sel):
-                if not ParserBase._is_valid_selling_price_element(el):
-                    continue
-                txt = el.get_text().strip().split("\n")[0].strip()
-                if any(unit in txt for unit in ("万", "億")):
-                    p_val = converter.parse_price(txt)
-                    if p_val and p_val > 0:
-                        return txt
+                hit = AthomeParser._extract_valid_athome_price_text(el)
+                if hit:
+                    return hit
         for td in response.find_all(["td", "dd"]):
-            if not ParserBase._is_valid_selling_price_element(td):
-                continue
-            txt = td.get_text().strip()
-            if any(prefix in txt for prefix in ("価格", "販売価格")) and any(unit in txt for unit in ("万", "億")):
-                return txt.split("\n")[0].strip()
+            if ParserBase._is_valid_selling_price_element(td):
+                txt = td.get_text().strip()
+                if any(p in txt for p in ("価格", "販売価格")) and any(u in txt for u in ("万", "億")):
+                    return txt.split("\n")[0].strip()
         return ""
 
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:

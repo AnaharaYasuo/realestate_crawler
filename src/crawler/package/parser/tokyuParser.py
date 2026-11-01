@@ -407,6 +407,14 @@ class TokyuParser(ParserBase):
 
 
     # --- Common Extraction Methods ---
+    def _extract_tokyu_price_element_text(self, el) -> str:
+        if not self._is_valid_selling_price_element(el):
+            return ""
+        el_text = el.get_text().strip()
+        if ("万円" in el_text or "億" in el_text) and (converter.parse_price(el_text) or 0) > 0:
+            return el_text
+        return ""
+
     def _parsePriceStr(self, response: BeautifulSoup, specs=None) -> str:
         if specs is None:
             specs = self._scrape_specs(response)
@@ -414,26 +422,15 @@ class TokyuParser(ParserBase):
             val = self._get_spec_val(specs, key)
             if val:
                 return val
-        # Header/hero/table price element fallback (strictly excluding .num and non-price contexts)
-        for sel in [
-            '.p-detail-hero__price',
-            '.detail-header__price',
-            '.m-status-table__price',
-            '.p-detail-summary__price',
-            '.price-text',
-            'p.price',
-            'span.price',
-            'div.price',
-            'td.price',
-        ]:
+        price_selectors = (
+            '.p-detail-hero__price', '.detail-header__price', '.m-status-table__price',
+            '.p-detail-summary__price', '.price-text', 'p.price', 'span.price', 'div.price', 'td.price',
+        )
+        for sel in price_selectors:
             for el in response.select(sel):
-                if not self._is_valid_selling_price_element(el):
-                    continue
-                el_text = el.get_text().strip()
-                if '万円' in el_text or '億' in el_text:
-                    p_val = converter.parse_price(el_text)
-                    if p_val and p_val > 0:
-                        return el_text
+                hit = self._extract_tokyu_price_element_text(el)
+                if hit:
+                    return hit
         return ""
 
     def _parsePrice(self, response: BeautifulSoup, specs=None) -> int | None:
