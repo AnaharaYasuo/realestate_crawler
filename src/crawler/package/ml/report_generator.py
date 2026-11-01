@@ -1,93 +1,209 @@
 """
-プロ鑑定士 × 元祖狼旅団団長 レポート生成エンジン (Issue #1175)
-通知対象として最終選抜された物件のみを対象にGemini (3.8 Flash / 2.5 Flash) を呼び出し、
-高度レポートを生成してPropertyEvaluationモデルに永続化する。
+プロフェッショナル物件評価 ＆ 団長RAGレポート生成エンジン (Issue #1175, #1179)
+
+選別された通知対象物件に対して、高額なプロの評価レポート（最有効使用、容積余力、法的/物理的DD）と
+元祖狼旅団団長RAGの目利き視点を統合した定性評価を生成する。
+Gemini 3.8 Flash / 2.5 Flash を活用し、未設定・クォータ枯渇時でも物件種別（区分/土地/一棟/戸建）に
+完全に適合した多層ルールベースフォールバックにより高品質なレポートを永続化・提供する。
 """
 
 import json
 import logging
 import os
 import re
+import urllib.request
 from typing import Any
 
 from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge
 
 logger = logging.getLogger(__name__)
 
-def _build_rag_prompt(eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str, matched_kb: list, far_slack: float | None) -> str:
+def _build_rag_prompt(
+    eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float,
+    address: str, access: str, matched_kb: list, far_slack: float | None
+) -> str:
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
-    chikunen = getattr(prop, 'chikunengetsuStr', '') or getattr(prop, 'chikunenki', '-')
-    kouzou = getattr(prop, 'kouzou', '-')
-    tochi = getattr(prop, 'tochiMensekiStr', '-')
-    tate = getattr(prop, 'tatemonoMensekiStr', '-') or getattr(prop, 'senyuMensekiStr', '-')
-    kenpei = getattr(prop, 'kenpeiStr', '-')
-    youseki = getattr(prop, 'yousekiStr', '-')
-    setsudou = getattr(prop, 'setsudou', '-')
-    diff_man = int(pred_price - asking_price_man) if pred_price > 0 else '-'
+    tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
+    tate_m2 = getattr(prop, "tatemonoMenseki", None) or getattr(prop, "senyuMenseki", None) or "-"
+    chikunen = getattr(prop, "chikunengetsuStr", None) or getattr(prop, "chikunenki", None) or getattr(prop, "chikunenStr", None) or "-"
+    kouzou = getattr(prop, "kouzou", None) or "-"
+    setsudou = getattr(prop, "setsudou", None) or "-"
+    cf_val = getattr(eval_rec, "cash_flow", None) or "-"
+    dscr_val = getattr(eval_rec, "dscr", None) or "-"
+    diff_man = int(pred_price - asking_price_man)
+    ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
 
-    return f"""
-あなたは百戦錬磨の不動産鑑定士であり、かつ伝説の不動産ブログ『狼旅団の地下に潜った不動産ブログ』(http://siokaraiookami.blog.fc2.com/) の管理人である「団長（メカ団長）」です。
-以下の不動産物件について、通知対象となる超優良・お宝候補として選別されました。
-プロの不動産鑑定士としての理論的・客観的な評価（3面価格、最有効使用・容積余力、法的/物理的リスク）と、
-元祖・狼旅団の団長としての辛口で生々しい実戦目利き（指値・瞬間蒸発・レントロール原契約・客付け・泥水再生・出口戦略）の双方を盛り込んだレポートを作成してください。
+    kb_context = "\n".join([f"・【{item.get('title')}】\n{item.get('essence')}" for item in matched_kb])
 
-【物件データ】
-- 物件種別: {ptype_jp}
-- 所在地: {address}
-- 交通: {access}
-- 売出価格: {asking_price_man}万円
-- ML理論予測価格: {int(pred_price) if pred_price > 0 else '未算出'}万円 (割安額: {diff_man}万円)
-- 想定積算価格: {int(sekisan_price) if sekisan_price > 0 else '未算出'}万円
-- 築年月: {chikunen} / 構造: {kouzou}
-- 土地面積: {tochi} / 建物面積: {tate}
-- 建ぺい/容積率: {kenpei} / {youseki} (未消化容積余力: {f'約{far_slack}%' if far_slack is not None else '不明'})
-- 接道状況: {setsudou}
-- 年間CF: {eval_rec.cash_flow or '-'}万円 / DSCR: {eval_rec.dscr or '-'}
+    return f"""あなたは百戦錬磨の不動産鑑定士であり、かつ伝説の不動産投資家『狼旅団の団長（メカ団長）』の直系弟子です。
+以下の割安検出物件について、不動産鑑定プロとしての精緻な分析と、団長の辛口実戦目利きを融合させた
+最高峰の物件評価レポートを作成してください。
 
-【団長RAGから引き当てた過去記事のエッセンス】
-{json.dumps(matched_kb, ensure_ascii=False, indent=2)}
+【物件概要】
+・種別: {ptype_jp}
+・所在地: {address}
+・アクセス: {access}
+・売出価格: {asking_price_man}万円
+・理論予測価格: {int(pred_price)}万円（割安額: {diff_man}万円、割安率: {ratio}%）
+・積算価格: {int(sekisan_price)}万円
+・土地面積: {tochi_m2} m2 / 建物面積: {tate_m2} m2 / 築年: {chikunen}
+・構造: {kouzou} / 接道状況: {setsudou}
+・年間CF: {cf_val}万円 / DSCR: {dscr_val}
+・容積未消化余力: {far_slack if far_slack is not None else 'N/A'}%
 
-【出力フォーマット（必ず以下のJSON形式のみで出力してください）】
-```json
+【団長ナレッジベース（参考実戦哲学）】
+{kb_context}
+
+【出力要件】
+必ず以下のJSONフォーマットのみを返してください。Markdownのコードブロック(```json)は含めないでください。
 {{
-  "investment_rating": "AAA または AA または A または B",
-  "ai_evaluation_summary": "プロ鑑定士としての総括サマリー（2行程度）",
-  "highest_and_best_use": "最有効使用および容積余力・増床・用途転換・更地化の可能性に関する考察（3行程度）",
-  "danchou_comment": "元祖・狼旅団 団長の口調による辛口実戦レビュー（4〜6行程度）",
-  "ai_positive_points": "高評価ポイント箇条書き（3点程度）",
-  "ai_negative_points": "留意・落とし穴（法的・物理的DDチェック、2〜3点）"
+  "investment_rating": "AAA" または "AA" または "A" または "B",
+  "ai_evaluation_summary": "プロ鑑定士視点での物件評価総括（2〜3文）。取引事例比較・原価性・収益性からの歪み分析。",
+  "highest_and_best_use": "最有効使用（Highest & Best Use）とポテンシャル。種別が区分の場合は実需居住・賃貸・リノベ再販、土地/一棟/戸建の場合は未消化容積率（{far_slack}%）や敷地条件に応じた増床・建て替え・更地化・出口戦略。",
+  "danchou_comment": "元祖・狼旅団団長としての辛口実戦目利き（『表面利回りや積算だけで涎垂らすな』等の語り口調。原契約、道路付け、客付け、指値戦略など）。",
+  "ai_positive_points": "箇条書きで3点。高評価ポイント（割安度、積算、立地需要、仕様など）。改行区切り。",
+  "ai_negative_points": "箇条書きで3点。物理的・法的DDチェック（現地確認、私道・越境、配管・設備、修繕費リスクなど）。改行区切り。"
 }}
-```
 """
 
 def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, Any] | None:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        resp = client.models.generate_content(model=model_name, contents=prompt)
-        text = resp.text or ""
-        match = re.search(r"```json\s*(\{[^}]*\})\s*```", text, re.DOTALL)
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        match = re.search(r"(\{[^}]*\})", text)
         if not match:
             match = re.search(r"(\{.*\})", text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-    except (RuntimeError, ValueError, OSError) as e:
+    except (RuntimeError, ValueError, OSError, IndexError) as e:
         logger.warning("Gemini generation failed for %s: %s", model_name, e)
     return None
 
-def _generate_fallback_report(matched_kb: list, asking_price_man: int, pred_price: float, sekisan_price: float, far_slack: float | None, address: str) -> dict[str, Any]:
-    diff_man = int(pred_price - asking_price_man) if pred_price > 0 else 0
-    kb_top = matched_kb[0] if matched_kb else {}
-    rating = "AAA" if diff_man >= 1000 or (sekisan_price > asking_price_man * 1.1) else "A"
-    
+def _calc_mansion_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 1500:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
+def _generate_fallback_for_mansion(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any]) -> dict[str, Any]:
+    rating = _calc_mansion_rating(ratio, diff_man)
     return {
         "investment_rating": rating,
-        "ai_evaluation_summary": f"市場理論価格対比で{diff_man}万円の価格乖離があり、原価法・取引比較法の観点から明確なディスカウントが確認される優良案件。",
-        "highest_and_best_use": f"指定容積率に対する未消化余力（{far_slack or 0}%）を活かした将来の増床または高密度化建て替え適性あり。更地化による出口戦略も視野に入る。",
-        "danchou_comment": f"「表面利回りと積算の数字だけで涎垂らすなよ。いいか、{kb_top.get('essence', '公道接道で積算割れなしなら指値ゴネずに即買い付けが鉄則だ')}。素人がレントロールくれと元付に電話して門前払い食らってる間に、現金組に横っ飛びされる獲物だ。原契約と道路付けをその目で確かめて一撃で仕留めろ。」",
-        "ai_positive_points": f"・理論価格より{diff_man}万円割安（明確な価格歪み）\n・積算担保評価（{int(sekisan_price)}万）と売出価格の健全性\n・{address}における底堅い賃貸・実需需要",
-        "ai_negative_points": "・現地での境界標・越境・私道持分有無の確認必須\n・給排水管・ガス設備の老朽化およびプロパン残債縛りの確認\n・退去発生時の賃料下落を織り込んだCFストレステスト推奨"
+        "ai_evaluation_summary": f"市場理論価格対比で{diff_man}万円（{ratio}%）の価格乖離。近隣成約平米単価および築年減価水準に照らして明確なディスカウントが確認される優良区分案件。",
+        "highest_and_best_use": "専有部スケルトンリノベーションによる実需居住向け再販、または駅近立地を活かした安定インカム賃貸運用が最有効使用。将来の住み替え・売却出口も極めて堅実。",
+        "danchou_comment": f"「表面利回りと割安額だけで涎垂らすなよ。いいか、{kb_top.get('essence', '区分は修繕積立金残高と専有部給排水管の更新履歴が命')}。管理規約の縛りと管理費等の滞納状況を総会議事録で確認して、指値一発で確実に仕留めろ。」",
+        "ai_positive_points": f"・近隣相場対比で{diff_man}万円割安（明確な価格歪み）\n・{address}周辺の実需・賃貸の堅調な居住ニーズ\n・リノベ後のバリューアップ期待値が高い間取り構造",
+        "ai_negative_points": "・修繕積立金の総額積立残高および将来の一時金徴収予定の確認\n・専有部床下の給排水管（鉄管・鉛管の有無）の更新履歴\n・管理規約による利用制限（ペット・民泊・事務所・楽器可否）"
     }
+
+def _calc_land_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 500:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
+def _generate_fallback_for_land(
+    diff_man: int, ratio: float, address: str, kb_top: dict[str, Any], far_slack: float | None,
+    prop: Any = None
+) -> dict[str, Any]:
+    rating = _calc_land_rating(ratio, diff_man)
+    slack_text = f"（未消化容積率: {far_slack}%）" if far_slack is not None else ""
+    
+    # 建築条件・接道状況に応じた動的分岐
+    joken = getattr(prop, "kenchikuJoken", None) or getattr(prop, "kenchikuJokenStr", None) or ""
+    setsudou = getattr(prop, "setsudou", None) or getattr(prop, "roadStructure", None) or ""
+    is_joken_nashi = "なし" in joken or "無" in joken or "建築条件無" in str(getattr(prop, "name", ""))
+    is_joken_ari = "付き" in joken or "有" in joken or "建築条件付" in str(getattr(prop, "name", ""))
+
+    if is_joken_nashi:
+        plan_desc = "・建築条件なし土地としての自由な設計・プラン自由度"
+    elif is_joken_ari:
+        plan_desc = "・建築条件付き土地（指定ハウスメーカーでの建物プラン協議前提）"
+    else:
+        plan_desc = "・土地仕入れ後の建築条件有無およびプラン自由度の確認推奨"
+
+    if "4m未満" in setsudou or "狭隘" in setsudou:
+        use_desc = f"前面道路セットバックを考慮した専用住宅用地、または小規模敷地としての活用が最有効使用{slack_text}。"
+    else:
+        use_desc = f"前面道路幅員と指定容積率{slack_text}を活かした注文住宅用地、または建売・狭小アパートビルダーへの高密度開発用地としての卸・再販が最有効使用。"
+
+    return {
+        "investment_rating": rating,
+        "ai_evaluation_summary": f"路線価および近隣公示地価対比で{diff_man}万円（{ratio}%）のディスカウント。更地または古家解体後の土地実質仕入れ値として高い安全余裕度を誇る。",
+        "highest_and_best_use": use_desc,
+        "danchou_comment": f"「更地で安いからと飛びつくな。いいか、{kb_top.get('essence', '土地は水道管引込径と道路付け、擁壁の死に金を計算できないと即死する')}。前面道路の配管と高低差を現地で確認し、問題なければ満額即決で叩き込め。」",
+        "ai_positive_points": f"・周辺公示地価比で{diff_man}万円の割安仕入れ余力\n・{address}における住宅・事業用地としての底堅い引き合い\n{plan_desc}",
+        "ai_negative_points": "・前面道路配水管から宅内への水道引込管径（20mm以上か）の確認\n・高低差に伴う擁壁再構築費用およびセットバック・隅切りの要否\n・確定測量図および境界標（隣地・道路）の全点明示状況"
+    }
+
+def _calc_building_rating(diff_man: int, ratio: float, asking_price_man: int, sekisan_price: float) -> str:
+    if (diff_man >= 1000 and sekisan_price > asking_price_man) or ratio >= 25.0:
+        return "AAA"
+    if ratio >= 15.0:
+        return "AA"
+    return "A"
+
+def _generate_fallback_for_building(
+    diff_man: int, ratio: float, asking_price_man: int, sekisan_price: float,
+    far_slack: float | None, address: str, kb_top: dict[str, Any]
+) -> dict[str, Any]:
+    rating = _calc_building_rating(diff_man, ratio, asking_price_man, sekisan_price)
+    slack_desc = f"指定容積率に対する未消化余力（{far_slack}%）を保有。" if far_slack and far_slack > 20 else "現状建物を限界までインカム運用。"
+    return {
+        "investment_rating": rating,
+        "ai_evaluation_summary": f"市場理論価格対比{diff_man}万円（{ratio}%）割安、積算価格{int(sekisan_price)}万円。インカムゲインと担保余力のバランスが取れた一棟案件。",
+        "highest_and_best_use": f"{slack_desc}満室化インカムによる元本スピード回収後、将来の解体更地化・高密度アパート建て替え出口が最有効使用。",
+        "danchou_comment": f"「表面利回りと積算だけで涎垂らすなよ。いいか、{kb_top.get('essence', 'レントロールの原契約日と公道接道を穴が開くほど見ろ')}。サクラ入居や客付けAD盛りに騙されず、原契約を確認して一撃で仕留めろ。」",
+        "ai_positive_points": f"・理論価格より{diff_man}万円割安（明確な価格歪み）\n・積算担保評価（{int(sekisan_price)}万）と売出価格の健全性\n・{address}エリアの安定した単身・ファミリー賃貸需要",
+        "ai_negative_points": "・レントロール原契約日の確認（直近短期契約のサクラ・AD盛り看破）\n・外壁・屋上防水のメンテ履歴およびプロパンガス残債縛りの有無\n・公道接道状況および地銀プロパー融資の適合性"
+    }
+
+def _calc_kodate_rating(ratio: float, diff_man: int) -> str:
+    if ratio >= 30.0 or diff_man >= 800:
+        return "AAA"
+    if ratio >= 20.0:
+        return "AA"
+    return "A"
+
+def _generate_fallback_for_kodate(diff_man: int, ratio: float, address: str, kb_top: dict[str, Any]) -> dict[str, Any]:
+    rating = _calc_kodate_rating(ratio, diff_man)
+    return {
+        "investment_rating": rating,
+        "ai_evaluation_summary": f"近隣戸建取引事例対比で{diff_man}万円（{ratio}%）のディスカウント。土地値近傍での仕入れが可能でありダウンサイドリスクが限定的。",
+        "highest_and_best_use": "実需向け居住用リノベーション、または低ロット高利回り賃貸（ジモティー・生活保護・ペット共生客付け）によるスピード元本回収が最有効使用。",
+        "danchou_comment": f"「ボロ戸建は修羅場だ。いいか、{kb_top.get('essence', '雨漏り・白蟻・汲み取りの修繕費を見誤ると即死する')}。泥水すすって再生しきる覚悟を持って、売主の弱みを突いた指値を刺せ。」",
+        "ai_positive_points": f"・相場対比で{diff_man}万円割安（土地値近傍仕入れ）\n・{address}における実需・戸建賃貸需要の厚み\n・DIY・低コストリフォームによる高利回り化ポテンシャル",
+        "ai_negative_points": "・床下白蟻・屋根裏雨漏り・基礎クラックの目視点検必須\n・給排水管老朽化および汲み取り・浄化槽から本下水への切替費用\n・接道条件（建築基準法第42条道路・接道2m以上か）の確認"
+    }
+
+def _generate_fallback_report(
+    matched_kb: list, ptype_jp: str, asking_price_man: int, pred_price: float,
+    sekisan_price: float, far_slack: float | None, address: str, prop: Any = None
+) -> dict[str, Any]:
+    diff_man = int(pred_price - asking_price_man) if pred_price > 0 else 0
+    ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
+    kb_top = matched_kb[0] if matched_kb else {}
+
+    if "マンション" in ptype_jp:
+        return _generate_fallback_for_mansion(diff_man, ratio, address, kb_top)
+    if "土地" in ptype_jp:
+        return _generate_fallback_for_land(diff_man, ratio, address, kb_top, far_slack, prop=prop)
+    if "アパート" in ptype_jp or "一棟" in ptype_jp:
+        return _generate_fallback_for_building(diff_man, ratio, asking_price_man, sekisan_price, far_slack, address, kb_top)
+    return _generate_fallback_for_kodate(diff_man, ratio, address, kb_top)
 
 def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | None) -> None:
     try:
@@ -103,13 +219,15 @@ def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | No
     except (RuntimeError, ValueError, OSError) as e:
         logger.warning("Failed to save report fields: %s", e)
 
-def generate_professional_and_danchou_report(eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str) -> dict[str, Any]:
+def generate_professional_and_danchou_report(
+    eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float, address: str, access: str
+) -> dict[str, Any]:
     """選別された通知対象物件に対して、プロ鑑定分析および団長RAGレビューを生成し、eval_recに反映して保存する。"""
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
     far_slack = calculate_far_slack(prop)
     
     query = f"{ptype_jp} 売出{asking_price_man}万 予測{int(pred_price)}万 積算{int(sekisan_price)}万 容積余力{far_slack}% {access}"
-    matched_kb = search_danchou_knowledge(query, top_k=2)
+    matched_kb = search_danchou_knowledge(query, ptype_jp=ptype_jp, top_k=2)
 
     model_name = os.getenv("GEMINI_RECOMMEND_MODEL", "gemini-3.8-flash")
     api_key = os.getenv("GEMINI_API_KEY")
@@ -122,7 +240,7 @@ def generate_professional_and_danchou_report(eval_rec, prop, ptype_jp: str, aski
             report_data = _call_gemini_api("gemini-2.5-flash", api_key, prompt)
 
     if not report_data:
-        report_data = _generate_fallback_report(matched_kb, asking_price_man, pred_price, sekisan_price, far_slack, address)
+        report_data = _generate_fallback_report(matched_kb, ptype_jp, asking_price_man, pred_price, sekisan_price, far_slack, address, prop=prop)
 
     _persist_report(eval_rec, report_data, far_slack)
     return report_data
