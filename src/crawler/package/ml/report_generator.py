@@ -10,6 +10,7 @@ Gemini 3.8 Flash / 2.5 Flash を活用し、未設定・クォータ枯渇時で
 """
 
 import json
+import time
 import logging
 import os
 import re
