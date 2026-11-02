@@ -28,6 +28,12 @@ _cpu_sample_lock = threading.Lock()
 _last_proc_cpu_time: float | None = None
 _last_proc_wall_time: float | None = None
 
+# Baseline for delta Network rate calculation across calls
+_net_sample_lock = threading.Lock()
+_last_net_bytes_recv: int | None = None
+_last_net_bytes_sent: int | None = None
+_last_net_wall_time: float | None = None
+
 
 def _get_agent() -> Any | None:
     """Safely obtain newrelic.agent or mock from sys.modules."""
@@ -133,6 +139,24 @@ def record_llm_event(
         return False
 
 
+
+def _get_current_concurrency_attributes(company: str | None = None) -> dict[str, Any]:
+    """Extract current job parallel, playwright parallel, and detail concurrency safely."""
+    from package.utils.resource_limiter import get_resource_aware_concurrency
+    from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+
+    p, pw, _ = get_resource_aware_concurrency()
+    active_jobs = AdaptiveConcurrencyController.get_active_jobs_count()
+    detail_c = AdaptiveConcurrencyController.get_effective_concurrency(company=company, active_jobs=active_jobs)
+
+    return {
+        "parallel": p,
+        "playwright_parallel": pw,
+        "detail_concurrency": detail_c,
+        "active_jobs_count": active_jobs,
+    }
+
+
 def record_crawler_metrics(
     site_name: str,
     property_type: str,
@@ -153,6 +177,14 @@ def record_crawler_metrics(
 
         items_per_sec = (count / duration_sec) if duration_sec > 0 else 0.0
         params: dict[str, Any] = dict(metadata) if metadata else {}
+        try:
+            concurrency_attrs = _get_current_concurrency_attributes(company=site_name)
+            for k in ("parallel", "playwright_parallel", "detail_concurrency"):
+                if k not in params and k in concurrency_attrs:
+                    params[k] = concurrency_attrs[k]
+        except Exception:
+            pass
+
         params.update({
             "site_name": site_name,
             "property_type": property_type,
@@ -538,6 +570,28 @@ def collect_hardware_resource_metrics(target_pid: int | None = None) -> dict[str
     cpu_data = _read_cpu_metrics(target_pid=target_pid)
     net_data = _read_network_metrics(target_pid=target_pid)
 
+    global _last_net_bytes_recv, _last_net_bytes_sent, _last_net_wall_time
+    recv_rate_kbps = 0.0
+    sent_rate_kbps = 0.0
+    now_wall = time.monotonic()
+
+    with _net_sample_lock:
+        cur_recv = net_data.get("netBytesRecv", 0)
+        cur_sent = net_data.get("netBytesSent", 0)
+        if _last_net_wall_time is not None and _last_net_bytes_recv is not None and _last_net_bytes_sent is not None:
+            dt = now_wall - _last_net_wall_time
+            if dt > 0.05:
+                delta_recv = max(0, cur_recv - _last_net_bytes_recv)
+                delta_sent = max(0, cur_sent - _last_net_bytes_sent)
+                recv_rate_kbps = round((delta_recv / dt) / 1024.0, 2)
+                sent_rate_kbps = round((delta_sent / dt) / 1024.0, 2)
+        _last_net_bytes_recv = cur_recv
+        _last_net_bytes_sent = cur_sent
+        _last_net_wall_time = now_wall
+
+    net_data["netRecvRateKbps"] = recv_rate_kbps
+    net_data["netSentRateKbps"] = sent_rate_kbps
+
     child_proc_count = 0
     if _psutil is not None:
         try:
@@ -586,6 +640,15 @@ def record_container_sample(
         params["remoteEndpointsSample"] = ",".join(remote_endpoints[:8])
 
     params.update(hw_metrics)
+
+    try:
+        concurrency_attrs = _get_current_concurrency_attributes()
+        for k, v in concurrency_attrs.items():
+            if k not in params:
+                params[k] = v
+    except Exception:
+        pass
+
     params.update({
         "containerName": app_name,
         "containerId": os.getenv("HOSTNAME", "unknown"),
