@@ -70,6 +70,7 @@ async def collect_all_entry_urls(session: aiohttp.ClientSession, sem: asyncio.Se
     logger.info("Found %d monthly archive roots.", len(month_urls))
 
     all_entries = set()
+    failed_pages: list[str] = []
     for idx, m_url in enumerate(month_urls):
         cur_url = m_url
         visited_in_month = set()
@@ -77,6 +78,7 @@ async def collect_all_entry_urls(session: aiohttp.ClientSession, sem: asyncio.Se
             visited_in_month.add(cur_url)
             _, html_bytes = await fetch_url(session, cur_url, sem)
             if not html_bytes:
+                failed_pages.append(cur_url)
                 break
             soup_page = BeautifulSoup(html_bytes.decode("utf-8", errors="ignore"), "html.parser")
             for a in soup_page.find_all("a", href=True):
@@ -87,16 +89,21 @@ async def collect_all_entry_urls(session: aiohttp.ClientSession, sem: asyncio.Se
             next_url = None
             for a in soup_page.find_all("a", href=True):
                 if any(k in a.get_text() for k in ["NEXT", "次"]):
-                    m_prefix = m_url.replace(".html", "")
-                    if m_prefix in a["href"]:
-                        next_url = a["href"]
-                        break
+                    href = a["href"]
+                    # ホスト検証: 外部ブログへの遷移リンクを除外
+                    if href.startswith("http://siokaraiookami.blog.fc2.com/"):
+                        m_prefix = m_url.replace(".html", "")
+                        if m_prefix in href:
+                            next_url = href
+                            break
             cur_url = next_url
 
         if (idx + 1) % 20 == 0 or (idx + 1) == len(month_urls):
             logger.info("Processed %d / %d months, unique entries discovered: %d", idx + 1, len(month_urls), len(all_entries))
 
     logger.info("Total unique blog entries discovered across all archives: %d", len(all_entries))
+    if failed_pages:
+        raise RuntimeError(f"Failed to fetch {len(failed_pages)} archive page(s): {failed_pages[:5]}")
     return sorted(all_entries, key=lambda x: int(re.search(r"blog-entry-(\d+)\.html$", x).group(1)), reverse=True)
 
 
@@ -189,6 +196,8 @@ async def run_archive_and_build_kb(limit: int | None = None):
         kb_records = []
         uploaded_count = 0
         skipped_upload_count = 0
+        consecutive_gcs_errors = 0
+        MAX_CONSECUTIVE_GCS_ERRORS = 5
 
         # バッチ単位（50件ずつ）で処理
         chunk_size = 50
@@ -205,12 +214,18 @@ async def run_archive_and_build_kb(limit: int | None = None):
                     blob = bucket.blob(blob_name)
                     try:
                         raw_bytes = blob.download_as_bytes()
+                        consecutive_gcs_errors = 0
                         parsed = parse_entry_html(u, raw_bytes)
                         if parsed:
                             kb_records.append(parsed)
-                        skipped_upload_count += 1
+                            skipped_upload_count += 1
+                        else:
+                            to_fetch_urls.append(u)
                     except Exception as e:
-                        logger.warning("Failed to read existing blob %s: %s", blob_name, e)
+                        consecutive_gcs_errors += 1
+                        logger.warning("Failed to read existing blob %s: %s (consecutive: %d)", blob_name, e, consecutive_gcs_errors)
+                        if consecutive_gcs_errors >= MAX_CONSECUTIVE_GCS_ERRORS:
+                            raise RuntimeError(f"GCS read failed consecutively {consecutive_gcs_errors} times. Fast-failing.") from e
                         to_fetch_urls.append(u)
                 else:
                     to_fetch_urls.append(u)
