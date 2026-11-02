@@ -56,7 +56,7 @@ async def fetch_url(session: aiohttp.ClientSession, url: str, sem: asyncio.Semap
 
 
 async def collect_all_entry_urls(session: aiohttp.ClientSession, sem: asyncio.Semaphore) -> list[str]:
-    """トップページから月別アーカイブURLを抽出し、全記事URLを取得する"""
+    """トップページから月別アーカイブURLを抽出し、各月アーカイブ内の全ページを辿って全記事URLを網羅取得する"""
     logger.info("Collecting monthly archive URLs from top page...")
     _, top_html = await fetch_url(session, BASE_URL, sem)
     if not top_html:
@@ -65,25 +65,39 @@ async def collect_all_entry_urls(session: aiohttp.ClientSession, sem: asyncio.Se
     soup = BeautifulSoup(top_html.decode("utf-8", errors="ignore"), "html.parser")
     month_urls = sorted({
         a["href"] for a in soup.find_all("a", href=True)
-        if re.search(r"blog-date-\d+\.html", a["href"])
+        if re.search(r"blog-date-\d{6}\.html$", a["href"])
     })
-    logger.info("Found %d monthly archive pages.", len(month_urls))
+    logger.info("Found %d monthly archive roots.", len(month_urls))
 
-    entry_urls = set()
-    tasks = [fetch_url(session, m_url, sem) for m_url in month_urls]
-    results = await asyncio.gather(*tasks)
+    all_entries = set()
+    for idx, m_url in enumerate(month_urls):
+        cur_url = m_url
+        visited_in_month = set()
+        while cur_url and cur_url not in visited_in_month:
+            visited_in_month.add(cur_url)
+            _, html_bytes = await fetch_url(session, cur_url, sem)
+            if not html_bytes:
+                break
+            soup_page = BeautifulSoup(html_bytes.decode("utf-8", errors="ignore"), "html.parser")
+            for a in soup_page.find_all("a", href=True):
+                href = a["href"]
+                if re.search(r"^http://siokaraiookami\.blog\.fc2\.com/blog-entry-\d+\.html$", href):
+                    all_entries.add(href)
 
-    for m_url, m_html in results:
-        if not m_html:
-            continue
-        m_soup = BeautifulSoup(m_html.decode("utf-8", errors="ignore"), "html.parser")
-        for a in m_soup.find_all("a", href=True):
-            href = a["href"]
-            if re.search(r"blog-entry-\d+\.html$", href):
-                entry_urls.add(href)
+            next_url = None
+            for a in soup_page.find_all("a", href=True):
+                if any(k in a.get_text() for k in ["NEXT", "次"]):
+                    m_prefix = m_url.replace(".html", "")
+                    if m_prefix in a["href"]:
+                        next_url = a["href"]
+                        break
+            cur_url = next_url
 
-    logger.info("Total unique blog entries discovered: %d", len(entry_urls))
-    return sorted(entry_urls, key=lambda x: int(re.search(r"blog-entry-(\d+)\.html$", x).group(1)), reverse=True)
+        if (idx + 1) % 20 == 0 or (idx + 1) == len(month_urls):
+            logger.info("Processed %d / %d months, unique entries discovered: %d", idx + 1, len(month_urls), len(all_entries))
+
+    logger.info("Total unique blog entries discovered across all archives: %d", len(all_entries))
+    return sorted(all_entries, key=lambda x: int(re.search(r"blog-entry-(\d+)\.html$", x).group(1)), reverse=True)
 
 
 def parse_entry_html(url: str, raw_bytes: bytes) -> dict[str, Any] | None:
@@ -159,45 +173,74 @@ async def run_archive_and_build_kb(limit: int | None = None):
     storage_client = storage.Client()
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
 
+    logger.info("Listing existing blobs in gs://%s/%s...", GCS_BUCKET_NAME, RAW_HTML_PREFIX)
+    existing_blobs = {
+        blob.name for blob in bucket.list_blobs(prefix=f"{RAW_HTML_PREFIX}/")
+    }
+    logger.info("Found %d existing HTML blobs in GCS.", len(existing_blobs))
+
     async with aiohttp.ClientSession(connector=connector) as session:
         urls = await collect_all_entry_urls(session, sem)
         if limit:
             urls = urls[:limit]
 
-        logger.info("Starting crawl and GCS upload for %d entries...", len(urls))
+        logger.info("Starting sync and GCS upload for %d entries...", len(urls))
 
         kb_records = []
         uploaded_count = 0
+        skipped_upload_count = 0
 
-        # バッチ単位（50件ずつ）で取得・アップロード
+        # バッチ単位（50件ずつ）で処理
         chunk_size = 50
         for i in range(0, len(urls), chunk_size):
             chunk_urls = urls[i:i + chunk_size]
-            tasks = [fetch_url(session, u, sem) for u in chunk_urls]
-            results = await asyncio.gather(*tasks)
 
-            for url, raw_bytes in results:
-                if not raw_bytes:
-                    continue
-
-                m = re.search(r"blog-entry-(\d+)\.html$", url)
+            # 既存blobがあるか確認し、無ければフェッチ
+            to_fetch_urls = []
+            for u in chunk_urls:
+                m = re.search(r"blog-entry-(\d+)\.html$", u)
                 entry_id = m.group(1) if m else "unknown"
-
-                # 1. 生HTMLをGCSに保存
                 blob_name = f"{RAW_HTML_PREFIX}/blog-entry-{entry_id}.html"
-                blob = bucket.blob(blob_name)
-                blob.upload_from_string(raw_bytes, content_type="text/html; charset=utf-8")
-                uploaded_count += 1
+                if blob_name in existing_blobs:
+                    blob = bucket.blob(blob_name)
+                    try:
+                        raw_bytes = blob.download_as_bytes()
+                        parsed = parse_entry_html(u, raw_bytes)
+                        if parsed:
+                            kb_records.append(parsed)
+                        skipped_upload_count += 1
+                    except Exception as e:
+                        logger.warning("Failed to read existing blob %s: %s", blob_name, e)
+                        to_fetch_urls.append(u)
+                else:
+                    to_fetch_urls.append(u)
 
-                # 2. ナレッジレコード抽出
-                parsed = parse_entry_html(url, raw_bytes)
-                if parsed:
-                    kb_records.append(parsed)
+            if to_fetch_urls:
+                tasks = [fetch_url(session, u, sem) for u in to_fetch_urls]
+                results = await asyncio.gather(*tasks)
 
-            logger.info("Processed %d / %d entries (Uploaded: %d, KB records: %d)", min(i + chunk_size, len(urls)), len(urls), uploaded_count, len(kb_records))
-            await asyncio.sleep(0.5)
+                for url, raw_bytes in results:
+                    if not raw_bytes:
+                        continue
 
-        logger.info("All HTMLs uploaded to GCS. Total KB records: %d", len(kb_records))
+                    m = re.search(r"blog-entry-(\d+)\.html$", url)
+                    entry_id = m.group(1) if m else "unknown"
+
+                    # 1. 生HTMLをGCSに保存
+                    blob_name = f"{RAW_HTML_PREFIX}/blog-entry-{entry_id}.html"
+                    blob = bucket.blob(blob_name)
+                    blob.upload_from_string(raw_bytes, content_type="text/html; charset=utf-8")
+                    uploaded_count += 1
+
+                    # 2. ナレッジレコード抽出
+                    parsed = parse_entry_html(url, raw_bytes)
+                    if parsed:
+                        kb_records.append(parsed)
+
+            logger.info("Processed %d / %d entries (Uploaded: %d, From GCS: %d, KB records: %d)", min(i + chunk_size, len(urls)), len(urls), uploaded_count, skipped_upload_count, len(kb_records))
+            await asyncio.sleep(0.2)
+
+        logger.info("All HTMLs processed. Uploaded: %d, Cached: %d. Total KB records: %d", uploaded_count, skipped_upload_count, len(kb_records))
 
         # 3. KB JSONL 保存（ローカルおよびGCS）
         os.makedirs(os.path.dirname(LOCAL_KB_PATH), exist_ok=True)
