@@ -312,7 +312,7 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         access=access
     )
 
-    rating_str = f" [{report_data.get('investment_rating')}]" if report_data.get("investment_rating") else ""
+    rating_str = f" [{report_data.get('investment_rating')}]" if report_data and report_data.get("investment_rating") else ""
 
     msg = (
         f"🏆 [お宝物件検出]{rating_str} {reason}\n"
@@ -340,24 +340,25 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
         f"・建ぺい/容積率: {kenpei} / {youseki}\n"
     )
 
-    # プロ鑑定 ＆ 団長目利きセクション
-    summary = report_data.get("ai_evaluation_summary", "")
-    hbu = report_data.get("highest_and_best_use", "")
-    dancho = report_data.get("danchou_comment", "")
-    pos = report_data.get("ai_positive_points", "")
-    neg = report_data.get("ai_negative_points", "")
+    # プロ鑑定 ＆ 団長目利きセクション（AIレポートが存在する場合のみ追加）
+    if report_data:
+        summary = report_data.get("ai_evaluation_summary", "")
+        hbu = report_data.get("highest_and_best_use", "")
+        dancho = report_data.get("danchou_comment", "")
+        pos = report_data.get("ai_positive_points", "")
+        neg = report_data.get("ai_negative_points", "")
 
-    msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📑 プロフェッショナル物件評価レポート\n"
-    if summary:
-        msg += f"\n【AI総括サマリー】\n{summary}\n"
-    if hbu:
-        msg += f"\n🏛 [最有効使用・容積余力ポテンシャル]\n{hbu}\n"
-    if dancho:
-        msg += f"\n🐺 [元祖・狼旅団 団長の辛口実戦目利き]\n{dancho}\n"
-    if pos:
-        msg += f"\n⭕️ [高評価ポイント]\n{pos}\n"
-    if neg:
-        msg += f"\n⚠️ [物理・法的DDチェック（留意点）]\n{neg}\n"
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📑 プロフェッショナル物件評価レポート\n"
+        if summary:
+            msg += f"\n【AI総括サマリー】\n{summary}\n"
+        if hbu:
+            msg += f"\n🏛 [最有効使用・容積余力ポテンシャル]\n{hbu}\n"
+        if dancho:
+            msg += f"\n🐺 [元祖・狼旅団 団長の辛口実戦目利き]\n{dancho}\n"
+        if pos:
+            msg += f"\n⭕️ [高評価ポイント]\n{pos}\n"
+        if neg:
+            msg += f"\n⚠️ [物理・法的DDチェック（留意点）]\n{neg}\n"
 
     msg += (
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
