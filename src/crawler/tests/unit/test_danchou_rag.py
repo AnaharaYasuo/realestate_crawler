@@ -171,3 +171,81 @@ def test_property_type_specific_reports():
     assert rep_mansion["highest_and_best_use"] != rep_land["highest_and_best_use"]
     assert rep_mansion["danchou_comment"] != rep_land["danchou_comment"]
     assert rep_land["danchou_comment"] != rep_kodate["danchou_comment"]
+
+
+def test_multi_perspective_appraisal_and_mansion_review():
+    """地域・駅・ハザード・物件・マンションレビュー過去取引事例を踏まえた多面プロ鑑定の検証 (Issue #1197)"""
+    from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
+    from package.ml.report_generator import generate_professional_and_danchou_report
+    from unittest.mock import MagicMock, patch
+
+    eval_rec = MagicMock()
+    eval_rec.property_url = "https://example.com/condo"
+    eval_rec.estimated_sekisan_price = 60000000
+
+    prop = MagicMock()
+    prop.address1 = ""
+    prop.address2 = ""
+    prop.address = "東京都品川区小山3丁目"
+    prop.propertyName = "パークシティ武蔵小山ザタワー"
+    prop.station1 = "武蔵小山"
+    prop.senyuMenseki = 65.0
+    prop.floor_area_ratio = 400.0
+
+    mock_mr_data = {
+        "mansion_name": "パークシティ武蔵小山ザタワー",
+        "estimated_tsubo_price_man": 1023,
+        "estimated_market_price_man": 18861,
+        "history_samples": ["31階 / 2LDK / 65m2 / 18500万円"]
+    }
+
+    with patch("package.ml.appraisal_context.fetch_mansion_review_data", return_value=mock_mr_data):
+        ctx = build_appraisal_context(eval_rec, prop, ptype_jp="中古マンション")
+        assert ctx["prefecture"] == "東京都"
+        assert ctx["city"] == "品川区"
+        assert ctx["mansion_review"] is not None
+        assert ctx["mansion_review"]["estimated_tsubo_price_man"] == 1023
+
+        formatted = format_appraisal_context_text(ctx)
+        assert "自治体マクロ指標" in formatted
+        assert "国交省ハザードリスク指標" in formatted
+        assert "マンションレビュー過去取引事例データ" in formatted
+        assert "1023万円/坪" in formatted
+
+    mock_llm_response = {
+        "investment_rating": "AAA",
+        "area_evaluation": "品川区小山は城南エリア屈指の居住人気と安定した人口増を維持。",
+        "station_evaluation": "東急目黒線急行停車の武蔵小山駅徒歩1分で都心直通の圧倒的利便性。",
+        "hazard_evaluation": "武蔵野台地に立地し浸水想定区域・土砂災害警戒区域のいずれも対象外。",
+        "property_evaluation": "大手デベ分譲タワーレジデンス、売出価格は積算対比で明確に割安。",
+        "mansion_market_evaluation": "マンションレビュー推定相場坪単価1,023万に対し、本物件の売出坪単価850万は明白な市場歪み。",
+        "highest_and_best_use": "富裕層ファミリー向け実需居住または高利回り賃貸、出口リセール極めて良好。",
+        "danchou_comment": "武蔵小山駅前タワーでこの歪みは秒で攫われる。指値ゴネせず満額即決で叩き込め！",
+        "ai_positive_points": "立地・駅力、相場坪単価対比の割安度、安定地盤",
+        "ai_negative_points": "管理費・修繕積立金の滞納率確認、専有部配管劣化の確認"
+    }
+
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), \
+         patch("package.ml.report_generator._call_gemini_api", return_value=mock_llm_response), \
+         patch("package.ml.appraisal_context.fetch_mansion_review_data", return_value=mock_mr_data):
+        report = generate_professional_and_danchou_report(
+            eval_rec=eval_rec,
+            prop=prop,
+            ptype_jp="中古マンション",
+            asking_price_man=7500,
+            pred_price=9200.0,
+            address="東京都品川区小山3丁目",
+            access="武蔵小山駅 徒歩1分"
+        )
+
+    assert report["investment_rating"] == "AAA"
+    assert eval_rec.area_evaluation == mock_llm_response["area_evaluation"]
+    assert eval_rec.station_evaluation == mock_llm_response["station_evaluation"]
+    assert eval_rec.hazard_evaluation == mock_llm_response["hazard_evaluation"]
+    assert eval_rec.property_spec_evaluation == mock_llm_response["property_evaluation"]
+    assert eval_rec.mansion_market_evaluation == mock_llm_response["mansion_market_evaluation"]
+    assert "地域要因" in eval_rec.ai_evaluation_summary
+    assert "過去取引事例" in eval_rec.ai_evaluation_summary
+    assert report["area_evaluation"] == mock_llm_response["area_evaluation"]
+    assert report["hazard_evaluation"] == mock_llm_response["hazard_evaluation"]
+    assert report["mansion_market_evaluation"] == mock_llm_response["mansion_market_evaluation"]
