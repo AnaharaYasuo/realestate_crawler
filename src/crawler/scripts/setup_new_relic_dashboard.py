@@ -237,52 +237,67 @@ def build_dashboard_create_payload(
             },
         },
         {
-            "title": "Network Traffic Rate (KB/s) & TCP Established Sockets",
+            "title": "Network Traffic Rate (Recv / Sent KB/s)",
             "layout": {"column": 7, "row": 16, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT average(netRecvRateKbps) AS 'Recv KB/s', average(netSentRateKbps) AS 'Sent KB/s', average(tcpEstablishedCount) AS 'TCP Estab' FROM ContainerSample SINCE 7 days ago TIMESERIES",
+                            "query": "SELECT average(netRecvRateKbps) AS 'Recv KB/s', average(netSentRateKbps) AS 'Sent KB/s' FROM ContainerSample SINCE 7 days ago TIMESERIES",
                         }
                     ]
                 }
             },
         },
-        # Row 7: Concurrency Throughput & Capacity Saturation
+        # Row 7: TCP Socket Concurrency & Scraping Throughput
+        {
+            "title": "Active TCP Established & Total Sockets",
+            "layout": {"column": 1, "row": 19, "width": 6, "height": 3},
+            "configuration": {
+                "line": {
+                    "nrqlQueries": [
+                        {
+                            "accountId": account_id,
+                            "query": "SELECT average(tcpEstablishedCount) AS 'Avg TCP Estab', max(tcpEstablishedCount) AS 'Max TCP Estab', average(tcpTotalCount) AS 'Avg TCP Total' FROM ContainerSample SINCE 7 days ago TIMESERIES",
+                        }
+                    ]
+                }
+            },
+        },
         {
             "title": "Scraping Throughput by Job & Playwright Concurrency (Items/sec)",
-            "layout": {"column": 1, "row": 19, "width": 6, "height": 3},
+            "layout": {"column": 7, "row": 19, "width": 6, "height": 3},
             "configuration": {
                 "bar": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT average(items_per_sec) AS 'Avg Items/sec', count(*) AS 'Finished Jobs' FROM CrawlerExecution WHERE count > 0 FACET parallel, playwright_parallel SINCE 7 days ago",
+                            "query": "SELECT average(items_per_sec) AS 'Avg Items/sec', count(*) AS 'Finished Jobs' FROM CrawlerExecution WHERE count > 0 FACET parallel, playwright_parallel, detail_concurrency SINCE 7 days ago",
                         }
                     ]
                 }
             },
         },
+        # Row 8: Hardware & Network Saturation by Concurrency Tier
         {
             "title": "Hardware & Network Saturation by Concurrency Tier",
-            "layout": {"column": 7, "row": 19, "width": 6, "height": 3},
+            "layout": {"column": 1, "row": 22, "width": 12, "height": 3},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT max(cpuPercent) AS 'Max Proc CPU%', max(systemCpuPercent) AS 'Max Sys CPU%', max(memoryPercent) AS 'Max Mem %', max(netRecvRateKbps) AS 'Peak Recv KB/s', max(tcpEstablishedCount) AS 'Peak TCP Estab' FROM ContainerSample FACET parallel, playwright_parallel SINCE 7 days ago",
+                            "query": "SELECT max(cpuPercent) AS 'Max Proc CPU%', max(systemCpuPercent) AS 'Max Sys CPU%', max(memoryPercent) AS 'Max Mem %', max(netRecvRateKbps) AS 'Peak Recv KB/s', max(tcpEstablishedCount) AS 'Peak TCP Estab' FROM ContainerSample FACET parallel, playwright_parallel, detail_concurrency SINCE 7 days ago",
                         }
                     ]
                 }
             },
         },
-        # Row 8: Container Resources & Sizing Telemetry (Cloud Run cgroup)
+        # Row 9: Container Resources & Sizing Telemetry (Cloud Run cgroup)
         {
             "title": "Container Memory Usage % (Alert Threshold: 85%)",
-            "layout": {"column": 1, "row": 22, "width": 6, "height": 3},
+            "layout": {"column": 1, "row": 25, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
@@ -296,7 +311,7 @@ def build_dashboard_create_payload(
         },
         {
             "title": "Container Memory Usage (MB) & Limit",
-            "layout": {"column": 7, "row": 22, "width": 6, "height": 3},
+            "layout": {"column": 7, "row": 25, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
@@ -308,10 +323,10 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 9: Container CPU & Instance Sizing Assessment
+        # Row 10: Container CPU & Instance Sizing Assessment
         {
             "title": "Container Cumulative CPU Time (Seconds)",
-            "layout": {"column": 1, "row": 25, "width": 6, "height": 3},
+            "layout": {"column": 1, "row": 28, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
@@ -325,7 +340,7 @@ def build_dashboard_create_payload(
         },
         {
             "title": "Instance Sizing & Resource Utilization Summary (Last 7 Days)",
-            "layout": {"column": 7, "row": 25, "width": 6, "height": 3},
+            "layout": {"column": 7, "row": 28, "width": 6, "height": 3},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
@@ -337,10 +352,10 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 10: GenAI / LLM & ML Inference
+        # Row 11: GenAI / LLM & ML Inference
         {
             "title": "Gemini LLM Token Consumption & Est. Cost (USD)",
-            "layout": {"column": 1, "row": 28, "width": 6, "height": 3},
+            "layout": {"column": 1, "row": 31, "width": 6, "height": 3},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
@@ -354,7 +369,7 @@ def build_dashboard_create_payload(
         },
         {
             "title": "ML Price Estimation & Bargain Property Counts",
-            "layout": {"column": 7, "row": 28, "width": 6, "height": 3},
+            "layout": {"column": 7, "row": 31, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
@@ -366,10 +381,10 @@ def build_dashboard_create_payload(
                 }
             },
         },
-        # Row 11: Logs & Errors
+        # Row 12: Logs & Errors
         {
             "title": "Recent Application Error Logs",
-            "layout": {"column": 1, "row": 31, "width": 12, "height": 4},
+            "layout": {"column": 1, "row": 34, "width": 12, "height": 4},
             "configuration": {
                 "table": {
                     "nrqlQueries": [

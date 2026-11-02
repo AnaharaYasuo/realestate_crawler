@@ -115,4 +115,5 @@ def test_record_crawler_metrics_concurrency_attributes():
             assert params["parallel"] == 5
             assert params["playwright_parallel"] == 2
             assert params["detail_concurrency"] == 8
+            assert "active_jobs_count" in params
             assert params["items_per_sec"] == 2.0
