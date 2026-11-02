@@ -214,23 +214,48 @@ def record_ml_inference_metrics(
 - NerdGraph GraphQL API を使用し、既存の古いダッシュボードを削除（`dashboardDelete`）した上で、最新の統合ダッシュボード（`dashboardCreate`）を自動作成する。
 - ページ構成 / ウィジェット:
   1. **クローラー総合サマリー & スループット**: `CrawlerExecution` の総件数、所要時間、zero_count 発生推移。
-  2. **HTTP 通信・耐ブロック監視**: `HttpRequestEvent` のステータスコード分布（200 vs 403 vs 429）、平均レスポンス時間。
-  3. **DB / ProxySQL パフォーマンス**: `DatabaseEvent` のテーブル別保存所要時間、保存件数、エラー。
-  4. **パーサー品質 & フィールド欠損率**: `ParserEvent` の純パース時間、必須フィールド抽出率。
-  5. **Cloud Run コンテナリソース＆サイジング監視**:
+  2. **並列度最適化・ハードウェア/NWリソース分析 (Concurrency Tuning & Hardware Resources)** (Issue #1185):
+     - 並列度別 CPU使用率・システムCPU使用率推移 (`ContainerSample` の `cpuPercent`, `systemCpuPercent` FACET `parallel`)
+     - ネットワーク送受信レート (KB/s) および TCP接続数推移 (`netRecvRateKbps`, `netSentRateKbps`, `tcpEstablishedCount`)
+     - 並列度別 処理スループット (Items/sec) 比較 (`CrawlerExecution` の `items_per_sec` FACET `parallel`, `playwright_parallel`)
+     - 並列度・ハードウェア/NWリソース飽和度サマリーマトリクス (Max/Avg CPU%, Max Mem MB, Max Recv KB/s, Max TCP)
+  3. **HTTP 通信・耐ブロック監視**: `HttpRequestEvent` のステータスコード分布（200 vs 403 vs 429）、平均レスポンス時間。
+  4. **DB / ProxySQL パフォーマンス**: `DatabaseEvent` のテーブル別保存所要時間、保存件数、エラー。
+  5. **パーサー品質 & フィールド欠損率**: `ParserEvent` の純パース時間、必須フィールド抽出率。
+  6. **Cloud Run コンテナリソース＆サイジング監視**:
      - `ContainerSample` のメモリ使用率（%）および 85% アラート閾値推移
      - メモリ使用量（MB）vs メモリ制限上限（Limit MB）
      - コンテナ CPU 積算時間（秒）推移（`cpuUsageSeconds`）
      - インスタンスサイズ適正化サマリーテーブル（コンテナ別 Max/Avg メモリ% & MB、Max/Avg CPU秒）
-  6. **Gemini GenAI 利用状況 & コスト**: `LlmEvent` のトークン消費、推定コスト（USD）、レスポンス時間。
-  7. **ML 価格推定 & お宝物件**: `MlInferenceEvent` の推定件数、割安物件検知数。
-  8. **外形監視 & ログ**: `SyntheticCheck` の可用性、直近のエラーログ（`Log`）。
+  7. **Gemini GenAI 利用状況 & コスト**: `LlmEvent` のトークン消費、推定コスト（USD）、レスポンス時間。
+  8. **ML 価格推定 & お宝物件**: `MlInferenceEvent` の推定件数、割安物件検知数。
+  9. **外形監視 & ログ**: `SyntheticCheck` の可用性、直近のエラーログ（`Log`）。
+
+### 2.12 最適並列度探索 NRQL クエリ集 (Issue #1185)
+New Relic Query Builder にて以下のクエリを実行することで、CPU・ネットワーク・メモリの消費率から最適並列度を特定できる：
+
+1. **並列度別 CPU使用率・システム負荷の比較**:
+   ```sql
+   SELECT average(cpuPercent) AS 'Avg Proc CPU%', max(cpuPercent) AS 'Max Proc CPU%', average(systemCpuPercent) AS 'Avg Sys CPU%' FROM ContainerSample SINCE 7 days ago FACET parallel, playwright_parallel
+   ```
+2. **ネットワーク帯域消費レート (KB/s) と並列度の相関**:
+   ```sql
+   SELECT average(netRecvRateKbps) AS 'Recv KB/s', max(netRecvRateKbps) AS 'Peak Recv KB/s', average(tcpEstablishedCount) AS 'TCP Estab' FROM ContainerSample SINCE 7 days ago FACET parallel TIMESERIES
+   ```
+3. **並列度別の処理効率 (Items / sec / Job)**:
+   ```sql
+   SELECT average(items_per_sec) AS 'Items/sec', count(*) AS 'Jobs Completed' FROM CrawlerExecution SINCE 7 days ago FACET parallel, playwright_parallel
+   ```
+4. **メモリ消費と並列度の関係**:
+   ```sql
+   SELECT max(memoryUsageMb) AS 'Peak Mem MB', average(memoryPercent) AS 'Avg Mem %' FROM ContainerSample SINCE 7 days ago FACET parallel, playwright_parallel
+   ```
 
 ## 3. テスト計画
 - `test_record_http_request`: 正常・ブロックステータス、レスポンス時間の送信検証。
 - `test_record_database_operation`: DB保存所要時間、件数、エラーの送信検証。
 - `test_record_parser_metrics`: パーサー処理時間、欠損率計算の送信検証。
 - `test_record_ml_inference_metrics`: ML推論件数、割安検知数の送信検証。
+- `test_container_sample_concurrency_and_net_rates`: `ContainerSample` への並列度情報およびネットワーク送受信レート付与の検証 (Issue #1185)。
+- `test_crawler_execution_concurrency_attributes`: `CrawlerExecution` への並列度情報付与の検証 (Issue #1185)。
 - `test_setup_new_relic_dashboard`: ダッシュボード削除および作成 GraphQL ペイロードの組み立てと有限タイムアウト処理を検証。
-
-
