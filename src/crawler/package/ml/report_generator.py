@@ -19,6 +19,7 @@ from typing import Any
 
 import chardet
 from bs4 import BeautifulSoup
+from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
 from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge
 from package.utils.url_security import UrlSecurityValidator
 
@@ -90,7 +91,8 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
 def _build_rag_prompt(
     eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float,
     address: str, access: str, matched_kb: list, far_slack: float | None,
-    site_text: str = ""
+    site_text: str = "",
+    appraisal_ctx: dict | None = None
 ) -> str:
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
     tochi_m2 = getattr(prop, "tochiMenseki", None) or "-"
@@ -115,9 +117,15 @@ def _build_rag_prompt(
 </site_information>
 """
 
+    appraisal_data_section = ""
+    if appraisal_ctx:
+        appraisal_data_section = f"""
+{format_appraisal_context_text(appraisal_ctx)}
+"""
+
     return f"""あなたは百戦錬磨の不動産鑑定士であり、かつ伝説の不動産投資家『狼旅団の団長（メカ団長）』の直系弟子です。
-以下の割安検出物件について、不動産鑑定プロとしての精緻な分析と、団長の辛口実戦目利きを融合させた
-最高峰の物件評価レポートを作成してください。
+以下の割安検出物件について、不動産鑑定評価基準（地域要因・駅ポテンシャル・個別物件スペック・ハザード・過去取引事例）に準拠した
+精緻な客観分析と、団長の辛口実戦目利きを融合させた最高峰の多面鑑定評価レポートを作成してください。
 
 【物件概要】
 ・種別: {ptype_jp}
@@ -130,20 +138,25 @@ def _build_rag_prompt(
 ・構造: {kouzou} / 接道状況: {setsudou}
 ・年間CF: {cf_val}万円 / DSCR: {dscr_val}
 ・容積未消化余力: {far_slack if far_slack is not None else 'N/A'}%
+{appraisal_data_section}
 {site_info_section}
 【団長ナレッジベース（参考実戦哲学）】
 {kb_context}
 
 【出力要件】
-※Webサイト掲載情報にリフォーム履歴・大規模修繕・入居状況（満室/空室）・建築条件・特記事項等の個別事実がある場合、必ず各項目に反映させてください。
+※公的基準地価、国交省ハザード情報、自治体マクロ、駅乗降客数、マンションレビュー過去取引事例（ある場合）の基礎データを必ず各評価項目に織り込んでください。
 必ず以下のJSONフォーマットのみを返してください。Markdownのコードブロック(```json)は含めないでください。
 {{
   "investment_rating": "AAA" または "AA" または "A" または "B",
-  "ai_evaluation_summary": "プロ鑑定士視点での物件評価総括（2〜3文）。取引事例比較・原価性・収益性からの歪み分析。Web掲載の具体的特徴も加味。",
-  "highest_and_best_use": "最有効使用（Highest & Best Use）とポテンシャル。種別が区分の場合は実需居住・賃貸・リノベ再販、土地/一棟/戸建の場合は未消化容積率（{far_slack}%）や敷地条件に応じた増床・建て替え・更地化・出口戦略。",
-  "danchou_comment": "元祖・狼旅団団長としての辛口実戦目利き（『表面利回りや積算だけで涎垂らすな』等の語り口調。原契約、道路付け、客付け、指値戦略など）。",
-  "ai_positive_points": "箇条書きで3点。高評価ポイント（割安度、積算、立地需要、Webに記載された設備・リノベ優位性など）。改行区切り。",
-  "ai_negative_points": "箇条書きで3点。物理的・法的DDチェック（現地確認、私道・越境、配管・設備、修繕費リスクなど）。改行区切り。"
+  "area_evaluation": "【地域要因・需給評価】自治体の人口増減、平均所得、人口密度、周辺環境・ブランド力を踏まえた立地需給評価（1〜2文）。",
+  "station_evaluation": "【駅力・交通アクセス評価】最寄り駅の乗降客数規模、都心アクセス性、駅徒歩分数の希少性と生活利便性（1〜2文）。",
+  "hazard_evaluation": "【自然・防災・ハザード評価】国交省ハザードリスク指標（浸水想定・土砂災害警戒区域）、地盤堅牢度を踏まえた災害脆弱性評価（1〜2文）。",
+  "property_evaluation": "【物件スペック・価格歪み分析】道路付け（公道/私道・幅員）、土地形状、建物構造・築年、売出価格と積算・相場との乖離要因（1〜2文）。",
+  "mansion_market_evaluation": "【過去取引事例・相場坪単価分析】マンションの場合のみ。マンションレビュー過去販売事例や推定相場坪単価と比較した割安度判定（マンション以外は空文字""）。",
+  "highest_and_best_use": "【最有効使用・出口戦略】この不動産の効用を最高度に発揮する使途（実需・賃貸・リノベ・未消化容積{far_slack}%を活かした増床/建替・更地化等）と将来出口流動性（1〜2文）。",
+  "danchou_comment": "【狼旅団・団長の実戦目利き】元祖・狼旅団団長としての辛口実戦目利き（『表面利回りや積算だけで涎垂らすな』等の語り口調。原契約、サクラ入居、道路付け、指値戦略、瞬間蒸発のリアル）。",
+  "ai_positive_points": "箇条書きで3点。高評価ポイント（割安度、積算、立地需要、相場坪単価乖離など）。改行区切り。",
+  "ai_negative_points": "箇条書きで3点。物理的・法的DDチェック（現地確認、私道・越境、配管口径、修繕費、ハザードなど）。改行区切り。"
 }}
 """
 
@@ -385,7 +398,35 @@ def _persist_report(eval_rec, report_data: dict[str, Any], far_slack: float | No
     try:
         raw_rating = report_data.get("investment_rating", "")
         eval_rec.investment_rating = raw_rating if raw_rating in ALLOWED_RATINGS else "A"
-        eval_rec.ai_evaluation_summary = report_data.get("ai_evaluation_summary", "")
+        
+        # 個別専用カラムへの格納 (Issue #1197)
+        if hasattr(eval_rec, "area_evaluation"):
+            eval_rec.area_evaluation = report_data.get("area_evaluation", "")
+        if hasattr(eval_rec, "station_evaluation"):
+            eval_rec.station_evaluation = report_data.get("station_evaluation", "")
+        if hasattr(eval_rec, "hazard_evaluation"):
+            eval_rec.hazard_evaluation = report_data.get("hazard_evaluation", "")
+        if hasattr(eval_rec, "property_spec_evaluation"):
+            eval_rec.property_spec_evaluation = report_data.get("property_evaluation", "")
+        if hasattr(eval_rec, "mansion_market_evaluation"):
+            eval_rec.mansion_market_evaluation = report_data.get("mansion_market_evaluation", "")
+
+        # 多面評価の各項目をai_evaluation_summaryにも統合保持（後方互換性担保）
+        summary_parts = []
+        if report_data.get("area_evaluation"):
+            summary_parts.append(f"【地域要因】{report_data['area_evaluation']}")
+        if report_data.get("station_evaluation"):
+            summary_parts.append(f"【駅力・交通】{report_data['station_evaluation']}")
+        if report_data.get("hazard_evaluation"):
+            summary_parts.append(f"【防災・ハザード】{report_data['hazard_evaluation']}")
+        if report_data.get("property_evaluation"):
+            summary_parts.append(f"【物件スペック】{report_data['property_evaluation']}")
+        if report_data.get("mansion_market_evaluation"):
+            summary_parts.append(f"【過去取引事例】{report_data['mansion_market_evaluation']}")
+            
+        full_summary = "\n".join(summary_parts) if summary_parts else report_data.get("ai_evaluation_summary", "")
+        eval_rec.ai_evaluation_summary = full_summary
+
         eval_rec.highest_and_best_use = report_data.get("highest_and_best_use", "")
         eval_rec.danchou_comment = report_data.get("danchou_comment", "")
         eval_rec.ai_positive_points = report_data.get("ai_positive_points", "")
@@ -415,10 +456,14 @@ def generate_professional_and_danchou_report(
     api_key = os.getenv("GEMINI_API_KEY")
 
     report_data = None
+    # 2. 地域・駅・ハザード・マンションレビュー等の客観的基礎データを統合収集 (Issue #1197)
+    appraisal_ctx = build_appraisal_context(prop, ptype_jp)
+
     if api_key:
         prompt = _build_rag_prompt(
             eval_rec, prop, ptype_jp, asking_price_man, pred_price, address, access, matched_kb, far_slack,
-            site_text=site_text
+            site_text=site_text,
+            appraisal_ctx=appraisal_ctx
         )
         report_data = _call_gemini_api(model_name, api_key, prompt)
         if not report_data and model_name != "gemini-2.5-flash":
