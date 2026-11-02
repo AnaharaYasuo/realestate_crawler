@@ -107,32 +107,48 @@ def _load_from_gcs(gcs_bucket: str, local_path: str) -> list[dict[str, Any]]:
     try:
         from google.cloud import storage
         client = storage.Client()
-        blob = client.bucket(gcs_bucket).blob("rag/danchou_kb.jsonl")
-        if not blob.exists():
-            return []
-        content = blob.download_as_text(encoding="utf-8")
-        items = [json.loads(line) for line in content.splitlines() if line.strip()]
-        if items:
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with open(local_path, "w", encoding="utf-8") as f:
-                f.write(content)
-        return items
+        for blob_name in ["rag/danchou_kb_full.jsonl", "rag/danchou_kb.jsonl"]:
+            blob = client.bucket(gcs_bucket).blob(blob_name)
+            if blob.exists():
+                content = blob.download_as_text(encoding="utf-8")
+                items = [json.loads(line) for line in content.splitlines() if line.strip()]
+                if items:
+                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+                    with open(local_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    return items
+        return []
     except (OSError, RuntimeError) as e:
         logger.warning("GCS knowledge base fetch failed: %s", e)
         return []
 
 def load_danchou_knowledge_base() -> list[dict[str, Any]]:
     """GCSまたはローカルキャッシュ、フォールバックとしてシードナレッジをロード"""
-    local_path = os.getenv("DANCHOU_KB_LOCAL_PATH", "data/rag/danchou_kb.jsonl")
-    cached = _load_from_local_cache(local_path)
-    if cached:
-        return cached
+    candidate_paths = [
+        os.getenv("DANCHOU_KB_LOCAL_PATH", "src/crawler/data/rag/danchou_kb_full.jsonl"),
+        "src/crawler/data/rag/danchou_kb_full.jsonl",
+        "data/rag/danchou_kb_full.jsonl",
+        "src/crawler/data/rag/danchou_kb.jsonl",
+        "data/rag/danchou_kb.jsonl"
+    ]
+    loaded_items = []
+    for p in candidate_paths:
+        cached = _load_from_local_cache(p)
+        if cached:
+            loaded_items = cached
+            break
 
-    gcs_bucket = os.getenv("GCS_BUCKET_NAME")
-    if gcs_bucket:
-        gcs_items = _load_from_gcs(gcs_bucket, local_path)
-        if gcs_items:
-            return gcs_items
+    if not loaded_items:
+        gcs_bucket = os.getenv("GCS_BUCKET_NAME", "realestate-images-sumifu-prod")
+        if gcs_bucket:
+            target_local = candidate_paths[0]
+            gcs_items = _load_from_gcs(gcs_bucket, target_local)
+            if gcs_items:
+                loaded_items = gcs_items
+
+    if loaded_items:
+        existing_ids = {it.get("id") for it in loaded_items}
+        return [s for s in SEED_KNOWLEDGE_BASE if s.get("id") not in existing_ids] + loaded_items
 
     return SEED_KNOWLEDGE_BASE
 
