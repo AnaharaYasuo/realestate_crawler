@@ -17,7 +17,7 @@ def calculate_container_recommendations(
     - Memory Peak Threshold: 85% of limit (e.g. 2611 MB for 3GiB). If > 85%, recommend scale up to prevent OOM.
     - Task Count (container count): default 4. If execution duration > 45min, recommend 6-8 tasks.
     """
-    rec_cpu = current_cpu_cores
+    rec_cpu = float(current_cpu_cores)
     rec_cpu_reason = "適正（ピーク90%以内）"
     if cpu_peak_percent > 90.0:
         rec_cpu = 2.0
@@ -26,7 +26,7 @@ def calculate_container_recommendations(
         rec_cpu = 1.0
         rec_cpu_reason = f"CPU余裕あり（ピーク{cpu_peak_percent:.1f}% < 35%）のため 1 vCPU 推奨"
 
-    rec_mem_mb = current_mem_mb
+    rec_mem_mb = float(current_mem_mb)
     rec_mem_reason = "適正（OOM安全マージン確保・利用率85%以内）"
     mem_usage_ratio = (mem_max_mb / current_mem_mb) * 100.0 if current_mem_mb > 0 else 0.0
     if mem_usage_ratio > 85.0 or mem_max_mb > 2600.0:
@@ -47,7 +47,7 @@ def calculate_container_recommendations(
         "recommended_cpu_cores_str": f"{int(rec_cpu) if rec_cpu.is_integer() else rec_cpu} vCPU",
         "recommended_cpu_reason": rec_cpu_reason,
         "recommended_memory_mb": rec_mem_mb,
-        "recommended_memory_str": f"{int(rec_mem_mb / 1024)}GiB",
+        "recommended_memory_str": f"{rec_mem_mb / 1024:g}GiB",
         "recommended_memory_reason": rec_mem_reason,
         "recommended_task_count": rec_tasks,
         "recommended_task_count_str": f"{rec_tasks} 台 (並行{rec_tasks}台)",

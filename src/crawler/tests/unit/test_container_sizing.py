@@ -57,3 +57,17 @@ def test_calculate_container_recommendations_duration_scale_tasks():
     )
     assert rec["recommended_task_count"] == 6
     assert "6〜8 台分散推奨" in rec["recommended_task_reason"]
+
+
+def test_calculate_container_recommendations_int_inputs_and_fractional_mem():
+    rec = calculate_container_recommendations(
+        cpu_peak_percent=50.0,
+        mem_max_mb=1200.0,
+        current_task_count=4,
+        current_cpu_cores=1,  # int input
+        current_mem_mb=1536,  # int input (1.5 GiB)
+    )
+    assert rec["recommended_cpu_cores"] == 1.0
+    assert rec["recommended_cpu_cores_str"] == "1 vCPU"
+    assert rec["recommended_memory_str"] == "1.5GiB"
+

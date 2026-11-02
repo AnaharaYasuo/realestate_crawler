@@ -30,6 +30,8 @@ _last_proc_wall_time: float | None = None
 
 # Baseline for delta Network rate calculation across calls
 _net_sample_lock = threading.Lock()
+# Process start time for duration tracking in container samples
+_PROCESS_START_TIME: float = time.time()
 _last_net_bytes_recv: int | None = None
 _last_net_bytes_sent: int | None = None
 _last_net_wall_time: float | None = None
@@ -665,10 +667,12 @@ def record_container_sample(
 
     try:
         from package.utils.container_sizing import calculate_container_recommendations
+        elapsed_min = max(0.0, (time.time() - _PROCESS_START_TIME) / 60.0)
         rec = calculate_container_recommendations(
             cpu_peak_percent=params.get("cpuPercent", 0.0),
             mem_max_mb=params.get("memoryUsageMb", 0.0),
-            current_mem_mb=params.get("memoryLimitMb", 3072.0),
+            current_mem_mb=params.get("memoryLimitMb") or 3072.0,
+            job_duration_min=elapsed_min,
         )
         params["recCpuCores"] = rec["recommended_cpu_cores"]
         params["recCpuCoresStr"] = rec["recommended_cpu_cores_str"]

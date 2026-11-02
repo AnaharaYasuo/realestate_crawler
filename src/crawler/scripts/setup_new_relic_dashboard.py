@@ -325,14 +325,14 @@ def build_dashboard_create_payload(
         },
         # Row 10: Container CPU & Instance Sizing Assessment
         {
-            "title": "Container Minute CPU Usage % (Process & System)",
+            "title": "Container CPU Usage % Trend (Process & System)",
             "layout": {"column": 1, "row": 28, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT average(cpuPercent) AS 'Process CPU % (毎分平均)', max(cpuPercent) AS 'Process CPU Peak % (瞬間ピーク)', average(systemCpuPercent) AS 'System Total CPU % (全体負荷)' FROM ContainerSample FACET containerName SINCE 24 hours ago TIMESERIES 1 minute",
+                            "query": "SELECT average(cpuPercent) AS 'Process CPU % (期間平均)', max(cpuPercent) AS 'Process CPU Peak % (期間最大)', average(systemCpuPercent) AS 'System Total CPU % (全体負荷)' FROM ContainerSample FACET containerName SINCE 7 days ago TIMESERIES AUTO",
                         }
                     ]
                 }
