@@ -191,7 +191,7 @@ def test_build_dashboard_create_payload():
                     nrql_queries.append(nq["query"])
     assert any("CrawlerExecution" in q for q in nrql_queries)
     assert any("ContainerSample" in q for q in nrql_queries)
-    assert any("cpuUsageSeconds" in q for q in nrql_queries)
+    assert any("cpuPercent" in q for q in nrql_queries)
     assert any("memoryUsageMb" in q for q in nrql_queries)
     assert any("HttpRequestEvent" in q for q in nrql_queries)
     assert any("DatabaseEvent" in q for q in nrql_queries)
