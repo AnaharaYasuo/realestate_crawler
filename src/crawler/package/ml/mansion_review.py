@@ -26,10 +26,23 @@ _HEADERS = {
 def _clean_mansion_name(mansion_name: str) -> str:
     """マンション名から部屋番号・階数等のノイズを除去して正規化する。"""
     # 全角スペース・半角スペースの統一
-    name = re.sub(r"[ \t\u3000]+", " ", mansion_name).strip()
-    # 部屋番号や号室、階数を除去（末尾の数字+単位、S8786回避のため空白非包含）
-    name = re.sub(r"\d+号室$", "", name).strip()
-    name = re.sub(r"\d+[fF階]$", "", name).strip()
+    parts = mansion_name.replace("\u3000", " ").replace("\t", " ").split()
+    if not parts:
+        return ""
+    name = " ".join(parts)
+
+    # 部屋番号や号室、階数を除去（正規表現を使わずに安全に末尾文字列を判定）
+    for suffix in ("号室", "号", "階", "f", "F"):
+        if name.endswith(suffix):
+            prefix = name[:-len(suffix)].rstrip()
+            # 末尾が数字であればそれを除去
+            num_idx = len(prefix)
+            while num_idx > 0 and prefix[num_idx - 1].isdigit():
+                num_idx -= 1
+            if num_idx < len(prefix):
+                name = prefix[:num_idx].rstrip()
+                break
+
     return name
 
 
