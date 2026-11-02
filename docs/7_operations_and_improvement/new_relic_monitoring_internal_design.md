@@ -225,8 +225,8 @@ def record_ml_inference_metrics(
   6. **Cloud Run コンテナリソース＆サイジング監視**:
      - `ContainerSample` のメモリ使用率（%）および 85% アラート閾値推移
      - メモリ使用量（MB）vs メモリ制限上限（Limit MB）
-     - コンテナ CPU 積算時間（秒）推移（`cpuUsageSeconds`）
-     - インスタンスサイズ適正化サマリーテーブル（コンテナ別 Max/Avg メモリ% & MB、Max/Avg CPU秒）
+     - コンテナ 毎分CPU利用率（%）推移（cpuPercent, systemCpuPercent）
+     - インスタンスサイズ適正化サマリーテーブル（コンテナ別 Max/Avg メモリ% & MB、Max CPU Peak %）
   7. **Gemini GenAI 利用状況 & コスト**: `LlmEvent` のトークン消費、推定コスト（USD）、レスポンス時間。
   8. **ML 価格推定 & お宝物件**: `MlInferenceEvent` の推定件数、割安物件検知数。
   9. **外形監視 & ログ**: `SyntheticCheck` の可用性、直近のエラーログ（`Log`）。

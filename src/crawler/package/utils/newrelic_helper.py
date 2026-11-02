@@ -663,6 +663,22 @@ def record_container_sample(
     except Exception as e:
         logger.warning(f"Failed to append concurrency attributes to ContainerSample: {e}")
 
+    try:
+        from package.utils.container_sizing import calculate_container_recommendations
+        rec = calculate_container_recommendations(
+            cpu_peak_percent=params.get("cpuPercent", 0.0),
+            mem_max_mb=params.get("memoryUsageMb", 0.0),
+            current_mem_mb=params.get("memoryLimitMb", 3072.0),
+        )
+        params["recCpuCores"] = rec["recommended_cpu_cores"]
+        params["recCpuCoresStr"] = rec["recommended_cpu_cores_str"]
+        params["recMemoryMb"] = rec["recommended_memory_mb"]
+        params["recMemoryStr"] = rec["recommended_memory_str"]
+        params["recTaskCount"] = rec["recommended_task_count"]
+        params["recTaskCountStr"] = rec["recommended_task_count_str"]
+    except Exception as e:
+        logger.warning(f"Failed to calculate container recommendations: {e}")
+
     params.update({
         "containerName": app_name,
         "containerId": os.getenv("HOSTNAME", "unknown"),

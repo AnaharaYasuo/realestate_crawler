@@ -325,28 +325,28 @@ def build_dashboard_create_payload(
         },
         # Row 10: Container CPU & Instance Sizing Assessment
         {
-            "title": "Container Cumulative CPU Time (Seconds)",
+            "title": "Container Minute CPU Usage % (Process & System)",
             "layout": {"column": 1, "row": 28, "width": 6, "height": 3},
             "configuration": {
                 "line": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT max(cpuUsageSeconds) AS 'CPU Seconds' FROM ContainerSample FACET containerName SINCE 7 days ago TIMESERIES",
+                            "query": "SELECT average(cpuPercent) AS 'Process CPU % (毎分平均)', max(cpuPercent) AS 'Process CPU Peak % (瞬間ピーク)', average(systemCpuPercent) AS 'System Total CPU % (全体負荷)' FROM ContainerSample FACET containerName SINCE 24 hours ago TIMESERIES 1 minute",
                         }
                     ]
                 }
             },
         },
         {
-            "title": "Instance Sizing & Resource Utilization Summary (Last 7 Days)",
+            "title": "Instance Sizing & Dynamic Recommendation Summary (Last 7 Days)",
             "layout": {"column": 7, "row": 28, "width": 6, "height": 3},
             "configuration": {
                 "table": {
                     "nrqlQueries": [
                         {
                             "accountId": account_id,
-                            "query": "SELECT max(memoryPercent) AS 'Max Mem %', average(memoryPercent) AS 'Avg Mem %', max(memoryUsageMb) AS 'Max Mem MB', average(memoryLimitMb) AS 'Limit MB', max(cpuUsageSeconds) AS 'Max CPU Sec' FROM ContainerSample FACET containerName SINCE 7 days ago",
+                            "query": "SELECT max(cpuPercent) AS 'Peak CPU %', max(memoryPercent) AS 'Peak Mem %', max(memoryUsageMb) AS 'Peak Mem MB', latest(recCpuCoresStr) AS '推奨CPU', latest(recMemoryStr) AS '推奨メモリ', latest(recTaskCountStr) AS '推奨コンテナ台数' FROM ContainerSample FACET containerName SINCE 7 days ago",
                         }
                     ]
                 }
