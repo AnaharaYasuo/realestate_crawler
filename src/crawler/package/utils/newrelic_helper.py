@@ -551,6 +551,29 @@ def _read_network_metrics(target_pid: int | None = None) -> dict[str, Any]:
     return net_info
 
 
+
+def _calculate_network_rates(cur_recv: int, cur_sent: int) -> tuple[float, float]:
+    """Calculate delta network receive and send rates in KB/s."""
+    global _last_net_bytes_recv, _last_net_bytes_sent, _last_net_wall_time
+    recv_rate_kbps = 0.0
+    sent_rate_kbps = 0.0
+    now_wall = time.monotonic()
+
+    with _net_sample_lock:
+        if _last_net_wall_time is not None and _last_net_bytes_recv is not None and _last_net_bytes_sent is not None:
+            dt = now_wall - _last_net_wall_time
+            if dt > 0.05:
+                delta_recv = max(0, cur_recv - _last_net_bytes_recv)
+                delta_sent = max(0, cur_sent - _last_net_bytes_sent)
+                recv_rate_kbps = round((delta_recv / dt) / 1024.0, 2)
+                sent_rate_kbps = round((delta_sent / dt) / 1024.0, 2)
+        _last_net_bytes_recv = cur_recv
+        _last_net_bytes_sent = cur_sent
+        _last_net_wall_time = now_wall
+
+    return recv_rate_kbps, sent_rate_kbps
+
+
 def collect_hardware_resource_metrics(target_pid: int | None = None) -> dict[str, Any]:
     """Collect unified CPU, memory, network, thread, child-process, and DB metrics."""
     mem_usage_bytes, mem_limit_bytes = _read_cgroup_memory()
@@ -570,25 +593,10 @@ def collect_hardware_resource_metrics(target_pid: int | None = None) -> dict[str
     cpu_data = _read_cpu_metrics(target_pid=target_pid)
     net_data = _read_network_metrics(target_pid=target_pid)
 
-    global _last_net_bytes_recv, _last_net_bytes_sent, _last_net_wall_time
-    recv_rate_kbps = 0.0
-    sent_rate_kbps = 0.0
-    now_wall = time.monotonic()
-
-    with _net_sample_lock:
-        cur_recv = net_data.get("netBytesRecv", 0)
-        cur_sent = net_data.get("netBytesSent", 0)
-        if _last_net_wall_time is not None and _last_net_bytes_recv is not None and _last_net_bytes_sent is not None:
-            dt = now_wall - _last_net_wall_time
-            if dt > 0.05:
-                delta_recv = max(0, cur_recv - _last_net_bytes_recv)
-                delta_sent = max(0, cur_sent - _last_net_bytes_sent)
-                recv_rate_kbps = round((delta_recv / dt) / 1024.0, 2)
-                sent_rate_kbps = round((delta_sent / dt) / 1024.0, 2)
-        _last_net_bytes_recv = cur_recv
-        _last_net_bytes_sent = cur_sent
-        _last_net_wall_time = now_wall
-
+    recv_rate_kbps, sent_rate_kbps = _calculate_network_rates(
+        net_data.get("netBytesRecv", 0),
+        net_data.get("netBytesSent", 0),
+    )
     net_data["netRecvRateKbps"] = recv_rate_kbps
     net_data["netSentRateKbps"] = sent_rate_kbps
 
