@@ -200,7 +200,7 @@ def test_multi_perspective_appraisal_and_mansion_review():
     }
 
     with patch("package.ml.appraisal_context.fetch_mansion_review_data", return_value=mock_mr_data):
-        ctx = build_appraisal_context(eval_rec, prop, ptype_jp="中古マンション")
+        ctx = build_appraisal_context(prop, ptype_jp="中古マンション")
         assert ctx["prefecture"] == "東京都"
         assert ctx["city"] == "品川区"
         assert ctx["mansion_review"] is not None

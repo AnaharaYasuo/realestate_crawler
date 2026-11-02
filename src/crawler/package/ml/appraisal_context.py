@@ -21,7 +21,7 @@ from package.ml.mansion_review import fetch_mansion_review_data
 logger = logging.getLogger(__name__)
 
 
-def build_appraisal_context(eval_rec, prop, ptype_jp: str) -> dict[str, Any]:
+def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:
     """
     対象物件および周辺・外部の基礎客観データを収集・統合する。
     """
@@ -39,7 +39,7 @@ def build_appraisal_context(eval_rec, prop, ptype_jp: str) -> dict[str, Any]:
 
     # 4. 周辺基準地価・路線価・固定資産税評価目安
     max_youseki = float(getattr(prop, "floor_area_ratio", None) or getattr(prop, "youseki", 200.0) or 200.0)
-    avg_lp, est_rosenka, est_fixed, lp_growth = blend_land_prices(pref, city, max_youseki)
+    avg_lp, est_rosenka, _, lp_growth = blend_land_prices(pref, city, max_youseki)
 
     # 5. マンションレビュー過去取引事例（マンション種別限定）
     mansion_review_data = None
@@ -72,36 +72,23 @@ def format_appraisal_context_text(ctx: dict[str, Any]) -> str:
     """
     収集した基礎情報をプロンプト注入用のテキストセクションに整形する。
     """
-    lines = []
-    lines.append("【公的・客観的基礎データ】")
-
-    # 地域・人口
-    lines.append(
+    lines = [
+        "【公的・客観的基礎データ】",
         f"・自治体マクロ指標 ({ctx.get('prefecture', '')} {ctx.get('city', '')}): "
         f"人口増減率 {ctx.get('population_growth_rate', 0.0):.2f}% / 平均所得 {ctx.get('average_income', 0)}万円 / "
-        f"人口密度 {ctx.get('population_density', 0.0):.0f}人/km2"
-    )
-
-    # 駅
-    lines.append(
+        f"人口密度 {ctx.get('population_density', 0.0):.0f}人/km2",
         f"・駅ポテンシャル ({ctx.get('station', '-') or '最寄り駅'}): "
-        f"推計日次乗降客数 {ctx.get('passenger_volume', 10000):,}人"
-    )
-
-    # 地価・路線価
-    lines.append(
+        f"推計日次乗降客数 {ctx.get('passenger_volume', 10000):,}人",
         f"・周辺公的基準地価指標: 平均地価 {ctx.get('average_land_price_sqm', 0):,}円/m2 "
         f"(想定路線価 {ctx.get('estimated_rosenka_price_sqm', 0):,}円/m2、地価動向 {ctx.get('land_price_growth_rate', 0.0):+.2f}%)"
-    )
+    ]
 
-    # ハザード
     fl_lvl = ctx.get("flood_risk_level", 0)
     ls_lvl = ctx.get("landslide_risk_level", 0)
     flood_desc = "低（区域外または軽微）" if fl_lvl <= 1 else f"警戒レベル{fl_lvl}（浸水想定・内水リスクあり）"
     ls_desc = "低（区域外）" if ls_lvl <= 1 else f"警戒レベル{ls_lvl}（急傾斜地・土砂災害警戒区域あり）"
     lines.append(f"・国交省ハザードリスク指標: 浸水リスク={flood_desc} / 土砂災害リスク={ls_desc}")
 
-    # マンションレビュー
     mr = ctx.get("mansion_review")
     if mr:
         mr_lines = []

@@ -457,7 +457,7 @@ def generate_professional_and_danchou_report(
 
     report_data = None
     # 2. 地域・駅・ハザード・マンションレビュー等の客観的基礎データを統合収集 (Issue #1197)
-    appraisal_ctx = build_appraisal_context(eval_rec, prop, ptype_jp)
+    appraisal_ctx = build_appraisal_context(prop, ptype_jp)
 
     if api_key:
         prompt = _build_rag_prompt(
