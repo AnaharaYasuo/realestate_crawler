@@ -7,11 +7,11 @@ from django.db import migrations, models
 def add_columns_if_not_exists(apps, schema_editor):
     table_name = "package_propertyevaluation"
     columns = [
-        ("area_evaluation", "LONGTEXT DEFAULT ''"),
-        ("station_evaluation", "LONGTEXT DEFAULT ''"),
-        ("hazard_evaluation", "LONGTEXT DEFAULT ''"),
-        ("property_spec_evaluation", "LONGTEXT DEFAULT ''"),
-        ("mansion_market_evaluation", "LONGTEXT DEFAULT ''"),
+        ("area_evaluation", "LONGTEXT NULL"),
+        ("station_evaluation", "LONGTEXT NULL"),
+        ("hazard_evaluation", "LONGTEXT NULL"),
+        ("property_spec_evaluation", "LONGTEXT NULL"),
+        ("mansion_market_evaluation", "LONGTEXT NULL"),
     ]
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
