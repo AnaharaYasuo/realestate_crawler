@@ -172,17 +172,20 @@ def _call_gemini_api(model_name: str, api_key: str, prompt: str) -> dict[str, An
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        match = re.search(r"(\{[^}]*\})", text)
-        if not match:
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
-        if match:
-            return json.loads(match.group(1))
-    except (RuntimeError, ValueError, OSError, IndexError) as e:
-        logger.warning("Gemini generation failed for %s: %s", model_name, e)
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            match = re.search(r"(\{[^}]*\})", text)
+            if not match:
+                match = re.search(r"(\{.*\})", text, re.DOTALL)
+            if match:
+                return json.loads(match.group(1))
+        except (RuntimeError, ValueError, OSError, IndexError) as e:
+            logger.warning("Gemini generation failed for %s (attempt %d/2): %s", model_name, attempt + 1, e)
+            if attempt == 0:
+                time.sleep(1.5)
     return None
 
 
@@ -465,9 +468,15 @@ def generate_professional_and_danchou_report(
             site_text=site_text,
             appraisal_ctx=appraisal_ctx
         )
-        report_data = _call_gemini_api(model_name, api_key, prompt)
-        if not report_data and model_name != "gemini-2.5-flash":
-            report_data = _call_gemini_api("gemini-2.5-flash", api_key, prompt)
+        models_to_try = [model_name, 'gemini-3.5-flash-lite', 'gemini-3.5-flash']
+        seen_models = set()
+        for m in models_to_try:
+            if not m or m in seen_models:
+                continue
+            seen_models.add(m)
+            report_data = _call_gemini_api(m, api_key, prompt)
+            if report_data:
+                break
 
     if not report_data:
         # 中身の伴わない固定フォールバックは生成・保存しない（Issue #1191）
