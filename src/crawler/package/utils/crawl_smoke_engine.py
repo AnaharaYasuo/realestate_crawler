@@ -62,7 +62,7 @@ PLAYWRIGHT_JOB_BUDGET_SEC = 70.0
 MIZUHO_JOB_BUDGET_SEC = 50.0
 # Sumusite list+detail under static∥PW load; keep headroom past Chromium wind-down.
 SEKISUI_JOB_BUDGET_SEC = 90.0
-ATHOME_INVEST_JOB_BUDGET_SEC = 110.0
+ATHOME_INVEST_JOB_BUDGET_SEC = 130.0
 PLAYWRIGHT_COMPANIES = frozenset({"athome", "mizuho", "sekisui"})
 
 _REPROS_HOST = "phfudousan.repros.jp"
