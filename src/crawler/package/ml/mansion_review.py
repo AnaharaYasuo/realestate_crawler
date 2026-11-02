@@ -26,12 +26,11 @@ _HEADERS = {
 def _clean_mansion_name(mansion_name: str) -> str:
     """マンション名から部屋番号・階数等のノイズを除去して正規化する。"""
     # 全角スペース・半角スペースの統一
-    name = re.sub(r'[ \t\u3000]+', ' ', mansion_name).strip()
-    # 部屋番号や号室、階数を除去（線形正規表現）
-    name = re.sub(r'\s*\d+号室$', '', name)
-    name = re.sub(r'\s*\d+[fF]$', '', name)
-    name = re.sub(r'\s*\d+階$', '', name)
-    return name.strip()
+    name = re.sub(r"[ \t\u3000]+", " ", mansion_name).strip()
+    # 部屋番号や号室、階数を除去（末尾の数字+単位、S8786回避のため空白非包含）
+    name = re.sub(r"\d+号室$", "", name).strip()
+    name = re.sub(r"\d+[fF階]$", "", name).strip()
+    return name
 
 
 def _search_mansion_detail_url(clean_name: str, timeout: int) -> str | None:
@@ -52,6 +51,15 @@ def _search_mansion_detail_url(clean_name: str, timeout: int) -> str | None:
     return None
 
 
+def _parse_first_int_from_pattern(text: str, pattern: str) -> int | None:
+    """テキストから正規表現パターンに合致する数値を整数として抽出する。"""
+    m = re.search(pattern, text)
+    if not m:
+        return None
+    raw = m.group(1).replace(",", "")
+    return int(raw) if raw.isdigit() else None
+
+
 def _extract_mansion_metrics(dsoup: BeautifulSoup) -> tuple[int | None, int | None, int | None]:
     """詳細ページから推定適正価格、相場坪単価、相場m2単価を抽出する。"""
     tekisei_price = None
@@ -59,38 +67,39 @@ def _extract_mansion_metrics(dsoup: BeautifulSoup) -> tuple[int | None, int | No
     sqm_price = None
 
     for text in dsoup.stripped_strings:
-        if "推定適正価格" in text and "万円" in text and not tekisei_price:
-            m = re.search(r"推定適正価格\s*([0-9,]+)\s*万円", text)
-            if m:
-                raw = m.group(1).replace(",", "")
-                tekisei_price = int(raw) if raw.isdigit() else None
-        if "推定相場坪単価" in text and "万円" in text and not tsubo_price:
-            m = re.search(r"推定相場坪単価\s*([0-9,]+)\s*万円", text)
-            if m:
-                raw = m.group(1).replace(",", "")
-                tsubo_price = int(raw) if raw.isdigit() else None
-        if "推定相場㎡単価" in text and "万円" in text and not sqm_price:
-            m = re.search(r"推定相場[㎡m2]+単価\s*([0-9,]+)\s*万円", text)
-            if m:
-                raw = m.group(1).replace(",", "")
-                sqm_price = int(raw) if raw.isdigit() else None
+        if "万円" not in text:
+            continue
+        if not tekisei_price and "推定適正価格" in text:
+            tekisei_price = _parse_first_int_from_pattern(text, r"推定適正価格\s*([0-9,]+)\s*万円")
+        if not tsubo_price and "推定相場坪単価" in text:
+            tsubo_price = _parse_first_int_from_pattern(text, r"推定相場坪単価\s*([0-9,]+)\s*万円")
+        if not sqm_price and "推定相場" in text and ("坪単価" not in text):
+            sqm_price = _parse_first_int_from_pattern(text, r"推定相場[㎡m2]+単価\s*([0-9,]+)\s*万円")
 
     return tekisei_price, tsubo_price, sqm_price
 
 
+def _extract_single_history_row(tr: Any) -> str | None:
+    """テーブル行から過去販売事例文字列を生成する。"""
+    cols = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
+    if len(cols) < 5:
+        return None
+    valid_cols = [c for c in cols[:7] if c and c != "-"]
+    return " | ".join(valid_cols) if valid_cols else None
+
+
 def _extract_history_samples(dsoup: BeautifulSoup) -> list[str]:
     """詳細ページから過去販売事例テーブルの要約を抽出する。"""
-    history_rows = []
     for table in dsoup.find_all("table"):
         ttext = table.get_text()
         if "販売価格" in ttext and ("専有面積" in ttext or "階" in ttext):
-            for tr in table.find_all("tr")[1:5]:
-                cols = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
-                if len(cols) >= 5:
-                    history_rows.append(" | ".join([c for c in cols[:7] if c and c != "-"]))
-            if history_rows:
-                break
-    return history_rows[:3]
+            rows = [
+                row for tr in table.find_all("tr")[1:5]
+                if (row := _extract_single_history_row(tr)) is not None
+            ]
+            if rows:
+                return rows[:3]
+    return []
 
 
 def fetch_mansion_review_data(mansion_name: str, timeout: int = 5) -> dict[str, Any] | None:
