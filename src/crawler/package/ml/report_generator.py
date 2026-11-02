@@ -425,10 +425,12 @@ def generate_professional_and_danchou_report(
             report_data = _call_gemini_api("gemini-2.5-flash", api_key, prompt)
 
     if not report_data:
-        report_data = _generate_fallback_report(
-            matched_kb, ptype_jp, asking_price_man, pred_price, sekisan_price, far_slack, address,
-            prop=prop, site_text=site_text
+        # 中身の伴わない固定フォールバックは生成・保存しない（Issue #1191）
+        logger.warning(
+            "Gemini API generation unavailable (e.g. billing not active). Skipping dummy fallback report for %s",
+            eval_rec.property_url
         )
+        return None
 
     _persist_report(eval_rec, report_data, far_slack)
     return report_data

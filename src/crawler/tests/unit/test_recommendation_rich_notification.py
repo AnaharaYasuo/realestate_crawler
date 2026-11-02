@@ -1,3 +1,4 @@
+from unittest.mock import patch
 # -*- coding: utf-8 -*-
 from scripts.ops.send_recommendations import _build_recommendation_msg, _format_access_and_area
 
@@ -61,12 +62,21 @@ def test_build_recommendation_msg_rich_content():
     prop = MockPropMsg()
     eval_rec = MockEvalMsg()
 
-    msg = _build_recommendation_msg(
-        eval_rec=eval_rec,
-        prop=prop,
-        reason="【市場予測価格より 26.3% 割安（投資お宝物件！）】",
-        p_name=prop.propertyName
-    )
+    mock_ai = {
+        "investment_rating": "A",
+        "ai_evaluation_summary": "八王子駅徒歩6分、積算価格対比割安。",
+        "highest_and_best_use": "最有効使用・容積余力ポテンシャルの最大化",
+        "danchou_comment": "元祖・狼旅団 団長の辛口実戦目利き：即買い付け推奨。",
+        "ai_positive_points": "好立地",
+        "ai_negative_points": "築古"
+    }
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), patch("package.ml.report_generator._call_gemini_api", return_value=mock_ai):
+        msg = _build_recommendation_msg(
+            eval_rec=eval_rec,
+            prop=prop,
+            reason="【市場予測価格より 26.3% 割安（投資お宝物件！）】",
+            p_name=prop.propertyName
+        )
 
     # 1. ヘッダー・割安度
     assert "サンライズ八王子 (一棟アパート)" in msg
