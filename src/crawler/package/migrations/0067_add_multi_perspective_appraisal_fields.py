@@ -1,53 +1,62 @@
 # Generated for Issue #1197 on 2026-11-02
 # 冪等性を備えたカラム追加マイグレーション（すでにカラムが存在する場合は安全にスキップ）
-
 from django.db import migrations, models
 
 
 def add_columns_if_not_exists(apps, schema_editor):
-    table_name = "package_propertyevaluation"
-    columns = [
-        ("area_evaluation", "LONGTEXT NULL"),
-        ("station_evaluation", "LONGTEXT NULL"),
-        ("hazard_evaluation", "LONGTEXT NULL"),
-        ("property_spec_evaluation", "LONGTEXT NULL"),
-        ("mansion_market_evaluation", "LONGTEXT NULL"),
-    ]
-    with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT COLUMN_NAME
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
-            """,
-            [table_name],
-        )
-        existing_cols = {row[0] for row in cursor.fetchall()}
+    PropertyEvaluation = apps.get_model("package", "PropertyEvaluation")
+    table_name = PropertyEvaluation._meta.db_table
 
-        for col_name, col_def in columns:
+    with schema_editor.connection.cursor() as cursor:
+        table_list = schema_editor.connection.introspection.get_table_list(cursor)
+        existing_tables = {t.name for t in table_list}
+        if table_name not in existing_tables:
+            return
+
+        existing_cols = {
+            col.name
+            for col in schema_editor.connection.introspection.get_table_description(cursor, table_name)
+        }
+
+        # エンジンに応じた型指定
+        is_mysql = schema_editor.connection.vendor == "mysql"
+        text_type = "LONGTEXT" if is_mysql else "TEXT"
+
+        columns = [
+            ("area_evaluation", text_type),
+            ("station_evaluation", text_type),
+            ("hazard_evaluation", text_type),
+            ("property_spec_evaluation", text_type),
+            ("mansion_market_evaluation", text_type),
+        ]
+
+        for col_name, col_type in columns:
             if col_name not in existing_cols:
-                cursor.execute(f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {col_def};")
+                cursor.execute(f"ALTER TABLE `{table_name}` ADD COLUMN `{col_name}` {col_type} NULL;")
 
 
 def remove_columns_if_exists(apps, schema_editor):
-    table_name = "package_propertyevaluation"
-    columns = [
-        "area_evaluation",
-        "station_evaluation",
-        "hazard_evaluation",
-        "property_spec_evaluation",
-        "mansion_market_evaluation",
-    ]
+    PropertyEvaluation = apps.get_model("package", "PropertyEvaluation")
+    table_name = PropertyEvaluation._meta.db_table
+
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT COLUMN_NAME
-            FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
-            """,
-            [table_name],
-        )
-        existing_cols = {row[0] for row in cursor.fetchall()}
+        table_list = schema_editor.connection.introspection.get_table_list(cursor)
+        existing_tables = {t.name for t in table_list}
+        if table_name not in existing_tables:
+            return
+
+        existing_cols = {
+            col.name
+            for col in schema_editor.connection.introspection.get_table_description(cursor, table_name)
+        }
+
+        columns = [
+            "area_evaluation",
+            "station_evaluation",
+            "hazard_evaluation",
+            "property_spec_evaluation",
+            "mansion_market_evaluation",
+        ]
 
         for col_name in columns:
             if col_name in existing_cols:
@@ -66,7 +75,7 @@ class Migration(migrations.Migration):
                 migrations.AddField(
                     model_name='propertyevaluation',
                     name='area_evaluation',
-                    field=models.TextField(blank=True, default='', verbose_name='地域・需給評価'),
+                    field=models.TextField(blank=True, default='', verbose_name='地域の需給評価'),
                 ),
                 migrations.AddField(
                     model_name='propertyevaluation',
