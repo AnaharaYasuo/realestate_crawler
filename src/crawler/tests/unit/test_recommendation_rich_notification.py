@@ -90,7 +90,7 @@ def test_build_recommendation_msg_rich_content():
     assert "最寄り駅: 京王線 京王八王子駅 徒歩6分" in msg
 
     # 3. プロ鑑定レポート ＆ 団長講評
-    assert "プロフェッショナル物件評価レポート" in msg
+    assert "プロフェッショナル多面鑑定評価レポート" in msg
     assert "最有効使用・容積余力ポテンシャル" in msg
     assert "元祖・狼旅団 団長の辛口実戦目利き" in msg
     assert "詳細URL: https://example.com/sunrise-hachioji" in msg

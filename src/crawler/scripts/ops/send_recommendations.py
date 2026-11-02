@@ -342,17 +342,33 @@ def _build_recommendation_msg(eval_rec, prop, reason: str, p_name: str) -> str:
 
     # プロ鑑定 ＆ 団長目利きセクション（AIレポートが存在する場合のみ追加）
     if report_data:
-        summary = report_data.get("ai_evaluation_summary", "")
+        area_eval = report_data.get("area_evaluation", "")
+        station_eval = report_data.get("station_evaluation", "")
+        hazard_eval = report_data.get("hazard_evaluation", "")
+        prop_eval = report_data.get("property_evaluation", "")
+        mr_eval = report_data.get("mansion_market_evaluation", "")
         hbu = report_data.get("highest_and_best_use", "")
         dancho = report_data.get("danchou_comment", "")
         pos = report_data.get("ai_positive_points", "")
         neg = report_data.get("ai_negative_points", "")
+        summary = report_data.get("ai_evaluation_summary", "")
 
-        msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📑 プロフェッショナル物件評価レポート\n"
-        if summary:
+        msg += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n📑 プロフェッショナル多面鑑定評価レポート\n"
+        if area_eval:
+            msg += f"\n🌍 [1. 地域・立地需給評価]\n{area_eval}\n"
+        if station_eval:
+            msg += f"\n🚉 [2. 駅力・交通アクセス評価]\n{station_eval}\n"
+        if mr_eval and mr_eval.strip():
+            msg += f"\n🏢 [3. マンションレビュー過去取引・相場分析]\n{mr_eval}\n"
+        if hazard_eval:
+            msg += f"\n🌊 [4. 防災・地盤・ハザード分析]\n{hazard_eval}\n"
+        if prop_eval:
+            msg += f"\n🏗 [5. 物件スペック・価格歪み分析]\n{prop_eval}\n"
+        elif summary and not area_eval:
             msg += f"\n【AI総括サマリー】\n{summary}\n"
+            
         if hbu:
-            msg += f"\n🏛 [最有効使用・容積余力ポテンシャル]\n{hbu}\n"
+            msg += f"\n🏛 [最有効使用・出口戦略]\n{hbu}\n"
         if dancho:
             msg += f"\n🐺 [元祖・狼旅団 団長の辛口実戦目利き]\n{dancho}\n"
         if pos:
