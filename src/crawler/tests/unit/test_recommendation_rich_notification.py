@@ -70,7 +70,7 @@ def test_build_recommendation_msg_rich_content():
         "ai_positive_points": "好立地",
         "ai_negative_points": "築古"
     }
-    with patch("package.ml.report_generator._call_gemini_api", return_value=mock_ai):
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), patch("package.ml.report_generator._call_gemini_api", return_value=mock_ai):
         msg = _build_recommendation_msg(
             eval_rec=eval_rec,
             prop=prop,
