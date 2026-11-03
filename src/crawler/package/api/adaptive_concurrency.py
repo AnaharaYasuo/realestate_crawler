@@ -51,9 +51,14 @@ class AdaptiveConcurrencyController:
     def calculate_detail_concurrency(cls, active_jobs: int | None = None) -> int:
         """
         アクティブジョブ数に基づいて1ジョブあたりの詳細並行度を計算。
-        環境変数 CLOUD_DETAIL_CONCURRENCY が設定されている場合は最優先。
+        クラウド/ローカル環境に応じて個別の環境変数を優先参照する。
         """
-        env_limit = os.getenv("DETAIL_CONCURRENCY") or os.getenv("CLOUD_DETAIL_CONCURRENCY")
+        from package.utils.crawl_jobs import is_cloud_environment
+
+        if is_cloud_environment():
+            env_limit = os.getenv("CLOUD_DETAIL_CONCURRENCY") or os.getenv("DETAIL_CONCURRENCY")
+        else:
+            env_limit = os.getenv("LOCAL_DETAIL_CONCURRENCY") or os.getenv("DETAIL_CONCURRENCY")
         if env_limit and env_limit.isdigit() and int(env_limit) > 0:
             return int(env_limit)
 
