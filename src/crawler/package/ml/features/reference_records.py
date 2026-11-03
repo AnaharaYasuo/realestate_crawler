@@ -60,3 +60,49 @@ class MacroEconomicRecord:
     nikkei_225: float | None
     tse_reit_index: float | None
     construction_cost_index: float | None
+
+
+@dataclass(slots=True, frozen=True)
+class MunicipalFutureRecord:
+    prefecture: str
+    city: str
+    target_year: int
+    projected_population: int
+    pop_change_rate_from_2020: float
+    working_age_ratio: float
+    elderly_ratio: float
+    projected_households: int | None
+    single_household_ratio: float | None
+
+
+@dataclass(slots=True, frozen=True)
+class MunicipalYearlyRecord:
+    prefecture: str
+    city: str
+    year: int
+    total_population: int | None
+    population_growth_rate: float
+    average_income: int
+    income_growth_rate: float | None
+    income_3y_cagr: float | None
+    population_density: float | None
+
+
+@dataclass(slots=True, frozen=True)
+class StationYearlyRecord:
+    station_name: str
+    railway_line: str
+    year: int
+    passenger_volume: int
+    volume_yoy_growth: float | None
+    volume_3y_cagr: float | None
+
+
+@dataclass(slots=True, frozen=True)
+class UrbanInductionZoneRecord:
+    prefecture: str
+    city: str
+    town_name: str
+    is_urban_induction_zone: bool
+    is_residential_induction_zone: bool
+    plan_status: str
