@@ -43,7 +43,7 @@ def test_adaptive_concurrency_allocation_by_active_jobs():
 
 def test_cloud_detail_concurrency_env_overrides():
     """環境変数 CLOUD_DETAIL_CONCURRENCY が設定されている場合は優先されること"""
-    with patch.dict(os.environ, {"CLOUD_DETAIL_CONCURRENCY": "7"}):
+    with patch.dict(os.environ, {"CLOUD_DETAIL_CONCURRENCY": "7", "IS_CLOUD": "true"}):
         assert AdaptiveConcurrencyController.calculate_detail_concurrency(active_jobs=1) == 7
         assert AdaptiveConcurrencyController.calculate_detail_concurrency(active_jobs=8) == 7
 

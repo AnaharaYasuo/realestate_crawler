@@ -4,6 +4,8 @@ Resource limiter and dynamic concurrency calculation based on available machine/
 import logging
 import os
 
+from package.utils.crawl_jobs import is_cloud_environment
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +96,37 @@ def detect_available_memory_mb() -> int | None:
     return min(candidates) if candidates else None
 
 
+def _resolve_concurrency_env() -> tuple[int | None, int | None]:
+    """Resolve parallel and playwright parallel from environment variables."""
+    if is_cloud_environment():
+        raw_p = os.getenv("CLOUD_CRAWLER_PARALLEL") or os.getenv("CRAWLER_PARALLEL")
+        raw_pw = os.getenv("CLOUD_CRAWLER_PLAYWRIGHT_PARALLEL") or os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
+    else:
+        raw_p = os.getenv("LOCAL_CRAWLER_PARALLEL") or os.getenv("CRAWLER_PARALLEL")
+        raw_pw = os.getenv("LOCAL_CRAWLER_PLAYWRIGHT_PARALLEL") or os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
+
+    p = int(raw_p) if (raw_p and raw_p.isdigit() and int(raw_p) > 0) else None
+    pw = int(raw_pw) if (raw_pw and raw_pw.isdigit() and int(raw_pw) >= 0) else None
+    return p, pw
+
+
+def _determine_memory_tier_defaults(
+    avail_mb: int | None,
+    default_p: int,
+    default_pw: int,
+) -> tuple[int, int, str]:
+    """Determine safe default concurrency and tier name based on available memory."""
+    if avail_mb is None:
+        return default_p, default_pw, "Undetermined"
+    if avail_mb < 512:
+        return 0, 0, "CriticalMemory (<512MB)"
+    if avail_mb <= 4096:
+        return 3, 1, "LowMemory (<=4GB)"
+    if avail_mb <= 8192:
+        return 5, 2, "MediumMemory (<=8GB)"
+    return default_p, default_pw, "HighMemory (>8GB)"
+
+
 def get_resource_aware_concurrency(
     default_parallel: int = 7,
     default_playwright_parallel: int = 3,
@@ -103,41 +136,16 @@ def get_resource_aware_concurrency(
     Returns:
         (parallel, playwright_parallel, reason_str)
     """
-    raw_parallel = os.getenv("CRAWLER_PARALLEL")
-    raw_pw_parallel = os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
-
-    has_env_parallel = bool(raw_parallel and raw_parallel.isdigit() and int(raw_parallel) > 0)
-    has_env_pw_parallel = bool(raw_pw_parallel and raw_pw_parallel.isdigit() and int(raw_pw_parallel) >= 0)
-
+    env_p, env_pw = _resolve_concurrency_env()
     avail_mb = detect_available_memory_mb()
+    safe_p, safe_pw, tier = _determine_memory_tier_defaults(
+        avail_mb, default_parallel, default_playwright_parallel
+    )
 
-    # Determine safe defaults from resource limits
-    if avail_mb is not None:
-        if avail_mb < 512:
-            safe_p = 0
-            safe_pw = 0
-            tier = "CriticalMemory (<512MB)"
-        elif avail_mb <= 4096:
-            safe_p = 3
-            safe_pw = 1
-            tier = "LowMemory (<=4GB)"
-        elif avail_mb <= 8192:
-            safe_p = 5
-            safe_pw = 2
-            tier = "MediumMemory (<=8GB)"
-        else:
-            safe_p = default_parallel
-            safe_pw = default_playwright_parallel
-            tier = "HighMemory (>8GB)"
-    else:
-        safe_p = default_parallel
-        safe_pw = default_playwright_parallel
-        tier = "Undetermined"
+    p = env_p if env_p is not None else safe_p
+    pw = env_pw if env_pw is not None else safe_pw
 
-    p = int(raw_parallel) if has_env_parallel else safe_p
-    pw = int(raw_pw_parallel) if has_env_pw_parallel else safe_pw
-
-    if has_env_parallel or has_env_pw_parallel:
+    if env_p is not None or env_pw is not None:
         reason = f"Detected available memory: {avail_mb}MB ({tier}), but overridden by environment variables (parallel={p}, playwright_parallel={pw})"
     else:
         reason = f"Detected available memory: {avail_mb}MB ({tier}). Applied safe concurrency (parallel={p}, playwright_parallel={pw})"
