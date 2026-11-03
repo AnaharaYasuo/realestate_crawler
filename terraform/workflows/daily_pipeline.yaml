@@ -159,28 +159,10 @@ main:
         except:
           as: pipelineError
           steps:
-            - stopProxySQLOnError:
-                try:
-                  call: googleapis.compute.v1.instances.stop
-                  args:
-                    project: ${projectId}
-                    zone: ${zone}
-                    instance: ${proxysqlInstance}
-                except:
-                  as: stopErr
-                  steps:
-                    - logStopError:
-                        assign:
-                          - ignoredStopErr: ${stopErr}
+            # ProxySQL 停止は個別のジョブ安全ガード (_can_stop_shared_proxysql)
+            # および定期 Safety-Net (ensure_resources_stopped.py) に委譲 (Issue #1216)
             - rethrowPipelineError:
                 raise: ${pipelineError}
-
-    - stopProxySQLOnSuccess:
-        call: googleapis.compute.v1.instances.stop
-        args:
-          project: ${projectId}
-          zone: ${zone}
-          instance: ${proxysqlInstance}
 
     - checkFinalStatus:
         switch:

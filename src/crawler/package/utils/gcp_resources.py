@@ -932,7 +932,13 @@ def has_active_other_cloud_run_executions(
     project_id: str | None = None,
     region: str | None = None,
     current_execution_id: str | None = None,
-    job_prefixes: tuple[str, ...] = ("realestate-crawler-pipeline", "realestate-ml-pipeline"),
+    job_prefixes: tuple[str, ...] = (
+        "realestate-crawler-pipeline",
+        "realestate-ml-pipeline",
+        "realestate-crawler-dispatcher",
+        "realestate-recrawl-anomalies",
+        "realestate-migrate",
+    ),
     get_token_callback: Callable[[], str | None] | None = None,
 ) -> bool:
     """自実行以外の Cloud Run ジョブが実行中 (未完了) かどうかを判定する。

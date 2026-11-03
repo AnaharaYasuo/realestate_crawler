@@ -29,6 +29,7 @@ def test_ml_pipeline_execution_and_mig_stop():
     with patch.object(run_ml_pipeline, "verify_barrier_completion") as mock_barrier, \
          patch.object(run_ml_pipeline, "send_aggregated_crawl_report") as mock_report, \
          patch.object(run_ml_pipeline, "run_command") as mock_run_cmd, \
+         patch.object(run_ml_pipeline, "_can_stop_shared_proxysql", return_value=True), \
          patch.object(run_ml_pipeline, "scale_proxysql_mig") as mock_scale:
 
         mock_barrier.return_value = (True, [])
@@ -50,6 +51,7 @@ def test_ml_pipeline_stops_mig_even_on_failure():
     with patch.object(run_ml_pipeline, "verify_barrier_completion") as mock_barrier, \
          patch.object(run_ml_pipeline, "send_aggregated_crawl_report"), \
          patch.object(run_ml_pipeline, "run_command") as mock_run_cmd, \
+         patch.object(run_ml_pipeline, "_can_stop_shared_proxysql", return_value=True), \
          patch.object(run_ml_pipeline, "scale_proxysql_mig") as mock_scale:
 
         mock_barrier.return_value = (True, [])
