@@ -72,7 +72,7 @@ def test_hang_kill_terminates_process_group():
 
 
 def test_daily_pipeline_yaml_structure_and_cleanup():
-    """daily_pipeline.yaml が存在し、正常時・異常時の両方で確実に ProxySQL が停止される構文であること."""
+    """daily_pipeline.yaml が存在し、無条件なProxySQL停止を行わず個別ガードまたはSafety-Netへ委譲する構造であること (Issue #1216)."""
     import yaml
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     yaml_path = os.path.join(repo_root, "terraform", "workflows", "daily_pipeline.yaml")
@@ -95,14 +95,13 @@ def test_daily_pipeline_yaml_structure_and_cleanup():
     assert "try" in try_step
     assert "except" in try_step
 
-    # except に stopProxySQLOnError が存在することを検証
+    # Issue #1216: 並列実行時の道連れ切断事故を防ぐため、Workflows は無条件に stopProxySQLOnError / stopProxySQLOnSuccess を呼ばない
     except_steps = try_step["except"]["steps"]
     stop_on_err = any("stopProxySQLOnError" in s for s in except_steps)
-    assert stop_on_err is True, "stopProxySQLOnError must be defined in except block to ensure teardown on error"
+    assert stop_on_err is False, "stopProxySQLOnError should be removed in favor of safe teardown and Safety-Net (Issue #1216)"
 
-    # 正常系フロー末尾に stopProxySQLOnSuccess が存在することを検証
     stop_on_succ = any("stopProxySQLOnSuccess" in s for s in main_steps)
-    assert stop_on_succ is True, "stopProxySQLOnSuccess must be defined in main steps for clean teardown"
+    assert stop_on_succ is False, "stopProxySQLOnSuccess should be removed in favor of safe teardown and Safety-Net (Issue #1216)"
 
 
 def test_daily_pipeline_crawler_failure_resilience():
