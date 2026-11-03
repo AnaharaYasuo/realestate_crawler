@@ -100,7 +100,7 @@ invest_kodate:
 mansion:
   title: "h1"
   property_links: ".item_title a[href*='/mansion/id/']"
-  region_links: ".searchSelectTabFrame a"
+  region_links: ".searchSelectTabFrame a, .c_selection_list a"
   area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
@@ -133,7 +133,7 @@ mansion:
 kodate:
   title: "h1"
   property_links: ".item_title a[href*='/house/id/']"
-  region_links: ".searchSelectTabFrame a"
+  region_links: ".searchSelectTabFrame a, .c_selection_list a"
   area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
@@ -162,7 +162,7 @@ kodate:
 tochi:
   title: "h1"
   property_links: ".item_title a[href*='/land/id/']"
-  region_links: ".searchSelectTabFrame a"
+  region_links: ".searchSelectTabFrame a, .c_selection_list a"
   area_links: ".item_subarea a, ul.item_subareas a, .c_selection_list a"
   next_page: "li.skin_next a, a.next"
   price: ".price, .item_price, #kakaku_kakaku"
