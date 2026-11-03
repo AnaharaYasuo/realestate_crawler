@@ -47,7 +47,7 @@ class TestLocalDockerCrawlerConfig(unittest.TestCase):
             self.assertEqual(concurrency, 3)
 
     def test_adaptive_concurrency_fallback_to_cloud_env(self):
-        with patch.dict(os.environ, {"CLOUD_DETAIL_CONCURRENCY": "6"}, clear=True):
+        with patch.dict(os.environ, {"CLOUD_DETAIL_CONCURRENCY": "6", "IS_CLOUD": "true"}, clear=True):
             concurrency = AdaptiveConcurrencyController.calculate_detail_concurrency(active_jobs=1)
             self.assertEqual(concurrency, 6)
 

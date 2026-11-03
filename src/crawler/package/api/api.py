@@ -90,8 +90,15 @@ _local_worker_executor_lock = threading.Lock()
 
 
 def _get_local_worker_concurrency() -> int:
+    from package.utils.crawl_jobs import is_cloud_environment
+
+    if is_cloud_environment():
+        env_val = os.getenv("CLOUD_CRAWLER_LOCAL_WORKER_CONCURRENCY") or os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "3")
+    else:
+        env_val = os.getenv("LOCAL_CRAWLER_LOCAL_WORKER_CONCURRENCY") or os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "3")
+
     try:
-        val = int(os.getenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "3"))
+        val = int(env_val)
         return val if val > 0 else 3
     except (ValueError, TypeError):
         return 3

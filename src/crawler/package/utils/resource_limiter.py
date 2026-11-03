@@ -4,6 +4,8 @@ Resource limiter and dynamic concurrency calculation based on available machine/
 import logging
 import os
 
+from package.utils.crawl_jobs import is_cloud_environment
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,8 +105,12 @@ def get_resource_aware_concurrency(
     Returns:
         (parallel, playwright_parallel, reason_str)
     """
-    raw_parallel = os.getenv("CRAWLER_PARALLEL")
-    raw_pw_parallel = os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
+    if is_cloud_environment():
+        raw_parallel = os.getenv("CLOUD_CRAWLER_PARALLEL") or os.getenv("CRAWLER_PARALLEL")
+        raw_pw_parallel = os.getenv("CLOUD_CRAWLER_PLAYWRIGHT_PARALLEL") or os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
+    else:
+        raw_parallel = os.getenv("LOCAL_CRAWLER_PARALLEL") or os.getenv("CRAWLER_PARALLEL")
+        raw_pw_parallel = os.getenv("LOCAL_CRAWLER_PLAYWRIGHT_PARALLEL") or os.getenv("CRAWLER_PLAYWRIGHT_PARALLEL")
 
     has_env_parallel = bool(raw_parallel and raw_parallel.isdigit() and int(raw_parallel) > 0)
     has_env_pw_parallel = bool(raw_pw_parallel and raw_pw_parallel.isdigit() and int(raw_pw_parallel) >= 0)
