@@ -130,6 +130,16 @@ resource "google_cloud_run_v2_job" "crawler_pipeline_job" {
           }
         }
 
+        env {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gemini_api_key_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
+
         # Slack チャンネル設定
         env {
           name  = "SLACK_CHANNEL_ID"
@@ -335,6 +345,16 @@ resource "google_cloud_run_v2_job" "resource_safety_net_job" {
             }
           }
         }
+
+        env {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gemini_api_key_secret.secret_id
+              version = "latest"
+            }
+          }
+        }
         env {
           name  = "SLACK_ALERT_PROPERTY_ALERT"
           value = "property_alert"
@@ -502,6 +522,7 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
     google_compute_subnetwork.subnet,
     google_secret_manager_secret_version.db_password_version,
     google_secret_manager_secret_version.slack_bot_token_version,
+    google_secret_manager_secret_version.gemini_api_key_version,
     google_secret_manager_secret_iam_member.secret_accessor
   ]
 
@@ -620,6 +641,16 @@ resource "google_cloud_run_v2_job" "ml_pipeline_job" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gemini_api_key_secret.secret_id
               version = "latest"
             }
           }
@@ -762,6 +793,16 @@ resource "google_cloud_run_v2_job" "recrawl_anomalies_job" {
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.slack_bot_token.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "GEMINI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.gemini_api_key_secret.secret_id
               version = "latest"
             }
           }

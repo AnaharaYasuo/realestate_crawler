@@ -57,6 +57,49 @@ def test_format_access_and_area():
     assert "土地: 120㎡" in area
     assert "建物: 100㎡" in area
 
+
+def test_format_access_with_bus():
+    """バス利用情報が含まれる場合のアクセス表記整形テスト (Issue #1225)"""
+    class MockBusProp:
+        railway1 = "中央線"
+        station1 = "三鷹"
+        busUse1 = 1
+        busWalkMinute1Str = "25"
+        busWalkMinute1 = 25
+        busStation1 = "中原三丁目"
+        railwayWalkMinute1Str = "1"
+        traffic = ""
+        senyuMensekiStr = "72.79㎡"
+        tochiMensekiStr = ""
+        tatemonoMensekiStr = ""
+
+    prop = MockBusProp()
+    access, area = _format_access_and_area(prop)
+    assert access == "中央線 三鷹 バス25分(停 中原三丁目) 徒歩1"
+    assert "専有: 72.79㎡" in area
+
+
+def test_appraisal_context_cache_and_income_format():
+    """AI鑑定コンテキストのキャッシュ初期化および平均所得フォーマットテスト (Issue #1225)"""
+    from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
+
+    class DummyProp:
+        address1 = "東京都"
+        address2 = "世田谷区南烏山"
+        station1 = "芦花公園"
+        company = "livable"
+
+    prop = DummyProp()
+    ctx = build_appraisal_context(prop, "戸建（投資用）")
+    assert ctx["prefecture"] == "東京都"
+    assert ctx["city"] == "世田谷区"
+
+    formatted = format_appraisal_context_text(ctx)
+    # 平均所得が3000万円（デフォルト）や5600万円（未換算）ではなく、現実的な500万円台として整形されていること
+    assert "平均所得 560万円" in formatted or "平均所得 300万円" in formatted
+    assert "平均所得 3000万円" not in formatted
+    assert "平均所得 5600万円" not in formatted
+
 def test_build_recommendation_msg_rich_content():
     """刷新された通知メッセージに所在地、駅、3面価格、割安額、プロ鑑定、団長目利きが含まれることの検証"""
     prop = MockPropMsg()

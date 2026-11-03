@@ -238,16 +238,43 @@ def _get_target_slack_channel(eval_rec, prop, p_name: str) -> str:
 
     return os.getenv("SLACK_RECOMMEND_CHANNEL_ID") or os.getenv("SLACK_DEV_CHANNEL") or "dev-agent"
 
+def _format_single_access(prop, index: int) -> str:
+    r = clean_val(getattr(prop, f"railway{index}", ""))
+    s = clean_val(getattr(prop, f"station{index}", ""))
+    w = clean_val(getattr(prop, f"railwayWalkMinute{index}Str", ""))
+    if s == "-":
+        return ""
+
+    transit_parts = []
+    if r != "-":
+        transit_parts.append(r)
+    transit_parts.append(s)
+
+    bus_use = getattr(prop, f"busUse{index}", 0)
+    bus_min = clean_val(getattr(prop, f"busWalkMinute{index}Str", ""))
+    if bus_min == "-":
+        bus_min = clean_val(getattr(prop, f"busWalkMinute{index}", ""))
+    bus_stop = clean_val(getattr(prop, f"busStation{index}", ""))
+
+    if bus_use and bus_min != "-":
+        bus_desc = f"バス{bus_min}分"
+        if bus_stop != "-":
+            bus_desc += f"(停 {bus_stop})"
+        transit_parts.append(bus_desc)
+
+    if w != "-":
+        transit_parts.append(f"徒歩{w}" if not str(w).startswith("徒歩") else str(w))
+
+    return " ".join(transit_parts).strip()
+
+
 def _format_access_and_area(prop) -> tuple:
     # 複数路線・最寄り駅の包括的フォールバック抽出
     access_parts = []
     for i in range(1, 4):
-        r = clean_val(getattr(prop, f"railway{i}", ""))
-        s = clean_val(getattr(prop, f"station{i}", ""))
-        w = clean_val(getattr(prop, f"railwayWalkMinute{i}Str", ""))
-        if s != "-":
-            part = f"{r} {s} 徒歩{w}" if w != "-" else f"{r} {s}"
-            access_parts.append(part.strip())
+        part = _format_single_access(prop, i)
+        if part:
+            access_parts.append(part)
 
     if access_parts:
         access = " / ".join(access_parts)

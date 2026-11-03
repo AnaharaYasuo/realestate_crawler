@@ -25,6 +25,7 @@ resource "google_secret_manager_secret_iam_member" "secret_accessor" {
     slack_bot             = google_secret_manager_secret.slack_bot_token.secret_id
     slack_app             = google_secret_manager_secret.slack_app_token.secret_id
     new_relic_license_key = google_secret_manager_secret.new_relic_license_key.secret_id
+    gemini_api_key        = google_secret_manager_secret.gemini_api_key_secret.secret_id
   }
 
   project   = var.project_id
