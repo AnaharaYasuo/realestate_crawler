@@ -5,6 +5,9 @@ from package.models.evaluation import MacroEconomicIndex
 from package.ml.features import build_features, FEATURE_SETS, _init_global_caches
 
 
+pytestmark = pytest.mark.django_db
+
+
 @pytest.fixture(autouse=True)
 def setup_macro_data():
     """マクロ経済指標のテストデータをセットアップ"""

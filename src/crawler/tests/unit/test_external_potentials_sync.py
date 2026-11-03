@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.django_db
 # -*- coding: utf-8 -*-
 """
 外部データ同期および特徴量連携の単体テスト (test_external_potentials_sync.py)
