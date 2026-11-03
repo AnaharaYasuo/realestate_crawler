@@ -99,6 +99,21 @@ class ReguideInvestmentParser(InvestmentParser):
         except (ValueError, TypeError):
             return None
 
+    def _extract_detail_url_from_card(self, card: BeautifulSoup) -> str | None:
+        """一覧カードから投資用物件の詳細URLを抽出して検証する"""
+        a_tag = card.select_one("a[href*='/investment/']")
+        if not a_tag or not a_tag.get("href"):
+            return None
+        abs_url = urllib.parse.urljoin(self.BASE_URL, a_tag["href"])
+        parsed = urllib.parse.urlparse(abs_url)
+        if (
+            parsed.scheme in ("http", "https")
+            and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
+            and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
+        ):
+            return abs_url
+        return None
+
     async def parseRootPage(self, response: BeautifulSoup):
         """
         一覧ページのSoupから詳細ページのListItem(url, price)を順次yieldする。
@@ -108,21 +123,12 @@ class ReguideInvestmentParser(InvestmentParser):
 
         if container:
             for card in container.select("li"):
-                a_tag = card.select_one("a[href*='/investment/']")
-                if not a_tag or not a_tag.get("href"):
+                abs_url = self._extract_detail_url_from_card(card)
+                if not abs_url or abs_url in seen_urls:
                     continue
-                abs_url = urllib.parse.urljoin(self.BASE_URL, a_tag["href"])
-                parsed = urllib.parse.urlparse(abs_url)
-                if (
-                    parsed.scheme in ("http", "https")
-                    and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
-                    and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
-                ):
-                    if abs_url in seen_urls:
-                        continue
-                    seen_urls.add(abs_url)
-                    price = self._extract_card_price(card)
-                    yield ListItem(url=abs_url, price=price)
+                seen_urls.add(abs_url)
+                price = self._extract_card_price(card)
+                yield ListItem(url=abs_url, price=price)
 
         # カード走査で拾えなかった残りの詳細URLをextract_detail_urlsで補完
         for url in self.extract_detail_urls(response):
