@@ -57,3 +57,9 @@ def test_teardown_calls_scaling_when_guard_returns_true(monkeypatch):
                 run_ml_pipeline.main()
 
         mock_scale.assert_called_once_with(target_size=0, dry_run=True)
+
+def test_can_stop_shared_proxysql_returns_false_when_is_cloud_false(monkeypatch):
+    """IS_CLOUD=false や 0 の場合も停止をスキップすること"""
+    for val in ("false", "0", "no", "FALSE"):
+        monkeypatch.setenv("IS_CLOUD", val)
+        assert run_ml_pipeline._can_stop_shared_proxysql() is False

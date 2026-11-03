@@ -195,7 +195,8 @@ def send_aggregated_crawl_report(
 
 
 def _can_stop_shared_proxysql() -> bool:
-    if not os.environ.get("IS_CLOUD"):
+    is_cloud_val = os.environ.get("IS_CLOUD", "").strip().lower()
+    if not is_cloud_val or is_cloud_val in ("false", "0", "no"):
         logger.info(
             "Teardown Guard: Skipping shared ProxySQL teardown on non-cloud (local) environment"
         )

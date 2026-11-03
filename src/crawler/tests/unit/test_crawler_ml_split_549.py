@@ -338,6 +338,8 @@ def ml_main(monkeypatch):
     monkeypatch.setattr(run_ml_pipeline, "verify_barrier_completion", lambda: calls.append("barrier") or (False, ["3"]))
     monkeypatch.setattr(run_ml_pipeline, "send_aggregated_crawl_report", lambda *a, **kw: calls.append("report"))
     monkeypatch.setattr(run_ml_pipeline, "scale_proxysql_mig", lambda target_size, dry_run: calls.append(f"scale:{target_size}"))
+    # Issue #1216: テスト内で停止フックを通過させるため IS_CLOUD と _can_stop_shared_proxysql をモック
+    monkeypatch.setattr(run_ml_pipeline, "_can_stop_shared_proxysql", lambda: True)
     return calls
 
 
