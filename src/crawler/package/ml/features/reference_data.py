@@ -277,7 +277,7 @@ def _init_global_caches(force_refresh: bool = False) -> None:
             )
             _caches_initialized = True
         except Exception as e:
-            logger.debug("ML: _init_global_caches skipped or failed (e.g. unmocked unit test DB): %s", e)
+            logger.warning("ML: _init_global_caches failed to load potential caches (falling back): %s", e)
             return
 
     if loaded:
