@@ -10,6 +10,8 @@ from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
 DIGIT_REGEX = re.compile(r"(\d+)")
+ALLOWED_DOMAIN = "re-guide.jp"
+ALLOWED_SUBDOMAIN = ".re-guide.jp"
 
 
 class ReguideInvestmentParser(InvestmentParser):
@@ -41,7 +43,7 @@ class ReguideInvestmentParser(InvestmentParser):
         parsed = urllib.parse.urlparse(url)
         return (
             parsed.scheme in ("http", "https")
-            and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+            and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
         )
 
     async def parseNextPage(self, response: BeautifulSoup) -> str:
@@ -67,45 +69,46 @@ class ReguideInvestmentParser(InvestmentParser):
             break
         return ""
 
+    @staticmethod
+    def _extract_price_text_from_table(price_table: BeautifulSoup) -> str:
+        ths = [th.get_text(strip=True) for th in price_table.select("th")]
+        tds = price_table.select("td")
+        for th, td in zip(ths, tds):
+            if "価格" in th:
+                return td.get_text(strip=True)
+        return tds[0].get_text(strip=True) if tds else ""
+
     def _extract_card_price(self, card: BeautifulSoup) -> int | None:
         """一覧カードから価格を抽出し、整数円またはNoneを返す"""
         price_table = card.select_one("table.price")
-        price_text = ""
-        if price_table:
-            # table.price tr th/td から「価格」に対応するセルを探す
-            ths = [th.get_text(strip=True) for th in price_table.select("th")]
-            tds = price_table.select("td")
-            for th, td in zip(ths, tds):
-                if "価格" in th:
-                    price_text = td.get_text(strip=True)
-                    break
-            if not price_text and tds:
-                price_text = tds[0].get_text(strip=True)
+        price_text = self._extract_price_text_from_table(price_table) if price_table else ""
         if not price_text:
             price_el = card.select_one(".price, [class*='price']")
             if price_el:
                 price_text = price_el.get_text(strip=True)
 
-        if price_text:
-            parsed = converter.parse_price(price_text)
-            if parsed is not None:
-                try:
-                    val = int(parsed)
-                    if val > 0:
-                        return val
-                except (ValueError, TypeError):
-                    pass
-        return None
+        if not price_text:
+            return None
+
+        parsed = converter.parse_price(price_text)
+        if parsed is None:
+            return None
+        try:
+            val = int(parsed)
+            return val if val > 0 else None
+        except (ValueError, TypeError):
+            return None
 
     async def parseRootPage(self, response: BeautifulSoup):
         """
         一覧ページのSoupから詳細ページのListItem(url, price)を順次yieldする。
         """
         container = response.select_one("ul#result_list")
-        cards = container.select("li") if container else []
+        if not container:
+            return
 
         seen_urls: set[str] = set()
-        for card in cards:
+        for card in container.select("li"):
             a_tag = card.select_one("a[href*='/investment/']")
             if not a_tag or not a_tag.get("href"):
                 continue
@@ -113,7 +116,7 @@ class ReguideInvestmentParser(InvestmentParser):
             parsed = urllib.parse.urlparse(abs_url)
             if (
                 parsed.scheme in ("http", "https")
-                and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+                and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
                 and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
             ):
                 if abs_url in seen_urls:
@@ -335,7 +338,7 @@ class ReguideInvestmentParser(InvestmentParser):
             parsed = urllib.parse.urlparse(abs_url)
             if (
                 parsed.scheme in ("http", "https")
-                and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+                and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
                 and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
             ):
                 urls.add(abs_url)
