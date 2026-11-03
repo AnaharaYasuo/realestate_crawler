@@ -67,12 +67,65 @@ class ReguideInvestmentParser(InvestmentParser):
             break
         return ""
 
+    def _extract_card_price(self, card: BeautifulSoup) -> int | None:
+        """一覧カードから価格を抽出し、整数円またはNoneを返す"""
+        price_table = card.select_one("table.price")
+        price_text = ""
+        if price_table:
+            # table.price tr th/td から「価格」に対応するセルを探す
+            ths = [th.get_text(strip=True) for th in price_table.select("th")]
+            tds = price_table.select("td")
+            for th, td in zip(ths, tds):
+                if "価格" in th:
+                    price_text = td.get_text(strip=True)
+                    break
+            if not price_text and tds:
+                price_text = tds[0].get_text(strip=True)
+        if not price_text:
+            price_el = card.select_one(".price, [class*='price']")
+            if price_el:
+                price_text = price_el.get_text(strip=True)
+
+        if price_text:
+            parsed = converter.parse_price(price_text)
+            if parsed is not None:
+                try:
+                    val = int(parsed)
+                    if val > 0:
+                        return val
+                except (ValueError, TypeError):
+                    pass
+        return None
+
     async def parseRootPage(self, response: BeautifulSoup):
         """
-        一覧ページのSoupから詳細ページのListItemを順次yieldする。
+        一覧ページのSoupから詳細ページのListItem(url, price)を順次yieldする。
         """
-        for url in self.extract_detail_urls(response):
-            yield ListItem(url=url)
+        container = response.select_one("ul#result_list")
+        cards = container.select("li") if container else []
+
+        seen_urls: set[str] = set()
+        for card in cards:
+            a_tag = card.select_one("a[href*='/investment/']")
+            if not a_tag or not a_tag.get("href"):
+                continue
+            abs_url = urllib.parse.urljoin(self.BASE_URL, a_tag["href"])
+            parsed = urllib.parse.urlparse(abs_url)
+            if (
+                parsed.scheme in ("http", "https")
+                and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+                and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
+            ):
+                if abs_url in seen_urls:
+                    continue
+                seen_urls.add(abs_url)
+                price = self._extract_card_price(card)
+                yield ListItem(url=abs_url, price=price)
+
+        # フォールバック: カードから1件も抽出できなかった場合
+        if not seen_urls:
+            for url in self.extract_detail_urls(response):
+                yield ListItem(url=url)
 
     def createEntity(self):
         """
