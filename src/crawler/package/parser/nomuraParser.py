@@ -314,15 +314,23 @@ class NomuraParser(InvestmentParser):
         links_selector = self.selectors.get('property_links', "a[href*='/pro/bukken_local_id/']")
         if hasattr(response, 'select'):
             elements = response.select(links_selector)
+            # Fallback if specific item_title selector returned nothing on non-standard page
+            if not elements and ".item_title" in links_selector:
+                fallback_selector = links_selector.replace(".item_title ", "")
+                elements = response.select(fallback_selector)
         else:
             xpath = self.selectors.get('property_links_xpath', "//a[contains(@href, '/pro/bukken_local_id/')] | //a[contains(@href, '/mansion/') and contains(@href, '/id/')]")
             elements = response.xpath(xpath)
 
+        seen_urls: set[str] = set()
         for link in elements:
             href = link.get("href")
             if href and not href.startswith("#") and not href.startswith(JAVASCRIPT_PREFIX) and "/library/" not in href:
                 href = href.split("?")[0]
                 if href.startswith("/"): href = NOMU_BASE_URL + href
+                if href in seen_urls:
+                    continue
+                seen_urls.add(href)
                 price = self._extract_card_price(link)
                 yield ListItem(url=href, price=price)
 
@@ -405,7 +413,7 @@ class NomuraParser(InvestmentParser):
     _MUNICIPALITY_AREA_RE = re.compile(r"/(?:mansion|house|land)/area_[a-z]+/\d{5}/?$")
 
     @classmethod
-    def _extract_filtered_area_urls(cls, elements) -> list[str]:
+    def _extract_filtered_area_urls(cls, elements, target_pref: str = "") -> list[str]:
         raw_urls: list[str] = []
         seen: set[str] = set()
         for link in elements:
@@ -424,10 +432,16 @@ class NomuraParser(InvestmentParser):
                 seen.add(href)
                 raw_urls.append(href)
 
+        if target_pref:
+            pref_pattern = re.compile(rf"/(?:mansion|house|land)/area_{target_pref}/\d{{5}}/?$")
+            pref_muni_urls = [u for u in raw_urls if pref_pattern.search(u)]
+            if pref_muni_urls:
+                return pref_muni_urls
+
         muni_urls = [u for u in raw_urls if cls._MUNICIPALITY_AREA_RE.search(u)]
         return muni_urls if muni_urls else raw_urls
 
-    async def parseAreaPage(self, response: BeautifulSoup):
+    async def parseAreaPage(self, response: BeautifulSoup, current_url: str = ""):
         if hasattr(response, 'select'):
             selector = self.selectors.get('area_links', ".c_selection_list a")
             elements = response.select(selector)
@@ -435,10 +449,16 @@ class NomuraParser(InvestmentParser):
             xpath = self.selectors.get('area_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
             elements = response.xpath(xpath)
 
-        for url in self._extract_filtered_area_urls(elements):
+        target_pref = ""
+        if current_url:
+            m_pref = re.search(r"area_([a-z]+)", current_url)
+            if m_pref:
+                target_pref = m_pref.group(1)
+
+        for url in self._extract_filtered_area_urls(elements, target_pref=target_pref):
             yield url
 
-    async def parseRegionPage(self, response: BeautifulSoup):
+    async def parseRegionPage(self, response: BeautifulSoup, current_url: str = ""):
         if hasattr(response, 'select'):
             selector = self.selectors.get('region_links', ".c_selection_list a")
             elements = response.select(selector)
@@ -446,7 +466,13 @@ class NomuraParser(InvestmentParser):
             xpath = self.selectors.get('region_links_xpath', "//div[contains(@class, 'c_selection_list')]//a")
             elements = response.xpath(xpath)
 
-        for url in self._extract_filtered_area_urls(elements):
+        target_pref = ""
+        if current_url:
+            m_pref = re.search(r"area_([a-z]+)", current_url)
+            if m_pref:
+                target_pref = m_pref.group(1)
+
+        for url in self._extract_filtered_area_urls(elements, target_pref=target_pref):
             yield url
 
 
