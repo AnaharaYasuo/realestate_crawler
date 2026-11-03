@@ -253,23 +253,27 @@ def get_root_parent(eval_rec: PropertyEvaluation) -> PropertyEvaluation:
     return curr
 
 
-def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None) -> PropertyEvaluation | None:
+def find_duplicate_property(new_eval: PropertyEvaluation, new_prop=None, candidate_pool: list[PropertyEvaluation] | None = None) -> PropertyEvaluation | None:
     """
     新しく登録された PropertyEvaluation に対して、DB内に同一とみなせる類似物件レコードが存在するか検索する。
+    - candidate_pool が指定されている場合は外部から一括プリフェッチされたプールを利用して超高速判定（DBクエリゼロ）。
     - 登録日時が若いもの（PropertyEvaluation.id が小さい方）を常に親とし、大きい方を子とする。
     - 既に子であるレコードはルート親へ解消して直結（Flattening）し、多段チェーンおよび循環参照を防止する。
     """
-    qs = PropertyEvaluation.objects.filter(property_type=new_eval.property_type)
-    if new_eval.id is not None:
-        qs = qs.filter(id__lt=new_eval.id)
-    try:
-        candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
-    except OperationalError:
-        close_old_connections()
-        candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
+    if candidate_pool is not None:
+        candidates = [c for c in candidate_pool if c.property_type == new_eval.property_type and (new_eval.id is None or c.id < new_eval.id)][:50]
+    else:
+        qs = PropertyEvaluation.objects.filter(property_type=new_eval.property_type)
+        if new_eval.id is not None:
+            qs = qs.filter(id__lt=new_eval.id)
+        try:
+            candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
+        except OperationalError:
+            close_old_connections()
+            candidates = list(qs.select_related("duplicate_of").order_by("-id")[:50])
 
-    if candidates:
-        _prefetch_real_properties(candidates)
+        if candidates:
+            _prefetch_real_properties(candidates)
 
     for cand in candidates:
         similarity = calculate_property_similarity(new_eval, cand, prop_a=new_prop)

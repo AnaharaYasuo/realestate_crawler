@@ -33,6 +33,7 @@ def evaluate_single_model(
     force: bool,
     limit_per_model: int | None,
     batch_size: int = 1000,
+    reevaluate_before: Any = None,
 ) -> tuple[int, int, int, int]:
     """単一モデルの物件群をストリーミング評価（スレッドセーフ）"""
     close_old_connections()
@@ -50,6 +51,7 @@ def evaluate_single_model(
             force=force,
             limit=limit_per_model,
             chunk_size=batch_size,
+            reevaluate_before=reevaluate_before,
         )
         for chunk, skipped_in_chunk in chunk_iter:
             total_skipped += skipped_in_chunk
@@ -112,14 +114,15 @@ def run_bulk_evaluation(
     limit_per_model: int | None = None,
     skip_portals: bool = False,
     skip_uncrawled: bool = False,
+    reevaluate_before: Any = None,
 ) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
     batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s)...",
+        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -143,6 +146,8 @@ def run_bulk_evaluation(
         skip_suffix += " [ポータル割愛]"
     if skip_uncrawled:
         skip_suffix += " [未巡回・中堅仲介割愛]"
+    if reevaluate_before is not None:
+        skip_suffix += f" [再評価対象: < {reevaluate_before}]"
 
     slack_notifier(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
@@ -155,7 +160,7 @@ def run_bulk_evaluation(
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
-            executor.submit(single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size): m
+            executor.submit(single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before): m
             for m in models
         }
         for future in as_completed(future_to_model):

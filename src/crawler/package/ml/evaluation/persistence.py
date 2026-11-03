@@ -14,7 +14,7 @@ from package.models.evaluation import PropertyEvaluation
 
 BASE_UPDATE_FIELDS = (
     "company", "property_type", "property_id", "first_stage_predicted_price",
-    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
+    "is_first_stage_passed", "analysis_status", "analyzed_at", "duplicate_of", "is_slack_notified",
     "monthly_land_rent", "land_rent_liability",
     "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
     "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
@@ -46,9 +46,12 @@ def bulk_update_evaluation_records(
     if not valid_updates:
         return
 
-    update_fields = list(BASE_UPDATE_FIELDS)
-    if "investment" in property_type or "invest" in property_type:
-        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
+    update_fields = [
+        "first_stage_predicted_price",
+        "is_first_stage_passed",
+        "analysis_status",
+        "analyzed_at",
+    ]
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
@@ -102,16 +105,36 @@ def save_chunk(
     property_type: str,
     batch_size: int,
 ) -> tuple[int, int]:
-    """チャンク内の物件を評価しDBに一括保存する（新規作成と更新を分離処理）"""
+    """チャンク内の物件を評価しDBに一括保存する（新規作成と更新を分離処理・重複候補一括プリフェッチ）"""
     records_to_create = []
     records_to_update = []
     chunk_passed = 0
     chunk_duplicates = 0
 
+    # 一括プリフェッチ: チャンク内の最小IDより前の候補を1回のクエリで取得し、実物件データも一括キャッシュ
+    from package.utils.deduplication import _prefetch_real_properties
+    candidate_pool = None
+    existing_ids = [e.id for e in existing_eval_map.values() if e and e.id is not None]
+    if existing_ids:
+        min_id = min(existing_ids)
+        try:
+            candidate_pool = list(
+                PropertyEvaluation.objects.filter(property_type=property_type, id__lt=min_id)
+                .select_related("duplicate_of")
+                .order_by("-id")[:100]
+            )
+            if candidate_pool:
+                _prefetch_real_properties(candidate_pool)
+        except Exception as e:
+            logger.debug("Candidate pool prefetch failed: %s", e)
+            candidate_pool = None
+
     for item, price_stage1 in zip(chunk, predicted_prices):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         existing = existing_eval_map.get(page_url)
-        rec, is_new = build_or_update_eval_record(item, price_stage1, existing, company, property_type)
+        rec, is_new = build_or_update_eval_record(
+            item, price_stage1, existing, company, property_type, candidate_pool=candidate_pool
+        )
         if rec.is_first_stage_passed:
             chunk_passed += 1
         if getattr(rec, "duplicate_of_id", None):

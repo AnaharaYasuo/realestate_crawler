@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 """バルクML評価バッチ CLI スクリプト (Option B / Issue #716)"""
 import argparse
+import datetime
 import os
 import sys
 
@@ -9,6 +10,7 @@ _crawler_dir = os.path.dirname(_scripts_dir)
 sys.path.insert(0, _crawler_dir)
 import realestateSettings
 realestateSettings.configure()
+from django.utils import timezone
 
 from package.ml.evaluation.notifications import notify_slack
 from package.ml.evaluation.persistence import bulk_update_evaluation_records, save_chunk
@@ -40,6 +42,7 @@ def run_bulk_evaluation(
     limit_per_model: int | None = None,
     skip_portals: bool = False,
     skip_uncrawled: bool = False,
+    reevaluate_before: datetime.date | datetime.datetime | None = None,
 ) -> None:
     """CLI および外部呼び出し用のバルク評価実行（後方互換 monkeypatch 対応）"""
     import package.ml.evaluation.notifications as notif_mod
@@ -49,13 +52,25 @@ def run_bulk_evaluation(
     runner_mod.evaluate_single_model = getattr(this_mod, "_evaluate_single_model", _evaluate_single_model)
     runner_mod.get_all_property_models = tgts_mod.get_all_property_models = getattr(this_mod, "get_all_property_models", get_all_property_models)
     notif_mod.send_dev_report = getattr(this_mod, "send_dev_report", send_dev_report)
-    _orig_run_bulk_evaluation(force=force, limit_per_model=limit_per_model, skip_portals=skip_portals, skip_uncrawled=skip_uncrawled)
+    _orig_run_bulk_evaluation(
+        force=force,
+        limit_per_model=limit_per_model,
+        skip_portals=skip_portals,
+        skip_uncrawled=skip_uncrawled,
+        reevaluate_before=reevaluate_before,
+    )
 
 def main() -> None:
     """CLI エントリポイント"""
     parser = argparse.ArgumentParser(description="Bulk ML Evaluation Batch")
     parser.add_argument("--force", action="store_true", help="Force re-evaluation of already evaluated properties")
     parser.add_argument("--limit", type=int, default=None, help="Limit properties per model for testing")
+    parser.add_argument(
+        "--before-date",
+        type=str,
+        default=None,
+        help="Re-evaluate properties with analyzed_at before this date (YYYY-MM-DD)",
+    )
     is_cloud = is_cloud_environment()
     parser.add_argument(
         "--skip-portals",
@@ -72,7 +87,22 @@ def main() -> None:
     )
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
     args = parser.parse_args()
-    run_bulk_evaluation(force=args.force, limit_per_model=args.limit, skip_portals=args.skip_portals, skip_uncrawled=args.skip_uncrawled)
+
+    reevaluate_before = None
+    if args.before_date:
+        parsed_d = datetime.date.fromisoformat(args.before_date)
+        # 指定日の 00:00:00 (aware datetime) を閾値とし、それより前に分析されたものを再処理
+        reevaluate_before = timezone.make_aware(
+            datetime.datetime.combine(parsed_d, datetime.time.min)
+        )
+
+    run_bulk_evaluation(
+        force=args.force,
+        limit_per_model=args.limit,
+        skip_portals=args.skip_portals,
+        skip_uncrawled=args.skip_uncrawled,
+        reevaluate_before=reevaluate_before,
+    )
 
 
 if __name__ == "__main__":
