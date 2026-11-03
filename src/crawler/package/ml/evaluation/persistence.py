@@ -32,10 +32,11 @@ EVAL_MAP_FIELDS = (
 
 def bulk_update_evaluation_records(
     records_to_update: list[Any],
-    property_type: str,
-    batch_size: int,
+    property_type: str = "",
+    batch_size: int = 1000,
 ) -> None:
     """更新対象レコードの重複を除去して bulk_update を実行する"""
+    _ = property_type  # backwards compatibility
     valid_updates = []
     seen_pks = set()
     for r in records_to_update:
@@ -97,6 +98,30 @@ def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
                 time.sleep(1.0 * attempt)
 
 
+def _prefetch_candidate_pool(
+    existing_eval_map: dict[str, Any],
+    property_type: str,
+) -> list[PropertyEvaluation] | None:
+    """チャンク内の最小IDより前の重複候補を一括プリフェッチする"""
+    from package.utils.deduplication import _prefetch_real_properties
+    existing_ids = [e.id for e in existing_eval_map.values() if e and e.id is not None]
+    if not existing_ids:
+        return None
+    min_id = min(existing_ids)
+    try:
+        candidate_pool = list(
+            PropertyEvaluation.objects.filter(property_type=property_type, id__lt=min_id)
+            .select_related("duplicate_of")
+            .order_by("-id")[:100]
+        )
+        if candidate_pool:
+            _prefetch_real_properties(candidate_pool)
+        return candidate_pool
+    except Exception as e:
+        logger.debug("Candidate pool prefetch failed: %s", e)
+        return None
+
+
 def save_chunk(
     chunk: list[Any],
     predicted_prices: list[float],
@@ -111,23 +136,7 @@ def save_chunk(
     chunk_passed = 0
     chunk_duplicates = 0
 
-    # 一括プリフェッチ: チャンク内の最小IDより前の候補を1回のクエリで取得し、実物件データも一括キャッシュ
-    from package.utils.deduplication import _prefetch_real_properties
-    candidate_pool = None
-    existing_ids = [e.id for e in existing_eval_map.values() if e and e.id is not None]
-    if existing_ids:
-        min_id = min(existing_ids)
-        try:
-            candidate_pool = list(
-                PropertyEvaluation.objects.filter(property_type=property_type, id__lt=min_id)
-                .select_related("duplicate_of")
-                .order_by("-id")[:100]
-            )
-            if candidate_pool:
-                _prefetch_real_properties(candidate_pool)
-        except Exception as e:
-            logger.debug("Candidate pool prefetch failed: %s", e)
-            candidate_pool = None
+    candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type)
 
     for item, price_stage1 in zip(chunk, predicted_prices):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
