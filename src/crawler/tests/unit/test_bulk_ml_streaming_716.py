@@ -1,3 +1,5 @@
+import pytest
+pytestmark = pytest.mark.django_db
 # -*- coding: utf-8 -*-
 """
 Issue #716 バルクML評価ストリーミングおよび責務分割の単体テスト

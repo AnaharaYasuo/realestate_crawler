@@ -90,7 +90,7 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
 
 
 def _build_rag_prompt(
-    eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float,
+    eval_rec, prop, ptype_jp: str, asking_price_man: int,
     address: str, access: str, matched_kb: list, far_slack: float | None,
     site_text: str = "",
     appraisal_ctx: dict | None = None
@@ -103,9 +103,6 @@ def _build_rag_prompt(
     setsudou = getattr(prop, "setsudou", None) or "-"
     cf_val = getattr(eval_rec, "cash_flow", None) or "-"
     dscr_val = getattr(eval_rec, "dscr", None) or "-"
-    diff_man = int(pred_price - asking_price_man)
-    ratio = round((diff_man / pred_price) * 100.0, 1) if pred_price > 0 else 0.0
-
     kb_context = "\n".join([f"・【{item.get('title')}】\n{item.get('essence')}" for item in matched_kb])
 
     site_info_section = ""
@@ -125,15 +122,15 @@ def _build_rag_prompt(
 """
 
     return f"""あなたは百戦錬磨の不動産鑑定士であり、かつ伝説の不動産投資家『狼旅団の団長（メカ団長）』の直系弟子です。
-以下の割安検出物件について、不動産鑑定評価基準（地域要因・駅ポテンシャル・個別物件スペック・ハザード・過去取引事例）に準拠した
+以下の物件について、不動産鑑定評価基準（地域要因・駅ポテンシャル・個別物件スペック・ハザード・過去取引事例）に準拠した
 精緻な客観分析と、団長の辛口実戦目利きを融合させた最高峰の多面鑑定評価レポートを作成してください。
+※機械学習モデルの推定金額に左右されず、地域の需給・駅力・ハザード・物件固有スペックに基づき独自の定性判断を下してください。
 
 【物件概要】
 ・種別: {ptype_jp}
 ・所在地: {address}
 ・アクセス: {access}
 ・売出価格: {asking_price_man}万円
-・理論予測価格: {int(pred_price)}万円（割安額: {diff_man}万円、割安率: {ratio}%）
 ・積算価格: {int(sekisan_price)}万円
 ・土地面積: {tochi_m2} m2 / 建物面積: {tate_m2} m2 / 築年: {chikunen}
 ・構造: {kouzou} / 接道状況: {setsudou}
@@ -465,7 +462,7 @@ def generate_professional_and_danchou_report(
 
     if api_key:
         prompt = _build_rag_prompt(
-            eval_rec, prop, ptype_jp, asking_price_man, pred_price, address, access, matched_kb, far_slack,
+            eval_rec, prop, ptype_jp, asking_price_man, address, access, matched_kb, far_slack,
             site_text=site_text,
             appraisal_ctx=appraisal_ctx
         )
