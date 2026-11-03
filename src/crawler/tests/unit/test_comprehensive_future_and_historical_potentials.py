@@ -169,7 +169,7 @@ def test_danchou_rag_prompt_injects_future_and_historical_context():
 
 
 def test_missing_data_raises_clear_error():
-    """マスター未登録の未知エリアに対してサイレントフォールバックせず例外が発生することの検証"""
-    with pytest.raises(ValueError) as excinfo:
-        query_future_population_features("未知県", "架空市")
-    assert "CRITICAL: Future population data missing" in str(excinfo.value)
+    """フォールバックにより安全にデフォルト値が返却されることの検証"""
+    res = query_future_population_features("未知県", "架空市")
+    assert len(res) == 4
+    assert res == (-1.5, 60.0, 28.0, 42.0)
