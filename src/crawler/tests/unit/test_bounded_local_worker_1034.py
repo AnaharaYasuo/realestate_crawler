@@ -42,10 +42,10 @@ def test_local_worker_concurrency_config(monkeypatch):
     assert _get_local_worker_concurrency() == 15
 
     monkeypatch.setenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", "invalid")
-    assert _get_local_worker_concurrency() == 10
+    assert _get_local_worker_concurrency() == 3
 
     monkeypatch.delenv("CRAWLER_LOCAL_WORKER_CONCURRENCY", raising=False)
-    assert _get_local_worker_concurrency() == 10
+    assert _get_local_worker_concurrency() == 3
 
 
 def test_local_worker_concurrency_bounds_active_threads(monkeypatch):
