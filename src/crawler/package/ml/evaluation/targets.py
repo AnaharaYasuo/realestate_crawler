@@ -2,6 +2,7 @@
 評価対象モデルおよび未評価物件のストリーミング抽出モジュール (Issue #716, #1160)
 """
 
+import datetime
 import logging
 import time
 from collections.abc import Iterator
@@ -9,6 +10,7 @@ from typing import Any
 
 from django.apps import apps
 from django.db import OperationalError, close_old_connections
+from django.utils import timezone
 from package.ml.constants import COMPANIES
 from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
@@ -28,20 +30,53 @@ def get_all_property_models(skip_portals: bool = False, skip_uncrawled: bool = F
         model_name = model.__name__.lower()
         if any(model_name.startswith(c) for c in target_companies):
             property_models.append(model)
+    # 物件数が多く重要なマンションモデルを最優先で処理するようにソート
+    def _model_sort_priority(m: Any) -> int:
+        name = m.__name__.lower()
+        if "mansion" in name:
+            return 0  # マンション最優先
+        elif "tochi" in name:
+            return 1
+        elif "kodate" in name:
+            return 2
+        return 3
+
+    property_models.sort(key=_model_sort_priority)
     return property_models
 
 
-def _should_skip_item(existing_eval: Any, force: bool) -> bool:
-    """スキップ対象物件か判定する (Cognitive Complexity 分散)"""
+def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = None) -> bool:
+    """スキップ対象物件か判定する (Cognitive Complexity 分散)
+
+    Args:
+        existing_eval: 既存の評価レコード
+        force: 強制全件再評価フラグ
+        reevaluate_before: 指定日時より前の analyzed_at を持つ評価レコードを再処理対象とする
+    """
     if existing_eval and (not getattr(existing_eval, "is_published", True) or getattr(existing_eval, "needs_recrawl", False)):
         return True
-    return bool(not force and existing_eval and existing_eval.first_stage_predicted_price is not None)
+    if force:
+        return False
+    if reevaluate_before is not None:
+        if not isinstance(reevaluate_before, datetime.datetime):
+            reevaluate_before = timezone.make_aware(
+                datetime.datetime.combine(reevaluate_before, datetime.time.min)
+            )
+        analyzed_at = getattr(existing_eval, "analyzed_at", None) if existing_eval else None
+        if analyzed_at is None:
+            # まだ分析されていない（または未評価）場合は再処理対象（スキップしない）
+            return False
+        # 指定日時より古い場合は再処理対象（スキップしない）
+        return analyzed_at >= reevaluate_before
+    # 正常な推計価格（>0）が算出済みの場合はスキップ、未推計または0円なら再推計対象
+    return bool(existing_eval and existing_eval.first_stage_predicted_price is not None and existing_eval.first_stage_predicted_price > 0)
 
 
 def iter_active_items(
     model: Any,
     existing_eval_map: dict[str, Any],
     force: bool = False,
+    reevaluate_before: Any = None,
 ) -> Iterator[tuple[Any, int]]:
     """スキップ判定を通過した物件と、その直前までのスキップ累積数を yield する"""
     skipped_count = 0
@@ -50,7 +85,7 @@ def iter_active_items(
         if not page_url:
             continue
         existing_eval = existing_eval_map.get(page_url)
-        if _should_skip_item(existing_eval, force):
+        if _should_skip_item(existing_eval, force, reevaluate_before=reevaluate_before):
             skipped_count += 1
             continue
         yield item, skipped_count
@@ -95,6 +130,7 @@ def _iter_target_items(
     existing_eval_map: dict[str, Any],
     force: bool,
     fetch_batch_size: int = 2000,
+    reevaluate_before: Any = None,
 ) -> Iterator[tuple[Any | None, int]]:
     """PKベースで未処理対象物件を1件ずつ取得し、(item, skipped_count) を yield する (S3776 分散)"""
     last_pk = 0
@@ -108,7 +144,7 @@ def _iter_target_items(
             page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
             if not page_url:
                 continue
-            if _should_skip_item(existing_eval_map.get(page_url), force):
+            if _should_skip_item(existing_eval_map.get(page_url), force, reevaluate_before=reevaluate_before):
                 yield None, 1
                 continue
             yield item, 0
@@ -120,6 +156,7 @@ def iter_unprocessed_chunks(
     force: bool = False,
     limit: int | None = None,
     chunk_size: int = 1000,
+    reevaluate_before: Any = None,
 ) -> Iterator[tuple[list[Any], int]]:
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
 
@@ -136,9 +173,9 @@ def iter_unprocessed_chunks(
     yielded_total = 0
 
     if _is_real_django_model(model):
-        source_iterator = _iter_target_items(model, existing_eval_map, force)
+        source_iterator = _iter_target_items(model, existing_eval_map, force, reevaluate_before=reevaluate_before)
     else:
-        source_iterator = iter_active_items(model, existing_eval_map, force)
+        source_iterator = iter_active_items(model, existing_eval_map, force, reevaluate_before=reevaluate_before)
 
     for item, skp in source_iterator:
         chunk_skipped += skp

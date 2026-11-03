@@ -4,6 +4,7 @@
 
 from decimal import Decimal
 from typing import Any
+from django.utils import timezone
 
 from package.ml.constants import COMPANIES
 from package.ml.investment_evaluator import evaluate_investment_property
@@ -75,6 +76,7 @@ def build_or_update_eval_record(
     existing: Any,
     company: str,
     property_type: str,
+    candidate_pool: list[Any] | None = None,
 ) -> tuple[Any, bool]:
     """単一物件の評価レコードを生成または更新する"""
     page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
@@ -91,6 +93,7 @@ def build_or_update_eval_record(
         rec.first_stage_predicted_price = price_stage1
         rec.is_first_stage_passed = is_passed
         rec.analysis_status = "pending"
+        rec.analyzed_at = timezone.now()
         rec.monthly_land_rent = monthly_rent
         rec.land_rent_liability = liability
         populate_text_risks(rec, item)
@@ -104,6 +107,7 @@ def build_or_update_eval_record(
             first_stage_predicted_price=price_stage1,
             is_first_stage_passed=is_passed,
             analysis_status="pending",
+            analyzed_at=timezone.now(),
             monthly_land_rent=monthly_rent,
             land_rent_liability=liability,
         )
@@ -111,7 +115,7 @@ def build_or_update_eval_record(
         is_new = True
 
     if is_passed and not rec.duplicate_of_id:
-        dup = find_duplicate_property(rec, new_prop=item)
+        dup = find_duplicate_property(rec, new_prop=item, candidate_pool=candidate_pool)
         if dup:
             rec.duplicate_of = dup
             rec.is_slack_notified = True
