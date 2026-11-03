@@ -659,35 +659,9 @@ def _init_future_and_historical_caches(future_cls, muni_yearly_cls, station_year
     return loaded
 
 
-def query_future_population_features(address1: str, address2: str) -> tuple[float, float, float, float]:
-    """
-    社人研2035年・2050年推計人口・世帯数ポテンシャル特徴量を抽出
-    (future_pop_change_2035, working_age_ratio_2035, elderly_ratio_2035, single_household_ratio_2035)
-    """
-    rec_2035 = _future_pop_cache.get((address1, address2, 2035))
-    if rec_2035:
-        return (
-            float(rec_2035.pop_change_rate_from_2020),
-            float(rec_2035.working_age_ratio),
-            float(rec_2035.elderly_ratio),
-            float(rec_2035.single_household_ratio or 45.0),
-        )
-
-    # 見つからない場合は自治体の2030年または2040年を検索
-    for yr in [2030, 2040, 2025, 2045, 2050]:
-        rec = _future_pop_cache.get((address1, address2, yr))
-        if rec:
-            return (
-                float(rec.pop_change_rate_from_2020),
-                float(rec.working_age_ratio),
-                float(rec.elderly_ratio),
-                float(rec.single_household_ratio or 45.0),
-            )
-
-    # 都道府県平均フォールバック（新設自治体や未分割データへの適応）
+def _get_pref_future_population_fallback(address1: str) -> tuple[float, float, float, float] | None:
     pref_recs = _future_pref_cache.get((address1, 2035), [])
     if not pref_recs and _future_pref_cache:
-        # 他の年度または全国平均から補完
         for (p, y), recs in _future_pref_cache.items():
             if y == 2035 and (p in address1 or address1 in p):
                 pref_recs = recs
@@ -699,6 +673,27 @@ def query_future_population_features(address1: str, address2: str) -> tuple[floa
         avg_eld = sum(float(r.elderly_ratio) for r in pref_recs) / n
         avg_sing = sum(float(r.single_household_ratio or 45.0) for r in pref_recs) / n
         return (avg_change, avg_work, avg_eld, avg_sing)
+    return None
+
+
+def query_future_population_features(address1: str, address2: str) -> tuple[float, float, float, float]:
+    """
+    社人研2035年・2050年推計人口・世帯数ポテンシャル特徴量を抽出
+    (future_pop_change_2035, working_age_ratio_2035, elderly_ratio_2035, single_household_ratio_2035)
+    """
+    for yr in [2035, 2030, 2040, 2025, 2045, 2050]:
+        rec = _future_pop_cache.get((address1, address2, yr))
+        if rec:
+            return (
+                float(rec.pop_change_rate_from_2020),
+                float(rec.working_age_ratio),
+                float(rec.elderly_ratio),
+                float(rec.single_household_ratio or 45.0),
+            )
+
+    pref_fallback = _get_pref_future_population_fallback(address1)
+    if pref_fallback is not None:
+        return pref_fallback
 
     # データベースにデータが存在しないテスト環境用の全国標準フォールバック
     if not _future_pop_cache:

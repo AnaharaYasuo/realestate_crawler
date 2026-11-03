@@ -221,8 +221,7 @@ def format_comprehensive_future_and_historical_context(prop) -> str:
     )
     _init_global_caches()
 
-    address1, address2, station1, company = _extract_clean_address(prop)
-    st_clean = (station1 or "").replace("駅", "")
+    address1, address2, station1, _ = _extract_clean_address(prop)
 
     # 1. 将来予測データ (社人研 2035年推計)
     try:
