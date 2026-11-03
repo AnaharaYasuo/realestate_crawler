@@ -36,7 +36,6 @@ def bulk_update_evaluation_records(
     batch_size: int = 1000,
 ) -> None:
     """更新対象レコードの重複を除去して bulk_update を実行する"""
-    _ = property_type  # backwards compatibility
     valid_updates = []
     seen_pks = set()
     for r in records_to_update:
@@ -47,12 +46,9 @@ def bulk_update_evaluation_records(
     if not valid_updates:
         return
 
-    update_fields = [
-        "first_stage_predicted_price",
-        "is_first_stage_passed",
-        "analysis_status",
-        "analyzed_at",
-    ]
+    update_fields = list(BASE_UPDATE_FIELDS)
+    if "investment" in property_type or "invest" in property_type:
+        update_fields.extend(INVESTMENT_UPDATE_FIELDS)
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:

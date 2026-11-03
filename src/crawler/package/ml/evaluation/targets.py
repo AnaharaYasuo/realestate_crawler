@@ -2,6 +2,7 @@
 評価対象モデルおよび未評価物件のストリーミング抽出モジュール (Issue #716, #1160)
 """
 
+import datetime
 import logging
 import time
 from collections.abc import Iterator
@@ -9,6 +10,7 @@ from typing import Any
 
 from django.apps import apps
 from django.db import OperationalError, close_old_connections
+from django.utils import timezone
 from package.ml.constants import COMPANIES
 from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
@@ -56,15 +58,16 @@ def _should_skip_item(existing_eval: Any, force: bool, reevaluate_before: Any = 
     if force:
         return False
     if reevaluate_before is not None:
+        if not isinstance(reevaluate_before, datetime.datetime):
+            reevaluate_before = timezone.make_aware(
+                datetime.datetime.combine(reevaluate_before, datetime.time.min)
+            )
         analyzed_at = getattr(existing_eval, "analyzed_at", None) if existing_eval else None
         if analyzed_at is None:
             # まだ分析されていない（または未評価）場合は再処理対象（スキップしない）
             return False
         # 指定日時より古い場合は再処理対象（スキップしない）
-        if analyzed_at < reevaluate_before:
-            return False
-        # 指定日時以降に分析済みの場合はスキップ
-        return True
+        return analyzed_at >= reevaluate_before
     # 正常な推計価格（>0）が算出済みの場合はスキップ、未推計または0円なら再推計対象
     return bool(existing_eval and existing_eval.first_stage_predicted_price is not None and existing_eval.first_stage_predicted_price > 0)
 
