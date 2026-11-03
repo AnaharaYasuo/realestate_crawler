@@ -24,8 +24,13 @@ from scripts.data_import.sync_estat_municipalities import sync_municipalities
 from scripts.data_import.import_mlit_stations import import_mlit_stations, generate_sample_mlit_csv
 from scripts.data_import.import_mlit_land_prices import import_land_prices, generate_sample_land_price_csv
 from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
+from scripts.data_import.import_ipss_future_population import sync_ipss_future_population
+from scripts.data_import.import_urban_induction_zones import sync_urban_induction_zones
+from scripts.data_import.sync_yearly_historical_potentials import sync_municipal_yearly_potentials, sync_station_yearly_potentials
 from package.models.evaluation import (
-    MunicipalPotential, StationPotential, LandPricePotential
+    MunicipalPotential, StationPotential, LandPricePotential,
+    MunicipalFuturePotential, MunicipalYearlyPotential,
+    StationYearlyPotential, UrbanInductionZoneMaster
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +121,28 @@ def run_all_syncs(estat_csv=None, stations_csv=None, land_prices_csv=None,
             results["urban_zones"]["status"] = "success"
             results["urban_zones"]["count"] = z_count
             logger.info(f"Urban Planning Zones Sync Complete: Total UrbanPlanningZonePotential records = {z_count}")
+
+        # 6. 社人研 2020-2050年将来推計人口・世帯数同期 (Issue #1210)
+        logger.info("=" * 60)
+        logger.info("Step 6/8: Syncing IPSS Future Population & Households (2020-2050)...")
+        logger.info("=" * 60)
+        fut_count = sync_ipss_future_population()
+        results["future_population"] = {"status": "success", "count": fut_count}
+
+        # 7. 国交省 立地適正化計画区域マスター同期 (Issue #1210)
+        logger.info("=" * 60)
+        logger.info("Step 7/8: Syncing MLIT Urban Induction Zones...")
+        logger.info("=" * 60)
+        uiz_count = sync_urban_induction_zones()
+        results["urban_induction_zones"] = {"status": "success", "count": uiz_count}
+
+        # 8. 自治体・駅過去10年実績時系列推移同期 (Issue #1210)
+        logger.info("=" * 60)
+        logger.info("Step 8/8: Syncing Historical Potentials (10 years)...")
+        logger.info("=" * 60)
+        myp_count = sync_municipal_yearly_potentials()
+        syp_count = sync_station_yearly_potentials()
+        results["historical_potentials"] = {"status": "success", "muni_count": myp_count, "station_count": syp_count}
 
         logger.info("=" * 60)
         logger.info("All External Potentials Sync Succeeded!")

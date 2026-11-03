@@ -204,3 +204,62 @@ def calculate_far_slack(prop) -> float | None:
         return round(slack, 1) if slack > 0 else 0.0
     except (ValueError, TypeError, ZeroDivisionError):
         return None
+
+
+def format_comprehensive_future_and_historical_context(prop) -> str:
+    """
+    Issue #1210: 全量時系列推移・2050年将来予測・立地適正化計画の自然言語プロンプト用コンテキストを生成
+    """
+    from package.ml.features.parsers import _extract_clean_address
+    from package.ml.features.reference_data import (
+        _init_global_caches,
+        _query_future_population_features,
+        _query_urban_induction_zone_features,
+        _query_historical_momentum_features,
+        _station_yearly_cache,
+        _muni_yearly_cache,
+    )
+    _init_global_caches()
+
+    address1, address2, station1, company = _extract_clean_address(prop)
+    st_clean = (station1 or "").replace("駅", "")
+
+    # 1. 将来予測データ (社人研 2035年推計)
+    try:
+        fut_change, work_ratio, elderly_ratio, single_ratio = _query_future_population_features(address1, address2)
+        future_txt = (
+            f"【自治体将来推計人口・世帯動態（社人研推計）】\n"
+            f"- 2035年推計人口変化率: {fut_change:+.2f}% (2020年比)\n"
+            f"- 2035年推計生産年齢人口比率: {work_ratio:.1f}%, 高齢化率: {elderly_ratio:.1f}%\n"
+            f"- 2035年推計単身世帯比率: {single_ratio:.1f}% (単身・実需賃貸需要基盤)"
+        )
+    except Exception as e:
+        future_txt = f"【自治体将来推計人口・世帯動態】データ取得エラー: {e}"
+
+    # 2. 立地適正化計画区域判定
+    try:
+        is_urban, is_res = _query_urban_induction_zone_features(address1, address2)
+        zone_status_parts = []
+        if is_urban > 0.5:
+            zone_status_parts.append("都市機能誘導区域内（行政・医療・商業機能の中枢集中エリア）")
+        elif is_res > 0.5:
+            zone_status_parts.append("居住誘導区域内（将来インフラおよび生活機能の維持確約エリア）")
+        else:
+            zone_status_parts.append("誘導区域外（将来行政インフラ縮小・資産価値維持リスクあり）")
+        induction_txt = f"【国土交通省 立地適正化計画判定】\n- 対象エリア区分: {', '.join(zone_status_parts)}"
+    except Exception as e:
+        induction_txt = f"【国土交通省 立地適正化計画判定】データ取得エラー: {e}"
+
+    # 3. 過去実績時系列推移モメンタム
+    try:
+        st_cagr, inc_cagr, pop_mom = _query_historical_momentum_features(address1, address2, station1, 2024)
+        history_txt = (
+            f"【過去10年実績推移モメンタム】\n"
+            f"- 最寄り駅 ({station1}) 乗降客数過去3年CAGR: {st_cagr:+.2f}%\n"
+            f"- 自治体 ({address1}{address2}) 納税義務者平均所得過去3年CAGR: {inc_cagr:+.2f}%\n"
+            f"- 自治体直近人口増加モメンタム: {pop_mom:+.2f}%"
+        )
+    except Exception as e:
+        history_txt = f"【過去10年実績推移モメンタム】データ取得エラー: {e}"
+
+    return f"\n{future_txt}\n{induction_txt}\n{history_txt}\n"

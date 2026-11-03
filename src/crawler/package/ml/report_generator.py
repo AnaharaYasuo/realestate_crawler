@@ -21,7 +21,7 @@ from typing import Any
 import chardet
 from bs4 import BeautifulSoup
 from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
-from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge
+from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge, format_comprehensive_future_and_historical_context
 from package.utils.url_security import UrlSecurityValidator
 
 logger = logging.getLogger(__name__)
@@ -115,6 +115,8 @@ def _build_rag_prompt(
 </site_information>
 """
 
+    future_historical_section = format_comprehensive_future_and_historical_context(prop)
+
     appraisal_data_section = ""
     if appraisal_ctx:
         appraisal_data_section = f"""
@@ -136,6 +138,7 @@ def _build_rag_prompt(
 ・構造: {kouzou} / 接道状況: {setsudou}
 ・年間CF: {cf_val}万円 / DSCR: {dscr_val}
 ・容積未消化余力: {far_slack if far_slack is not None else 'N/A'}%
+{future_historical_section}
 {appraisal_data_section}
 {site_info_section}
 【団長ナレッジベース（参考実戦哲学）】
