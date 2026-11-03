@@ -158,3 +158,34 @@ import {
   to = google_secret_manager_secret_version.new_relic_license_key_version
 }
 
+# Secret for Gemini API Key (Issue #1225)
+resource "google_secret_manager_secret" "gemini_api_key_secret" {
+  secret_id = "realestate-gemini-api-key-${var.environment}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.enabled_services]
+}
+
+resource "google_secret_manager_secret_version" "gemini_api_key_version" {
+  secret      = google_secret_manager_secret.gemini_api_key_secret.id
+  secret_data = "placeholder-gemini-key"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+import {
+  id = "projects/${var.project_id}/secrets/realestate-gemini-api-key-${var.environment}"
+  to = google_secret_manager_secret.gemini_api_key_secret
+}
+
+import {
+  id = "projects/${var.project_id}/secrets/realestate-gemini-api-key-${var.environment}/versions/1"
+  to = google_secret_manager_secret_version.gemini_api_key_version
+}
+
+

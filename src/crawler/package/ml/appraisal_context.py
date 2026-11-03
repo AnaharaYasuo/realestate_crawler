@@ -11,6 +11,7 @@ from typing import Any
 
 from package.ml.features.parsers import extract_clean_address
 from package.ml.features.reference_data import (
+    _init_global_caches,
     blend_land_prices,
     query_hazard_features,
     query_municipal_potential,
@@ -25,6 +26,7 @@ def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:
     """
     対象物件および周辺・外部の基礎客観データを収集・統合する。
     """
+    _init_global_caches()
     pref, city, station_raw, _ = extract_clean_address(prop)
 
     # 1. 自治体・マクロポテンシャル（人口推移、所得、人口密度）
@@ -72,10 +74,14 @@ def format_appraisal_context_text(ctx: dict[str, Any]) -> str:
     """
     収集した基礎情報をプロンプト注入用のテキストセクションに整形する。
     """
+    raw_income = ctx.get("average_income", 0) or 0
+    # average_income は千円単位で保存されているため、10で割って万円単位に換算する
+    income_man = int(raw_income / 10) if raw_income > 0 else 0
+
     lines = [
         "【公的・客観的基礎データ】",
         f"・自治体マクロ指標 ({ctx.get('prefecture', '')} {ctx.get('city', '')}): "
-        f"人口増減率 {ctx.get('population_growth_rate', 0.0):.2f}% / 平均所得 {ctx.get('average_income', 0)}万円 / "
+        f"人口増減率 {ctx.get('population_growth_rate', 0.0):.2f}% / 平均所得 {income_man}万円 / "
         f"人口密度 {ctx.get('population_density', 0.0):.0f}人/km2",
         f"・駅ポテンシャル ({ctx.get('station', '-') or '最寄り駅'}): "
         f"推計日次乗降客数 {ctx.get('passenger_volume', 10000):,}人",
