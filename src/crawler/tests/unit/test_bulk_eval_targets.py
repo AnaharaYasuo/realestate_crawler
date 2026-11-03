@@ -46,6 +46,13 @@ class TestShouldSkipItem:
         eval_rec.first_stage_predicted_price = None
         assert _should_skip_item(eval_rec, force=False) is False
 
+    def test_default_does_not_skip_if_predicted_price_zero(self):
+        eval_rec = MagicMock()
+        eval_rec.is_published = True
+        eval_rec.needs_recrawl = False
+        eval_rec.first_stage_predicted_price = 0
+        assert _should_skip_item(eval_rec, force=False) is False
+
     def test_reevaluate_before_with_none_eval(self):
         threshold = timezone.make_aware(datetime.datetime(2026, 11, 3, 0, 0, 0))
         assert _should_skip_item(None, force=False, reevaluate_before=threshold) is False
@@ -76,3 +83,40 @@ class TestShouldSkipItem:
         threshold = timezone.make_aware(datetime.datetime(2026, 11, 3, 0, 0, 0))
         # 閾値以降に既に分析済みなのでスキップ
         assert _should_skip_item(eval_rec, force=False, reevaluate_before=threshold) is True
+
+
+class _Item:
+    def __init__(self, pk, page_url):
+        self.pk = pk
+        self.pageUrl = page_url
+
+
+def _cutoff_evals():
+    threshold = timezone.make_aware(datetime.datetime(2026, 11, 3, 0, 0, 0))
+    old = MagicMock(
+        is_published=True,
+        needs_recrawl=False,
+        analyzed_at=timezone.make_aware(datetime.datetime(2026, 11, 2, 23, 59, 59)),
+    )
+    new = MagicMock(
+        is_published=True,
+        needs_recrawl=False,
+        analyzed_at=timezone.make_aware(datetime.datetime(2026, 11, 3, 10, 0, 0)),
+    )
+    return threshold, {"https://a": old, "https://b": new}
+
+
+def test_iter_unprocessed_chunks_cutoff_for_plain_model(monkeypatch):
+    from package.ml.evaluation.targets import iter_unprocessed_chunks
+    monkeypatch.setattr("package.ml.evaluation.targets._is_real_django_model", lambda model: False)
+    monkeypatch.setattr("package.ml.evaluation.targets.close_old_connections", lambda: None)
+    threshold, evals = _cutoff_evals()
+    items = [_Item(1, "https://a"), _Item(2, "https://b"), _Item(3, "https://c")]
+    model = MagicMock()
+    model.objects.all.return_value.order_by.return_value.iterator.return_value = iter(items)
+
+    chunks = list(iter_unprocessed_chunks(model, evals, reevaluate_before=threshold))
+
+    selected = [item.pageUrl for chunk, _ in chunks for item in chunk]
+    assert selected == ["https://a", "https://c"]
+
