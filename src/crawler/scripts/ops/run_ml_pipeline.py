@@ -42,6 +42,7 @@ from package.utils.gcp_resources import (
     patch_proxysql_autoscaler,
     wait_for_proxysql_health,
     scale_proxysql_mig as _gcp_scale_proxysql_mig,
+    has_active_other_cloud_run_executions,
     get_gcp_access_token as _get_gcp_access_token,
 )
 
@@ -113,7 +114,7 @@ def _latest_execution_tasks(target_date: datetime.date) -> list | None:
 
 def verify_barrier_completion(execution_date: datetime.date | None = None, min_success_ratio: float = 0.85) -> tuple[bool, list[str]]:
     """DB のタスク状況を点検し、ML 実行基準を満たしているか検証"""
-    target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
+    target_date = execution_date or datetime.datetime.now(datetime.UTC).date()
     try:
         tasks = _latest_execution_tasks(target_date)
         if tasks is None:
@@ -153,7 +154,7 @@ def send_aggregated_crawl_report(
     total_jobs: int | None = None,
 ) -> bool:
     """最新クローラー実行の全タスク結果を集約し、全タスク集約レポートを Slack に 1 回送信する"""
-    target_date = execution_date or datetime.datetime.now(datetime.timezone.utc).date()
+    target_date = execution_date or datetime.datetime.now(datetime.UTC).date()
     try:
         tasks = _latest_execution_tasks(target_date)
         if not tasks:
@@ -190,6 +191,26 @@ def send_aggregated_crawl_report(
         logger.warning(f"⚠️ [Aggregation Warning] Failed to send aggregated crawl report: {e}")
         return False
 
+
+
+
+def _can_stop_shared_proxysql() -> bool:
+    if not os.environ.get("IS_CLOUD"):
+        logger.info(
+            "Teardown Guard: Skipping shared ProxySQL teardown on non-cloud (local) environment"
+        )
+        return False
+
+    current_execution = os.environ.get("CLOUD_RUN_EXECUTION", "").strip()
+    if has_active_other_cloud_run_executions(
+        current_execution_id=current_execution
+    ):
+        logger.warning(
+            "Teardown Guard: Other Cloud Run executions active. Delegating teardown to Safety-Net"
+        )
+        return False
+
+    return True
 
 def run_command(cmd: list[str], desc: str):
     """リアルタイムログ付きで外部コマンドを実行"""
@@ -345,10 +366,13 @@ def main(argv=None):
         return 0
 
     finally:
-        # Step 7: 終了フック (ProxySQL MIG を size=0 に停止してゾンビ課金を防止)
+        # Step 7: 終了フック (他ジョブやローカル本番実行稼働時は停止をスキップし Safety-Net に委譲)
         try:
-            logger.info("Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)...")
-            scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
+            if _can_stop_shared_proxysql():
+                logger.info("Executing teardown hook: stopping ProxySQL MIG (size: 1 -> 0)...")
+                scale_proxysql_mig(target_size=0, dry_run=args.dry_run)
+            else:
+                logger.info("Skipping teardown hook for ProxySQL MIG: safe guard active or delegated to Safety-Net")
         except Exception:
             logger.exception("Failed to scale in ProxySQL MIG in finally block")
 
