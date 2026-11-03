@@ -102,9 +102,12 @@ class ReguideInvestmentParser(InvestmentParser):
     def _extract_detail_url_from_card(self, card: BeautifulSoup) -> str | None:
         """一覧カードから投資用物件の詳細URLを抽出して検証する"""
         a_tag = card.select_one("a[href*='/investment/']")
-        if not a_tag or not a_tag.get("href"):
+        if a_tag is None:
             return None
-        abs_url = urllib.parse.urljoin(self.BASE_URL, a_tag["href"])
+        href = a_tag.get("href")
+        if not href or not isinstance(href, str):
+            return None
+        abs_url = urllib.parse.urljoin(self.BASE_URL, href)
         parsed = urllib.parse.urlparse(abs_url)
         if (
             parsed.scheme in ("http", "https")
