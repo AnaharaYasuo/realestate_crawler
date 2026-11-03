@@ -90,7 +90,7 @@ def fetch_property_page_text(url: str, timeout: int = 5) -> str:
 
 
 def _build_rag_prompt(
-    eval_rec, prop, ptype_jp: str, asking_price_man: int, pred_price: float,
+    eval_rec, prop, ptype_jp: str, asking_price_man: int,
     address: str, access: str, matched_kb: list, far_slack: float | None,
     site_text: str = "",
     appraisal_ctx: dict | None = None
@@ -462,7 +462,7 @@ def generate_professional_and_danchou_report(
 
     if api_key:
         prompt = _build_rag_prompt(
-            eval_rec, prop, ptype_jp, asking_price_man, pred_price, address, access, matched_kb, far_slack,
+            eval_rec, prop, ptype_jp, asking_price_man, address, access, matched_kb, far_slack,
             site_text=site_text,
             appraisal_ctx=appraisal_ctx
         )
