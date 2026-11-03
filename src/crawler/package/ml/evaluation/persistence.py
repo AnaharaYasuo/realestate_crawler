@@ -14,7 +14,7 @@ from package.models.evaluation import PropertyEvaluation
 
 BASE_UPDATE_FIELDS = (
     "company", "property_type", "property_id", "first_stage_predicted_price",
-    "is_first_stage_passed", "analysis_status", "duplicate_of", "is_slack_notified",
+    "is_first_stage_passed", "analysis_status", "analyzed_at", "duplicate_of", "is_slack_notified",
     "monthly_land_rent", "land_rent_liability",
     "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
     "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
@@ -32,8 +32,8 @@ EVAL_MAP_FIELDS = (
 
 def bulk_update_evaluation_records(
     records_to_update: list[Any],
-    property_type: str,
-    batch_size: int,
+    property_type: str = "",
+    batch_size: int = 1000,
 ) -> None:
     """更新対象レコードの重複を除去して bulk_update を実行する"""
     valid_updates = []
@@ -94,6 +94,30 @@ def _bulk_create_records(records_to_create: list[Any], batch_size: int) -> None:
                 time.sleep(1.0 * attempt)
 
 
+def _prefetch_candidate_pool(
+    existing_eval_map: dict[str, Any],
+    property_type: str,
+) -> list[PropertyEvaluation] | None:
+    """チャンク内の最小IDより前の重複候補を一括プリフェッチする"""
+    from package.utils.deduplication import _prefetch_real_properties
+    existing_ids = [e.id for e in existing_eval_map.values() if e and e.id is not None]
+    if not existing_ids:
+        return None
+    min_id = min(existing_ids)
+    try:
+        candidate_pool = list(
+            PropertyEvaluation.objects.filter(property_type=property_type, id__lt=min_id)
+            .select_related("duplicate_of")
+            .order_by("-id")[:100]
+        )
+        if candidate_pool:
+            _prefetch_real_properties(candidate_pool)
+        return candidate_pool
+    except Exception as e:
+        logger.debug("Candidate pool prefetch failed: %s", e)
+        return None
+
+
 def save_chunk(
     chunk: list[Any],
     predicted_prices: list[float],
@@ -102,16 +126,20 @@ def save_chunk(
     property_type: str,
     batch_size: int,
 ) -> tuple[int, int]:
-    """チャンク内の物件を評価しDBに一括保存する（新規作成と更新を分離処理）"""
+    """チャンク内の物件を評価しDBに一括保存する（新規作成と更新を分離処理・重複候補一括プリフェッチ）"""
     records_to_create = []
     records_to_update = []
     chunk_passed = 0
     chunk_duplicates = 0
 
+    candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type)
+
     for item, price_stage1 in zip(chunk, predicted_prices):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         existing = existing_eval_map.get(page_url)
-        rec, is_new = build_or_update_eval_record(item, price_stage1, existing, company, property_type)
+        rec, is_new = build_or_update_eval_record(
+            item, price_stage1, existing, company, property_type, candidate_pool=candidate_pool
+        )
         if rec.is_first_stage_passed:
             chunk_passed += 1
         if getattr(rec, "duplicate_of_id", None):
