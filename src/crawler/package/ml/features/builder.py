@@ -47,6 +47,9 @@ from .reference_data import (
     _init_global_caches,
     _query_municipal_potential,
     _query_station_volume,
+    _query_future_population_features,
+    _query_urban_induction_zone_features,
+    _query_historical_momentum_features,
     _resolve_zone_limits,
 )
 
@@ -68,6 +71,9 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
 
     pop_growth, income, total_population, income_growth_rate, pop_density = _query_municipal_potential(address1, address2)
     passenger_volume = _query_station_volume(station1)
+    future_pop_change_2035, working_age_ratio_2035, elderly_ratio_2035, single_ratio_2035 = _query_future_population_features(address1, address2)
+    is_urban_induction, is_residential_induction = _query_urban_induction_zone_features(address1, address2)
+    st_vol_cagr, muni_inc_cagr, muni_pop_mom = _query_historical_momentum_features(address1, address2, station1, ref_prop_date.year if ref_prop_date else 2024)
     effective_walk_min = _calculate_effective_walk_min(walk_min, bus_use, bus_min, bus_walk, pop_density)
     max_youseki, max_kenpei, zone_max_kenpei, zone_max_youseki, zone_name_prop = _resolve_zone_limits(property_obj)
     average_land_price, estimated_rosenka_price, estimated_fixed_asset_price, land_price_growth_rate = _blend_land_prices(address1, address2, max_youseki)
@@ -189,6 +195,15 @@ def build_features(property_obj, property_type, base_date=None, mkt_comparison_m
         "macro_reit": reit,
         "macro_construction_cost": const_cost,
         "is_legacy_data": is_legacy,
+        "future_pop_change_2035": future_pop_change_2035,
+        "future_working_age_ratio_2035": working_age_ratio_2035,
+        "future_elderly_ratio_2035": elderly_ratio_2035,
+        "future_single_household_ratio_2035": single_ratio_2035,
+        "is_in_urban_induction_zone": is_urban_induction,
+        "is_in_residential_induction_zone": is_residential_induction,
+        "station_volume_3y_cagr": st_vol_cagr,
+        "municipal_income_3y_cagr": muni_inc_cagr,
+        "municipal_pop_momentum": muni_pop_mom,
         "interior_score": safe_float(_get_attr(property_obj, 'interior_score', 0.0), 0.0),
         "layout_score": safe_float(_get_attr(property_obj, 'layout_score', 0.0), 0.0),
     }

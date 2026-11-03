@@ -895,3 +895,59 @@ graph TD
 
 ### 7.3 Unified Site Registry (`src/crawler/package/site_registry.py`)
 - 各サイトのメタデータ（`company`, `display_name`, `property_types`, `models`, `parsers`, `api_keys`, `url_domains`, `ml_enabled`）を一元管理し、`CRAWL_JOBS`・`ApiRegistry`・`main.py`・`task_distribution.py`・`UrlRouter`・`ml/constants.py:COMPANIES`・`ml/evaluation/targets.py` との完全整合性を検証・保証する。
+
+
+---
+
+## 4. 全量時系列・2050年将来予測・立地適正化計画マスタ設計 (Issue #1210)
+
+全国1,741自治体および全国全駅を100%全量網羅し、過去10年の推移と2050年までの将来予測、立地適正化計画GISデータを結合する内部設計。
+
+```mermaid
+erDiagram
+    UnifiedPropertyListing ||--o{ MunicipalFuturePotential : "1741自治体 2025-2050推計"
+    UnifiedPropertyListing ||--o{ MunicipalYearlyPotential : "1741自治体 過去10年推移"
+    UnifiedPropertyListing ||--o{ StationYearlyPotential : "全国全駅 過去10年推移"
+    UnifiedPropertyListing ||--o{ UrbanInductionZoneMaster : "国交省GIS 誘導区域判定"
+
+    MunicipalFuturePotential {
+        string prefecture PK
+        string city PK
+        int target_year PK
+        int projected_population
+        float pop_change_rate_from_2020
+        float working_age_ratio
+        float elderly_ratio
+        int projected_households
+        float single_household_ratio
+    }
+
+    MunicipalYearlyPotential {
+        string prefecture PK
+        string city PK
+        int year PK
+        int total_population
+        float population_growth_rate
+        int average_income
+        float income_growth_rate
+        float income_3y_cagr
+        float population_density
+    }
+
+    StationYearlyPotential {
+        string station_name PK
+        string railway_line PK
+        int year PK
+        int passenger_volume
+        float volume_yoy_growth
+        float volume_3y_cagr
+    }
+
+    UrbanInductionZoneMaster {
+        string prefecture PK
+        string city PK
+        string town_name PK
+        boolean is_urban_induction_zone
+        boolean is_residential_induction_zone
+    }
+```

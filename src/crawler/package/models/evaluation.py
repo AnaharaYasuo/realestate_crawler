@@ -427,3 +427,93 @@ class PropertyPriceHistory(models.Model):
         diff_str = f"{self.price_diff:+d}" if self.price_diff is not None else "0"
         return f"{self.property_url}: {self.old_price} -> {self.new_price} ({diff_str})"
 
+
+
+class MunicipalFuturePotential(models.Model):
+    """
+    社人研 日本の地域別将来推計人口・世帯数マスタ (2020-2050年 全1741自治体全量)
+    """
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, verbose_name="市区町村")
+    target_year = models.IntegerField(db_index=True, verbose_name="推計対象年 (2025, 2030, 2035, 2040, 2045, 2050)")
+    projected_population = models.IntegerField(verbose_name="推計総人口 (人)")
+    pop_change_rate_from_2020 = models.DecimalField(max_digits=6, decimal_places=2, verbose_name="2020年比増減率 (%)")
+    working_age_ratio = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="生産年齢人口比率 15-64歳 (%)")
+    elderly_ratio = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="老年人口比率 65歳以上 (%)")
+    projected_households = models.IntegerField(null=True, blank=True, verbose_name="推計一般世帯数")
+    single_household_ratio = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="単身世帯比率 (%)")
+
+    class Meta:
+        db_table = 'municipal_future_potential'
+        unique_together = ('prefecture', 'city', 'target_year')
+        verbose_name = "自治体将来推計人口マスタ"
+        verbose_name_plural = "自治体将来推計人口マスタ"
+
+    def __str__(self):
+        return f"{self.prefecture}{self.city} [{self.target_year}年推計] 人口: {self.projected_population}人 ({self.pop_change_rate_from_2020:+}% 2020比)"
+
+
+class MunicipalYearlyPotential(models.Model):
+    """
+    自治体ごとの過去時系列推移マスタ (過去10年間 全1741自治体全量)
+    """
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, verbose_name="市区町村")
+    year = models.IntegerField(db_index=True, verbose_name="実績年")
+    total_population = models.IntegerField(null=True, blank=True, verbose_name="総人口 (人)")
+    population_growth_rate = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="人口前年比増減率 (%)")
+    average_income = models.IntegerField(verbose_name="納税義務者1人あたり課税対象所得 (千円)")
+    income_growth_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="所得前年比変動率 (%)")
+    income_3y_cagr = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, verbose_name="過去3年所得CAGR (%)")
+    population_density = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, verbose_name="人口密度 (人/㎢)")
+
+    class Meta:
+        db_table = 'municipal_yearly_potential'
+        unique_together = ('prefecture', 'city', 'year')
+        verbose_name = "自治体年次推移統計マスタ"
+        verbose_name_plural = "自治体年次推移統計マスタ"
+
+    def __str__(self):
+        return f"{self.prefecture}{self.city} [{self.year}年] 人口: {self.total_population}人, 所得: {self.average_income}千円"
+
+
+class StationYearlyPotential(models.Model):
+    """
+    駅ごとの過去乗降人員時系列推移マスタ (過去10年間 全鉄道路線・全駅全量)
+    """
+    station_name = models.CharField(max_length=100, db_index=True, verbose_name="駅名 (正規化名)")
+    railway_line = models.CharField(max_length=100, blank=True, default="", verbose_name="路線名")
+    year = models.IntegerField(db_index=True, verbose_name="実績年")
+    passenger_volume = models.IntegerField(verbose_name="1日平均乗降客数 (人/日)")
+    volume_yoy_growth = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="前年比増減率 (%)")
+    volume_3y_cagr = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True, verbose_name="過去3年CAGR (%)")
+
+    class Meta:
+        db_table = 'station_yearly_potential'
+        unique_together = ('station_name', 'railway_line', 'year')
+        verbose_name = "駅年次推移統計マスタ"
+        verbose_name_plural = "駅年次推移統計マスタ"
+
+    def __str__(self):
+        return f"{self.railway_line} {self.station_name}駅 [{self.year}年] 乗降客数: {self.passenger_volume}人/日"
+
+
+class UrbanInductionZoneMaster(models.Model):
+    """
+    国土交通省 立地適正化計画（都市機能誘導区域・居住誘導区域GISデータ全量）
+    """
+    prefecture = models.CharField(max_length=100, db_index=True, verbose_name="都道府県")
+    city = models.CharField(max_length=100, db_index=True, verbose_name="市区町村")
+    town_name = models.CharField(max_length=100, db_index=True, blank=True, default="", verbose_name="大字・町丁目名")
+    is_urban_induction_zone = models.BooleanField(default=False, verbose_name="都市機能誘導区域内フラグ")
+    is_residential_induction_zone = models.BooleanField(default=False, verbose_name="居住誘導区域内フラグ")
+    plan_status = models.CharField(max_length=50, blank=True, default="作成公表済", verbose_name="計画作成状況")
+
+    class Meta:
+        db_table = 'urban_induction_zone_master'
+        unique_together = ('prefecture', 'city', 'town_name')
+        verbose_name = "立地適正化計画区域マスタ"
+        verbose_name_plural = "立地適正化計画区域マスタ"
+
+    def __str__(self):
+        return f"{self.prefecture}{self.city}{self.town_name} (都市機能誘導: {self.is_urban_induction_zone}, 居住誘導: {self.is_residential_induction_zone})"
