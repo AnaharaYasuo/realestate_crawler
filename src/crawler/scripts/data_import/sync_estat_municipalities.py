@@ -50,7 +50,7 @@ def download_soumu_tax_workbook(url: str = SOUMU_TAX_EXCEL_URL, timeout: int = 6
     return openpyxl.load_workbook(io.BytesIO(resp.content), data_only=True)
 
 
-def parse_soumu_tax_data(wb: openpyxl.Workbook) -> list[dict]:
+def parse_soumu_tax_data(wb: Any) -> list[dict]:
     """
     Excelワークブックから全国1,741市区町村のデータを抽出・整形する。
     """
