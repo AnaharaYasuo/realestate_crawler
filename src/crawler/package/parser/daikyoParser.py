@@ -262,8 +262,6 @@ class DaikyoParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    _BUS_STOP_WALK_RE = re.compile(r'([^ \t\r\n\u3000「」]{1,30})バス停\s*(?:徒歩)?\s*([0-9０-９]{1,3})\s*分')
-
     def _parseBusStopWalk(self, item, traffic_str: str):
         """「工業高校前バス停４分」形式（バス停からの徒歩分）を busStation1/busWalkMinute1 に設定する。
 
@@ -272,11 +270,14 @@ class DaikyoParser(ParserBase):
         """
         if not hasattr(item, "busWalkMinute1") or getattr(item, "busWalkMinute1", None):
             return
-        m = self._BUS_STOP_WALK_RE.search(traffic_str or "")
-        if not m:
+        if not traffic_str or "バス停" not in traffic_str:
             return
-        stop = m.group(1).strip()
-        minutes = int(m.group(2).translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+        pre_bus, post_bus = traffic_str.split("バス停", 1)
+        stop = pre_bus.split()[-1].strip("「」 \t\r\n\u3000") if pre_bus.strip() else ""
+        m_min = re.search(r'(?:徒歩)?\s*([0-9０-９]{1,3})\s*分', post_bus)
+        if not stop or not m_min:
+            return
+        minutes = int(m_min.group(1).translate(str.maketrans("０１２３４５６７８９", "0123456789")))
         item.busStation1 = stop
         item.busWalkMinute1Str = f"{minutes}分"
         item.busWalkMinute1 = minutes

@@ -89,14 +89,16 @@ class AthomeParser(ParserBase):
         if "/" in line:
             parts = line.split("/", 1)
             left = parts[0].strip()
-            sm = re.search(r'([^\s]+)駅', parts[1])
-            if left and sm:
-                return left, sm.group(1).strip()
+            right = parts[1].strip()
+            if "駅" in right:
+                station_name = right.split("駅", 1)[0].split()[-1].strip()
+                if left and station_name:
+                    return left, station_name
         parts = line.split()
         if len(parts) >= 2 and "駅" in parts[1]:
-            sm = re.search(r'([^\s]+)駅', parts[1])
-            if sm:
-                return parts[0].strip(), sm.group(1).strip()
+            station_name = parts[1].split("駅", 1)[0].strip()
+            if station_name:
+                return parts[0].strip(), station_name
         return None, None
 
     @staticmethod
@@ -108,29 +110,36 @@ class AthomeParser(ParserBase):
         return int(m_w.group(1)) if m_w else None
 
     @classmethod
-    def _apply_single_access_line(cls, item, line: str, idx: int) -> None:
-        r_name, s_name = cls._extract_line_station(line)
-        if r_name and hasattr(item, f"railway{idx}") and not getattr(item, f"railway{idx}", None):
-            setattr(item, f"railway{idx}", r_name)
-        if s_name and hasattr(item, f"station{idx}") and not getattr(item, f"station{idx}", None):
-            setattr(item, f"station{idx}", s_name)
-
+    def _apply_walk_minutes_to_item(cls, item, line: str, idx: int) -> None:
         w_val = cls._extract_walk_minutes(line)
         if w_val is not None:
-            if hasattr(item, f"railwayWalkMinute{idx}") and getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
+            if getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
                 setattr(item, f"railwayWalkMinute{idx}", w_val)
-            if hasattr(item, f"railwayWalkMinute{idx}Str") and not getattr(item, f"railwayWalkMinute{idx}Str", None):
+            if not getattr(item, f"railwayWalkMinute{idx}Str", None):
                 setattr(item, f"railwayWalkMinute{idx}Str", f"{w_val}分")
 
+    @classmethod
+    def _apply_bus_minutes_to_item(cls, item, line: str, idx: int) -> None:
         m_bus = re.search(r"バス\s*(\d{1,3})\s*分", line)
         if m_bus:
             b_val = int(m_bus.group(1))
-            if hasattr(item, f"busWalkMinute{idx}") and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+            if getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
                 setattr(item, f"busWalkMinute{idx}", b_val)
-            if hasattr(item, f"busWalkMinute{idx}Str") and not getattr(item, f"busWalkMinute{idx}Str", None):
+            if not getattr(item, f"busWalkMinute{idx}Str", None):
                 setattr(item, f"busWalkMinute{idx}Str", f"{b_val}分")
             if hasattr(item, f"busUse{idx}"):
                 setattr(item, f"busUse{idx}", 1)
+
+    @classmethod
+    def _apply_single_access_line(cls, item, line: str, idx: int) -> None:
+        r_name, s_name = cls._extract_line_station(line)
+        if r_name and not getattr(item, f"railway{idx}", None):
+            setattr(item, f"railway{idx}", r_name)
+        if s_name and not getattr(item, f"station{idx}", None):
+            setattr(item, f"station{idx}", s_name)
+
+        cls._apply_walk_minutes_to_item(item, line, idx)
+        cls._apply_bus_minutes_to_item(item, line, idx)
 
     @classmethod
     def _apply_athome_access_minutes(cls, item, traffic_str: str) -> None:

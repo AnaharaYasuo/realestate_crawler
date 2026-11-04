@@ -292,23 +292,26 @@ class MisawaParser(ParserBase):
     def _parseRailwayCount(self, response, _specs=None):
         return len(self._parseTrafficMatches(response))
 
+    @staticmethod
+    def _extract_bus_stop_name(walk_access: str, default: str) -> str:
+        m_bracket = re.search(r'「([^」]+)」', walk_access)
+        if m_bracket:
+            return m_bracket.group(1).strip()
+        parts = walk_access.split("下車", 1)[0].split()
+        last_word = parts[-1] if parts else ""
+        for suffix in ("停留所", "バス停", "停"):
+            if last_word.endswith(suffix):
+                return last_word[:-len(suffix)].strip()
+        return default
+
     def _extract_bus_field(self, field_to_get: str, walk_access: str, default):
-        if field_to_get == 'busWalkMinuteStr':
+        if field_to_get in ('busWalkMinuteStr', 'busWalkMinute'):
             m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
-            return str(m_bus.group(1)) if m_bus else default
-        if field_to_get == 'busWalkMinute':
-            m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
+            if field_to_get == 'busWalkMinuteStr':
+                return str(m_bus.group(1)) if m_bus else default
             return int(m_bus.group(1)) if m_bus else 0
         if field_to_get == 'busStation':
-            m_bracket = re.search(r'「([^」]+)」', walk_access)
-            if m_bracket:
-                return m_bracket.group(1).strip()
-            parts = walk_access.split("下車", 1)[0].split()
-            last_word = parts[-1] if parts else ""
-            for suffix in ("停留所", "バス停", "停"):
-                if last_word.endswith(suffix):
-                    return last_word[:-len(suffix)].strip()
-            return default
+            return self._extract_bus_stop_name(walk_access, default)
         if field_to_get == 'busUse':
             return 1 if "バス" in walk_access else 0
         return default
