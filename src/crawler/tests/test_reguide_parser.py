@@ -78,8 +78,8 @@ def test_reguide_investment_parser_extract_detail_urls():
     """
     urls = parser.extract_detail_urls(sample_list_html)
     assert len(urls) == 2
-    assert "https://re-guide.jp/investment/421139/" in urls
-    assert "https://re-guide.jp/investment/421140/" in urls
+    assert "https://www.re-guide.jp/investment/421139/" in urls
+    assert "https://www.re-guide.jp/investment/421140/" in urls
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,7 @@ async def test_reguide_investment_parser_parse_next_page():
     """
     soup1 = BeautifulSoup(html_p1, "html.parser")
     next_url1 = await parser.parseNextPage(soup1)
-    assert next_url1 == "https://re-guide.jp/investment/list/?pager[p]=2"
+    assert next_url1 == "https://www.re-guide.jp/investment/list/?pager[p]=2"
 
     # 2. Page 2 -> next is Page 3
     html_p2 = """
@@ -111,7 +111,7 @@ async def test_reguide_investment_parser_parse_next_page():
     """
     soup2 = BeautifulSoup(html_p2, "html.parser")
     next_url2 = await parser.parseNextPage(soup2)
-    assert next_url2 == "https://re-guide.jp/investment/list/?pager[p]=3"
+    assert next_url2 == "https://www.re-guide.jp/investment/list/?pager[p]=3"
 
     # 3. Last Page 86 -> No next page
     html_last = """
@@ -140,8 +140,8 @@ async def test_reguide_investment_parser_parse_root_page():
     async for item in parser.parseRootPage(soup):
         items.append(item)
     assert len(items) == 2
-    assert items[0].url == "https://re-guide.jp/investment/421139/"
-    assert items[1].url == "https://re-guide.jp/investment/421140/"
+    assert items[0].url == "https://www.re-guide.jp/investment/421139/"
+    assert items[1].url == "https://www.re-guide.jp/investment/421140/"
 
 
 def test_reguide_investment_parser_create_entity_and_detail_mapping(sample_soup):
