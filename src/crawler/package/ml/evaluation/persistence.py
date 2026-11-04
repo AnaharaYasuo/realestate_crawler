@@ -15,14 +15,14 @@ from package.models.evaluation import PropertyEvaluation
 BASE_UPDATE_FIELDS = (
     "company", "property_type", "property_id", "first_stage_predicted_price",
     "is_first_stage_passed", "analysis_status", "analyzed_at", "duplicate_of", "is_slack_notified",
-    "monthly_land_rent", "land_rent_liability",
+    "estimated_sekisan_price", "monthly_land_rent", "land_rent_liability",
     "is_psychological_defect", "is_as_is_condition", "is_boundary_unspecified",
     "is_unbuildable", "is_urbanization_control_area", "has_private_road_burden",
     "is_sublease", "bath_type", "gas_type", "sewage_type",
     "has_elevator", "is_stair_only_3f_plus", "is_old_earthquake_standard",
 )
 INVESTMENT_UPDATE_FIELDS = (
-    "estimated_sekisan_price", "net_operating_income", "debt_service",
+    "net_operating_income", "debt_service",
     "dscr", "total_investment_score",
 )
 EVAL_MAP_FIELDS = (
