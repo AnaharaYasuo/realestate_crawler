@@ -10,6 +10,8 @@ from package.utils import converter
 from package.utils.selector_loader import SelectorLoader
 
 DIGIT_REGEX = re.compile(r"(\d+)")
+ALLOWED_DOMAIN = "re-guide.jp"
+ALLOWED_SUBDOMAIN = ".re-guide.jp"
 
 
 class ReguideInvestmentParser(InvestmentParser):
@@ -41,7 +43,7 @@ class ReguideInvestmentParser(InvestmentParser):
         parsed = urllib.parse.urlparse(url)
         return (
             parsed.scheme in ("http", "https")
-            and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+            and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
         )
 
     async def parseNextPage(self, response: BeautifulSoup) -> str:
@@ -67,12 +69,75 @@ class ReguideInvestmentParser(InvestmentParser):
             break
         return ""
 
+    @staticmethod
+    def _extract_price_text_from_table(price_table: BeautifulSoup) -> str:
+        ths = [th.get_text(strip=True) for th in price_table.select("th")]
+        tds = price_table.select("td")
+        for th, td in zip(ths, tds):
+            if "価格" in th:
+                return td.get_text(strip=True)
+        return ""
+
+    def _extract_card_price(self, card: BeautifulSoup) -> int | None:
+        """一覧カードから価格を抽出し、整数円またはNoneを返す"""
+        price_table = card.select_one("table.price")
+        if price_table:
+            price_text = self._extract_price_text_from_table(price_table)
+        else:
+            price_el = card.select_one(".price, [class*='price']")
+            price_text = price_el.get_text(strip=True) if price_el else ""
+
+        if not price_text:
+            return None
+
+        parsed = converter.parse_price(price_text)
+        if parsed is None:
+            return None
+        try:
+            val = int(parsed)
+            return val if val > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    def _extract_detail_url_from_card(self, card: BeautifulSoup) -> str | None:
+        """一覧カードから投資用物件の詳細URLを抽出して検証する"""
+        a_tag = card.select_one("a[href*='/investment/']")
+        if a_tag is None:
+            return None
+        href = a_tag.get("href")
+        if not href or not isinstance(href, str):
+            return None
+        abs_url = urllib.parse.urljoin(self.BASE_URL, href)
+        parsed = urllib.parse.urlparse(abs_url)
+        if (
+            parsed.scheme in ("http", "https")
+            and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
+            and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
+        ):
+            return abs_url
+        return None
+
     async def parseRootPage(self, response: BeautifulSoup):
         """
-        一覧ページのSoupから詳細ページのListItemを順次yieldする。
+        一覧ページのSoupから詳細ページのListItem(url, price)を順次yieldする。
         """
+        container = response.select_one("ul#result_list")
+        seen_urls: set[str] = set()
+
+        if container:
+            for card in container.select("li"):
+                abs_url = self._extract_detail_url_from_card(card)
+                if not abs_url or abs_url in seen_urls:
+                    continue
+                seen_urls.add(abs_url)
+                price = self._extract_card_price(card)
+                yield ListItem(url=abs_url, price=price)
+
+        # カード走査で拾えなかった残りの詳細URLをextract_detail_urlsで補完
         for url in self.extract_detail_urls(response):
-            yield ListItem(url=url)
+            if url not in seen_urls:
+                seen_urls.add(url)
+                yield ListItem(url=url)
 
     def createEntity(self):
         """
@@ -282,7 +347,7 @@ class ReguideInvestmentParser(InvestmentParser):
             parsed = urllib.parse.urlparse(abs_url)
             if (
                 parsed.scheme in ("http", "https")
-                and (parsed.netloc == "re-guide.jp" or parsed.netloc.endswith(".re-guide.jp"))
+                and (parsed.netloc == ALLOWED_DOMAIN or parsed.netloc.endswith(ALLOWED_SUBDOMAIN))
                 and re.match(r"^/investment/(?:\d+|detail/id/[^/]+)/?", parsed.path)
             ):
                 urls.add(abs_url)
