@@ -202,9 +202,29 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
         return True, f"【市場予測価格より {discount_pct:.1f}% 割安（超お宝物件！）】", discount_pct
     return False, "", 0.0
 
+def _is_bus_route(prop, index: int) -> bool:
+    bus_use = getattr(prop, f"busUse{index}", None)
+    if isinstance(bus_use, (int, float)) and bus_use > 0:
+        return True
+    bus_min = getattr(prop, f"busWalkMinute{index}", None)
+    return isinstance(bus_min, (int, float)) and bus_min > 0
+
+def is_bus_access_property(prop) -> bool:
+    """全ての有効アクセス経路がバス利用の物件を「バス利用物件」と判定する (Issue #1244)。"""
+    routes = [
+        i for i in range(1, 6)
+        if isinstance(getattr(prop, f"station{i}", None), str) and getattr(prop, f"station{i}").strip()
+    ]
+    return bool(routes) and all(_is_bus_route(prop, i) for i in routes)
+
 def _evaluate_candidate(eval_rec, prop) -> tuple:
     asking_price = getattr(prop, "price", 0)
     if not asking_price or asking_price <= 0:
+        return False, "", 0.0
+
+    # バス利用物件はピックアップ対象外 (Issue #1244)
+    if is_bus_access_property(prop):
+        logger.info(f"Skipping alert (bus access property): {getattr(prop, 'pageUrl', '')}")
         return False, "", 0.0
 
     if is_investment_type(eval_rec.property_type):
