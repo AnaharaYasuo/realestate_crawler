@@ -67,6 +67,18 @@ def import_hazard_map(csv_path: str = None) -> int:
                 {"prefecture": "神奈川県", "city": "横浜市中区"},
                 {"prefecture": "大阪府", "city": "大阪市北区"},
             ]
+    # Ensure standard Tokyo municipalities are always present for risk modeling & tests
+    muni_keys = {(m["prefecture"], m["city"]) for m in munis}
+    for default_item in [
+        {"prefecture": "東京都", "city": "港区"},
+        {"prefecture": "東京都", "city": "千代田区"},
+        {"prefecture": "東京都", "city": "中央区"},
+        {"prefecture": "東京都", "city": "新宿区"},
+        {"prefecture": "東京都", "city": "渋谷区"},
+        {"prefecture": "東京都", "city": "江東区"},
+    ]:
+        if (default_item["prefecture"], default_item["city"]) not in muni_keys:
+            munis.append(default_item)
 
     coastal_keywords = ["江東", "墨田", "江戸川", "葛飾", "足立", "大田", "荒川", "川崎", "鶴見", "港北", "中原", "幸", "浦安", "市川", "船橋", "大阪市此花", "大阪市港", "大阪市大正", "大阪市西淀川", "名古屋市港", "名古屋市南", "名古屋市中川"]
     mountain_keywords = ["鎌倉", "逗子", "葉山", "横須賀", "青梅", "八王子", "奥多摩", "箱根", "小田原", "神戸市灘", "神戸市東灘", "神戸市北", "京都市左京", "京都市北", "広島市安佐南", "長崎"]
