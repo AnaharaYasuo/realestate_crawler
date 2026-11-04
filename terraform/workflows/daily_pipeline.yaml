@@ -133,7 +133,7 @@ main:
             - checkMLDeadline:
                 switch:
                   - condition: ${remainingMLTimeout < 60}
-                    next: stopProxySQLOnSuccess
+                    next: checkFinalStatus
 
             - runMLAndEstimation:
                 call: googleapis.run.v2.projects.locations.jobs.run
