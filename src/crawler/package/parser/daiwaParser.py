@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
@@ -7,6 +8,8 @@ from package.utils.selector_loader import SelectorLoader
 from package.utils import converter
 import re
 import urllib.parse
+
+LABEL_KOZO_KAIKEN = "構造/階建"
 
 class DaiwaParser(ParserBase):
 
@@ -283,7 +286,7 @@ class DaiwaMansionParser(DaiwaParser, MansionParserBase):
             specs.get("建物構造", "")
             or specs.get("構造", "")
             or specs.get("構造・工法", "")
-            or specs.get("構造/階建", "")
+            or specs.get(LABEL_KOZO_KAIKEN, "")
             or super()._parseKouzou(response, specs)
         )
         if raw and "/" in str(raw):
@@ -397,7 +400,7 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
             specs.get("建物構造", "")
             or specs.get("構造", "")
             or specs.get("構造・工法", "")
-            or specs.get("構造/階建", "")
+            or specs.get(LABEL_KOZO_KAIKEN, "")
             or super()._parseKouzou(response, specs)
         )
         if raw and "/" in str(raw):
@@ -428,6 +431,31 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
     def createEntity(self):
         return DaiwaKodate()
 
+    def _split_combined_ratios(self, item, specs: dict) -> None:
+        comb = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "")
+        if not comb:
+            return
+        parts = re.split(r'[/／]', comb)
+        if len(parts) >= 2:
+            item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+            item.yousekiStr = item.yousekiStr or parts[1].strip()
+
+    def _apply_ratios_and_roads(self, item, response: BeautifulSoup, specs: dict) -> None:
+        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.yousekiStr = specs.get("容積率", "")
+        if not item.kenpeiStr or not item.yousekiStr:
+            self._split_combined_ratios(item, specs)
+
+        if item.kenpeiStr:
+            item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        if item.yousekiStr:
+            item.youseki = converter.parse_ratio(item.yousekiStr)
+
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
+        item.kuiki = specs.get("都市計画", "")
+        item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -441,7 +469,12 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("階数", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
+        if not item.kaisuStr:
+            kozo_raw = specs.get(LABEL_KOZO_KAIKEN, "") or specs.get("建物構造", "") or specs.get("構造", "")
+            km = re.search(r'([0-9０-９]{1,3})階建', kozo_raw)
+            if km:
+                item.kaisuStr = km.group(0)
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
 
@@ -450,16 +483,7 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
-
-        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
-        item.kuiki = specs.get("都市計画", "")
-        item.setsudou = self._parseSetsudou(response, specs)
+        self._apply_ratios_and_roads(item, response, specs)
 
         return item
 
@@ -514,6 +538,21 @@ class DaiwaTochiParser(DaiwaParser, TochiParserBase):
     def createEntity(self):
         return DaiwaTochi()
 
+    def _apply_tochi_ratios(self, item, specs: dict) -> None:
+        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.yousekiStr = specs.get("容積率", "")
+        if not item.kenpeiStr or not item.yousekiStr:
+            comb = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "")
+            if comb and ("/" in comb or "／" in comb):
+                parts = re.split(r'[/／]', comb)
+                item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+                item.yousekiStr = item.yousekiStr or (parts[1].strip() if len(parts) > 1 else "")
+
+        if item.kenpeiStr:
+            item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        if item.yousekiStr:
+            item.youseki = converter.parse_ratio(item.yousekiStr)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -522,16 +561,12 @@ class DaiwaTochiParser(DaiwaParser, TochiParserBase):
         if item.tochiMensekiStr:
             item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
 
-        item.kenpeiStr = specs.get("建ぺい率", "")
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        item.yousekiStr = specs.get("容積率", "")
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
+        self._apply_tochi_ratios(item, specs)
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 

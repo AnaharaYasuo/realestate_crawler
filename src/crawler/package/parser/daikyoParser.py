@@ -262,6 +262,38 @@ class DaikyoParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    @staticmethod
+    def _extract_minutes_from_post_bus(post_bus: str):
+        cleaned = post_bus.replace("徒歩", "").strip()
+        m = re.search(r'([0-9０-９]{1,3})\s*分', cleaned)
+        if m:
+            return int(m.group(1).translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+        return None
+
+    def _parseBusStopWalk(self, item, traffic_str: str):
+        """「工業高校前バス停４分」形式（バス停からの徒歩分）を busStation1/busWalkMinute1 に設定する。
+
+        大京穴吹の地方物件は鉄道駅を持たずバス停名＋分数のみ掲載されるため、
+        汎用パースでは徒歩分数が取得できない。既に値がある場合は上書きしない。
+        """
+        if not hasattr(item, "busWalkMinute1") or getattr(item, "busWalkMinute1", None):
+            return
+        if not traffic_str or "バス停" not in traffic_str:
+            return
+        pre_bus, post_bus = traffic_str.split("バス停", 1)
+        stop = pre_bus.split()[-1].strip("「」 \t\r\n\u3000") if pre_bus.strip() else ""
+        minutes = self._extract_minutes_from_post_bus(post_bus)
+        if not stop or minutes is None:
+            return
+        item.busStation1 = stop
+        item.busWalkMinute1Str = f"{minutes}分"
+        item.busWalkMinute1 = minutes
+        if hasattr(item, "busUse1"):
+            item.busUse1 = 1
+        # 汎用フォールバックが「◯◯バス停」を駅名として誤設定するのを防ぐ
+        if getattr(item, "station1", "") and "バス停" in str(item.station1):
+            item.station1 = ""
+
     def _populate_price_and_address(self, item, specs, response):
         price_val = _first_spec(specs, "価格", "販売価格")
         if not price_val:
@@ -287,6 +319,7 @@ class DaikyoParser(ParserBase):
         traffic_str = specs.get("交通", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
+            self._parseBusStopWalk(item, traffic_str)
 
         item.biko = _first_spec(specs, "備考", "その他")
         item.genkyo = self._parseCurrentStatus(response, specs)

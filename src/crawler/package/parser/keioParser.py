@@ -24,11 +24,11 @@ class KeioParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return specs.get("現況", "") or specs.get("現況状況", "") or specs.get("建物現況", "")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("土地の権利形態", "")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -189,6 +189,17 @@ class KeioParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    @staticmethod
+    def _parseTrafficLines(traffic_str: str) -> list:
+        """交通セルを1路線1行に分割する。
+
+        <br> 区切りが get_text() で消え「徒歩12分多摩モノレール…」と連結されるため、
+        「徒歩N分」の直後で改行を補ってから分割する（徒歩分数の取りこぼし防止）。
+        """
+        text = re.sub(r'(徒歩\s*[0-9０-９]+\s*分)(?=\S)', r'\1\n', traffic_str or "")
+        lines = re.split(r'\n|[ \t]{2,}', text)
+        return [t.strip() for t in lines if t.strip()]
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -209,10 +220,7 @@ class KeioParser(ParserBase):
         # 交通
         traffic_str = specs.get("交通", "")
         if traffic_str:
-            traffic_lines = re.split(r'\s{2,}', traffic_str)
-            if len(traffic_lines) <= 1:
-                traffic_lines = traffic_str.split("\n")
-            self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
+            self._populateTraffic(item, self._parseTrafficLines(traffic_str))
 
         item.biko = specs.get("備考", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
@@ -313,6 +321,21 @@ class KeioMansionParser(KeioParser, MansionParserBase):
             if m:
                 item.floorType_chika = int(m.group(1))
 
+    def _apply_keio_fees(self, item, specs: dict) -> None:
+        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費等", "")
+        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        combined_fee = specs.get("管理費/修繕積立金", "") or specs.get("管理費・修繕積立金", "") or specs.get("管理費等（月額）", "") or specs.get("管理費等(月額)", "")
+        if combined_fee and ("/" in combined_fee or "／" in combined_fee):
+            parts = re.split(r'[/／]', combined_fee, 1)
+            if not item.kanrihiStr:
+                item.kanrihiStr = parts[0].strip()
+            if not item.syuzenTsumitateStr and len(parts) > 1:
+                item.syuzenTsumitateStr = parts[1].strip()
+        if item.kanrihiStr:
+            item.kanrihi = converter.parse_rent(item.kanrihiStr)
+        if item.syuzenTsumitateStr:
+            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -339,13 +362,7 @@ class KeioMansionParser(KeioParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費", "")
-        if item.kanrihiStr:
-            item.kanrihi = converter.parse_rent(item.kanrihiStr)
-
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
-        if item.syuzenTsumitateStr:
-            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+        self._apply_keio_fees(item, specs)
 
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")
@@ -438,15 +455,21 @@ class KeioKodateParser(KeioParser, KodateParserBase):
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "") or specs.get("構造・階建", "") or specs.get("規模", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
 
         item.kenpeiStr = specs.get("建ぺい率", "")
+        item.yousekiStr = specs.get("容積率", "")
+        combined_ky = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "") or specs.get("建ぺい・容積率", "")
+        if combined_ky and ("/" in combined_ky or "／" in combined_ky):
+            ky_parts = re.split(r'[/／]', combined_ky, 1)
+            if not item.kenpeiStr:
+                item.kenpeiStr = ky_parts[0].strip()
+            if not item.yousekiStr:
+                item.yousekiStr = ky_parts[1].strip()
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
@@ -519,10 +542,16 @@ class KeioTochiParser(KeioParser, TochiParserBase):
         item.chimoku = self._parseChimoku(response, specs)
         
         item.kenpeiStr = specs.get("建ぺい率", "")
+        item.yousekiStr = specs.get("容積率", "")
+        combined_ky = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "") or specs.get("建ぺい・容積率", "")
+        if combined_ky and ("/" in combined_ky or "／" in combined_ky):
+            ky_parts = re.split(r'[/／]', combined_ky, 1)
+            if not item.kenpeiStr:
+                item.kenpeiStr = ky_parts[0].strip()
+            if not item.yousekiStr:
+                item.yousekiStr = ky_parts[1].strip()
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
