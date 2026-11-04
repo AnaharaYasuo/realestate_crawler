@@ -11,6 +11,9 @@ from package.utils.data_validator import (
     ERR_MISSING_MADORI,
     ERR_MISSING_NAME,
     ERR_MISSING_TRAFFIC,
+    ERR_MISSING_TRAFFIC_MINUTES,
+    ERR_MISSING_KENPEI,
+    ERR_MISSING_YOUSEKI,
     PropertyDataValidator,
 )
 
@@ -44,8 +47,26 @@ def test_missing_required_field_detected(field, err):
 def test_missing_traffic_detected_only_when_both_empty():
     _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1=""), "mansion")
     assert ERR_MISSING_TRAFFIC in reasons
-    _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="", station1="渋谷"), "mansion")
+    _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="JR山手線 渋谷駅", station1="渋谷"), "mansion")
     assert ERR_MISSING_TRAFFIC not in reasons
+    assert ERR_MISSING_TRAFFIC_MINUTES in reasons
+    _, reasons = PropertyDataValidator.validate_property(_mansion(traffic="JR山手線 渋谷駅 徒歩5分", station1="渋谷"), "mansion")
+    assert ERR_MISSING_TRAFFIC not in reasons
+    assert ERR_MISSING_TRAFFIC_MINUTES not in reasons
+
+
+def test_missing_traffic_minutes_detected_when_no_numeric_access():
+    item = _mansion(traffic="渋谷駅", railwayWalkMinute1=None, railwayWalkMinute1Str="")
+    ok, reasons = PropertyDataValidator.validate_property(item, "mansion")
+    assert not ok
+    assert ERR_MISSING_TRAFFIC_MINUTES in reasons
+
+
+def test_traffic_minutes_valid_when_numeric_field_set():
+    item = _mansion(traffic="渋谷駅", railwayWalkMinute1=5)
+    ok, reasons = PropertyDataValidator.validate_property(item, "mansion")
+    assert ERR_MISSING_TRAFFIC_MINUTES not in reasons
+    assert ok
 
 
 def test_missing_age_detected():

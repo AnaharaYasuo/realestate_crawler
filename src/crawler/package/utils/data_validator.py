@@ -10,6 +10,9 @@ ERR_MISSING_TOCHI = "必須項目欠損 (土地面積が未抽出)"
 ERR_MISSING_NAME = "必須項目欠損 (物件名が未抽出)"
 ERR_MISSING_ADDRESS = "必須項目欠損 (住所が未抽出)"
 ERR_MISSING_TRAFFIC = "必須項目欠損 (交通が未抽出)"
+ERR_MISSING_TRAFFIC_MINUTES = "必須項目欠損 (交通アクセス所要時間が未抽出)"
+ERR_MISSING_KENPEI = "必須項目欠損 (建ぺい率が未抽出)"
+ERR_MISSING_YOUSEKI = "必須項目欠損 (容積率が未抽出)"
 ERR_MISSING_MADORI = "必須項目欠損 (間取りが未抽出)"
 ERR_MISSING_AGE = "必須項目欠損 (築年月が未抽出)"
 _BLANKS = ("", "-", "None", "nan")
@@ -47,22 +50,44 @@ class PropertyDataValidator:
         return len(reasons) == 0, reasons
 
     @classmethod
+    def _has_traffic_minutes(cls, item: Any) -> bool:
+        """徒歩・バス等の交通所要時間が抽出されているか判定"""
+        for attr in ("railwayWalkMinute1", "busWalkMinute1", "walkMinute1", "busMinute1"):
+            val = getattr(item, attr, None)
+            if val is not None:
+                try:
+                    if int(val) > 0:
+                        return True
+                except (ValueError, TypeError):
+                    pass
+        for attr in ("railwayWalkMinute1Str", "busWalkMinute1Str", "walkMinute1Str", "busWalkMinute1Str"):
+            val = getattr(item, attr, None)
+            if val and any(ch.isdigit() for ch in str(val)):
+                return True
+
+        traffic_str = str(getattr(item, "traffic", "") or "")
+        return any(kw in traffic_str for kw in ("徒歩", "歩", "バス", "分", "車", "min", "walk"))
+
+    @classmethod
     def _check_common_required(cls, item: Any, ptype: str, reasons: list[str]) -> None:
         """全ページに必ず存在する項目 (物件名・住所・交通) の欠損検査"""
         if _blank(getattr(item, "propertyName", None)):
             reasons.append(ERR_MISSING_NAME)
         if _blank(getattr(item, "address", None)):
             reasons.append(ERR_MISSING_ADDRESS)
-        if (
+        has_traffic_name = not (
             _blank(getattr(item, "traffic", None))
             and _blank(getattr(item, "station1", None))
             and _blank(getattr(item, "railway1", None))
             and _blank(getattr(item, "busStation1", None))
             and _blank(getattr(item, "transport1", None))
-        ):
-            is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
+        )
+        is_invest = "invest" in ptype or "apartment" in ptype or cls._is_low_price_allowed(item, ptype)
+        if not has_traffic_name:
             if not is_invest:
                 reasons.append(ERR_MISSING_TRAFFIC)
+        elif not is_invest and not cls._has_traffic_minutes(item):
+            reasons.append(ERR_MISSING_TRAFFIC_MINUTES)
 
     @classmethod
     def _is_under_construction(cls, item: Any) -> bool:
@@ -381,6 +406,14 @@ class PropertyDataValidator:
         except (ValueError, TypeError):
             reasons.append(ERR_MISSING_TOCHI)
 
+        # 土地物件で建ぺい率・容積率フィールドが存在する場合の検査（取得可能な土地物件での欠損検知）
+        if hasattr(item, "_meta") and hasattr(item._meta, "get_fields"):
+            field_names = {f.name for f in item._meta.get_fields()}
+            if "kenpei" in field_names and _blank(getattr(item, "kenpei", None)) and _blank(getattr(item, "kenpeiStr", None)):
+                reasons.append(ERR_MISSING_KENPEI)
+            if "youseki" in field_names and _blank(getattr(item, "youseki", None)) and _blank(getattr(item, "yousekiStr", None)):
+                reasons.append(ERR_MISSING_YOUSEKI)
+
     @classmethod
     def _check_investment_specs(cls, item: Any, ptype: str, reasons: list[str]) -> None:
         yield_rate = getattr(item, "yieldRate", None) or getattr(item, "grossYield", None)
@@ -405,7 +438,7 @@ class PropertyDataValidator:
 
 def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple[bool, list[str]]:
     """
-    保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True (オートヒール対象)、
+    保存後の共通整合性タグ付け。検証NGなら needs_parser_fix=True および needs_recrawl=True (オートヒール/再クローリング対象)、
     OKなら解消する。単件保存・バッチ保存・validate_data.py から共通利用。
     """
     from package.models.evaluation import PropertyEvaluation
@@ -420,12 +453,13 @@ def tag_property_integrity(item: Any, property_type: str, company: str) -> tuple
             "property_id": getattr(item, "id", 0) or 0,
             "is_published": True,
             "needs_parser_fix": not is_valid,
-            "needs_recrawl": False,
+            "needs_recrawl": not is_valid,
             "data_quality_issue": issue,
         },
     )
     if not is_valid:
         eval_rec.needs_parser_fix = True
+        eval_rec.needs_recrawl = True
         eval_rec.data_quality_issue = issue
         eval_rec.is_published = True
         eval_rec.save()
