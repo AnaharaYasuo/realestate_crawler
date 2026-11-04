@@ -163,6 +163,29 @@ class KeiseiParser(ParserBase):
                     specs[key] = val
         return specs
 
+    def _parseTrafficStr(self, response: BeautifulSoup) -> str:
+        """交通 (th) の値を <br> 区切りの路線ごとに改行で保持して返す。
+
+        _get_specs は get_text() で <br> を連結してしまい
+        「…徒歩11分京成本線青砥駅…」のように複数路線が1行に潰れるため、交通専用に改行を保持する。
+        """
+        for th in response.select("table th"):
+            if th.get_text(strip=True).replace(" ", "") != "交通":
+                continue
+            td = th.find_next_sibling("td")
+            if not td:
+                continue
+            lines, buf = [], []
+            for node in td.descendants:
+                if getattr(node, "name", None) == "br":
+                    lines.append(" ".join(buf)); buf = []
+                elif isinstance(node, str) and node.strip():
+                    buf.append(node.strip())
+            lines.append(" ".join(buf))
+            lines = [re.sub(r"\s+", " ", s).strip() for s in lines]
+            return "\n".join(line for line in lines if line)
+        return ""
+
     def _split_address(self, address):
         return super()._split_address(address)
 
@@ -192,7 +215,7 @@ class KeiseiParser(ParserBase):
             item.address = addr_val
             item.address1, item.address2, item.address3 = self._split_address(item.address)
 
-        traffic_str = specs.get("交通", "")
+        traffic_str = self._parseTrafficStr(response) or specs.get("交通", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
 

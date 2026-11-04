@@ -182,7 +182,25 @@ class TotateParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    def _parseTrafficLinesFromKotsuSet(self, response: BeautifulSoup) -> list:
+        """詳細表 tr.transport 内の span.kotsu-set (路線/駅/徒歩) を1路線1行で抽出する。
+
+        specs['交通'] は span 間の空白が失われ複数路線が1行に連結されるため、DOM構造を優先する。
+        """
+        row = response.select_one("tr.transport")
+        if not row:
+            return []
+        lines = []
+        for kset in row.select("span.kotsu-set"):
+            text = " ".join(s.strip() for s in kset.stripped_strings if s.strip())
+            if text:
+                lines.append(text)
+        return lines
+
     def _parseTrafficLines(self, response: BeautifulSoup):
+        kotsu_lines = self._parseTrafficLinesFromKotsuSet(response)
+        if kotsu_lines:
+            return kotsu_lines
         traffic_lines = []
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")

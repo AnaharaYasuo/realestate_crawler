@@ -75,7 +75,7 @@ def test_format_access_with_bus():
 
     prop = MockBusProp()
     access, area = _format_access_and_area(prop)
-    assert access == "中央線 三鷹 バス25分(停 中原三丁目) 徒歩1"
+    assert access == "中央線 三鷹 バス25分(停 中原三丁目) 徒歩1分"
     assert "専有: 72.79㎡" in area
 
 

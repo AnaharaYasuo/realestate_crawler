@@ -262,6 +262,30 @@ class DaikyoParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    _BUS_STOP_WALK_RE = re.compile(r'([^\s　「」]+?)バス停\s*(?:徒歩)?\s*([0-9０-９]+)\s*分')
+
+    def _parseBusStopWalk(self, item, traffic_str: str):
+        """「工業高校前バス停４分」形式（バス停からの徒歩分）を busStation1/busWalkMinute1 に設定する。
+
+        大京穴吹の地方物件は鉄道駅を持たずバス停名＋分数のみ掲載されるため、
+        汎用パースでは徒歩分数が取得できない。既に値がある場合は上書きしない。
+        """
+        if not hasattr(item, "busWalkMinute1") or getattr(item, "busWalkMinute1", None):
+            return
+        m = self._BUS_STOP_WALK_RE.search(traffic_str or "")
+        if not m:
+            return
+        stop = m.group(1).strip()
+        minutes = int(m.group(2).translate(str.maketrans("０１２３４５６７８９", "0123456789")))
+        item.busStation1 = stop
+        item.busWalkMinute1Str = f"徒歩{minutes}分"
+        item.busWalkMinute1 = minutes
+        if hasattr(item, "busUse1"):
+            item.busUse1 = 1
+        # 汎用フォールバックが「◯◯バス停」を駅名として誤設定するのを防ぐ
+        if getattr(item, "station1", "") and "バス停" in str(item.station1):
+            item.station1 = ""
+
     def _populate_price_and_address(self, item, specs, response):
         price_val = _first_spec(specs, "価格", "販売価格")
         if not price_val:
@@ -287,6 +311,7 @@ class DaikyoParser(ParserBase):
         traffic_str = specs.get("交通", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
+            self._parseBusStopWalk(item, traffic_str)
 
         item.biko = _first_spec(specs, "備考", "その他")
         item.genkyo = self._parseCurrentStatus(response, specs)

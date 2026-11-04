@@ -116,6 +116,7 @@ class SmtrcParser(ParserBase):
         # 交通情報のパース
         traffic_lines = self._parseTrafficLines(response)
         self._populateTraffic(item, "  ".join(traffic_lines))
+        self._applyBusAccess1(item, traffic_lines)
 
         # 共通テーブルスペック
         specs = self._get_specs(response)
@@ -165,6 +166,32 @@ class SmtrcParser(ParserBase):
             if l:
                 lines.append(l)
         return lines
+
+    @staticmethod
+    def _applyBusAccess1(item, traffic_lines: list) -> None:
+        """1行目がバス便 (例: 'JR横浜線 淵野辺駅 バス乗車12分桜台二丁目停 徒歩3分') の場合、
+        バス乗車分を busWalkMinute1 / busUse1 に、バス停からの徒歩分を railwayWalkMinute1 に設定する。
+        (汎用 _populateTraffic は最初の 'N分' = バス乗車分 を徒歩分と誤認するため上書き補正)
+        """
+        if not traffic_lines:
+            return
+        line = traffic_lines[0]
+        m_bus = re.search(r"バス(?:乗車)?\s*(\d+)\s*分", line)
+        if not m_bus:
+            return
+        item.busUse1 = 1
+        item.busWalkMinute1Str = f"{m_bus.group(1)}分"
+        item.busWalkMinute1 = int(m_bus.group(1))
+        m_walk = re.search(r"(?:徒歩|停歩)\s*(\d+)\s*分", line[m_bus.end():])
+        if m_walk:
+            item.railwayWalkMinute1Str = f"徒歩{m_walk.group(1)}分"
+            item.railwayWalkMinute1 = int(m_walk.group(1))
+        else:
+            item.railwayWalkMinute1Str = ""
+            item.railwayWalkMinute1 = None
+        m_stop = re.search(r"分\s*([^\s\d]+?)停", line[m_bus.start():])
+        if m_stop:
+            item.busStation1 = m_stop.group(1)
 
     async def _smtrc_fetch_with_playwright(self, url: str) -> bytes:
         from playwright.async_api import async_playwright

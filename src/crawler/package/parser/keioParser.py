@@ -189,6 +189,17 @@ class KeioParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
+    @staticmethod
+    def _parseTrafficLines(traffic_str: str) -> list:
+        """交通セルを1路線1行に分割する。
+
+        <br> 区切りが get_text() で消え「徒歩12分多摩モノレール…」と連結されるため、
+        「徒歩N分」の直後で改行を補ってから分割する（徒歩分数の取りこぼし防止）。
+        """
+        text = re.sub(r'(徒歩\s*[0-9０-９]+\s*分)(?=\S)', r'\1\n', traffic_str or "")
+        lines = re.split(r'\n|\s{2,}', text)
+        return [t.strip() for t in lines if t.strip()]
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -209,10 +220,7 @@ class KeioParser(ParserBase):
         # 交通
         traffic_str = specs.get("交通", "")
         if traffic_str:
-            traffic_lines = re.split(r'\s{2,}', traffic_str)
-            if len(traffic_lines) <= 1:
-                traffic_lines = traffic_str.split("\n")
-            self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
+            self._populateTraffic(item, self._parseTrafficLines(traffic_str))
 
         item.biko = specs.get("備考", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
