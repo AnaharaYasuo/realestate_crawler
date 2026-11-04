@@ -22,6 +22,35 @@ from package.ml.mansion_review import fetch_mansion_review_data
 logger = logging.getLogger(__name__)
 
 
+def _extract_station_from_traffic_text(traffic_text: str) -> str:
+    """traffic 文字列から駅名候補を抽出し、正規化する（レイヤ境界保護のため独立定義）"""
+    if not traffic_text:
+        return ""
+    # 1. 「駅名」形式の抽出
+    if "「" in traffic_text and "」" in traffic_text:
+        left = traffic_text.find("「")
+        right = traffic_text.find("」", left)
+        if right > left:
+            cand = traffic_text[left + 1 : right].strip()
+            if cand:
+                return _normalize_station_name_simple(cand)
+
+    station_suffixes = ("駅", "停留所", "バス停", "停")
+    for t in str(traffic_text).replace("　", " ").split():
+        for sfx in station_suffixes:
+            if sfx in t:
+                idx = t.find(sfx) + len(sfx)
+                candidate = t[:idx].lstrip("「（(").rstrip("」）)")
+                if candidate and candidate not in ("駅", "停", "バス停", "停留所"):
+                    return _normalize_station_name_simple(candidate)
+    return ""
+
+
+def _normalize_station_name_simple(name: str) -> str:
+    cleaned = (name or "").strip().rstrip("駅").rstrip("停").rstrip("停留所").strip()
+    return cleaned
+
+
 def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:
     """
     対象物件および周辺・外部の基礎客観データを収集・統合する。
@@ -34,6 +63,8 @@ def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:
 
     # 2. 駅ポテンシャル（乗降客数）
     station_clean = station_raw or getattr(prop, "station1", "") or getattr(prop, "station", "") or ""
+    if not station_clean and getattr(prop, "traffic", None):
+        station_clean = _extract_station_from_traffic_text(str(prop.traffic))
     passenger_vol = query_station_volume(station_clean) if station_clean else None
 
     # 3. 国交省ハザード情報（浸水リスクレベル、土砂災害リスクレベル）

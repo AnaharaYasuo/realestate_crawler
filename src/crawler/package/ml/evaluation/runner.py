@@ -63,14 +63,36 @@ def evaluate_single_model(
             save_kwargs = {"batch_size": batch_size}
             if skip_duplicate_check:
                 save_kwargs["skip_duplicate_check"] = skip_duplicate_check
-            p_cnt, d_cnt = save_chunk(
-                chunk,
-                predicted_prices,
-                existing_eval_map,
-                company,
-                property_type,
-                **save_kwargs,
-            )
+
+            # DB 瞬断・過負荷（OperationalError/2006/2013）に対する指数バックオフ付きリトライ保護
+            p_cnt, d_cnt = 0, 0
+            max_save_retries = 3
+            for save_attempt in range(max_save_retries):
+                try:
+                    p_cnt, d_cnt = save_chunk(
+                        chunk,
+                        predicted_prices,
+                        existing_eval_map,
+                        company,
+                        property_type,
+                        **save_kwargs,
+                    )
+                    break
+                except Exception as save_err:
+                    err_str = str(save_err).lower()
+                    is_db_err = any(k in err_str for k in ("operationalerror", "2006", "2013", "gone away", "lost connection", "lock wait", "deadlock"))
+                    if is_db_err and save_attempt < max_save_retries - 1:
+                        wait_sec = 2 ** save_attempt
+                        logger.warning(
+                            "Transient DB error saving chunk for %s (attempt %d/%d): %s. Reconnecting and retrying in %ds...",
+                            model_name, save_attempt + 1, max_save_retries, save_err, wait_sec,
+                        )
+                        close_old_connections()
+                        import time
+                        time.sleep(wait_sec)
+                    else:
+                        raise
+
             evaluated_count += len(chunk)
             passed_count += p_cnt
             duplicate_count += d_cnt

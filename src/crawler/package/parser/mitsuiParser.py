@@ -224,6 +224,10 @@ class MitsuiParser(ParserBase):
             )
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 掲載終了・成約済物件の早期検出 (Issue #1255)
+        page_url = getattr(item, "pageUrl", "")
+        self._raise_if_listing_ended(response, page_url)
+
         item = super()._parsePropertyDetailPage(item, response)
 
         item.propertyName = self.get_property_name(response)
@@ -417,6 +421,19 @@ class MitsuiParser(ParserBase):
 
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
+
+        if not lines and response:
+            # .property-detail-infos 内の交通テキストをフォールバック抽出
+            for el in response.select(".property-detail-infos"):
+                txt = el.get_text(" ", strip=True)
+                if "交通" in txt:
+                    # 交通から所在地の手前までを抽出
+                    m = re.search(r"交通\s+(.*?)(?:\s+所在地|\s+GoogleMaps|$)", txt)
+                    if m:
+                        t_part = m.group(1).strip()
+                        if t_part:
+                            lines = self._split_single_transit_line(t_part)
+                            break
 
         return [
             line for line in lines
@@ -1757,6 +1774,10 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser, InvestmentParserBa
             yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 掲載終了・成約済物件の早期検出 (Issue #1255)
+        page_url = getattr(item, "pageUrl", "")
+        self._raise_if_listing_ended(response, page_url)
+
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item

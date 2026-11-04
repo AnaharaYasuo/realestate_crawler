@@ -112,21 +112,29 @@ async def get_mizuho_links_from_sitemap(
     return collected if limit is None else collected[:limit]
 
 
-def _check_page_errors(title: str, status: int | None) -> None:
+def _check_page_errors(title: str, status: int | None, current_url: str = "") -> None:
     if status in (502, 503, 504) or "503" in title or "Service Unavailable" in title:
         from package.parser.baseParser import ServerBusyException
         raise ServerBusyException(f"Mizuho site temporarily unavailable ({status or '503'}): {title}")
+
+    # 店舗情報やお知らせページへ強制転送された場合を検知
+    url_lower = (current_url or "").lower()
+    title_lower = (title or "").lower()
+    if ("/shop" in url_lower or "/branch" in url_lower or "/news" in url_lower or "/notice" in url_lower) and not ("/property/" in url_lower or "/buyers/" in url_lower or "/investors/" in url_lower):
+        logger.warning("MizuhoBypass: Redirected away to shop/news page (%s, title=%s)", current_url, title)
 
 
 async def _extract_links_from_page(page, response) -> list:
     title = await page.title()
     status = response.status if response else None
+    current_url = getattr(page, "url", "")
     logger.info(
-        "MizuhoBypass: Page loaded. Title: %s, Status: %s",
+        "MizuhoBypass: Page loaded. URL: %s, Title: %s, Status: %s",
+        current_url,
         title,
         status or "None",
     )
-    _check_page_errors(title, status)
+    _check_page_errors(title, status, current_url)
 
     if "403" in title or status == 403:
         logger.error("MizuhoBypass: Got blocked with 403!")

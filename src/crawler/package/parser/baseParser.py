@@ -1396,6 +1396,17 @@ class ParserBase(metaclass=ABCMeta):
     @staticmethod
     def _find_station_candidate(traffic_text: str) -> str | None:
         """Find station/stop name candidate from traffic text."""
+        if not traffic_text:
+            return None
+        # 1. 「駅名」形式の抽出
+        if "「" in traffic_text and "」" in traffic_text:
+            left = traffic_text.find("「")
+            right = traffic_text.find("」", left)
+            if right > left:
+                cand = traffic_text[left + 1 : right].strip()
+                if cand:
+                    return cand
+
         station_suffixes = ("駅", "停留所", "バス停", "停")
         for t in traffic_text.replace("　", " ").split():
             for sfx in station_suffixes:
