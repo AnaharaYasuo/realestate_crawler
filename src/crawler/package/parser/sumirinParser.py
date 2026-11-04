@@ -269,7 +269,7 @@ class SumirinParser(ParserBase):
             bus_station_field = f"busStation{idx}"
             bus_use_field = f"busUse{idx}"
 
-            m_st = re.search(r"([^・\s]+)・([^\s]+?)(?:駅|$)", line)
+            m_st = re.search(r"([^・\s]+)・([^\s駅]+)(?:駅|$)", line)
             if m_st:
                 if hasattr(item, railway_field) and not getattr(item, railway_field, None):
                     setattr(item, railway_field, m_st.group(1).strip())

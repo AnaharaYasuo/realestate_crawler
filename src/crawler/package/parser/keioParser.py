@@ -197,7 +197,7 @@ class KeioParser(ParserBase):
         「徒歩N分」の直後で改行を補ってから分割する（徒歩分数の取りこぼし防止）。
         """
         text = re.sub(r'(徒歩\s*[0-9０-９]+\s*分)(?=\S)', r'\1\n', traffic_str or "")
-        lines = re.split(r'\n|\s{2,}', text)
+        lines = re.split(r'\n|[ \t]{2,}', text)
         return [t.strip() for t in lines if t.strip()]
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
