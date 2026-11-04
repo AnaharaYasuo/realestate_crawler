@@ -20,6 +20,7 @@ setup_env.init_environment()
 import realestateSettings
 realestateSettings.configure()
 
+from django.db import connection
 from package.models.evaluation import UrbanInductionZoneMaster, MunicipalPotential
 
 logger = logging.getLogger(__name__)
@@ -70,9 +71,11 @@ def sync_urban_induction_zones() -> int:
             )
         )
 
+    unique_fields = ["prefecture", "city", "town_name"] if connection.features.supports_update_conflicts_with_target else None
     UrbanInductionZoneMaster.objects.bulk_create(
         records,
-        ignore_conflicts=True,
+        update_conflicts=True,
+        unique_fields=unique_fields,
         update_fields=["is_urban_induction_zone", "is_residential_induction_zone", "plan_status"]
     )
 
