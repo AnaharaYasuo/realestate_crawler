@@ -150,7 +150,7 @@ async def process_property_validation(
         if eval_rec:
             eval_rec.is_published = True
             eval_rec.needs_parser_fix = True
-            eval_rec.needs_recrawl = False
+            eval_rec.needs_recrawl = True
             eval_rec.data_quality_issue = "; ".join(reasons)
             eval_rec.first_stage_predicted_price = 0
             eval_rec.second_stage_predicted_price = 0
