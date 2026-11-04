@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 from bs4 import BeautifulSoup
@@ -237,11 +238,16 @@ class SumirinParser(ParserBase):
         # 交通
         traffic_str = specs.get("交通", "")
         if traffic_str:
-            # スペース区切りなどで最大5つの路線情報を抽出
-            traffic_lines = re.split(r'\s{2,}', traffic_str)
-            if len(traffic_lines) <= 1:
-                traffic_lines = traffic_str.split(" ")
-            self._populateTraffic(item, [t.strip() for t in traffic_lines if t.strip()])
+            # 住友林業の複数路線分割: 2つ以上の空白、改行、または「 路線・駅」の直前で分割
+            traffic_lines = [
+                t.strip()
+                for t in re.split(r"[\r\n]+|\s{2,}|\s+(?=[^・\s]+・[^\s]+?駅)", traffic_str)
+                if t.strip()
+            ]
+            if not traffic_lines:
+                traffic_lines = [traffic_str.strip()]
+            self._populateTraffic(item, traffic_lines)
+            self._apply_sumirin_access_minutes(item, traffic_lines, traffic_str)
 
         item.biko = specs.get("備考", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
@@ -249,6 +255,59 @@ class SumirinParser(ParserBase):
         item.torihiki = specs.get("取引態様", "")
 
         return item
+
+    @staticmethod
+    def _apply_sumirin_access_minutes(item, lines: list, full_str: str) -> None:
+        """住友林業の交通文字列から路線・駅・徒歩/バス分数を安全に補完"""
+        for idx, line in enumerate(lines[:5], start=1):
+            railway_field = f"railway{idx}"
+            station_field = f"station{idx}"
+            walk_min_field = f"railwayWalkMinute{idx}"
+            walk_str_field = f"railwayWalkMinute{idx}Str"
+            bus_min_field = f"busWalkMinute{idx}"
+            bus_str_field = f"busWalkMinute{idx}Str"
+            bus_station_field = f"busStation{idx}"
+            bus_use_field = f"busUse{idx}"
+
+            m_st = re.search(r"([^・\s]+)・([^\s]+?)(?:駅|$)", line)
+            if m_st:
+                if hasattr(item, railway_field) and not getattr(item, railway_field, None):
+                    setattr(item, railway_field, m_st.group(1).strip())
+                if hasattr(item, station_field) and not getattr(item, station_field, None):
+                    setattr(item, station_field, m_st.group(2).strip())
+
+            # バス情報
+            m_bus = re.search(r"バス\s*(\d+)\s*分", line)
+            if m_bus:
+                bus_val = int(m_bus.group(1))
+                if hasattr(item, bus_min_field) and getattr(item, bus_min_field, None) in (None, 0):
+                    setattr(item, bus_min_field, bus_val)
+                if hasattr(item, bus_str_field) and not getattr(item, bus_str_field, None):
+                    setattr(item, bus_str_field, f"{bus_val}分")
+                if hasattr(item, bus_use_field):
+                    setattr(item, bus_use_field, 1)
+
+            m_bus_st = re.search(r"バス\d+分\s+([^\s]+?)下車", line)
+            if m_bus_st and hasattr(item, bus_station_field) and not getattr(item, bus_station_field, None):
+                setattr(item, bus_station_field, m_bus_st.group(1).strip())
+
+            # 徒歩情報
+            m_walk = re.search(r"徒歩\s*(\d+)\s*分", line)
+            if m_walk:
+                walk_val = int(m_walk.group(1))
+                if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
+                    setattr(item, walk_min_field, walk_val)
+                if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
+                    setattr(item, walk_str_field, f"{walk_val}分")
+
+        # 第1路線が未設定で全体から徒歩が取れる場合のフォールバック
+        if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            m_first_walk = re.search(r"徒歩\s*(\d+)\s*分", full_str)
+            if m_first_walk:
+                val = int(m_first_walk.group(1))
+                item.railwayWalkMinute1 = val
+                if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+                    item.railwayWalkMinute1Str = f"{val}分"
 
     def _parse_kenpei_youseki(self, item, specs):
         kenpei_str = specs.get("建ぺい率", "") or specs.get(LABEL_KENPEI_YOUSEKI, "")
@@ -480,6 +539,7 @@ class SumirinTochiParser(SumirinParser, TochiParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -638,6 +698,7 @@ class SumirinInvestmentParser(SumirinParser, InvestmentParserBase):
         self._parse_kenpei_youseki(item, specs)
 
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.propertyType = PropertyTypeDetector.detect_investment_type(item.propertyName or "")
@@ -734,5 +795,6 @@ class SumirinKodateParser(SumirinParser, KodateParserBase):
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item

@@ -150,7 +150,7 @@ class Sumai1Parser(ParserBase):
         item.biko = specs.get("備考", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
         item.hikiwatashi = specs.get("引渡時期", "") or specs.get("引渡", "") or specs.get("引渡可能時期", "")
-        item.rights = self._parseRights(response, specs)
+        item.tochikenri = self._parseRights(response, specs)
         item.torihiki = specs.get("取引態様", "")
 
         return item
@@ -415,6 +415,17 @@ class Sumai1KodateParser(Sumai1Parser, KodateParserBase):
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
         item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
+        if item.kaisuStr:
+            item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu:
+            kozo_val = specs.get("構造", "") or specs.get("建物構造", "") or ""
+            km = re.search(r'([0-9０-９]+)階建', kozo_val)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
         item.madori = self._parseMadori(response, specs)
         item.kouzou = self._parseKouzou(response, specs)
         

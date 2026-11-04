@@ -250,6 +250,27 @@ class MitsuiParser(ParserBase):
         traffic_str = "  ".join(traffic_lines)
         item.traffic = traffic_str
         self._populateTraffic(item, traffic_str)
+        # populate individual parsed traffic fields for first 4 entries
+        if not getattr(item, "railway1", None):
+            item.railway1 = self._parseRailway1(response)
+        if not getattr(item, "station1", None):
+            item.station1 = self._parseStation1(response)
+        if getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            walk1 = self._parseRailwayWalkMinute1(response)
+            if walk1:
+                item.railwayWalkMinute1 = walk1
+        if not getattr(item, "railwayWalkMinute1Str", None):
+            item.railwayWalkMinute1Str = self._parseRailwayWalkMinute1Str(response)
+        if not getattr(item, "busStation1", None):
+            item.busStation1 = self._parseBusStation1(response)
+        if getattr(item, "busWalkMinute1", None) in (None, 0):
+            bus1 = self._parseBusWalkMinute1(response)
+            if bus1:
+                item.busWalkMinute1 = bus1
+        if not getattr(item, "busWalkMinute1Str", None):
+            item.busWalkMinute1Str = self._parseBusWalkMinute1Str(response)
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = self._parseBusUse1(response)
 
         # ヘッダー行誤登録防止ガード (Issue #917)
         self._assert_not_header_row(item)

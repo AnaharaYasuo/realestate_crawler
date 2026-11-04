@@ -66,11 +66,11 @@ class KeikyuParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return specs.get("現況", "") or specs.get("現況状況", "") or specs.get("建物現況", "")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("土地の権利形態", "")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -167,6 +167,12 @@ class KeikyuParser(ParserBase):
         traffic_str = specs.get("交通", "") or specs.get("路線・駅", "")
         if traffic_str:
             self._populateTraffic(item, traffic_str)
+            if getattr(item, "railwayWalkMinute1", None) in (None, 0):
+                m_walk = re.search(r"徒歩\s*(\d+)\s*分", traffic_str)
+                if m_walk:
+                    item.railwayWalkMinute1 = int(m_walk.group(1))
+                    if not getattr(item, "railwayWalkMinute1Str", None):
+                        item.railwayWalkMinute1Str = f"{m_walk.group(1)}分"
 
         item.biko = specs.get("備考", "") or specs.get("その他", "")
         item.genkyo = self._parseCurrentStatus(response, specs)
@@ -298,11 +304,11 @@ class KeikyuMansionParser(KeikyuParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費", "")
+        item.kanrihiStr = _first_spec(specs, "管理費等（月額）", "管理費（月額）", "管理費", "管理費等")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_rent(item.kanrihiStr)
 
-        item.syuzenTsumitateStr = specs.get(RESERVE_FUND_KEY, "")
+        item.syuzenTsumitateStr = _first_spec(specs, "修繕積立金（月額）", RESERVE_FUND_KEY, "修繕積立金")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 
@@ -398,14 +404,24 @@ class KeikyuKodateParser(KeikyuParser, KodateParserBase):
 
         item.kouzou = self._parseKouzou(response, specs)
         item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
+        if not item.kaisuStr and item.kouzou:
+            m_kai = re.search(r'(\d+)階建', item.kouzou)
+            if m_kai:
+                item.kaisuStr = m_kai.group(1)
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
 
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        kenpei_val = specs.get("建ぺい率", "") or specs.get("建ぺい率/容積率", "")
+        youseki_val = specs.get("容積率", "") or specs.get("建ぺい率/容積率", "")
+        if "／" in kenpei_val or "/" in kenpei_val:
+            parts = re.split(r"[/／]", kenpei_val)
+            item.kenpeiStr = parts[0].strip()
+            item.yousekiStr = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            item.kenpeiStr = kenpei_val
+            item.yousekiStr = youseki_val
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
@@ -477,11 +493,17 @@ class KeikyuTochiParser(KeikyuParser, TochiParserBase):
         item.kenchikuJoken = specs.get("建築条件", "")
         item.chimoku = self._parseChimoku(response, specs)
         
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        kenpei_val = specs.get("建ぺい率", "") or specs.get("建ぺい率/容積率", "")
+        youseki_val = specs.get("容積率", "") or specs.get("建ぺい率/容積率", "")
+        if "／" in kenpei_val or "/" in kenpei_val:
+            parts = re.split(r"[/／]", kenpei_val)
+            item.kenpeiStr = parts[0].strip()
+            item.yousekiStr = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            item.kenpeiStr = kenpei_val
+            item.yousekiStr = youseki_val
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 

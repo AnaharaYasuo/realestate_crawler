@@ -84,6 +84,76 @@ class AthomeParser(ParserBase):
     def _get_specs(self, response):
         return self._get_specs_table(response)
 
+    @staticmethod
+    def _apply_athome_access_minutes(item, traffic_str: str) -> None:
+        """アットホームの交通文字列から徒歩・バス分数を安全に個別補完"""
+        if not traffic_str:
+            return
+        lines = [l.strip() for l in re.split(r"[\r\n]+|\s{2,}", traffic_str) if l.strip()]
+        if not lines:
+            lines = [traffic_str.strip()]
+
+        for idx, line in enumerate(lines[:5], start=1):
+            walk_min_field = f"railwayWalkMinute{idx}"
+            walk_str_field = f"railwayWalkMinute{idx}Str"
+            bus_min_field = f"busWalkMinute{idx}"
+            bus_str_field = f"busWalkMinute{idx}Str"
+            bus_use_field = f"busUse{idx}"
+            railway_field = f"railway{idx}"
+            station_field = f"station{idx}"
+
+            m_st = re.search(r"([^/]+?)\s*/\s*([^\s]+?)駅", line) or re.search(r"([^\s]+)\s+([^\s]+?)駅", line)
+            if m_st:
+                if hasattr(item, railway_field) and not getattr(item, railway_field, None):
+                    setattr(item, railway_field, m_st.group(1).strip())
+                if hasattr(item, station_field) and not getattr(item, station_field, None):
+                    setattr(item, station_field, m_st.group(2).strip())
+
+            # 徒歩（メートル表記または分表記）
+            m_walk_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", line)
+            if m_walk_m:
+                meters = int(m_walk_m.group(1))
+                min_val = (meters + 79) // 80
+                if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
+                    setattr(item, walk_min_field, min_val)
+                if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
+                    setattr(item, walk_str_field, f"{min_val}分")
+            else:
+                m_walk = re.search(r"徒歩\s*(\d+)\s*分", line)
+                if m_walk:
+                    val = int(m_walk.group(1))
+                    if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
+                        setattr(item, walk_min_field, val)
+                    if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
+                        setattr(item, walk_str_field, f"{val}分")
+
+            # バス
+            m_bus = re.search(r"バス\s*(\d+)\s*分", line)
+            if m_bus:
+                b_val = int(m_bus.group(1))
+                if hasattr(item, bus_min_field) and getattr(item, bus_min_field, None) in (None, 0):
+                    setattr(item, bus_min_field, b_val)
+                if hasattr(item, bus_str_field) and not getattr(item, bus_str_field, None):
+                    setattr(item, bus_str_field, f"{b_val}分")
+                if hasattr(item, bus_use_field):
+                    setattr(item, bus_use_field, 1)
+
+        # 第1路線フォールバック
+        if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            m_first_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", traffic_str)
+            if m_first_m:
+                min_val = (int(m_first_m.group(1)) + 79) // 80
+                item.railwayWalkMinute1 = min_val
+                if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+                    item.railwayWalkMinute1Str = f"{min_val}分"
+            else:
+                m_first_w = re.search(r"徒歩\s*(\d+)\s*分", traffic_str)
+                if m_first_w:
+                    val = int(m_first_w.group(1))
+                    item.railwayWalkMinute1 = val
+                    if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+                        item.railwayWalkMinute1Str = f"{val}分"
+
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
         return specs.get("現況", "") or specs.get("現況状況", "")
@@ -640,6 +710,7 @@ class AthomeParser(ParserBase):
         # 3. 交通
         item.traffic = self._parseTraffic(response)
         self._populateTraffic(item, item.traffic)
+        self._apply_athome_access_minutes(item, item.traffic)
         
         # 4. 共通情報
         item.kouzou = self._parseKouzou(response, specs)
@@ -657,6 +728,10 @@ class AthomeParser(ParserBase):
         item.tochikenri = self._parseRights(response, specs)
         item.chidaiStr = self._parseChidaiStr(response, specs)
         item.chidai = self._parseChidai(response, specs)
+
+        # 引渡しおよび現況
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
+        item.genkyo = self._parseGenkyo(response, specs)
             
         return item
 

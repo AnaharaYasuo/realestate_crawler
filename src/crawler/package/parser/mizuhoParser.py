@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 import logging
@@ -539,6 +540,7 @@ class MizuhoKodateParser(MizuhoParser, KodateParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -613,6 +615,7 @@ class MizuhoTochiParser(MizuhoParser, TochiParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 
@@ -730,6 +733,7 @@ class MizuhoInvestmentParser(MizuhoParser, InvestmentParserBase):
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
 

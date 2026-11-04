@@ -22,11 +22,11 @@ class KeiseiParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return specs.get("現況", "") or specs.get("現況状況", "") or specs.get("現況（状況）", "") or specs.get("状態", "")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("借地権・権利", "") or specs.get("敷地権", "")
 
     def _parsePropertyName(self, response, specs=None):
         return super()._parsePropertyName(response, specs)
@@ -344,11 +344,24 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費", "")
+        item.kanrihiStr = _first_spec(specs, "管理費", "管理費等", "管理費等（月額）", "管理費(月額)")
+        # スラッシュ分割で「管理費/修繕積立金」がある場合
+        if not item.kanrihiStr:
+            comb = _first_spec(specs, "管理費/修繕積立金", "管理費／修繕積立金", "管理費・修繕積立金")
+            if comb and "/" in comb:
+                item.kanrihiStr = comb.split("/")[0].strip()
+            elif comb and "／" in comb:
+                item.kanrihiStr = comb.split("／")[0].strip()
         if item.kanrihiStr:
             item.kanrihi = converter.parse_rent(item.kanrihiStr)
 
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        item.syuzenTsumitateStr = _first_spec(specs, "修繕積立金", "修繕積立金（月額）", "修繕積立金(月額)")
+        if not item.syuzenTsumitateStr:
+            comb = _first_spec(specs, "管理費/修繕積立金", "管理費／修繕積立金", "管理費・修繕積立金")
+            if comb and "/" in comb:
+                item.syuzenTsumitateStr = comb.split("/")[1].strip()
+            elif comb and "／" in comb:
+                item.syuzenTsumitateStr = comb.split("／")[1].strip()
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
 
@@ -449,15 +462,32 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "") or specs.get("規模・構造", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
 
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建ぺい率(%)", "")
+        item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
+        if not item.kenpeiStr or not item.yousekiStr:
+            comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
+            if comb:
+                parts = re.split(r'[/／]', comb)
+                if len(parts) >= 2:
+                    if not item.kenpeiStr:
+                        item.kenpeiStr = parts[0].strip()
+                    if not item.yousekiStr:
+                        item.yousekiStr = parts[1].strip()
+
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
@@ -529,11 +559,20 @@ class KeiseiTochiParser(KeiseiParser, TochiParserBase):
         item.kenchikuJoken = specs.get("建築条件", "")
         item.chimoku = self._parseChimoku(response, specs)
         
-        item.kenpeiStr = specs.get("建ぺい率", "")
+        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建ぺい率(%)", "")
+        item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
+        if not item.kenpeiStr or not item.yousekiStr:
+            comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
+            if comb:
+                parts = re.split(r'[/／]', comb)
+                if len(parts) >= 2:
+                    if not item.kenpeiStr:
+                        item.kenpeiStr = parts[0].strip()
+                    if not item.yousekiStr:
+                        item.yousekiStr = parts[1].strip()
+
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
-
-        item.yousekiStr = specs.get("容積率", "")
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
 

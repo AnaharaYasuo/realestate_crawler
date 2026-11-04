@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 import base64
 import re
@@ -12,11 +13,11 @@ class TotateParser(ParserBase):
 
     def _parseCurrentStatus(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("現況", "") or specs.get("現況状況", "")
+        return specs.get("現況", "") or specs.get("現況状況", "") or specs.get("状態", "")
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
-        return specs.get("権利", "") or specs.get("土地権利", "")
+        return specs.get("権利", "") or specs.get("土地権利", "") or specs.get("権利形態", "")
 
     def _parseTransport1(self, response, specs=None):
         return super()._parseTransport1(response, specs)
@@ -320,10 +321,10 @@ class TotateMansionParser(TotateParser, MansionParserBase):
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
 
-        item.kanrihiStr = specs.get("管理費", "")
+        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費(月額)", "") or specs.get("管理費等(月額)", "")
         if item.kanrihiStr:
             item.kanrihi = converter.parse_price(item.kanrihiStr)
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        item.syuzenTsumitateStr = specs.get("修繕積立金", "") or specs.get("修繕積立金(月額)", "")
         if item.syuzenTsumitateStr:
             item.syuzenTsumitate = converter.parse_price(item.syuzenTsumitateStr)
 
@@ -405,9 +406,17 @@ class TotateKodateParser(TotateParser, KodateParserBase):
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
         item.kouzou = self._parseKouzou(response, specs)
-        item.kaisuStr = specs.get("階数", "")
+        item.kaisuStr = specs.get("階数", "") or specs.get("階建", "")
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
 
         item.madori = self._parseMadori(response, specs)
         item.chikunengetsuStr = specs.get("築年月", "")
@@ -424,6 +433,7 @@ class TotateKodateParser(TotateParser, KodateParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -495,6 +505,7 @@ class TotateTochiParser(TotateParser, TochiParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 
