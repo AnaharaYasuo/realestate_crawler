@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 SOUMU_TAX_EXCEL_URL = "https://www.soumu.go.jp/main_sosiki/jichi_zeisei/czaisei/czaisei_seido/xls/J51-23-b.xlsx"
 
 
-def download_soumu_tax_workbook(url: str = SOUMU_TAX_EXCEL_URL, timeout: int = 60) -> openpyxl.Workbook:
+def download_soumu_tax_workbook(url: str = SOUMU_TAX_EXCEL_URL, timeout: int = 60) -> Any:
     """
     総務省の公式課税状況調Excelをダウンロードし、メモリ上にロードする。
     """
