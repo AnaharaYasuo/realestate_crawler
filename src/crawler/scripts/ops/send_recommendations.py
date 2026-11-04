@@ -203,16 +203,18 @@ def _evaluate_residential_candidate(prop, asking_price_man: int, pred_price: flo
     return False, "", 0.0
 
 def _is_bus_route(prop, index: int) -> bool:
-    if getattr(prop, f"busUse{index}", None):
+    bus_use = getattr(prop, f"busUse{index}", None)
+    if isinstance(bus_use, (int, float)) and bus_use > 0:
         return True
-    try:
-        return int(getattr(prop, f"busWalkMinute{index}", 0) or 0) > 0
-    except (TypeError, ValueError):
-        return False
+    bus_min = getattr(prop, f"busWalkMinute{index}", None)
+    return isinstance(bus_min, (int, float)) and bus_min > 0
 
 def is_bus_access_property(prop) -> bool:
     """全ての有効アクセス経路がバス利用の物件を「バス利用物件」と判定する (Issue #1244)。"""
-    routes = [i for i in range(1, 6) if str(getattr(prop, f"station{i}", "") or "").strip()]
+    routes = [
+        i for i in range(1, 6)
+        if isinstance(getattr(prop, f"station{i}", None), str) and getattr(prop, f"station{i}").strip()
+    ]
     return bool(routes) and all(_is_bus_route(prop, i) for i in routes)
 
 def _evaluate_candidate(eval_rec, prop) -> tuple:
