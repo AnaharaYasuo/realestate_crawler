@@ -70,6 +70,19 @@ def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:
     }
 
 
+def _format_mansion_review_text(mr: dict[str, Any]) -> str:
+    """マンションレビュー情報のフォーマット補助関数"""
+    mr_lines = []
+    if mr.get("estimated_tsubo_price_man"):
+        mr_lines.append(f"推定相場坪単価: {mr['estimated_tsubo_price_man']}万円/坪")
+    if mr.get("estimated_market_price_man"):
+        mr_lines.append(f"推定適正価格: {mr['estimated_market_price_man']:,}万円")
+    hist = mr.get("history_samples", [])
+    hist_str = f" / 過去販売事例: {'; '.join(hist[:2])}" if hist else ""
+    mr_summary = "、".join(mr_lines) if mr_lines else "登録あり"
+    return f"・マンションレビュー過去取引事例データ ({mr.get('mansion_name', '')}): {mr_summary}{hist_str}"
+
+
 def format_appraisal_context_text(ctx: dict[str, Any]) -> str:
     """
     収集した基礎情報をプロンプト注入用のテキストセクションに整形する。
@@ -105,14 +118,6 @@ def format_appraisal_context_text(ctx: dict[str, Any]) -> str:
 
     mr = ctx.get("mansion_review")
     if mr:
-        mr_lines = []
-        if mr.get("estimated_tsubo_price_man"):
-            mr_lines.append(f"推定相場坪単価: {mr['estimated_tsubo_price_man']}万円/坪")
-        if mr.get("estimated_market_price_man"):
-            mr_lines.append(f"推定適正価格: {mr['estimated_market_price_man']:,}万円")
-        hist = mr.get("history_samples", [])
-        hist_str = f" / 過去販売事例: {'; '.join(hist[:2])}" if hist else ""
-        mr_summary = "、".join(mr_lines) if mr_lines else "登録あり"
-        lines.append(f"・マンションレビュー過去取引事例データ ({mr.get('mansion_name', '')}): {mr_summary}{hist_str}")
+        lines.append(_format_mansion_review_text(mr))
 
     return "\n".join(lines)
