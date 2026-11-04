@@ -22,6 +22,7 @@ import chardet
 from bs4 import BeautifulSoup
 from package.ml.appraisal_context import build_appraisal_context, format_appraisal_context_text
 from package.ml.danchou_rag import calculate_far_slack, search_danchou_knowledge, format_comprehensive_future_and_historical_context
+from package.ml.investment_evaluator import calculate_sekisan_price, _extract_pref_and_city
 from package.utils.url_security import UrlSecurityValidator
 
 logger = logging.getLogger(__name__)
@@ -447,6 +448,16 @@ def generate_professional_and_danchou_report(
 ) -> dict[str, Any]:
     """選別された通知対象物件に対して、Web本文・プロ鑑定分析および団長RAGレビューを生成し、eval_recに反映して保存する。"""
     sekisan_price = float(eval_rec.estimated_sekisan_price or 0.0)
+    if sekisan_price <= 0 and prop is not None:
+        p_pref, p_city = _extract_pref_and_city(address or getattr(prop, "address", ""))
+        calc_sekisan = calculate_sekisan_price(prop, p_pref, p_city)
+        if calc_sekisan > 0:
+            sekisan_price = float(calc_sekisan)
+            eval_rec.estimated_sekisan_price = calc_sekisan
+            try:
+                eval_rec.save(update_fields=["estimated_sekisan_price"])
+            except Exception as e:
+                logger.debug("Failed to auto-update estimated_sekisan_price on eval_rec: %s", e)
     far_slack = calculate_far_slack(prop)
 
     # 1. 物件Webサイトの本文テキストを能動取得 (Issue #1182)

@@ -111,17 +111,31 @@ def sync_municipalities(csv_path: str = None) -> int:
     if not records:
         raise RuntimeError("No municipal records retrieved from Soumu data source.")
 
+    # 社人研将来人口推計（2025年変化率）を事前ルックアップして実人口増減率を反映 (Issue #1242)
+    futures = {}
+    try:
+        from package.models.evaluation import MunicipalFuturePotential
+        futures = {
+            (m.prefecture, m.city): m.pop_change_rate_from_2020
+            for m in MunicipalFuturePotential.objects.filter(target_year=2025)
+        }
+    except Exception as e:
+        logger.warning("Could not load MunicipalFuturePotential for growth rates: %s", e)
+
     created_count = 0
     updated_count = 0
 
     for m in records:
+        key = (m["prefecture"], m["city"])
+        growth_rate = futures.get(key, m["population_growth_rate"])
+
         _, created = MunicipalPotential.objects.update_or_create(
             prefecture=m["prefecture"],
             city=m["city"],
             defaults={
                 "average_income": m["average_income"],
                 "total_population": m["total_population"],
-                "population_growth_rate": m["population_growth_rate"],
+                "population_growth_rate": growth_rate,
                 "income_growth_rate": m["income_growth_rate"],
                 "population_density": m["population_density"],
             }

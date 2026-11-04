@@ -132,8 +132,13 @@ def calculate_sekisan_price(property_obj, prefecture, city):
     物件の積算価格を算出する。
     積算価格 ＝ 土地評価額 ＋ 建物評価額
     """
-    tochi_menseki = float(getattr(property_obj, "tochiMenseki", 0.0) or 0.0)
-    tatemono_menseki = float(getattr(property_obj, "tatemonoMenseki", 0.0) or getattr(property_obj, "senyuMenseki", 0.0) or 0.0)
+    tochi_menseki = float(getattr(property_obj, "tochiMenseki", 0.0) or getattr(property_obj, "landArea", 0.0) or 0.0)
+    tatemono_menseki = float(
+        getattr(property_obj, "tatemonoMenseki", 0.0)
+        or getattr(property_obj, "senyuMenseki", 0.0)
+        or getattr(property_obj, "buildingArea", 0.0)
+        or 0.0
+    )
     kouzou_str = getattr(property_obj, "kouzou", "")
     chikunen_str = getattr(property_obj, "chikunengetsuStr", "")
     chikunen_date = getattr(property_obj, "chikunengetsu", None)
