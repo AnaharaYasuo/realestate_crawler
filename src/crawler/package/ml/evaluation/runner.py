@@ -34,6 +34,7 @@ def evaluate_single_model(
     limit_per_model: int | None,
     batch_size: int = 1000,
     reevaluate_before: Any = None,
+    skip_duplicate_check: bool = False,
 ) -> tuple[int, int, int, int]:
     """単一モデルの物件群をストリーミング評価（スレッドセーフ）"""
     close_old_connections()
@@ -59,13 +60,16 @@ def evaluate_single_model(
                 continue
 
             predicted_prices = bulk_predict_first_stage(chunk)
+            save_kwargs = {"batch_size": batch_size}
+            if skip_duplicate_check:
+                save_kwargs["skip_duplicate_check"] = skip_duplicate_check
             p_cnt, d_cnt = save_chunk(
-                chunk=chunk,
-                predicted_prices=predicted_prices,
-                existing_eval_map=existing_eval_map,
-                company=company,
-                property_type=property_type,
-                batch_size=batch_size,
+                chunk,
+                predicted_prices,
+                existing_eval_map,
+                company,
+                property_type,
+                **save_kwargs,
             )
             evaluated_count += len(chunk)
             passed_count += p_cnt
@@ -115,14 +119,15 @@ def run_bulk_evaluation(
     skip_portals: bool = False,
     skip_uncrawled: bool = False,
     reevaluate_before: Any = None,
+    skip_duplicate_check: bool = False,
 ) -> None:
     """全モデルの未評価物件を一括価格推定・投資評価"""
     clear_real_property_cache()
     concurrency = int(os.getenv("BULK_EVAL_CONCURRENCY", str(DEFAULT_CONCURRENCY)))
     batch_size = int(os.getenv("BULK_EVAL_BATCH_SIZE", str(DEFAULT_BATCH_SIZE)))
     logger.info(
-        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s)...",
-        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before,
+        "🚀 Starting Bulk ML Evaluation Batch (Parallel Threads=%d, Batch Size=%d, force=%s, limit=%s, skip_portals=%s, skip_uncrawled=%s, reevaluate_before=%s, skip_duplicate_check=%s)...",
+        concurrency, batch_size, force, limit_per_model, skip_portals, skip_uncrawled, reevaluate_before, skip_duplicate_check,
     )
     metrics = BatchMetrics(job_name="Bulk ML Evaluation")
 
@@ -148,6 +153,8 @@ def run_bulk_evaluation(
         skip_suffix += " [未巡回・中堅仲介割愛]"
     if reevaluate_before is not None:
         skip_suffix += f" [再評価対象: < {reevaluate_before}]"
+    if skip_duplicate_check:
+        skip_suffix += " [重複判定スキップ]"
 
     slack_notifier(
         f"🚀 【バルク価格推定開始】 未評価物件の一括価格予測および投資シミュレーション評価を開始します "
@@ -160,7 +167,9 @@ def run_bulk_evaluation(
 
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         future_to_model = {
-            executor.submit(single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before): m
+            executor.submit(
+                single_evaluator, m, existing_eval_map, force, limit_per_model, batch_size, reevaluate_before, skip_duplicate_check
+            ): m
             for m in models
         }
         for future in as_completed(future_to_model):

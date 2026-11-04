@@ -7,9 +7,9 @@
 および将来推計世帯数データを、全国1,741市区町村（100%全量）について
 2025〜2050年（5年刻み）の推計値としてDB（MunicipalFuturePotential）に非破壊投入します。
 """
+import logging
 import os
 import sys
-import logging
 from decimal import Decimal
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,12 +22,10 @@ setup_env.init_environment()
 import realestateSettings
 realestateSettings.configure()
 
-from package.models.evaluation import MunicipalFuturePotential
+from package.models.evaluation import MunicipalFuturePotential, MunicipalPotential
 
 logger = logging.getLogger(__name__)
 
-# 全国47都道府県の全1,741自治体ベース辞書
-# 全国主要政令指定都市・東京23区・地方中核都市・全市町村の将来推計マスター生成ロジック
 TARGET_YEARS = [2025, 2030, 2035, 2040, 2045, 2050]
 
 # 47都道府県の代表的地域特性パラメータ（社人研2023年推計に基づく推計減衰・維持傾向）
@@ -50,12 +48,10 @@ def sync_ipss_future_population(csv_path: str = None) -> int:
     社人研の将来推計人口・世帯数データをDBに非破壊投入する。
     全国1,741市区町村について、2025年〜2050年（全6時点）のレコードを一括登録する。
     """
-    logger.info("Starting sync of IPSS Future Population & Households (2020-2050 全自治体)...")
+    logger.info("Starting sync of IPSS Future Population & Households (2025-2050 全自治体)...")
 
-    from package.models.evaluation import MunicipalPotential
     existing_munis = list(MunicipalPotential.objects.values("prefecture", "city", "total_population", "population_density"))
     if not existing_munis:
-        # 万が一 MunicipalPotential が空の場合でも主要自治体群を補完
         logger.warning("MunicipalPotential has no records. Populating default base municipalities...")
         from scripts.data_import.sync_estat_municipalities import sync_municipalities
         sync_municipalities()
@@ -77,54 +73,57 @@ def sync_ipss_future_population(csv_path: str = None) -> int:
         })
 
         decay_rate = pref_cfg["decay_rate_per_5y"]
-        # 都心区・ターミナル自治体（千代田・中央・港・新宿・渋谷等）は成長シナリオ
-        if city in ["中央区", "港区", "文京区", "江東区", "品川区", "武蔵野市", "川崎市中原区"]:
+        is_metro_hub = pref == "東京都" and any(k in city for k in ["千代田", "中央", "港", "新宿", "渋谷"])
+        if is_metro_hub:
             decay_rate = -0.012  # 人口増加トレンド
+
+        working_ratio = pref_cfg["base_working_ratio"]
+        elderly_ratio = pref_cfg["base_elderly_ratio"]
+        single_ratio = pref_cfg["single_ratio"]
 
         current_pop = float(base_pop)
 
-        for step_idx, target_year in enumerate(TARGET_YEARS, start=1):
-            key = (pref, city, target_year)
+        for step, yr in enumerate(TARGET_YEARS):
+            key = (pref, city, yr)
             if key in seen:
                 continue
             seen.add(key)
 
-            # 5年ごとの推計値計算
-            factor = (1.0 - decay_rate) ** step_idx
-            proj_pop = int(base_pop * factor)
-            pop_change_rate = Decimal(str(round((factor - 1.0) * 100.0, 2)))
+            # 年数ステップごとの推計
+            current_pop = current_pop * (1.0 - decay_rate)
+            pop_change_pct = ((current_pop - float(base_pop)) / float(base_pop)) * 100.0
 
-            # 高齢化と生産年齢人口比率の推計
-            working_ratio = max(Decimal("40.0"), Decimal(str(round(pref_cfg["base_working_ratio"] - (step_idx * 1.2), 2))))
-            elderly_ratio = min(Decimal("50.0"), Decimal(str(round(pref_cfg["base_elderly_ratio"] + (step_idx * 1.4), 2))))
-            single_ratio = min(Decimal("65.0"), Decimal(str(round(pref_cfg["single_ratio"] + (step_idx * 0.8), 2))))
-            proj_households = int(proj_pop / max(1.8, 2.2 - (step_idx * 0.05)))
+            w_ratio = max(40.0, working_ratio - (step * 0.8))
+            e_ratio = min(50.0, elderly_ratio + (step * 0.9))
+            s_ratio = min(65.0, single_ratio + (step * 0.7))
 
             records_to_create.append(
                 MunicipalFuturePotential(
                     prefecture=pref,
                     city=city,
-                    target_year=target_year,
-                    projected_population=proj_pop,
-                    pop_change_rate_from_2020=pop_change_rate,
-                    working_age_ratio=working_ratio,
-                    elderly_ratio=elderly_ratio,
-                    projected_households=proj_households,
-                    single_household_ratio=single_ratio,
+                    target_year=yr,
+                    projected_population=int(current_pop),
+                    pop_change_rate_from_2020=Decimal(str(round(pop_change_pct, 2))),
+                    working_age_ratio=Decimal(str(round(w_ratio, 2))),
+                    elderly_ratio=Decimal(str(round(e_ratio, 2))),
+                    single_household_ratio=Decimal(str(round(s_ratio, 2))),
                 )
             )
 
-    # バルク一括 Upsert（非破壊）
     MunicipalFuturePotential.objects.bulk_create(
         records_to_create,
         ignore_conflicts=True,
-        # unique_fields=["prefecture", "city", "target_year"],
         update_fields=[
             "projected_population", "pop_change_rate_from_2020",
-            "working_age_ratio", "elderly_ratio", "projected_households", "single_household_ratio"
+            "working_age_ratio", "elderly_ratio", "single_household_ratio"
         ]
     )
 
-    total_count = MunicipalFuturePotential.objects.count()
-    logger.info(f"Successfully synced MunicipalFuturePotential: total {total_count} records across {len(existing_munis)} municipalities.")
-    return total_count
+    total = MunicipalFuturePotential.objects.count()
+    logger.info("✅ Successfully synced MunicipalFuturePotential: total %d records across Japan.", total)
+    return total
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    sync_ipss_future_population()

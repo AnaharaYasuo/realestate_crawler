@@ -43,6 +43,7 @@ def run_bulk_evaluation(
     skip_portals: bool = False,
     skip_uncrawled: bool = False,
     reevaluate_before: datetime.date | datetime.datetime | None = None,
+    skip_duplicate_check: bool = False,
 ) -> None:
     """CLI および外部呼び出し用のバルク評価実行（後方互換 monkeypatch 対応）"""
     import package.ml.evaluation.notifications as notif_mod
@@ -58,6 +59,7 @@ def run_bulk_evaluation(
         skip_portals=skip_portals,
         skip_uncrawled=skip_uncrawled,
         reevaluate_before=reevaluate_before,
+        skip_duplicate_check=skip_duplicate_check,
     )
 
 def main() -> None:
@@ -86,6 +88,7 @@ def main() -> None:
         help="Do not skip portal sites even on Cloud environment",
     )
     parser.add_argument("--skip-uncrawled", action="store_true", help="Skip un-crawled/mid-tier broker sites (kenbiya, ietan, haseko, adcast, toho)")
+    parser.add_argument("--skip-duplicate-check", action="store_true", help="Skip candidate pool duplicate check for ultra-fast full re-evaluation")
     args = parser.parse_args()
 
     reevaluate_before = None
@@ -102,6 +105,7 @@ def main() -> None:
         skip_portals=args.skip_portals,
         skip_uncrawled=args.skip_uncrawled,
         reevaluate_before=reevaluate_before,
+        skip_duplicate_check=args.skip_duplicate_check,
     )
 
 

@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-外部データ一括同期および洗い替えランナー。
+外部データ一括同期および洗い替えランナー (scripts/sync_all_potentials.py)
 
-市区町村別所得・人口動態、駅別乗降人員、および地価公示の基礎データを一括同期します。
-自治体名や駅名による動的結合により、既存物件との関連付けを維持します。
+国交省・総務省・社人研等の公式オープンデータ（API/ダウンロード）から全国全自治体・全駅・全地点の
+統計・地理・マスターデータを並列（ThreadPoolExecutor）で取得・投入し、本番DBに一括登録・洗い替え（upsert）します。
 """
+import argparse
+import logging
 import os
 import sys
-import logging
-import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _crawler_root not in sys.path:
@@ -20,177 +21,135 @@ setup_env.init_environment()
 import realestateSettings
 realestateSettings.configure()
 
+from django.db import close_old_connections
+
 from scripts.data_import.sync_estat_municipalities import sync_municipalities
-from scripts.data_import.import_mlit_stations import import_mlit_stations, generate_sample_mlit_csv
-from scripts.data_import.import_mlit_land_prices import import_land_prices, generate_sample_land_price_csv
+from scripts.data_import.import_mlit_stations import import_mlit_stations
+from scripts.data_import.import_mlit_land_prices import import_land_prices
 from scripts.data_import.import_hazard_and_urban_zones import import_hazard_map, import_urban_planning_zones
 from scripts.data_import.import_ipss_future_population import sync_ipss_future_population
 from scripts.data_import.import_urban_induction_zones import sync_urban_induction_zones
 from scripts.data_import.sync_yearly_historical_potentials import sync_municipal_yearly_potentials, sync_station_yearly_potentials
-from package.models.evaluation import (
-    MunicipalPotential, StationPotential, LandPricePotential,
-    MunicipalFuturePotential, MunicipalYearlyPotential,
-    StationYearlyPotential, UrbanInductionZoneMaster
-)
+from scripts.data_import.generate_building_master import generate_and_sync_building_master
 
 logger = logging.getLogger(__name__)
 
 
-def run_all_syncs(estat_csv=None, stations_csv=None, land_prices_csv=None,
-                  hazard_map_csv=None, urban_zones_csv=None,
-                  skip_estat=False, skip_stations=False, skip_land_prices=False,
-                  skip_hazard_map=False, skip_urban_zones=False):
+def run_all_syncs(
+    skip_estat: bool = False,
+    skip_stations: bool = False,
+    skip_land_prices: bool = False,
+    skip_hazard_map: bool = False,
+    skip_urban_zones: bool = False,
+    skip_future_pop: bool = False,
+    skip_induction_zones: bool = False,
+    skip_historical: bool = False,
+    skip_building_master: bool = False,
+    max_workers: int = 4,
+) -> dict:
     """
-    全外部ポテンシャルデータを一括同期・洗い替えする。
+    全外部ポテンシャルデータおよびマスターデータを並列一括同期・洗い替えする。
     """
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    temp_files_to_cleanup = []
+    results = {}
+    close_old_connections()
 
-    results = {
-        "estat": {"status": "skipped" if skip_estat else "pending", "count": 0},
-        "stations": {"status": "skipped" if skip_stations else "pending", "count": 0},
-        "land_prices": {"status": "skipped" if skip_land_prices else "pending", "count": 0},
-        "hazard_map": {"status": "skipped" if skip_hazard_map else "pending", "count": 0},
-        "urban_zones": {"status": "skipped" if skip_urban_zones else "pending", "count": 0},
-    }
+    # Step 1: 基礎マスター（自治体マクロ・駅・用途地域）を並列同期
+    base_tasks = []
+    if not skip_estat:
+        base_tasks.append(("municipalities", sync_municipalities))
+    if not skip_stations:
+        base_tasks.append(("stations", import_mlit_stations))
+    if not skip_urban_zones:
+        base_tasks.append(("urban_zones", import_urban_planning_zones))
 
-    try:
-        # 1. e-Stat 自治体ポテンシャル同期
-        if not skip_estat:
-            logger.info("=" * 60)
-            logger.info("Step 1/5: Syncing e-Stat Municipal Potential...")
-            logger.info("=" * 60)
-            sync_municipalities(csv_path=estat_csv)
-            m_count = MunicipalPotential.objects.count()
-            results["estat"]["status"] = "success"
-            results["estat"]["count"] = m_count
-            logger.info(f"e-Stat Sync Complete: Total MunicipalPotential records = {m_count}")
-
-        # 2. 国土交通省 駅別乗降客数同期
-        if not skip_stations:
-            logger.info("=" * 60)
-            logger.info("Step 2/5: Syncing MLIT Station Passenger Volume...")
-            logger.info("=" * 60)
-            target_station_csv = stations_csv
-            if not target_station_csv or not os.path.exists(target_station_csv):
-                temp_station_csv = os.path.join(current_dir, "temp_mlit_stations_sync.csv")
-                generate_sample_mlit_csv(temp_station_csv)
-                target_station_csv = temp_station_csv
-                temp_files_to_cleanup.append(temp_station_csv)
-
-            import_mlit_stations(target_station_csv)
-            s_count = StationPotential.objects.count()
-            results["stations"]["status"] = "success"
-            results["stations"]["count"] = s_count
-            logger.info(f"MLIT Stations Sync Complete: Total StationPotential records = {s_count}")
-
-        # 3. 国土交通省 地価公示同期
-        if not skip_land_prices:
-            logger.info("=" * 60)
-            logger.info("Step 3/5: Syncing MLIT Land Prices...")
-            logger.info("=" * 60)
-            target_land_csv = land_prices_csv
-            if not target_land_csv or not os.path.exists(target_land_csv):
-                temp_land_csv = os.path.join(current_dir, "temp_mlit_land_prices_sync.csv")
-                generate_sample_land_price_csv(temp_land_csv)
-                target_land_csv = temp_land_csv
-                temp_files_to_cleanup.append(temp_land_csv)
-
-            import_land_prices(target_land_csv)
-            lp_count = LandPricePotential.objects.count()
-            results["land_prices"]["status"] = "success"
-            results["land_prices"]["count"] = lp_count
-            logger.info(f"MLIT Land Prices Sync Complete: Total LandPricePotential records = {lp_count}")
-
-        # 4. 国土数値情報 ハザードマップ（浸水・土砂リスク）同期
-        if not skip_hazard_map:
-            logger.info("=" * 60)
-            logger.info("Step 4/5: Syncing MLIT Hazard Maps (Flood & Landslide)...")
-            logger.info("=" * 60)
-            h_count = import_hazard_map(hazard_map_csv)
-            results["hazard_map"]["status"] = "success"
-            results["hazard_map"]["count"] = h_count
-            logger.info(f"Hazard Maps Sync Complete: Total HazardMapPotential records = {h_count}")
-
-        # 5. 都市計画法 用途地域規制マスタ同期
-        if not skip_urban_zones:
-            logger.info("=" * 60)
-            logger.info("Step 5/5: Syncing Urban Planning Zones (Kenpei & Youseki)...")
-            logger.info("=" * 60)
-            z_count = import_urban_planning_zones(urban_zones_csv)
-            results["urban_zones"]["status"] = "success"
-            results["urban_zones"]["count"] = z_count
-            logger.info(f"Urban Planning Zones Sync Complete: Total UrbanPlanningZonePotential records = {z_count}")
-
-        # 6. 社人研 2020-2050年将来推計人口・世帯数同期 (Issue #1210)
+    if base_tasks:
         logger.info("=" * 60)
-        logger.info("Step 6/8: Syncing IPSS Future Population & Households (2020-2050)...")
+        logger.info(f"Phase 1: Running {len(base_tasks)} base master tasks in parallel (workers={max_workers})...")
         logger.info("=" * 60)
-        fut_count = sync_ipss_future_population()
-        results["future_population"] = {"status": "success", "count": fut_count}
-
-        # 7. 国交省 立地適正化計画区域マスター同期 (Issue #1210)
-        logger.info("=" * 60)
-        logger.info("Step 7/8: Syncing MLIT Urban Induction Zones...")
-        logger.info("=" * 60)
-        uiz_count = sync_urban_induction_zones()
-        results["urban_induction_zones"] = {"status": "success", "count": uiz_count}
-
-        # 8. 自治体・駅過去10年実績時系列推移同期 (Issue #1210)
-        logger.info("=" * 60)
-        logger.info("Step 8/8: Syncing Historical Potentials (10 years)...")
-        logger.info("=" * 60)
-        myp_count = sync_municipal_yearly_potentials()
-        syp_count = sync_station_yearly_potentials()
-        results["historical_potentials"] = {"status": "success", "muni_count": myp_count, "station_count": syp_count}
-
-        logger.info("=" * 60)
-        logger.info("All External Potentials Sync Succeeded!")
-        logger.info(f"Summary: Municipal={results['estat']['count']}, Stations={results['stations']['count']}, "
-                    f"LandPrices={results['land_prices']['count']}, HazardMaps={results['hazard_map']['count']}, "
-                    f"UrbanZones={results['urban_zones']['count']}")
-        logger.info("=" * 60)
-        return results
-
-    finally:
-        for tmp in temp_files_to_cleanup:
-            if os.path.exists(tmp):
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_name = {
+                executor.submit(func): name for name, func in base_tasks
+            }
+            for fut in as_completed(future_to_name):
+                name = future_to_name[fut]
                 try:
-                    os.remove(tmp)
-                    logger.info(f"Cleaned up temp file: {tmp}")
+                    cnt = fut.result()
+                    results[name] = {"status": "success", "count": cnt}
+                    logger.info(f"✅ Phase 1 Task '{name}' completed: {cnt} records")
                 except Exception as e:
-                    logger.warning(f"Failed to delete temp file {tmp}: {e}")
+                    logger.exception(f"❌ Phase 1 Task '{name}' failed: {e}")
+                    results[name] = {"status": "error", "error": str(e)}
+
+    # Step 2: 自治体・駅マスターに依存する派生統計を並列同期
+    close_old_connections()
+    derived_tasks = []
+    if not skip_land_prices:
+        derived_tasks.append(("land_prices", import_land_prices))
+    if not skip_hazard_map:
+        derived_tasks.append(("hazard_map", import_hazard_map))
+    if not skip_future_pop:
+        derived_tasks.append(("future_population", sync_ipss_future_population))
+    if not skip_induction_zones:
+        derived_tasks.append(("urban_induction_zones", sync_urban_induction_zones))
+    if not skip_historical:
+        derived_tasks.append(("muni_yearly", sync_municipal_yearly_potentials))
+        derived_tasks.append(("station_yearly", sync_station_yearly_potentials))
+    if not skip_building_master:
+        derived_tasks.append(("building_master", generate_and_sync_building_master))
+
+    if derived_tasks:
+        logger.info("=" * 60)
+        logger.info(f"Phase 2: Running {len(derived_tasks)} derived statistical tasks in parallel (workers={max_workers})...")
+        logger.info("=" * 60)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_name = {
+                executor.submit(func): name for name, func in derived_tasks
+            }
+            for fut in as_completed(future_to_name):
+                name = future_to_name[fut]
+                try:
+                    cnt = fut.result()
+                    results[name] = {"status": "success", "count": cnt}
+                    logger.info(f"✅ Phase 2 Task '{name}' completed: {cnt} records")
+                except Exception as e:
+                    logger.exception(f"❌ Phase 2 Task '{name}' failed: {e}")
+                    results[name] = {"status": "error", "error": str(e)}
+
+    close_old_connections()
+    logger.info("=" * 60)
+    logger.info("🎉 Parallel External Potentials & Masters Synchronization Finished!")
+    logger.info("=" * 60)
+    return results
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    parser = argparse.ArgumentParser(description="Sync all external potential datasets (e-Stat, Stations, Land Prices, Hazard, Zones)")
-    parser.add_argument("--estat-csv", default=None, help="Path to e-Stat municipal CSV")
-    parser.add_argument("--stations-csv", default=None, help="Path to MLIT station passenger volume CSV")
-    parser.add_argument("--land-prices-csv", default=None, help="Path to MLIT land prices CSV")
-    parser.add_argument("--hazard-map-csv", default=None, help="Path to Hazard Map CSV")
-    parser.add_argument("--urban-zones-csv", default=None, help="Path to Urban Planning Zones CSV")
-    parser.add_argument("--skip-estat", action="store_true", help="Skip e-Stat synchronization")
-    parser.add_argument("--skip-stations", action="store_true", help="Skip MLIT stations synchronization")
-    parser.add_argument("--skip-land-prices", action="store_true", help="Skip MLIT land prices synchronization")
-    parser.add_argument("--skip-hazard-map", action="store_true", help="Skip Hazard Map synchronization")
-    parser.add_argument("--skip-urban-zones", action="store_true", help="Skip Urban Planning Zones synchronization")
+    parser = argparse.ArgumentParser(description="Sync all external potential datasets nationwide in parallel")
+    parser.add_argument("--workers", type=int, default=4, help="Max parallel workers")
+    parser.add_argument("--skip-estat", action="store_true", help="Skip municipal income/pop sync")
+    parser.add_argument("--skip-stations", action="store_true", help="Skip MLIT stations sync")
+    parser.add_argument("--skip-land-prices", action="store_true", help="Skip MLIT land prices sync")
+    parser.add_argument("--skip-hazard-map", action="store_true", help="Skip hazard maps sync")
+    parser.add_argument("--skip-urban-zones", action="store_true", help="Skip urban planning zones sync")
+    parser.add_argument("--skip-future-pop", action="store_true", help="Skip future population sync")
+    parser.add_argument("--skip-induction-zones", action="store_true", help="Skip induction zones sync")
+    parser.add_argument("--skip-historical", action="store_true", help="Skip historical potentials sync")
+    parser.add_argument("--skip-building-master", action="store_true", help="Skip building master sync")
 
     args = parser.parse_args()
     run_all_syncs(
-        estat_csv=args.estat_csv,
-        stations_csv=args.stations_csv,
-        land_prices_csv=args.land_prices_csv,
-        hazard_map_csv=args.hazard_map_csv,
-        urban_zones_csv=args.urban_zones_csv,
         skip_estat=args.skip_estat,
         skip_stations=args.skip_stations,
         skip_land_prices=args.skip_land_prices,
         skip_hazard_map=args.skip_hazard_map,
         skip_urban_zones=args.skip_urban_zones,
+        skip_future_pop=args.skip_future_pop,
+        skip_induction_zones=args.skip_induction_zones,
+        skip_historical=args.skip_historical,
+        skip_building_master=args.skip_building_master,
+        max_workers=args.workers,
     )
 
 
 if __name__ == "__main__":
     main()
-
