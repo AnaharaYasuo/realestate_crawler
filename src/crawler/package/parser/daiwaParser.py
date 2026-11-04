@@ -431,18 +431,20 @@ class DaiwaKodateParser(DaiwaParser, KodateParserBase):
     def createEntity(self):
         return DaiwaKodate()
 
+    def _split_combined_ratios(self, item, specs: dict) -> None:
+        comb = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "")
+        if not comb:
+            return
+        parts = re.split(r'[/／]', comb)
+        if len(parts) >= 2:
+            item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+            item.yousekiStr = item.yousekiStr or parts[1].strip()
+
     def _apply_ratios_and_roads(self, item, response: BeautifulSoup, specs: dict) -> None:
         item.kenpeiStr = specs.get("建ぺい率", "")
         item.yousekiStr = specs.get("容積率", "")
         if not item.kenpeiStr or not item.yousekiStr:
-            comb = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "")
-            if comb:
-                parts = re.split(r'[/／]', comb)
-                if len(parts) >= 2:
-                    if not item.kenpeiStr:
-                        item.kenpeiStr = parts[0].strip()
-                    if not item.yousekiStr:
-                        item.yousekiStr = parts[1].strip()
+            self._split_combined_ratios(item, specs)
 
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
@@ -541,13 +543,10 @@ class DaiwaTochiParser(DaiwaParser, TochiParserBase):
         item.yousekiStr = specs.get("容積率", "")
         if not item.kenpeiStr or not item.yousekiStr:
             comb = specs.get("建ぺい率/容積率", "") or specs.get("建ぺい率／容積率", "")
-            if comb:
+            if comb and ("/" in comb or "／" in comb):
                 parts = re.split(r'[/／]', comb)
-                if len(parts) >= 2:
-                    if not item.kenpeiStr:
-                        item.kenpeiStr = parts[0].strip()
-                    if not item.yousekiStr:
-                        item.yousekiStr = parts[1].strip()
+                item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+                item.yousekiStr = item.yousekiStr or (parts[1].strip() if len(parts) > 1 else "")
 
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)

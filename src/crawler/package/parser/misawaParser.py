@@ -303,9 +303,11 @@ class MisawaParser(ParserBase):
             m_bracket = re.search(r'「([^」]+)」', walk_access)
             if m_bracket:
                 return m_bracket.group(1).strip()
-            m_stop = re.search(r'([^\s]+)(?:停|停留所|バス停)下車', walk_access)
-            if m_stop:
-                return m_stop.group(1).strip()
+            parts = walk_access.split("下車", 1)[0].split()
+            last_word = parts[-1] if parts else ""
+            for suffix in ("停留所", "バス停", "停"):
+                if last_word.endswith(suffix):
+                    return last_word[:-len(suffix)].strip()
             return default
         if field_to_get == 'busUse':
             return 1 if "バス" in walk_access else 0
@@ -384,6 +386,30 @@ class MisawaParser(ParserBase):
     def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
     def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
 
+    def _apply_misawa_walk_fields(self, item, idx: int, w_val: int, ws_val: str, b_val: int) -> None:
+        w_field = f"railwayWalkMinute{idx}"
+        ws_field = f"railwayWalkMinute{idx}Str"
+        if hasattr(item, w_field):
+            if w_val:
+                setattr(item, w_field, w_val)
+            elif b_val and getattr(item, w_field, None) == b_val:
+                setattr(item, w_field, None)
+        if hasattr(item, ws_field):
+            if ws_val:
+                setattr(item, ws_field, ws_val)
+            elif b_val and getattr(item, w_field, None) is None:
+                setattr(item, ws_field, "")
+
+    def _apply_misawa_bus_fields(self, item, idx: int, b_val: int, bs_val: str, bst_val: str, bu_val: int) -> None:
+        if b_val and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+            setattr(item, f"busWalkMinute{idx}", b_val)
+        if bs_val and not getattr(item, f"busWalkMinute{idx}Str", None):
+            setattr(item, f"busWalkMinute{idx}Str", bs_val)
+        if bst_val and not getattr(item, f"busStation{idx}", None):
+            setattr(item, f"busStation{idx}", bst_val)
+        if bu_val and not getattr(item, f"busUse{idx}", None):
+            setattr(item, f"busUse{idx}", bu_val)
+
     def _apply_misawa_single_traffic(self, item, response, idx: int) -> None:
         r_val = getattr(self, f"_parseRailway{idx}", lambda r: "")(response)
         s_val = getattr(self, f"_parseStation{idx}", lambda r: "")(response)
@@ -394,28 +420,13 @@ class MisawaParser(ParserBase):
         bst_val = getattr(self, f"_parseBusStation{idx}", lambda r: "")(response)
         bu_val = getattr(self, f"_parseBusUse{idx}", lambda r: 0)(response)
 
-        if hasattr(item, f"railway{idx}") and r_val and not getattr(item, f"railway{idx}", None):
+        if r_val and not getattr(item, f"railway{idx}", None):
             setattr(item, f"railway{idx}", r_val)
-        if hasattr(item, f"station{idx}") and s_val and not getattr(item, f"station{idx}", None):
+        if s_val and not getattr(item, f"station{idx}", None):
             setattr(item, f"station{idx}", s_val)
-        if hasattr(item, f"railwayWalkMinute{idx}"):
-            if w_val:
-                setattr(item, f"railwayWalkMinute{idx}", w_val)
-            elif b_val and getattr(item, f"railwayWalkMinute{idx}", None) == b_val:
-                setattr(item, f"railwayWalkMinute{idx}", None)
-        if hasattr(item, f"railwayWalkMinute{idx}Str"):
-            if ws_val:
-                setattr(item, f"railwayWalkMinute{idx}Str", ws_val)
-            elif b_val and getattr(item, f"railwayWalkMinute{idx}", None) is None:
-                setattr(item, f"railwayWalkMinute{idx}Str", "")
-        if hasattr(item, f"busWalkMinute{idx}") and b_val and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
-            setattr(item, f"busWalkMinute{idx}", b_val)
-        if hasattr(item, f"busWalkMinute{idx}Str") and bs_val and not getattr(item, f"busWalkMinute{idx}Str", None):
-            setattr(item, f"busWalkMinute{idx}Str", bs_val)
-        if hasattr(item, f"busStation{idx}") and bst_val and not getattr(item, f"busStation{idx}", None):
-            setattr(item, f"busStation{idx}", bst_val)
-        if hasattr(item, f"busUse{idx}") and bu_val and not getattr(item, f"busUse{idx}", None):
-            setattr(item, f"busUse{idx}", bu_val)
+
+        self._apply_misawa_walk_fields(item, idx, w_val, ws_val, b_val)
+        self._apply_misawa_bus_fields(item, idx, b_val, bs_val, bst_val, bu_val)
 
     def _apply_misawa_traffic_fields(self, item, response) -> None:
         """ミサワホーム詳細パース時の交通フィールド反映（個別メソッドから確実に取得）"""

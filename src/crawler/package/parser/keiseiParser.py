@@ -442,13 +442,10 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
         item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
         if not item.kenpeiStr or not item.yousekiStr:
             comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
-            if comb:
+            if comb and ("/" in comb or "／" in comb):
                 parts = re.split(r'[/／]', comb)
-                if len(parts) >= 2:
-                    if not item.kenpeiStr:
-                        item.kenpeiStr = parts[0].strip()
-                    if not item.yousekiStr:
-                        item.yousekiStr = parts[1].strip()
+                item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+                item.yousekiStr = item.yousekiStr or (parts[1].strip() if len(parts) > 1 else "")
 
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
@@ -552,13 +549,10 @@ class KeiseiTochiParser(KeiseiParser, TochiParserBase):
         item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
         if not item.kenpeiStr or not item.yousekiStr:
             comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
-            if comb:
+            if comb and ("/" in comb or "／" in comb):
                 parts = re.split(r'[/／]', comb)
-                if len(parts) >= 2:
-                    if not item.kenpeiStr:
-                        item.kenpeiStr = parts[0].strip()
-                    if not item.yousekiStr:
-                        item.yousekiStr = parts[1].strip()
+                item.kenpeiStr = item.kenpeiStr or parts[0].strip()
+                item.yousekiStr = item.yousekiStr or (parts[1].strip() if len(parts) > 1 else "")
 
         if item.kenpeiStr:
             item.kenpei = converter.parse_ratio(item.kenpeiStr)

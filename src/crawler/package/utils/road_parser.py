@@ -32,7 +32,8 @@ def parse_road_details(text: str) -> dict:
 
     # 道路幅員 (e.g., 幅員約4.0m, 幅4m, 4.0m, 4m)
     # 幅員・幅が前につくか、もしくは「南西 6.0m」のように方位の後に続く数字+m
-    haba_m = re.search(r'(?:幅員|幅|約)?\s*([0-9０-９]+(?:\.[0-9０-９]+)?)\s*[mｍ]', text)
+    clean_haba_text = re.sub(r'^(?:幅員|幅|約)\s*', '', text)
+    haba_m = re.search(r'([0-9０-９]{1,4}(?:\.[0-9０-９]{1,2})?)\s*[mｍ]', clean_haba_text)
     if haba_m and not re.search(r'[mｍ]\s*接面', text):
         try:
             import unicodedata

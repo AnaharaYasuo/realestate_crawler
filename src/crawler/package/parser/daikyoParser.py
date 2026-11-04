@@ -262,7 +262,7 @@ class DaikyoParser(ParserBase):
     def _split_address(self, address):
         return super()._split_address(address)
 
-    _BUS_STOP_WALK_RE = re.compile(r'([^ \t\r\n\u3000「」]+)バス停\s*(?:徒歩)?\s*([0-9０-９]+)\s*分')
+    _BUS_STOP_WALK_RE = re.compile(r'([^ \t\r\n\u3000「」]{1,30})バス停\s*(?:徒歩)?\s*([0-9０-９]{1,3})\s*分')
 
     def _parseBusStopWalk(self, item, traffic_str: str):
         """「工業高校前バス停４分」形式（バス停からの徒歩分）を busStation1/busWalkMinute1 に設定する。
