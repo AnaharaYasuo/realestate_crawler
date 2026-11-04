@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 from decimal import Decimal
 # -*- coding: utf-8 -*-
 import logging
@@ -300,6 +301,9 @@ class MizuhoParser(ParserBase):
         specs = self._get_specs(response)
         access_str = specs.get("交通", "")
         if access_str:
+            # 「…徒歩9分湘南新宿ライン…」のように行区切りが消えて連結されるケースを
+            # 「徒歩N分」の直後で分離する
+            access_str = re.sub(r'(徒歩\s*[0-9０-９]+\s*分)(?=\S)', r'\1 ', access_str)
             # 複数行や改行、空白等で区切られた交通情報を分割
             parts = [p.strip() for p in re.split(r'[、\s]+', access_str) if p.strip()]
             
@@ -536,6 +540,7 @@ class MizuhoKodateParser(MizuhoParser, KodateParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -610,6 +615,7 @@ class MizuhoTochiParser(MizuhoParser, TochiParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 
@@ -727,6 +733,7 @@ class MizuhoInvestmentParser(MizuhoParser, InvestmentParserBase):
             item.youseki = converter.parse_ratio(item.yousekiStr)
 
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
 

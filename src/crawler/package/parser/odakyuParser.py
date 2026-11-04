@@ -1,3 +1,4 @@
+from package.utils.road_parser import apply_road_details_to_item
 import re
 import urllib.parse
 from decimal import Decimal
@@ -412,6 +413,7 @@ class OdakyuKodateParser(OdakyuParser, KodateParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
 
         return item
 
@@ -483,6 +485,7 @@ class OdakyuTochiParser(OdakyuParser, TochiParserBase):
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.kuiki = specs.get("都市計画", "")
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.kenchikuJoken = specs.get("建築条件", "")
 
@@ -818,6 +821,7 @@ class OdakyuInvestmentParser(OdakyuParser, InvestmentParserBase):
         item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "")
         self._apply_invest_area_and_ratio_specs(item, specs)
         item.setsudou = self._parseSetsudou(response, specs)
+        apply_road_details_to_item(item, item.setsudou)
         item.chimoku = self._parseChimoku(response, specs)
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
 

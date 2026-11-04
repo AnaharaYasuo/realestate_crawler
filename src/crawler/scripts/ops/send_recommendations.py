@@ -263,6 +263,9 @@ def _format_single_access(prop, index: int) -> str:
     r = clean_val(getattr(prop, f"railway{index}", ""))
     s = clean_val(getattr(prop, f"station{index}", ""))
     w = clean_val(getattr(prop, f"railwayWalkMinute{index}Str", ""))
+    if w == "-":
+        w_num = getattr(prop, f"railwayWalkMinute{index}", None)
+        w = str(w_num) if w_num else "-"
     if s == "-":
         return ""
 
@@ -284,9 +287,19 @@ def _format_single_access(prop, index: int) -> str:
         transit_parts.append(bus_desc)
 
     if w != "-":
-        transit_parts.append(f"徒歩{w}" if not str(w).startswith("徒歩") else str(w))
+        transit_parts.append(_format_walk_text(w))
 
     return " ".join(transit_parts).strip()
+
+
+def _format_walk_text(w) -> str:
+    """徒歩分数を「徒歩N分」形式に正規化する (数値のみの場合は「分」を付与)"""
+    text = str(w).strip()
+    if not text.startswith("徒歩"):
+        text = f"徒歩{text}"
+    if text[-1].isdigit():
+        text += "分"
+    return text
 
 
 def _format_access_and_area(prop) -> tuple:

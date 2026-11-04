@@ -44,6 +44,83 @@ class HomesParser(ParserBase):
         specs = specs or self._get_specs(response)
         return specs.get("現況", "") or specs.get("現況状況", "")
 
+    @staticmethod
+    def _extract_line_station(line: str):
+        if "/" in line:
+            parts = line.split("/", 1)
+            left = parts[0].strip()
+            right = parts[1].strip()
+            if "駅" in right:
+                station_name = right.split("駅", 1)[0].split()[-1].strip()
+                if left and station_name:
+                    return left, station_name
+        parts = line.split()
+        if len(parts) >= 2 and "駅" in parts[1]:
+            station_name = parts[1].split("駅", 1)[0].strip()
+            if station_name:
+                return parts[0].strip(), station_name
+        return None, None
+
+    @staticmethod
+    def _extract_walk_minutes(text: str):
+        m_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", text)
+        if m_m:
+            return (int(m_m.group(1)) + 79) // 80
+        m_w = re.search(r"徒歩\s*(\d{1,3})\s*分", text)
+        return int(m_w.group(1)) if m_w else None
+
+    @classmethod
+    def _apply_walk_minutes_to_item(cls, item, line: str, idx: int) -> None:
+        w_val = cls._extract_walk_minutes(line)
+        if w_val is not None:
+            if getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"railwayWalkMinute{idx}", w_val)
+            if not getattr(item, f"railwayWalkMinute{idx}Str", None):
+                setattr(item, f"railwayWalkMinute{idx}Str", f"{w_val}分")
+
+    @classmethod
+    def _apply_bus_minutes_to_item(cls, item, line: str, idx: int) -> None:
+        m_bus = re.search(r"バス\s*(\d{1,3})\s*分", line)
+        if m_bus:
+            b_val = int(m_bus.group(1))
+            if getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"busWalkMinute{idx}", b_val)
+            if not getattr(item, f"busWalkMinute{idx}Str", None):
+                setattr(item, f"busWalkMinute{idx}Str", f"{b_val}分")
+            if hasattr(item, f"busUse{idx}"):
+                setattr(item, f"busUse{idx}", 1)
+
+    @classmethod
+    def _apply_single_access_line(cls, item, line: str, idx: int) -> None:
+        r_name, s_name = cls._extract_line_station(line)
+        if r_name and not getattr(item, f"railway{idx}", None):
+            setattr(item, f"railway{idx}", r_name)
+        if s_name and not getattr(item, f"station{idx}", None):
+            setattr(item, f"station{idx}", s_name)
+
+        cls._apply_walk_minutes_to_item(item, line, idx)
+        cls._apply_bus_minutes_to_item(item, line, idx)
+
+    @classmethod
+    def _apply_homes_access_minutes(cls, item, traffic_str: str) -> None:
+        """LIFULL HOME'S の交通文字列から徒歩・バス分数を安全に個別補完"""
+        if not traffic_str:
+            return
+        lines = [l.strip() for l in re.split(r"[\r\n]+|\s{2,}", traffic_str) if l.strip()]
+        if not lines:
+            lines = [traffic_str.strip()]
+
+        for idx, line in enumerate(lines[:5], start=1):
+            cls._apply_single_access_line(item, line, idx)
+
+        # 第1路線フォールバック
+        if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            first_w = cls._extract_walk_minutes(traffic_str)
+            if first_w is not None:
+                item.railwayWalkMinute1 = first_w
+                if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
+                    item.railwayWalkMinute1Str = f"{first_w}分"
+
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)
         return specs.get("権利", "") or specs.get("土地権利", "")
@@ -351,6 +428,7 @@ class HomesParser(ParserBase):
         traffic_tag = response.select_one("td.prg-accessTableItem") or self._find_by_table_header(response, ["交通", "アクセス"])
         item.traffic = self._clean_text(traffic_tag, first_line_only=False)
         self._populateTraffic(item, item.traffic)
+        self._apply_homes_access_minutes(item, item.traffic)
         
         # 4. 構造（「（軽量鉄骨造）」等の括弧補足を含めて1行にまとめる）
         struct_tag = response.select_one("td.prg-structureTableItem")
@@ -361,6 +439,13 @@ class HomesParser(ParserBase):
         item.chikunengetsuStr = self._clean_text(period_tag, first_line_only=True)
         if item.chikunengetsuStr:
             item.chikunengetsu = converter.parse_chikunengetsu(item.chikunengetsuStr)
+
+        # 6. 共通スペック（権利、引渡、現況、用途地域）
+        specs = self._get_specs(response)
+        item.tochikenri = self._parseRights(response, specs)
+        item.hikiwatashi = self._parseHikiwatashi(response, specs)
+        item.genkyo = self._parseCurrentStatus(response, specs)
+        item.youtoChiiki = self._parseYoutoChiiki(response, specs)
             
         return item
 
@@ -454,6 +539,17 @@ class HomesMansionParser(HomesParser, MansionParserBase):
         kosu_tag = response.select_one("td.prg-allNumberTableItem") or self._find_by_table_header(response, ["総戸数", "戸数", "総区画"])
         item.soukosuStr = kosu_tag.get_text().strip() if kosu_tag else ""
         item.soukosu = converter.parse_number(item.soukosuStr)
+
+        # 管理費・修繕積立金
+        specs = self._get_specs(response)
+        kanrihi_val = specs.get("管理費", "") or specs.get("管理費等", "")
+        if kanrihi_val:
+            item.kanrihiStr = kanrihi_val
+            item.kanrihi = converter.parse_yen(kanrihi_val)
+        syuzen_val = specs.get("修繕積立金", "") or specs.get("修繕積立金等", "")
+        if syuzen_val:
+            item.syuzenTsumitateStr = syuzen_val
+            item.syuzenTsumitate = converter.parse_yen(syuzen_val)
         
         return item
 
@@ -647,6 +743,11 @@ class HomesInvestmentApartmentParser(HomesParser, InvestmentParserBase):
         item.setsudou = self._get_table_text(response, CSS_ROAD_TABLE, ["接道状況", "接道"])
         item.chimoku = self._get_table_text(response, "td.prg-landCategoryTableItem", ["地目"])
         item.tochikenri = self._get_table_text(response, "td.prg-rightTableItem", ["土地権利", "権利"])
+        item.hikiwatashi = self._get_table_text(response, "td.prg-deliveryTableItem", ["引渡", "引渡し", "引渡時期"])
+        item.youtoChiiki = self._get_table_text(response, "td.prg-useAreaTableItem", ["用途地域"])
+        item.soukosuStr = self._get_table_text(response, "td.prg-allNumberTableItem", ["総戸数", "戸数", "総区画"])
+        if item.soukosuStr:
+            item.soukosu = converter.parse_number(item.soukosuStr)
 
         self._apply_homes_unit_mansion_override(item, response)
         self._ensure_homes_invest_area(item)

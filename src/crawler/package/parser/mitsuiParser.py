@@ -212,12 +212,7 @@ class MitsuiParser(ParserBase):
             addr = re.sub(r'GoogleMaps.*$', '', addr).strip()
         return addr
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-
-        item.propertyName = self.get_property_name(response)
-        item.priceStr = self.get_price_str(response)
-        item.price = self.get_price(response)
+    def _validate_price_or_skip(self, item, response: BeautifulSoup) -> None:
         body_text = response.get_text(" ", strip=True) if response else ""
         price_str_val = str(item.priceStr or "").strip()
         if price_str_val in ("未定", "価格未定", "販売価格未定") or (
@@ -227,6 +222,14 @@ class MitsuiParser(ParserBase):
             raise SkipPropertyException(
                 f"Mitsui property skipped due to undetermined/zero price: {getattr(item, 'pageUrl', '')} ({item.priceStr})"
             )
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+
+        item.propertyName = self.get_property_name(response)
+        item.priceStr = self.get_price_str(response)
+        item.price = self.get_price(response)
+        self._validate_price_or_skip(item, response)
         item.address = self.get_address(response)
         
         item.address1 = self._parseAddress1(response)
@@ -250,6 +253,27 @@ class MitsuiParser(ParserBase):
         traffic_str = "  ".join(traffic_lines)
         item.traffic = traffic_str
         self._populateTraffic(item, traffic_str)
+        # populate individual parsed traffic fields for first 4 entries
+        if not getattr(item, "railway1", None):
+            item.railway1 = self._parseRailway1(response)
+        if not getattr(item, "station1", None):
+            item.station1 = self._parseStation1(response)
+        if getattr(item, "railwayWalkMinute1", None) in (None, 0):
+            walk1 = self._parseRailwayWalkMinute1(response)
+            if walk1:
+                item.railwayWalkMinute1 = walk1
+        if not getattr(item, "railwayWalkMinute1Str", None):
+            item.railwayWalkMinute1Str = self._parseRailwayWalkMinute1Str(response)
+        if not getattr(item, "busStation1", None):
+            item.busStation1 = self._parseBusStation1(response)
+        if getattr(item, "busWalkMinute1", None) in (None, 0):
+            bus1 = self._parseBusWalkMinute1(response)
+            if bus1:
+                item.busWalkMinute1 = bus1
+        if not getattr(item, "busWalkMinute1Str", None):
+            item.busWalkMinute1Str = self._parseBusWalkMinute1Str(response)
+        if hasattr(item, "busUse1") and not getattr(item, "busUse1", None):
+            item.busUse1 = self._parseBusUse1(response)
 
         # ヘッダー行誤登録防止ガード (Issue #917)
         self._assert_not_header_row(item)
