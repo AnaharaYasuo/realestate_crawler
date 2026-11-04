@@ -5,12 +5,13 @@
 
 ・MunicipalYearlyPotential: 全国自治体の過去10年（2015-2024）人口・増減率・平均所得・3年所得CAGR
 ・StationYearlyPotential: 全国全駅の過去10年（2015-2024）乗降客数・前年比増減率・3年CAGR
-を一括投入・同期します。
+をバッチチャンク分割（ON DUPLICATE KEY UPDATE）でDB負荷を抑えながら確実に同期します。
 """
+import logging
 import os
 import sys
-import logging
 from decimal import Decimal
+from django.db import connection
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _crawler_root not in sys.path:
@@ -39,7 +40,7 @@ def sync_municipal_yearly_potentials() -> int:
     logger.info("Starting sync of MunicipalYearlyPotential (過去10年 全自治体)...")
 
     munis = list(MunicipalPotential.objects.all())
-    records = []
+    params = []
     seen = set()
 
     for m in munis:
@@ -49,20 +50,16 @@ def sync_municipal_yearly_potentials() -> int:
         base_income = m.average_income or 3500
         pop_density = m.population_density or Decimal("4000.0")
 
-        # 過去10年の年次推移を再現（2015〜2024）
-        for idx, year in enumerate(HISTORICAL_YEARS):
+        for year in HISTORICAL_YEARS:
             key = (pref, city, year)
             if key in seen:
                 continue
             seen.add(key)
 
-            # 年数差 (-9年〜0年)
             year_diff = year - 2024
-            # 所得推移（年率約+1.2%成長と仮定）
             income_factor = (1.0 + 0.012) ** year_diff
             y_income = max(2000, int(base_income * income_factor))
 
-            # 人口推移
             pop_growth_val = float(m.population_growth_rate or Decimal("0.0")) / 100.0
             pop_factor = (1.0 + pop_growth_val) ** year_diff
             y_pop = max(1000, int(base_pop * pop_factor))
@@ -71,49 +68,50 @@ def sync_municipal_yearly_potentials() -> int:
             inc_growth = Decimal("1.20")
             inc_3y_cagr = Decimal("1.25")
 
-            records.append(
-                MunicipalYearlyPotential(
-                    prefecture=pref,
-                    city=city,
-                    year=year,
-                    total_population=y_pop,
-                    population_growth_rate=growth_rate,
-                    average_income=y_income,
-                    income_growth_rate=inc_growth,
-                    income_3y_cagr=inc_3y_cagr,
-                    population_density=pop_density,
-                )
-            )
+            params.append((
+                pref, city, year, y_pop, growth_rate,
+                y_income, inc_growth, inc_3y_cagr, pop_density
+            ))
 
-    MunicipalYearlyPotential.objects.bulk_create(
-        records,
-        ignore_conflicts=True,
-        # unique_fields=["prefecture", "city", "year"],
-        update_fields=[
-            "total_population", "population_growth_rate", "average_income",
-            "income_growth_rate", "income_3y_cagr", "population_density"
-        ]
+    sql = """
+    INSERT INTO municipal_yearly_potential (
+        prefecture, city, year, total_population, population_growth_rate,
+        average_income, income_growth_rate, income_3y_cagr, population_density
     )
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE
+        total_population = VALUES(total_population),
+        population_growth_rate = VALUES(population_growth_rate),
+        average_income = VALUES(average_income),
+        income_growth_rate = VALUES(income_growth_rate),
+        income_3y_cagr = VALUES(income_3y_cagr),
+        population_density = VALUES(population_density)
+    """
+
+    chunk_size = 2000
+    with connection.cursor() as cursor:
+        for i in range(0, len(params), chunk_size):
+            cursor.executemany(sql, params[i:i + chunk_size])
 
     total = MunicipalYearlyPotential.objects.count()
-    logger.info(f"Successfully synced MunicipalYearlyPotential: total {total} records across {len(munis)} municipalities.")
+    logger.info("Successfully synced MunicipalYearlyPotential: total %d records across %d municipalities.", total, len(munis))
     return total
 
 
-def sync_station_yearly_potentials() -> int:
+def sync_station_yearly_potentials(chunk_size: int = 2000) -> int:
     """
-    全国全駅の過去10年間乗降客数時系列推移をDBに全量投入する。
+    全国全駅の過去10年間乗降客数時系列推移をDBにバッチチャンク分割で安全に全量投入する。
     """
     logger.info("Starting sync of StationYearlyPotential (過去10年 全駅)...")
 
-    stations = list(StationPotential.objects.all())
-    records = []
+    stations = list(StationPotential.objects.values("station_name", "railway_line", "passenger_volume"))
+    params = []
     seen = set()
 
     for s in stations:
-        st_name = s.station_name
-        line_name = s.railway_line
-        base_vol = s.passenger_volume or 10000
+        st_name = s["station_name"]
+        line_name = s["railway_line"]
+        base_vol = s["passenger_volume"] or 10000
 
         for year in HISTORICAL_YEARS:
             key = (st_name, line_name, year)
@@ -121,7 +119,6 @@ def sync_station_yearly_potentials() -> int:
                 continue
             seen.add(key)
 
-            # コロナ期（2020-2021年）の落ち込みと回復トレンドを反映
             if year in [2020, 2021]:
                 vol_factor = 0.75
                 yoy = Decimal("-25.00")
@@ -138,24 +135,30 @@ def sync_station_yearly_potentials() -> int:
             y_vol = max(100, int(base_vol * vol_factor))
             cagr_3y = Decimal("+2.50") if year >= 2023 else Decimal("-1.20")
 
-            records.append(
-                StationYearlyPotential(
-                    station_name=st_name,
-                    railway_line=line_name,
-                    year=year,
-                    passenger_volume=y_vol,
-                    volume_yoy_growth=yoy,
-                    volume_3y_cagr=cagr_3y,
-                )
-            )
+            params.append((st_name, line_name, year, y_vol, yoy, cagr_3y))
 
-    StationYearlyPotential.objects.bulk_create(
-        records,
-        ignore_conflicts=True,
-        # unique_fields=["station_name", "railway_line", "year"],
-        update_fields=["passenger_volume", "volume_yoy_growth", "volume_3y_cagr"]
+    sql = """
+    INSERT INTO station_yearly_potential (
+        station_name, railway_line, year, passenger_volume, volume_yoy_growth, volume_3y_cagr
     )
+    VALUES (%s, %s, %s, %s, %s, %s)
+    ON DUPLICATE KEY UPDATE
+        passenger_volume = VALUES(passenger_volume),
+        volume_yoy_growth = VALUES(volume_yoy_growth),
+        volume_3y_cagr = VALUES(volume_3y_cagr)
+    """
+
+    logger.info("Inserting %d station yearly potential records in chunks of %d...", len(params), chunk_size)
+    with connection.cursor() as cursor:
+        for i in range(0, len(params), chunk_size):
+            cursor.executemany(sql, params[i:i + chunk_size])
 
     total = StationYearlyPotential.objects.count()
-    logger.info(f"Successfully synced StationYearlyPotential: total {total} records across {len(stations)} stations.")
+    logger.info("Successfully synced StationYearlyPotential: total %d records across %d stations.", total, len(stations))
     return total
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    sync_municipal_yearly_potentials()
+    sync_station_yearly_potentials()
