@@ -22,11 +22,7 @@ from package.ml.mansion_review import fetch_mansion_review_data
 logger = logging.getLogger(__name__)
 
 
-def _extract_station_from_traffic_text(traffic_text: str) -> str:
-    """traffic 文字列から駅名候補を抽出し、正規化する（レイヤ境界保護のため独立定義）"""
-    if not traffic_text:
-        return ""
-    # 1. 「駅名」形式の抽出
+def _extract_station_from_brackets(traffic_text: str) -> str:
     if "「" in traffic_text and "」" in traffic_text:
         left = traffic_text.find("「")
         right = traffic_text.find("」", left)
@@ -34,16 +30,29 @@ def _extract_station_from_traffic_text(traffic_text: str) -> str:
             cand = traffic_text[left + 1 : right].strip()
             if cand:
                 return _normalize_station_name_simple(cand)
+    return ""
 
+
+def _extract_station_from_tokens(traffic_text: str) -> str:
     station_suffixes = ("駅", "停留所", "バス停", "停")
     for t in str(traffic_text).replace("　", " ").split():
         for sfx in station_suffixes:
             if sfx in t:
                 idx = t.find(sfx) + len(sfx)
-                candidate = t[:idx].lstrip("「（(").rstrip("」）)")
-                if candidate and candidate not in ("駅", "停", "バス停", "停留所"):
-                    return _normalize_station_name_simple(candidate)
+                cand = t[:idx].lstrip("「（(").rstrip("」）)")
+                if cand and cand not in station_suffixes:
+                    return _normalize_station_name_simple(cand)
     return ""
+
+
+def _extract_station_from_traffic_text(traffic_text: str) -> str:
+    """traffic 文字列から駅名候補を抽出し、正規化する（レイヤ境界保護のため独立定義）"""
+    if not traffic_text:
+        return ""
+    cand = _extract_station_from_brackets(traffic_text)
+    if cand:
+        return cand
+    return _extract_station_from_tokens(traffic_text)
 
 
 def _normalize_station_name_simple(name: str) -> str:

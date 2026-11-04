@@ -119,7 +119,6 @@ def _check_page_errors(title: str, status: int | None, current_url: str = "") ->
 
     # 店舗情報やお知らせページへ強制転送された場合を検知
     url_lower = (current_url or "").lower()
-    title_lower = (title or "").lower()
     if ("/shop" in url_lower or "/branch" in url_lower or "/news" in url_lower or "/notice" in url_lower) and not ("/property/" in url_lower or "/buyers/" in url_lower or "/investors/" in url_lower):
         logger.warning("MizuhoBypass: Redirected away to shop/news page (%s, title=%s)", current_url, title)
 
