@@ -155,6 +155,7 @@ class ReguideInvestmentParser(InvestmentParser):
         item.priceStr = self._parsePriceStr(response, specs)
         item.address = self._parseAddress(response, specs)
         item.traffic = self._parseTransport1(response, specs)
+        self._populateTraffic(item, item.traffic)
         item.grossYield = self._parseGrossYield(response, specs)
         item.annualRent = self._parseAnnualRent(response, specs)
         item.monthlyRent = self._parseMonthlyRent(response, specs)
