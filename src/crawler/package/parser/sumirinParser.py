@@ -257,52 +257,47 @@ class SumirinParser(ParserBase):
         return item
 
     @staticmethod
-    def _apply_sumirin_access_minutes(item, lines: list, full_str: str) -> None:
+    def _apply_sumirin_single_line(item, line: str, idx: int) -> None:
+        m_st = re.search(r"([^・\s]+)・([^・\s]+)(?:駅|$)", line)
+        if m_st:
+            if hasattr(item, f"railway{idx}") and not getattr(item, f"railway{idx}", None):
+                setattr(item, f"railway{idx}", m_st.group(1).strip())
+            if hasattr(item, f"station{idx}") and not getattr(item, f"station{idx}", None):
+                setattr(item, f"station{idx}", m_st.group(2).strip())
+
+        # バス情報
+        m_bus = re.search(r"バス\s*(\d{1,3})\s*分", line)
+        if m_bus:
+            bus_val = int(m_bus.group(1))
+            if hasattr(item, f"busWalkMinute{idx}") and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"busWalkMinute{idx}", bus_val)
+            if hasattr(item, f"busWalkMinute{idx}Str") and not getattr(item, f"busWalkMinute{idx}Str", None):
+                setattr(item, f"busWalkMinute{idx}Str", f"{bus_val}分")
+            if hasattr(item, f"busUse{idx}"):
+                setattr(item, f"busUse{idx}", 1)
+
+        m_bus_st = re.search(r"バス\d+分\s+([^\s]+?)下車", line)
+        if m_bus_st and hasattr(item, f"busStation{idx}") and not getattr(item, f"busStation{idx}", None):
+            setattr(item, f"busStation{idx}", m_bus_st.group(1).strip())
+
+        # 徒歩情報
+        m_walk = re.search(r"徒歩\s*(\d{1,3})\s*分", line)
+        if m_walk:
+            walk_val = int(m_walk.group(1))
+            if hasattr(item, f"railwayWalkMinute{idx}") and getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
+                setattr(item, f"railwayWalkMinute{idx}", walk_val)
+            if hasattr(item, f"railwayWalkMinute{idx}Str") and not getattr(item, f"railwayWalkMinute{idx}Str", None):
+                setattr(item, f"railwayWalkMinute{idx}Str", f"{walk_val}分")
+
+    @classmethod
+    def _apply_sumirin_access_minutes(cls, item, lines: list, full_str: str) -> None:
         """住友林業の交通文字列から路線・駅・徒歩/バス分数を安全に補完"""
         for idx, line in enumerate(lines[:5], start=1):
-            railway_field = f"railway{idx}"
-            station_field = f"station{idx}"
-            walk_min_field = f"railwayWalkMinute{idx}"
-            walk_str_field = f"railwayWalkMinute{idx}Str"
-            bus_min_field = f"busWalkMinute{idx}"
-            bus_str_field = f"busWalkMinute{idx}Str"
-            bus_station_field = f"busStation{idx}"
-            bus_use_field = f"busUse{idx}"
-
-            m_st = re.search(r"([^・\s]+)・([^\s駅]+)(?:駅|$)", line)
-            if m_st:
-                if hasattr(item, railway_field) and not getattr(item, railway_field, None):
-                    setattr(item, railway_field, m_st.group(1).strip())
-                if hasattr(item, station_field) and not getattr(item, station_field, None):
-                    setattr(item, station_field, m_st.group(2).strip())
-
-            # バス情報
-            m_bus = re.search(r"バス\s*(\d+)\s*分", line)
-            if m_bus:
-                bus_val = int(m_bus.group(1))
-                if hasattr(item, bus_min_field) and getattr(item, bus_min_field, None) in (None, 0):
-                    setattr(item, bus_min_field, bus_val)
-                if hasattr(item, bus_str_field) and not getattr(item, bus_str_field, None):
-                    setattr(item, bus_str_field, f"{bus_val}分")
-                if hasattr(item, bus_use_field):
-                    setattr(item, bus_use_field, 1)
-
-            m_bus_st = re.search(r"バス\d+分\s+([^\s]+?)下車", line)
-            if m_bus_st and hasattr(item, bus_station_field) and not getattr(item, bus_station_field, None):
-                setattr(item, bus_station_field, m_bus_st.group(1).strip())
-
-            # 徒歩情報
-            m_walk = re.search(r"徒歩\s*(\d+)\s*分", line)
-            if m_walk:
-                walk_val = int(m_walk.group(1))
-                if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
-                    setattr(item, walk_min_field, walk_val)
-                if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
-                    setattr(item, walk_str_field, f"{walk_val}分")
+            cls._apply_sumirin_single_line(item, line, idx)
 
         # 第1路線が未設定で全体から徒歩が取れる場合のフォールバック
         if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
-            m_first_walk = re.search(r"徒歩\s*(\d+)\s*分", full_str)
+            m_first_walk = re.search(r"徒歩\s*(\d{1,3})\s*分", full_str)
             if m_first_walk:
                 val = int(m_first_walk.group(1))
                 item.railwayWalkMinute1 = val

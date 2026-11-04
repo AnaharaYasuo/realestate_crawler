@@ -378,7 +378,7 @@ class SotetsuKodateParser(SotetsuParser, KodateParserBase):
             item.kaisu = converter.parse_numeric(item.kaisuStr)
         if not item.kaisu:
             kozo_val = specs.get("構造・工法", "") or specs.get("構造", "") or item.kouzou or ""
-            km = re.search(r'([0-9０-９]+)階建', kozo_val)
+            km = re.search(r'([0-9０-９]{1,3})階建', kozo_val)
             if km:
                 try:
                     import unicodedata

@@ -410,7 +410,7 @@ class TotateKodateParser(TotateParser, KodateParserBase):
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
         if not item.kaisu and item.kouzou:
-            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
             if km:
                 try:
                     import unicodedata

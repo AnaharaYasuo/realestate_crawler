@@ -491,6 +491,24 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
     def createEntity(self):
         return SmtrcKodate()
 
+    def _apply_kodate_structure_and_floor(self, item, specs: dict) -> None:
+        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
+        if item.kaisuStr:
+            item.kaisu = converter.parse_numeric(item.kaisuStr)
+        if not item.kaisu and item.kouzou:
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
+            if km:
+                try:
+                    import unicodedata
+                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
+                except Exception:
+                    pass
+        item.madori = specs.get("間取り", "")
+        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
+        if "/" in (item.kouzou or "") and not specs.get("構造"):
+            # e.g. "木造/3階建" → structure only
+            item.kouzou = item.kouzou.split("/", 1)[0].strip()
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -507,22 +525,7 @@ class SmtrcKodateParser(SmtrcParser, KodateParserBase):
         if item.tatemonoMensekiStr:
             item.tatemonoMenseki = converter.parse_menseki(item.tatemonoMensekiStr)
 
-        item.kaisuStr = specs.get("階数", "") or specs.get("建物階数", "") or specs.get("階建", "")
-        if item.kaisuStr:
-            item.kaisu = converter.parse_numeric(item.kaisuStr)
-        if not item.kaisu and item.kouzou:
-            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
-            if km:
-                try:
-                    import unicodedata
-                    item.kaisu = int(unicodedata.normalize('NFKC', km.group(1)))
-                except Exception:
-                    pass
-        item.madori = specs.get("間取り", "")
-        item.kouzou = specs.get("構造", "") or specs.get("建物構造", "") or specs.get("構造/階建", "")
-        if "/" in (item.kouzou or "") and not specs.get("構造"):
-            # e.g. "木造/3階建" → structure only
-            item.kouzou = item.kouzou.split("/", 1)[0].strip()
+        self._apply_kodate_structure_and_floor(item, specs)
 
         # 都市計画関連
         item.youtoChiiki = specs.get("用途地域", "")
@@ -729,7 +732,7 @@ class SmtrcInvestmentParser(SmtrcParser, InvestmentParserBase):
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
         if not item.kaisu and item.kouzou:
-            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
             if km:
                 try:
                     import unicodedata

@@ -321,6 +321,21 @@ class KeioMansionParser(KeioParser, MansionParserBase):
             if m:
                 item.floorType_chika = int(m.group(1))
 
+    def _apply_keio_fees(self, item, specs: dict) -> None:
+        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費等", "")
+        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
+        combined_fee = specs.get("管理費/修繕積立金", "") or specs.get("管理費・修繕積立金", "") or specs.get("管理費等（月額）", "") or specs.get("管理費等(月額)", "")
+        if combined_fee and ("/" in combined_fee or "／" in combined_fee):
+            parts = re.split(r'[/／]', combined_fee, 1)
+            if not item.kanrihiStr:
+                item.kanrihiStr = parts[0].strip()
+            if not item.syuzenTsumitateStr and len(parts) > 1:
+                item.syuzenTsumitateStr = parts[1].strip()
+        if item.kanrihiStr:
+            item.kanrihi = converter.parse_rent(item.kanrihiStr)
+        if item.syuzenTsumitateStr:
+            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -347,19 +362,7 @@ class KeioMansionParser(KeioParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = specs.get("管理費", "") or specs.get("管理費等", "")
-        item.syuzenTsumitateStr = specs.get("修繕積立金", "")
-        combined_fee = specs.get("管理費/修繕積立金", "") or specs.get("管理費・修繕積立金", "") or specs.get("管理費等（月額）", "") or specs.get("管理費等(月額)", "")
-        if combined_fee and ("/" in combined_fee or "／" in combined_fee):
-            parts = re.split(r'[/／]', combined_fee, 1)
-            if not item.kanrihiStr:
-                item.kanrihiStr = parts[0].strip()
-            if not item.syuzenTsumitateStr and len(parts) > 1:
-                item.syuzenTsumitateStr = parts[1].strip()
-        if item.kanrihiStr:
-            item.kanrihi = converter.parse_rent(item.kanrihiStr)
-        if item.syuzenTsumitateStr:
-            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+        self._apply_keio_fees(item, specs)
 
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")

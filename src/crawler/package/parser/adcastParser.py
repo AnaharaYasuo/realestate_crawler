@@ -134,7 +134,7 @@ class AdCastBaseParser(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("建ぺい率", "") or specs.get("建蔽率", "")
         if not val:
-            comb = specs.get("建ぺい率／容積率", "") or specs.get("建ぺい率/容積率", "") or specs.get("建蔽率／容積率", "") or specs.get("建蔽率/容積率", "")
+            comb = next((v for k, v in specs.items() if re.sub(r"\s+", "", k).replace("／", "/") in ("建ぺい率/容積率", "建蔽率/容積率")), "")
             if comb:
                 parts = re.split(r'[/／]', comb)
                 if len(parts) >= 2:
@@ -145,7 +145,7 @@ class AdCastBaseParser(ParserBase):
         specs = specs or self._get_specs(response)
         val = specs.get("容積率", "")
         if not val:
-            comb = specs.get("建ぺい率／容積率", "") or specs.get("建ぺい率/容積率", "") or specs.get("建蔽率／容積率", "") or specs.get("建蔽率/容積率", "")
+            comb = next((v for k, v in specs.items() if re.sub(r"\s+", "", k).replace("／", "/") in ("建ぺい率/容積率", "建蔽率/容積率")), "")
             if comb:
                 parts = re.split(r'[/／]', comb)
                 if len(parts) >= 2:

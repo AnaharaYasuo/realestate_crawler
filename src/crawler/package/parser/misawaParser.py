@@ -300,9 +300,12 @@ class MisawaParser(ParserBase):
             m_bus = re.search(r'バス\s*(\d+)\s*分', walk_access)
             return int(m_bus.group(1)) if m_bus else 0
         if field_to_get == 'busStation':
-            m_stop = re.search(r'「([^」]+)」|([^\s]+?)(?:停|停留所|バス停)下車', walk_access)
+            m_bracket = re.search(r'「([^」]+)」', walk_access)
+            if m_bracket:
+                return m_bracket.group(1).strip()
+            m_stop = re.search(r'([^\s]+)(?:停|停留所|バス停)下車', walk_access)
             if m_stop:
-                return (m_stop.group(1) or m_stop.group(2)).strip()
+                return m_stop.group(1).strip()
             return default
         if field_to_get == 'busUse':
             return 1 if "バス" in walk_access else 0
@@ -381,50 +384,43 @@ class MisawaParser(ParserBase):
     def _parseBusWalkMinute5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busWalkMinute', 0)
     def _parseBusUse5(self, response, _specs=None): return self._getTrafficField(response, 5, 'busUse', 0)
 
+    def _apply_misawa_single_traffic(self, item, response, idx: int) -> None:
+        r_val = getattr(self, f"_parseRailway{idx}", lambda r: "")(response)
+        s_val = getattr(self, f"_parseStation{idx}", lambda r: "")(response)
+        w_val = getattr(self, f"_parseRailwayWalkMinute{idx}", lambda r: 0)(response)
+        ws_val = getattr(self, f"_parseRailwayWalkMinute{idx}Str", lambda r: "")(response)
+        b_val = getattr(self, f"_parseBusWalkMinute{idx}", lambda r: 0)(response)
+        bs_val = getattr(self, f"_parseBusWalkMinute{idx}Str", lambda r: "")(response)
+        bst_val = getattr(self, f"_parseBusStation{idx}", lambda r: "")(response)
+        bu_val = getattr(self, f"_parseBusUse{idx}", lambda r: 0)(response)
+
+        if hasattr(item, f"railway{idx}") and r_val and not getattr(item, f"railway{idx}", None):
+            setattr(item, f"railway{idx}", r_val)
+        if hasattr(item, f"station{idx}") and s_val and not getattr(item, f"station{idx}", None):
+            setattr(item, f"station{idx}", s_val)
+        if hasattr(item, f"railwayWalkMinute{idx}"):
+            if w_val:
+                setattr(item, f"railwayWalkMinute{idx}", w_val)
+            elif b_val and getattr(item, f"railwayWalkMinute{idx}", None) == b_val:
+                setattr(item, f"railwayWalkMinute{idx}", None)
+        if hasattr(item, f"railwayWalkMinute{idx}Str"):
+            if ws_val:
+                setattr(item, f"railwayWalkMinute{idx}Str", ws_val)
+            elif b_val and getattr(item, f"railwayWalkMinute{idx}", None) is None:
+                setattr(item, f"railwayWalkMinute{idx}Str", "")
+        if hasattr(item, f"busWalkMinute{idx}") and b_val and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+            setattr(item, f"busWalkMinute{idx}", b_val)
+        if hasattr(item, f"busWalkMinute{idx}Str") and bs_val and not getattr(item, f"busWalkMinute{idx}Str", None):
+            setattr(item, f"busWalkMinute{idx}Str", bs_val)
+        if hasattr(item, f"busStation{idx}") and bst_val and not getattr(item, f"busStation{idx}", None):
+            setattr(item, f"busStation{idx}", bst_val)
+        if hasattr(item, f"busUse{idx}") and bu_val and not getattr(item, f"busUse{idx}", None):
+            setattr(item, f"busUse{idx}", bu_val)
+
     def _apply_misawa_traffic_fields(self, item, response) -> None:
         """ミサワホーム詳細パース時の交通フィールド反映（個別メソッドから確実に取得）"""
         for idx in range(1, 6):
-            r_val = getattr(self, f"_parseRailway{idx}", lambda r: "")(response)
-            s_val = getattr(self, f"_parseStation{idx}", lambda r: "")(response)
-            w_val = getattr(self, f"_parseRailwayWalkMinute{idx}", lambda r: 0)(response)
-            ws_val = getattr(self, f"_parseRailwayWalkMinute{idx}Str", lambda r: "")(response)
-            b_val = getattr(self, f"_parseBusWalkMinute{idx}", lambda r: 0)(response)
-            bs_val = getattr(self, f"_parseBusWalkMinute{idx}Str", lambda r: "")(response)
-            bst_val = getattr(self, f"_parseBusStation{idx}", lambda r: "")(response)
-            bu_val = getattr(self, f"_parseBusUse{idx}", lambda r: 0)(response)
-
-            r_field = f"railway{idx}"
-            s_field = f"station{idx}"
-            w_field = f"railwayWalkMinute{idx}"
-            ws_field = f"railwayWalkMinute{idx}Str"
-            b_field = f"busWalkMinute{idx}"
-            bs_field = f"busWalkMinute{idx}Str"
-            bst_field = f"busStation{idx}"
-            bu_field = f"busUse{idx}"
-
-            if hasattr(item, r_field) and r_val and not getattr(item, r_field, None):
-                setattr(item, r_field, r_val)
-            if hasattr(item, s_field) and s_val and not getattr(item, s_field, None):
-                setattr(item, s_field, s_val)
-            if hasattr(item, w_field):
-                if w_val:
-                    setattr(item, w_field, w_val)
-                elif b_val and getattr(item, w_field, None) == b_val:
-                    # _populateTraffic erroneously placed bus minutes into walk minutes
-                    setattr(item, w_field, None)
-            if hasattr(item, ws_field):
-                if ws_val:
-                    setattr(item, ws_field, ws_val)
-                elif b_val and getattr(item, w_field, None) is None:
-                    setattr(item, ws_field, "")
-            if hasattr(item, b_field) and b_val and getattr(item, b_field, None) in (None, 0):
-                setattr(item, b_field, b_val)
-            if hasattr(item, bs_field) and bs_val and not getattr(item, bs_field, None):
-                setattr(item, bs_field, bs_val)
-            if hasattr(item, bst_field) and bst_val and not getattr(item, bst_field, None):
-                setattr(item, bst_field, bst_val)
-            if hasattr(item, bu_field) and bu_val and not getattr(item, bu_field, None):
-                setattr(item, bu_field, bu_val)
+            self._apply_misawa_single_traffic(item, response, idx)
 
     def _parseTochikenri(self, response, specs=None):
         target_specs = specs if specs is not None else self._get_specs(response)

@@ -419,7 +419,7 @@ class Sumai1KodateParser(Sumai1Parser, KodateParserBase):
             item.kaisu = converter.parse_numeric(item.kaisuStr)
         if not item.kaisu:
             kozo_val = specs.get("構造", "") or specs.get("建物構造", "") or ""
-            km = re.search(r'([0-9０-９]+)階建', kozo_val)
+            km = re.search(r'([0-9０-９]{1,3})階建', kozo_val)
             if km:
                 try:
                     import unicodedata

@@ -45,7 +45,19 @@ class HomesParser(ParserBase):
         return specs.get("現況", "") or specs.get("現況状況", "")
 
     @staticmethod
-    def _apply_homes_access_minutes(item, traffic_str: str) -> None:
+    def _extract_line_station(line: str):
+        return re.search(r"([^/\s]+)\s*/\s*([^\s]+)駅", line) or re.search(r"([^\s]+)\s+([^\s]+)駅", line)
+
+    @staticmethod
+    def _extract_walk_minutes(text: str):
+        m_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", text)
+        if m_m:
+            return (int(m_m.group(1)) + 79) // 80
+        m_w = re.search(r"徒歩\s*(\d{1,3})\s*分", text)
+        return int(m_w.group(1)) if m_w else None
+
+    @classmethod
+    def _apply_homes_access_minutes(cls, item, traffic_str: str) -> None:
         """LIFULL HOME'S の交通文字列から徒歩・バス分数を安全に個別補完"""
         if not traffic_str:
             return
@@ -54,65 +66,37 @@ class HomesParser(ParserBase):
             lines = [traffic_str.strip()]
 
         for idx, line in enumerate(lines[:5], start=1):
-            walk_min_field = f"railwayWalkMinute{idx}"
-            walk_str_field = f"railwayWalkMinute{idx}Str"
-            bus_min_field = f"busWalkMinute{idx}"
-            bus_str_field = f"busWalkMinute{idx}Str"
-            bus_use_field = f"busUse{idx}"
-            railway_field = f"railway{idx}"
-            station_field = f"station{idx}"
-
-            m_st = re.search(r"([^/]+?)\s*/\s*([^\s]+?)駅", line) or re.search(r"([^\s]+)\s+([^\s]+?)駅", line)
+            m_st = cls._extract_line_station(line)
             if m_st:
-                if hasattr(item, railway_field) and not getattr(item, railway_field, None):
-                    setattr(item, railway_field, m_st.group(1).strip())
-                if hasattr(item, station_field) and not getattr(item, station_field, None):
-                    setattr(item, station_field, m_st.group(2).strip())
+                if hasattr(item, f"railway{idx}") and not getattr(item, f"railway{idx}", None):
+                    setattr(item, f"railway{idx}", m_st.group(1).strip())
+                if hasattr(item, f"station{idx}") and not getattr(item, f"station{idx}", None):
+                    setattr(item, f"station{idx}", m_st.group(2).strip())
 
-            # 徒歩（メートル表記または分表記）
-            m_walk_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", line)
-            if m_walk_m:
-                meters = int(m_walk_m.group(1))
-                min_val = (meters + 79) // 80
-                if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
-                    setattr(item, walk_min_field, min_val)
-                if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
-                    setattr(item, walk_str_field, f"{min_val}分")
-            else:
-                m_walk = re.search(r"徒歩\s*(\d+)\s*分", line)
-                if m_walk:
-                    val = int(m_walk.group(1))
-                    if hasattr(item, walk_min_field) and getattr(item, walk_min_field, None) in (None, 0):
-                        setattr(item, walk_min_field, val)
-                    if hasattr(item, walk_str_field) and not getattr(item, walk_str_field, None):
-                        setattr(item, walk_str_field, f"{val}分")
+            w_val = cls._extract_walk_minutes(line)
+            if w_val is not None:
+                if hasattr(item, f"railwayWalkMinute{idx}") and getattr(item, f"railwayWalkMinute{idx}", None) in (None, 0):
+                    setattr(item, f"railwayWalkMinute{idx}", w_val)
+                if hasattr(item, f"railwayWalkMinute{idx}Str") and not getattr(item, f"railwayWalkMinute{idx}Str", None):
+                    setattr(item, f"railwayWalkMinute{idx}Str", f"{w_val}分")
 
-            # バス
-            m_bus = re.search(r"バス\s*(\d+)\s*分", line)
+            m_bus = re.search(r"バス\s*(\d{1,3})\s*分", line)
             if m_bus:
                 b_val = int(m_bus.group(1))
-                if hasattr(item, bus_min_field) and getattr(item, bus_min_field, None) in (None, 0):
-                    setattr(item, bus_min_field, b_val)
-                if hasattr(item, bus_str_field) and not getattr(item, bus_str_field, None):
-                    setattr(item, bus_str_field, f"{b_val}分")
-                if hasattr(item, bus_use_field):
-                    setattr(item, bus_use_field, 1)
+                if hasattr(item, f"busWalkMinute{idx}") and getattr(item, f"busWalkMinute{idx}", None) in (None, 0):
+                    setattr(item, f"busWalkMinute{idx}", b_val)
+                if hasattr(item, f"busWalkMinute{idx}Str") and not getattr(item, f"busWalkMinute{idx}Str", None):
+                    setattr(item, f"busWalkMinute{idx}Str", f"{b_val}分")
+                if hasattr(item, f"busUse{idx}"):
+                    setattr(item, f"busUse{idx}", 1)
 
         # 第1路線フォールバック
         if hasattr(item, "railwayWalkMinute1") and getattr(item, "railwayWalkMinute1", None) in (None, 0):
-            m_first_m = re.search(r"徒歩\s*(\d{1,6})\s*[ｍm]", traffic_str)
-            if m_first_m:
-                min_val = (int(m_first_m.group(1)) + 79) // 80
-                item.railwayWalkMinute1 = min_val
+            first_w = cls._extract_walk_minutes(traffic_str)
+            if first_w is not None:
+                item.railwayWalkMinute1 = first_w
                 if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
-                    item.railwayWalkMinute1Str = f"{min_val}分"
-            else:
-                m_first_w = re.search(r"徒歩\s*(\d+)\s*分", traffic_str)
-                if m_first_w:
-                    val = int(m_first_w.group(1))
-                    item.railwayWalkMinute1 = val
-                    if hasattr(item, "railwayWalkMinute1Str") and not getattr(item, "railwayWalkMinute1Str", None):
-                        item.railwayWalkMinute1Str = f"{val}分"
+                    item.railwayWalkMinute1Str = f"{first_w}分"
 
     def _parseRights(self, response, specs=None):
         specs = specs or self._get_specs(response)

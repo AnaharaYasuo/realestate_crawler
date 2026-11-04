@@ -212,12 +212,7 @@ class MitsuiParser(ParserBase):
             addr = re.sub(r'GoogleMaps.*$', '', addr).strip()
         return addr
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-
-        item.propertyName = self.get_property_name(response)
-        item.priceStr = self.get_price_str(response)
-        item.price = self.get_price(response)
+    def _validate_price_or_skip(self, item, response: BeautifulSoup) -> None:
         body_text = response.get_text(" ", strip=True) if response else ""
         price_str_val = str(item.priceStr or "").strip()
         if price_str_val in ("未定", "価格未定", "販売価格未定") or (
@@ -227,6 +222,14 @@ class MitsuiParser(ParserBase):
             raise SkipPropertyException(
                 f"Mitsui property skipped due to undetermined/zero price: {getattr(item, 'pageUrl', '')} ({item.priceStr})"
             )
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+
+        item.propertyName = self.get_property_name(response)
+        item.priceStr = self.get_price_str(response)
+        item.price = self.get_price(response)
+        self._validate_price_or_skip(item, response)
         item.address = self.get_address(response)
         
         item.address1 = self._parseAddress1(response)

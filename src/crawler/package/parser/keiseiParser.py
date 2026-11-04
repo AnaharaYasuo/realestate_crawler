@@ -318,6 +318,21 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
             if m:
                 item.floorType_chika = int(m.group(1))
 
+    def _apply_keisei_mansion_fees(self, item, specs: dict) -> None:
+        item.kanrihiStr = _first_spec(specs, "管理費", "管理費等", "管理費等（月額）", "管理費(月額)")
+        item.syuzenTsumitateStr = _first_spec(specs, "修繕積立金", "修繕積立金（月額）", "修繕積立金(月額)")
+        comb = _first_spec(specs, "管理費/修繕積立金", "管理費／修繕積立金", "管理費・修繕積立金")
+        if comb and ("/" in comb or "／" in comb):
+            parts = re.split(r'[/／]', comb, 1)
+            if not item.kanrihiStr:
+                item.kanrihiStr = parts[0].strip()
+            if not item.syuzenTsumitateStr and len(parts) > 1:
+                item.syuzenTsumitateStr = parts[1].strip()
+        if item.kanrihiStr:
+            item.kanrihi = converter.parse_rent(item.kanrihiStr)
+        if item.syuzenTsumitateStr:
+            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -344,26 +359,7 @@ class KeiseiMansionParser(KeiseiParser, MansionParserBase):
         if item.soukosuStr:
             item.soukosu = converter.parse_numeric(item.soukosuStr)
 
-        item.kanrihiStr = _first_spec(specs, "管理費", "管理費等", "管理費等（月額）", "管理費(月額)")
-        # スラッシュ分割で「管理費/修繕積立金」がある場合
-        if not item.kanrihiStr:
-            comb = _first_spec(specs, "管理費/修繕積立金", "管理費／修繕積立金", "管理費・修繕積立金")
-            if comb and "/" in comb:
-                item.kanrihiStr = comb.split("/")[0].strip()
-            elif comb and "／" in comb:
-                item.kanrihiStr = comb.split("／")[0].strip()
-        if item.kanrihiStr:
-            item.kanrihi = converter.parse_rent(item.kanrihiStr)
-
-        item.syuzenTsumitateStr = _first_spec(specs, "修繕積立金", "修繕積立金（月額）", "修繕積立金(月額)")
-        if not item.syuzenTsumitateStr:
-            comb = _first_spec(specs, "管理費/修繕積立金", "管理費／修繕積立金", "管理費・修繕積立金")
-            if comb and "/" in comb:
-                item.syuzenTsumitateStr = comb.split("/")[1].strip()
-            elif comb and "／" in comb:
-                item.syuzenTsumitateStr = comb.split("／")[1].strip()
-        if item.syuzenTsumitateStr:
-            item.syuzenTsumitate = converter.parse_rent(item.syuzenTsumitateStr)
+        self._apply_keisei_mansion_fees(item, specs)
 
         item.kouzou = self._parseKouzou(response, specs)
         item.kanriKeitai = specs.get("管理形態", "")
@@ -441,6 +437,24 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
         if not specs.get("土地面積") and (specs.get("専有面積") or "マンション" in str(specs.get("種目", ""))):
             raise SkipPropertyException(f"Keisei mansion mixed into kodate parser: {getattr(item, 'pageUrl', '')}")
 
+    def _apply_keisei_kodate_ratios(self, item, specs: dict) -> None:
+        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建ぺい率(%)", "")
+        item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
+        if not item.kenpeiStr or not item.yousekiStr:
+            comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
+            if comb:
+                parts = re.split(r'[/／]', comb)
+                if len(parts) >= 2:
+                    if not item.kenpeiStr:
+                        item.kenpeiStr = parts[0].strip()
+                    if not item.yousekiStr:
+                        item.yousekiStr = parts[1].strip()
+
+        if item.kenpeiStr:
+            item.kenpei = converter.parse_ratio(item.kenpeiStr)
+        if item.yousekiStr:
+            item.youseki = converter.parse_ratio(item.yousekiStr)
+
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
         item = super()._parsePropertyDetailPage(item, response)
         specs = self._get_specs(response)
@@ -466,7 +480,7 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
         if item.kaisuStr:
             item.kaisu = converter.parse_numeric(item.kaisuStr)
         if not item.kaisu and item.kouzou:
-            km = re.search(r'([0-9０-９]+)階建', item.kouzou)
+            km = re.search(r'([0-9０-９]{1,3})階建', item.kouzou)
             if km:
                 try:
                     import unicodedata
@@ -474,22 +488,7 @@ class KeiseiKodateParser(KeiseiParser, KodateParserBase):
                 except Exception:
                     pass
 
-        item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建ぺい率(%)", "")
-        item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
-        if not item.kenpeiStr or not item.yousekiStr:
-            comb = _first_spec(specs, "建ぺい率/容積率", "建ぺい率／容積率", "建蔽率/容積率", "建蔽率／容積率")
-            if comb:
-                parts = re.split(r'[/／]', comb)
-                if len(parts) >= 2:
-                    if not item.kenpeiStr:
-                        item.kenpeiStr = parts[0].strip()
-                    if not item.yousekiStr:
-                        item.yousekiStr = parts[1].strip()
-
-        if item.kenpeiStr:
-            item.kenpei = converter.parse_ratio(item.kenpeiStr)
-        if item.yousekiStr:
-            item.youseki = converter.parse_ratio(item.yousekiStr)
+        self._apply_keisei_kodate_ratios(item, specs)
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
@@ -548,17 +547,7 @@ class KeiseiTochiParser(KeiseiParser, TochiParserBase):
     def createEntity(self):
         return KeiseiTochi()
 
-    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
-        item = super()._parsePropertyDetailPage(item, response)
-        specs = self._get_specs(response)
-
-        item.tochiMensekiStr = specs.get("土地面積", "")
-        if item.tochiMensekiStr:
-            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
-
-        item.kenchikuJoken = specs.get("建築条件", "")
-        item.chimoku = self._parseChimoku(response, specs)
-        
+    def _apply_keisei_tochi_ratios(self, item, specs: dict) -> None:
         item.kenpeiStr = specs.get("建ぺい率", "") or specs.get("建ぺい率(%)", "")
         item.yousekiStr = specs.get("容積率", "") or specs.get("容積率(%)", "")
         if not item.kenpeiStr or not item.yousekiStr:
@@ -575,6 +564,19 @@ class KeiseiTochiParser(KeiseiParser, TochiParserBase):
             item.kenpei = converter.parse_ratio(item.kenpeiStr)
         if item.yousekiStr:
             item.youseki = converter.parse_ratio(item.yousekiStr)
+
+    def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        item = super()._parsePropertyDetailPage(item, response)
+        specs = self._get_specs(response)
+
+        item.tochiMensekiStr = specs.get("土地面積", "")
+        if item.tochiMensekiStr:
+            item.tochiMenseki = converter.parse_menseki(item.tochiMensekiStr)
+
+        item.kenchikuJoken = specs.get("建築条件", "")
+        item.chimoku = self._parseChimoku(response, specs)
+        
+        self._apply_keisei_tochi_ratios(item, specs)
 
         item.youtoChiiki = self._parseYoutoChiiki(response, specs)
         item.setsudou = self._parseSetsudou(response, specs)
