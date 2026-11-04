@@ -99,7 +99,6 @@ def import_hazard_map(csv_path: str = None) -> int:
         params.append((pref, city, flood, landslide))
 
     if connection.vendor == "sqlite":
-        from package.models.evaluation import HazardMapPotential
         objs = [
             HazardMapPotential(
                 prefecture=p[0],
@@ -109,11 +108,12 @@ def import_hazard_map(csv_path: str = None) -> int:
             )
             for p in params
         ]
+        unique_fields = ["prefecture", "city"] if connection.features.supports_update_conflicts_with_target else None
         HazardMapPotential.objects.bulk_create(
             objs,
             update_conflicts=True,
             update_fields=["flood_risk_level", "landslide_risk_level"],
-            unique_fields=["prefecture", "city"],
+            unique_fields=unique_fields,
             batch_size=2000,
         )
     else:

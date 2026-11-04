@@ -22,25 +22,23 @@ class MockEvaluation:
         self.property_url = property_url
 
 def test_evaluate_investment_candidate_by_score():
-    """投資スコア（70点以上）による投資物件抽出判定テスト"""
-    # 80点以上
-    rec1 = MockEvaluation("investmentapartment", investment_score=85.0, total_investment_score=85.0, id=101)
+    """投資物件でも理論価格が存在し、割安度（20%〜35%）を満たす場合のみ推奨されることを検証 (Issue #1239)"""
+    # 割安度25%（売出1,000万円に対し予測1,333万円）、投資スコア85点
+    rec1 = MockEvaluation("investmentapartment", investment_score=85.0, total_investment_score=85.0, first_stage_predicted_price=1333.0, id=101)
     prop1 = MockProperty(rec1.property_url, 10000000)
     is_rec, reason, priority = _evaluate_candidate(rec1, prop1)
     assert is_rec is True
-    assert "85.0点" in reason
-    assert priority == 85.0
+    assert "25.0% 割安" in reason
+    assert priority >= 70.0
 
-    # 70点〜79点（引き下げ後の適格判定）
-    rec2 = MockEvaluation("investment", investment_score=72.5, total_investment_score=72.5, id=102)
-    prop2 = MockProperty(rec2.property_url, 20000000)
-    is_rec, reason, priority = _evaluate_candidate(rec2, prop2)
-    assert is_rec is True
-    assert "72.5点" in reason
-    assert priority == 72.5
+    # 投資スコアが高くても理論価格が0（未算出）の場合は推奨除外
+    rec_zero = MockEvaluation("investment", investment_score=85.0, total_investment_score=85.0, first_stage_predicted_price=0.0, id=102)
+    prop2 = MockProperty(rec_zero.property_url, 20000000)
+    is_rec, reason, priority = _evaluate_candidate(rec_zero, prop2)
+    assert is_rec is False
 
-    # 70点未満かつ予測なし
-    rec3 = MockEvaluation("investmentkodate", investment_score=50.0, total_investment_score=50.0, id=103)
+    # 70点未満かつ割安度なし
+    rec3 = MockEvaluation("investmentkodate", investment_score=50.0, total_investment_score=50.0, first_stage_predicted_price=500.0, id=103)
     prop3 = MockProperty(rec3.property_url, 5000000)
     is_rec, reason, priority = _evaluate_candidate(rec3, prop3)
     assert is_rec is False
@@ -60,17 +58,17 @@ def test_evaluate_investment_candidate_pred_price_must_exceed_asking_price():
     assert reason == ""
     assert priority == 0.0
 
-    # 売出価格 3,000万円 に対して 理論予測価格 3,500万円（理論価格が売出を上回っている）
+    # 売出価格 3,000万円 に対して 理論予測価格 4,000万円（理論価格が売出を上回り割安率25%）
     rec_pass = MockEvaluation(
         "investmentapartment",
         total_investment_score=85.0,
-        first_stage_predicted_price=3500.0,
+        first_stage_predicted_price=4000.0,
         id=202
     )
     is_rec2, reason2, priority2 = _evaluate_candidate(rec_pass, prop)
     assert is_rec2 is True
-    assert "85.0点" in reason2
-    assert priority2 == 85.0
+    assert "25.0% 割安" in reason2
+    assert priority2 >= 70.0
 
 def test_evaluate_investment_candidate_extreme_prediction_gap_rejected():
     """投資スコアが高くても理論予測価格が売出価格の3倍超または1/3未満の極端な異常値の場合は除外されることを検証 (Issue #1116)"""

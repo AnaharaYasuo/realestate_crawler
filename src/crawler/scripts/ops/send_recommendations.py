@@ -159,32 +159,33 @@ def _evaluate_investment_candidate(eval_rec, prop=None) -> tuple:
     asking_price_man = normalize_asking_price_man(asking_price)
     pred_price = float(eval_rec.second_stage_predicted_price or eval_rec.first_stage_predicted_price or 0.0)
 
-    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
-    if pred_price > 0 and asking_price_man > 0:
-        price_ratio = pred_price / asking_price_man
-        if price_ratio > 3.0 or price_ratio < 0.33:
-            logger.warning(
-                f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
-                f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
-            )
-            return False, "", 0.0
+    # 理論予測価格が未算出（0以下）または売出価格が無効な場合は推奨しない（割安判定必須）
+    if pred_price <= 0 or asking_price_man <= 0:
+        return False, "", 0.0
 
-    # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175)
-    if pred_price > 0 and asking_price_man > 0 and pred_price <= asking_price_man:
+    # 2-sigma / 安全弁ガード: 予測価格と売出価格の極端な乖離（3倍超または0.33倍未満）は異常値として除外 (Issue #1116)
+    price_ratio = pred_price / asking_price_man
+    if price_ratio > 3.0 or price_ratio < 0.33:
+        logger.warning(
+            f"Skipping investment alert (extreme prediction gap): Property {getattr(prop, 'pageUrl', '')} "
+            f"ratio {price_ratio:.1f}x (Predicted: {pred_price:.0f}万円, Asking: {asking_price_man:.0f}万円)"
+        )
+        return False, "", 0.0
+
+    # 理論価格が売出価格を上回っていること（pred_price > asking_price_man）が絶対前提 (Issue #1175, #1239)
+    if pred_price <= asking_price_man:
         logger.info(
             f"Skipping investment alert: Pred price ({pred_price:.0f}万) does not exceed asking price ({asking_price_man:.0f}万)"
         )
         return False, "", 0.0
 
-    score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
-    if score >= 70.0 and (pred_price <= 0 or pred_price > asking_price_man):
-        return True, f"【高利回り・優良融資スコア: {score:.1f}点】", float(score)
-
-    if pred_price > 0 and asking_price_man > 0:
-        discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
-        if -35.0 <= discount_pct <= 35.0 and discount_pct >= 20.0:
-            calc_priority = 70.0 + discount_pct
-            return True, f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】", calc_priority
+    # 利回りベース単独での推奨は撤廃し、割安判定（ディスカウント率 20%〜35%）を満たすもののみ推奨 (Issue #1239)
+    discount_pct = (pred_price - asking_price_man) / pred_price * 100.0
+    if 20.0 <= discount_pct <= 35.0:
+        score = eval_rec.total_investment_score or eval_rec.investment_score or 0.0
+        calc_priority = 70.0 + discount_pct + (float(score) * 0.1)
+        reason = f"【市場予測価格より {discount_pct:.1f}% 割安（投資お宝物件！）】"
+        return True, reason, calc_priority
 
     return False, "", 0.0
 
