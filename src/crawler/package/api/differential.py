@@ -252,7 +252,7 @@ async def _process_differential_chunk(
             or any(k in err_str for k in ("can't connect", "connection refused", "10061", "2002", "2006", "2013"))
         )
         if is_conn_error:
-            logger.error(
+            logger.exception(
                 f"[Differential Crawl] Critical DB connection error for {model_class}: {e}. Aborting to prevent full-crawl runaway."
             )
             raise

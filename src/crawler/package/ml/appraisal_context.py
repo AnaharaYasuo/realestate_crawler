@@ -47,8 +47,12 @@ def _extract_station_from_traffic_text(traffic_text: str) -> str:
 
 
 def _normalize_station_name_simple(name: str) -> str:
-    cleaned = (name or "").strip().rstrip("駅").rstrip("停").rstrip("停留所").strip()
-    return cleaned
+    cleaned = (name or "").strip()
+    for suffix in ("停留所", "バス停", "停", "駅"):
+        if cleaned.endswith(suffix):
+            cleaned = cleaned[: -len(suffix)]
+            break
+    return cleaned.strip()
 
 
 def build_appraisal_context(prop, ptype_jp: str) -> dict[str, Any]:

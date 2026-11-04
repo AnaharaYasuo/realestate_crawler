@@ -36,7 +36,7 @@ def test_athome_basement_floor_detection():
 
 
 def test_athome_buy_other_missing_building_area_skipped():
-    """athome buy_other で建物面積・延床面積がない物件は一棟アパートとして不正登録されずスキップされること"""
+    """athome buy_other で土地面積・建物面積の双方が欠損している物件は一棟アパートとして不正登録されずスキップされること"""
     html = """
     <html>
     <head><title>売その他 投資用</title></head>
@@ -45,7 +45,9 @@ def test_athome_buy_other_missing_building_area_skipped():
         <table>
             <tr><th>物件種目</th><td>売その他</td></tr>
             <tr><th>価格</th><td>1,500万円</td></tr>
-            <tr><th>土地面積</th><td>150.0m2</td></tr>
+            <tr><th>利回り</th><td>10.0%</td></tr>
+            <tr><th>満室時想定年収</th><td>150万円</td></tr>
+            <tr><th>土地面積</th><td>-</td></tr>
             <tr><th>建物面積</th><td>-</td></tr>
         </table>
     </body>
@@ -56,5 +58,5 @@ def test_athome_buy_other_missing_building_area_skipped():
     item = parser.createEntity()
     item.pageUrl = "https://www.athome.co.jp/buy_other/1198396219/"
 
-    with pytest.raises(SkipPropertyException):
+    with pytest.raises(SkipPropertyException, match="missing both land and building area"):
         parser._parsePropertyDetailPage(item, soup)

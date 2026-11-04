@@ -78,4 +78,7 @@ def test_mitsui_mansion_property_detail_infos_traffic():
     parsed_item = parser._parsePropertyDetailPage(item, soup)
     assert parsed_item.traffic != ""
     assert "白金高輪" in parsed_item.traffic
+    assert "都営三田線" in parsed_item.traffic
+    assert "所在地" not in parsed_item.traffic
+    assert "東京都港区" not in parsed_item.traffic
     assert parsed_item.station1 == "白金高輪"

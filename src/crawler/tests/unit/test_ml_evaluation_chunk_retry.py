@@ -36,5 +36,5 @@ def test_evaluate_single_model_retry_on_transient_db_error():
         assert evaluated == 1
         assert passed == 1
         assert mock_save.call_count == 2
-        assert mock_close_conn.call_count >= 2
+        assert mock_close_conn.call_count == 3  # エントリ、リトライ分岐、finally の各1回
         mock_sleep.assert_called_once_with(1)

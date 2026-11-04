@@ -427,8 +427,8 @@ class MitsuiParser(ParserBase):
             for el in response.select(".property-detail-infos"):
                 txt = el.get_text(" ", strip=True)
                 if "交通" in txt:
-                    # 交通から所在地の手前までを抽出
-                    m = re.search(r"交通\s+(.*?)(?:\s+所在地|\s+GoogleMaps|$)", txt)
+                    # 交通から所在地、価格、専有面積、土地面積等の後続項目の手前までを抽出
+                    m = re.search(r"交通\s+(.*?)(?=\s+(?:所在地|価格|専有面積|土地面積|建物面積|間取り|GoogleMaps)|$)", txt)
                     if m:
                         t_part = m.group(1).strip()
                         if t_part:
