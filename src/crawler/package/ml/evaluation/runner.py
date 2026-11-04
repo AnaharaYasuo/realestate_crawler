@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from django.db import close_old_connections
+from package.ml.constants import EVAL_DB_BATCH_SIZE
 from package.ml.evaluation.notifications import notify_slack
 from package.ml.evaluation.persistence import EVAL_MAP_FIELDS, save_chunk
 from package.ml.evaluation.record_builder import resolve_company_and_type
@@ -24,7 +25,7 @@ from package.utils.deduplication import clear_real_property_cache
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONCURRENCY = 8
-DEFAULT_BATCH_SIZE = 100
+DEFAULT_BATCH_SIZE = EVAL_DB_BATCH_SIZE
 
 
 def _save_chunk_with_retry(
@@ -70,7 +71,7 @@ def evaluate_single_model(
     existing_eval_map: dict[str, Any],
     force: bool,
     limit_per_model: int | None,
-    batch_size: int = 1000,
+    batch_size: int = DEFAULT_BATCH_SIZE,
     reevaluate_before: Any = None,
     skip_duplicate_check: bool = False,
 ) -> tuple[int, int, int, int]:

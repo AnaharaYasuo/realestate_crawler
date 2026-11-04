@@ -16,6 +16,7 @@ import realestateSettings
 
 realestateSettings.configure()
 
+from package.ml.constants import EVAL_DB_BATCH_SIZE
 from package.ml.investment_evaluator import evaluate_investment_property
 from package.ml.predict import bulk_predict_first_stage
 from package.models.evaluation import PropertyEvaluation
@@ -28,7 +29,7 @@ from scripts.ops.send_recommendations import (
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-BATCH_SIZE = 500
+BATCH_SIZE = EVAL_DB_BATCH_SIZE
 
 def find_all_anomalous_evaluation_records() -> list[tuple[Any, Any]]:
     """全社の PropertyEvaluation から売出価格と3倍超または0.33倍未満で乖離している異常レコードを走査"""
