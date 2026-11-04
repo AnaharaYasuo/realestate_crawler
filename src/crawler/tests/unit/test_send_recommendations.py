@@ -49,3 +49,46 @@ def test_normalize_asking_price_man():
     assert normalize_asking_price_man(None) == 0
     assert normalize_asking_price_man(-100) == 0
 
+
+def test_evaluate_candidate_requires_positive_predicted_price_and_discount():
+    """理論予測価格が未算出(0/None)または実売価格以下の物件が推奨されないことを検証 (Issue #1239)"""
+    from scripts.ops.send_recommendations import _evaluate_candidate
+    from unittest.mock import MagicMock
+
+    prop = MagicMock()
+    prop.price = 20000000  # 2000万円
+
+    eval_rec = MagicMock()
+    eval_rec.property_type = "investmentapartment"
+    eval_rec.total_investment_score = 95.0  # 高スコア
+
+    # 1. 理論価格が未算出(0)の場合: 高スコアでも絶対に推奨しない
+    eval_rec.first_stage_predicted_price = 0
+    eval_rec.second_stage_predicted_price = None
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+    assert prio == 0.0
+
+    # 2. 理論価格が実売価格以下(1800万円 <= 2000万円)の場合: 推奨しない
+    eval_rec.first_stage_predicted_price = 1800
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+
+    # 3. 割安率が基準未満(2100万円、5%割安)の場合: 推奨しない
+    eval_rec.first_stage_predicted_price = 2100
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+
+    # 4. 割安率が適正範囲(2600万円、23.1%割安)の場合: 割安理由で推奨
+    eval_rec.first_stage_predicted_price = 2600
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is True
+    assert "割安" in reason
+    assert prio > 70.0
+
+    # 5. 異常な乖離（3倍超: 8000万円対2000万円）の場合: 安全弁ガードで除外
+    eval_rec.first_stage_predicted_price = 8000
+    is_rec, reason, prio = _evaluate_candidate(eval_rec, prop)
+    assert is_rec is False
+
+

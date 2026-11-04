@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def detect_property_type(property_obj: Any) -> str:
-
-    """オブジェクトまたは辞書から物件種別を判定"""
-    return PropertyTypeDetector.detect_from_object(property_obj)
+    """オブジェクトまたは辞書から物件種別を判定（ML推論用に4基底モデルへマッピング）"""
+    detected = PropertyTypeDetector.detect_from_object(property_obj)
+    # ML推論モデルは mansion / kodate / apartment / tochi の4大基底
+    if detected == "invest_kodate":
+        return "kodate"
+    return detected
 
 
 def prepare_df_features(features_list: list[dict[str, Any]], feature_cols: list[str]) -> pd.DataFrame:
