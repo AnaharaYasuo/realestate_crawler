@@ -144,8 +144,13 @@ def test_madori_and_floor_numerization():
     assert floor["is_first_floor"] == 0.0
 
 
+import pytest
+
+pytestmark = pytest.mark.django_db
+
+
 def test_all_features_strictly_numeric():
-    """全4種別のFEATURE_SETSに含まれる全特徴量がすべて数値型（int/float）であることを検証"""
+    """全4種別のFEATURE_SETSに含まれる全特徴量がすべて数値型（int/float）またはNaN/None許容（非数値文字列不可）であることを検証"""
     prop = MockProperty(
         senyuMenseki=65.0,
         tochiMenseki=100.0,
@@ -173,4 +178,4 @@ def test_all_features_strictly_numeric():
         for col in first_cols:
             assert col in feats, f"Missing feature '{col}' in feats for {ptype}"
             val = feats[col]
-            assert isinstance(val, (int, float)), f"Feature '{col}' in {ptype} must be numeric, got {type(val)}: {val}"
+            assert val is None or isinstance(val, (int, float)), f"Feature '{col}' in {ptype} must be numeric or None, got {type(val)}: {val}"

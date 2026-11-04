@@ -125,6 +125,7 @@ def save_chunk(
     company: str,
     property_type: str,
     batch_size: int,
+    skip_duplicate_check: bool = False,
 ) -> tuple[int, int]:
     """チャンク内の物件を評価しDBに一括保存する（新規作成と更新を分離処理・重複候補一括プリフェッチ）"""
     records_to_create = []
@@ -132,13 +133,19 @@ def save_chunk(
     chunk_passed = 0
     chunk_duplicates = 0
 
-    candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type)
+    candidate_pool = _prefetch_candidate_pool(existing_eval_map, property_type) if not skip_duplicate_check else None
 
     for item, price_stage1 in zip(chunk, predicted_prices):
         page_url = getattr(item, "pageUrl", None) or getattr(item, "url", None)
         existing = existing_eval_map.get(page_url)
         rec, is_new = build_or_update_eval_record(
-            item, price_stage1, existing, company, property_type, candidate_pool=candidate_pool
+            item=item,
+            price_stage1=price_stage1,
+            existing=existing,
+            company=company,
+            property_type=property_type,
+            candidate_pool=candidate_pool,
+            skip_duplicate_check=skip_duplicate_check,
         )
         if rec.is_first_stage_passed:
             chunk_passed += 1

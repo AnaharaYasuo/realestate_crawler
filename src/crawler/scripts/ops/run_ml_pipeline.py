@@ -267,6 +267,7 @@ def main(argv=None):
     parser.add_argument("--force", action="store_true", help="Force ML execution even if barrier ratio is low")
     parser.add_argument("--skip-url-check", action="store_true", help="Skip HTTP URL active checks in validate_data.py")
     parser.add_argument("--skip-train", action="store_true", default=None, help="Skip ML model training (deprecated: skipped by default, Issue #809)")
+    parser.add_argument("--skip-potentials-sync", action="store_true", help="Skip nationwide potentials and statistics sync")
     parser.add_argument("--train", action="store_true", default=False, help="Explicitly enable ML model training (Issue #809)")
     args = parser.parse_args(argv)
 
@@ -328,6 +329,16 @@ def main(argv=None):
             sys.executable,
             os.path.join(debug_tools_dir, "auto_heal_parsers.py")
         ], "Step 1.5/5: Auto-Heal Instruction Generation for AI Agent")
+
+        # Step 2.5: 全統計データ・マスタの日次自動同期（全国自治体・駅・地価・ハザード・将来推計等）
+        if not args.skip_potentials_sync:
+            run_command([
+                sys.executable,
+                os.path.join(scripts_dir, "sync_all_potentials.py"),
+                "--workers", "2",
+            ], "Step 1.8/5: Nationwide Statistics & Potentials Daily Synchronization")
+        else:
+            logger.info("⏩ [SKIP] Step 1.8/5: Nationwide Potentials sync skipped (--skip-potentials-sync).")
 
         # Step 3: 最新データによるMLモデル再学習
         if not skip_train:
