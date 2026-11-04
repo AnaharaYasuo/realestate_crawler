@@ -128,8 +128,8 @@ def build_or_update_eval_record(
     if "investment" in property_type or "invest" in property_type:
         rec = evaluate_investment_property(item, rec)
 
-    # 全物件種別で積算価格を算出・補完（未設定または0の場合）
-    if not rec.estimated_sekisan_price or rec.estimated_sekisan_price <= 0:
+    # 一次合格（割安候補）物件のみ積算価格を算出・補完（全件処理による推論遅延を防止）
+    if is_passed and (not rec.estimated_sekisan_price or rec.estimated_sekisan_price <= 0):
         addr = getattr(item, "address", "") or ""
         p_pref, p_city = _extract_pref_and_city(addr)
         sekisan = calculate_sekisan_price(item, p_pref, p_city)
