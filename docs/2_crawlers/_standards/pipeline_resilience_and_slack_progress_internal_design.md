@@ -99,6 +99,8 @@
 ### 3.2 バルク価格推定 (`bulk_evaluation`) ＆ `validate_data.py` の DB 切断耐性・名寄せ高速化
 * **チャンクイテレーション時の DB 再接続 (`targets.py` / `validate_data.py`)**:
   - `_iter_target_items()` および `validate_data.py` のレコード走査を PK ベースチャンク（1,000件単位）で実行し、`OperationalError` (`2006`, `2013`, `9001`) 発生時は `close_old_connections()` 後に指数バックオフで最大3回リトライする。
+* **DB 一括書き込みバッチサイズの定数化 (Issue #1258)**:
+  - `PropertyEvaluation` 等の `bulk_create` / `bulk_update` およびバルク評価のチャンクサイズは、ProxySQL 経由の接続断 (`2013`) / 接続タイムアウト (`9001`) を避けるため原則 **100 件**とし、`package/ml/constants.py` の `EVAL_DB_BATCH_SIZE` を唯一の定義 (SSOT) とする。`persistence.py` / `runner.py` (`DEFAULT_BATCH_SIZE`) / `targets.py` / 評価系運用スクリプトは本定数を参照し、数値リテラルを直書きしない。`BULK_EVAL_BATCH_SIZE` 環境変数で上書き可能。
 * **名寄せ (`deduplication.py`) のバッチプリフェッチ＆スレッドセーフ化**:
   - `_REAL_PROPERTY_CACHE` を `threading.Lock` で保護し、候補レコードの実物件 (`_get_real_property`) をモデル別に `id__in` で一括プリフェッチすることで N+1 クエリと ProxySQL コネクション枯渇を防ぐ。
 
