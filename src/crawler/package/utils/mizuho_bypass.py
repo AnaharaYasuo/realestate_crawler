@@ -127,7 +127,10 @@ def _check_page_errors(title: str, status: int | None, current_url: str = "") ->
 async def _extract_links_from_page(page, response) -> list:
     title = await page.title()
     status = response.status if response else None
-    current_url = getattr(page, "url", "")
+    raw_url = getattr(page, "url", "")
+    current_url = raw_url if isinstance(raw_url, str) else str(raw_url)
+    if not isinstance(raw_url, str):
+        current_url = ""
     logger.info(
         "MizuhoBypass: Page loaded. URL: %s, Title: %s, Status: %s",
         current_url,
