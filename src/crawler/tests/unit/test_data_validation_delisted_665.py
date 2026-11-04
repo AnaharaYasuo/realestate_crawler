@@ -187,7 +187,7 @@ async def test_delisted_property_handling():
 
 @pytest.mark.asyncio
 async def test_invalid_property_sets_recrawl_flag():
-    """データ不正物件が検知された場合、needs_parser_fix=True, needs_recrawl=False, data_quality_issue が記録されること"""
+    """データ不正物件が検知された場合、needs_parser_fix=True, needs_recrawl=True, data_quality_issue が記録されること"""
     from scripts.maintenance.validate_data import process_property_validation
 
     mock_item = DummyMansion(price=0, pageUrl="https://example.com/invalid/1")
@@ -204,6 +204,6 @@ async def test_invalid_property_sets_recrawl_flag():
         res = await process_property_validation(mock_item, "mansion", "mitsui", eval_rec)
         assert res["status"] == "invalid"
         assert eval_rec.needs_parser_fix is True
-        assert eval_rec.needs_recrawl is False
+        assert eval_rec.needs_recrawl is True
         assert "価格異常" in eval_rec.data_quality_issue
         assert eval_rec.first_stage_predicted_price == 0
