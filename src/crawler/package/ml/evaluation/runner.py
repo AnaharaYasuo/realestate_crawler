@@ -24,7 +24,7 @@ from package.utils.deduplication import clear_real_property_cache
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONCURRENCY = 8
-DEFAULT_BATCH_SIZE = 1000
+DEFAULT_BATCH_SIZE = 100
 
 
 def _save_chunk_with_retry(
