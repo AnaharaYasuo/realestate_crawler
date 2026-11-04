@@ -13,7 +13,10 @@ import os
 import sys
 from decimal import Decimal
 import requests
-import openpyxl
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 _crawler_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _crawler_root not in sys.path:
