@@ -400,6 +400,22 @@ class MitsuiParser(ParserBase):
                 return parts
         return [line]
 
+    def _extract_traffic_from_property_detail_infos(self, response) -> list[str]:
+        if not response:
+            return []
+        for el in response.select(".property-detail-infos"):
+            txt = el.get_text(" ", strip=True)
+            if "交通" in txt:
+                # 交通から所在地、価格、専有面積、土地面積等の後続項目の手前までを抽出
+                m = re.search(r"交通\s+([^　\n\r]+?)(?=\s+(?:所在地|価格|専有面積|土地面積|建物面積|間取り|GoogleMaps)|$)", txt)
+                if not m:
+                    m = re.search(r"交通\s+(.+?)(?=\s+(?:所在地|価格|専有面積|土地面積|建物面積|間取り|GoogleMaps)|$)", txt)
+                if m:
+                    t_part = m.group(1).strip()
+                    if t_part:
+                        return self._split_single_transit_line(t_part)
+        return []
+
     def _parseTrafficLines(self, response, _specs=None):
         for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
             res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
@@ -422,18 +438,8 @@ class MitsuiParser(ParserBase):
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
 
-        if not lines and response:
-            # .property-detail-infos 内の交通テキストをフォールバック抽出
-            for el in response.select(".property-detail-infos"):
-                txt = el.get_text(" ", strip=True)
-                if "交通" in txt:
-                    # 交通から所在地、価格、専有面積、土地面積等の後続項目の手前までを抽出
-                    m = re.search(r"交通\s+(.*?)(?=\s+(?:所在地|価格|専有面積|土地面積|建物面積|間取り|GoogleMaps)|$)", txt)
-                    if m:
-                        t_part = m.group(1).strip()
-                        if t_part:
-                            lines = self._split_single_transit_line(t_part)
-                            break
+        if not lines:
+            lines = self._extract_traffic_from_property_detail_infos(response)
 
         return [
             line for line in lines

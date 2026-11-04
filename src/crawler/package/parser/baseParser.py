@@ -1393,15 +1393,15 @@ class ParserBase(metaclass=ABCMeta):
                     return True
         return False
 
-    @staticmethod
-    def _find_station_candidate(traffic_text: str) -> str | None:
+    @classmethod
+    def _find_station_candidate(cls, traffic_text: str) -> str | None:
         """Find station/stop name candidate from traffic text."""
         if not traffic_text:
             return None
-        cand = BaseParser._candidate_from_brackets(traffic_text)
+        cand = cls._candidate_from_brackets(traffic_text)
         if cand:
             return cand
-        return BaseParser._candidate_from_suffixes(traffic_text)
+        return cls._candidate_from_suffixes(traffic_text)
 
     @staticmethod
     def _candidate_from_brackets(traffic_text: str) -> str | None:
