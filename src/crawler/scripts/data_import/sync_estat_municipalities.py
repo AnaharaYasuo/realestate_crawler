@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 from decimal import Decimal
+from typing import Any
 import requests
 try:
     import openpyxl
