@@ -50,9 +50,23 @@ def import_hazard_map(csv_path: str = None) -> int:
     munis = list(MunicipalPotential.objects.values("prefecture", "city"))
     if not munis:
         logger.warning("MunicipalPotential is empty. Using default sample hazard list.")
-        from scripts.data_import.sync_estat_municipalities import sync_municipalities
-        sync_municipalities()
-        munis = list(MunicipalPotential.objects.values("prefecture", "city"))
+        try:
+            from scripts.data_import.sync_estat_municipalities import sync_municipalities
+            sync_municipalities()
+            munis = list(MunicipalPotential.objects.values("prefecture", "city"))
+        except Exception as e:
+            logger.warning("Could not sync municipalities for hazard map: %s. Using default key list.", e)
+        if not munis:
+            munis = [
+                {"prefecture": "東京都", "city": "港区"},
+                {"prefecture": "東京都", "city": "千代田区"},
+                {"prefecture": "東京都", "city": "中央区"},
+                {"prefecture": "東京都", "city": "新宿区"},
+                {"prefecture": "東京都", "city": "渋谷区"},
+                {"prefecture": "東京都", "city": "江東区"},
+                {"prefecture": "神奈川県", "city": "横浜市中区"},
+                {"prefecture": "大阪府", "city": "大阪市北区"},
+            ]
 
     coastal_keywords = ["江東", "墨田", "江戸川", "葛飾", "足立", "大田", "荒川", "川崎", "鶴見", "港北", "中原", "幸", "浦安", "市川", "船橋", "大阪市此花", "大阪市港", "大阪市大正", "大阪市西淀川", "名古屋市港", "名古屋市南", "名古屋市中川"]
     mountain_keywords = ["鎌倉", "逗子", "葉山", "横須賀", "青梅", "八王子", "奥多摩", "箱根", "小田原", "神戸市灘", "神戸市東灘", "神戸市北", "京都市左京", "京都市北", "広島市安佐南", "長崎"]
