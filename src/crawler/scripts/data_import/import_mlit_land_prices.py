@@ -159,12 +159,38 @@ def import_land_prices(csv_path: str = None) -> int:
         for r in records
     ]
 
-    logger.info("Executing bulk insert with ON DUPLICATE KEY UPDATE (%d rows)...", len(params))
-    chunk_size = 2000
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), chunk_size):
-            chunk = params[i:i + chunk_size]
-            cursor.executemany(sql, chunk)
+    if connection.vendor == "sqlite":
+        objs = [
+            LandPricePotential(
+                prefecture=p[0],
+                city=p[1],
+                land_use=p[2],
+                average_land_price=p[3],
+                estimated_rosenka_price=p[4],
+                estimated_fixed_asset_price=p[5],
+                land_price_growth_rate=p[6],
+            )
+            for p in params
+        ]
+        LandPricePotential.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            update_fields=[
+                "average_land_price",
+                "estimated_rosenka_price",
+                "estimated_fixed_asset_price",
+                "land_price_growth_rate",
+            ],
+            unique_fields=["prefecture", "city", "land_use"],
+            batch_size=2000,
+        )
+    else:
+        logger.info("Executing bulk insert with ON DUPLICATE KEY UPDATE (%d rows)...", len(params))
+        chunk_size = 2000
+        with connection.cursor() as cursor:
+            for i in range(0, len(params), chunk_size):
+                chunk = params[i:i + chunk_size]
+                cursor.executemany(sql, chunk)
 
     total = LandPricePotential.objects.count()
     logger.info("✅ MLIT Land prices bulk sync complete: Total in DB = %d", total)

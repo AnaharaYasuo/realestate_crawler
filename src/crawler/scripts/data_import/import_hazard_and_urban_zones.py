@@ -84,18 +84,37 @@ def import_hazard_map(csv_path: str = None) -> int:
 
         params.append((pref, city, flood, landslide))
 
-    sql = """
-    INSERT INTO hazard_map_potential (prefecture, city, flood_risk_level, landslide_risk_level)
-    VALUES (%s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-        flood_risk_level = VALUES(flood_risk_level),
-        landslide_risk_level = VALUES(landslide_risk_level)
-    """
+    if connection.vendor == "sqlite":
+        from package.models.evaluation import HazardMapPotential
+        objs = [
+            HazardMapPotential(
+                prefecture=p[0],
+                city=p[1],
+                flood_risk_level=p[2],
+                landslide_risk_level=p[3],
+            )
+            for p in params
+        ]
+        HazardMapPotential.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            update_fields=["flood_risk_level", "landslide_risk_level"],
+            unique_fields=["prefecture", "city"],
+            batch_size=2000,
+        )
+    else:
+        sql = """
+        INSERT INTO hazard_map_potential (prefecture, city, flood_risk_level, landslide_risk_level)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            flood_risk_level = VALUES(flood_risk_level),
+            landslide_risk_level = VALUES(landslide_risk_level)
+        """
 
-    logger.info("Executing bulk insert with ON DUPLICATE KEY UPDATE (%d rows)...", len(params))
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), 2000):
-            cursor.executemany(sql, params[i:i + 2000])
+        logger.info("Executing bulk insert with ON DUPLICATE KEY UPDATE (%d rows)...", len(params))
+        with connection.cursor() as cursor:
+            for i in range(0, len(params), 2000):
+                cursor.executemany(sql, params[i:i + 2000])
 
     total = HazardMapPotential.objects.count()
     logger.info("✅ Hazard Map Bulk Sync Complete: Total in DB = %d", total)

@@ -60,14 +60,16 @@ def evaluate_single_model(
                 continue
 
             predicted_prices = bulk_predict_first_stage(chunk)
+            save_kwargs = {"batch_size": batch_size}
+            if skip_duplicate_check:
+                save_kwargs["skip_duplicate_check"] = skip_duplicate_check
             p_cnt, d_cnt = save_chunk(
-                chunk=chunk,
-                predicted_prices=predicted_prices,
-                existing_eval_map=existing_eval_map,
-                company=company,
-                property_type=property_type,
-                batch_size=batch_size,
-                skip_duplicate_check=skip_duplicate_check,
+                chunk,
+                predicted_prices,
+                existing_eval_map,
+                company,
+                property_type,
+                **save_kwargs,
             )
             evaluated_count += len(chunk)
             passed_count += p_cnt

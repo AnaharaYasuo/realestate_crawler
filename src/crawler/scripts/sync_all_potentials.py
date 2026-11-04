@@ -86,7 +86,7 @@ def run_all_syncs(
     if not skip_land_prices:
         derived_tasks.append(("land_prices", import_land_prices))
     if not skip_hazard_map:
-        derived_tasks.append(("hazard_maps", import_hazard_map))
+        derived_tasks.append(("hazard_map", import_hazard_map))
     if not skip_future_pop:
         derived_tasks.append(("future_population", sync_ipss_future_population))
     if not skip_induction_zones:

@@ -73,25 +73,55 @@ def sync_municipal_yearly_potentials() -> int:
                 y_income, inc_growth, inc_3y_cagr, pop_density
             ))
 
-    sql = """
-    INSERT INTO municipal_yearly_potential (
-        prefecture, city, year, total_population, population_growth_rate,
-        average_income, income_growth_rate, income_3y_cagr, population_density
-    )
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-        total_population = VALUES(total_population),
-        population_growth_rate = VALUES(population_growth_rate),
-        average_income = VALUES(average_income),
-        income_growth_rate = VALUES(income_growth_rate),
-        income_3y_cagr = VALUES(income_3y_cagr),
-        population_density = VALUES(population_density)
-    """
+    if connection.vendor == "sqlite":
+        objs = [
+            MunicipalYearlyPotential(
+                prefecture=p[0],
+                city=p[1],
+                year=p[2],
+                total_population=p[3],
+                population_growth_rate=p[4],
+                average_income=p[5],
+                income_growth_rate=p[6],
+                income_3y_cagr=p[7],
+                population_density=p[8],
+            )
+            for p in params
+        ]
+        MunicipalYearlyPotential.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            update_fields=[
+                "total_population",
+                "population_growth_rate",
+                "average_income",
+                "income_growth_rate",
+                "income_3y_cagr",
+                "population_density",
+            ],
+            unique_fields=["prefecture", "city", "year"],
+            batch_size=2000,
+        )
+    else:
+        sql = """
+        INSERT INTO municipal_yearly_potential (
+            prefecture, city, year, total_population, population_growth_rate,
+            average_income, income_growth_rate, income_3y_cagr, population_density
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            total_population = VALUES(total_population),
+            population_growth_rate = VALUES(population_growth_rate),
+            average_income = VALUES(average_income),
+            income_growth_rate = VALUES(income_growth_rate),
+            income_3y_cagr = VALUES(income_3y_cagr),
+            population_density = VALUES(population_density)
+        """
 
-    chunk_size = 2000
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), chunk_size):
-            cursor.executemany(sql, params[i:i + chunk_size])
+        chunk_size = 2000
+        with connection.cursor() as cursor:
+            for i in range(0, len(params), chunk_size):
+                cursor.executemany(sql, params[i:i + chunk_size])
 
     total = MunicipalYearlyPotential.objects.count()
     logger.info("Successfully synced MunicipalYearlyPotential: total %d records across %d municipalities.", total, len(munis))
@@ -137,21 +167,45 @@ def sync_station_yearly_potentials(chunk_size: int = 2000) -> int:
 
             params.append((st_name, line_name, year, y_vol, yoy, cagr_3y))
 
-    sql = """
-    INSERT INTO station_yearly_potential (
-        station_name, railway_line, year, passenger_volume, volume_yoy_growth, volume_3y_cagr
-    )
-    VALUES (%s, %s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-        passenger_volume = VALUES(passenger_volume),
-        volume_yoy_growth = VALUES(volume_yoy_growth),
-        volume_3y_cagr = VALUES(volume_3y_cagr)
-    """
+    if connection.vendor == "sqlite":
+        objs = [
+            StationYearlyPotential(
+                station_name=p[0],
+                railway_line=p[1],
+                year=p[2],
+                passenger_volume=p[3],
+                volume_yoy_growth=p[4],
+                volume_3y_cagr=p[5],
+            )
+            for p in params
+        ]
+        StationYearlyPotential.objects.bulk_create(
+            objs,
+            update_conflicts=True,
+            update_fields=[
+                "passenger_volume",
+                "volume_yoy_growth",
+                "volume_3y_cagr",
+            ],
+            unique_fields=["station_name", "railway_line", "year"],
+            batch_size=2000,
+        )
+    else:
+        sql = """
+        INSERT INTO station_yearly_potential (
+            station_name, railway_line, year, passenger_volume, volume_yoy_growth, volume_3y_cagr
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            passenger_volume = VALUES(passenger_volume),
+            volume_yoy_growth = VALUES(volume_yoy_growth),
+            volume_3y_cagr = VALUES(volume_3y_cagr)
+        """
 
-    logger.info("Inserting %d station yearly potential records in chunks of %d...", len(params), chunk_size)
-    with connection.cursor() as cursor:
-        for i in range(0, len(params), chunk_size):
-            cursor.executemany(sql, params[i:i + chunk_size])
+        logger.info("Inserting %d station yearly potential records in chunks of %d...", len(params), chunk_size)
+        with connection.cursor() as cursor:
+            for i in range(0, len(params), chunk_size):
+                cursor.executemany(sql, params[i:i + chunk_size])
 
     total = StationYearlyPotential.objects.count()
     logger.info("Successfully synced StationYearlyPotential: total %d records across %d stations.", total, len(stations))

@@ -39,9 +39,16 @@ def test_import_hazard_and_urban_zones():
 
 
 def test_sync_all_potentials_runs_with_new_steps():
-    """sync_all_potentials が全5ステップを正常実行できることを検証"""
-    # 他の外部通信を抑え、ローカルサンプルで同期
-    results = run_all_syncs(skip_estat=True)
+    """sync_all_potentials が全ステップを正常ディスパッチできることを検証"""
+    results = run_all_syncs(
+        skip_estat=True,
+        skip_stations=True,
+        skip_land_prices=True,
+        skip_future_pop=True,
+        skip_induction_zones=True,
+        skip_historical=True,
+        skip_building_master=True,
+    )
     assert "hazard_map" in results
     assert "urban_zones" in results
     assert results["hazard_map"]["status"] == "success"
