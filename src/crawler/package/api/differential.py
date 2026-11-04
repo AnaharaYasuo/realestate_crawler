@@ -241,6 +241,21 @@ async def _process_differential_chunk(
             model_class, lookup_urls
         )
     except Exception as e:
+        # 原則1.1: DB未接続・エラー放置の絶対厳禁。接続障害・過負荷時はサイレントに全件フルクロールへ落とさず例外を再送出する
+        from django.db import OperationalError, DatabaseError
+        from package.api.adaptive_concurrency import AdaptiveConcurrencyController
+
+        err_str = str(e).lower()
+        is_conn_error = (
+            isinstance(e, (OperationalError, DatabaseError))
+            or AdaptiveConcurrencyController.is_db_overload_error(e)
+            or any(k in err_str for k in ("can't connect", "connection refused", "10061", "2002", "2006", "2013"))
+        )
+        if is_conn_error:
+            logger.exception(
+                f"[Differential Crawl] Critical DB connection error for {model_class}: {e}. Aborting to prevent full-crawl runaway."
+            )
+            raise
         logging.warning(
             f"[Differential Crawl] Failed to query DB for {model_class}: {e}. Falling back to full crawl for chunk."
         )

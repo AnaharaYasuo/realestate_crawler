@@ -224,6 +224,10 @@ class MitsuiParser(ParserBase):
             )
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 掲載終了・成約済物件の早期検出 (Issue #1255)
+        page_url = getattr(item, "pageUrl", "")
+        self._raise_if_listing_ended(response, page_url)
+
         item = super()._parsePropertyDetailPage(item, response)
 
         item.propertyName = self.get_property_name(response)
@@ -396,14 +400,30 @@ class MitsuiParser(ParserBase):
                 return parts
         return [line]
 
-    def _parseTrafficLines(self, response, _specs=None):
+    def _extract_traffic_from_property_detail_infos(self, response) -> list[str]:
+        if not response:
+            return []
+        for el in response.select(".property-detail-infos"):
+            txt = el.get_text(" ", strip=True)
+            if "交通" in txt:
+                # 交通から所在地、価格、専有面積、土地面積等の後続項目の手前までを抽出
+                after_traffic = txt.split("交通", 1)[1].strip()
+                # 終端マーカーで分割
+                delimiters = ["所在地", "価格", "専有面積", "土地面積", "建物面積", "間取り", "GoogleMaps"]
+                for delim in delimiters:
+                    if f" {delim}" in after_traffic:
+                        after_traffic = after_traffic.split(f" {delim}", 1)[0].strip()
+                if after_traffic:
+                    return self._split_single_transit_line(after_traffic)
+        return []
+
+    def _extract_traffic_from_label_or_specs(self, response, _specs) -> list[str]:
         for label in ["最寄り駅", "交通", "沿線・駅", "アクセス"]:
             res = self._getValueByLabel(response, label) if hasattr(self, "_getValueByLabel") else None
             if res:
                 extracted = self._extract_traffic_from_soup(res)
                 if extracted:
                     return extracted
-
         specs = _specs if _specs is not None else self._get_specs(response)
         traffic_val = (
             specs.get("交通", "")
@@ -413,10 +433,15 @@ class MitsuiParser(ParserBase):
         )
         lines = [t.strip() for t in traffic_val.split("\n") if t.strip()]
         if len(lines) == 1:
-            lines = self._split_single_transit_line(lines[0])
+            return self._split_single_transit_line(lines[0])
+        return lines
 
+    def _parseTrafficLines(self, response, _specs=None):
+        lines = self._extract_traffic_from_label_or_specs(response, _specs)
         if not lines:
             lines = self._extract_traffic_from_selectors(response) or self._extract_traffic_from_th_dt(response)
+        if not lines:
+            lines = self._extract_traffic_from_property_detail_infos(response)
 
         return [
             line for line in lines
@@ -1757,6 +1782,10 @@ class MitsuiInvestmentApartmentParser(MitsuiInvestmentParser, InvestmentParserBa
             yield item
 
     def _parsePropertyDetailPage(self, item, response: BeautifulSoup):
+        # 掲載終了・成約済物件の早期検出 (Issue #1255)
+        page_url = getattr(item, "pageUrl", "")
+        self._raise_if_listing_ended(response, page_url)
+
         item = super()._parsePropertyDetailPage(item, response)
         if item.__class__ != self.createEntity().__class__:
             return item

@@ -1393,16 +1393,36 @@ class ParserBase(metaclass=ABCMeta):
                     return True
         return False
 
-    @staticmethod
-    def _find_station_candidate(traffic_text: str) -> str | None:
+    @classmethod
+    def _find_station_candidate(cls, traffic_text: str) -> str | None:
         """Find station/stop name candidate from traffic text."""
+        if not traffic_text:
+            return None
+        cand = cls._candidate_from_brackets(traffic_text)
+        if cand:
+            return cand
+        return cls._candidate_from_suffixes(traffic_text)
+
+    @staticmethod
+    def _candidate_from_brackets(traffic_text: str) -> str | None:
+        if "「" in traffic_text and "」" in traffic_text:
+            left = traffic_text.find("「")
+            right = traffic_text.find("」", left)
+            if right > left:
+                cand = traffic_text[left + 1 : right].strip()
+                if cand:
+                    return cand
+        return None
+
+    @staticmethod
+    def _candidate_from_suffixes(traffic_text: str) -> str | None:
         station_suffixes = ("駅", "停留所", "バス停", "停")
         for t in traffic_text.replace("　", " ").split():
             for sfx in station_suffixes:
                 if sfx in t:
                     idx = t.find(sfx) + len(sfx)
                     candidate = t[:idx].lstrip("「（(").rstrip("」）)")
-                    if candidate and candidate not in ("駅", "停", "バス停", "停留所"):
+                    if candidate and candidate not in station_suffixes:
                         return candidate
         return None
 

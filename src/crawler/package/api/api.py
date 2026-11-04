@@ -1231,11 +1231,18 @@ class ApiAsyncProcBase(metaclass=ABCMeta):
         fire_and_forget = os.getenv("CRAWLER_FIRE_AND_FORGET", "true").lower() in ("true", "1")
 
         if fire_and_forget:
-            executor = _get_local_worker_executor()
-            fut = executor.submit(run_in_new_loop)
-            _track_fire_and_forget_future(fut)
-            logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
-            return detail_url, 202, "FireAndForgetLocal"
+            if os.path.exists(STOP_FLAG_FILE):
+                logger.info("Stop flag active; skipping dispatch for %s -> %s", path, detail_url)
+                return detail_url, 499, "Stopped"
+            try:
+                executor = _get_local_worker_executor()
+                fut = executor.submit(run_in_new_loop)
+                _track_fire_and_forget_future(fut)
+                logger.info("Fire and forget (local dispatch accepted via worker pool): %s -> %s", path, detail_url)
+                return detail_url, 202, "FireAndForgetLocal"
+            except RuntimeError as re_err:
+                logger.warning("Worker executor unavailable (%s); skipping fire-and-forget dispatch for %s", re_err, detail_url)
+                return detail_url, 503, "ExecutorShutdown"
 
         t = threading.Thread(target=run_in_new_loop, daemon=True)
         _track_fire_and_forget_thread(t)
