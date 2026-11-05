@@ -100,7 +100,10 @@
 * **チャンクイテレーション時の DB 再接続 (`targets.py` / `validate_data.py`)**:
   - `_iter_target_items()` および `validate_data.py` のレコード走査を PK ベースチャンク（1,000件単位）で実行し、`OperationalError` (`2006`, `2013`, `9001`) 発生時は `close_old_connections()` 後に指数バックオフで最大3回リトライする。
 * **DB 一括書き込みバッチサイズの定数化 (Issue #1258)**:
-  - `PropertyEvaluation` 等の `bulk_create` / `bulk_update` およびバルク評価のチャンクサイズは、ProxySQL 経由の接続断 (`2013`) / 接続タイムアウト (`9001`) を避けるため原則 **100 件**とし、`package/ml/constants.py` の `EVAL_DB_BATCH_SIZE` を唯一の定義 (SSOT) とする。`persistence.py` / `runner.py` (`DEFAULT_BATCH_SIZE`) / `targets.py` / 評価系運用スクリプトは本定数を参照し、数値リテラルを直書きしない。`BULK_EVAL_BATCH_SIZE` 環境変数で上書き可能。
+  - **書き込み**と**読み込み**のバッチサイズは別の定数として分離し、いずれも `package/ml/constants.py` を唯一の定義 (SSOT) とする（Issue #1261。#1258 の統一定数 `EVAL_DB_BATCH_SIZE` を分割）。数値リテラルの直書きは禁止。
+    - **書き込み: `EVAL_DB_WRITE_BATCH_SIZE = 100`** — `PropertyEvaluation` 等の `bulk_create` / `bulk_update` の `batch_size`。ProxySQL 経由の接続断 (`2013`) / 接続タイムアウト (`9001`) を避けるため原則 100 件。`persistence.py` と評価系運用スクリプト (`fast_reevaluate_evaluations.py` / `repair_anomalous_predictions.py` / `resolve_duplicate_evaluations.py`) が参照する。環境変数 `BULK_EVAL_BATCH_SIZE` で上書き可能。
+    - **読み込み: `EVAL_DB_READ_CHUNK_SIZE = 1000`** — 評価対象物件を DB から PK ベースで走査・取得し、1 チャンクとして ML 推論に渡す単位。`targets.py` の `iter_unprocessed_chunks(chunk_size)` と `runner.py` が参照する。環境変数 `BULK_EVAL_CHUNK_SIZE` で上書き可能。
+    - 1 チャンク（読み込み 1000 件）の保存は、書き込み側が 100 件ずつの `bulk_update` / `bulk_create` に分割して実行する。
 * **名寄せ (`deduplication.py`) のバッチプリフェッチ＆スレッドセーフ化**:
   - `_REAL_PROPERTY_CACHE` を `threading.Lock` で保護し、候補レコードの実物件 (`_get_real_property`) をモデル別に `id__in` で一括プリフェッチすることで N+1 クエリと ProxySQL コネクション枯渇を防ぐ。
 

@@ -11,7 +11,7 @@ from typing import Any
 from django.apps import apps
 from django.db import OperationalError, close_old_connections
 from django.utils import timezone
-from package.ml.constants import COMPANIES, EVAL_DB_BATCH_SIZE
+from package.ml.constants import COMPANIES, EVAL_DB_READ_CHUNK_SIZE
 from package.utils.crawl_jobs import PORTAL_COMPANIES, UNCRAWLED_COMPANIES
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,7 @@ def iter_unprocessed_chunks(
     existing_eval_map: dict[str, Any],
     force: bool = False,
     limit: int | None = None,
-    chunk_size: int = EVAL_DB_BATCH_SIZE,
+    chunk_size: int = EVAL_DB_READ_CHUNK_SIZE,
     reevaluate_before: Any = None,
 ) -> Iterator[tuple[list[Any], int]]:
     """未処理物件を走査し、chunk_size 単位でストリーミング yield する。
