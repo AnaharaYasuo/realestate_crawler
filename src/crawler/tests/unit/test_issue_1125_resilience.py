@@ -1,5 +1,5 @@
 import pytest
-from package.parser.baseParser import ParserBase, ListingEndedException, RateLimitedException, ServerBusyException, LoadPropertyPageException
+from package.parser.baseParser import ParserBase, ListingEndedException, RateLimitedException, ServerBusyException, LoadPropertyPageException, AccessBlockedException
 
 def test_validate_http_status_allows_200_and_202():
     # Should not raise for 200 or 202
@@ -13,7 +13,7 @@ def test_validate_http_status_raises_for_errors():
         ParserBase._validate_http_status(410, "https://example.com/item")
     with pytest.raises(RateLimitedException):
         ParserBase._validate_http_status(429, "https://example.com/item")
-    with pytest.raises(LoadPropertyPageException):
+    with pytest.raises((AccessBlockedException, LoadPropertyPageException)):
         ParserBase._validate_http_status(403, "https://example.com/item")
     with pytest.raises(ServerBusyException):
         ParserBase._validate_http_status(503, "https://example.com/item")
