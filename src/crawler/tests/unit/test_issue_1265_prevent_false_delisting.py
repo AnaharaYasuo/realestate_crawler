@@ -97,3 +97,24 @@ async def test_parser_failure_sets_needs_parser_fix_and_preserves_published():
         assert mock_eval.needs_recrawl is True
         assert mock_eval.is_published is True
         mock_eval.save.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_parser_failure_preserves_delisted_status():
+    """既に掲載終了(is_published=False)のレコードでパース失敗が発生した場合、誤ってis_published=Trueに復活しないこと"""
+    proc = ConcreteTestProc()
+    proc.url = "https://example.com/item/3"
+    proc.parser = proc._generateParser()
+
+    mock_eval = MagicMock()
+    mock_eval.is_published = False
+
+    with patch.object(proc, "_fetch_detail_item", return_value=(None, False, ParserFailureException("selector missing"))), \
+         patch.object(proc, "_find_existing_evaluation", return_value=mock_eval), \
+         patch.object(proc, "_sync_persist_delisted") as mock_delist:
+        await proc._treatPage(None)
+        mock_delist.assert_not_called()
+        assert mock_eval.needs_parser_fix is True
+        assert mock_eval.needs_recrawl is True
+        assert mock_eval.is_published is False
+        mock_eval.save.assert_called_once()
