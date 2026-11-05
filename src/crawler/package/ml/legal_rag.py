@@ -130,6 +130,30 @@ def _get_item_group(source_id: str) -> str:
     return "national_law"
 
 
+def _try_add_item(
+    item: dict[str, Any],
+    selected: list[dict[str, Any]],
+    source_counts: dict[str, int],
+    group_counts: dict[str, int] | None,
+    enforce_group: bool,
+    top_k: int
+) -> bool:
+    if item in selected:
+        return False
+    sid = item.get("source_id", "")
+    if source_counts.get(sid, 0) >= 2:
+        return False
+    if enforce_group and group_counts is not None:
+        group = _get_item_group(sid)
+        if group_counts.get(group, 0) >= 2:
+            return False
+        group_counts[group] = group_counts.get(group, 0) + 1
+
+    selected.append(item)
+    source_counts[sid] = source_counts.get(sid, 0) + 1
+    return len(selected) >= top_k
+
+
 def _diversify_scored_items(scored: list[tuple[int, dict[str, Any]]], top_k: int) -> list[dict[str, Any]]:
     if top_k <= 0:
         return []
@@ -137,29 +161,14 @@ def _diversify_scored_items(scored: list[tuple[int, dict[str, Any]]], top_k: int
     source_counts: dict[str, int] = {}
     group_counts: dict[str, int] = {}
 
-    # Phase 1: 各グループ（条例, 国土・建築法, 税法, 鑑定評価）から均等に選出
     for _, item in scored:
-        sid = item.get("source_id", "")
-        group = _get_item_group(sid)
-        if group_counts.get(group, 0) < 2 and source_counts.get(sid, 0) < 2:
-            selected.append(item)
-            source_counts[sid] = source_counts.get(sid, 0) + 1
-            group_counts[group] = group_counts.get(group, 0) + 1
-            if len(selected) >= top_k:
-                return selected
+        if _try_add_item(item, selected, source_counts, group_counts, enforce_group=True, top_k=top_k):
+            return selected
 
-    # Phase 2: 残り枠をsource_id上限2件でスコア順に埋める
     for _, item in scored:
-        if item in selected:
-            continue
-        sid = item.get("source_id", "")
-        if source_counts.get(sid, 0) < 2:
-            selected.append(item)
-            source_counts[sid] = source_counts.get(sid, 0) + 1
-            if len(selected) >= top_k:
-                return selected
+        if _try_add_item(item, selected, source_counts, None, enforce_group=False, top_k=top_k):
+            return selected
 
-    # Phase 3: それでも枠が余る場合は残り全候補からスコア順に追加
     for _, item in scored:
         if item not in selected:
             selected.append(item)
